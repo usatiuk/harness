@@ -1,0 +1,19 @@
+{
+  "name": "@harness/auth-openai",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "^1.3.0"
+  },
+  "files": ["dist", "src"]
+}
