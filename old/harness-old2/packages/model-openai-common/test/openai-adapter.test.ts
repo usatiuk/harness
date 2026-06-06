@@ -6,7 +6,7 @@ import {
   collectOpenAIResponsesObject,
   collectOpenAIResponsesStream
 } from "@harness/model-openai-common";
-import type { ModelStepInput } from "@harness/protocol";
+import type { JsonValue, ModelStepInput } from "@harness/protocol";
 
 describe("OpenAI message-only adapter", () => {
   test("maps selected model messages into Responses input items", () => {
@@ -62,6 +62,39 @@ describe("OpenAI message-only adapter", () => {
     expect(result.content).toEqual([{ type: "text", text: "done" }]);
     expect(result.providerState?.referencedItemSequences).toEqual([1]);
   }, 5000);
+
+  test("replays matching assistant provider state output items", () => {
+    const input = {
+      ...modelInput([
+        { role: "user", text: "hello" },
+        { role: "assistant", text: "hi" }
+      ]),
+      providerState: {
+        id: "pstate_1",
+        conversationId: "conv_test",
+        provider: "openai",
+        adapter: "responses",
+        modelId: "gpt-test",
+        payloadVersion: 1,
+        payload: {
+          include: ["reasoning.encrypted_content"],
+          segments: [{
+            responseId: "resp_prev",
+            outputItems: [jsonValue(messageOutput("hi"))],
+            signature: { text: "hi" }
+          }]
+        },
+        producedThroughItemSequence: 2,
+        referencedItemSequences: [1, 2],
+        createdAt: "2026-01-01T00:00:00.000Z"
+      }
+    } satisfies ModelStepInput;
+
+    expect(buildOpenAIResponseInput(input)).toEqual([
+      { type: "message", role: "user", content: "hello" },
+      messageOutput("hi")
+    ]);
+  }, 5000);
 });
 
 function modelInput(messages: Array<{ role: "system" | "user" | "assistant"; text: string }>): ModelStepInput {
@@ -100,4 +133,8 @@ async function* asyncEvents(events: unknown[]): AsyncIterable<ResponseStreamEven
   for (const event of events) {
     yield event as ResponseStreamEvent;
   }
+}
+
+function jsonValue(value: unknown): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue;
 }

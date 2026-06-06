@@ -7,13 +7,19 @@ import { HarnessService } from "@harness/service";
 import { openSqliteHarnessStore } from "@harness/store-sqlite";
 import { RecordingModelAdapter } from "@harness/testkit";
 import type { ProfileConfig } from "@harness/protocol";
+import { runHarnessStoreContract } from "../../testkit/test/store-contract.ts";
 
 const recordingProfile: ProfileConfig = {
   model: { provider: "fake", adapter: "recording", modelId: "recording" },
   promptFragments: []
 };
 
-describe("SQLite conversation store", () => {
+runHarnessStoreContract("SqliteHarnessStore", async () => {
+  const store = openSqliteHarnessStore({ path: await tempDbPath() });
+  return { store, close: () => store.close() };
+});
+
+describe("SQLite conversation store persistence", () => {
   test("persists conversation items, runs, context builds, and provider state across reopen", async () => {
     const dbPath = await tempDbPath();
     const model = new RecordingModelAdapter();
@@ -46,25 +52,6 @@ describe("SQLite conversation store", () => {
       });
     } finally {
       reopened.close();
-    }
-  }, 5000);
-
-  test("enforces a single active model run per conversation", async () => {
-    const store = openSqliteHarnessStore({ path: await tempDbPath() });
-    try {
-      const conversation = await store.createConversation({ config: recordingProfile });
-      await store.createAgentRun({
-        conversationId: conversation.id,
-        startedThroughItemSequence: 0,
-        modelConfig: recordingProfile.model
-      });
-      await expect(store.createAgentRun({
-        conversationId: conversation.id,
-        startedThroughItemSequence: 0,
-        modelConfig: recordingProfile.model
-      })).rejects.toThrow();
-    } finally {
-      store.close();
     }
   }, 5000);
 

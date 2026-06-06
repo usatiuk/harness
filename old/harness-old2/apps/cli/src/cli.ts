@@ -34,6 +34,11 @@ interface CliAuthApp {
   openAIAuth: OpenAIChatGptAuthManager;
 }
 
+interface CliProgramOptions {
+  createApp?: () => Promise<CliApp>;
+  createAuth?: () => CliAuthApp;
+}
+
 interface CommonOptions {
   profile?: string;
   provider?: string;
@@ -50,7 +55,9 @@ interface CommonOptions {
   json?: boolean;
 }
 
-export function createCliProgram(): Command {
+export function createCliProgram(options: CliProgramOptions = {}): Command {
+  const withApp = <T extends unknown[]>(handler: (app: CliApp, ...args: T) => Promise<void>) => withCliApp(options.createApp ?? createCliApp, handler);
+  const withAuthOnly = <T extends unknown[]>(handler: (app: CliAuthApp, ...args: T) => Promise<void>) => withCliAuth(options.createAuth ?? createCliAuth, handler);
   const program = new Command();
   program
     .name("harness")
@@ -67,7 +74,7 @@ Config:
 
   program.action(async () => {
     if (process.stdin.isTTY && process.stdout.isTTY) {
-      await withCliApp(async (app) => runTui(app, {}))();
+      await withApp(async (app) => runTui(app, {}))();
       return;
     }
     program.help();
@@ -80,7 +87,7 @@ Config:
     .option("--adapter <adapter>", "Adapter override")
     .option("--model <model>", "Model id override")
     .option("--model-id <modelId>", "Model id override")
-    .action(withCliApp(async (app, options: CommonOptions) => {
+    .action(withApp(async (app, options: CommonOptions) => {
       await runTui(app, normalizeOptions(options));
     }));
 
@@ -96,7 +103,7 @@ Config:
     .option("--model <model>", "Model id override")
     .option("--model-id <modelId>", "Model id override")
     .option("--json", "Print conversation items as JSON")
-    .action(withCliApp(async (app, promptParts: string[], options: CommonOptions) => {
+    .action(withApp(async (app, promptParts: string[], options: CommonOptions) => {
       const normalized = normalizeOptions(options);
       const text = promptText(promptParts, normalized);
       const conversation = await app.service.createConversation(conversationCreateOptions(normalized, text.slice(0, 80)));
@@ -121,7 +128,7 @@ Config:
     .option("--model-id <modelId>", "Model id")
     .option("--prompt <text>", "System prompt fragment")
     .option("--select", "Select as default")
-    .action(withCliApp(async (app, name: string, options: CommonOptions) => {
+    .action(withApp(async (app, name: string, options: CommonOptions) => {
       const config = profileConfigFromOptions(normalizeOptions(options), name) ?? {
         model: { provider: "fake", adapter: "fake", modelId: "fake-text" },
         promptFragments: []
@@ -129,23 +136,23 @@ Config:
       const profile = await app.service.createProfile({ name, config, select: options.select ?? false });
       console.log(`${profile.name} ${profile.config.model.provider}/${profile.config.model.adapter}/${profile.config.model.modelId}`);
     }));
-  profiles.command("list").description("List profiles").action(withCliApp(async (app) => {
+  profiles.command("list").description("List profiles").action(withApp(async (app) => {
     const profilesList = await app.service.listProfiles();
     console.log(profilesList.map((profile) => `${profile.name}\t${profile.config.model.provider}/${profile.config.model.adapter}/${profile.config.model.modelId}`).join("\n"));
   }));
-  profiles.command("select").argument("<name>").description("Set default profile").action(withCliApp(async (app, name: string) => {
+  profiles.command("select").argument("<name>").description("Set default profile").action(withApp(async (app, name: string) => {
     const profile = await app.service.selectProfile(name);
     console.log(`selected ${profile.name}`);
   }));
 
   const auth = program.command("auth").description("Manage ChatGPT auth");
-  auth.command("status").action(withCliAuth(async (app) => {
+  auth.command("status").action(withAuthOnly(async (app) => {
     console.log(JSON.stringify(await app.openAIAuth.status(), null, 2));
   }));
   auth.command("login")
     .option("--device", "Use device code flow")
     .option("--no-open", "Do not open a browser")
-    .action(withCliAuth(async (app, options: CommonOptions) => {
+    .action(withAuthOnly(async (app, options: CommonOptions) => {
       if (options.device) {
         await app.openAIAuth.loginWithDeviceCode({
           onDeviceCode: (info) => {
@@ -161,7 +168,7 @@ Config:
       }
       console.log("logged in");
     }));
-  auth.command("logout").action(withCliAuth(async (app) => {
+  auth.command("logout").action(withAuthOnly(async (app) => {
     console.log(JSON.stringify({ deleted: await app.openAIAuth.logout() }, null, 2));
   }));
 
@@ -176,7 +183,7 @@ Config:
     .option("--model <model>", "Model id override")
     .option("--model-id <modelId>", "Model id override")
     .option("--json", "Print items as JSON")
-    .action(withCliApp(async (app, options: CommonOptions) => {
+    .action(withApp(async (app, options: CommonOptions) => {
       const normalized = normalizeOptions(options);
       const text = requiredText(normalized.message ?? normalized.m, "message");
       const created = await app.service.createConversation(conversationCreateOptions(normalized, normalized.title ?? text.slice(0, 80)));
@@ -188,51 +195,51 @@ Config:
     .option("--message <message>", "User message")
     .option("-m, --m <message>", "User message")
     .option("--json", "Print items as JSON")
-    .action(withCliApp(async (app, conversationId: string, options: CommonOptions) => {
+    .action(withApp(async (app, conversationId: string, options: CommonOptions) => {
       const normalized = normalizeOptions(options);
       const text = requiredText(normalized.message ?? normalized.m, "message");
       await app.service.send(conversationId, textBlocks(text));
       await printConversationItems(app.service, conversationId, normalized.json === true);
     }));
-  conversation.command("queue").argument("<conversationId>").option("--message <message>").option("-m, --m <message>").action(withCliApp(async (app, conversationId: string, options: CommonOptions) => {
+  conversation.command("queue").argument("<conversationId>").option("--message <message>").option("-m, --m <message>").action(withApp(async (app, conversationId: string, options: CommonOptions) => {
     const normalized = normalizeOptions(options);
     const item = await app.service.queue(conversationId, textBlocks(requiredText(normalized.message ?? normalized.m, "message")));
     console.log(`queued item ${item.sequence}`);
   }));
-  conversation.command("manual").argument("<conversationId>").option("--message <message>").option("-m, --m <message>").action(withCliApp(async (app, conversationId: string, options: CommonOptions) => {
+  conversation.command("manual").argument("<conversationId>").option("--message <message>").option("-m, --m <message>").action(withApp(async (app, conversationId: string, options: CommonOptions) => {
     const normalized = normalizeOptions(options);
     const item = await app.service.manual(conversationId, textBlocks(requiredText(normalized.message ?? normalized.m, "message")));
     console.log(`manual item ${item.sequence}`);
   }));
-  conversation.command("interrupt").argument("<conversationId>").option("--message <message>").option("-m, --m <message>").action(withCliApp(async (app, conversationId: string, options: CommonOptions) => {
+  conversation.command("interrupt").argument("<conversationId>").option("--message <message>").option("-m, --m <message>").action(withApp(async (app, conversationId: string, options: CommonOptions) => {
     const normalized = normalizeOptions(options);
     const item = await app.service.interrupt(conversationId, textBlocks(requiredText(normalized.message ?? normalized.m, "message")));
     console.log(`interrupt item ${item.sequence}`);
   }));
-  conversation.command("show").argument("<conversationId>").action(withCliApp(async (app, conversationId: string) => {
+  conversation.command("show").argument("<conversationId>").action(withApp(async (app, conversationId: string) => {
     console.log(JSON.stringify(await app.service.getConversation(conversationId) ?? null, null, 2));
   }));
-  conversation.command("list").action(withCliApp(async (app) => {
+  conversation.command("list").action(withApp(async (app) => {
     console.log(renderConversations(await app.service.listConversations()));
   }));
 
-  program.command("items").argument("<conversationId>").option("--after <n>").option("--limit <n>").action(withCliApp(async (app, conversationId: string, options: { after?: string; limit?: string }) => {
+  program.command("items").argument("<conversationId>").option("--after <n>").option("--limit <n>").action(withApp(async (app, conversationId: string, options: { after?: string; limit?: string }) => {
     console.log(JSON.stringify(await app.service.listItems(conversationId, pageOptions(options)), null, 2));
   }));
-  program.command("runs").argument("<conversationId>").action(withCliApp(async (app, conversationId: string) => {
+  program.command("runs").argument("<conversationId>").action(withApp(async (app, conversationId: string) => {
     console.log(JSON.stringify(await app.service.listAgentRuns(conversationId), null, 2));
   }));
 
   const context = program.command("context").description("Inspect context selection");
-  context.command("builds").argument("<conversationId>").action(withCliApp(async (app, conversationId: string) => {
+  context.command("builds").argument("<conversationId>").action(withApp(async (app, conversationId: string) => {
     console.log(JSON.stringify(await app.service.listContextBuilds(conversationId), null, 2));
   }));
-  context.command("projections").argument("<conversationId>").action(withCliApp(async (app, conversationId: string) => {
+  context.command("projections").argument("<conversationId>").action(withApp(async (app, conversationId: string) => {
     console.log(JSON.stringify(await app.service.listContextProjections(conversationId), null, 2));
   }));
 
   const compaction = program.command("compaction").description("Compact model-visible transcript into a projection");
-  compaction.command("run").argument("<conversationId>").action(withCliApp(async (app, conversationId: string) => {
+  compaction.command("run").argument("<conversationId>").action(withApp(async (app, conversationId: string) => {
     console.log(JSON.stringify(await app.service.runCompaction(conversationId), null, 2));
   }));
 
@@ -264,9 +271,9 @@ function createCliAuth(): CliAuthApp {
   return { openAIAuth: createOpenAIChatGptAuthManager({ harnessHome: defaultHarnessHome() }) };
 }
 
-function withCliApp<T extends unknown[]>(handler: (app: CliApp, ...args: T) => Promise<void>): (...args: T) => Promise<void> {
+function withCliApp<T extends unknown[]>(createApp: () => Promise<CliApp>, handler: (app: CliApp, ...args: T) => Promise<void>): (...args: T) => Promise<void> {
   return async (...args) => {
-    const app = await createCliApp();
+    const app = await createApp();
     try {
       await handler(app, ...args);
     } finally {
@@ -275,9 +282,9 @@ function withCliApp<T extends unknown[]>(handler: (app: CliApp, ...args: T) => P
   };
 }
 
-function withCliAuth<T extends unknown[]>(handler: (app: CliAuthApp, ...args: T) => Promise<void>): (...args: T) => Promise<void> {
+function withCliAuth<T extends unknown[]>(createAuth: () => CliAuthApp, handler: (app: CliAuthApp, ...args: T) => Promise<void>): (...args: T) => Promise<void> {
   return async (...args) => {
-    await handler(createCliAuth(), ...args);
+    await handler(createAuth(), ...args);
   };
 }
 

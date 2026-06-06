@@ -10,6 +10,9 @@
   "scripts": {
     "dev": "npm run dev --workspace @harness/cli --",
     "test": "vitest run",
+    "test:package": "vitest run --project protocol --project core --project testkit --project store-sqlite --project auth-openai --project model-openai-common",
+    "test:e2e": "vitest run --project cli --project e2e",
+    "test:live": "vitest run --project live",
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
     "build": "node scripts/build-workspaces.mjs"
   },
