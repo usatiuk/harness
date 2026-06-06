@@ -30,6 +30,10 @@ interface CliApp {
   openAIAuth: OpenAIChatGptAuthManager;
 }
 
+interface CliAuthApp {
+  openAIAuth: OpenAIChatGptAuthManager;
+}
+
 interface CommonOptions {
   profile?: string;
   provider?: string;
@@ -135,13 +139,13 @@ Config:
   }));
 
   const auth = program.command("auth").description("Manage ChatGPT auth");
-  auth.command("status").action(withCliApp(async (app) => {
+  auth.command("status").action(withCliAuth(async (app) => {
     console.log(JSON.stringify(await app.openAIAuth.status(), null, 2));
   }));
   auth.command("login")
     .option("--device", "Use device code flow")
     .option("--no-open", "Do not open a browser")
-    .action(withCliApp(async (app, options: CommonOptions) => {
+    .action(withCliAuth(async (app, options: CommonOptions) => {
       if (options.device) {
         await app.openAIAuth.loginWithDeviceCode({
           onDeviceCode: (info) => {
@@ -157,7 +161,7 @@ Config:
       }
       console.log("logged in");
     }));
-  auth.command("logout").action(withCliApp(async (app) => {
+  auth.command("logout").action(withCliAuth(async (app) => {
     console.log(JSON.stringify({ deleted: await app.openAIAuth.logout() }, null, 2));
   }));
 
@@ -246,7 +250,7 @@ export async function main(argv: string[]): Promise<void> {
 async function createCliApp(): Promise<CliApp> {
   await fs.mkdir(defaultHarnessHome(), { recursive: true });
   const store = openSqliteHarnessStore({ path: defaultDbPath() });
-  const openAIAuth = createOpenAIChatGptAuthManager({ harnessHome: defaultHarnessHome() });
+  const openAIAuth = createCliAuth().openAIAuth;
   const models: ModelAdapter[] = [
     createOpenAIResponsesModelAdapter(),
     createOpenAIChatGptResponsesModelAdapter({ auth: openAIAuth })
@@ -254,6 +258,10 @@ async function createCliApp(): Promise<CliApp> {
   const kernel = new HarnessKernel({ store, models });
   const service = new HarnessService(kernel);
   return { service, store, openAIAuth };
+}
+
+function createCliAuth(): CliAuthApp {
+  return { openAIAuth: createOpenAIChatGptAuthManager({ harnessHome: defaultHarnessHome() }) };
 }
 
 function withCliApp<T extends unknown[]>(handler: (app: CliApp, ...args: T) => Promise<void>): (...args: T) => Promise<void> {
@@ -264,6 +272,12 @@ function withCliApp<T extends unknown[]>(handler: (app: CliApp, ...args: T) => P
     } finally {
       app.store.close();
     }
+  };
+}
+
+function withCliAuth<T extends unknown[]>(handler: (app: CliAuthApp, ...args: T) => Promise<void>): (...args: T) => Promise<void> {
+  return async (...args) => {
+    await handler(createCliAuth(), ...args);
   };
 }
 
