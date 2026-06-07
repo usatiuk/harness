@@ -1,6 +1,8 @@
 import { createInterface } from "node:readline";
+import { join } from "node:path";
 import { isKernelEvent, type PluginEntry } from "@harness/protocol";
-import { InMemoryStore } from "@harness/store";
+import { defaultHome } from "@harness/config";
+import { SqliteStore } from "@harness/store-sqlite";
 import { localExecutionPlugin } from "@harness/execution";
 import { workspacePlugin } from "@harness/workspace";
 import { approvalPlugin } from "@harness/approval";
@@ -15,7 +17,7 @@ const BANNER =
 
 /** Composition root: wires the store, a model plugin, and an event-driven REPL. */
 export async function run(): Promise<void> {
-  const store = new InMemoryStore();
+  const store = new SqliteStore(join(defaultHome(), "store.db"));
 
   // Real backend when an API key is present; otherwise the offline demo provider.
   const apiKey = process.env.OPENAI_API_KEY;
@@ -105,6 +107,7 @@ export async function run(): Promise<void> {
   } finally {
     rl.close();
     await service.whenIdle(conversation.id); // drain before exit
+    store.close(); // checkpoint WAL
   }
 }
 
