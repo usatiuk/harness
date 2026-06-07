@@ -15,7 +15,7 @@ export interface Conversation {
 
 export type NewConversation = { config: ConversationConfig };
 
-export type TurnStatus = "running" | "completed" | "failed";
+export type TurnStatus = "running" | "completed" | "failed" | "aborted";
 
 /**
  * One activation of the loop. Thin: status is a hint, largely derived from items.

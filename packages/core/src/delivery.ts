@@ -1,27 +1,26 @@
 import { assertNever } from "@harness/protocol";
-import type { Delivery, Session } from "./session.ts";
+import type { Delivery, Runtime } from "./runtime.ts";
 
 /**
- * The cohesive intent → behavior module. All decisions about *how* a delivery
- * joins the loop live here, expressed as mutations of session state; the engine's
- * loop stays free of branches on intent. The engine ensures the drain loop runs
- * after this returns.
- *
- * Only `send` is wired. `steer`/`queue`/`interrupt` have their seams in place
- * (the mailbox, the per-turn `controller`, the turn-end drain) but are not yet
- * mapped — they throw rather than silently behaving like `send`.
+ * Maps delivery intent → inbox mutation, the one place intent is interpreted (the
+ * loop never branches on it). `send`/`queue`/`steer` only differ in call-site
+ * intent and whether they flush mid-turn (steer only), so they share a branch.
  */
-export function applyDelivery(session: Session, delivery: Delivery): void {
+export function applyDelivery(runtime: Runtime, delivery: Delivery): void {
   switch (delivery.intent) {
     case "send":
-      // Append to the FIFO mailbox. If the loop is idle it starts and consumes
-      // this immediately; if a turn is running it runs once that turn ends.
-      session.mailbox.push(delivery);
-      return;
-    case "steer":
     case "queue":
+    case "steer":
+      runtime.inbox.push(delivery);
+      return;
     case "interrupt":
-      throw new Error(`delivery intent '${delivery.intent}' not yet supported`);
+      // Abort the in-flight turn (no-op if idle), then enqueue any content so the
+      // next turn drains it with everything else buffered.
+      runtime.controller?.abort();
+      if (delivery.input.content.length > 0) {
+        runtime.inbox.push({ input: delivery.input, intent: "queue" });
+      }
+      return;
     default:
       return assertNever(delivery.intent);
   }

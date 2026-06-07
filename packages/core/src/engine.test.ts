@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { isKernelEvent } from "@harness/protocol";
-import type { DeliveryInput, HarnessEvent, Item, Plugin, Tool } from "@harness/protocol";
+import type {
+  ContentBlock,
+  DeliveryInput,
+  HarnessEvent,
+  Item,
+  Plugin,
+  Tool,
+} from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import {
   counterIdGenerator,
@@ -8,6 +15,9 @@ import {
   FakeProvider,
   type FakeStep,
   fixedClock,
+  GateProvider,
+  GateTool,
+  interleavedStep,
   textStep,
   toolStep,
 } from "@harness/testkit";
@@ -25,10 +35,40 @@ const userInput = (text: string): DeliveryInput => ({
   content: [{ type: "text", text }],
 });
 
+/** A pure interrupt carries no content. */
+const noContent: DeliveryInput = { source: { kind: "user" }, content: [] };
+
+const textOf = (content: ContentBlock[]): string =>
+  content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+
 const toolCalls = (items: Item[]) =>
   items.filter((i): i is Extract<Item, { type: "tool_call" }> => i.type === "tool_call");
 const toolResults = (items: Item[]) =>
   items.filter((i): i is Extract<Item, { type: "tool_result" }> => i.type === "tool_result");
+
+/** A compact, order-preserving fingerprint of the item log for assertions. */
+const shapeOf = (items: Item[]): string[] =>
+  items.map((i) => {
+    if (i.type === "message") return `${i.role}:${textOf(i.content)}`;
+    if (i.type === "tool_call") return `call:${i.callId}`;
+    return `result:${i.callId}`;
+  });
+
+const userTexts = (items: Item[]): string[] =>
+  items
+    .filter(
+      (i): i is Extract<Item, { type: "message" }> => i.type === "message" && i.role === "user",
+    )
+    .map((i) => textOf(i.content));
+
+const turnStatuses = (events: HarnessEvent[]) =>
+  events
+    .filter(isKernelEvent)
+    .filter((e) => e.type === "turn.status")
+    .map((e) => (e.type === "turn.status" ? e.status : ""));
 
 function setup(steps: FakeStep[], plugin?: Partial<Plugin>) {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
@@ -124,7 +164,7 @@ describe("Engine — delivery seam", () => {
     const conv = await store.createConversation({ config: CONFIG });
 
     // Deliver twice without awaiting idle between: the second lands in the
-    // mailbox and runs after the first — never as a second concurrent turn.
+    // inbox and runs after the first — never as a second concurrent turn.
     await Promise.all([
       engine.deliver(conv.id, userInput("first")),
       engine.deliver(conv.id, userInput("second")),
@@ -132,17 +172,9 @@ describe("Engine — delivery seam", () => {
     await engine.whenIdle(conv.id);
 
     const items = await store.listItems(conv.id);
-    const userTexts = items
-      .filter(
-        (i): i is Extract<Item, { type: "message" }> => i.type === "message" && i.role === "user",
-      )
-      .flatMap((i) => i.content.map((b) => (b.type === "text" ? b.text : "")));
-    expect(userTexts).toEqual(["first", "second"]);
+    expect(userTexts(items)).toEqual(["first", "second"]);
 
-    const completed = events
-      .filter(isKernelEvent)
-      .filter((e) => e.type === "turn.status" && e.status === "completed");
-    expect(completed).toHaveLength(2);
+    expect(turnStatuses(events).filter((s) => s === "completed")).toHaveLength(2);
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
   });
 
@@ -179,6 +211,235 @@ describe("Engine — delivery seam", () => {
     const error = failed?.type === "turn.status" ? failed.error : undefined;
     expect(error).toMatch(/without a 'completed'/);
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
+  });
+
+  it("starts a turn from plugin-sourced input", async () => {
+    const { store, engine, events } = setup([textStep("hi")]);
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, {
+      source: { kind: "plugin", pluginId: "demo" },
+      content: [{ type: "text", text: "ping" }],
+    });
+    await engine.whenIdle(conv.id);
+
+    expect(userTexts(await store.listItems(conv.id))).toEqual(["ping"]);
+    expect(turnStatuses(events).filter((s) => s === "completed")).toHaveLength(1);
+  });
+
+  it("runs input that arrives during a live turn as the next turn", async () => {
+    const gate = new GateTool();
+    const { store, engine, events } = setup(
+      [toolStep("c1", "gate", {}), textStep("a"), textStep("b")],
+      {
+        tools: () => [gate],
+      },
+    );
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("first"));
+    await gate.started;
+    await engine.deliver(conv.id, userInput("second")); // arrives while busy → next turn
+    gate.release();
+    await engine.whenIdle(conv.id);
+
+    expect(userTexts(await store.listItems(conv.id))).toEqual(["first", "second"]);
+    expect(turnStatuses(events).filter((s) => s === "completed")).toHaveLength(2);
+  });
+});
+
+describe("Engine — interleaving order", () => {
+  it("writes interleaved text and calls in emission order", async () => {
+    const { store, engine } = setup([
+      interleavedStep([
+        "text1",
+        { callId: "A", name: "echo", args: { a: 1 } },
+        "text2",
+        { callId: "B", name: "echo", args: { b: 2 } },
+      ]),
+      textStep("done"),
+    ]);
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    // Content in emission order; both results land after the assistant content run.
+    expect(shapeOf(await store.listItems(conv.id))).toEqual([
+      "user:go",
+      "assistant:text1",
+      "call:A",
+      "assistant:text2",
+      "call:B",
+      "result:A",
+      "result:B",
+      "assistant:done",
+    ]);
+  });
+});
+
+describe("Engine — steering and queueing", () => {
+  it("flushes pending steers into the running turn after a tool result", async () => {
+    const gate = new GateTool();
+    const { store, engine } = setup([toolStep("c1", "gate", {}), textStep("done")], {
+      tools: () => [gate],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await gate.started;
+    await engine.deliver(conv.id, userInput("steer1"), "steer");
+    await engine.deliver(conv.id, userInput("steer2"), "steer");
+    gate.release();
+    await engine.whenIdle(conv.id);
+
+    // Both steers land after the tool result, in order, before the next step.
+    expect(shapeOf(await store.listItems(conv.id))).toEqual([
+      "user:go",
+      "call:c1",
+      "result:c1",
+      "user:steer1",
+      "user:steer2",
+      "assistant:done",
+    ]);
+  });
+
+  it("batches input queued during a turn into one next turn", async () => {
+    const gate = new GateTool();
+    const { store, engine, events } = setup(
+      [toolStep("c1", "gate", {}), textStep("done"), textStep("done2")],
+      { tools: () => [gate] },
+    );
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await gate.started;
+    await engine.deliver(conv.id, userInput("queued1"), "queue");
+    await engine.deliver(conv.id, userInput("queued2"), "queue");
+    await engine.deliver(conv.id, userInput("steerX"), "steer");
+    gate.release();
+    await engine.whenIdle(conv.id);
+
+    const items = await store.listItems(conv.id);
+    const userMsgs = items.filter(
+      (i): i is Extract<Item, { type: "message" }> => i.type === "message" && i.role === "user",
+    );
+    const byText = (t: string) => userMsgs.find((m) => textOf(m.content) === t)!;
+
+    // The steer flushed into turn 1 (same turn as the "go" seed).
+    expect(byText("steerX").turnId).toBe(byText("go").turnId);
+    // The two queued messages seed ONE later turn together.
+    expect(byText("queued1").turnId).toBe(byText("queued2").turnId);
+    expect(byText("queued1").turnId).not.toBe(byText("go").turnId);
+    // Exactly two turns ran (not three).
+    expect(turnStatuses(events).filter((s) => s === "completed")).toHaveLength(2);
+  });
+});
+
+describe("Engine — interrupt", () => {
+  it("interrupts an in-flight tool, stays legal, runs the interrupt content next", async () => {
+    const gate = new GateTool(); // ignores the signal — must be abandoned
+    const { store, engine, events } = setup([toolStep("c1", "gate", {}), textStep("after")], {
+      tools: () => [gate],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await gate.started;
+    await engine.deliver(conv.id, userInput("do this instead"), "interrupt");
+    await engine.whenIdle(conv.id);
+
+    const items = await store.listItems(conv.id);
+    // The abandoned call still has a (synthetic interrupted) result.
+    const result = toolResults(items).find((r) => r.callId === "c1");
+    expect(result?.status).toBe("error");
+    // Every call is answered — transcript stays prompt-legal.
+    const answered = new Set(toolResults(items).map((r) => r.callId));
+    expect(toolCalls(items).every((c) => answered.has(c.callId))).toBe(true);
+    // Turn 1 aborted; the interrupt content ran as turn 2 (completed).
+    expect(turnStatuses(events)).toContain("aborted");
+    expect(turnStatuses(events).filter((s) => s === "completed")).toHaveLength(1);
+    expect(userTexts(items)).toContain("do this instead");
+    gate.release(); // release the abandoned tool to avoid a dangling promise
+  });
+
+  it("records un-executed parallel calls with interrupted results on abort", async () => {
+    const gate = new GateTool({ name: "gate" });
+    const parallel: FakeStep = [
+      { type: "tool_call", callId: "A", name: "gate", args: {} },
+      { type: "tool_call", callId: "B", name: "echo", args: {} },
+      { type: "tool_call", callId: "C", name: "echo", args: {} },
+      { type: "completed", content: [], usage: { inputTokens: 0, outputTokens: 0 } },
+    ];
+    const { store, engine, events } = setup([parallel, textStep("after")], {
+      tools: () => [gate, new EchoTool()],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await gate.started; // A is executing; B and C not yet dispatched
+    await engine.deliver(conv.id, userInput("redo"), "interrupt");
+    await engine.whenIdle(conv.id);
+
+    const items = await store.listItems(conv.id);
+    // All three calls are present and answered — none dropped.
+    expect(
+      toolCalls(items)
+        .map((c) => c.callId)
+        .sort(),
+    ).toEqual(["A", "B", "C"]);
+    expect(
+      toolResults(items)
+        .map((r) => r.callId)
+        .sort(),
+    ).toEqual(["A", "B", "C"]);
+    expect(toolResults(items).every((r) => r.status === "error")).toBe(true);
+    expect(turnStatuses(events)).toContain("aborted");
+    gate.release();
+  });
+
+  it("cancels the stream and saves the partial assistant text", async () => {
+    const provider = new GateProvider("hel");
+    const { store, engine, events } = setup([], { providers: () => [provider] });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await provider.started; // "hel" streamed; provider now blocking before completed
+    await engine.deliver(conv.id, noContent, "interrupt");
+    await engine.whenIdle(conv.id);
+
+    const items = await store.listItems(conv.id);
+    const assistant = items.find((i) => i.type === "message" && i.role === "assistant");
+    expect(assistant && assistant.type === "message" ? textOf(assistant.content) : "").toBe("hel");
+    expect(toolCalls(items)).toHaveLength(0); // nothing dangling
+    expect(turnStatuses(events)).toContain("aborted");
+  });
+
+  it("cancels a cooperative tool promptly on interrupt", async () => {
+    const gate = new GateTool({ honorSignal: true });
+    const { store, engine, events } = setup([toolStep("c1", "gate", {}), textStep("after")], {
+      tools: () => [gate],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await gate.started;
+    await engine.deliver(conv.id, noContent, "interrupt");
+    await engine.whenIdle(conv.id); // resolves only if the cooperative tool stopped
+
+    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    expect(result?.status).toBe("error");
+    expect(turnStatuses(events)).toContain("aborted");
+  });
+
+  it("pure interrupt aborts with no follow-up turn", async () => {
+    const gate = new GateTool();
+    const { store, engine, events } = setup([toolStep("c1", "gate", {}), textStep("after")], {
+      tools: () => [gate],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await gate.started;
+    await engine.deliver(conv.id, noContent, "interrupt");
+    await engine.whenIdle(conv.id);
+
+    const statuses = turnStatuses(events);
+    expect(statuses.filter((s) => s === "running")).toHaveLength(1); // only ever one turn
+    expect(statuses).toContain("aborted");
+    expect(statuses).not.toContain("completed");
+    expect(await store.getActiveTurn(conv.id)).toBeUndefined();
+    gate.release();
   });
 });
 

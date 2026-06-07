@@ -154,7 +154,7 @@ interface ModelProvider {
   readonly provider: string;            // "openai" | "anthropic" | ...
   capabilities(): ProviderCapabilities; // content types, tool-calling, payload type+version
   validateConfig(c: ModelConfig): void;
-  stream(req: ModelRequest): AsyncIterable<ModelStreamEvent>;
+  stream(req: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent>;
 }
 interface ModelRequest {
   instructions: ContentBlock[];                          // cache-stable prefix
@@ -240,33 +240,63 @@ type DeliverySource = { kind: "user" } | { kind: "plugin"; pluginId: string };
 interface DeliveryInput { source: DeliverySource; content: ContentBlock[]; }
 ```
 
-- **send** — start a turn now if idle, else queue it after the current turn.
+- **send** — start a turn now if idle, else run after the current turn.
 - **steer** — inject into the running turn at the next after-tool-result boundary.
 - **queue** — run strictly after the current turn completes.
-- **interrupt** — abort the current step and start a fresh turn with this input.
+- **interrupt** — abort the current turn, then run a fresh turn with this input.
 
-The engine is **concurrent-input-capable**: per conversation it holds an in-memory
-session with an **input mailbox** and a single detached **drain loop** that runs
-turns one at a time. `deliver` posts to the mailbox and returns on *acceptance*,
-not turn completion — that is what lets input arrive while a turn runs. New input
-never starts a second concurrent turn; it lands in the mailbox and runs at a
-boundary. `whenIdle(conversationId)` awaits quiescence.
+**One inbox, batched drain.** Per conversation the engine holds an in-memory
+**Runtime** with **one ordered, intent-tagged `inbox`** and a single detached
+**drain loop** that runs turns one at a time. `deliver` posts to the inbox and
+returns on *acceptance*, not turn completion — that is what lets input arrive while
+a turn runs. There is no live-vs-idle branching: `send`/`queue`/`steer` all just
+push; the whole model reduces to one bit — only `steer` is eligible for *mid-turn*
+flushing. Two injection moments:
 
-Mapping intent → behavior lives in **one cohesive in-engine module**, expressed as
-mutations of session state; the loop itself branches only on model/tool outcomes,
-never on intent. **Changing "queue" to "steer" edits that module — never the loop,
-never the store.** Reintroducing a plugin-overridable `DeliveryPolicy` (deferred,
-§6) would mean swapping that module's decision function for a contributed one.
+- **Mid-turn** (after-tool-result boundary): flush all pending **steer** entries
+  into the *current* turn; queued entries wait.
+- **Turn boundary** (start / end / after interrupt): the drain loop takes the
+  *whole* inbox at once and seeds **one** turn with all of it (multiple user
+  messages, never one turn per entry).
+
+So `interrupt` needs no special drain path: it aborts the live turn (no-op if idle)
+then enqueues its content, and the next batch drains everything together —
+"all steered and queued stuff is injected." Queued-during-a-turn input batches into
+the next turn at turn-end; a steer during a no-tool turn just seeds the next turn.
+
+**Completion is event-driven.** `turn.status` (`running`/`completed`/`failed`/
+`aborted`) on the event stream is the canonical, source-agnostic completion signal —
+a turn started by *any* source reports the same way. `whenIdle(conversationId)` is
+**not** a completion handle; it awaits whole-conversation *quiescence*
+(drain-before-exit + test sync).
+
+**Engine vs Runtime.** The **Engine** is one per process: orchestration, all loop
+*logic*, the `PluginHost`, observers, the map of Runtimes. A **Runtime** is one per
+loaded conversation: pure in-memory *state* (the inbox, the in-flight turn id +
+`AbortController`, idle waiters). One Engine : many Runtimes.
+
+Mapping intent → behavior lives in **one cohesive in-engine module** (`delivery.ts`),
+expressed as mutations of Runtime state; the loop itself branches only on model/tool
+outcomes, never on intent. **Changing "queue" to "steer" edits that module — never
+the loop, never the store.** Reintroducing a plugin-overridable `DeliveryPolicy`
+(deferred, §6) would mean swapping that module's decision function for a contributed
+one.
 
 There is exactly one path in for every source — user messages, steering, queued
 input, interrupts, and (later) approval answers and plugin-sourced input — not a
 bespoke path per source.
 
-The turn cycle: model step → emit text/tool_calls → if tool_calls, dispatch and
-append one `tool_result` per call → loop → end when the model returns a final
-non-tool response. **Invariant (enforced in one place): every `tool_call` gets
-exactly one `tool_result`.** This loop is **tool-shaped from Phase 1** so tools
-are never a loop rewrite (§13).
+The turn cycle, per step, is **two phases**: (1) *consume* the model stream, writing
+assistant content items in **emission order** — text accumulates into a segment
+flushed as a `message` the instant a `tool_call` arrives (and at `completed`), so a
+turn that interleaves text and tool calls is stored and replayed in the order the
+model produced it (not flattened to text-then-calls); (2) *dispatch*, pairing every
+recorded call with a `tool_result`. **Invariant (enforced in one place): every
+`tool_call` gets exactly one `tool_result`.** This loop is **tool-shaped from
+Phase 1** so tools are never a loop rewrite (§13). *(A distinct `thinking`/
+`reasoning` content type carrying its signature is deferred to the first real
+provider adapter — §5's `ProviderPayload` already reserves the seam; nothing emits
+thinking yet.)*
 
 ---
 
@@ -337,6 +367,21 @@ recovery subsystem.** Reasoning:
   `peek`/`wait`/`kill` as ordinary synchronous tools. The kernel has no concept of
   it.
 
+**Interrupt is real, and foolproof by construction.** `interrupt` fires the turn's
+`AbortController`, which threads into both `provider.stream(req, signal)` (cancels
+the network stream) and each `ToolContext.signal` (cooperative tools stop). A tool
+that ignores the signal is **abandoned** — the engine races its dispatch against the
+signal and, if abort wins, records a synthetic `interrupted` result and moves on.
+The model's so-far output is **saved**: partial streamed text is flushed as the
+assistant message before the turn ends. Because the loop pairs every recorded call
+with a result *in the same dispatch loop* (the only `throw` is *after* the whole
+batch is paired), the log is never left with a dangling call **within a live
+process** — `reconcile` (above) is purely the cold-crash net, and uses the *same*
+synthetic-`interrupted`-result mechanism, so live interrupt and crash recovery stay
+symmetric. **Faithful recording:** aborted and un-executed calls (e.g. the other
+legs of a parallel call) **stay in the transcript** with `interrupted` results
+rather than being dropped, so the model remembers what it called and can recover.
+
 ---
 
 ## 10. Context building and prompt-cache stability
@@ -375,6 +420,13 @@ from prior art). The contract is symmetric — **typed events out, typed input i
   component (opt-in, client-specific, core-invisible).
 - **In — one delivery seam.** Approval answers, interrupts, steering, and user
   messages all come back as typed input events with an intent (§7).
+
+Clients are **event-driven and source-agnostic**: they never block on completion
+and never assume *they* started a turn. They track liveness from `turn.status`, so a
+turn begun by external/plugin activity drives the UI identically to a typed one. The
+reference CLI is **Codex-style**: a plain line steers a running turn (else sends),
+`>` queues, and Esc/`!` interrupts — input never blocks, so steering and interrupt
+work *while* a turn streams.
 
 Every client is just a different renderer of one event stream + a different
 emitter into one delivery seam.
@@ -502,12 +554,20 @@ existing interface — never as kernel growth:
 - `previous_response_id` server-state; ORM-based persistence
 - polished TUI/web/desktop/daemon
 
-**Deferred behind seams already in place** (built now: the concurrent-input engine,
-mailbox, per-turn abort handle, and turn-end drain — but only `send` is wired):
-- `steer` / `queue` / `interrupt` — the intents exist and throw "not yet"; wiring
-  them is a local edit to the in-engine delivery module, not an engine rewrite.
+**Built now** (the concurrent-input engine in full): one ordered `inbox`, batched
+take-all drain, per-turn `AbortController`, and all four intents wired — `send`/
+`queue`/`steer`/`interrupt`, with interrupt cancelling the stream + tools and saving
+partial output (§7, §9). Emission-order item writing supports interleaved
+text/tool-calls.
+
+**Deferred behind seams already in place:**
 - **Approvals** — decision is a `ToolGate` plugin returning `ask`; blocking/park/
   resume is a kernel mechanism. The `ask` verdict currently returns an error result.
+  (The request/response seam — `ctx.request` + correlated `respond` — that unifies
+  approval / AskUserQuestion / elicitation is the next commit.)
+- **Distinct `thinking`/`reasoning` content + signatures** — emission order is
+  preserved now; a reasoning content type round-tripping its signature via
+  `ProviderPayload` lands with the first real provider adapter (§5).
 - **Plugin-sourced delivery + conversation-scoped emit** (background activities):
   `DeliverySource.plugin` and `ctx.emit(PluginEvent)` exist; the activity machinery
   that uses them does not.
@@ -515,9 +575,10 @@ mailbox, per-turn abort handle, and turn-end drain — but only `send` is wired)
   whole log; `select` keeps the shape for a future streaming/lazy reader.
 - **Persisted `source` on items.**
 
-**Turn liveness is in-memory.** The engine's session is the authority on "is a turn
-running" while the process is alive; the store's persisted `running` is *not*
-authoritative — crash reconciliation collapses a stale `running` → `failed` (§9).
+**Turn liveness is in-memory.** The per-conversation Runtime (its `currentTurnId`)
+is the authority on "is a turn running" while the process is alive; the store's
+persisted `running` is *not* authoritative — crash reconciliation collapses a stale
+`running` → `failed` (§9).
 
 ## 17. Open questions
 

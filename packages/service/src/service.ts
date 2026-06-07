@@ -2,6 +2,7 @@ import type {
   Conversation,
   ConversationConfig,
   ConversationId,
+  DeliveryIntent,
   HarnessEvent,
   Plugin,
   Store,
@@ -32,13 +33,22 @@ export class HarnessService {
     return this.#store.createConversation({ config });
   }
 
-  /** Delivers a user message with `send` intent. Resolves once it is accepted. */
-  send(conversationId: ConversationId, text: string): Promise<void> {
+  /**
+   * Delivers user text with the given intent (`send`/`steer`/`queue`/`interrupt`).
+   * Resolves once it is accepted, not once its turn completes. An empty-text
+   * `interrupt` is a pure abort (no message seeds the next turn).
+   */
+  deliver(conversationId: ConversationId, text: string, intent: DeliveryIntent): Promise<void> {
     return this.#engine.deliver(
       conversationId,
-      { source: { kind: "user" }, content: [{ type: "text", text }] },
-      "send",
+      { source: { kind: "user" }, content: text ? [{ type: "text", text }] : [] },
+      intent,
     );
+  }
+
+  /** Sugar for `deliver(id, text, "send")`. */
+  send(conversationId: ConversationId, text: string): Promise<void> {
+    return this.deliver(conversationId, text, "send");
   }
 
   /** Resolves when the conversation has no running or queued work. */

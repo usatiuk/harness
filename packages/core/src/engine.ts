@@ -18,7 +18,7 @@ import {
   type TurnId,
 } from "@harness/protocol";
 import type { PluginHost } from "./plugin-host.ts";
-import { Session, type Delivery } from "./session.ts";
+import { Runtime, type Delivery } from "./runtime.ts";
 import { applyDelivery } from "./delivery.ts";
 
 const MAX_MODEL_STEPS = 100;
@@ -28,17 +28,27 @@ const errorResult = (text: string): ToolResult => ({
   status: "error",
 });
 
+/** Result for a call abandoned or never started because the turn was aborted. */
+const interruptedResult = (): ToolResult => errorResult("interrupted: turn aborted by new input");
+
+/** Internal sentinel distinguishing an aborted turn from a failed one. Never escapes. */
+class TurnAborted extends Error {
+  constructor() {
+    super("turn aborted");
+    this.name = "TurnAborted";
+  }
+}
+
 /**
- * The control loop: per conversation, a serialized drain loop turns mailbox
- * entries into Turns. Input arrives via `deliver`; the delivery module decides
- * how it joins the loop; the loop itself branches only on model/tool outcomes,
- * never on delivery intent. A turn that throws fails *that turn* and the loop
- * continues — a single conversation never crashes the process.
+ * The control loop: one Engine per process drives many per-conversation Runtimes.
+ * It branches only on model/tool outcomes, never on delivery intent (that mapping
+ * lives in `delivery.ts`). A throwing turn fails only that turn — the drain loop
+ * continues, so one conversation never crashes the process.
  */
 export class Engine {
   readonly #observers: Observer[];
-  readonly #sessions = new Map<ConversationId, Session>();
-  readonly #loading = new Map<ConversationId, Promise<Session>>();
+  readonly #runtimes = new Map<ConversationId, Runtime>();
+  readonly #loading = new Map<ConversationId, Promise<Runtime>>();
 
   constructor(
     private readonly store: Store,
@@ -58,105 +68,133 @@ export class Engine {
 
   /**
    * The single seam through which all input that wakes the agent flows. Returns
-   * once the input is *accepted* (queued), not once its turn completes — that is
-   * what lets input arrive while a turn is running. Await `whenIdle` for completion.
+   * once the input is *accepted*, not once its turn completes — that is what lets
+   * input arrive while a turn runs. Completion is observed on the event stream
+   * (`turn.status`); `whenIdle` awaits whole-conversation quiescence.
    */
   async deliver(
     conversationId: ConversationId,
     input: DeliveryInput,
     intent: DeliveryIntent = "send",
   ): Promise<void> {
-    const session = await this.#session(conversationId);
-    applyDelivery(session, { input, intent });
-    this.#ensureRunning(session);
+    const runtime = await this.#runtime(conversationId);
+    applyDelivery(runtime, { input, intent });
+    this.#ensureRunning(runtime);
   }
 
-  /** Resolves when the conversation's loop is idle and its mailbox is drained. */
+  /** Resolves when the conversation's loop is idle and its inbox is drained. */
   whenIdle(conversationId: ConversationId): Promise<void> {
-    return this.#sessions.get(conversationId)?.whenIdle() ?? Promise.resolve();
+    return this.#runtimes.get(conversationId)?.whenIdle() ?? Promise.resolve();
   }
 
-  /** Loads (and caches) the session, guarding against concurrent first-touch. */
-  #session(conversationId: ConversationId): Promise<Session> {
-    const existing = this.#sessions.get(conversationId);
+  /** Loads (and caches) the runtime, guarding against concurrent first-touch. */
+  #runtime(conversationId: ConversationId): Promise<Runtime> {
+    const existing = this.#runtimes.get(conversationId);
     if (existing) return Promise.resolve(existing);
     let loading = this.#loading.get(conversationId);
     if (!loading) {
-      loading = this.#loadSession(conversationId);
+      loading = this.#loadRuntime(conversationId);
       this.#loading.set(conversationId, loading);
     }
     return loading;
   }
 
-  async #loadSession(conversationId: ConversationId): Promise<Session> {
+  async #loadRuntime(conversationId: ConversationId): Promise<Runtime> {
     try {
       const conversation = await this.store.getConversation(conversationId);
       if (!conversation) {
         throw new Error(`unknown conversation: ${conversationId}`);
       }
-      const session = new Session(conversation);
-      this.#sessions.set(conversationId, session);
-      return session;
+      const runtime = new Runtime(conversation);
+      this.#runtimes.set(conversationId, runtime);
+      return runtime;
     } finally {
       this.#loading.delete(conversationId);
     }
   }
 
   /** Starts the detached drain loop if it isn't already running. */
-  #ensureRunning(session: Session): void {
-    if (session.running) return;
-    session.running = true;
-    void this.#drain(session);
+  #ensureRunning(runtime: Runtime): void {
+    if (runtime.running) return;
+    runtime.running = true;
+    void this.#drain(runtime);
   }
 
   /**
-   * Pulls one delivery at a time and runs it to completion. The empty-mailbox
-   * check and `running = false` are synchronous and adjacent, so a concurrent
-   * `deliver` either appends before this point (and is drained here) or after
-   * (and restarts the loop) — never lost.
+   * Takes the *whole* inbox each iteration and runs it as one batched turn;
+   * whatever arrives mid-turn is picked up on the next iteration. The final
+   * empty-check and `running = false` are synchronous and adjacent (no await
+   * between them), so a concurrent `deliver` either appended before the check
+   * (drained here) or restarts the loop afterwards — never lost.
    */
-  async #drain(session: Session): Promise<void> {
-    for (;;) {
-      const delivery = session.mailbox.shift();
-      if (delivery === undefined) {
-        session.running = false;
-        session.signalIdle();
-        return;
-      }
-      await this.#runTurn(session, delivery);
+  async #drain(runtime: Runtime): Promise<void> {
+    while (runtime.inbox.length > 0) {
+      const batch = runtime.inbox.splice(0);
+      await this.#runTurn(runtime, batch);
     }
+    runtime.running = false;
+    runtime.signalIdle();
   }
 
-  async #runTurn(session: Session, delivery: Delivery): Promise<void> {
-    const conversation = session.conversation;
+  /** Runs one turn seeded by a batch: each entry's content is a user message. */
+  async #runTurn(runtime: Runtime, batch: Delivery[]): Promise<void> {
+    const conversation = runtime.conversation;
     const controller = new AbortController();
-    session.controller = controller;
+    runtime.controller = controller;
 
     const turn = await this.store.createTurn(conversation.id);
+    runtime.currentTurnId = turn.id;
     this.#emit({ type: "turn.status", turnId: turn.id, status: "running" });
 
-    const inputMessage = await this.store.appendItem({
-      conversationId: conversation.id,
-      turnId: turn.id,
-      type: "message",
-      role: "user",
-      content: delivery.input.content,
-    });
-    this.#emit({ type: "message", item: inputMessage });
+    for (const delivery of batch) {
+      const message = await this.store.appendItem({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        type: "message",
+        role: "user",
+        content: delivery.input.content,
+      });
+      this.#emit({ type: "message", item: message });
+    }
 
     try {
-      await this.#runSteps(conversation, turn.id, controller.signal);
+      await this.#runSteps(conversation, turn.id, controller.signal, runtime);
       await this.store.updateTurn(turn.id, "completed");
       this.#emit({ type: "turn.status", turnId: turn.id, status: "completed" });
     } catch (error) {
-      await this.store.updateTurn(turn.id, "failed");
-      this.#emit({ type: "turn.status", turnId: turn.id, status: "failed", error: String(error) });
+      if (error instanceof TurnAborted) {
+        await this.store.updateTurn(turn.id, "aborted");
+        this.#emit({ type: "turn.status", turnId: turn.id, status: "aborted" });
+      } else {
+        await this.store.updateTurn(turn.id, "failed");
+        this.#emit({
+          type: "turn.status",
+          turnId: turn.id,
+          status: "failed",
+          error: String(error),
+        });
+      }
     } finally {
-      session.controller = undefined;
+      runtime.currentTurnId = undefined;
+      runtime.controller = undefined;
     }
   }
 
-  async #runSteps(conversation: Conversation, turnId: TurnId, signal: AbortSignal): Promise<void> {
+  /**
+   * The tool-shaped step loop, two phases per step:
+   * 1. Consume the stream, writing assistant items in emission order — text is
+   *    flushed as a message at each `tool_call` (and at `completed`), so interleaved
+   *    text/calls store and replay in order.
+   * 2. Dispatch, pairing every recorded call with a `tool_result` (synthetic
+   *    `interrupted` when aborted). Invariant: every call is paired before the only
+   *    `throw`, so a call never dangles.
+   */
+  async #runSteps(
+    conversation: Conversation,
+    turnId: TurnId,
+    signal: AbortSignal,
+    runtime: Runtime,
+  ): Promise<void> {
     for (let step = 0; step < MAX_MODEL_STEPS; step++) {
       const build = await this.#buildContext(conversation);
       const request: ModelRequest = {
@@ -167,21 +205,55 @@ export class Engine {
       };
       const provider = this.host.providers.get(conversation.config.model.provider);
 
-      const toolCalls: ToolCall[] = [];
+      const calls: ToolCall[] = [];
       let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
+      let pendingText = "";
+      // The item the step's reasoning payload binds to: whatever content appeared
+      // first this step (an assistant message, else the first tool call).
+      let firstItemId: ItemId | undefined;
 
-      for await (const event of provider.stream(request)) {
+      const flushText = async (): Promise<void> => {
+        if (pendingText.length === 0) return;
+        const message = await this.store.appendItem({
+          conversationId: conversation.id,
+          turnId,
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: pendingText }],
+        });
+        firstItemId ??= message.id;
+        this.#emit({ type: "message", item: message });
+        pendingText = "";
+      };
+
+      // --- Consume phase: assistant content, in emission order. ---
+      for await (const event of provider.stream(request, signal)) {
+        if (signal.aborted) break;
         switch (event.type) {
           case "text_delta":
+            pendingText += event.text;
             this.#emit({ type: "text_delta", turnId, text: event.text });
             break;
-          case "tool_call":
-            toolCalls.push({
+          case "tool_call": {
+            await flushText(); // any text before this call is its own message item
+            const callItem = await this.store.appendItem({
+              conversationId: conversation.id,
+              turnId,
+              type: "tool_call",
+              callId: event.callId,
+              name: event.name,
+              args: event.args,
+            });
+            firstItemId ??= callItem.id;
+            calls.push({ callId: event.callId, name: event.name, args: event.args });
+            this.#emit({
+              type: "tool_call.started",
               callId: event.callId,
               name: event.name,
               args: event.args,
             });
             break;
+          }
           case "completed":
             completed = event;
             break;
@@ -189,46 +261,13 @@ export class Engine {
             assertNever(event);
         }
       }
+      await flushText(); // trailing text segment (saves partial output on abort)
 
-      if (!completed) {
-        throw new Error("provider stream ended without a 'completed' event");
-      }
-
-      // The item the step's reasoning payload binds to: the assistant message if
-      // there is one, else the first tool call.
-      let primaryItemId: ItemId | undefined;
-
-      if (completed.content.length > 0) {
-        const assistant = await this.store.appendItem({
-          conversationId: conversation.id,
-          turnId,
-          type: "message",
-          role: "assistant",
-          content: completed.content,
-        });
-        this.#emit({ type: "message", item: assistant });
-        primaryItemId = assistant.id;
-      }
-
-      for (const call of toolCalls) {
-        const callItem = await this.store.appendItem({
-          conversationId: conversation.id,
-          turnId,
-          type: "tool_call",
-          callId: call.callId,
-          name: call.name,
-          args: call.args,
-        });
-        primaryItemId ??= callItem.id;
-        this.#emit({
-          type: "tool_call.started",
-          callId: call.callId,
-          name: call.name,
-          args: call.args,
-        });
-
-        const result = await this.#dispatch(call, conversation.id, signal);
-
+      // --- Dispatch phase: one tool_result per recorded call, always. ---
+      for (const call of calls) {
+        const result = signal.aborted
+          ? interruptedResult()
+          : await this.#dispatchInterruptible(call, conversation.id, signal);
         await this.store.appendItem({
           conversationId: conversation.id,
           turnId,
@@ -245,19 +284,50 @@ export class Engine {
         });
       }
 
-      if (completed.payload && primaryItemId) {
-        await this.store.putProviderPayload({
-          ...completed.payload,
-          itemId: primaryItemId,
-        });
+      // --- Finalize. ---
+      if (completed?.payload && firstItemId) {
+        await this.store.putProviderPayload({ ...completed.payload, itemId: firstItemId });
+      }
+      if (signal.aborted) throw new TurnAborted();
+      if (!completed) {
+        throw new Error("provider stream ended without a 'completed' event");
+      }
+      if (calls.length === 0) {
+        return; // final, non-tool response: the turn is done
       }
 
-      if (toolCalls.length === 0) {
-        return;
+      // After-tool-result boundary: only steers flush into this turn; queued
+      // entries wait for the next batch.
+      for (const steer of runtime.takeSteers()) {
+        const message = await this.store.appendItem({
+          conversationId: conversation.id,
+          turnId,
+          type: "message",
+          role: "user",
+          content: steer.input.content,
+        });
+        this.#emit({ type: "message", item: message });
       }
     }
 
     throw new Error(`turn exceeded ${MAX_MODEL_STEPS} model steps`);
+  }
+
+  /**
+   * Races dispatch against abort: if abort wins, the call gets a synthetic
+   * `interrupted` result and the tool is abandoned (cooperative tools also stop via
+   * `ctx.signal`). Either way the call gets exactly one result.
+   */
+  #dispatchInterruptible(
+    call: ToolCall,
+    conversationId: ConversationId,
+    signal: AbortSignal,
+  ): Promise<ToolResult> {
+    if (signal.aborted) return Promise.resolve(interruptedResult());
+    const aborted = new Promise<ToolResult>((resolve) => {
+      signal.addEventListener("abort", () => resolve(interruptedResult()), { once: true });
+    });
+    return Promise.race([this.#dispatch(call, conversationId, signal), aborted]);
   }
 
   /**

@@ -21,7 +21,9 @@ export function renderEvent(event: HarnessEvent): void {
   switch (event.type) {
     case "turn.status": {
       const detail = event.error ? `: ${event.error}` : "";
-      process.stdout.write(`\n\x1b[2m● turn ${event.status}${detail}\x1b[0m\n`);
+      // green running/completed, yellow aborted, red failed.
+      const colour = event.status === "failed" ? "31" : event.status === "aborted" ? "33" : "32";
+      process.stdout.write(`\n\x1b[${colour}m● turn ${event.status}${detail}\x1b[0m\n`);
       return;
     }
     case "message":

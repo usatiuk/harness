@@ -4,5 +4,8 @@ coverage/
 *.tsbuildinfo
 *.log
 
+# Editor / IDE
+.idea/
+
 # Local Claude settings
 .claude/settings.local.json

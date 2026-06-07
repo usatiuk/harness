@@ -61,5 +61,6 @@ export interface ModelProvider {
   readonly provider: string;
   capabilities(): ProviderCapabilities;
   validateConfig(config: ModelConfig): void;
-  stream(request: ModelRequest): AsyncIterable<ModelStreamEvent>;
+  /** Streams one model step. The signal aborts the underlying network stream. */
+  stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent>;
 }
