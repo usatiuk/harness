@@ -1,9 +1,20 @@
 import type { ConversationId, ItemId, TurnId } from "./ids.ts";
 import type { ModelConfig } from "./model.ts";
 
+/**
+ * The resolved settings snapshot for one conversation: the cascade (global <
+ * project < profile < overrides) collapsed once at creation and frozen here.
+ * Editing settings files later affects only new conversations.
+ */
 export interface ConversationConfig {
   instructions: string;
   model: ModelConfig;
+  /** The execution workspace root; `null`/absent when projectless. */
+  workspaceRoot?: string | null;
+  /** Tool scope (which tools this conversation may use). Enforcement deferred. */
+  tools?: { allow?: string[] };
+  /** Per-plugin config, validated against each plugin's schema. Read via `ConfigReader`. */
+  plugins?: Record<string, unknown>;
 }
 
 /** Durable root: owns one ordered item log + config. */

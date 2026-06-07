@@ -31,11 +31,14 @@ const delay = (ms: number, signal: AbortSignal): Promise<void> =>
     );
   });
 
+/** Wraps a string for safe use inside a single-quoted shell argument. */
+const shellQuote = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
+
 /**
- * Request-aware stand-in until a real provider lands. Each turn it calls the echo
- * tool with the user's text, then replies — so every typed message drives a full
- * tool-shaped turn. Demo-only latency between events makes the turn long enough to
- * steer/interrupt by hand; it honors the abort signal so Esc cancels mid-stream.
+ * Demo-only provider. Each turn calls `bash` to echo the user's text, then replies —
+ * exercising the full tool + approval pipeline (bash is out-of-workspace, so it
+ * prompts for approval). Artificial latency keeps turns long enough to steer/interrupt
+ * by hand, and it honors the abort signal.
  */
 export class DemoProvider implements ModelProvider {
   readonly provider = "demo";
@@ -51,7 +54,7 @@ export class DemoProvider implements ModelProvider {
     const last = request.items.at(-1)?.item;
 
     if (last?.type === "tool_result") {
-      const text = "Done — echoed your message via the echo tool.";
+      const text = "Done — ran your message through the bash tool.";
       await delay(DEMO_LATENCY_MS, signal);
       if (signal.aborted) return;
       yield { type: "text_delta", text };
@@ -70,8 +73,8 @@ export class DemoProvider implements ModelProvider {
     yield {
       type: "tool_call",
       callId: `call-${++this.#calls}`,
-      name: "echo",
-      args: { youSaid },
+      name: "bash",
+      args: { command: `echo ${shellQuote(youSaid)}` },
     };
     yield { type: "completed", content: [], usage: ZERO_USAGE };
   }

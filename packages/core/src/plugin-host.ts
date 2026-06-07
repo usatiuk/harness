@@ -1,6 +1,7 @@
 import type {
   ContextPolicy,
   ContextSource,
+  ExecutionProvider,
   Observer,
   Plugin,
   ToolMiddleware,
@@ -16,7 +17,7 @@ export interface ResolvedPolicies {
 function pick<T>(slot: string, contributed: T[], fallback: T): T {
   if (contributed.length === 0) return fallback;
   if (contributed.length === 1) return contributed[0]!;
-  throw new Error(`multiple ${slot} policies contributed; composition not yet supported`);
+  throw new Error(`multiple ${slot} contributions; composition not yet supported`);
 }
 
 /**
@@ -29,6 +30,8 @@ export class PluginHost {
   readonly contextSources: readonly ContextSource[];
   readonly observers: readonly Observer[];
   readonly policies: ResolvedPolicies;
+  /** The single execution substrate, or `undefined` when no plugin provides one. */
+  readonly execution: ExecutionProvider | undefined;
   /** Outer→inner; contributed first (registration order), default truncate innermost. */
   readonly toolMiddleware: readonly ToolMiddleware[];
 
@@ -36,6 +39,7 @@ export class PluginHost {
     const contextSources: ContextSource[] = [];
     const observers: Observer[] = [];
     const context: ContextPolicy[] = [];
+    const execution: ExecutionProvider[] = [];
     const toolMiddleware: ToolMiddleware[] = [];
 
     for (const plugin of plugins) {
@@ -49,6 +53,9 @@ export class PluginHost {
       contextSources.push(...(plugin.contextSources?.() ?? []));
       observers.push(...(plugin.observers?.() ?? []));
 
+      const provided = plugin.execution?.();
+      if (provided) execution.push(provided);
+
       const policies = plugin.policies?.() ?? {};
       if (policies.context) context.push(policies.context);
     }
@@ -58,6 +65,7 @@ export class PluginHost {
     this.policies = {
       context: pick("context", context, defaultContextPolicy),
     };
+    this.execution = pick<ExecutionProvider | undefined>("execution", execution, undefined);
     this.toolMiddleware = [...toolMiddleware, truncateMiddleware()];
   }
 }

@@ -30,14 +30,15 @@ export const errorResult = (text: string): ToolResult => ({
   status: "error",
 });
 
-/**
- * Per-call environment handed to a tool. The host `ExecutionContext`
- * (read/write/search/run) is added with the first real tool; the slice's tools
- * don't touch it.
- */
+/** Per-call environment handed to a tool. */
 export interface ToolContext {
   conversationId: ConversationId;
   signal: AbortSignal;
+  /**
+   * Per-conversation execution handle from the execution plugin (`undefined` if none
+   * is wired). Opaque to the kernel — narrow via `executionOf` from `@harness/execution`.
+   */
+  execution: unknown;
   /** Emit a plugin-defined event onto the conversation's stream. */
   emit(event: PluginEvent): void;
 }

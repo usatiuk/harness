@@ -9,6 +9,7 @@ describe("HarnessService", () => {
     const store = new InMemoryStore();
     const service = new HarnessService({
       store,
+      home: "/nonexistent-harness-home", // hermetic: no real global settings
       plugins: [
         {
           id: "fake",
@@ -22,8 +23,7 @@ describe("HarnessService", () => {
     service.subscribe((e) => events.push(e));
 
     const conv = await service.createConversation({
-      instructions: "be helpful",
-      model: { provider: "fake", model: "fake-1" },
+      overrides: { instructions: "be helpful", model: { provider: "fake", model: "fake-1" } },
     });
     await service.send(conv.id, "hello");
     await service.whenIdle(conv.id);

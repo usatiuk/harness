@@ -389,6 +389,7 @@ export class Engine {
     const ctx: ToolMiddlewareContext = {
       conversationId,
       signal,
+      execution: (runtime.execution ??= this.host.execution?.for(runtime.conversation)),
       emit: (event) => this.#emit(event),
       putBlob: (bytes) => this.store.putBlob(bytes),
       request: (request) => this.#request(request, conversationId, signal, runtime),

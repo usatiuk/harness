@@ -25,6 +25,8 @@ export class Runtime {
   currentTurnId: TurnId | undefined;
   /** The in-flight turn's abort handle; present only while a turn runs. */
   controller: AbortController | undefined;
+  /** Execution handle (opaque to the kernel), built lazily on first dispatch. Never durable. */
+  execution: unknown;
   /**
    * In-flight `ctx.request` calls awaiting a `respond`, keyed by requestId.
    * Ephemeral: a parked request that outlives the process is recovered by crash

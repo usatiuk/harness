@@ -1,7 +1,9 @@
 import { createInterface } from "node:readline";
-import { isKernelEvent, type Plugin } from "@harness/protocol";
+import { isKernelEvent, type PluginEntry } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
-import { approvalMiddleware, EchoTool } from "@harness/testkit";
+import { localExecutionPlugin } from "@harness/execution";
+import { workspacePlugin } from "@harness/workspace";
+import { approvalPlugin } from "@harness/approval";
 import { HarnessService } from "@harness/service";
 import { createOpenAIPlugin } from "@harness/openai-api";
 import { DemoProvider } from "./demo-provider.ts";
@@ -17,7 +19,7 @@ export async function run(): Promise<void> {
 
   // Real backend when an API key is present; otherwise the offline demo provider.
   const apiKey = process.env.OPENAI_API_KEY;
-  const modelPlugin: Plugin = apiKey
+  const modelPlugin: PluginEntry = apiKey
     ? createOpenAIPlugin({ apiKey })
     : { id: "demo", providers: () => [new DemoProvider()] };
   const model = apiKey
@@ -28,12 +30,9 @@ export async function run(): Promise<void> {
     store,
     plugins: [
       modelPlugin,
-      { id: "tools", tools: () => [new EchoTool()] },
-      // Demo: gate the echo tool through the request/respond seam (answer y/n).
-      {
-        id: "approval",
-        toolMiddleware: () => [approvalMiddleware((call) => call.name === "echo")],
-      },
+      localExecutionPlugin, // the execution substrate (local fs/child_process)
+      workspacePlugin, // read/search/write/edit/bash over the substrate
+      approvalPlugin, // gates calls by (tool, relationship); answer y/n at the prompt
     ],
   });
 
@@ -54,8 +53,8 @@ export async function run(): Promise<void> {
   });
 
   const conversation = await service.createConversation({
-    instructions: "You are a helpful coding agent.",
-    model,
+    cwd: process.cwd(),
+    overrides: { instructions: "You are a helpful coding agent.", model },
   });
 
   // Codex-style input syntax → intent: `>` queue, `!` interrupt, plain steers when

@@ -18,7 +18,9 @@
     "@harness/core": "*",
     "@harness/service": "*",
     "@harness/store": "*",
-    "@harness/testkit": "*",
+    "@harness/execution": "*",
+    "@harness/workspace": "*",
+    "@harness/approval": "*",
     "@harness/openai-api": "*"
   },
   "devDependencies": {

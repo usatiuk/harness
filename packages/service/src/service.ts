@@ -1,36 +1,74 @@
 import type {
   Conversation,
-  ConversationConfig,
   ConversationId,
   DeliveryIntent,
   HarnessEvent,
   ItemId,
   Plugin,
+  PluginEntry,
   Store,
 } from "@harness/protocol";
+import { isPluginDefinition } from "@harness/protocol";
 import { Engine, PluginHost } from "@harness/core";
+import { defaultHome, resolveSettings, StoreConfigReader, type SettingsDoc } from "@harness/config";
+import type { ZodType } from "zod";
 
 export interface HarnessServiceOptions {
   store: Store;
-  plugins: Plugin[];
+  /** Plain plugins, plus config-owning `PluginDefinition`s (validated centrally). */
+  plugins: PluginEntry[];
+  /** Harness home directory (global settings; later the db root). Defaults to `~/.harness`. */
+  home?: string;
+}
+
+export interface CreateConversationOptions {
+  /** Project search root; absent ⇒ projectless (no project settings, no workspace). */
+  cwd?: string;
+  /** Named profile to overlay above project settings. */
+  profile?: string;
+  /** Programmatic top layer (highest precedence), e.g. a CLI-chosen model. */
+  overrides?: SettingsDoc;
 }
 
 export type EventListener = (event: HarnessEvent) => void;
 
 /**
  * The single façade every client calls: typed events out, one delivery seam in.
- * Holds no control state — that lives in the loop and the log.
+ * Holds no control state — that lives in the loop and the log. Owns config
+ * resolution: it builds the plugin schema registry and resolves the settings
+ * cascade into each conversation's frozen snapshot at creation.
  */
 export class HarnessService {
   readonly #store: Store;
   readonly #engine: Engine;
+  readonly #home: string;
+  readonly #schemas = new Map<string, ZodType>();
 
   constructor(options: HarnessServiceOptions) {
     this.#store = options.store;
-    this.#engine = new Engine(options.store, new PluginHost(options.plugins));
+    this.#home = options.home ?? defaultHome();
+    const reader = new StoreConfigReader(this.#store);
+    const plugins: Plugin[] = [];
+    for (const entry of options.plugins) {
+      if (isPluginDefinition(entry)) {
+        this.#schemas.set(entry.id, entry.configSchema);
+        plugins.push(entry.create(reader));
+      } else {
+        plugins.push(entry);
+      }
+    }
+    this.#engine = new Engine(this.#store, new PluginHost(plugins));
   }
 
-  createConversation(config: ConversationConfig): Promise<Conversation> {
+  /** Resolves the settings cascade and stores the frozen snapshot on the new conversation. */
+  async createConversation(options: CreateConversationOptions = {}): Promise<Conversation> {
+    const config = await resolveSettings({
+      home: this.#home,
+      schemas: this.#schemas,
+      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+      ...(options.profile !== undefined ? { profile: options.profile } : {}),
+      ...(options.overrides !== undefined ? { overrides: options.overrides } : {}),
+    });
     return this.#store.createConversation({ config });
   }
 
