@@ -60,7 +60,7 @@ export function runHarnessStoreContract(name: string, open: () => Promise<StoreC
       }
     }, 5000);
 
-    test("records runs, context builds, projections, and provider state", async () => {
+    test("records runs, context builds, projections, and provider encodings", async () => {
       const harness = await open();
       try {
         const store = harness.store;
@@ -94,30 +94,134 @@ export function runHarnessStoreContract(name: string, open: () => Promise<StoreC
           projectionId: projection.id,
           selectedItemIds: [user.id],
           selectedItemSequences: [user.sequence],
-          diagnostics: { providerStateSelected: false }
+          diagnostics: { providerEncodingCount: 0 }
         });
-        const providerState = await store.createProviderState({
+        const providerEncoding = await store.createProviderEncoding({
           conversationId: conversation.id,
+          itemId: user.id,
+          itemSequence: user.sequence,
           provider: "fake",
           adapter: "recording",
           modelId: "recording",
-          payloadVersion: 1,
-          payload: { replay: true },
-          producedThroughItemSequence: user.sequence,
-          referencedItemSequences: [user.sequence]
+          format: "fake.encoding",
+          formatVersion: 1,
+          payload: { encoded: true }
         });
         const completed = await store.updateAgentRun({
           id: run.id,
           status: "completed",
-          completedThroughItemSequence: user.sequence,
-          providerStateId: providerState.id
+          completedThroughItemSequence: user.sequence
         });
 
         expect(await store.listAgentRuns(conversation.id)).toEqual([completed]);
         expect(await store.getActiveAgentRun(conversation.id)).toBeUndefined();
         expect(await store.listContextProjections(conversation.id)).toEqual([projection]);
         expect(await store.listContextBuilds(conversation.id)).toEqual([contextBuild]);
-        expect(await store.getLatestProviderState(conversation.id)).toEqual(providerState);
+        expect(await store.listProviderEncodingsForItems({
+          conversationId: conversation.id,
+          itemIds: [user.id],
+          provider: "fake",
+          adapter: "recording",
+          modelId: "recording"
+        })).toEqual([providerEncoding]);
+        await expect(store.createProviderEncoding({
+          conversationId: conversation.id,
+          itemId: user.id,
+          itemSequence: user.sequence,
+          provider: "fake",
+          adapter: "recording",
+          modelId: "recording",
+          format: "fake.encoding",
+          formatVersion: 1,
+          payload: { encoded: "duplicate" }
+        })).rejects.toThrow();
+      } finally {
+        harness.close?.();
+      }
+    }, 5000);
+
+    test("listConversationItems without a limit returns the full log", async () => {
+      const harness = await open();
+      try {
+        const store = harness.store;
+        const conversation = await store.createConversation({ config: recordingProfile });
+        for (let index = 0; index < 1005; index += 1) {
+          await store.appendConversationItem({
+            conversationId: conversation.id,
+            class: "transcript",
+            kind: "user_message",
+            role: "user",
+            visibility: "model",
+            content: [{ type: "text", text: `message ${index}` }]
+          });
+        }
+
+        expect(await store.listConversationItems(conversation.id)).toHaveLength(1005);
+        expect(await store.listConversationItems(conversation.id, { limit: 2 })).toHaveLength(2);
+      } finally {
+        harness.close?.();
+      }
+    }, 5000);
+
+    test("commits assistant response transactionally", async () => {
+      const harness = await open();
+      try {
+        const store = harness.store;
+        const conversation = await store.createConversation({ config: recordingProfile });
+        const user = await store.appendConversationItem({
+          conversationId: conversation.id,
+          class: "transcript",
+          kind: "user_message",
+          role: "user",
+          visibility: "model",
+          content: [{ type: "text", text: "input" }]
+        });
+        const run = await store.createAgentRun({
+          conversationId: conversation.id,
+          startedThroughItemSequence: user.sequence,
+          modelConfig: recordingProfile.model
+        });
+        const beforeFailedCommit = await store.listConversationItems(conversation.id);
+
+        await expect(store.commitAssistantResponse({
+          conversationId: conversation.id,
+          runId: run.id,
+          modelConfig: recordingProfile.model,
+          content: [{ type: "text", text: "bad output" }],
+          providerEvents: [],
+          providerEncoding: {
+            format: "fake.encoding",
+            formatVersion: 0,
+            payload: { invalid: true }
+          }
+        })).rejects.toThrow();
+
+        expect(await store.listConversationItems(conversation.id)).toEqual(beforeFailedCommit);
+        expect(await store.getAgentRun(run.id)).toEqual(run);
+
+        const committed = await store.commitAssistantResponse({
+          conversationId: conversation.id,
+          runId: run.id,
+          modelConfig: recordingProfile.model,
+          content: [{ type: "text", text: "good output" }],
+          providerEvents: [{
+            provider: "fake",
+            modelId: "recording",
+            sequence: 0,
+            kind: "provider.test",
+            normalized: { ok: true }
+          }],
+          providerEncoding: {
+            format: "fake.encoding",
+            formatVersion: 1,
+            payload: { encoded: true }
+          }
+        });
+
+        expect(committed.assistantItem.kind).toBe("assistant_message");
+        expect(committed.providerEventItems).toHaveLength(1);
+        expect(committed.providerEncoding).toMatchObject({ itemId: committed.assistantItem.id });
+        expect(committed.run).toMatchObject({ status: "completed" });
       } finally {
         harness.close?.();
       }

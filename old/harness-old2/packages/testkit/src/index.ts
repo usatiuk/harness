@@ -1,6 +1,7 @@
 import {
   HarnessKernel,
   createId,
+  finalResponseEvents,
   nowIso,
   type HarnessStore,
   type ModelAdapter
@@ -13,7 +14,7 @@ import {
   conversationItemSchema,
   conversationRecordSchema,
   profileRecordSchema,
-  providerStateSchema,
+  providerEncodingSchema,
   type AgentRunRecord,
   type AgentRunStatus,
   type ConversationItem,
@@ -28,21 +29,20 @@ import {
   type MessageRole,
   type ModelCapabilities,
   type ModelConfig,
-  type ModelStepInput,
-  type ModelStepResult,
+  type ModelFinalResponseDraft,
+  type ModelRequest,
+  type ModelStreamEventDraft,
   type ProfileConfig,
   type ProfileRecord,
-  type ProviderState,
+  type ProviderEncoding,
   type SourceRef
 } from "@harness/protocol";
-
-export const SOURCE_FIRST_MARKER = "harness:testkit:src";
 
 export class RecordingModelAdapter implements ModelAdapter {
   public readonly id = "recording";
   public readonly provider = "fake";
-  public readonly inputs: ModelStepInput[] = [];
-  private readonly queue: Array<ModelStepResult | ((input: ModelStepInput) => ModelStepResult | Promise<ModelStepResult>)> = [];
+  public readonly inputs: ModelRequest[] = [];
+  private readonly queue: Array<ModelFinalResponseDraft | ((input: ModelRequest) => ModelFinalResponseDraft | Promise<ModelFinalResponseDraft>)> = [];
 
   public constructor(private readonly options: { defaultText?: string; fail?: Error } = {}) {}
 
@@ -56,31 +56,35 @@ export class RecordingModelAdapter implements ModelAdapter {
     }
   }
 
-  public enqueue(result: ModelStepResult | ((input: ModelStepInput) => ModelStepResult | Promise<ModelStepResult>)): void {
+  public enqueue(result: ModelFinalResponseDraft | ((input: ModelRequest) => ModelFinalResponseDraft | Promise<ModelFinalResponseDraft>)): void {
     this.queue.push(result);
   }
 
-  public async step(input: ModelStepInput): Promise<ModelStepResult> {
+  public async *stream(input: ModelRequest): AsyncIterable<ModelStreamEventDraft> {
     this.inputs.push(input);
     if (this.options.fail) {
       throw this.options.fail;
     }
     const next = this.queue.shift();
     if (typeof next === "function") {
-      return next(input);
+      yield* finalResponseEvents(await next(input));
+      return;
     }
     if (next) {
-      return next;
+      yield* finalResponseEvents(next);
+      return;
     }
-    return {
-      content: [{ type: "text", text: this.options.defaultText ?? "recorded response" }],
-      metadata: { adapter: "recording" }
-    };
+    yield* finalResponseEvents({
+      assistant: {
+        content: [{ type: "text", text: this.options.defaultText ?? "recorded response" }],
+        metadata: { adapter: "recording" }
+      }
+    });
   }
 }
 
 export class BlockingModelAdapter extends RecordingModelAdapter {
-  private unblockResolver: ((result: ModelStepResult) => void) | undefined;
+  private unblockResolver: ((result: ModelFinalResponseDraft) => void) | undefined;
   private readonly callResolvers: Array<{ count: number; resolve: () => void }> = [];
 
   public waitForStart(): Promise<void> {
@@ -94,7 +98,7 @@ export class BlockingModelAdapter extends RecordingModelAdapter {
     return new Promise((resolve) => this.callResolvers.push({ count, resolve }));
   }
 
-  public unblock(result: ModelStepResult = { content: [{ type: "text", text: "unblocked" }] }): void {
+  public unblock(result: ModelFinalResponseDraft = { assistant: { content: [{ type: "text", text: "unblocked" }] } }): void {
     if (!this.unblockResolver) {
       throw new Error("Blocking model has not started");
     }
@@ -102,7 +106,7 @@ export class BlockingModelAdapter extends RecordingModelAdapter {
     this.unblockResolver = undefined;
   }
 
-  public override async step(input: ModelStepInput): Promise<ModelStepResult> {
+  public override async *stream(input: ModelRequest): AsyncIterable<ModelStreamEventDraft> {
     this.inputs.push(input);
     for (const waiter of [...this.callResolvers]) {
       if (this.inputs.length >= waiter.count) {
@@ -110,9 +114,10 @@ export class BlockingModelAdapter extends RecordingModelAdapter {
         this.callResolvers.splice(this.callResolvers.indexOf(waiter), 1);
       }
     }
-    return new Promise((resolve) => {
+    const result = await new Promise<ModelFinalResponseDraft>((resolve) => {
       this.unblockResolver = resolve;
     });
+    yield* finalResponseEvents(result);
   }
 }
 
@@ -122,6 +127,9 @@ export interface TestHarness {
   kernel: HarnessKernel;
   service: HarnessService;
 }
+
+type CommitAssistantResponseInput = Parameters<HarnessStore["commitAssistantResponse"]>[0];
+type CommitAssistantResponseResult = Awaited<ReturnType<HarnessStore["commitAssistantResponse"]>>;
 
 export function createTestHarness(model: RecordingModelAdapter = new RecordingModelAdapter()): TestHarness {
   const store = new MemoryHarnessStore();
@@ -137,7 +145,7 @@ export class MemoryHarnessStore implements HarnessStore {
   private readonly runs = new Map<string, AgentRunRecord>();
   private readonly projections = new Map<string, ContextProjection[]>();
   private readonly builds = new Map<string, ContextBuild[]>();
-  private readonly providerStates = new Map<string, ProviderState[]>();
+  private readonly providerEncodings = new Map<string, ProviderEncoding[]>();
   private defaultProfileName: string | undefined;
 
   public async createProfile(input: { id?: string; name: string; config: ProfileConfig }): Promise<ProfileRecord> {
@@ -249,11 +257,8 @@ export class MemoryHarnessStore implements HarnessStore {
 
   public async listConversationItems(conversationId: string, input: { after?: number; limit?: number } = {}): Promise<ConversationItem[]> {
     const after = input.after ?? 0;
-    const limit = input.limit ?? 1000;
-    return (this.items.get(conversationId) ?? [])
-      .filter((item) => item.sequence > after)
-      .slice(0, limit)
-      .map(clone);
+    const rows = (this.items.get(conversationId) ?? []).filter((item) => item.sequence > after);
+    return (input.limit === undefined ? rows : rows.slice(0, input.limit)).map(clone);
   }
 
   public async getLatestItemSequence(conversationId: string): Promise<number> {
@@ -300,7 +305,6 @@ export class MemoryHarnessStore implements HarnessStore {
     id: string;
     status?: AgentRunStatus;
     completedThroughItemSequence?: number;
-    providerStateId?: string;
     error?: JsonValue;
   }): Promise<AgentRunRecord> {
     const current = this.runs.get(input.id);
@@ -311,12 +315,89 @@ export class MemoryHarnessStore implements HarnessStore {
       ...current,
       ...(input.status ? { status: input.status } : {}),
       ...(input.completedThroughItemSequence !== undefined ? { completedThroughItemSequence: input.completedThroughItemSequence } : {}),
-      ...(input.providerStateId ? { providerStateId: input.providerStateId } : {}),
       ...(input.error !== undefined ? { error: input.error } : {}),
       updatedAt: nowIso()
     });
     this.runs.set(updated.id, updated);
     return clone(updated);
+  }
+
+  public async commitAssistantResponse(input: CommitAssistantResponseInput): Promise<CommitAssistantResponseResult> {
+    const itemSnapshot = this.items.has(input.conversationId) ? clone(this.items.get(input.conversationId)) : undefined;
+    const encodingSnapshot = this.providerEncodings.has(input.conversationId) ? clone(this.providerEncodings.get(input.conversationId)) : undefined;
+    const runSnapshot = this.runs.has(input.runId) ? clone(this.runs.get(input.runId)) : undefined;
+    try {
+      const currentRun = this.runs.get(input.runId);
+      if (!currentRun || currentRun.conversationId !== input.conversationId) {
+        throw new Error(`Agent run ${input.runId} not found`);
+      }
+      if (currentRun.status !== "running") {
+        throw new Error(`Agent run ${input.runId} is ${currentRun.status}`);
+      }
+      const assistantItem = await this.appendConversationItem({
+        conversationId: input.conversationId,
+        class: "transcript",
+        kind: "assistant_message",
+        role: "assistant",
+        visibility: "model",
+        runId: input.runId,
+        content: input.content,
+        ...(input.data !== undefined ? { data: input.data } : {})
+      });
+      const providerEventItems = [];
+      for (const event of input.providerEvents) {
+        providerEventItems.push(await this.appendConversationItem({
+          conversationId: input.conversationId,
+          class: "provider",
+          kind: "provider_event",
+          visibility: "audit",
+          runId: input.runId,
+          content: [{ type: "data", label: event.kind, data: event.normalized }],
+          data: event as unknown as JsonValue
+        }));
+      }
+      const providerEncoding = input.providerEncoding
+        ? await this.createProviderEncoding({
+            conversationId: input.conversationId,
+            itemId: assistantItem.id,
+            itemSequence: assistantItem.sequence,
+            provider: input.modelConfig.provider,
+            adapter: input.modelConfig.adapter,
+            modelId: input.modelConfig.modelId,
+            format: input.providerEncoding.format,
+            formatVersion: input.providerEncoding.formatVersion,
+            payload: input.providerEncoding.payload
+          })
+        : undefined;
+      const run = await this.updateAgentRun({
+        id: input.runId,
+        status: "completed",
+        completedThroughItemSequence: await this.getLatestItemSequence(input.conversationId)
+      });
+      return {
+        assistantItem,
+        providerEventItems,
+        ...(providerEncoding ? { providerEncoding } : {}),
+        run
+      };
+    } catch (error) {
+      if (itemSnapshot) {
+        this.items.set(input.conversationId, itemSnapshot);
+      } else {
+        this.items.delete(input.conversationId);
+      }
+      if (encodingSnapshot) {
+        this.providerEncodings.set(input.conversationId, encodingSnapshot);
+      } else {
+        this.providerEncodings.delete(input.conversationId);
+      }
+      if (runSnapshot) {
+        this.runs.set(input.runId, runSnapshot);
+      } else {
+        this.runs.delete(input.runId);
+      }
+      throw error;
+    }
   }
 
   public async createContextProjection(input: {
@@ -383,38 +464,64 @@ export class MemoryHarnessStore implements HarnessStore {
     return (this.builds.get(conversationId) ?? []).sort((left, right) => left.createdAt.localeCompare(right.createdAt)).map(clone);
   }
 
-  public async createProviderState(input: {
+  public async createProviderEncoding(input: {
     id?: string;
     conversationId: string;
+    itemId: string;
+    itemSequence: number;
     provider: string;
     adapter: string;
     modelId: string;
-    payloadVersion: number;
+    format: string;
+    formatVersion: number;
     payload: JsonValue;
-    producedThroughItemSequence: number;
-    referencedItemSequences: number[];
-  }): Promise<ProviderState> {
-    const state = providerStateSchema.parse({
-      id: input.id ?? createId("pstate"),
+  }): Promise<ProviderEncoding> {
+    const rows = this.providerEncodings.get(input.conversationId) ?? [];
+    if (rows.some((encoding) =>
+      encoding.itemId === input.itemId &&
+      encoding.provider === input.provider &&
+      encoding.adapter === input.adapter &&
+      encoding.modelId === input.modelId &&
+      encoding.format === input.format &&
+      encoding.formatVersion === input.formatVersion
+    )) {
+      throw new Error(`Provider encoding already exists for item ${input.itemId}`);
+    }
+    const encoding = providerEncodingSchema.parse({
+      id: input.id ?? createId("penc"),
       conversationId: input.conversationId,
+      itemId: input.itemId,
+      itemSequence: input.itemSequence,
       provider: input.provider,
       adapter: input.adapter,
       modelId: input.modelId,
-      payloadVersion: input.payloadVersion,
+      format: input.format,
+      formatVersion: input.formatVersion,
       payload: input.payload,
-      producedThroughItemSequence: input.producedThroughItemSequence,
-      referencedItemSequences: input.referencedItemSequences,
       createdAt: nowIso()
     });
-    const rows = this.providerStates.get(input.conversationId) ?? [];
-    rows.push(state);
-    this.providerStates.set(input.conversationId, rows);
-    return clone(state);
+    rows.push(encoding);
+    this.providerEncodings.set(input.conversationId, rows);
+    return clone(encoding);
   }
 
-  public async getLatestProviderState(conversationId: string): Promise<ProviderState | undefined> {
-    const state = this.providerStates.get(conversationId)?.at(-1);
-    return state ? clone(state) : undefined;
+  public async listProviderEncodingsForItems(input: {
+    conversationId: string;
+    itemIds: string[];
+    provider: string;
+    adapter: string;
+    modelId: string;
+  }): Promise<ProviderEncoding[]> {
+    const itemIds = new Set(input.itemIds);
+    return (this.providerEncodings.get(input.conversationId) ?? [])
+      .filter((encoding) =>
+        itemIds.has(encoding.itemId) &&
+        encoding.provider === input.provider &&
+        encoding.adapter === input.adapter &&
+        encoding.modelId === input.modelId
+      )
+      .sort((left, right) => left.itemSequence - right.itemSequence || right.createdAt.localeCompare(left.createdAt))
+      .map(clone);
   }
 }
 

@@ -3,9 +3,10 @@ import {
   agentRunRecordSchema,
   contextBuildSchema,
   conversationItemSchema,
-  modelStepResultSchema,
+  modelFinalResponseSchema,
+  modelStreamEventSchema,
   profileConfigSchema,
-  providerStateSchema
+  providerEncodingSchema
 } from "../src/index.ts";
 
 describe("protocol schemas", () => {
@@ -30,27 +31,34 @@ describe("protocol schemas", () => {
     })).toThrow();
   }, 5000);
 
-  test("defaults model step provider events and metadata", () => {
-    expect(modelStepResultSchema.parse({
-      content: [{ type: "text", text: "done" }]
+  test("defaults model final response assistant metadata", () => {
+    expect(modelFinalResponseSchema.parse({
+      assistant: { content: [{ type: "text", text: "done" }] }
     })).toEqual({
-      content: [{ type: "text", text: "done" }],
-      providerEvents: [],
-      metadata: {}
+      assistant: {
+        content: [{ type: "text", text: "done" }],
+        metadata: {}
+      }
     });
   }, 5000);
 
-  test("validates provider state cursors and payload version", () => {
-    expect(() => providerStateSchema.parse({
-      id: "pstate_1",
+  test("validates model stream events", () => {
+    expect(modelStreamEventSchema.parse({ type: "text_delta", delta: "hello" })).toEqual({ type: "text_delta", delta: "hello" });
+    expect(() => modelStreamEventSchema.parse({ type: "completed" })).toThrow();
+  }, 5000);
+
+  test("validates provider encoding format version", () => {
+    expect(() => providerEncodingSchema.parse({
+      id: "penc_1",
       conversationId: "conv_1",
+      itemId: "item_1",
+      itemSequence: 1,
       provider: "fake",
       adapter: "recording",
       modelId: "recording",
-      payloadVersion: 0,
+      format: "fake.encoding",
+      formatVersion: 0,
       payload: {},
-      producedThroughItemSequence: 1,
-      referencedItemSequences: [1],
       createdAt: "2026-01-01T00:00:00.000Z"
     })).toThrow();
   }, 5000);

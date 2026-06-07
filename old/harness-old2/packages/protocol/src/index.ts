@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-export const SOURCE_FIRST_MARKER = "harness:protocol:src";
-
 export type JsonPrimitive = z.infer<typeof jsonPrimitiveSchema>;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
@@ -122,23 +120,6 @@ export const conversationItemSchema = z.object({
 });
 export type ConversationItem = z.infer<typeof conversationItemSchema>;
 
-export const agentRunStatusSchema = z.enum(["running", "completed", "failed", "cancelled"]);
-export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
-
-export const agentRunRecordSchema = z.object({
-  id: idSchema,
-  conversationId: idSchema,
-  status: agentRunStatusSchema,
-  startedThroughItemSequence: z.number().int().nonnegative(),
-  completedThroughItemSequence: z.number().int().nonnegative().optional(),
-  modelConfig: modelConfigSchema,
-  providerStateId: idSchema.optional(),
-  error: jsonValueSchema.optional(),
-  createdAt: z.string(),
-  updatedAt: z.string()
-});
-export type AgentRunRecord = z.infer<typeof agentRunRecordSchema>;
-
 export const providerEventPayloadSchema = z.object({
   provider: z.string(),
   modelId: z.string(),
@@ -152,19 +133,43 @@ export const providerEventPayloadSchema = z.object({
 });
 export type ProviderEventPayload = z.infer<typeof providerEventPayloadSchema>;
 
-export const providerStateSchema = z.object({
+export const providerEncodingSchema = z.object({
   id: idSchema,
   conversationId: idSchema,
+  itemId: idSchema,
+  itemSequence: z.number().int().positive(),
   provider: z.string(),
   adapter: z.string(),
   modelId: z.string(),
-  payloadVersion: z.number().int().positive(),
+  format: z.string(),
+  formatVersion: z.number().int().positive(),
   payload: jsonValueSchema,
-  producedThroughItemSequence: z.number().int().nonnegative(),
-  referencedItemSequences: z.array(z.number().int().positive()),
   createdAt: z.string()
 });
-export type ProviderState = z.infer<typeof providerStateSchema>;
+export type ProviderEncoding = z.infer<typeof providerEncodingSchema>;
+
+export const providerEncodingDraftSchema = z.object({
+  format: z.string(),
+  formatVersion: z.number().int().positive(),
+  payload: jsonValueSchema
+});
+export type ProviderEncodingDraft = z.infer<typeof providerEncodingDraftSchema>;
+
+export const agentRunStatusSchema = z.enum(["running", "completed", "failed", "cancelled"]);
+export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
+
+export const agentRunRecordSchema = z.object({
+  id: idSchema,
+  conversationId: idSchema,
+  status: agentRunStatusSchema,
+  startedThroughItemSequence: z.number().int().nonnegative(),
+  completedThroughItemSequence: z.number().int().nonnegative().optional(),
+  modelConfig: modelConfigSchema,
+  error: jsonValueSchema.optional(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type AgentRunRecord = z.infer<typeof agentRunRecordSchema>;
 
 export const contextProjectionSchema = z.object({
   id: idSchema,
@@ -192,12 +197,11 @@ export const contextBuildSchema = z.object({
 });
 export type ContextBuild = z.infer<typeof contextBuildSchema>;
 
-export const modelContextMessageSchema = z.object({
-  role: messageRoleSchema,
-  content: z.array(contentBlockSchema),
-  metadata: z.record(z.string(), jsonValueSchema).default({})
+export const modelContextItemSchema = z.object({
+  item: conversationItemSchema,
+  providerEncoding: providerEncodingSchema.optional()
 });
-export type ModelContextMessage = z.infer<typeof modelContextMessageSchema>;
+export type ModelContextItem = z.infer<typeof modelContextItemSchema>;
 
 export const modelCapabilitiesSchema = z.object({
   textInput: z.boolean(),
@@ -206,27 +210,66 @@ export const modelCapabilitiesSchema = z.object({
 });
 export type ModelCapabilities = z.infer<typeof modelCapabilitiesSchema>;
 
-export const modelStepInputSchema = z.object({
+export const tokenUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative().optional(),
+  cachedInputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  reasoningOutputTokens: z.number().int().nonnegative().optional(),
+  totalTokens: z.number().int().nonnegative().optional()
+});
+export type TokenUsage = z.infer<typeof tokenUsageSchema>;
+
+export const costEstimateSchema = z.object({
+  amountMicros: z.number().int().nonnegative(),
+  currency: z.literal("USD"),
+  pricingVersion: z.string(),
+  estimated: z.boolean()
+});
+export type CostEstimate = z.infer<typeof costEstimateSchema>;
+
+export const modelAccountingSchema = z.object({
+  usage: tokenUsageSchema.optional(),
+  cost: costEstimateSchema.optional()
+});
+export type ModelAccounting = z.infer<typeof modelAccountingSchema>;
+
+export const modelResponseMetadataSchema = z.record(z.string(), z.string());
+export type ModelResponseMetadata = z.infer<typeof modelResponseMetadataSchema>;
+
+export const modelRequestSchema = z.object({
   conversationId: idSchema,
   runId: idSchema,
   contextBuildId: idSchema.optional(),
   modelConfig: modelConfigSchema,
-  messages: z.array(modelContextMessageSchema),
-  providerState: providerStateSchema.optional()
+  instructions: z.array(contentBlockSchema).default([]),
+  items: z.array(modelContextItemSchema)
 });
-export type ModelStepInput = z.infer<typeof modelStepInputSchema>;
+export type ModelRequest = z.infer<typeof modelRequestSchema>;
 
-export const modelStepResultSchema = z.object({
-  content: z.array(contentBlockSchema),
-  providerEvents: z.array(providerEventPayloadSchema).default([]),
-  providerState: z.object({
-    payloadVersion: z.number().int().positive(),
-    payload: jsonValueSchema,
-    referencedItemSequences: z.array(z.number().int().positive()).default([])
-  }).optional(),
-  usage: jsonValueSchema.optional(),
-  cost: jsonValueSchema.optional(),
-  metadata: z.record(z.string(), z.string()).default({})
+export const modelFinalResponseSchema = z.object({
+  assistant: z.object({
+    content: z.array(contentBlockSchema),
+    metadata: modelResponseMetadataSchema.default({}),
+    providerEncoding: providerEncodingDraftSchema.optional()
+  }),
+  accounting: modelAccountingSchema.optional()
 });
-export type ModelStepResult = z.input<typeof modelStepResultSchema>;
-export type ParsedModelStepResult = z.output<typeof modelStepResultSchema>;
+export type ModelFinalResponseDraft = z.input<typeof modelFinalResponseSchema>;
+export type ModelFinalResponse = z.output<typeof modelFinalResponseSchema>;
+
+export const modelStreamEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text_delta"),
+    delta: z.string()
+  }),
+  z.object({
+    type: z.literal("provider_event"),
+    event: providerEventPayloadSchema
+  }),
+  z.object({
+    type: z.literal("completed"),
+    response: modelFinalResponseSchema
+  })
+]);
+export type ModelStreamEventDraft = z.input<typeof modelStreamEventSchema>;
+export type ModelStreamEvent = z.output<typeof modelStreamEventSchema>;

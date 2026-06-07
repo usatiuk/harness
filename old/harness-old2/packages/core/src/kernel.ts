@@ -1,4 +1,4 @@
-import { modelStepResultSchema, profileConfigSchema } from "@harness/protocol";
+import { modelStreamEventSchema, profileConfigSchema } from "@harness/protocol";
 import type {
   AgentRunRecord,
   ConversationInputDelivery,
@@ -6,6 +6,7 @@ import type {
   ConversationRecord,
   ContentBlock,
   JsonValue,
+  ModelFinalResponse,
   ModelConfig,
   ProfileConfig,
   ProfileRecord,
@@ -13,6 +14,7 @@ import type {
 } from "@harness/protocol";
 import { ContextBuilder, DEFAULT_CONTEXT_POLICY_ID, estimateTokens, summarizeItemsForProjection } from "./context.ts";
 import { EchoModelAdapter, ModelRegistry, type ModelAdapter } from "./model.ts";
+import { wasRunInterrupted } from "./run-state.ts";
 import type { HarnessStore } from "./store.ts";
 
 export interface HarnessKernelOptions {
@@ -246,7 +248,7 @@ export class HarnessKernel {
       });
       try {
         this.activeRunByConversation.set(conversationId, run.id);
-        await this.runModelStep(conversation, run);
+        await this.runModelStream(conversation, run);
       } catch (error) {
         if (error instanceof InactiveRunError && error.status === "cancelled") {
           await this.store.appendConversationItem({
@@ -294,61 +296,54 @@ export class HarnessKernel {
     }
   }
 
-  private async runModelStep(conversation: ConversationRecord, run: AgentRunRecord): Promise<void> {
+  private async runModelStream(conversation: ConversationRecord, run: AgentRunRecord): Promise<void> {
     const adapter = this.models.resolve(conversation.config.model);
-    const modelInput = await this.contextBuilder.build({
+    const modelRequest = await this.contextBuilder.build({
       conversationId: conversation.id,
       runId: run.id,
       modelConfig: conversation.config.model,
       promptFragments: conversation.config.promptFragments
     });
-    const result = modelStepResultSchema.parse(await adapter.step(modelInput));
+    const { response, providerEvents } = await this.collectModelStream(adapter.stream(modelRequest), run.id);
     await this.assertRunStillActive(run.id);
-    const assistant = await this.store.appendConversationItem({
+    await this.store.commitAssistantResponse({
       conversationId: conversation.id,
-      class: "transcript",
-      kind: "assistant_message",
-      role: "assistant",
-      visibility: "model",
       runId: run.id,
-      content: result.content,
-      data: { metadata: result.metadata, usage: result.usage ?? null, cost: result.cost ?? null }
-    });
-    for (const event of result.providerEvents) {
-      await this.appendProviderEvent(conversation.id, run.id, event);
-    }
-    let providerStateId: string | undefined;
-    if (result.providerState) {
-      const state = await this.store.createProviderState({
-        conversationId: conversation.id,
-        provider: conversation.config.model.provider,
-        adapter: conversation.config.model.adapter,
-        modelId: conversation.config.model.modelId,
-        payloadVersion: result.providerState.payloadVersion,
-        payload: result.providerState.payload,
-        producedThroughItemSequence: assistant.sequence,
-        referencedItemSequences: result.providerState.referencedItemSequences
-      });
-      providerStateId = state.id;
-    }
-    await this.store.updateAgentRun({
-      id: run.id,
-      status: "completed",
-      completedThroughItemSequence: await this.store.getLatestItemSequence(conversation.id),
-      ...(providerStateId ? { providerStateId } : {})
+      modelConfig: conversation.config.model,
+      content: response.assistant.content,
+      data: toJsonValue({ metadata: response.assistant.metadata, accounting: response.accounting ?? null }),
+      providerEvents,
+      ...(response.assistant.providerEncoding ? { providerEncoding: response.assistant.providerEncoding } : {})
     });
   }
 
-  private async appendProviderEvent(conversationId: string, runId: string, event: ProviderEventPayload): Promise<void> {
-    await this.store.appendConversationItem({
-      conversationId,
-      class: "provider",
-      kind: "provider_event",
-      visibility: "audit",
-      runId,
-      content: [{ type: "data", label: event.kind, data: event.normalized }],
-      data: event as unknown as JsonValue
-    });
+  private async collectModelStream(stream: AsyncIterable<unknown>, runId: string): Promise<{
+    response: ModelFinalResponse;
+    providerEvents: ProviderEventPayload[];
+  }> {
+    const providerEvents: ProviderEventPayload[] = [];
+    let response: ModelFinalResponse | undefined;
+    for await (const draft of stream) {
+      await this.assertRunStillActive(runId);
+      if (response) {
+        throw new Error("Model stream emitted an event after completion");
+      }
+      const event = modelStreamEventSchema.parse(draft);
+      switch (event.type) {
+        case "text_delta":
+          break;
+        case "provider_event":
+          providerEvents.push(event.event);
+          break;
+        case "completed":
+          response = event.response;
+          break;
+      }
+    }
+    if (!response) {
+      throw new Error("Model stream ended without a completed response");
+    }
+    return { response, providerEvents };
   }
 
   private async needsModelRun(conversationId: string): Promise<boolean> {
@@ -367,7 +362,7 @@ export class HarnessKernel {
     );
     const runs = await this.store.listAgentRuns(conversationId);
     const completedRunIds = new Set(runs.filter((run) => run.status === "completed").map((run) => run.id));
-    const abandonedRunIds = new Set(runs.filter((run) => run.status === "cancelled" && wasInterrupted(run.error)).map((run) => run.id));
+    const abandonedRunIds = new Set(runs.filter((run) => run.status === "cancelled" && wasRunInterrupted(run.error)).map((run) => run.id));
     for (const build of await this.store.listContextBuilds(conversationId)) {
       if (!completedRunIds.has(build.runId) && !abandonedRunIds.has(build.runId)) {
         continue;
@@ -411,7 +406,7 @@ export class HarnessKernel {
 
   private async abandonedInputSequences(conversationId: string): Promise<Set<number>> {
     const runs = await this.store.listAgentRuns(conversationId);
-    const abandonedRunIds = new Set(runs.filter((run) => run.status === "cancelled" && wasInterrupted(run.error)).map((run) => run.id));
+    const abandonedRunIds = new Set(runs.filter((run) => run.status === "cancelled" && wasRunInterrupted(run.error)).map((run) => run.id));
     if (abandonedRunIds.size === 0) {
       return new Set();
     }
@@ -472,6 +467,6 @@ function dataDelivery(value: JsonValue): string | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value) && typeof value.delivery === "string" ? value.delivery : undefined;
 }
 
-function wasInterrupted(value: JsonValue | undefined): boolean {
-  return typeof value === "object" && value !== null && !Array.isArray(value) && value.interrupted === true;
+function toJsonValue(value: unknown): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue;
 }

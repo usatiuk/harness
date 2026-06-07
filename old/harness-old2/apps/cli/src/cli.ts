@@ -22,8 +22,6 @@ import type { ContentBlock, ConversationRecord, ModelConfig, ProfileConfig } fro
 import { HarnessService } from "@harness/service";
 import { openSqliteHarnessStore, type SqliteHarnessStore } from "@harness/store-sqlite";
 
-export const SOURCE_FIRST_MARKER = "harness:cli:src";
-
 interface CliApp {
   service: HarnessService;
   store: SqliteHarnessStore;

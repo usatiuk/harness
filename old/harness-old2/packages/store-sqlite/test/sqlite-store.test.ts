@@ -20,24 +20,25 @@ runHarnessStoreContract("SqliteHarnessStore", async () => {
 });
 
 describe("SQLite conversation store persistence", () => {
-  test("persists conversation items, runs, context builds, and provider state across reopen", async () => {
+  test("persists conversation items, runs, context builds, and provider encodings across reopen", async () => {
     const dbPath = await tempDbPath();
     const model = new RecordingModelAdapter();
-    model.enqueue((input) => ({
-      content: [{ type: "text", text: "persisted" }],
-      providerState: {
-        payloadVersion: 1,
-        payload: { replay: true },
-        referencedItemSequences: input.messages
-          .map((message) => message.metadata.sequence)
-          .filter((sequence): sequence is number => typeof sequence === "number")
+    model.enqueue({
+      assistant: {
+        content: [{ type: "text", text: "persisted" }],
+        providerEncoding: {
+          format: "fake.encoding",
+          formatVersion: 1,
+          payload: { encoded: true }
+        }
       }
-    }));
+    });
 
     const firstStore = openSqliteHarnessStore({ path: dbPath });
     const service = new HarnessService(new HarnessKernel({ store: firstStore, models: [model] }));
     const conversation = await service.createConversation({ profileConfig: recordingProfile });
     await service.send(conversation.id, [{ type: "text", text: "persist me" }]);
+    const assistant = (await service.listItems(conversation.id)).find((item) => item.kind === "assistant_message");
     firstStore.close();
 
     const reopened = openSqliteHarnessStore({ path: dbPath });
@@ -45,11 +46,18 @@ describe("SQLite conversation store persistence", () => {
       expect(await reopened.listConversationItems(conversation.id)).toHaveLength(4);
       expect(await reopened.listAgentRuns(conversation.id)).toMatchObject([{ status: "completed" }]);
       expect(await reopened.listContextBuilds(conversation.id)).toHaveLength(1);
-      expect(await reopened.getLatestProviderState(conversation.id)).toMatchObject({
+      expect(await reopened.listProviderEncodingsForItems({
+        conversationId: conversation.id,
+        itemIds: assistant ? [assistant.id] : [],
         provider: "fake",
         adapter: "recording",
         modelId: "recording"
-      });
+      })).toMatchObject([{
+        provider: "fake",
+        adapter: "recording",
+        modelId: "recording",
+        format: "fake.encoding"
+      }]);
     } finally {
       reopened.close();
     }

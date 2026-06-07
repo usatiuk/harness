@@ -1,11 +1,9 @@
 import OpenAI from "openai";
 import type { OpenAIChatGptAuthManager, OpenAIChatGptSession } from "@harness/auth-openai";
 import {
-  OpenAIResponsesSdkAdapter,
-  type OpenAIResponsesClient
+  OpenAIResponsesSdkAdapter
 } from "@harness/model-openai-common";
 
-export const SOURCE_FIRST_MARKER = "harness:model-openai-chatgpt:src";
 export const OPENAI_CHATGPT_PROVIDER = "openai-chatgpt";
 export const OPENAI_CHATGPT_CODEX_RESPONSES_ADAPTER_ID = "codex-responses";
 export const DEFAULT_OPENAI_CHATGPT_MODEL = "gpt-5.5";
@@ -15,22 +13,21 @@ export type OpenAIChatGptClientOptions = ConstructorParameters<typeof OpenAI>[0]
 
 export interface OpenAIChatGptResponsesModelAdapterOptions {
   auth: OpenAIChatGptAuthManager;
-  clientFactory?: (session: OpenAIChatGptSession, options: OpenAIChatGptClientOptions) => OpenAIResponsesClient;
+  createClient?: (session: OpenAIChatGptSession, options: OpenAIChatGptClientOptions) => OpenAI;
   defaultModel?: string;
   baseUrl?: string;
-  stream?: boolean;
   userAgent?: string;
 }
 
 export class OpenAIChatGptResponsesModelAdapter extends OpenAIResponsesSdkAdapter {
   public constructor(options: OpenAIChatGptResponsesModelAdapterOptions) {
-    const createClient = async (forceRefresh = false): Promise<OpenAIResponsesClient> => {
+    const createClient = async (forceRefresh = false): Promise<OpenAI> => {
       const session = await options.auth.getValidSession(forceRefresh ? { forceRefresh: true } : {});
       const clientOptions = buildOpenAIChatGptClientOptions(session, {
         ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
         ...(options.userAgent ? { userAgent: options.userAgent } : {})
       });
-      return options.clientFactory?.(session, clientOptions) ?? new OpenAI(clientOptions);
+      return options.createClient?.(session, clientOptions) ?? new OpenAI(clientOptions);
     };
 
     super({
@@ -38,9 +35,8 @@ export class OpenAIChatGptResponsesModelAdapter extends OpenAIResponsesSdkAdapte
       adapterId: OPENAI_CHATGPT_CODEX_RESPONSES_ADAPTER_ID,
       defaultModel: options.defaultModel ?? process.env.HARNESS_MODEL ?? DEFAULT_OPENAI_CHATGPT_MODEL,
       label: "OpenAI ChatGPT Codex Responses adapter",
-      clientFactory: () => createClient(false),
-      retryClientFactory: () => createClient(true),
-      ...(options.stream === undefined ? {} : { stream: options.stream })
+      client: () => createClient(false),
+      refreshClientAfterUnauthorized: () => createClient(true)
     });
   }
 }

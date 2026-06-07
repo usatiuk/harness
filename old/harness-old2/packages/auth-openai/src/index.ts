@@ -5,7 +5,6 @@ import path from "node:path";
 import { platform } from "node:os";
 import { Entry } from "@napi-rs/keyring";
 
-export const SOURCE_FIRST_MARKER = "harness:auth-openai:src";
 export const OPENAI_CHATGPT_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 export const OPENAI_AUTH_ISSUER = "https://auth.openai.com";
 export const OPENAI_CHATGPT_AUTH_KIND = "openai_chatgpt_oauth";

@@ -1,15 +1,11 @@
-import type { ModelCapabilities, ModelConfig, ModelStepInput, ModelStepResult } from "@harness/protocol";
-
-export interface ModelOutputObserver {
-  onTextDelta?(delta: string): void | Promise<void>;
-}
+import type { ModelCapabilities, ModelConfig, ModelFinalResponseDraft, ModelRequest, ModelStreamEventDraft } from "@harness/protocol";
 
 export interface ModelAdapter {
   id: string;
   provider: string;
   capabilities(): ModelCapabilities;
   validateModelConfig(config: ModelConfig): void;
-  step(input: ModelStepInput, observer?: ModelOutputObserver): Promise<ModelStepResult>;
+  stream(input: ModelRequest): AsyncIterable<ModelStreamEventDraft>;
 }
 
 export class ModelRegistry {
@@ -44,14 +40,31 @@ export class EchoModelAdapter implements ModelAdapter {
     }
   }
 
-  public async step(input: ModelStepInput): Promise<ModelStepResult> {
-    const text = input.messages.flatMap((message) => message.content)
+  public async *stream(input: ModelRequest): AsyncIterable<ModelStreamEventDraft> {
+    const text = [...input.instructions, ...input.items.flatMap((contextItem) => contextItem.item.content)]
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("\n");
-    return {
-      content: [{ type: "text", text: text.length > 0 ? `echo: ${text}` : "echo" }],
-      metadata: { adapter: "fake" }
-    };
+    yield* finalResponseEvents({
+      assistant: {
+        content: [{ type: "text", text: text.length > 0 ? `echo: ${text}` : "echo" }],
+        metadata: { adapter: "fake" }
+      }
+    });
   }
+}
+
+export function finalResponseEvents(response: ModelFinalResponseDraft): ModelStreamEventDraft[] {
+  const text = renderText(response.assistant.content);
+  return [
+    ...(text.length > 0 ? [{ type: "text_delta" as const, delta: text }] : []),
+    { type: "completed", response }
+  ];
+}
+
+function renderText(blocks: ModelFinalResponseDraft["assistant"]["content"]): string {
+  return blocks
+    .map((block) => block.type === "text" ? block.text : JSON.stringify(block.data))
+    .filter((text) => text.length > 0)
+    .join("\n");
 }

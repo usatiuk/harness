@@ -6,13 +6,9 @@ import {
   conversationItemSchema,
   conversationRecordSchema,
   profileRecordSchema,
-  providerStateSchema,
+  providerEncodingSchema,
   type AgentRunRecord,
-  type AgentRunStatus,
   type ConversationItem,
-  type ConversationItemClass,
-  type ConversationItemKind,
-  type ConversationItemVisibility,
   type ConversationRecord,
   type ContentBlock,
   type ContextBuild,
@@ -22,14 +18,20 @@ import {
   type ModelConfig,
   type ProfileConfig,
   type ProfileRecord,
-  type ProviderState,
-  type SourceRef
+  type ProviderEncoding,
+  type ProviderEventPayload
 } from "@harness/protocol";
 import { createId, nowIso, type HarnessStore } from "@harness/core";
 
 export interface SqliteHarnessStoreOptions {
   path: string;
 }
+
+type AppendConversationItemInput = Parameters<HarnessStore["appendConversationItem"]>[0];
+type UpdateAgentRunInput = Parameters<HarnessStore["updateAgentRun"]>[0];
+type CreateProviderEncodingInput = Parameters<HarnessStore["createProviderEncoding"]>[0];
+type CommitAssistantResponseInput = Parameters<HarnessStore["commitAssistantResponse"]>[0];
+type CommitAssistantResponseResult = Awaited<ReturnType<HarnessStore["commitAssistantResponse"]>>;
 
 export function openSqliteHarnessStore(options: SqliteHarnessStoreOptions): SqliteHarnessStore {
   return new SqliteHarnessStore(options);
@@ -107,47 +109,13 @@ export class SqliteHarnessStore implements HarnessStore {
     return conversationRecordSchema.parse(rowToConversation(this.one("select * from conversations where id = ?", [input.id])));
   }
 
-  public async appendConversationItem(input: {
-    id?: string;
-    conversationId: string;
-    class: ConversationItemClass;
-    kind: ConversationItemKind;
-    role?: MessageRole;
-    visibility: ConversationItemVisibility;
-    runId?: string;
-    source?: SourceRef;
-    content: ContentBlock[];
-    data?: JsonValue;
-  }): Promise<ConversationItem> {
-    const id = input.id ?? createId("item");
-    const timestamp = nowIso();
-    const sequence = this.transaction(() => {
-      const next = Number(this.one("select coalesce(max(sequence), 0) + 1 as sequence from conversation_items where conversation_id = ?", [input.conversationId]).sequence);
-      this.db.prepare(
-        "insert into conversation_items (id, conversation_id, sequence, item_class, kind, role, visibility, run_id, source_type, source_id, content_json, data_json, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(
-        id,
-        input.conversationId,
-        next,
-        input.class,
-        input.kind,
-        input.role ?? null,
-        input.visibility,
-        input.runId ?? null,
-        input.source?.type ?? null,
-        input.source?.id ?? null,
-        encode(input.content),
-        input.data === undefined ? null : encode(input.data),
-        timestamp
-      );
-      return next;
-    });
-    return conversationItemSchema.parse(rowToConversationItem(this.one("select * from conversation_items where conversation_id = ? and sequence = ?", [input.conversationId, sequence])));
+  public async appendConversationItem(input: AppendConversationItemInput): Promise<ConversationItem> {
+    return this.transaction(() => this.appendConversationItemInTransaction(input));
   }
 
   public async listConversationItems(conversationId: string, input: { after?: number; limit?: number } = {}): Promise<ConversationItem[]> {
     const after = input.after ?? 0;
-    const limit = input.limit ?? 1000;
+    const limit = input.limit ?? -1;
     return this.all("select * from conversation_items where conversation_id = ? and sequence > ? order by sequence asc limit ?", [conversationId, after, limit])
       .map((row) => conversationItemSchema.parse(rowToConversationItem(row)));
   }
@@ -160,8 +128,8 @@ export class SqliteHarnessStore implements HarnessStore {
     const id = input.id ?? createId("run");
     const timestamp = nowIso();
     this.db.prepare(
-      "insert into agent_runs (id, conversation_id, status, started_through_item_sequence, completed_through_item_sequence, model_config_json, provider_state_id, error_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(id, input.conversationId, "running", input.startedThroughItemSequence, null, encode(input.modelConfig), null, null, timestamp, timestamp);
+      "insert into agent_runs (id, conversation_id, status, started_through_item_sequence, completed_through_item_sequence, model_config_json, error_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(id, input.conversationId, "running", input.startedThroughItemSequence, null, encode(input.modelConfig), null, timestamp, timestamp);
     return agentRunRecordSchema.parse(rowToAgentRun(this.one("select * from agent_runs where id = ?", [id])));
   }
 
@@ -179,20 +147,52 @@ export class SqliteHarnessStore implements HarnessStore {
     return this.all("select * from agent_runs where conversation_id = ? order by created_at asc", [conversationId]).map((row) => agentRunRecordSchema.parse(rowToAgentRun(row)));
   }
 
-  public async updateAgentRun(input: { id: string; status?: AgentRunStatus; completedThroughItemSequence?: number; providerStateId?: string; error?: JsonValue }): Promise<AgentRunRecord> {
-    const current = await this.getAgentRun(input.id);
-    if (!current) {
-      throw new Error(`Agent run ${input.id} not found`);
-    }
-    this.db.prepare("update agent_runs set status = ?, completed_through_item_sequence = ?, provider_state_id = ?, error_json = ?, updated_at = ? where id = ?").run(
-      input.status ?? current.status,
-      input.completedThroughItemSequence ?? current.completedThroughItemSequence ?? null,
-      input.providerStateId ?? current.providerStateId ?? null,
-      input.error !== undefined ? encode(input.error) : (current.error === undefined ? null : encode(current.error)),
-      nowIso(),
-      input.id
-    );
-    return agentRunRecordSchema.parse(rowToAgentRun(this.one("select * from agent_runs where id = ?", [input.id])));
+  public async updateAgentRun(input: UpdateAgentRunInput): Promise<AgentRunRecord> {
+    return this.transaction(() => this.updateAgentRunInTransaction(input));
+  }
+
+  public async commitAssistantResponse(input: CommitAssistantResponseInput): Promise<CommitAssistantResponseResult> {
+    return this.transaction(() => {
+      const currentRun = agentRunRecordSchema.parse(rowToAgentRun(this.one("select * from agent_runs where id = ? and conversation_id = ?", [input.runId, input.conversationId])));
+      if (currentRun.status !== "running") {
+        throw new Error(`Agent run ${input.runId} is ${currentRun.status}`);
+      }
+      const assistantItem = this.appendConversationItemInTransaction({
+        conversationId: input.conversationId,
+        class: "transcript",
+        kind: "assistant_message",
+        role: "assistant",
+        visibility: "model",
+        runId: input.runId,
+        content: input.content,
+        ...(input.data !== undefined ? { data: input.data } : {})
+      });
+      const providerEventItems = input.providerEvents.map((event) => this.appendProviderEventInTransaction(input.conversationId, input.runId, event));
+      const providerEncoding = input.providerEncoding
+        ? this.createProviderEncodingInTransaction({
+            conversationId: input.conversationId,
+            itemId: assistantItem.id,
+            itemSequence: assistantItem.sequence,
+            provider: input.modelConfig.provider,
+            adapter: input.modelConfig.adapter,
+            modelId: input.modelConfig.modelId,
+            format: input.providerEncoding.format,
+            formatVersion: input.providerEncoding.formatVersion,
+            payload: input.providerEncoding.payload
+          })
+        : undefined;
+      const run = this.updateAgentRunInTransaction({
+        id: input.runId,
+        status: "completed",
+        completedThroughItemSequence: this.latestItemSequence(input.conversationId)
+      });
+      return {
+        assistantItem,
+        providerEventItems,
+        ...(providerEncoding ? { providerEncoding } : {}),
+        run
+      };
+    });
   }
 
   public async createContextProjection(input: {
@@ -254,36 +254,91 @@ export class SqliteHarnessStore implements HarnessStore {
     return this.all("select * from context_builds where conversation_id = ? order by created_at asc", [conversationId]).map((row) => contextBuildSchema.parse(rowToContextBuild(row)));
   }
 
-  public async createProviderState(input: {
-    id?: string;
-    conversationId: string;
-    provider: string;
-    adapter: string;
-    modelId: string;
-    payloadVersion: number;
-    payload: JsonValue;
-    producedThroughItemSequence: number;
-    referencedItemSequences: number[];
-  }): Promise<ProviderState> {
-    const id = input.id ?? createId("pstate");
-    this.db.prepare("insert into provider_states (id, conversation_id, provider, adapter, model_id, payload_version, payload_json, produced_through_item_sequence, referenced_item_sequences_json, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+  public async createProviderEncoding(input: CreateProviderEncodingInput): Promise<ProviderEncoding> {
+    return this.transaction(() => this.createProviderEncodingInTransaction(input));
+  }
+
+  private appendConversationItemInTransaction(input: AppendConversationItemInput): ConversationItem {
+    const id = input.id ?? createId("item");
+    const timestamp = nowIso();
+    const sequence = this.latestItemSequence(input.conversationId) + 1;
+    this.db.prepare(
+      "insert into conversation_items (id, conversation_id, sequence, item_class, kind, role, visibility, run_id, source_type, source_id, content_json, data_json, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(
       id,
       input.conversationId,
+      sequence,
+      input.class,
+      input.kind,
+      input.role ?? null,
+      input.visibility,
+      input.runId ?? null,
+      input.source?.type ?? null,
+      input.source?.id ?? null,
+      encode(input.content),
+      input.data === undefined ? null : encode(input.data),
+      timestamp
+    );
+    return conversationItemSchema.parse(rowToConversationItem(this.one("select * from conversation_items where conversation_id = ? and sequence = ?", [input.conversationId, sequence])));
+  }
+
+  private appendProviderEventInTransaction(conversationId: string, runId: string, event: ProviderEventPayload): ConversationItem {
+    return this.appendConversationItemInTransaction({
+      conversationId,
+      class: "provider",
+      kind: "provider_event",
+      visibility: "audit",
+      runId,
+      content: [{ type: "data", label: event.kind, data: event.normalized }],
+      data: event as unknown as JsonValue
+    });
+  }
+
+  private updateAgentRunInTransaction(input: UpdateAgentRunInput): AgentRunRecord {
+    const current = agentRunRecordSchema.parse(rowToAgentRun(this.one("select * from agent_runs where id = ?", [input.id])));
+    this.db.prepare("update agent_runs set status = ?, completed_through_item_sequence = ?, error_json = ?, updated_at = ? where id = ?").run(
+      input.status ?? current.status,
+      input.completedThroughItemSequence ?? current.completedThroughItemSequence ?? null,
+      input.error !== undefined ? encode(input.error) : (current.error === undefined ? null : encode(current.error)),
+      nowIso(),
+      input.id
+    );
+    return agentRunRecordSchema.parse(rowToAgentRun(this.one("select * from agent_runs where id = ?", [input.id])));
+  }
+
+  private createProviderEncodingInTransaction(input: CreateProviderEncodingInput): ProviderEncoding {
+    const id = input.id ?? createId("penc");
+    this.db.prepare("insert into provider_encodings (id, conversation_id, item_id, item_sequence, provider, adapter, model_id, format, format_version, payload_json, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+      id,
+      input.conversationId,
+      input.itemId,
+      input.itemSequence,
       input.provider,
       input.adapter,
       input.modelId,
-      input.payloadVersion,
+      input.format,
+      input.formatVersion,
       encode(input.payload),
-      input.producedThroughItemSequence,
-      encode(input.referencedItemSequences),
       nowIso()
     );
-    return providerStateSchema.parse(rowToProviderState(this.one("select * from provider_states where id = ?", [id])));
+    return providerEncodingSchema.parse(rowToProviderEncoding(this.one("select * from provider_encodings where id = ?", [id])));
   }
 
-  public async getLatestProviderState(conversationId: string): Promise<ProviderState | undefined> {
-    const row = this.oneOptional("select * from provider_states where conversation_id = ? order by created_at desc limit 1", [conversationId]);
-    return row ? providerStateSchema.parse(rowToProviderState(row)) : undefined;
+  public async listProviderEncodingsForItems(input: {
+    conversationId: string;
+    itemIds: string[];
+    provider: string;
+    adapter: string;
+    modelId: string;
+  }): Promise<ProviderEncoding[]> {
+    if (input.itemIds.length === 0) {
+      return [];
+    }
+    const placeholders = input.itemIds.map(() => "?").join(", ");
+    return this.all(
+      `select * from provider_encodings where conversation_id = ? and provider = ? and adapter = ? and model_id = ? and item_id in (${placeholders}) order by item_sequence asc, created_at desc`,
+      [input.conversationId, input.provider, input.adapter, input.modelId, ...input.itemIds]
+    ).map((row) => providerEncodingSchema.parse(rowToProviderEncoding(row)));
   }
 
   private migrate(): void {
@@ -333,7 +388,6 @@ export class SqliteHarnessStore implements HarnessStore {
         started_through_item_sequence integer not null,
         completed_through_item_sequence integer,
         model_config_json text not null,
-        provider_state_id text references provider_states(id),
         error_json text,
         created_at text not null,
         updated_at text not null
@@ -362,24 +416,30 @@ export class SqliteHarnessStore implements HarnessStore {
         diagnostics_json text not null,
         created_at text not null
       );
-      create table if not exists provider_states (
+      create table if not exists provider_encodings (
         id text primary key not null,
         conversation_id text not null references conversations(id) on delete cascade,
+        item_id text not null references conversation_items(id) on delete cascade,
+        item_sequence integer not null,
         provider text not null,
         adapter text not null,
         model_id text not null,
-        payload_version integer not null,
+        format text not null,
+        format_version integer not null,
         payload_json text not null,
-        produced_through_item_sequence integer not null,
-        referenced_item_sequences_json text not null,
-        created_at text not null
+        created_at text not null,
+        unique(item_id, provider, adapter, model_id, format, format_version)
       );
-      create index if not exists provider_states_conversation_idx on provider_states (conversation_id, created_at);
+      create index if not exists provider_encodings_lookup_idx on provider_encodings (conversation_id, provider, adapter, model_id, item_sequence);
     `);
   }
 
   private transaction<T>(fn: () => T): T {
     return this.db.transaction(fn)();
+  }
+
+  private latestItemSequence(conversationId: string): number {
+    return Number(this.one("select coalesce(max(sequence), 0) as sequence from conversation_items where conversation_id = ?", [conversationId]).sequence);
   }
 
   private one(sql: string, values: unknown[] = []): Record<string, unknown> {
@@ -480,7 +540,6 @@ function rowToAgentRun(row: Record<string, unknown>): unknown {
     startedThroughItemSequence: numberField(row, "started_through_item_sequence"),
     completedThroughItemSequence: row.completed_through_item_sequence === null ? undefined : numberField(row, "completed_through_item_sequence"),
     modelConfig: JSON.parse(stringField(row, "model_config_json")),
-    providerStateId: nullableString(row, "provider_state_id"),
     error: nullableJson(row, "error_json"),
     createdAt: stringField(row, "created_at"),
     updatedAt: stringField(row, "updated_at")
@@ -515,17 +574,18 @@ function rowToContextBuild(row: Record<string, unknown>): unknown {
   });
 }
 
-function rowToProviderState(row: Record<string, unknown>): unknown {
+function rowToProviderEncoding(row: Record<string, unknown>): unknown {
   return {
     id: stringField(row, "id"),
     conversationId: stringField(row, "conversation_id"),
+    itemId: stringField(row, "item_id"),
+    itemSequence: numberField(row, "item_sequence"),
     provider: stringField(row, "provider"),
     adapter: stringField(row, "adapter"),
     modelId: stringField(row, "model_id"),
-    payloadVersion: numberField(row, "payload_version"),
+    format: stringField(row, "format"),
+    formatVersion: numberField(row, "format_version"),
     payload: JSON.parse(stringField(row, "payload_json")),
-    producedThroughItemSequence: numberField(row, "produced_through_item_sequence"),
-    referencedItemSequences: JSON.parse(stringField(row, "referenced_item_sequences_json")),
     createdAt: stringField(row, "created_at")
   };
 }

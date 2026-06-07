@@ -1,12 +1,12 @@
 import type {
+  ConversationItem,
   ContentBlock,
-  ContextProjection,
-  JsonValue,
   ModelConfig,
-  ModelContextMessage,
-  ModelStepInput,
-  ProviderState
+  ModelContextItem,
+  ModelRequest,
+  ProviderEncoding
 } from "@harness/protocol";
+import { wasRunInterrupted } from "./run-state.ts";
 import type { HarnessStore } from "./store.ts";
 
 export const DEFAULT_CONTEXT_POLICY_ID = "deterministic-v0";
@@ -19,46 +19,44 @@ export class ContextBuilder {
     runId: string;
     modelConfig: ModelConfig;
     promptFragments: string[];
-  }): Promise<ModelStepInput> {
-    const items = await this.store.listConversationItems(input.conversationId);
+  }): Promise<ModelRequest> {
+    const allItems = await this.store.listConversationItems(input.conversationId);
     const projections = await this.store.listContextProjections(input.conversationId);
     const projection = projections.at(-1);
     const coveredThrough = projection?.coversThroughItemSequence;
     const abandonedSequences = await this.abandonedInputSequences(input.conversationId);
-    const transcriptItems = items.filter((item) =>
+
+    const selectedItems: ConversationItem[] = [];
+    const projectionItem = projection ? allItems.find((item) => item.id === projection.itemId) : undefined;
+    if (projectionItem) {
+      selectedItems.push(projectionItem);
+    }
+    selectedItems.push(...allItems.filter((item) =>
       item.class === "transcript" &&
       item.visibility === "model" &&
       (coveredThrough === undefined || item.sequence > coveredThrough) &&
       !abandonedSequences.has(item.sequence) &&
       item.role !== undefined
-    );
-    const messages: ModelContextMessage[] = [];
-    const selectedItemIds: string[] = [];
-    const selectedItemSequences: number[] = [];
+    ));
 
-    const systemFragments: ContentBlock[] = input.promptFragments.map((text) => ({ type: "text", text }));
-    if (projection) {
-      systemFragments.push(...projection.content);
-      selectedItemIds.push(projection.itemId);
-    }
-    if (systemFragments.length > 0) {
-      messages.push({ role: "system", content: systemFragments, metadata: { source: "system" } });
-    }
+    const selectedItemIds = selectedItems.map((item) => item.id);
+    const selectedItemSequences = selectedItems.map((item) => item.sequence);
+    const providerEncodings = await this.store.listProviderEncodingsForItems({
+      conversationId: input.conversationId,
+      itemIds: selectedItemIds,
+      provider: input.modelConfig.provider,
+      adapter: input.modelConfig.adapter,
+      modelId: input.modelConfig.modelId
+    });
+    const encodingByItemId = firstEncodingByItemId(providerEncodings);
+    const contextItems: ModelContextItem[] = selectedItems.map((item) => {
+      const providerEncoding = encodingByItemId.get(item.id);
+      return {
+        item,
+        ...(providerEncoding ? { providerEncoding } : {})
+      };
+    });
 
-    for (const item of transcriptItems) {
-      if (!item.role) {
-        continue;
-      }
-      messages.push({
-        role: item.role,
-        content: item.content,
-        metadata: { itemId: item.id, sequence: item.sequence }
-      });
-      selectedItemIds.push(item.id);
-      selectedItemSequences.push(item.sequence);
-    }
-
-    const providerState = this.providerStateForPrompt(input.modelConfig, await this.store.getLatestProviderState(input.conversationId), selectedItemSequences, projection);
     const contextBuild = await this.store.createContextBuild({
       conversationId: input.conversationId,
       runId: input.runId,
@@ -67,9 +65,10 @@ export class ContextBuilder {
       selectedItemIds,
       selectedItemSequences,
       diagnostics: {
-        selectedTranscriptItemCount: transcriptItems.length,
+        selectedItemCount: selectedItems.length,
+        selectedTranscriptItemCount: selectedItems.filter((item) => item.class === "transcript").length,
         projectionSequence: projection?.coversThroughItemSequence ?? null,
-        providerStateSelected: providerState !== undefined
+        providerEncodingCount: contextItems.filter((item) => item.providerEncoding !== undefined).length
       }
     });
     return {
@@ -77,37 +76,15 @@ export class ContextBuilder {
       runId: input.runId,
       contextBuildId: contextBuild.id,
       modelConfig: input.modelConfig,
-      messages,
-      ...(providerState ? { providerState } : {})
+      instructions: input.promptFragments.map((text) => ({ type: "text", text })),
+      items: contextItems
     };
-  }
-
-  private providerStateForPrompt(
-    modelConfig: ModelConfig,
-    providerState: ProviderState | undefined,
-    selectedSequences: number[],
-    projection: ContextProjection | undefined
-  ): ProviderState | undefined {
-    if (!providerState) {
-      return undefined;
-    }
-    if (providerState.provider !== modelConfig.provider || providerState.adapter !== modelConfig.adapter || providerState.modelId !== modelConfig.modelId) {
-      return undefined;
-    }
-    if (projection && providerState.referencedItemSequences.some((sequence) => sequence <= projection.coversThroughItemSequence)) {
-      return undefined;
-    }
-    const selected = new Set(selectedSequences);
-    if (!providerState.referencedItemSequences.every((sequence) => selected.has(sequence))) {
-      return undefined;
-    }
-    return providerState;
   }
 
   private async abandonedInputSequences(conversationId: string): Promise<Set<number>> {
     const cancelledRunIds = new Set(
       (await this.store.listAgentRuns(conversationId))
-        .filter((run) => run.status === "cancelled" && wasInterrupted(run.error))
+        .filter((run) => run.status === "cancelled" && wasRunInterrupted(run.error))
         .map((run) => run.id)
     );
     if (cancelledRunIds.size === 0) {
@@ -139,6 +116,12 @@ export function summarizeItemsForProjection(items: Array<{ role: string | undefi
   return [{ type: "text", text: `Conversation summary through sequence ${items.at(-1)?.sequence ?? 0}:\n${lines.join("\n").slice(0, 6000)}` }];
 }
 
-function wasInterrupted(value: JsonValue | undefined): boolean {
-  return typeof value === "object" && value !== null && !Array.isArray(value) && value.interrupted === true;
+function firstEncodingByItemId(encodings: ProviderEncoding[]): Map<string, ProviderEncoding> {
+  const byItemId = new Map<string, ProviderEncoding>();
+  for (const encoding of encodings) {
+    if (!byItemId.has(encoding.itemId)) {
+      byItemId.set(encoding.itemId, encoding);
+    }
+  }
+  return byItemId;
 }

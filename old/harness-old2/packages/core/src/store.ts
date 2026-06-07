@@ -1,7 +1,6 @@
 import type {
   AgentRunRecord,
   AgentRunStatus,
-  ConversationInputDelivery,
   ConversationItem,
   ConversationItemClass,
   ConversationItemKind,
@@ -15,7 +14,9 @@ import type {
   ModelConfig,
   ProfileConfig,
   ProfileRecord,
-  ProviderState,
+  ProviderEncoding,
+  ProviderEncodingDraft,
+  ProviderEventPayload,
   SourceRef
 } from "@harness/protocol";
 
@@ -59,9 +60,22 @@ export interface HarnessStore {
     id: string;
     status?: AgentRunStatus;
     completedThroughItemSequence?: number;
-    providerStateId?: string;
     error?: JsonValue;
   }): Promise<AgentRunRecord>;
+  commitAssistantResponse(input: {
+    conversationId: string;
+    runId: string;
+    modelConfig: ModelConfig;
+    content: ContentBlock[];
+    data?: JsonValue;
+    providerEvents: ProviderEventPayload[];
+    providerEncoding?: ProviderEncodingDraft;
+  }): Promise<{
+    assistantItem: ConversationItem;
+    providerEventItems: ConversationItem[];
+    providerEncoding?: ProviderEncoding;
+    run: AgentRunRecord;
+  }>;
 
   createContextProjection(input: {
     id?: string;
@@ -87,20 +101,23 @@ export interface HarnessStore {
   }): Promise<ContextBuild>;
   listContextBuilds(conversationId: string): Promise<ContextBuild[]>;
 
-  createProviderState(input: {
+  createProviderEncoding(input: {
     id?: string;
     conversationId: string;
+    itemId: string;
+    itemSequence: number;
     provider: string;
     adapter: string;
     modelId: string;
-    payloadVersion: number;
+    format: string;
+    formatVersion: number;
     payload: JsonValue;
-    producedThroughItemSequence: number;
-    referencedItemSequences: number[];
-  }): Promise<ProviderState>;
-  getLatestProviderState(conversationId: string): Promise<ProviderState | undefined>;
-}
-
-export function deliveryData(delivery: ConversationInputDelivery): JsonValue {
-  return { delivery };
+  }): Promise<ProviderEncoding>;
+  listProviderEncodingsForItems(input: {
+    conversationId: string;
+    itemIds: string[];
+    provider: string;
+    adapter: string;
+    modelId: string;
+  }): Promise<ProviderEncoding[]>;
 }
