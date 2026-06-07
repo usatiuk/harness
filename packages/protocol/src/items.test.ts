@@ -8,6 +8,7 @@ describe("itemSchema", () => {
       conversationId: "c1",
       turnId: "t1",
       seq: 0,
+      parent: null,
       createdAt: 0,
       type: "tool_result",
       callId: "call1",

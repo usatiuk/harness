@@ -5,6 +5,9 @@ import type {
   DeliveryInput,
   HarnessEvent,
   Item,
+  ModelProvider,
+  ModelRequest,
+  ModelStreamEvent,
   Plugin,
   Tool,
   ToolMiddleware,
@@ -693,6 +696,73 @@ describe("Engine — request/respond", () => {
 
     // A late respond for the cancelled request is a harmless no-op.
     expect(() => engine.respond(conv.id, "req_1", { decision: "allow" })).not.toThrow();
+  });
+});
+
+/** Wraps a FakeProvider, recording the ModelRequest each step is asked to stream. */
+class RecordingProvider implements ModelProvider {
+  readonly provider = "fake";
+  readonly requests: ModelRequest[] = [];
+  readonly #inner: FakeProvider;
+
+  constructor(steps: FakeStep[]) {
+    this.#inner = new FakeProvider(steps);
+  }
+
+  capabilities() {
+    return this.#inner.capabilities();
+  }
+
+  validateConfig(): void {}
+
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
+    this.requests.push(request);
+    yield* this.#inner.stream();
+  }
+}
+
+describe("Engine — rewind", () => {
+  it("rewinds to an earlier item; the next turn branches off the abandoned tail", async () => {
+    const provider = new RecordingProvider([textStep("one"), textStep("two"), textStep("three")]);
+    const { store, engine } = setup([], { providers: () => [provider] });
+    const conv = await store.createConversation({ config: CONFIG });
+
+    await engine.deliver(conv.id, userInput("first"));
+    await engine.whenIdle(conv.id);
+    const afterTurn1 = await store.listActiveItems(conv.id);
+    const rewindTarget = afterTurn1[afterTurn1.length - 1]!; // assistant "one"
+
+    await engine.deliver(conv.id, userInput("second"));
+    await engine.whenIdle(conv.id);
+
+    await engine.rewind(conv.id, rewindTarget.id);
+    await engine.deliver(conv.id, userInput("third"));
+    await engine.whenIdle(conv.id);
+
+    // The active chain branched off turn 1: the turn-2 items are gone from context,
+    // but the raw log still retains them.
+    expect(userTexts(await store.listActiveItems(conv.id))).toEqual(["first", "third"]);
+    expect(userTexts(await store.listItems(conv.id))).toEqual(["first", "second", "third"]);
+
+    // The post-rewind request never saw the abandoned branch.
+    const lastRequest = provider.requests.at(-1)!;
+    expect(userTexts(lastRequest.items.map((i) => i.item))).toEqual(["first", "third"]);
+  });
+
+  it("refuses to rewind while a turn is running", async () => {
+    const gate = new GateTool();
+    const { store, engine } = setup([toolStep("c1", "gate", {}), textStep("done")], {
+      tools: () => [gate],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await gate.started;
+
+    const [userMsg] = await store.listActiveItems(conv.id);
+    await expect(engine.rewind(conv.id, userMsg!.id)).rejects.toThrow(/running/);
+
+    gate.release();
+    await engine.whenIdle(conv.id);
   });
 });
 

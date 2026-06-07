@@ -4,6 +4,7 @@ import type {
   ConversationId,
   DeliveryIntent,
   HarnessEvent,
+  ItemId,
   Plugin,
   Store,
 } from "@harness/protocol";
@@ -58,6 +59,14 @@ export class HarnessService {
    */
   respond(conversationId: ConversationId, requestId: string, response: unknown): void {
     this.#engine.respond(conversationId, requestId, response);
+  }
+
+  /**
+   * Moves the conversation's head to an earlier item (linear rewind). The next
+   * `deliver` continues from there. Throws if a turn is running.
+   */
+  rewind(conversationId: ConversationId, toItemId: ItemId): Promise<void> {
+    return this.#engine.rewind(conversationId, toItemId);
   }
 
   /** Resolves when the conversation has no running or queued work. */

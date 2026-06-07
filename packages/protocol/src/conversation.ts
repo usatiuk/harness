@@ -1,4 +1,4 @@
-import type { ConversationId, TurnId } from "./ids.ts";
+import type { ConversationId, ItemId, TurnId } from "./ids.ts";
 import type { ModelConfig } from "./model.ts";
 
 export interface ConversationConfig {
@@ -10,6 +10,8 @@ export interface ConversationConfig {
 export interface Conversation {
   id: ConversationId;
   config: ConversationConfig;
+  /** Tip of the active chain; the only mutable cell. `null` until the first append. */
+  head: ItemId | null;
   createdAt: number;
 }
 

@@ -8,6 +8,7 @@ interface ItemBase {
   conversationId: ConversationId;
   turnId: TurnId;
   seq: number; // monotonic per conversation; assigned by the store on append
+  parent: ItemId | null; // prior head at append time; null for the first item
   createdAt: number; // epoch ms; assigned by the store on append
 }
 
@@ -27,14 +28,15 @@ export type Item =
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
-/** Input to append: the store assigns `id`, `seq`, and `createdAt`. */
-export type NewItem = DistributiveOmit<Item, "id" | "seq" | "createdAt">;
+/** Input to append: the store assigns `id`, `seq`, `parent`, and `createdAt`. */
+export type NewItem = DistributiveOmit<Item, "id" | "seq" | "parent" | "createdAt">;
 
 const baseShape = {
   id: z.string(),
   conversationId: z.string(),
   turnId: z.string(),
   seq: z.number().int().nonnegative(),
+  parent: z.string().nullable(),
   createdAt: z.number().int(),
 };
 

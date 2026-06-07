@@ -14,6 +14,7 @@ const item = (id: string, seq: number): Item => ({
   conversationId: "c1" as ConversationId,
   turnId: "t1" as never,
   seq,
+  parent: null,
   createdAt: 0,
   type: "message",
   role: "assistant",

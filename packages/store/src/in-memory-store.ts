@@ -43,6 +43,7 @@ export class InMemoryStore implements Store {
     const conversation: Conversation = {
       id: this.ids.conversationId(),
       config: input.config,
+      head: null,
       createdAt: this.clock.now(),
     };
     this.#conversations.set(conversation.id, conversation);
@@ -59,13 +60,16 @@ export class InMemoryStore implements Store {
     if (!log) {
       throw new Error(`unknown conversation: ${input.conversationId}`);
     }
+    const conversation = this.#conversations.get(input.conversationId)!;
     const item: Item = {
       ...input,
       id: this.ids.itemId(),
       seq: log.length,
+      parent: conversation.head,
       createdAt: this.clock.now(),
     };
     log.push(item);
+    this.#conversations.set(conversation.id, { ...conversation, head: item.id });
     return item;
   }
 
@@ -74,6 +78,32 @@ export class InMemoryStore implements Store {
     const from = range?.fromSeq ?? 0;
     const to = range?.toSeq ?? Number.POSITIVE_INFINITY;
     return log.filter((i) => i.seq >= from && i.seq <= to);
+  }
+
+  async setHead(conversationId: ConversationId, itemId: ItemId): Promise<void> {
+    const conversation = this.#conversations.get(conversationId);
+    if (!conversation) {
+      throw new Error(`unknown conversation: ${conversationId}`);
+    }
+    const log = this.#items.get(conversationId) ?? [];
+    if (!log.some((i) => i.id === itemId)) {
+      throw new Error(`item ${itemId} is not in conversation ${conversationId}`);
+    }
+    this.#conversations.set(conversationId, { ...conversation, head: itemId });
+  }
+
+  async listActiveItems(conversationId: ConversationId): Promise<Item[]> {
+    const conversation = this.#conversations.get(conversationId);
+    const log = this.#items.get(conversationId) ?? [];
+    const byId = new Map(log.map((i) => [i.id, i]));
+    const chain: Item[] = [];
+    for (let id = conversation?.head ?? null; id !== null; ) {
+      const item = byId.get(id);
+      if (!item) break;
+      chain.push(item);
+      id = item.parent;
+    }
+    return chain.reverse();
   }
 
   async createTurn(conversationId: ConversationId): Promise<Turn> {

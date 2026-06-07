@@ -16,7 +16,9 @@ export async function reconcileConversation(
   store: Store,
   conversationId: ConversationId,
 ): Promise<void> {
-  const items = await store.listItems(conversationId);
+  // Repair only the active chain: a dangling call on an abandoned branch is
+  // already off-context and need not be closed.
+  const items = await store.listActiveItems(conversationId);
 
   const answered = new Set(items.filter((i) => i.type === "tool_result").map((i) => i.callId));
   const dangling = items.filter(isToolCall).filter((call) => !answered.has(call.callId));

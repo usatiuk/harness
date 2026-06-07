@@ -31,6 +31,59 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect(items.map((i) => i.seq)).toEqual([0, 1]);
     });
 
+    it("links parent to the prior head and advances head on append", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation({ config: sampleConfig() });
+      expect(conv.head).toBeNull();
+      const turn = await store.createTurn(conv.id);
+      const a = await store.appendItem(message(conv.id, turn.id, "a"));
+      const b = await store.appendItem(message(conv.id, turn.id, "b"));
+      expect(a.parent).toBeNull();
+      expect(b.parent).toBe(a.id);
+      expect((await store.getConversation(conv.id))?.head).toBe(b.id);
+    });
+
+    it("setHead moves head and listActiveItems follows the new lineage", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation({ config: sampleConfig() });
+      const turn = await store.createTurn(conv.id);
+      const a = await store.appendItem(message(conv.id, turn.id, "a"));
+      const b = await store.appendItem(message(conv.id, turn.id, "b"));
+      expect((await store.listActiveItems(conv.id)).map((i) => i.id)).toEqual([a.id, b.id]);
+      await store.setHead(conv.id, a.id);
+      expect((await store.listActiveItems(conv.id)).map((i) => i.id)).toEqual([a.id]);
+    });
+
+    it("setHead rejects an item from another conversation", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation({ config: sampleConfig() });
+      const other = await store.createConversation({ config: sampleConfig() });
+      const turn = await store.createTurn(other.id);
+      const stray = await store.appendItem(message(other.id, turn.id, "x"));
+      await expect(store.setHead(conv.id, stray.id)).rejects.toThrow();
+    });
+
+    it("branches: the abandoned tail is off the active chain but kept in the raw log", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation({ config: sampleConfig() });
+      const turn = await store.createTurn(conv.id);
+      const a = await store.appendItem(message(conv.id, turn.id, "a"));
+      const abandoned = await store.appendItem(message(conv.id, turn.id, "abandoned"));
+      await store.setHead(conv.id, a.id);
+      const branched = await store.appendItem(message(conv.id, turn.id, "branched"));
+
+      // The new item branches off `a`, not the abandoned tail.
+      expect(branched.parent).toBe(a.id);
+      expect(branched.seq).toBeGreaterThan(abandoned.seq); // seq keeps growing across the branch
+      // Active chain skips the abandoned item; the raw log retains all three.
+      expect((await store.listActiveItems(conv.id)).map((i) => i.id)).toEqual([a.id, branched.id]);
+      expect((await store.listItems(conv.id)).map((i) => i.id)).toEqual([
+        a.id,
+        abandoned.id,
+        branched.id,
+      ]);
+    });
+
     it("listItems honors a seq range", async () => {
       const store = makeStore();
       const conv = await store.createConversation({ config: sampleConfig() });

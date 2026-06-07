@@ -93,6 +93,19 @@ export class Engine {
     this.#runtimes.get(conversationId)?.pendingRequests.get(requestId)?.resolve(response);
   }
 
+  /**
+   * Linear rewind: move the conversation's `head` to an earlier item. The next
+   * `deliver` builds from there; continuing past a rewind branches (the abandoned
+   * tail stays in the raw log). Refuses while a turn is running.
+   */
+  async rewind(conversationId: ConversationId, toItemId: ItemId): Promise<void> {
+    const runtime = await this.#runtime(conversationId);
+    if (runtime.running) {
+      throw new Error(`cannot rewind conversation ${conversationId} while a turn is running`);
+    }
+    await this.store.setHead(conversationId, toItemId);
+  }
+
   /** Resolves when the conversation's loop is idle and its inbox is drained. */
   whenIdle(conversationId: ConversationId): Promise<void> {
     return this.#runtimes.get(conversationId)?.whenIdle() ?? Promise.resolve();
@@ -426,7 +439,10 @@ export class Engine {
   }
 
   async #buildContext(conversation: Conversation): Promise<ContextBuild> {
-    const items = await this.store.listItems(conversation.id);
+    // Active chain, not raw log: after a rewind, abandoned-branch items must stay
+    // out of context. The store owns `head`; never read it off the cached
+    // `Runtime.conversation` snapshot.
+    const items = await this.store.listActiveItems(conversation.id);
     const payloadList = await this.store.getProviderPayloads(items.map((i) => i.id));
     const payloads = new Map(payloadList.map((p) => [p.itemId, p]));
     const sourceInstructions = (

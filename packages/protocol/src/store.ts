@@ -20,9 +20,18 @@ export interface Store {
   createConversation(input: NewConversation): Promise<Conversation>;
   getConversation(id: ConversationId): Promise<Conversation | undefined>;
 
-  /** Append-only. Assigns a monotonic per-conversation `seq` and `createdAt`. */
+  /**
+   * Append-only. Assigns `seq`/`createdAt`, links `parent` to the current `head`,
+   * and advances `head`. Callers never set `parent`.
+   */
   appendItem(input: NewItem): Promise<Item>;
+  /** The raw log in `seq` order (full history, including abandoned branches). */
   listItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]>;
+
+  /** Move `head` (linear rewind). Throws if `itemId` is not in the conversation. */
+  setHead(conversationId: ConversationId, itemId: ItemId): Promise<void>;
+  /** Items on `head`'s ancestor chain, in `seq` order. The context-build source. */
+  listActiveItems(conversationId: ConversationId): Promise<Item[]>;
 
   createTurn(conversationId: ConversationId): Promise<Turn>;
   updateTurn(id: TurnId, status: TurnStatus): Promise<Turn>;
