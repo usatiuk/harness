@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Event } from "@harness/protocol";
+import type { HarnessEvent } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import { EchoTool, FakeProvider, textStep, toolStep } from "@harness/testkit";
 import { HarnessService } from "./service.ts";
@@ -18,7 +18,7 @@ describe("HarnessService", () => {
       ],
     });
 
-    const events: Event[] = [];
+    const events: HarnessEvent[] = [];
     service.subscribe((e) => events.push(e));
 
     const conv = await service.createConversation({
@@ -26,6 +26,7 @@ describe("HarnessService", () => {
       model: { provider: "fake", model: "fake-1" },
     });
     await service.send(conv.id, "hello");
+    await service.whenIdle(conv.id);
 
     expect(events.map((e) => e.type)).toEqual([
       "turn.status",

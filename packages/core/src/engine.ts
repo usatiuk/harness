@@ -4,10 +4,10 @@ import {
   type ConversationId,
   type ContentBlock,
   type ContextBuild,
+  type DeliveryInput,
   type DeliveryIntent,
-  type Event,
+  type HarnessEvent,
   type ItemId,
-  type LoopBoundary,
   type ModelRequest,
   type ModelStreamEvent,
   type Observer,
@@ -18,12 +18,10 @@ import {
   type TurnId,
 } from "@harness/protocol";
 import type { PluginHost } from "./plugin-host.ts";
+import { Session, type Delivery } from "./session.ts";
+import { applyDelivery } from "./delivery.ts";
 
 const MAX_MODEL_STEPS = 100;
-
-export interface DeliveryMessage {
-  text: string;
-}
 
 const errorResult = (text: string): ToolResult => ({
   forModel: [{ type: "text", text }],
@@ -31,12 +29,16 @@ const errorResult = (text: string): ToolResult => ({
 });
 
 /**
- * The control loop: a state machine over a Turn. It advances state and, at each
- * boundary, asks the relevant policy and acts on the returned value. It contains
- * no branches on delivery *intent* — only on the action the policy returns.
+ * The control loop: per conversation, a serialized drain loop turns mailbox
+ * entries into Turns. Input arrives via `deliver`; the delivery module decides
+ * how it joins the loop; the loop itself branches only on model/tool outcomes,
+ * never on delivery intent. A turn that throws fails *that turn* and the loop
+ * continues — a single conversation never crashes the process.
  */
 export class Engine {
   readonly #observers: Observer[];
+  readonly #sessions = new Map<ConversationId, Session>();
+  readonly #loading = new Map<ConversationId, Promise<Session>>();
 
   constructor(
     private readonly store: Store,
@@ -54,64 +56,107 @@ export class Engine {
     };
   }
 
-  /** The single seam through which all input that wakes the agent flows. */
+  /**
+   * The single seam through which all input that wakes the agent flows. Returns
+   * once the input is *accepted* (queued), not once its turn completes — that is
+   * what lets input arrive while a turn is running. Await `whenIdle` for completion.
+   */
   async deliver(
     conversationId: ConversationId,
-    message: DeliveryMessage,
+    input: DeliveryInput,
     intent: DeliveryIntent = "send",
   ): Promise<void> {
-    const conversation = await this.store.getConversation(conversationId);
-    if (!conversation) {
-      throw new Error(`unknown conversation: ${conversationId}`);
-    }
-    const active = await this.store.getActiveTurn(conversationId);
-    const boundary: LoopBoundary = active ? "before-model-step" : "idle";
-    const action = this.host.policies.delivery.decide({
-      intent,
-      boundary,
-      ...(active ? { turn: active } : {}),
-    });
+    const session = await this.#session(conversationId);
+    applyDelivery(session, { input, intent });
+    this.#ensureRunning(session);
+  }
 
-    switch (action) {
-      case "start-turn":
-        await this.#runTurn(conversation, message);
-        return;
-      case "hold":
-        throw new Error("conversation is busy (queue/steer not yet supported)");
-      case "inject":
-      case "cancel-and-restart":
-        throw new Error(`delivery action '${action}' not yet supported`);
-      default:
-        return assertNever(action);
+  /** Resolves when the conversation's loop is idle and its mailbox is drained. */
+  whenIdle(conversationId: ConversationId): Promise<void> {
+    return this.#sessions.get(conversationId)?.whenIdle() ?? Promise.resolve();
+  }
+
+  /** Loads (and caches) the session, guarding against concurrent first-touch. */
+  #session(conversationId: ConversationId): Promise<Session> {
+    const existing = this.#sessions.get(conversationId);
+    if (existing) return Promise.resolve(existing);
+    let loading = this.#loading.get(conversationId);
+    if (!loading) {
+      loading = this.#loadSession(conversationId);
+      this.#loading.set(conversationId, loading);
+    }
+    return loading;
+  }
+
+  async #loadSession(conversationId: ConversationId): Promise<Session> {
+    try {
+      const conversation = await this.store.getConversation(conversationId);
+      if (!conversation) {
+        throw new Error(`unknown conversation: ${conversationId}`);
+      }
+      const session = new Session(conversation);
+      this.#sessions.set(conversationId, session);
+      return session;
+    } finally {
+      this.#loading.delete(conversationId);
     }
   }
 
-  async #runTurn(conversation: Conversation, message: DeliveryMessage): Promise<void> {
-    const conversationId = conversation.id;
-    const turn = await this.store.createTurn({ conversationId });
+  /** Starts the detached drain loop if it isn't already running. */
+  #ensureRunning(session: Session): void {
+    if (session.running) return;
+    session.running = true;
+    void this.#drain(session);
+  }
+
+  /**
+   * Pulls one delivery at a time and runs it to completion. The empty-mailbox
+   * check and `running = false` are synchronous and adjacent, so a concurrent
+   * `deliver` either appends before this point (and is drained here) or after
+   * (and restarts the loop) — never lost.
+   */
+  async #drain(session: Session): Promise<void> {
+    for (;;) {
+      const delivery = session.mailbox.shift();
+      if (delivery === undefined) {
+        session.running = false;
+        session.signalIdle();
+        return;
+      }
+      await this.#runTurn(session, delivery);
+    }
+  }
+
+  async #runTurn(session: Session, delivery: Delivery): Promise<void> {
+    const conversation = session.conversation;
+    const controller = new AbortController();
+    session.controller = controller;
+
+    const turn = await this.store.createTurn(conversation.id);
     this.#emit({ type: "turn.status", turnId: turn.id, status: "running" });
 
-    const userMessage = await this.store.appendItem({
-      conversationId,
+    const inputMessage = await this.store.appendItem({
+      conversationId: conversation.id,
       turnId: turn.id,
       type: "message",
       role: "user",
-      content: [{ type: "text", text: message.text }],
+      content: delivery.input.content,
     });
-    this.#emit({ type: "message", item: userMessage });
+    this.#emit({ type: "message", item: inputMessage });
 
     try {
-      await this.#runSteps(conversation, turn.id);
+      await this.#runSteps(conversation, turn.id, controller.signal);
+      await this.store.updateTurn(turn.id, "completed");
+      this.#emit({ type: "turn.status", turnId: turn.id, status: "completed" });
     } catch (error) {
-      await this.store.updateTurn({ id: turn.id, status: "failed" });
-      this.#emit({ type: "turn.status", turnId: turn.id, status: "failed" });
-      throw error;
+      await this.store.updateTurn(turn.id, "failed");
+      this.#emit({ type: "turn.status", turnId: turn.id, status: "failed", error: String(error) });
+    } finally {
+      session.controller = undefined;
     }
   }
 
-  async #runSteps(conversation: Conversation, turnId: TurnId): Promise<void> {
-    const controller = new AbortController();
-
+  async #runSteps(conversation: Conversation, turnId: TurnId, signal: AbortSignal): Promise<void> {
     for (let step = 0; step < MAX_MODEL_STEPS; step++) {
       const build = await this.#buildContext(conversation);
       const request: ModelRequest = {
@@ -182,7 +227,7 @@ export class Engine {
           args: call.args,
         });
 
-        const result = await this.#dispatch(call, conversation.id, controller.signal);
+        const result = await this.#dispatch(call, conversation.id, signal);
 
         await this.store.appendItem({
           conversationId: conversation.id,
@@ -208,8 +253,6 @@ export class Engine {
       }
 
       if (toolCalls.length === 0) {
-        await this.store.updateTurn({ id: turnId, status: "completed" });
-        this.#emit({ type: "turn.status", turnId, status: "completed" });
         return;
       }
     }
@@ -246,7 +289,10 @@ export class Engine {
     };
     try {
       const raw = await tool.execute(call.args, ctx);
-      return this.host.policies.output.project(raw);
+      return await this.host.policies.output.project(raw, {
+        putBlob: (bytes) => this.store.putBlob(bytes),
+        toolName: call.name,
+      });
     } catch (error) {
       return errorResult(`tool '${call.name}' failed: ${String(error)}`);
     }
@@ -257,7 +303,7 @@ export class Engine {
     const payloadList = await this.store.getProviderPayloads(items.map((i) => i.id));
     const payloads = new Map(payloadList.map((p) => [p.itemId, p]));
     const sourceInstructions = (
-      await Promise.all(this.host.contextSources.map((s) => Promise.resolve(s.instructions())))
+      await Promise.all(this.host.contextSources.map((s) => s.instructions()))
     ).flat();
     const instructions: ContentBlock[] = [
       { type: "text", text: conversation.config.instructions },
@@ -275,7 +321,7 @@ export class Engine {
     );
   }
 
-  #emit(event: Event): void {
+  #emit(event: HarnessEvent): void {
     for (const observer of this.#observers) {
       observer.onEvent(event);
     }

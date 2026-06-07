@@ -38,6 +38,7 @@ export async function run(): Promise<void> {
       if (line === "/exit") break;
       if (line === "") continue;
       await service.send(conversation.id, line);
+      await service.whenIdle(conversation.id);
     }
   } finally {
     rl.close();

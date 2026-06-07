@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Event, Item, Plugin } from "@harness/protocol";
+import { isKernelEvent } from "@harness/protocol";
+import type { DeliveryInput, HarnessEvent, Item, Plugin, Tool } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import {
   counterIdGenerator,
@@ -19,6 +20,11 @@ const CONFIG = {
   model: { provider: "fake", model: "fake-1" },
 };
 
+const userInput = (text: string): DeliveryInput => ({
+  source: { kind: "user" },
+  content: [{ type: "text", text }],
+});
+
 const toolCalls = (items: Item[]) =>
   items.filter((i): i is Extract<Item, { type: "tool_call" }> => i.type === "tool_call");
 const toolResults = (items: Item[]) =>
@@ -35,7 +41,7 @@ function setup(steps: FakeStep[], plugin?: Partial<Plugin>) {
     },
   ]);
   const engine = new Engine(store, host);
-  const events: Event[] = [];
+  const events: HarnessEvent[] = [];
   engine.subscribe({ onEvent: (e) => events.push(e) });
   return { store, engine, events };
 }
@@ -47,7 +53,8 @@ describe("Engine — turn cycle", () => {
       textStep("done"),
     ]);
     const conv = await store.createConversation({ config: CONFIG });
-    await engine.deliver(conv.id, { text: "hello" });
+    await engine.deliver(conv.id, userInput("hello"));
+    await engine.whenIdle(conv.id);
 
     const items = await store.listItems(conv.id);
     expect(items.map((i) => i.type)).toEqual(["message", "tool_call", "tool_result", "message"]);
@@ -75,7 +82,8 @@ describe("Engine — turn cycle", () => {
     ];
     const { store, engine } = setup([twoCalls, textStep("ok")]);
     const conv = await store.createConversation({ config: CONFIG });
-    await engine.deliver(conv.id, { text: "go" });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
 
     const items = await store.listItems(conv.id);
     const calls = toolCalls(items);
@@ -97,7 +105,8 @@ describe("Engine — turn cycle", () => {
       }),
     ]);
     const conv = await store.createConversation({ config: CONFIG });
-    await engine.deliver(conv.id, { text: "hello" });
+    await engine.deliver(conv.id, userInput("hello"));
+    await engine.whenIdle(conv.id);
 
     const items = await store.listItems(conv.id);
     const assistant = items.find((i) => i.type === "message" && i.role === "assistant");
@@ -110,17 +119,65 @@ describe("Engine — turn cycle", () => {
 });
 
 describe("Engine — delivery seam", () => {
-  it("refuses to start a second turn while one is running", async () => {
-    const { store, engine } = setup([textStep("ok")]);
+  it("runs two rapid sends as two turns, in order", async () => {
+    const { store, engine, events } = setup([textStep("one"), textStep("two")]);
     const conv = await store.createConversation({ config: CONFIG });
-    await store.createTurn({ conversationId: conv.id }); // a running turn exists
-    await expect(engine.deliver(conv.id, { text: "x" })).rejects.toThrow(/busy/);
+
+    // Deliver twice without awaiting idle between: the second lands in the
+    // mailbox and runs after the first — never as a second concurrent turn.
+    await Promise.all([
+      engine.deliver(conv.id, userInput("first")),
+      engine.deliver(conv.id, userInput("second")),
+    ]);
+    await engine.whenIdle(conv.id);
+
+    const items = await store.listItems(conv.id);
+    const userTexts = items
+      .filter(
+        (i): i is Extract<Item, { type: "message" }> => i.type === "message" && i.role === "user",
+      )
+      .flatMap((i) => i.content.map((b) => (b.type === "text" ? b.text : "")));
+    expect(userTexts).toEqual(["first", "second"]);
+
+    const completed = events
+      .filter(isKernelEvent)
+      .filter((e) => e.type === "turn.status" && e.status === "completed");
+    expect(completed).toHaveLength(2);
+    expect(await store.getActiveTurn(conv.id)).toBeUndefined();
+  });
+
+  it("forwards a plugin event emitted by a tool onto the stream", async () => {
+    const emitTool: Tool = {
+      name: "emit",
+      schema: { name: "emit", description: "emits a note", parameters: { type: "object" } },
+      async execute(_args, ctx) {
+        ctx.emit({ type: "demo.note", text: "from tool" });
+        return { forModel: [{ type: "text", text: "ok" }], status: "ok" };
+      },
+    };
+    const { store, engine, events } = setup([toolStep("c1", "emit", {}), textStep("done")], {
+      tools: () => [emitTool],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    const plugin = events.find((e) => !isKernelEvent(e));
+    expect(plugin).toMatchObject({ type: "demo.note", text: "from tool" });
   });
 
   it("marks the turn failed when the provider stream is malformed", async () => {
-    const { store, engine } = setup([[{ type: "text_delta", text: "oops" }]]);
+    const { store, engine, events } = setup([[{ type: "text_delta", text: "oops" }]]);
     const conv = await store.createConversation({ config: CONFIG });
-    await expect(engine.deliver(conv.id, { text: "x" })).rejects.toThrow(/without a 'completed'/);
+    await engine.deliver(conv.id, userInput("x"));
+    await engine.whenIdle(conv.id);
+
+    const failed = events
+      .filter(isKernelEvent)
+      .find((e) => e.type === "turn.status" && e.status === "failed");
+    expect(failed?.type).toBe("turn.status");
+    const error = failed?.type === "turn.status" ? failed.error : undefined;
+    expect(error).toMatch(/without a 'completed'/);
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
   });
 });
@@ -129,7 +186,7 @@ describe("reconcileConversation", () => {
   it("closes a dangling tool_call and fails the turn", async () => {
     const store = new InMemoryStore(counterIdGenerator(), fixedClock());
     const conv = await store.createConversation({ config: CONFIG });
-    const turn = await store.createTurn({ conversationId: conv.id });
+    const turn = await store.createTurn(conv.id);
     await store.appendItem({
       conversationId: conv.id,
       turnId: turn.id,

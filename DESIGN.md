@@ -194,10 +194,13 @@ Behavior is contributed through a **fixed, finite** surface. This is what keeps
 - `Observers` — **read-only** event subscribers (UI, logging, metrics).
 
 **Policy slots (exactly one each, composable from plugin-contributed rules):**
-- `DeliveryPolicy` — steer / queue / interrupt (§7).
 - `ContextPolicy` — selection + cache-stable prefix + compaction (§10).
 - `ToolGate` — approval: `allow | deny | ask` (§9).
 - `OutputProjection` — bound tool output → `(forModel, full)` (§8).
+
+Delivery (steer / queue / interrupt, §7) is **not** a policy slot: it is a fixed
+`DeliveryIntent` enum plus a cohesive in-engine module. The plugin slot was dropped
+for want of a concrete second use case; it can return behind the rule below.
 
 ```ts
 interface Plugin {
@@ -205,7 +208,7 @@ interface Plugin {
   providers?(): ModelProvider[];
   tools?(): Tool[];
   contextSources?(): ContextSource[];
-  policies?(): Partial<{ delivery: DeliveryPolicy; context: ContextPolicy;
+  policies?(): Partial<{ context: ContextPolicy;
                          toolGate: ToolGate; output: OutputProjection }>;
   observers?(): Observer[];   // read-only
 }
@@ -228,29 +231,35 @@ not "plugins." "Everything that is *behavior* is a plugin" is the precise claim.
 
 ## 7. The control loop and the delivery seam ("steer not queue")
 
-The loop is a small state machine over a Turn with **published boundaries**; it
-contains no `if (intent === ...)` branches.
+All input that wakes the agent flows through **one seam** — `deliver(conversationId,
+input, intent)` — with a fixed intent and a `{ source, content }` body:
 
 ```ts
-type LoopBoundary =
-  | "idle" | "before-model-step" | "after-model-step"
-  | "after-tool-result" | "turn-complete";
-
 type DeliveryIntent = "send" | "steer" | "queue" | "interrupt";
-type DeliveryAction = "start-turn" | "inject" | "hold" | "cancel-and-restart";
-
-interface DeliveryPolicy {
-  decide(in: { intent: DeliveryIntent; boundary: LoopBoundary; turn?: Turn }): DeliveryAction;
-}
+type DeliverySource = { kind: "user" } | { kind: "plugin"; pluginId: string };
+interface DeliveryInput { source: DeliverySource; content: ContentBlock[]; }
 ```
 
-The loop's whole job: advance state and, at each boundary, ask the relevant
-policy and act. **Changing "queue" to "steer" edits a `DeliveryPolicy` mapping —
-never the loop, never the store.**
+- **send** — start a turn now if idle, else queue it after the current turn.
+- **steer** — inject into the running turn at the next after-tool-result boundary.
+- **queue** — run strictly after the current turn completes.
+- **interrupt** — abort the current step and start a fresh turn with this input.
 
-Crucially, **all input that wakes the agent flows through this one seam with an
-intent** — user messages, steering, queued input, interrupts, and (later)
-approval answers and any plugin-sourced input. There is exactly one path in, not a
+The engine is **concurrent-input-capable**: per conversation it holds an in-memory
+session with an **input mailbox** and a single detached **drain loop** that runs
+turns one at a time. `deliver` posts to the mailbox and returns on *acceptance*,
+not turn completion — that is what lets input arrive while a turn runs. New input
+never starts a second concurrent turn; it lands in the mailbox and runs at a
+boundary. `whenIdle(conversationId)` awaits quiescence.
+
+Mapping intent → behavior lives in **one cohesive in-engine module**, expressed as
+mutations of session state; the loop itself branches only on model/tool outcomes,
+never on intent. **Changing "queue" to "steer" edits that module — never the loop,
+never the store.** Reintroducing a plugin-overridable `DeliveryPolicy` (deferred,
+§6) would mean swapping that module's decision function for a contributed one.
+
+There is exactly one path in for every source — user messages, steering, queued
+input, interrupts, and (later) approval answers and plugin-sourced input — not a
 bespoke path per source.
 
 The turn cycle: model step → emit text/tool_calls → if tool_calls, dispatch and
@@ -271,7 +280,7 @@ interface Tool { readonly name: string; readonly schema: JSONSchema;
   execute(args: unknown, ctx: ToolContext): Promise<ToolResult>; }
 type ToolResult = { forModel: ContentBlock[]; full?: OutputRef; status: "ok" | "error" };
 interface ToolContext { execution: ExecutionContext; conversationId: string;
-  signal: AbortSignal; emit(event: Event): void; }
+  signal: AbortSignal; emit(event: PluginEvent): void; }
 ```
 
 - **`forModel`** is the bounded, model-facing content — it *is* the canonical
@@ -281,10 +290,11 @@ interface ToolContext { execution: ExecutionContext; conversationId: string;
   store** — rendered by the user's UI, peeked by the agent, kept as the durable
   record; never auto-sent to the model.
 - The **`OutputProjection`** policy turns raw output into `(forModel, full)` —
-  "keep last N," "head+tail," "summarize," "elide+link." "Redirect to file when
-  too long" is just: always write the blob; `forModel` becomes a pointer past a
-  threshold. The same model serves synchronous tool output *and* any future
-  background-process output — there is **no output machinery specific to
+  "keep last N," "head+tail," "summarize," "elide+link." It is **async and receives
+  a blob writer** (`project(result, { putBlob, toolName }): Promise<ToolResult>`),
+  so "redirect to file when too long" is just: write the blob, make `forModel` a
+  pointer past a threshold. The same model serves synchronous tool output *and* any
+  future background-process output — there is **no output machinery specific to
   long-running work.**
 
 Phase 1 ships a trivial truncate projection and read-only tools (`read_file`,
@@ -352,15 +362,17 @@ because all three providers structure caching around prefix-match:
 The kernel depends on no UI; **UI owns no control state** (the explicit non-goal
 from prior art). The contract is symmetric — **typed events out, typed input in**:
 
-- **Out — a typed event stream:**
-  `message`, `tool_call.{started,output,completed}`, `approval.requested`,
-  `turn.status`, `plan`, … Each event is **structured data with a type**, never
-  pre-rendered text. Plugins emit typed payloads; they don't draw UI.
-- **Render — by type, with fallback.** Clients (CLI/TUI/web/Zed-via-ACP) hold
-  renderers keyed by event type; **unknown types fall back to a generic
-  JSON/text renderer**, so plugin data is always inspectable. A plugin *for a
-  specific client* may ship a renderer component (opt-in, client-specific,
-  core-invisible).
+- **Out — an open typed event stream:** `HarnessEvent = KernelEvent | PluginEvent`.
+  The kernel emits a **fixed** union (`turn.status`, `message`, `text_delta`,
+  `tool_call.{started,completed}`, … and later `approval.requested`, `plan`);
+  plugins emit their own typed payloads via `ctx.emit`. Each event is **structured
+  data with a type**, never pre-rendered text; plugins don't draw UI.
+- **Render — by type, with fallback.** Clients (CLI/TUI/web/Zed-via-ACP) narrow to
+  the kernel union (`isKernelEvent`) and switch on it; **everything else falls back
+  to a generic JSON/text renderer**, so plugin data is always inspectable. (An open
+  union can't be `switch`-narrowed directly — one arm's discriminant is `string` —
+  so the guard is the seam.) A plugin *for a specific client* may ship a renderer
+  component (opt-in, client-specific, core-invisible).
 - **In — one delivery seam.** Approval answers, interrupts, steering, and user
   messages all come back as typed input events with an intent (§7).
 
@@ -384,7 +396,7 @@ Strict downward dependencies; each split by responsibility.
 
 ```
 protocol/       pure types + zod schemas + ids + ALL contract interfaces
-                (Store, ModelProvider, Tool, Plugin, the 4 policy slots). zero logic.
+                (Store, ModelProvider, Tool, Plugin, the 3 policy slots). zero logic.
 store/          in-memory Store impl (+ contract suite lives in testkit)
 store-sqlite/   sqlite impl via Kysely (typed SQL, migrations colocated; no ORM)
 core/           the loop, context builder, turn manager, policy composition,
@@ -417,8 +429,8 @@ interface Store {
   getConversation(id): Promise<Conversation | undefined>;
   appendItem(i: NewItem): Promise<Item>;                 // append-only; assigns seq
   listItems(conversationId, range?): Promise<Item[]>;
-  createTurn(i): Promise<Turn>; updateTurn(p): Promise<Turn>;
-  getActiveTurn(conversationId): Promise<Turn | undefined>;
+  createTurn(conversationId): Promise<Turn>; updateTurn(id, status): Promise<Turn>;
+  getActiveTurn(conversationId): Promise<Turn | undefined>;  // reconcile only
   recordContextBuild(i): Promise<ContextBuild>;
   putProviderPayload(p): Promise<void>;
   getProviderPayloads(itemIds): Promise<ProviderPayload[]>;
@@ -429,7 +441,7 @@ interface Store {
 }
 
 interface ContextPolicy { select(i): Promise<ContextBuild> }   // selection + cache-stable prefix
-interface OutputProjection { project(raw: Bytes, meta): { forModel: ContentBlock[]; full?: OutputRef } }
+interface OutputProjection { project(result: ToolResult, ctx: { putBlob; toolName }): Promise<ToolResult> }
 interface ExecutionContext { /* read / write / search / run — local host first */ }
 ```
 
@@ -442,9 +454,9 @@ an unchanged kernel.**
 
 1. **Conversation + tool-loop core.** protocol; store (Kysely + in-memory +
    contract test); fake provider (scripts tool calls); the tool-shaped Turn loop
-   with all four policy slots (default `DeliveryPolicy`, `ContextPolicy` with
-   compaction, allow-all `ToolGate`, truncate `OutputProjection`); read-only
-   built-in tools; blob store; the typed event-stream service; cli. Provider-agnostic.
+   with the three policy slots (`ContextPolicy`, allow-all `ToolGate`, truncate
+   `OutputProjection`) plus the in-engine delivery module; read-only built-in
+   tools; blob store; the typed event-stream service; cli. Provider-agnostic.
 2. **First real provider.** `model-openai` (Responses, stateless, encrypted
    reasoning) behind the unchanged contract; payloads round-trip.
 3. **Side-effecting tools + approval.** `write`/`edit`/`bash` arrive *with* a real
@@ -461,8 +473,8 @@ an unchanged kernel.**
 
 ## 15. How it stays simple (definition of done)
 
-- **Steer-not-queue:** changing input-delivery edits only a `DeliveryPolicy` —
-  never the loop or store. ✅ §7
+- **Steer-not-queue:** changing input-delivery edits only the in-engine delivery
+  module (intent → behavior) — never the loop or store. ✅ §7
 - **Provider-swap / encrypted-reasoning:** adding Anthropic/Gemini, or swapping
   the store, edits no `core`; reasoning round-trips through `ProviderPayload` with
   zero provider-specific code in core. ✅ §5
@@ -489,6 +501,23 @@ existing interface — never as kernel growth:
 - subagents, MCP, task tracking, multimodal asset pipelines
 - `previous_response_id` server-state; ORM-based persistence
 - polished TUI/web/desktop/daemon
+
+**Deferred behind seams already in place** (built now: the concurrent-input engine,
+mailbox, per-turn abort handle, and turn-end drain — but only `send` is wired):
+- `steer` / `queue` / `interrupt` — the intents exist and throw "not yet"; wiring
+  them is a local edit to the in-engine delivery module, not an engine rewrite.
+- **Approvals** — decision is a `ToolGate` plugin returning `ask`; blocking/park/
+  resume is a kernel mechanism. The `ask` verdict currently returns an error result.
+- **Plugin-sourced delivery + conversation-scoped emit** (background activities):
+  `DeliverySource.plugin` and `ctx.emit(PluginEvent)` exist; the activity machinery
+  that uses them does not.
+- **Reader-based lazy `ContextPolicy`** (compaction): today it eagerly loads the
+  whole log; `select` keeps the shape for a future streaming/lazy reader.
+- **Persisted `source` on items.**
+
+**Turn liveness is in-memory.** The engine's session is the authority on "is a turn
+running" while the process is alive; the store's persisted `running` is *not*
+authoritative — crash reconciliation collapses a stale `running` → `failed` (§9).
 
 ## 17. Open questions
 

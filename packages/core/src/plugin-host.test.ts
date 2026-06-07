@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { DeliveryPolicy, Plugin } from "@harness/protocol";
+import type { Plugin, ToolGate } from "@harness/protocol";
 import { EchoTool, FakeProvider } from "@harness/testkit";
 import { PluginHost } from "./plugin-host.ts";
-import { allowAllToolGate, defaultDeliveryPolicy } from "./policies.ts";
+import { allowAllToolGate, defaultContextPolicy } from "./policies.ts";
 
 describe("PluginHost", () => {
   it("registers tools and providers, schemas sorted by name", () => {
@@ -21,13 +21,13 @@ describe("PluginHost", () => {
   it("falls back to default policies when none are contributed", () => {
     const host = new PluginHost([{ id: "p" }]);
     expect(host.policies.toolGate).toBe(allowAllToolGate);
-    expect(host.policies.delivery).toBe(defaultDeliveryPolicy);
+    expect(host.policies.context).toBe(defaultContextPolicy);
   });
 
   it("uses a contributed policy in place of the default", () => {
-    const delivery: DeliveryPolicy = { decide: () => "hold" };
-    const host = new PluginHost([{ id: "p", policies: () => ({ delivery }) }]);
-    expect(host.policies.delivery).toBe(delivery);
+    const toolGate: ToolGate = { evaluate: async () => "deny" };
+    const host = new PluginHost([{ id: "p", policies: () => ({ toolGate }) }]);
+    expect(host.policies.toolGate).toBe(toolGate);
   });
 
   it("rejects duplicate tool registration", () => {
@@ -39,12 +39,12 @@ describe("PluginHost", () => {
   });
 
   it("rejects two contributors for the same policy slot", () => {
-    const delivery: DeliveryPolicy = { decide: () => "hold" };
+    const toolGate: ToolGate = { evaluate: async () => "deny" };
     expect(
       () =>
         new PluginHost([
-          { id: "a", policies: () => ({ delivery }) },
-          { id: "b", policies: () => ({ delivery }) },
+          { id: "a", policies: () => ({ toolGate }) },
+          { id: "b", policies: () => ({ toolGate }) },
         ]),
     ).toThrow(/composition not yet supported/);
   });

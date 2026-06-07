@@ -1,7 +1,7 @@
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
 import type { ToolSchema } from "./model.ts";
-import type { Event } from "./events.ts";
+import type { PluginEvent } from "./events.ts";
 
 export interface ToolCall {
   callId: string;
@@ -32,7 +32,8 @@ export interface ToolResult {
 export interface ToolContext {
   conversationId: ConversationId;
   signal: AbortSignal;
-  emit(event: Event): void;
+  /** Emit a plugin-defined event onto the conversation's stream. */
+  emit(event: PluginEvent): void;
 }
 
 export interface Tool {

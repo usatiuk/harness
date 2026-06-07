@@ -6,6 +6,7 @@ export * from "./tools.ts";
 export * from "./items.ts";
 export * from "./conversation.ts";
 export * from "./events.ts";
+export * from "./delivery.ts";
 export * from "./policies.ts";
 export * from "./plugin.ts";
 export * from "./store.ts";

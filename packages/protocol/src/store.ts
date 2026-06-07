@@ -1,5 +1,5 @@
-import type { ConversationId, ItemId } from "./ids.ts";
-import type { Conversation, NewConversation, NewTurn, Turn, TurnPatch } from "./conversation.ts";
+import type { ConversationId, ItemId, TurnId } from "./ids.ts";
+import type { Conversation, NewConversation, Turn, TurnStatus } from "./conversation.ts";
 import type { Item, NewItem } from "./items.ts";
 import type { ProviderPayload } from "./model.ts";
 import type { ContextBuild, NewContextBuild } from "./policies.ts";
@@ -24,9 +24,12 @@ export interface Store {
   appendItem(input: NewItem): Promise<Item>;
   listItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]>;
 
-  createTurn(input: NewTurn): Promise<Turn>;
-  updateTurn(patch: TurnPatch): Promise<Turn>;
-  /** The single `running` turn for a conversation, if any. */
+  createTurn(conversationId: ConversationId): Promise<Turn>;
+  updateTurn(id: TurnId, status: TurnStatus): Promise<Turn>;
+  /**
+   * The single persisted-`running` turn for a conversation, if any. Liveness is
+   * owned in-memory by the engine; this is consulted only by crash reconciliation.
+   */
   getActiveTurn(conversationId: ConversationId): Promise<Turn | undefined>;
 
   recordContextBuild(input: NewContextBuild): Promise<ContextBuild>;

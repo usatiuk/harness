@@ -9,7 +9,6 @@ import type {
   NewContextBuild,
   NewConversation,
   NewItem,
-  NewTurn,
   OutputRef,
   ProviderPayload,
   Store,
@@ -17,7 +16,7 @@ import type {
   SeqRange,
   Turn,
   TurnId,
-  TurnPatch,
+  TurnStatus,
 } from "@harness/protocol";
 import { systemClock, uuidIdGenerator } from "./defaults.ts";
 
@@ -77,13 +76,13 @@ export class InMemoryStore implements Store {
     return log.filter((i) => i.seq >= from && i.seq <= to);
   }
 
-  async createTurn(input: NewTurn): Promise<Turn> {
-    if (this.#activeTurn(input.conversationId)) {
-      throw new Error(`conversation ${input.conversationId} already has a running turn`);
+  async createTurn(conversationId: ConversationId): Promise<Turn> {
+    if (this.#activeTurn(conversationId)) {
+      throw new Error(`conversation ${conversationId} already has a running turn`);
     }
     const turn: Turn = {
       id: this.ids.turnId(),
-      conversationId: input.conversationId,
+      conversationId,
       status: "running",
       createdAt: this.clock.now(),
     };
@@ -91,12 +90,12 @@ export class InMemoryStore implements Store {
     return turn;
   }
 
-  async updateTurn(patch: TurnPatch): Promise<Turn> {
-    const turn = this.#turns.get(patch.id);
+  async updateTurn(id: TurnId, status: TurnStatus): Promise<Turn> {
+    const turn = this.#turns.get(id);
     if (!turn) {
-      throw new Error(`unknown turn: ${patch.id}`);
+      throw new Error(`unknown turn: ${id}`);
     }
-    const updated: Turn = { ...turn, status: patch.status };
+    const updated: Turn = { ...turn, status };
     this.#turns.set(updated.id, updated);
     return updated;
   }

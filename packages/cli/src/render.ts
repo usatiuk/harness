@@ -1,4 +1,9 @@
-import type { ContentBlock, Event } from "@harness/protocol";
+import {
+  assertNever,
+  isKernelEvent,
+  type ContentBlock,
+  type HarnessEvent,
+} from "@harness/protocol";
 
 const textOf = (content: ContentBlock[]): string =>
   content
@@ -6,12 +11,19 @@ const textOf = (content: ContentBlock[]): string =>
     .map((b) => b.text)
     .join("");
 
-/** Renders one event by type, falling back to generic JSON for unknown types. */
-export function renderEvent(event: Event): void {
+/** Renders one event by type, falling back to generic JSON for plugin events. */
+export function renderEvent(event: HarnessEvent): void {
+  if (!isKernelEvent(event)) {
+    // Plugin events stay inspectable without the renderer knowing their shape.
+    process.stdout.write(`${JSON.stringify(event)}\n`);
+    return;
+  }
   switch (event.type) {
-    case "turn.status":
-      process.stdout.write(`\n\x1b[2m● turn ${event.status}\x1b[0m\n`);
+    case "turn.status": {
+      const detail = event.error ? `: ${event.error}` : "";
+      process.stdout.write(`\n\x1b[2m● turn ${event.status}${detail}\x1b[0m\n`);
       return;
+    }
     case "message":
       if (event.item.type === "message" && event.item.role === "assistant") {
         process.stdout.write("\n");
@@ -27,7 +39,6 @@ export function renderEvent(event: Event): void {
       process.stdout.write(`\x1b[2m   → ${textOf(event.forModel)} [${event.status}]\x1b[0m\n`);
       return;
     default:
-      // Unknown event types fall back to a generic renderer so plugin data stays inspectable.
-      process.stdout.write(`${JSON.stringify(event)}\n`);
+      assertNever(event);
   }
 }

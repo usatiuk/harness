@@ -23,7 +23,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
     it("assigns monotonic per-conversation seq on append", async () => {
       const store = makeStore();
       const conv = await store.createConversation({ config: sampleConfig() });
-      const turn = await store.createTurn({ conversationId: conv.id });
+      const turn = await store.createTurn(conv.id);
       const a = await store.appendItem(message(conv.id, turn.id, "hi"));
       const b = await store.appendItem(message(conv.id, turn.id, "yo"));
       expect([a.seq, b.seq]).toEqual([0, 1]);
@@ -34,7 +34,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
     it("listItems honors a seq range", async () => {
       const store = makeStore();
       const conv = await store.createConversation({ config: sampleConfig() });
-      const turn = await store.createTurn({ conversationId: conv.id });
+      const turn = await store.createTurn(conv.id);
       await store.appendItem(message(conv.id, turn.id, "a"));
       await store.appendItem(message(conv.id, turn.id, "b"));
       await store.appendItem(message(conv.id, turn.id, "c"));
@@ -45,19 +45,19 @@ export function storeContract(name: string, makeStore: () => Store): void {
     it("tracks at most one running turn", async () => {
       const store = makeStore();
       const conv = await store.createConversation({ config: sampleConfig() });
-      const turn = await store.createTurn({ conversationId: conv.id });
+      const turn = await store.createTurn(conv.id);
       expect(await store.getActiveTurn(conv.id)).toEqual(turn);
-      await expect(store.createTurn({ conversationId: conv.id })).rejects.toThrow();
-      await store.updateTurn({ id: turn.id, status: "completed" });
+      await expect(store.createTurn(conv.id)).rejects.toThrow();
+      await store.updateTurn(turn.id, "completed");
       expect(await store.getActiveTurn(conv.id)).toBeUndefined();
       // a fresh turn is allowed once the previous one is no longer running
-      await store.createTurn({ conversationId: conv.id });
+      await store.createTurn(conv.id);
     });
 
     it("round-trips provider payloads by itemId", async () => {
       const store = makeStore();
       const conv = await store.createConversation({ config: sampleConfig() });
-      const turn = await store.createTurn({ conversationId: conv.id });
+      const turn = await store.createTurn(conv.id);
       const a = await store.appendItem(message(conv.id, turn.id, "x"));
       const b = await store.appendItem(message(conv.id, turn.id, "y"));
       const payload = {

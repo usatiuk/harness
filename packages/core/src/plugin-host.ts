@@ -1,23 +1,16 @@
 import type {
   ContextPolicy,
   ContextSource,
-  DeliveryPolicy,
   Observer,
   OutputProjection,
   Plugin,
   ToolGate,
 } from "@harness/protocol";
 import { ProviderRegistry, ToolRegistry } from "./registry.ts";
-import {
-  allowAllToolGate,
-  defaultContextPolicy,
-  defaultDeliveryPolicy,
-  truncateOutputProjection,
-} from "./policies.ts";
+import { allowAllToolGate, defaultContextPolicy, truncateOutputProjection } from "./policies.ts";
 
 /** The single composed instance of each policy slot. */
 export interface ResolvedPolicies {
-  delivery: DeliveryPolicy;
   context: ContextPolicy;
   toolGate: ToolGate;
   output: OutputProjection;
@@ -43,7 +36,6 @@ export class PluginHost {
   constructor(plugins: readonly Plugin[]) {
     const contextSources: ContextSource[] = [];
     const observers: Observer[] = [];
-    const delivery: DeliveryPolicy[] = [];
     const context: ContextPolicy[] = [];
     const toolGate: ToolGate[] = [];
     const output: OutputProjection[] = [];
@@ -59,7 +51,6 @@ export class PluginHost {
       observers.push(...(plugin.observers?.() ?? []));
 
       const policies = plugin.policies?.() ?? {};
-      if (policies.delivery) delivery.push(policies.delivery);
       if (policies.context) context.push(policies.context);
       if (policies.toolGate) toolGate.push(policies.toolGate);
       if (policies.output) output.push(policies.output);
@@ -68,7 +59,6 @@ export class PluginHost {
     this.contextSources = contextSources;
     this.observers = observers;
     this.policies = {
-      delivery: pick("delivery", delivery, defaultDeliveryPolicy),
       context: pick("context", context, defaultContextPolicy),
       toolGate: pick("toolGate", toolGate, allowAllToolGate),
       output: pick("output", output, truncateOutputProjection()),

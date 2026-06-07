@@ -31,6 +31,6 @@ export async function reconcileConversation(
 
   const active = await store.getActiveTurn(conversationId);
   if (active) {
-    await store.updateTurn({ id: active.id, status: "failed" });
+    await store.updateTurn(active.id, "failed");
   }
 }

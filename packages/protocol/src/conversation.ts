@@ -27,6 +27,3 @@ export interface Turn {
   status: TurnStatus;
   createdAt: number;
 }
-
-export type NewTurn = { conversationId: ConversationId };
-export type TurnPatch = { id: TurnId; status: TurnStatus };

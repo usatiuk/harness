@@ -1,22 +1,21 @@
 import type { ModelProvider } from "./model.ts";
 import type { Tool } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
-import type { Event } from "./events.ts";
-import type { ContextPolicy, DeliveryPolicy, OutputProjection, ToolGate } from "./policies.ts";
+import type { HarnessEvent } from "./events.ts";
+import type { ContextPolicy, OutputProjection, ToolGate } from "./policies.ts";
 
 /** Contributes prompt fragments / project context into the cache-stable prefix. */
 export interface ContextSource {
   readonly id: string;
-  instructions(): ContentBlock[] | Promise<ContentBlock[]>;
+  instructions(): Promise<ContentBlock[]>;
 }
 
 /** Read-only event subscriber. The only fan-out; must never mutate state. */
 export interface Observer {
-  onEvent(event: Event): void;
+  onEvent(event: HarnessEvent): void;
 }
 
 export interface PluginPolicies {
-  delivery?: DeliveryPolicy;
   context?: ContextPolicy;
   toolGate?: ToolGate;
   output?: OutputProjection;

@@ -1,30 +1,8 @@
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId, ItemId } from "./ids.ts";
 import type { Item } from "./items.ts";
-import type { ToolCall, ToolResult } from "./tools.ts";
+import type { OutputRef, ToolCall, ToolResult } from "./tools.ts";
 import type { ProviderPayload, ToolSchema } from "./model.ts";
-import type { Turn } from "./conversation.ts";
-
-export type LoopBoundary =
-  | "idle"
-  | "before-model-step"
-  | "after-model-step"
-  | "after-tool-result"
-  | "turn-complete";
-
-export type DeliveryIntent = "send" | "steer" | "queue" | "interrupt";
-export type DeliveryAction = "start-turn" | "inject" | "hold" | "cancel-and-restart";
-
-export interface DeliveryInput {
-  intent: DeliveryIntent;
-  boundary: LoopBoundary;
-  turn?: Turn;
-}
-
-/** Maps (intent, boundary) → action. Changing queue↔steer edits only this. */
-export interface DeliveryPolicy {
-  decide(input: DeliveryInput): DeliveryAction;
-}
 
 export interface ContextItem {
   item: Item;
@@ -62,10 +40,17 @@ export interface ToolGate {
   evaluate(call: ToolCall): Promise<ToolGateVerdict>;
 }
 
+export interface OutputProjectionContext {
+  /** Spill bytes the model shouldn't see inline; the returned ref goes on `full`. */
+  putBlob(bytes: Uint8Array): Promise<OutputRef>;
+  toolName: string;
+}
+
 /**
- * Bounds a tool's output into model-facing content. The trivial slice projection
- * passes results through; "head+tail", "elide+link via blob" arrive as plugins.
+ * Bounds a tool's output into model-facing content. The default projection passes
+ * results through; "head+tail", "elide+link via blob" arrive as plugins. Async +
+ * blob-capable so a projection can stash the raw output and hand the model a digest.
  */
 export interface OutputProjection {
-  project(result: ToolResult): ToolResult;
+  project(result: ToolResult, ctx: OutputProjectionContext): Promise<ToolResult>;
 }

@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationId, Item, ItemId, ProviderPayload } from "@harness/protocol";
-import {
-  allowAllToolGate,
-  defaultContextPolicy,
-  defaultDeliveryPolicy,
-  truncateOutputProjection,
-} from "./policies.ts";
+import type { ConversationId, Item, ItemId, OutputRef, ProviderPayload } from "@harness/protocol";
+import { allowAllToolGate, defaultContextPolicy, truncateOutputProjection } from "./policies.ts";
 
 const item = (id: string, seq: number): Item => ({
   id: id as ItemId,
@@ -18,19 +13,12 @@ const item = (id: string, seq: number): Item => ({
   content: [{ type: "text", text: id }],
 });
 
-describe("defaultDeliveryPolicy", () => {
-  it("maps intents to actions", () => {
-    expect(defaultDeliveryPolicy.decide({ intent: "send", boundary: "idle" })).toBe("start-turn");
-    expect(defaultDeliveryPolicy.decide({ intent: "send", boundary: "before-model-step" })).toBe(
-      "hold",
-    );
-    expect(defaultDeliveryPolicy.decide({ intent: "queue", boundary: "idle" })).toBe("hold");
-    expect(defaultDeliveryPolicy.decide({ intent: "steer", boundary: "idle" })).toBe("inject");
-    expect(defaultDeliveryPolicy.decide({ intent: "interrupt", boundary: "idle" })).toBe(
-      "cancel-and-restart",
-    );
-  });
-});
+const noBlob = {
+  toolName: "echo",
+  putBlob: (): Promise<OutputRef> => {
+    throw new Error("putBlob should not be called");
+  },
+};
 
 describe("defaultContextPolicy", () => {
   it("selects all items in order and attaches matching payloads", async () => {
@@ -63,18 +51,18 @@ describe("allowAllToolGate", () => {
 });
 
 describe("truncateOutputProjection", () => {
-  it("caps long text and leaves short text untouched", () => {
+  it("caps long text and leaves short text untouched", async () => {
     const projection = truncateOutputProjection(5);
-    const long = projection.project({
-      forModel: [{ type: "text", text: "0123456789" }],
-      status: "ok",
-    });
+    const long = await projection.project(
+      { forModel: [{ type: "text", text: "0123456789" }], status: "ok" },
+      noBlob,
+    );
     expect(long.forModel[0]).toEqual({ type: "text", text: "01234…[truncated]" });
 
-    const short = projection.project({
-      forModel: [{ type: "text", text: "ok" }],
-      status: "ok",
-    });
+    const short = await projection.project(
+      { forModel: [{ type: "text", text: "ok" }], status: "ok" },
+      noBlob,
+    );
     expect(short.forModel[0]).toEqual({ type: "text", text: "ok" });
   });
 });

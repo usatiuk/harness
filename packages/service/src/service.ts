@@ -2,7 +2,7 @@ import type {
   Conversation,
   ConversationConfig,
   ConversationId,
-  Event,
+  HarnessEvent,
   Plugin,
   Store,
 } from "@harness/protocol";
@@ -13,7 +13,7 @@ export interface HarnessServiceOptions {
   plugins: Plugin[];
 }
 
-export type EventListener = (event: Event) => void;
+export type EventListener = (event: HarnessEvent) => void;
 
 /**
  * The single façade every client calls: typed events out, one delivery seam in.
@@ -32,9 +32,18 @@ export class HarnessService {
     return this.#store.createConversation({ config });
   }
 
-  /** Delivers a user message with `send` intent. */
+  /** Delivers a user message with `send` intent. Resolves once it is accepted. */
   send(conversationId: ConversationId, text: string): Promise<void> {
-    return this.#engine.deliver(conversationId, { text }, "send");
+    return this.#engine.deliver(
+      conversationId,
+      { source: { kind: "user" }, content: [{ type: "text", text }] },
+      "send",
+    );
+  }
+
+  /** Resolves when the conversation has no running or queued work. */
+  whenIdle(conversationId: ConversationId): Promise<void> {
+    return this.#engine.whenIdle(conversationId);
   }
 
   /** Subscribes to the typed event stream. Returns an unsubscribe handle. */
