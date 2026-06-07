@@ -128,7 +128,7 @@ Future work should ship in small phases. Each phase must keep the v0 invariants:
 5. Approval, policy, and steering
    Implement approvals as transactional tool gates: append an approval request, mark the target tool execution pending, and store continuation state together. Deny/block is terminal and immediately resolves the tool call with a denial result.
 
-   Extend steering only at legal boundaries: model boundary, next run, manual promotion, or interrupt. Interrupt must define what happens to active model calls, pending tool obligations, approvals, and activity-backed work without injecting user input between an assistant tool call and its required tool result.
+    Extend steering only at legal boundaries: model boundary, next run, manual promotion, or interrupt. Interrupt must define what happens to active model calls, pending tool obligations, approvals, and activity-backed work without injecting user input between an assistant tool call and its required tool result.
 
 6. Activities and output plugins
    Activities own long-running work, activity records, drivers, status, cancellation, and activity-backed tool result obligations. Output owns runtime streaming frames, peek/follow/subscribe, UI preview, redaction, transforms, and explicit file redirection. Runtime output is not durable transcript or prompt material unless a plugin explicitly converts a bounded result into a model-visible item or projection. SQLite must not store raw output chunks.

@@ -1,5 +1,10 @@
-import type { JsonValue } from "@harness/protocol";
+import type { JSONType } from "zod";
 
-export function wasRunInterrupted(value: JsonValue | undefined): boolean {
-  return typeof value === "object" && value !== null && !Array.isArray(value) && value.interrupted === true;
+export function wasRunInterrupted(value: JSONType | undefined): boolean {
+    return (
+        typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        value.interrupted === true
+    );
 }

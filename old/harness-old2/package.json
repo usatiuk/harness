@@ -1,33 +1,41 @@
 {
-  "name": "harness",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
-  "scripts": {
-    "dev": "npm run dev --workspace @harness/cli --",
-    "test": "vitest run",
-    "test:package": "vitest run --project protocol --project core --project testkit --project store-sqlite --project auth-openai --project model-openai-common",
-    "test:e2e": "vitest run --project cli --project e2e",
-    "test:live": "vitest run --project live",
-    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
-    "build": "node scripts/build-workspaces.mjs"
-  },
-  "dependencies": {
-    "@napi-rs/keyring": "^1.3.0",
-    "better-sqlite3": "^12.10.0",
-    "commander": "^15.0.0",
-    "openai": "^6.42.0",
-    "zod": "^4.2.1"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^25.9.2",
-    "tsx": "^4.22.4",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
-  }
+    "name": "harness",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "workspaces": [
+        "packages/*",
+        "apps/*"
+    ],
+    "scripts": {
+        "dev": "npm run dev --workspace @harness/cli --",
+        "test": "vitest run",
+        "test:package": "vitest run --project protocol --project core --project testkit --project store-sqlite --project auth-openai --project model-openai-common",
+        "test:e2e": "vitest run --project cli --project e2e",
+        "test:live": "vitest run --project live",
+        "lint": "eslint .",
+        "format": "prettier . --write",
+        "format:check": "prettier . --check",
+        "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+        "build": "node scripts/build-workspaces.mjs"
+    },
+    "dependencies": {
+        "@napi-rs/keyring": "^1.3.0",
+        "better-sqlite3": "^12.10.0",
+        "commander": "^15.0.0",
+        "openai": "^6.42.0",
+        "zod": "^4.2.1"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@types/better-sqlite3": "^7.6.13",
+        "@types/node": "^25.9.2",
+        "eslint": "^10.4.1",
+        "globals": "^17.6.0",
+        "prettier": "^3.8.3",
+        "tsx": "^4.22.4",
+        "typescript": "^6.0.3",
+        "typescript-eslint": "^8.60.1",
+        "vitest": "^4.1.8"
+    }
 }
