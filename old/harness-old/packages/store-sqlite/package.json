@@ -1,0 +1,27 @@
+{
+  "name": "@harness/store-sqlite",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "db:migrate": "tsx src/migrate-cli.ts"
+  },
+  "dependencies": {
+    "@harness/core": "0.0.0",
+    "@harness/protocol": "0.0.0",
+    "better-sqlite3": "^12.10.0",
+    "drizzle-orm": "^0.45.2"
+  },
+  "files": [
+    "dist",
+    "src",
+    "drizzle"
+  ]
+}

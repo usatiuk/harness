@@ -1,0 +1,23 @@
+{
+  "name": "@harness/service",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@harness/core": "0.0.0",
+    "@harness/protocol": "0.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}
