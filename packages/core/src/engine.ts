@@ -21,6 +21,7 @@ import {
 import type { PluginHost } from "./plugin-host.ts";
 import { Runtime, type Delivery } from "./runtime.ts";
 import { applyDelivery } from "./delivery.ts";
+import { reconcileConversation } from "./reconcile.ts";
 
 const MAX_MODEL_STEPS = 100;
 
@@ -106,6 +107,9 @@ export class Engine {
       if (!conversation) {
         throw new Error(`unknown conversation: ${conversationId}`);
       }
+      // Repair crash residue before a turn can start: a stale `running` turn would
+      // wedge `createTurn`. Single-flighted by `#loading`, so it runs once.
+      await reconcileConversation(this.store, conversationId);
       const runtime = new Runtime(conversation);
       this.#runtimes.set(conversationId, runtime);
       return runtime;

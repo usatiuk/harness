@@ -72,8 +72,8 @@ const turnStatuses = (events: HarnessEvent[]) =>
     .filter((e) => e.type === "turn.status")
     .map((e) => (e.type === "turn.status" ? e.status : ""));
 
-function setup(steps: FakeStep[], plugin?: Partial<Plugin>) {
-  const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+function setup(steps: FakeStep[], plugin?: Partial<Plugin>, existingStore?: InMemoryStore) {
+  const store = existingStore ?? new InMemoryStore(counterIdGenerator(), fixedClock());
   const host = new PluginHost([
     {
       id: "fake",
@@ -543,6 +543,59 @@ describe("reconcileConversation", () => {
     // transcript is prompt-legal: no tool_call without a result
     const answered = new Set(toolResults(items).map((r) => r.callId));
     expect(toolCalls(items).every((c) => answered.has(c.callId))).toBe(true);
+    expect(await store.getActiveTurn(conv.id)).toBeUndefined();
+  });
+});
+
+describe("Engine — crash reconciliation on load", () => {
+  it("un-wedges a crashed conversation on first touch and continues", async () => {
+    // Simulate a crash: a turn left `running` with a dangling tool_call (no result).
+    // Without on-load reconcile, the stale `running` turn makes `createTurn` throw
+    // forever — the conversation is permanently wedged.
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    const conv = await store.createConversation({ config: CONFIG });
+    const stale = await store.createTurn(conv.id);
+    await store.appendItem({
+      conversationId: conv.id,
+      turnId: stale.id,
+      type: "tool_call",
+      callId: "stuck",
+      name: "echo",
+      args: {},
+    });
+
+    // A fresh Engine over the same store (a new process reopening the conversation).
+    const { engine, events } = setup([textStep("recovered")], undefined, store);
+    await engine.deliver(conv.id, userInput("resume"));
+    await engine.whenIdle(conv.id);
+
+    // The dangling call is closed with the synthetic error result, the stale turn is
+    // gone (failed), and a brand-new turn ran to completion on top of the repaired log.
+    const items = await store.listItems(conv.id);
+    const [result] = toolResults(items);
+    expect(result?.callId).toBe("stuck");
+    expect(result?.status).toBe("error");
+    expect(textOf(result?.content ?? [])).toBe("interrupted: session ended");
+    expect(await store.getActiveTurn(conv.id)).toBeUndefined();
+    expect(turnStatuses(events)).toContain("completed");
+    expect(shapeOf(items)).toEqual([
+      "call:stuck",
+      "result:stuck",
+      "user:resume",
+      "assistant:recovered",
+    ]);
+  });
+
+  it("is a no-op on a clean conversation", async () => {
+    const { store, engine, events } = setup([textStep("hi")]);
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("hello"));
+    await engine.whenIdle(conv.id);
+
+    // Reconcile must not synthesize results or fail the live turn on a clean log.
+    const items = await store.listItems(conv.id);
+    expect(toolResults(items)).toHaveLength(0);
+    expect(turnStatuses(events)).toEqual(["running", "completed"]);
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
   });
 });

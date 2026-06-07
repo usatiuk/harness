@@ -4,10 +4,13 @@ const isToolCall = (item: Item): item is Extract<Item, { type: "tool_call" }> =>
   item.type === "tool_call";
 
 /**
- * The entire crash-recovery story. Crash ends the session; on reload the log is
- * read-only history. A trailing `tool_call` with no result gets a synthetic error
- * result so the transcript stays prompt-legal, and any still-`running` turn is
- * marked `failed`. Nothing resumes or re-runs.
+ * Crash recovery: close each dangling `tool_call` with a synthetic error result so
+ * the transcript stays prompt-legal, and fail any stale `running` turn. No resume.
+ *
+ * Assumes the store's "at most one running turn" invariant, so one `getActiveTurn`
+ * collapses the stale turn. Idempotency under concurrent durable-store reconcilers
+ * is a store constraint (unique `(conversationId, callId)` tool_result +
+ * compare-and-set turn status), not application logic.
  */
 export async function reconcileConversation(
   store: Store,
