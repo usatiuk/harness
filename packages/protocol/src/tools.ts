@@ -24,6 +24,12 @@ export interface ToolResult {
   status: ToolStatus;
 }
 
+/** A single-text-block error result — the conventional shape for a failed or denied call. */
+export const errorResult = (text: string): ToolResult => ({
+  forModel: [{ type: "text", text }],
+  status: "error",
+});
+
 /**
  * Per-call environment handed to a tool. The host `ExecutionContext`
  * (read/write/search/run) is added with the first real tool; the slice's tools

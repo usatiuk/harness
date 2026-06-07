@@ -1,4 +1,10 @@
-import type { Tool, ToolContext, ToolResult, ToolSchema } from "@harness/protocol";
+import {
+  errorResult,
+  type Tool,
+  type ToolContext,
+  type ToolResult,
+  type ToolSchema,
+} from "@harness/protocol";
 import { awaitReleaseOrAbort } from "./gate.ts";
 
 /** Echoes its JSON args back as the model-facing result. */
@@ -55,7 +61,7 @@ export class GateTool implements Tool {
     if (this.#honorSignal) {
       await awaitReleaseOrAbort(this.#gate, ctx.signal);
       if (ctx.signal.aborted) {
-        return { forModel: [{ type: "text", text: "cancelled" }], status: "error" };
+        return errorResult("cancelled");
       }
     } else {
       await this.#gate;

@@ -1,5 +1,6 @@
 import {
   assertNever,
+  errorResult,
   type Conversation,
   type ConversationId,
   type ContentBlock,
@@ -26,11 +27,6 @@ import { runToolChain } from "./compose.ts";
 import { reconcileConversation } from "./reconcile.ts";
 
 const MAX_MODEL_STEPS = 100;
-
-const errorResult = (text: string): ToolResult => ({
-  forModel: [{ type: "text", text }],
-  status: "error",
-});
 
 /** Result for a call abandoned or never started because the turn was aborted. */
 const interruptedResult = (): ToolResult => errorResult("interrupted: turn aborted by new input");
