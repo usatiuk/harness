@@ -1,4 +1,4 @@
-import type { ContextPolicy, OutputProjection, ToolGate } from "@harness/protocol";
+import type { ContextPolicy, ToolMiddleware } from "@harness/protocol";
 
 /** Selects every item in order; passes the prefix through unchanged. No compaction yet. */
 export const defaultContextPolicy: ContextPolicy = {
@@ -15,16 +15,17 @@ export const defaultContextPolicy: ContextPolicy = {
   },
 };
 
-export const allowAllToolGate: ToolGate = {
-  async evaluate() {
-    return "allow";
-  },
-};
-
-/** Caps each text block; spilling raw output to a blob is a later projection. */
-export function truncateOutputProjection(maxChars = 10_000): OutputProjection {
+/**
+ * Caps each text block of the tool's result. Ships as the default *innermost*
+ * middleware so it bounds raw tool output; contributed middlewares wrap outside it,
+ * so e.g. LSP diagnostics appended afterwards are not truncated. Spilling raw output
+ * to a blob is a later middleware.
+ */
+export function truncateMiddleware(maxChars = 10_000): ToolMiddleware {
   return {
-    async project(result) {
+    id: "truncate",
+    async wrap(call, _ctx, next) {
+      const result = await next(call);
       const forModel = result.forModel.map((block) =>
         block.type === "text" && block.text.length > maxChars
           ? { type: "text" as const, text: `${block.text.slice(0, maxChars)}…[truncated]` }

@@ -41,3 +41,27 @@ export interface Tool {
   readonly schema: ToolSchema;
   execute(args: unknown, ctx: ToolContext): Promise<ToolResult>;
 }
+
+/** A point in the middleware chain: runs the next inner middleware, or the tool. */
+export type ToolHandler = (call: ToolCall) => Promise<ToolResult>;
+
+export interface ToolMiddlewareContext extends ToolContext {
+  /** Spill bytes the model shouldn't see inline; the returned ref goes on `full`. */
+  putBlob(bytes: Uint8Array): Promise<OutputRef>;
+  /**
+   * Block until the host (or a UI) answers a correlated request. The kernel only
+   * ferries the opaque payload by id; the middleware owns the request/response shape
+   * (e.g. `{kind:"approval", call}` → `{decision}`). Rejects if the turn is aborted.
+   */
+  request(request: unknown): Promise<unknown>;
+}
+
+/**
+ * Wraps a tool call. `next` may be called zero times (deny/short-circuit), once
+ * (normal), or many times (retry). Return a `ToolResult` either way — the chain
+ * never throws past the engine. Subsumes the old `ToolGate` + `OutputProjection`.
+ */
+export interface ToolMiddleware {
+  readonly id: string;
+  wrap(call: ToolCall, ctx: ToolMiddlewareContext, next: ToolHandler): Promise<ToolResult>;
+}

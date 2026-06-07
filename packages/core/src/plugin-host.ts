@@ -2,18 +2,15 @@ import type {
   ContextPolicy,
   ContextSource,
   Observer,
-  OutputProjection,
   Plugin,
-  ToolGate,
+  ToolMiddleware,
 } from "@harness/protocol";
 import { ProviderRegistry, ToolRegistry } from "./registry.ts";
-import { allowAllToolGate, defaultContextPolicy, truncateOutputProjection } from "./policies.ts";
+import { defaultContextPolicy, truncateMiddleware } from "./policies.ts";
 
 /** The single composed instance of each policy slot. */
 export interface ResolvedPolicies {
   context: ContextPolicy;
-  toolGate: ToolGate;
-  output: OutputProjection;
 }
 
 function pick<T>(slot: string, contributed: T[], fallback: T): T {
@@ -32,13 +29,14 @@ export class PluginHost {
   readonly contextSources: readonly ContextSource[];
   readonly observers: readonly Observer[];
   readonly policies: ResolvedPolicies;
+  /** Outer→inner; contributed first (registration order), default truncate innermost. */
+  readonly toolMiddleware: readonly ToolMiddleware[];
 
   constructor(plugins: readonly Plugin[]) {
     const contextSources: ContextSource[] = [];
     const observers: Observer[] = [];
     const context: ContextPolicy[] = [];
-    const toolGate: ToolGate[] = [];
-    const output: OutputProjection[] = [];
+    const toolMiddleware: ToolMiddleware[] = [];
 
     for (const plugin of plugins) {
       for (const provider of plugin.providers?.() ?? []) {
@@ -47,21 +45,19 @@ export class PluginHost {
       for (const tool of plugin.tools?.() ?? []) {
         this.tools.register(tool);
       }
+      toolMiddleware.push(...(plugin.toolMiddleware?.() ?? []));
       contextSources.push(...(plugin.contextSources?.() ?? []));
       observers.push(...(plugin.observers?.() ?? []));
 
       const policies = plugin.policies?.() ?? {};
       if (policies.context) context.push(policies.context);
-      if (policies.toolGate) toolGate.push(policies.toolGate);
-      if (policies.output) output.push(policies.output);
     }
 
     this.contextSources = contextSources;
     this.observers = observers;
     this.policies = {
       context: pick("context", context, defaultContextPolicy),
-      toolGate: pick("toolGate", toolGate, allowAllToolGate),
-      output: pick("output", output, truncateOutputProjection()),
     };
+    this.toolMiddleware = [...toolMiddleware, truncateMiddleware()];
   }
 }

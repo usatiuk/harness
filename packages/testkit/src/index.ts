@@ -1,3 +1,4 @@
 export * from "./deterministic.ts";
 export * from "./fake-tool.ts";
 export * from "./fake-provider.ts";
+export * from "./middleware.ts";

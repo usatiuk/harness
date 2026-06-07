@@ -1,5 +1,5 @@
 import type { ContentBlock } from "./content.ts";
-import type { TurnId } from "./ids.ts";
+import type { ConversationId, TurnId } from "./ids.ts";
 import type { Item } from "./items.ts";
 import type { ToolStatus } from "./tools.ts";
 import type { TurnStatus } from "./conversation.ts";
@@ -17,7 +17,14 @@ export type KernelEvent =
       callId: string;
       status: ToolStatus;
       forModel: ContentBlock[];
-    };
+    }
+  | {
+      type: "request.created";
+      requestId: string;
+      conversationId: ConversationId;
+      request: unknown;
+    }
+  | { type: "request.resolved"; requestId: string; conversationId: ConversationId };
 
 /**
  * A plugin-defined event. `string & {}` keeps the union open without collapsing
@@ -39,6 +46,8 @@ const KERNEL_EVENT_TYPES = new Set<KernelEvent["type"]>([
   "reasoning_delta",
   "tool_call.started",
   "tool_call.completed",
+  "request.created",
+  "request.resolved",
 ]);
 
 /**

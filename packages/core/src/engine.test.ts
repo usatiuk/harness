@@ -7,9 +7,11 @@ import type {
   Item,
   Plugin,
   Tool,
+  ToolMiddleware,
 } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import {
+  approvalMiddleware,
   counterIdGenerator,
   EchoTool,
   FakeProvider,
@@ -517,6 +519,180 @@ describe("Engine — interrupt", () => {
     expect(statuses).not.toContain("completed");
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
     gate.release();
+  });
+});
+
+/** A tool that records whether it ran — to assert a middleware did or didn't reach it. */
+const makeProbe = (): { tool: Tool; state: { ran: boolean } } => {
+  const state = { ran: false };
+  const tool: Tool = {
+    name: "probe",
+    schema: { name: "probe", description: "records execution", parameters: { type: "object" } },
+    async execute() {
+      state.ran = true;
+      return { forModel: [{ type: "text", text: "ran" }], status: "ok" };
+    },
+  };
+  return { tool, state };
+};
+
+describe("Engine — tool middleware", () => {
+  it("runs middlewares outermost-first and wraps the result on the way out", async () => {
+    const order: string[] = [];
+    const trace = (id: string): ToolMiddleware => ({
+      id,
+      async wrap(call, _ctx, next) {
+        order.push(`${id}:in`);
+        const result = await next(call);
+        order.push(`${id}:out`);
+        return result;
+      },
+    });
+    const { store, engine } = setup([toolStep("c1", "echo", { x: 1 }), textStep("done")], {
+      toolMiddleware: () => [trace("a"), trace("b")],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    // First registered is outermost: runs first inbound, last outbound.
+    expect(order).toEqual(["a:in", "b:in", "b:out", "a:out"]);
+  });
+
+  it("lets a gating middleware deny without executing the tool", async () => {
+    const { tool: probe, state } = makeProbe();
+    const deny: ToolMiddleware = {
+      id: "deny",
+      async wrap() {
+        return { forModel: [{ type: "text", text: "denied" }], status: "error" };
+      },
+    };
+    const { store, engine } = setup([toolStep("c1", "probe", {}), textStep("done")], {
+      tools: () => [probe],
+      toolMiddleware: () => [deny],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    expect(result?.status).toBe("error");
+    expect(textOf(result?.content ?? [])).toBe("denied");
+    expect(state.ran).toBe(false);
+  });
+
+  it("lets a middleware call next more than once (retry)", async () => {
+    let attempts = 0;
+    const flaky: Tool = {
+      name: "flaky",
+      schema: { name: "flaky", description: "fails once", parameters: { type: "object" } },
+      async execute() {
+        attempts++;
+        return {
+          forModel: [{ type: "text", text: String(attempts) }],
+          status: attempts < 2 ? "error" : "ok",
+        };
+      },
+    };
+    const retry: ToolMiddleware = {
+      id: "retry",
+      async wrap(call, _ctx, next) {
+        const first = await next(call);
+        return first.status === "error" ? next(call) : first;
+      },
+    };
+    const { store, engine } = setup([toolStep("c1", "flaky", {}), textStep("done")], {
+      tools: () => [flaky],
+      toolMiddleware: () => [retry],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    expect(attempts).toBe(2);
+    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    expect(result?.status).toBe("ok");
+    expect(textOf(result?.content ?? [])).toBe("2");
+  });
+});
+
+/** Resolves with the first `request.created` raised on the engine's stream. */
+const firstRequest = (engine: Engine): Promise<{ requestId: string; request: unknown }> =>
+  new Promise((resolve) => {
+    const unsubscribe = engine.subscribe({
+      onEvent: (e) => {
+        if (isKernelEvent(e) && e.type === "request.created") {
+          unsubscribe();
+          resolve({ requestId: e.requestId, request: e.request });
+        }
+      },
+    });
+  });
+
+describe("Engine — request/respond", () => {
+  it("round-trips an approval: request.created → respond(allow) → tool runs", async () => {
+    const { store, engine, events } = setup([toolStep("c1", "echo", { x: 1 }), textStep("done")], {
+      toolMiddleware: () => [approvalMiddleware((call) => call.name === "echo")],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    const pending = firstRequest(engine);
+    await engine.deliver(conv.id, userInput("go"));
+
+    const { requestId, request } = await pending;
+    expect(request).toMatchObject({ kind: "approval", call: { name: "echo" } });
+    engine.respond(conv.id, requestId, { decision: "allow" });
+    await engine.whenIdle(conv.id);
+
+    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    expect(result?.status).toBe("ok");
+    expect(result?.content).toEqual([{ type: "text", text: JSON.stringify({ x: 1 }) }]);
+    const types = events.filter(isKernelEvent).map((e) => e.type);
+    expect(types).toContain("request.created");
+    expect(types).toContain("request.resolved");
+  });
+
+  it("denies via approval: respond(deny) yields an error result, tool not run", async () => {
+    const { tool: probe, state } = makeProbe();
+    const { store, engine } = setup([toolStep("c1", "probe", {}), textStep("done")], {
+      tools: () => [probe],
+      toolMiddleware: () => [approvalMiddleware(() => true)],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    const pending = firstRequest(engine);
+    await engine.deliver(conv.id, userInput("go"));
+
+    const { requestId } = await pending;
+    engine.respond(conv.id, requestId, { decision: "deny" });
+    await engine.whenIdle(conv.id);
+
+    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    expect(result?.status).toBe("error");
+    expect(textOf(result?.content ?? [])).toContain("denied by approval");
+    expect(state.ran).toBe(false);
+  });
+
+  it("interrupting a parked request settles it (no leak) with an interrupted result", async () => {
+    const { store, engine, events } = setup([toolStep("c1", "echo", {}), textStep("after")], {
+      toolMiddleware: () => [approvalMiddleware(() => true)],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    const pending = firstRequest(engine);
+    await engine.deliver(conv.id, userInput("go"));
+    await pending;
+
+    // Interrupt while the middleware is parked. If the parked promise leaked,
+    // whenIdle would never resolve — so reaching here at all proves it settled.
+    await engine.deliver(conv.id, noContent, "interrupt");
+    await engine.whenIdle(conv.id);
+
+    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    expect(result?.status).toBe("error");
+    expect(turnStatuses(events)).toContain("aborted");
+    // Abort cancels via rejection, so the request never "resolves".
+    expect(events.filter(isKernelEvent).map((e) => e.type)).not.toContain("request.resolved");
+
+    // A late respond for the cancelled request is a harmless no-op.
+    expect(() => engine.respond(conv.id, "req_1", { decision: "allow" })).not.toThrow();
   });
 });
 

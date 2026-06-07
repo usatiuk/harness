@@ -14,13 +14,15 @@ import {
   type ProviderPayloadDraft,
   type Store,
   type ToolCall,
-  type ToolContext,
+  type ToolHandler,
+  type ToolMiddlewareContext,
   type ToolResult,
   type TurnId,
 } from "@harness/protocol";
 import type { PluginHost } from "./plugin-host.ts";
 import { Runtime, type Delivery } from "./runtime.ts";
 import { applyDelivery } from "./delivery.ts";
+import { runToolChain } from "./compose.ts";
 import { reconcileConversation } from "./reconcile.ts";
 
 const MAX_MODEL_STEPS = 100;
@@ -51,6 +53,8 @@ export class Engine {
   readonly #observers: Observer[];
   readonly #runtimes = new Map<ConversationId, Runtime>();
   readonly #loading = new Map<ConversationId, Promise<Runtime>>();
+  /** Monotonic source for ephemeral request ids (process-local; not durable). */
+  #requestSeq = 0;
 
   constructor(
     private readonly store: Store,
@@ -82,6 +86,15 @@ export class Engine {
     const runtime = await this.#runtime(conversationId);
     applyDelivery(runtime, { input, intent });
     this.#ensureRunning(runtime);
+  }
+
+  /**
+   * Answers a pending `ctx.request` raised by a middleware. Point-to-point and
+   * correlated by id — deliberately not routed through the inbox/delivery intents.
+   * A no-op if the request is unknown (already resolved, or cancelled by abort).
+   */
+  respond(conversationId: ConversationId, requestId: string, response: unknown): void {
+    this.#runtimes.get(conversationId)?.pendingRequests.get(requestId)?.resolve(response);
   }
 
   /** Resolves when the conversation's loop is idle and its inbox is drained. */
@@ -290,7 +303,7 @@ export class Engine {
       for (const call of calls) {
         const result = signal.aborted
           ? interruptedResult()
-          : await this.#dispatchInterruptible(call, conversation.id, signal);
+          : await this.#dispatchInterruptible(call, conversation.id, signal, runtime);
         await this.store.appendItem({
           conversationId: conversation.id,
           turnId,
@@ -343,50 +356,77 @@ export class Engine {
     call: ToolCall,
     conversationId: ConversationId,
     signal: AbortSignal,
+    runtime: Runtime,
   ): Promise<ToolResult> {
     if (signal.aborted) return Promise.resolve(interruptedResult());
     const aborted = new Promise<ToolResult>((resolve) => {
       signal.addEventListener("abort", () => resolve(interruptedResult()), { once: true });
     });
-    return Promise.race([this.#dispatch(call, conversationId, signal), aborted]);
+    return Promise.race([this.#dispatch(call, conversationId, signal, runtime), aborted]);
   }
 
   /**
    * Turns one tool call into exactly one ToolResult — the single place the
-   * "every tool_call gets one tool_result" invariant is enforced. A denied or
-   * failed call yields an error result; it never throws past this point.
+   * "every tool_call gets one tool_result" invariant is enforced. The middleware
+   * chain wraps the tool's `execute`; a failed or short-circuited call yields an
+   * error result, never throwing past this point.
    */
   async #dispatch(
     call: ToolCall,
     conversationId: ConversationId,
     signal: AbortSignal,
+    runtime: Runtime,
   ): Promise<ToolResult> {
-    const verdict = await this.host.policies.toolGate.evaluate(call);
-    if (verdict === "deny") {
-      return errorResult(`tool '${call.name}' denied`);
-    }
-    if (verdict === "ask") {
-      return errorResult(`tool '${call.name}' requires approval (not supported)`);
-    }
-    if (!this.host.tools.has(call.name)) {
-      return errorResult(`unknown tool: ${call.name}`);
-    }
-
-    const tool = this.host.tools.get(call.name);
-    const ctx: ToolContext = {
+    const ctx: ToolMiddlewareContext = {
       conversationId,
       signal,
       emit: (event) => this.#emit(event),
+      putBlob: (bytes) => this.store.putBlob(bytes),
+      request: (request) => this.#request(request, conversationId, signal, runtime),
     };
+    const execute: ToolHandler = (c) =>
+      this.host.tools.has(c.name)
+        ? this.host.tools.get(c.name).execute(c.args, ctx)
+        : Promise.resolve(errorResult(`unknown tool: ${c.name}`));
     try {
-      const raw = await tool.execute(call.args, ctx);
-      return await this.host.policies.output.project(raw, {
-        putBlob: (bytes) => this.store.putBlob(bytes),
-        toolName: call.name,
-      });
+      return await runToolChain(this.host.toolMiddleware, call, ctx, execute);
     } catch (error) {
       return errorResult(`tool '${call.name}' failed: ${String(error)}`);
     }
+  }
+
+  /**
+   * Host side of `ctx.request`: parks on a new request id until `respond` resolves it.
+   * Abort-aware — on abort the entry is removed and the promise rejects, so nothing leaks.
+   */
+  #request(
+    request: unknown,
+    conversationId: ConversationId,
+    signal: AbortSignal,
+    runtime: Runtime,
+  ): Promise<unknown> {
+    const aborted = (): Error => new Error("interrupted: turn aborted");
+    if (signal.aborted) return Promise.reject(aborted());
+    const requestId = `req_${++this.#requestSeq}`;
+    return new Promise<unknown>((resolve, reject) => {
+      const cleanup = (): void => {
+        runtime.pendingRequests.delete(requestId);
+        signal.removeEventListener("abort", onAbort);
+      };
+      const onAbort = (): void => {
+        cleanup();
+        reject(aborted());
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      runtime.pendingRequests.set(requestId, {
+        resolve: (response) => {
+          cleanup();
+          this.#emit({ type: "request.resolved", requestId, conversationId });
+          resolve(response);
+        },
+      });
+      this.#emit({ type: "request.created", requestId, conversationId, request });
+    });
   }
 
   async #buildContext(conversation: Conversation): Promise<ContextBuild> {

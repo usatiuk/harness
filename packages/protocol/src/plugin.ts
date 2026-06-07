@@ -1,8 +1,8 @@
 import type { ModelProvider } from "./model.ts";
-import type { Tool } from "./tools.ts";
+import type { Tool, ToolMiddleware } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
 import type { HarnessEvent } from "./events.ts";
-import type { ContextPolicy, OutputProjection, ToolGate } from "./policies.ts";
+import type { ContextPolicy } from "./policies.ts";
 
 /** Contributes prompt fragments / project context into the cache-stable prefix. */
 export interface ContextSource {
@@ -17,8 +17,6 @@ export interface Observer {
 
 export interface PluginPolicies {
   context?: ContextPolicy;
-  toolGate?: ToolGate;
-  output?: OutputProjection;
 }
 
 /**
@@ -29,6 +27,8 @@ export interface Plugin {
   readonly id: string;
   providers?(): ModelProvider[];
   tools?(): Tool[];
+  /** Wraps tool execution, outermost first. Absence of any gate = allow. */
+  toolMiddleware?(): ToolMiddleware[];
   contextSources?(): ContextSource[];
   policies?(): PluginPolicies;
   observers?(): Observer[];

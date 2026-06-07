@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { isKernelEvent, type Plugin } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
-import { EchoTool } from "@harness/testkit";
+import { approvalMiddleware, EchoTool } from "@harness/testkit";
 import { HarnessService } from "@harness/service";
 import { createOpenAIPlugin } from "@harness/openai-api";
 import { DemoProvider } from "./demo-provider.ts";
@@ -26,17 +26,31 @@ export async function run(): Promise<void> {
 
   const service = new HarnessService({
     store,
-    plugins: [modelPlugin, { id: "tools", tools: () => [new EchoTool()] }],
+    plugins: [
+      modelPlugin,
+      { id: "tools", tools: () => [new EchoTool()] },
+      // Demo: gate the echo tool through the request/respond seam (answer y/n).
+      {
+        id: "approval",
+        toolMiddleware: () => [approvalMiddleware((call) => call.name === "echo")],
+      },
+    ],
   });
 
   // Liveness from turn.status (not from blocking on a send), so it tracks turns
   // from any source — including the /tick external one.
   let busy = false;
+  // Request a middleware is parked on; a typed line answers it instead of sending.
+  let pendingRequestId: string | undefined;
   service.subscribe((event) => {
     renderEvent(event);
-    if (isKernelEvent(event) && event.type === "turn.status") {
+    if (!isKernelEvent(event)) return;
+    if (event.type === "turn.status") {
       busy = event.status === "running";
+      if (!busy) pendingRequestId = undefined; // a parked request can't outlive its turn
     }
+    if (event.type === "request.created") pendingRequestId = event.requestId;
+    if (event.type === "request.resolved") pendingRequestId = undefined;
   });
 
   const conversation = await service.createConversation({
@@ -68,6 +82,14 @@ export async function run(): Promise<void> {
     for await (const line of rl) {
       const raw = line.trim();
       if (raw === "/exit") break;
+      // While a middleware is parked on a request, the line answers it — except `!`,
+      // which still interrupts (aborting the turn cancels the parked request).
+      if (pendingRequestId && !raw.startsWith("!")) {
+        const decision = /^(n|no|deny)$/i.test(raw) ? "deny" : "allow";
+        service.respond(conversation.id, pendingRequestId, { decision });
+        rl.prompt();
+        continue;
+      }
       if (raw === "") {
         rl.prompt();
         continue;

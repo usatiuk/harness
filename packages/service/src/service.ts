@@ -51,6 +51,15 @@ export class HarnessService {
     return this.deliver(conversationId, text, "send");
   }
 
+  /**
+   * Answers a pending middleware request (e.g. an approval prompt) raised via
+   * `ctx.request` and surfaced as a `request.created` event. A no-op if the request
+   * is no longer pending.
+   */
+  respond(conversationId: ConversationId, requestId: string, response: unknown): void {
+    this.#engine.respond(conversationId, requestId, response);
+  }
+
   /** Resolves when the conversation has no running or queued work. */
   whenIdle(conversationId: ConversationId): Promise<void> {
     return this.#engine.whenIdle(conversationId);

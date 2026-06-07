@@ -1,8 +1,24 @@
 import { describe, expect, it } from "vitest";
-import type { Plugin, ToolGate } from "@harness/protocol";
+import type { ContextPolicy, Plugin, ToolMiddleware } from "@harness/protocol";
 import { EchoTool, FakeProvider } from "@harness/testkit";
 import { PluginHost } from "./plugin-host.ts";
-import { allowAllToolGate, defaultContextPolicy } from "./policies.ts";
+import { defaultContextPolicy } from "./policies.ts";
+
+const passThroughContext: ContextPolicy = {
+  async select(input) {
+    return {
+      conversationId: input.conversationId,
+      instructions: input.instructions,
+      tools: input.tools,
+      items: [],
+    };
+  },
+};
+
+const passThrough = (id: string): ToolMiddleware => ({
+  id,
+  wrap: (call, _ctx, next) => next(call),
+});
 
 describe("PluginHost", () => {
   it("registers tools and providers, schemas sorted by name", () => {
@@ -18,16 +34,27 @@ describe("PluginHost", () => {
     expect(host.tools.schemas().map((s) => s.name)).toEqual(["echo"]);
   });
 
-  it("falls back to default policies when none are contributed", () => {
+  it("falls back to the default context policy when none is contributed", () => {
     const host = new PluginHost([{ id: "p" }]);
-    expect(host.policies.toolGate).toBe(allowAllToolGate);
     expect(host.policies.context).toBe(defaultContextPolicy);
   });
 
-  it("uses a contributed policy in place of the default", () => {
-    const toolGate: ToolGate = { evaluate: async () => "deny" };
-    const host = new PluginHost([{ id: "p", policies: () => ({ toolGate }) }]);
-    expect(host.policies.toolGate).toBe(toolGate);
+  it("uses a contributed context policy in place of the default", () => {
+    const host = new PluginHost([{ id: "p", policies: () => ({ context: passThroughContext }) }]);
+    expect(host.policies.context).toBe(passThroughContext);
+  });
+
+  it("collects tool middleware in registration order, default truncate innermost", () => {
+    const host = new PluginHost([
+      { id: "p1", toolMiddleware: () => [passThrough("a")] },
+      { id: "p2", toolMiddleware: () => [passThrough("b")] },
+    ]);
+    expect(host.toolMiddleware.map((m) => m.id)).toEqual(["a", "b", "truncate"]);
+  });
+
+  it("ships only the default truncate middleware when none is contributed", () => {
+    const host = new PluginHost([{ id: "p" }]);
+    expect(host.toolMiddleware.map((m) => m.id)).toEqual(["truncate"]);
   });
 
   it("rejects duplicate tool registration", () => {
@@ -39,12 +66,11 @@ describe("PluginHost", () => {
   });
 
   it("rejects two contributors for the same policy slot", () => {
-    const toolGate: ToolGate = { evaluate: async () => "deny" };
     expect(
       () =>
         new PluginHost([
-          { id: "a", policies: () => ({ toolGate }) },
-          { id: "b", policies: () => ({ toolGate }) },
+          { id: "a", policies: () => ({ context: passThroughContext }) },
+          { id: "b", policies: () => ({ context: passThroughContext }) },
         ]),
     ).toThrow(/composition not yet supported/);
   });

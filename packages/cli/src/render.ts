@@ -46,6 +46,17 @@ export function renderEvent(event: HarnessEvent): void {
     case "tool_call.completed":
       process.stdout.write(`\x1b[2m   → ${textOf(event.forModel)} [${event.status}]\x1b[0m\n`);
       return;
+    case "request.created": {
+      const req = event.request as { kind?: string; call?: { name?: string } };
+      const prompt =
+        req.kind === "approval"
+          ? `approve ${req.call?.name}? [y/n]`
+          : JSON.stringify(event.request);
+      process.stdout.write(`\n\x1b[35m❓ ${prompt}\x1b[0m\n`);
+      return;
+    }
+    case "request.resolved":
+      return;
     default:
       assertNever(event);
   }

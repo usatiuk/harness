@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationId, Item, ItemId, OutputRef, ProviderPayload } from "@harness/protocol";
-import { allowAllToolGate, defaultContextPolicy, truncateOutputProjection } from "./policies.ts";
+import type {
+  ConversationId,
+  Item,
+  ItemId,
+  ProviderPayload,
+  ToolCall,
+  ToolMiddlewareContext,
+} from "@harness/protocol";
+import { defaultContextPolicy, truncateMiddleware } from "./policies.ts";
 
 const item = (id: string, seq: number): Item => ({
   id: id as ItemId,
@@ -12,13 +19,6 @@ const item = (id: string, seq: number): Item => ({
   role: "assistant",
   content: [{ type: "text", text: id }],
 });
-
-const noBlob = {
-  toolName: "echo",
-  putBlob: (): Promise<OutputRef> => {
-    throw new Error("putBlob should not be called");
-  },
-};
 
 describe("defaultContextPolicy", () => {
   it("selects all items in order and attaches matching payloads", async () => {
@@ -44,25 +44,22 @@ describe("defaultContextPolicy", () => {
   });
 });
 
-describe("allowAllToolGate", () => {
-  it("allows every call", async () => {
-    expect(await allowAllToolGate.evaluate({ callId: "1", name: "x", args: {} })).toBe("allow");
-  });
-});
+describe("truncateMiddleware", () => {
+  const call: ToolCall = { callId: "1", name: "echo", args: {} };
+  const ctx = {} as ToolMiddlewareContext; // truncate ignores ctx
 
-describe("truncateOutputProjection", () => {
   it("caps long text and leaves short text untouched", async () => {
-    const projection = truncateOutputProjection(5);
-    const long = await projection.project(
-      { forModel: [{ type: "text", text: "0123456789" }], status: "ok" },
-      noBlob,
-    );
+    const mw = truncateMiddleware(5);
+    const long = await mw.wrap(call, ctx, async () => ({
+      forModel: [{ type: "text", text: "0123456789" }],
+      status: "ok",
+    }));
     expect(long.forModel[0]).toEqual({ type: "text", text: "01234…[truncated]" });
 
-    const short = await projection.project(
-      { forModel: [{ type: "text", text: "ok" }], status: "ok" },
-      noBlob,
-    );
+    const short = await mw.wrap(call, ctx, async () => ({
+      forModel: [{ type: "text", text: "ok" }],
+      status: "ok",
+    }));
     expect(short.forModel[0]).toEqual({ type: "text", text: "ok" });
   });
 });

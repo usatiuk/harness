@@ -25,6 +25,12 @@ export class Runtime {
   currentTurnId: TurnId | undefined;
   /** The in-flight turn's abort handle; present only while a turn runs. */
   controller: AbortController | undefined;
+  /**
+   * In-flight `ctx.request` calls awaiting a `respond`, keyed by requestId.
+   * Ephemeral: a parked request that outlives the process is recovered by crash
+   * reconciliation (its tool_call has no result), so nothing here is durable.
+   */
+  readonly pendingRequests = new Map<string, { resolve: (response: unknown) => void }>();
   #idleWaiters: Array<() => void> = [];
 
   constructor(conversation: Conversation) {
