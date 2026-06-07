@@ -15,12 +15,10 @@
   },
   "dependencies": {
     "@harness/protocol": "*",
-    "@harness/service": "*",
-    "@harness/plugins": "*",
-    "@harness/tools": "*",
     "@harness/core": "*",
-    "@harness/store-sqlite": "*",
-    "@harness/model-openai": "*"
+    "@harness/service": "*",
+    "@harness/store": "*",
+    "@harness/testkit": "*"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

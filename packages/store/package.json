@@ -14,6 +14,7 @@
     "@harness/protocol": "*"
   },
   "devDependencies": {
+    "@harness/testkit": "*",
     "vitest": "^4.1.8"
   }
 }

@@ -11,11 +11,11 @@
     }
   },
   "dependencies": {
-    "@harness/protocol": "*",
-    "@harness/store": "*",
-    "@harness/model": "*"
+    "@harness/protocol": "*"
   },
   "devDependencies": {
+    "@harness/store": "*",
+    "@harness/testkit": "*",
     "vitest": "^4.1.8"
   }
 }

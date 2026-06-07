@@ -8,12 +8,15 @@
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./contract": {
+      "development": "./src/contract.ts",
+      "types": "./dist/contract.d.ts",
+      "default": "./dist/contract.js"
     }
   },
   "dependencies": {
-    "@harness/protocol": "*",
-    "@harness/store": "*",
-    "@harness/model": "*"
+    "@harness/protocol": "*"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

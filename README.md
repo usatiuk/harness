@@ -28,4 +28,6 @@ npm run check        # typecheck + lint + format:check + test (also runs in CI)
 ### Layout
 
 Packages under `packages/*`, layered one-directionally:
-`protocol → store/model → core → tools → plugins → service → cli`.
+`protocol → store → core → service → cli`. Tools and model providers are not
+layers — they are plugin contributions, each shipping as its own `plugin-*`
+package and wired in at the `cli` composition root.

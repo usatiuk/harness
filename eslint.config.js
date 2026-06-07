@@ -15,6 +15,11 @@ export default tseslint.config(
         tsconfigRootDir: import.meta.dirname,
       },
     },
+    rules: {
+      // Our contracts are Promise-based; implementing them as `async` without an
+      // `await` is intentional, so thrown errors surface as rejections.
+      "@typescript-eslint/require-await": "off",
+    },
   },
   {
     // Config files aren't in any package's tsconfig.

@@ -383,19 +383,23 @@ dictate the internal model.
 Strict downward dependencies; each split by responsibility.
 
 ```
-protocol/       pure types + zod schemas + ids. zero logic, zero deps.
-store/          Store interface + in-memory impl + store-contract test suite
+protocol/       pure types + zod schemas + ids + ALL contract interfaces
+                (Store, ModelProvider, Tool, Plugin, the 4 policy slots). zero logic.
+store/          in-memory Store impl (+ contract suite lives in testkit)
 store-sqlite/   sqlite impl via Kysely (typed SQL, migrations colocated; no ORM)
-model/          ModelProvider contract + ModelRegistry + fake provider
-model-openai/   OpenAI Responses + ChatGPT/codex OAuth adapter (first real one)
-core/           the loop, context builder, turn manager, policy slots, blob store.
-                orchestration only — depends on store + model *contracts*, not impls
-tools/          Tool contract + ToolRegistry + ExecutionContext iface + host impl
-plugins/        Plugin contract + thin PluginHost (composes registries/policies)
+core/           the loop, context builder, turn manager, policy composition,
+                PluginHost + registries, blob store. depends on protocol only;
+                store impls and providers are injected at the composition root
 service/        façade API + typed event stream over core (what every client calls)
-cli/            thin CLI over service
-testkit/        shared fakes + reusable contract test suites
+cli/            thin CLI over service; the composition root that wires impls/plugins
+testkit/        shared fakes (provider, tool) + reusable contract test suites
+plugin-*/       each behavior is its own package (e.g. plugin-openai, plugin-fs).
+                Tools and providers are plugin contributions, never their own layer.
 ```
+
+Tools and providers are **plugins, not layers** — there is no `tools/` package and
+no monolith `plugins/` package. The `Plugin` contract is in `protocol`; the
+`PluginHost` is mechanism and lives in `core`.
 
 Persistence is **Kysely behind the `Store` interface** — typed SQL, real
 migrations, no ORM magic (a fit for an append-only-log data model; an ORM's
