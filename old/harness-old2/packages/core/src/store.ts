@@ -2,21 +2,17 @@ import type {
     AgentRunRecord,
     AgentRunStatus,
     ConversationItem,
-    ConversationItemClass,
-    ConversationItemKind,
-    ConversationItemVisibility,
+    ConversationItemInput,
     ConversationRecord,
     ContentBlock,
     ContextBuild,
-    ContextProjection,
-    MessageRole,
+    ModelAccounting,
     ModelConfig,
     ProfileConfig,
     ProfileRecord,
-    ProviderEncoding,
-    ProviderEncodingDraft,
-    ProviderEventPayload,
-    SourceRef,
+    ProviderPayload,
+    ProviderPayloadDraft,
+    ProviderResponse,
 } from "@harness/protocol";
 import type { JSONType } from "zod";
 
@@ -45,18 +41,7 @@ export interface HarnessStore {
         title?: string;
     }): Promise<ConversationRecord>;
 
-    appendConversationItem(input: {
-        id?: string;
-        conversationId: string;
-        class: ConversationItemClass;
-        kind: ConversationItemKind;
-        role?: MessageRole;
-        visibility: ConversationItemVisibility;
-        runId?: string;
-        source?: SourceRef;
-        content: ContentBlock[];
-        data?: JSONType;
-    }): Promise<ConversationItem>;
+    appendConversationItem(input: ConversationItemInput): Promise<ConversationItem>;
     listConversationItems(
         conversationId: string,
         input?: { after?: number; limit?: number },
@@ -78,6 +63,9 @@ export interface HarnessStore {
         id: string;
         status?: AgentRunStatus;
         completedThroughItemSequence?: number;
+        outputItemId?: string;
+        providerResponse?: ProviderResponse;
+        accounting?: ModelAccounting;
         error?: JSONType;
     }): Promise<AgentRunRecord>;
     commitAssistantResponse(input: {
@@ -85,59 +73,42 @@ export interface HarnessStore {
         runId: string;
         modelConfig: ModelConfig;
         content: ContentBlock[];
-        data?: JSONType;
-        providerEvents: ProviderEventPayload[];
-        providerEncoding?: ProviderEncodingDraft;
+        providerResponse?: ProviderResponse;
+        accounting?: ModelAccounting;
+        providerPayload?: ProviderPayloadDraft;
     }): Promise<{
         assistantItem: ConversationItem;
-        providerEventItems: ConversationItem[];
-        providerEncoding?: ProviderEncoding;
+        providerPayload?: ProviderPayload;
         run: AgentRunRecord;
     }>;
-
-    createContextProjection(input: {
-        id?: string;
-        conversationId: string;
-        itemId: string;
-        coversThroughItemSequence: number;
-        policyId: string;
-        content: ContentBlock[];
-        tokenEstimate: number;
-        diagnostics?: Record<string, JSONType>;
-    }): Promise<ContextProjection>;
-    listContextProjections(
-        conversationId: string,
-    ): Promise<ContextProjection[]>;
 
     createContextBuild(input: {
         id?: string;
         conversationId: string;
         runId: string;
         modelConfig: ModelConfig;
-        projectionId?: string;
+        compactionItemId?: string;
         selectedItemIds: string[];
         selectedItemSequences: number[];
         diagnostics?: Record<string, JSONType>;
     }): Promise<ContextBuild>;
     listContextBuilds(conversationId: string): Promise<ContextBuild[]>;
 
-    createProviderEncoding(input: {
+    createProviderPayload(input: {
         id?: string;
         conversationId: string;
         itemId: string;
         itemSequence: number;
         provider: string;
-        adapter: string;
         modelId: string;
-        format: string;
-        formatVersion: number;
+        type: string;
+        version: number;
         payload: JSONType;
-    }): Promise<ProviderEncoding>;
-    listProviderEncodingsForItems(input: {
+    }): Promise<ProviderPayload>;
+    listProviderPayloadsForItems(input: {
         conversationId: string;
         itemIds: string[];
         provider: string;
-        adapter: string;
         modelId: string;
-    }): Promise<ProviderEncoding[]>;
+    }): Promise<ProviderPayload[]>;
 }

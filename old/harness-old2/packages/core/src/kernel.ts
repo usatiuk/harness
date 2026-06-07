@@ -1,4 +1,8 @@
-import { modelStreamEventSchema, profileConfigSchema } from "@harness/protocol";
+import {
+    modelStreamEventSchema,
+    pendingConversationInputSchema,
+    profileConfigSchema,
+} from "@harness/protocol";
 import type {
     AgentRunRecord,
     ConversationInputDelivery,
@@ -6,24 +10,25 @@ import type {
     ConversationRecord,
     ContentBlock,
     ModelFinalResponse,
+    PendingConversationInput,
     ProfileConfig,
     ProfileRecord,
-    ProviderEventPayload,
 } from "@harness/protocol";
-import { z, type JSONType } from "zod";
+import type { JSONType } from "zod";
 import {
     ContextBuilder,
     DEFAULT_CONTEXT_POLICY_ID,
     estimateTokens,
     summarizeItemsForProjection,
 } from "./context.ts";
-import { EchoModelAdapter, ModelRegistry, type ModelAdapter } from "./model.ts";
+import { createId, nowIso } from "./ids.ts";
+import { EchoModelProvider, ModelRegistry, type ModelProvider } from "./model.ts";
 import { wasRunInterrupted } from "./run-state.ts";
 import type { HarnessStore } from "./store.ts";
 
 export interface HarnessKernelOptions {
     store: HarnessStore;
-    models?: ModelAdapter[];
+    models?: ModelProvider[];
 }
 
 export class HarnessKernel {
@@ -32,9 +37,13 @@ export class HarnessKernel {
     private readonly pumpQueues = new Map<string, Promise<void>>();
     private readonly activeRunByConversation = new Map<string, string>();
     private readonly cancelledRuns = new Set<string>();
+    private readonly pendingInputsByConversation = new Map<
+        string,
+        PendingConversationInput[]
+    >();
 
     public constructor(public readonly options: HarnessKernelOptions) {
-        this.models.register(new EchoModelAdapter());
+        this.models.register(new EchoModelProvider());
         for (const model of options.models ?? []) {
             this.models.register(model);
         }
@@ -95,20 +104,11 @@ export class HarnessKernel {
             input.profileConfig ?? profile?.config ?? {},
         );
         this.models.resolve(config.model);
-        const conversation = await this.store.createConversation({
+        return this.store.createConversation({
             ...(profile?.name ? { profileName: profile.name } : {}),
             config,
             ...(input.title ? { title: input.title } : {}),
         });
-        await this.store.appendConversationItem({
-            conversationId: conversation.id,
-            class: "audit",
-            kind: "audit_note",
-            visibility: "audit",
-            content: [{ type: "text", text: "Conversation created" }],
-            data: { conversationId: conversation.id },
-        });
-        return conversation;
     }
 
     public async listConversations(): Promise<ConversationRecord[]> {
@@ -138,22 +138,17 @@ export class HarnessKernel {
         conversationId: string;
         content: ContentBlock[];
         delivery?: ConversationInputDelivery;
-    }): Promise<ConversationItem> {
+    }): Promise<ConversationItem | PendingConversationInput> {
         const delivery = input.delivery ?? "send";
-        const inMemoryActiveRunId =
-            delivery === "interrupt"
-                ? this.activeRunByConversation.get(input.conversationId)
-                : undefined;
-        if (inMemoryActiveRunId) {
-            this.cancelledRuns.add(inMemoryActiveRunId);
-        }
         const conversation = await this.requireConversation(
             input.conversationId,
         );
         const activeBeforeInput = await this.store.getActiveAgentRun(
             conversation.id,
         );
+
         if (delivery === "interrupt") {
+            this.pendingInputsByConversation.delete(conversation.id);
             if (activeBeforeInput) {
                 this.cancelledRuns.add(activeBeforeInput.id);
                 await this.store.updateAgentRun({
@@ -164,42 +159,35 @@ export class HarnessKernel {
                     error: { interrupted: true },
                 });
             }
-        }
-        if (
-            (delivery === "send" || delivery === "queue") &&
-            activeBeforeInput
-        ) {
-            const item = await this.store.appendConversationItem({
-                conversationId: conversation.id,
-                class: "control",
-                kind: "user_message",
-                role: "user",
-                visibility: "ui",
-                content: input.content,
-                data: {
-                    delivery: "queue",
-                    requestedDelivery: delivery,
-                    afterRunId: activeBeforeInput.id,
-                },
+            const item = await this.appendUserMessage(
+                conversation.id,
+                input.content,
+            );
+            await this.requestPump(conversation.id, {
+                replace: activeBeforeInput !== undefined,
             });
-            this.schedulePump(conversation.id);
             return item;
         }
-        const item = await this.store.appendConversationItem({
-            conversationId: conversation.id,
-            class: "transcript",
-            kind: "user_message",
-            role: "user",
-            visibility: delivery === "manual" ? "ui" : "model",
-            content: input.content,
-            data: { delivery },
-        });
-        if (delivery !== "manual") {
-            await this.requestPump(conversation.id, {
-                replace:
-                    delivery === "interrupt" && activeBeforeInput !== undefined,
+
+        if (activeBeforeInput) {
+            const pending = pendingConversationInputSchema.parse({
+                id: createId("pending"),
+                conversationId: conversation.id,
+                requestedDelivery: delivery,
+                afterRunId: activeBeforeInput.id,
+                content: input.content,
+                createdAt: nowIso(),
             });
+            const queue =
+                this.pendingInputsByConversation.get(conversation.id) ?? [];
+            queue.push(pending);
+            this.pendingInputsByConversation.set(conversation.id, queue);
+            this.schedulePump(conversation.id);
+            return pending;
         }
+
+        const item = await this.appendUserMessage(conversation.id, input.content);
+        await this.requestPump(conversation.id);
         return item;
     }
 
@@ -215,51 +203,54 @@ export class HarnessKernel {
             await this.abandonedInputSequences(conversationId);
         const modelItems = items.filter(
             (item) =>
-                item.class === "transcript" &&
-                item.visibility === "model" &&
+                item.type === "message" &&
                 !abandonedSequences.has(item.sequence),
         );
         if (modelItems.length === 0) {
-            throw new Error("No model-visible transcript items to compact");
+            throw new Error("No conversation messages to compact");
         }
         const coversThrough = modelItems.at(-1)?.sequence ?? 0;
-        const content = summarizeItemsForProjection(
+        const summary = summarizeItemsForProjection(
             modelItems.map((item) => ({
                 role: item.role,
                 content: item.content,
                 sequence: item.sequence,
             })),
         );
-        const item = await this.store.appendConversationItem({
+        return this.store.appendConversationItem({
             conversationId,
-            class: "projection",
-            kind: "context_projection",
-            role: "system",
-            visibility: "model",
-            content,
-            data: {
-                coversThroughItemSequence: coversThrough,
-                policyId: DEFAULT_CONTEXT_POLICY_ID,
-            },
-        });
-        await this.store.createContextProjection({
-            conversationId,
-            itemId: item.id,
+            type: "compaction",
+            summary,
             coversThroughItemSequence: coversThrough,
+            firstKeptItemId: modelItems.at(-1)?.id,
             policyId: DEFAULT_CONTEXT_POLICY_ID,
-            content,
-            tokenEstimate: estimateTokens(content),
-            diagnostics: { compactedItemCount: modelItems.length },
+            tokenEstimate: estimateTokens(summary),
         });
-        return item;
     }
 
     public async listContextBuilds(conversationId: string) {
         return this.store.listContextBuilds(conversationId);
     }
 
-    public async listContextProjections(conversationId: string) {
-        return this.store.listContextProjections(conversationId);
+    public async listCompactions(conversationId: string) {
+        return (await this.store.listConversationItems(conversationId)).filter(
+            (item) => item.type === "compaction",
+        );
+    }
+
+    private async appendUserMessage(
+        conversationId: string,
+        content: ContentBlock[],
+        sourceItemId?: string,
+    ): Promise<ConversationItem> {
+        return this.store.appendConversationItem({
+            conversationId,
+            type: "message",
+            role: "user",
+            status: "complete",
+            content,
+            ...(sourceItemId ? { sourceItemId } : {}),
+        });
     }
 
     private async requestPump(
@@ -291,7 +282,7 @@ export class HarnessKernel {
             if (await this.store.getActiveAgentRun(conversationId)) {
                 return;
             }
-            await this.promoteQueuedInputs(conversationId);
+            await this.promotePendingInputs(conversationId);
             if (!(await this.needsModelRun(conversationId))) {
                 break;
             }
@@ -308,15 +299,6 @@ export class HarnessKernel {
                 id: conversationId,
                 status: "running",
             });
-            await this.store.appendConversationItem({
-                conversationId,
-                class: "audit",
-                kind: "run_event",
-                visibility: "audit",
-                runId: run.id,
-                content: [{ type: "text", text: `Run ${run.id} started` }],
-                data: { runId: run.id, status: "running" },
-            });
             try {
                 this.activeRunByConversation.set(conversationId, run.id);
                 await this.runModelStream(conversation, run);
@@ -325,28 +307,15 @@ export class HarnessKernel {
                     error instanceof InactiveRunError &&
                     error.status === "cancelled"
                 ) {
-                    await this.store.appendConversationItem({
-                        conversationId,
-                        class: "audit",
-                        kind: "run_event",
-                        visibility: "audit",
-                        runId: run.id,
-                        content: [
-                            { type: "text", text: `Run ${run.id} cancelled` },
-                        ],
-                        data: { runId: run.id, status: "cancelled" },
-                    });
                     return;
                 }
                 const payload = errorPayload(error);
                 await this.store.appendConversationItem({
                     conversationId,
-                    class: "audit",
-                    kind: "model_error",
-                    visibility: "ui",
+                    type: "model_error",
                     runId: run.id,
-                    content: [{ type: "text", text: payload.message }],
-                    data: payload,
+                    message: payload.message,
+                    error: payload,
                 });
                 await this.store.updateAgentRun({
                     id: run.id,
@@ -390,31 +359,29 @@ export class HarnessKernel {
         conversation: ConversationRecord,
         run: AgentRunRecord,
     ): Promise<void> {
-        const adapter = this.models.resolve(conversation.config.model);
+        const provider = this.models.resolve(conversation.config.model);
         const modelRequest = await this.contextBuilder.build({
             conversationId: conversation.id,
             runId: run.id,
             modelConfig: conversation.config.model,
             promptFragments: conversation.config.promptFragments,
         });
-        const { response, providerEvents } = await this.collectModelStream(
-            adapter.stream(modelRequest),
+        const response = await this.collectModelStream(
+            provider.stream(modelRequest),
             run.id,
         );
         await this.assertRunStillActive(run.id);
-        const assistantData = z.json().parse({
-            metadata: response.assistant.metadata,
-            accounting: response.accounting ?? null,
-        });
         await this.store.commitAssistantResponse({
             conversationId: conversation.id,
             runId: run.id,
             modelConfig: conversation.config.model,
             content: response.assistant.content,
-            data: assistantData,
-            providerEvents,
-            ...(response.assistant.providerEncoding
-                ? { providerEncoding: response.assistant.providerEncoding }
+            ...(response.providerResponse
+                ? { providerResponse: response.providerResponse }
+                : {}),
+            ...(response.accounting ? { accounting: response.accounting } : {}),
+            ...(response.assistant.providerPayload
+                ? { providerPayload: response.assistant.providerPayload }
                 : {}),
         });
     }
@@ -422,11 +389,7 @@ export class HarnessKernel {
     private async collectModelStream(
         stream: AsyncIterable<unknown>,
         runId: string,
-    ): Promise<{
-        response: ModelFinalResponse;
-        providerEvents: ProviderEventPayload[];
-    }> {
-        const providerEvents: ProviderEventPayload[] = [];
+    ): Promise<ModelFinalResponse> {
         let response: ModelFinalResponse | undefined;
         for await (const draft of stream) {
             await this.assertRunStillActive(runId);
@@ -439,9 +402,6 @@ export class HarnessKernel {
             switch (event.type) {
                 case "text_delta":
                     break;
-                case "provider_event":
-                    providerEvents.push(event.event);
-                    break;
                 case "completed":
                     response = event.response;
                     break;
@@ -450,24 +410,26 @@ export class HarnessKernel {
         if (!response) {
             throw new Error("Model stream ended without a completed response");
         }
-        return { response, providerEvents };
+        return response;
     }
 
     private async needsModelRun(conversationId: string): Promise<boolean> {
         const items = await this.store.listConversationItems(conversationId);
-        const transcriptInputs = items.filter(
+        const inputs = items.filter(
             (item) =>
-                item.class === "transcript" &&
-                item.visibility === "model" &&
+                item.type === "message" &&
                 (item.role === "user" || item.role === "system"),
         );
-        const projections =
-            await this.store.listContextProjections(conversationId);
-        const coveredThroughProjection =
-            projections.at(-1)?.coversThroughItemSequence ?? 0;
+        const latestCompaction = items
+            .filter((item) => item.type === "compaction")
+            .at(-1);
+        const coveredThrough =
+            latestCompaction?.type === "compaction"
+                ? latestCompaction.coversThroughItemSequence
+                : 0;
         const coveredSequences = new Set(
-            transcriptInputs
-                .filter((item) => item.sequence <= coveredThroughProjection)
+            inputs
+                .filter((item) => item.sequence <= coveredThrough)
                 .map((item) => item.sequence),
         );
         const runs = await this.store.listAgentRuns(conversationId);
@@ -498,44 +460,21 @@ export class HarnessKernel {
                 coveredSequences.add(sequence);
             }
         }
-        return transcriptInputs.some(
-            (item) => !coveredSequences.has(item.sequence),
-        );
+        return inputs.some((item) => !coveredSequences.has(item.sequence));
     }
 
-    private async promoteQueuedInputs(conversationId: string): Promise<void> {
-        const items = await this.store.listConversationItems(conversationId);
-        const promotedSourceIds = new Set(
-            items
-                .filter(
-                    (item) =>
-                        item.class === "transcript" &&
-                        item.source?.type === "queued_input" &&
-                        item.source.id,
-                )
-                .map((item) => item.source?.id),
-        );
-        const queued = items.filter(
-            (item) =>
-                item.class === "control" &&
-                item.kind === "user_message" &&
-                item.visibility === "ui" &&
-                item.role === "user" &&
-                item.data !== undefined &&
-                dataDelivery(item.data) === "queue" &&
-                !promotedSourceIds.has(item.id),
-        );
-        for (const item of queued) {
-            await this.store.appendConversationItem({
+    private async promotePendingInputs(conversationId: string): Promise<void> {
+        const queue = this.pendingInputsByConversation.get(conversationId);
+        if (!queue || queue.length === 0) {
+            return;
+        }
+        this.pendingInputsByConversation.delete(conversationId);
+        for (const pending of queue) {
+            await this.appendUserMessage(
                 conversationId,
-                class: "transcript",
-                kind: "user_message",
-                role: "user",
-                visibility: "model",
-                source: { type: "queued_input", id: item.id },
-                content: item.content,
-                data: { delivery: "queue", queuedItemId: item.id },
-            });
+                pending.content,
+                pending.id,
+            );
         }
     }
 
@@ -610,13 +549,4 @@ function errorPayload(error: unknown): ErrorPayload {
         message: error instanceof Error ? error.message : String(error),
         name: error instanceof Error ? error.name : "Error",
     };
-}
-
-function dataDelivery(value: JSONType): string | undefined {
-    return typeof value === "object" &&
-        value !== null &&
-        !Array.isArray(value) &&
-        typeof value.delivery === "string"
-        ? value.delivery
-        : undefined;
 }

@@ -1,18 +1,17 @@
 import { describe, expect, test } from "vitest";
-import { createOpenAIResponsesModelAdapter } from "@harness/model-openai";
+import { createOpenAIResponsesModelProvider } from "@harness/model-openai";
 
 const enabled = process.env.HARNESS_LIVE_OPENAI === "1";
 
 describe.skipIf(!enabled)("OpenAI live smoke", () => {
     test("gets one text response from the configured OpenAI Responses model", async () => {
-        const adapter = createOpenAIResponsesModelAdapter();
+        const provider = createOpenAIResponsesModelProvider();
         let text = "";
-        for await (const event of adapter.stream({
+        for await (const event of provider.stream({
             conversationId: "conv_live",
             runId: "run_live",
             modelConfig: {
                 provider: "openai",
-                adapter: "responses",
                 modelId:
                     process.env.HARNESS_LIVE_OPENAI_MODEL ??
                     process.env.HARNESS_MODEL ??
@@ -22,22 +21,16 @@ describe.skipIf(!enabled)("OpenAI live smoke", () => {
             instructions: [],
             items: [
                 {
-                    item: {
-                        id: "item_live_1",
-                        conversationId: "conv_live",
-                        sequence: 1,
-                        class: "transcript",
-                        kind: "user_message",
-                        role: "user",
-                        visibility: "model",
-                        content: [
-                            {
-                                type: "text",
-                                text: "Reply with a short plain sentence.",
-                            },
-                        ],
-                        createdAt: "2026-01-01T00:00:00.000Z",
-                    },
+                    itemId: "item_live_1",
+                    conversationId: "conv_live",
+                    sequence: 1,
+                    role: "user",
+                    content: [
+                        {
+                            type: "text",
+                            text: "Reply with a short plain sentence.",
+                        },
+                    ],
                 },
             ],
         })) {

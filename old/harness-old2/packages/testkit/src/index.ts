@@ -4,50 +4,43 @@ import {
     finalResponseEvents,
     nowIso,
     type HarnessStore,
-    type ModelAdapter,
+    type ModelProvider,
 } from "@harness/core";
 import { HarnessService } from "@harness/service";
 import {
     agentRunRecordSchema,
     contextBuildSchema,
-    contextProjectionSchema,
+    conversationItemInputSchema,
     conversationItemSchema,
     conversationRecordSchema,
     profileRecordSchema,
-    providerEncodingSchema,
+    providerPayloadSchema,
     type AgentRunRecord,
     type AgentRunStatus,
     type ConversationItem,
-    type ConversationItemClass,
-    type ConversationItemKind,
-    type ConversationItemVisibility,
     type ConversationRecord,
-    type ContentBlock,
     type ContextBuild,
-    type ContextProjection,
-    type MessageRole,
+    type ModelAccounting,
     type ModelCapabilities,
     type ModelConfig,
-    type ModelFinalResponseDraft,
+    type ModelFinalResponse,
     type ModelRequest,
-    type ModelStreamEventDraft,
+    type ModelStreamEvent,
     type ProfileConfig,
     type ProfileRecord,
-    type ProviderEncoding,
-    type ProviderEventPayload,
-    type SourceRef,
+    type ProviderPayload,
+    type ProviderResponse,
 } from "@harness/protocol";
 import type { JSONType } from "zod";
 
-export class RecordingModelAdapter implements ModelAdapter {
-    public readonly id = "recording";
+export class RecordingModelProvider implements ModelProvider {
     public readonly provider = "fake";
     public readonly inputs: ModelRequest[] = [];
     private readonly queue: Array<
-        | ModelFinalResponseDraft
+        | ModelFinalResponse
         | ((
               input: ModelRequest,
-          ) => ModelFinalResponseDraft | Promise<ModelFinalResponseDraft>)
+          ) => ModelFinalResponse | Promise<ModelFinalResponse>)
     > = [];
 
     public constructor(
@@ -55,30 +48,32 @@ export class RecordingModelAdapter implements ModelAdapter {
     ) {}
 
     public capabilities(): ModelCapabilities {
-        return { textInput: true, textOutput: true, reasoningMetadata: false };
+        return {
+            inputContent: ["text"],
+            outputContent: ["text"],
+            providerPayloads: false,
+        };
     }
 
     public validateModelConfig(config: ModelConfig): void {
-        if (config.provider !== this.provider || config.adapter !== this.id) {
+        if (config.provider !== this.provider) {
             throw new Error(
-                `Recording adapter cannot run ${config.provider}/${config.adapter}`,
+                `Recording provider cannot run provider ${config.provider}`,
             );
         }
     }
 
     public enqueue(
         result:
-            | ModelFinalResponseDraft
+            | ModelFinalResponse
             | ((
                   input: ModelRequest,
-              ) => ModelFinalResponseDraft | Promise<ModelFinalResponseDraft>),
+              ) => ModelFinalResponse | Promise<ModelFinalResponse>),
     ): void {
         this.queue.push(result);
     }
 
-    public async *stream(
-        input: ModelRequest,
-    ): AsyncIterable<ModelStreamEventDraft> {
+    public async *stream(input: ModelRequest): AsyncIterable<ModelStreamEvent> {
         this.inputs.push(input);
         if (this.options.fail) {
             throw this.options.fail;
@@ -100,16 +95,13 @@ export class RecordingModelAdapter implements ModelAdapter {
                         text: this.options.defaultText ?? "recorded response",
                     },
                 ],
-                metadata: { adapter: "recording" },
             },
         });
     }
 }
 
-export class BlockingModelAdapter extends RecordingModelAdapter {
-    private unblockResolver:
-        | ((result: ModelFinalResponseDraft) => void)
-        | undefined;
+export class BlockingModelProvider extends RecordingModelProvider {
+    private unblockResolver: ((result: ModelFinalResponse) => void) | undefined;
     private readonly callResolvers: Array<{
         count: number;
         resolve: () => void;
@@ -129,7 +121,7 @@ export class BlockingModelAdapter extends RecordingModelAdapter {
     }
 
     public unblock(
-        result: ModelFinalResponseDraft = {
+        result: ModelFinalResponse = {
             assistant: { content: [{ type: "text", text: "unblocked" }] },
         },
     ): void {
@@ -142,7 +134,7 @@ export class BlockingModelAdapter extends RecordingModelAdapter {
 
     public override async *stream(
         input: ModelRequest,
-    ): AsyncIterable<ModelStreamEventDraft> {
+    ): AsyncIterable<ModelStreamEvent> {
         this.inputs.push(input);
         for (const waiter of [...this.callResolvers]) {
             if (this.inputs.length >= waiter.count) {
@@ -153,7 +145,7 @@ export class BlockingModelAdapter extends RecordingModelAdapter {
                 );
             }
         }
-        const result = await new Promise<ModelFinalResponseDraft>((resolve) => {
+        const result = await new Promise<ModelFinalResponse>((resolve) => {
             this.unblockResolver = resolve;
         });
         yield* finalResponseEvents(result);
@@ -162,7 +154,7 @@ export class BlockingModelAdapter extends RecordingModelAdapter {
 
 export interface TestHarness {
     store: MemoryHarnessStore;
-    model: RecordingModelAdapter;
+    model: RecordingModelProvider;
     kernel: HarnessKernel;
     service: HarnessService;
 }
@@ -175,7 +167,7 @@ type CommitAssistantResponseResult = Awaited<
 >;
 
 export function createTestHarness(
-    model: RecordingModelAdapter = new RecordingModelAdapter(),
+    model: RecordingModelProvider = new RecordingModelProvider(),
 ): TestHarness {
     const store = new MemoryHarnessStore();
     const kernel = new HarnessKernel({ store, models: [model] });
@@ -188,9 +180,8 @@ export class MemoryHarnessStore implements HarnessStore {
     private readonly conversations = new Map<string, ConversationRecord>();
     private readonly items = new Map<string, ConversationItem[]>();
     private readonly runs = new Map<string, AgentRunRecord>();
-    private readonly projections = new Map<string, ContextProjection[]>();
     private readonly builds = new Map<string, ContextBuild[]>();
-    private readonly providerEncodings = new Map<string, ProviderEncoding[]>();
+    private readonly providerPayloads = new Map<string, ProviderPayload[]>();
     private defaultProfileName: string | undefined;
 
     public async createProfile(input: {
@@ -295,34 +286,18 @@ export class MemoryHarnessStore implements HarnessStore {
         return structuredClone(updated);
     }
 
-    public async appendConversationItem(input: {
-        id?: string;
-        conversationId: string;
-        class: ConversationItemClass;
-        kind: ConversationItemKind;
-        role?: MessageRole;
-        visibility: ConversationItemVisibility;
-        runId?: string;
-        source?: SourceRef;
-        content: ContentBlock[];
-        data?: JSONType;
-    }): Promise<ConversationItem> {
+    public async appendConversationItem(
+        rawInput: Parameters<HarnessStore["appendConversationItem"]>[0],
+    ): Promise<ConversationItem> {
+        const input = conversationItemInputSchema.parse(rawInput);
         const rows = this.items.get(input.conversationId);
         if (!rows) {
             throw new Error(`Conversation ${input.conversationId} not found`);
         }
         const item = conversationItemSchema.parse({
+            ...input,
             id: input.id ?? createId("item"),
-            conversationId: input.conversationId,
             sequence: rows.length + 1,
-            class: input.class,
-            kind: input.kind,
-            ...(input.role ? { role: input.role } : {}),
-            visibility: input.visibility,
-            ...(input.runId ? { runId: input.runId } : {}),
-            ...(input.source ? { source: input.source } : {}),
-            content: input.content,
-            ...(input.data !== undefined ? { data: input.data } : {}),
             createdAt: nowIso(),
         });
         rows.push(item);
@@ -405,6 +380,9 @@ export class MemoryHarnessStore implements HarnessStore {
         id: string;
         status?: AgentRunStatus;
         completedThroughItemSequence?: number;
+        outputItemId?: string;
+        providerResponse?: ProviderResponse;
+        accounting?: ModelAccounting;
         error?: JSONType;
     }): Promise<AgentRunRecord> {
         const current = this.runs.get(input.id);
@@ -420,6 +398,11 @@ export class MemoryHarnessStore implements HarnessStore {
                           input.completedThroughItemSequence,
                   }
                 : {}),
+            ...(input.outputItemId ? { outputItemId: input.outputItemId } : {}),
+            ...(input.providerResponse
+                ? { providerResponse: input.providerResponse }
+                : {}),
+            ...(input.accounting ? { accounting: input.accounting } : {}),
             ...(input.error !== undefined ? { error: input.error } : {}),
             updatedAt: nowIso(),
         });
@@ -433,10 +416,8 @@ export class MemoryHarnessStore implements HarnessStore {
         const itemSnapshot = this.items.has(input.conversationId)
             ? structuredClone(this.items.get(input.conversationId))
             : undefined;
-        const encodingSnapshot = this.providerEncodings.has(
-            input.conversationId,
-        )
-            ? structuredClone(this.providerEncodings.get(input.conversationId))
+        const payloadSnapshot = this.providerPayloads.has(input.conversationId)
+            ? structuredClone(this.providerPayloads.get(input.conversationId))
             : undefined;
         const runSnapshot = this.runs.has(input.runId)
             ? structuredClone(this.runs.get(input.runId))
@@ -456,45 +437,22 @@ export class MemoryHarnessStore implements HarnessStore {
             }
             const assistantItem = await this.appendConversationItem({
                 conversationId: input.conversationId,
-                class: "transcript",
-                kind: "assistant_message",
+                type: "message",
                 role: "assistant",
-                visibility: "model",
+                status: "complete",
                 runId: input.runId,
                 content: input.content,
-                ...(input.data !== undefined ? { data: input.data } : {}),
             });
-            const providerEventItems = [];
-            for (const event of input.providerEvents) {
-                providerEventItems.push(
-                    await this.appendConversationItem({
-                        conversationId: input.conversationId,
-                        class: "provider",
-                        kind: "provider_event",
-                        visibility: "audit",
-                        runId: input.runId,
-                        content: [
-                            {
-                                type: "data",
-                                label: event.kind,
-                                data: event.normalized,
-                            },
-                        ],
-                        data: providerEventData(event),
-                    }),
-                );
-            }
-            const providerEncoding = input.providerEncoding
-                ? await this.createProviderEncoding({
+            const providerPayload = input.providerPayload
+                ? await this.createProviderPayload({
                       conversationId: input.conversationId,
                       itemId: assistantItem.id,
                       itemSequence: assistantItem.sequence,
                       provider: input.modelConfig.provider,
-                      adapter: input.modelConfig.adapter,
                       modelId: input.modelConfig.modelId,
-                      format: input.providerEncoding.format,
-                      formatVersion: input.providerEncoding.formatVersion,
-                      payload: input.providerEncoding.payload,
+                      type: input.providerPayload.type,
+                      version: input.providerPayload.version,
+                      payload: input.providerPayload.payload,
                   })
                 : undefined;
             const run = await this.updateAgentRun({
@@ -503,11 +461,15 @@ export class MemoryHarnessStore implements HarnessStore {
                 completedThroughItemSequence: await this.getLatestItemSequence(
                     input.conversationId,
                 ),
+                outputItemId: assistantItem.id,
+                ...(input.providerResponse
+                    ? { providerResponse: input.providerResponse }
+                    : {}),
+                ...(input.accounting ? { accounting: input.accounting } : {}),
             });
             return {
                 assistantItem,
-                providerEventItems,
-                ...(providerEncoding ? { providerEncoding } : {}),
+                ...(providerPayload ? { providerPayload } : {}),
                 run,
             };
         } catch (error) {
@@ -516,13 +478,10 @@ export class MemoryHarnessStore implements HarnessStore {
             } else {
                 this.items.delete(input.conversationId);
             }
-            if (encodingSnapshot) {
-                this.providerEncodings.set(
-                    input.conversationId,
-                    encodingSnapshot,
-                );
+            if (payloadSnapshot) {
+                this.providerPayloads.set(input.conversationId, payloadSnapshot);
             } else {
-                this.providerEncodings.delete(input.conversationId);
+                this.providerPayloads.delete(input.conversationId);
             }
             if (runSnapshot) {
                 this.runs.set(input.runId, runSnapshot);
@@ -533,52 +492,12 @@ export class MemoryHarnessStore implements HarnessStore {
         }
     }
 
-    public async createContextProjection(input: {
-        id?: string;
-        conversationId: string;
-        itemId: string;
-        coversThroughItemSequence: number;
-        policyId: string;
-        content: ContentBlock[];
-        tokenEstimate: number;
-        diagnostics?: Record<string, JSONType>;
-    }): Promise<ContextProjection> {
-        const projection = contextProjectionSchema.parse({
-            id: input.id ?? createId("proj"),
-            conversationId: input.conversationId,
-            itemId: input.itemId,
-            coversThroughItemSequence: input.coversThroughItemSequence,
-            policyId: input.policyId,
-            content: input.content,
-            tokenEstimate: input.tokenEstimate,
-            diagnostics: input.diagnostics ?? {},
-            createdAt: nowIso(),
-        });
-        const rows = this.projections.get(input.conversationId) ?? [];
-        rows.push(projection);
-        this.projections.set(input.conversationId, rows);
-        return structuredClone(projection);
-    }
-
-    public async listContextProjections(
-        conversationId: string,
-    ): Promise<ContextProjection[]> {
-        return (this.projections.get(conversationId) ?? [])
-            .sort(
-                (left, right) =>
-                    left.coversThroughItemSequence -
-                        right.coversThroughItemSequence ||
-                    left.createdAt.localeCompare(right.createdAt),
-            )
-            .map((row) => structuredClone(row));
-    }
-
     public async createContextBuild(input: {
         id?: string;
         conversationId: string;
         runId: string;
         modelConfig: ModelConfig;
-        projectionId?: string;
+        compactionItemId?: string;
         selectedItemIds: string[];
         selectedItemSequences: number[];
         diagnostics?: Record<string, JSONType>;
@@ -588,7 +507,9 @@ export class MemoryHarnessStore implements HarnessStore {
             conversationId: input.conversationId,
             runId: input.runId,
             modelConfig: input.modelConfig,
-            ...(input.projectionId ? { projectionId: input.projectionId } : {}),
+            ...(input.compactionItemId
+                ? { compactionItemId: input.compactionItemId }
+                : {}),
             selectedItemIds: input.selectedItemIds,
             selectedItemSequences: input.selectedItemSequences,
             diagnostics: input.diagnostics ?? {},
@@ -610,67 +531,62 @@ export class MemoryHarnessStore implements HarnessStore {
             .map((row) => structuredClone(row));
     }
 
-    public async createProviderEncoding(input: {
+    public async createProviderPayload(input: {
         id?: string;
         conversationId: string;
         itemId: string;
         itemSequence: number;
         provider: string;
-        adapter: string;
         modelId: string;
-        format: string;
-        formatVersion: number;
+        type: string;
+        version: number;
         payload: JSONType;
-    }): Promise<ProviderEncoding> {
-        const rows = this.providerEncodings.get(input.conversationId) ?? [];
+    }): Promise<ProviderPayload> {
+        const rows = this.providerPayloads.get(input.conversationId) ?? [];
         if (
             rows.some(
-                (encoding) =>
-                    encoding.itemId === input.itemId &&
-                    encoding.provider === input.provider &&
-                    encoding.adapter === input.adapter &&
-                    encoding.modelId === input.modelId &&
-                    encoding.format === input.format &&
-                    encoding.formatVersion === input.formatVersion,
+                (payload) =>
+                    payload.itemId === input.itemId &&
+                    payload.provider === input.provider &&
+                    payload.modelId === input.modelId &&
+                    payload.type === input.type &&
+                    payload.version === input.version,
             )
         ) {
             throw new Error(
-                `Provider encoding already exists for item ${input.itemId}`,
+                `Provider payload already exists for item ${input.itemId}`,
             );
         }
-        const encoding = providerEncodingSchema.parse({
-            id: input.id ?? createId("penc"),
+        const payload = providerPayloadSchema.parse({
+            id: input.id ?? createId("ppay"),
             conversationId: input.conversationId,
             itemId: input.itemId,
             itemSequence: input.itemSequence,
             provider: input.provider,
-            adapter: input.adapter,
             modelId: input.modelId,
-            format: input.format,
-            formatVersion: input.formatVersion,
+            type: input.type,
+            version: input.version,
             payload: input.payload,
             createdAt: nowIso(),
         });
-        rows.push(encoding);
-        this.providerEncodings.set(input.conversationId, rows);
-        return structuredClone(encoding);
+        rows.push(payload);
+        this.providerPayloads.set(input.conversationId, rows);
+        return structuredClone(payload);
     }
 
-    public async listProviderEncodingsForItems(input: {
+    public async listProviderPayloadsForItems(input: {
         conversationId: string;
         itemIds: string[];
         provider: string;
-        adapter: string;
         modelId: string;
-    }): Promise<ProviderEncoding[]> {
+    }): Promise<ProviderPayload[]> {
         const itemIds = new Set(input.itemIds);
-        return (this.providerEncodings.get(input.conversationId) ?? [])
+        return (this.providerPayloads.get(input.conversationId) ?? [])
             .filter(
-                (encoding) =>
-                    itemIds.has(encoding.itemId) &&
-                    encoding.provider === input.provider &&
-                    encoding.adapter === input.adapter &&
-                    encoding.modelId === input.modelId,
+                (payload) =>
+                    itemIds.has(payload.itemId) &&
+                    payload.provider === input.provider &&
+                    payload.modelId === input.modelId,
             )
             .sort(
                 (left, right) =>
@@ -679,26 +595,4 @@ export class MemoryHarnessStore implements HarnessStore {
             )
             .map((row) => structuredClone(row));
     }
-}
-
-function providerEventData(event: ProviderEventPayload): JSONType {
-    return {
-        provider: event.provider,
-        modelId: event.modelId,
-        sequence: event.sequence,
-        kind: event.kind,
-        normalized: event.normalized,
-        ...(event.providerRequestId
-            ? { providerRequestId: event.providerRequestId }
-            : {}),
-        ...(event.providerResponseId
-            ? { providerResponseId: event.providerResponseId }
-            : {}),
-        ...(event.providerItemId
-            ? { providerItemId: event.providerItemId }
-            : {}),
-        ...(event.providerOperationId
-            ? { providerOperationId: event.providerOperationId }
-            : {}),
-    } satisfies JSONType;
 }

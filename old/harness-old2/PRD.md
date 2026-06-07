@@ -2,99 +2,105 @@
 
 ## Purpose
 
-Build a clean local-first agent runtime from first principles. The first product is not a coding-agent mega-system. It is a robust conversation engine with durable conversation items, model providers, context inspection, compaction, profiles, and a small CLI/TUI shell.
+Harness is a local-first conversation runtime. V0 is intentionally small: durable conversations, model providers, context inspection, compaction, profiles, SQLite storage, and a CLI/TUI shell.
 
-The first version intentionally has no tools, plugins, activities, approvals, subagents, MCP, sandbox execution, or live-output system. Those features should be added only after the conversation layer is boring and correct.
+V0 does not include tools, plugins, activities, approvals, subagents, MCP, sandbox execution, output redirection, or output transforms. Those should be added only after the conversation layer is stable.
 
-## Product Principles
+## Core Principles
 
-- One conversation is one durable append-only item log.
-- `ConversationItem` is immutable truth. If content changes, it is a new item.
-- The model sees only items selected by a `ContextBuild`.
-- Provider events, audit notes, run lifecycle, and UI notes stay inspectable but are not prompt material by default.
-- Provider-specific fidelity is stored as optional `ProviderEncoding` rows attached to exact conversation items.
-- Provider encodings are not memory or a parallel transcript. They are API wire encodings for selected immutable items.
-- Provider encodings are usable only when they match the selected item id, conversation id, sequence, provider, adapter, and model.
-- Compaction bounds future prompt input by selecting a projection item instead of older items.
-- No legacy schema, no compatibility shims, no old stream/checkpoint/tool/activity concepts in `harness`.
+- One conversation has one ordered `conversation_items` log.
+- Conversation items are immutable canonical truth.
+- Run state is not conversation content. It lives in `agent_runs`.
+- The model sees only items selected by a recorded `context_build`.
+- Queued input is ephemeral v0 state. It gets no sequence until promoted into a real user message.
+- Compaction is a conversation item because it is future model context.
+- `model_error` is a conversation item because users need ordered failure context.
+- Provider-native payloads are optional wire-fidelity for exact selected items, not memory and not a parallel transcript.
 
 ## V0 Scope
 
-`harness` supports:
+Harness supports:
 
 - profiles with model config and prompt fragments;
 - projectless conversations;
-- ordered durable `conversation_items`;
-- one non-reentrant model-run pump per conversation;
-- fake model, OpenAI Responses, and ChatGPT/Codex-backed OpenAI adapter;
+- typed `conversation_items`;
+- one non-reentrant model pump per conversation;
+- fake model provider, OpenAI Responses provider, and ChatGPT/Codex-backed OpenAI provider;
 - final assistant message persistence;
-- provider events and per-item provider encoding storage;
+- typed provider response identity;
+- per-item `provider_payloads`;
 - typed model accounting for usage and future cost estimates;
-- context builds for inspecting model input selection;
-- deterministic compaction projections with sequence cursors;
-- basic input delivery: `send`, `queue`, `manual`, `interrupt`;
-- SQLite and in-memory test stores;
+- `context_builds` for inspecting prompt selection;
+- deterministic compaction with sequence cursors;
+- input delivery: `send`, ephemeral `queue`, and `interrupt`;
+- SQLite and in-memory stores;
 - CLI commands for profiles, auth, conversations, items, runs, context, and compaction;
 - a minimal readline TUI.
 
-## Core Records
+## Conversation Items
 
-`conversation_items` are the canonical log:
+Current item types:
 
-- `class`: `transcript | control | provider | projection | audit`
-- `kind`: `user_message | assistant_message | system_message | model_error | provider_event | context_projection | run_event | audit_note`
-- `role`: `system | user | assistant` when applicable
-- `visibility`: `model | ui | audit`
-- `sequence`, `runId`, source refs, content blocks, data, timestamps
+- `message`: canonical `system | user | assistant` content with `complete | interrupted` status.
+- `model_change`: explicit future context marker when model config changes.
+- `compaction`: summary content plus `coversThroughItemSequence`.
+- `model_error`: ordered error context for a failed model run.
 
-Other durable records:
+There are no audit notes, run lifecycle events, manual notes, queued-input items, or UI-only control items in the v0 conversation log.
 
-- `conversations`: metadata, profile/config, status, title
-- `agent_runs`: one active run per conversation
-- `context_builds`: selected items and diagnostics for each model call
-- `context_projections`: summary content plus `coversThroughItemSequence`
-- `provider_encodings`: provider/adapter/model/format payload for one exact conversation item
-- `profiles`: reusable model and prompt defaults
+## Runtime
 
-## Runtime Behavior
+Sending input requests the pump. The pump:
 
-Sending model-visible input requests the conversation pump. The pump:
+1. creates one active `agent_run` if none exists;
+2. builds context from prompt fragments, latest compaction, and uncovered messages;
+3. attaches matching provider payloads for selected items;
+4. streams the selected model provider;
+5. commits assistant message, provider payload, provider response identity, accounting, and run completion transactionally;
+6. promotes any queued input after the active assistant message and continues.
 
-1. creates a running `agent_run` if none is active;
-2. builds bounded context from prompt fragments, latest projection, and uncovered model-visible transcript;
-3. attaches compatible provider encodings for selected items;
-4. calls the selected model adapter;
-5. commits the final assistant item, provider events, optional assistant provider encoding, and run completion in one store operation;
-6. continues if queued input still needs a model response.
+If a model stream or commit fails, Harness persists no partial assistant message. It appends a `model_error` item and marks the run failed.
 
-If the model stream or assistant-response commit fails, no assistant message from that failed run is persisted. A visible `model_error` item and failed run record are written.
+## Input Delivery
 
-## Steering V0
+- `send`: if idle, append a user message and run; if active, behaves like `queue`.
+- `queue`: while active, store ephemeral pending input; after the active assistant response, promote it to a user message and run.
+- `interrupt`: cancel the active run, abandon that run's selected unresponded input, clear pending queued input, append the new user message, and start a fresh run.
 
-- `send`: append model-visible user input and run immediately when possible.
-- `queue`: if idle, append model-visible user input and run; if active, append a UI-visible control item immediately, then promote it to model-visible transcript after the active run finishes.
-- `manual`: append UI-visible note only; it is inspectable but not prompt-selected.
-- `interrupt`: cancel the active run, abandon that run's selected unresponded input for future prompt selection, append model-visible input, and start a fresh run.
+There is no current-run injection in v0.
 
-There is no current-run injection yet. Without tools, the only safe model boundary is after the current model stream finishes or is interrupted.
+## Model Providers
 
-## Provider Rules
+Core defines a `ModelProvider` interface:
 
-Model adapters receive `ModelRequest` containing instructions, selected immutable items, matching provider encodings for the current provider/adapter/model, model config, and context build id.
+- `provider`: stable provider id.
+- `capabilities()`: supported input/output content types and provider-payload support.
+- `validateModelConfig(config)`.
+- `stream(request)`: emits `text_delta` events and exactly one `completed` event.
 
-Model adapters expose only `stream(request)`. Every adapter emits `text_delta`, `provider_event`, and exactly one `completed` event; non-native-streaming providers emit one final text delta and completion.
+`ModelRequest` contains instructions, selected context items, model config, and optional provider payloads for those selected items.
 
-Harness v0 has no tool protocol. If a provider returns function calls, the adapter fails the model stream explicitly and core persists no assistant message.
+Harness v0 has no tool protocol. If a provider returns tool/function calls, that provider must fail the stream explicitly; core must not persist an assistant message for that run.
 
-OpenAI adapters keep `store:false`, request encrypted reasoning when supported, and validate streaming terminal events. Streams must end in a completed terminal response. OpenAI reasoning continuity is preserved by storing each assistant response's Responses output items as a provider encoding attached to that assistant item.
+## Provider Payloads
 
-Provider switching is mechanical:
+`provider_payloads` are stored per canonical item:
 
-- Same provider/adapter/model: selected items may use compatible encodings.
-- Different provider/adapter/model: old encodings are ignored and selected items render from canonical content.
-- Compacted-away items are not selected, so their encodings are not sent.
+- conversation id;
+- item id and sequence;
+- provider;
+- model id;
+- payload `type`;
+- payload `version`;
+- provider-native JSON payload.
 
-## Explicit Non-Goals For V0
+A payload is usable only when the canonical item is selected into the current context build and the provider/model/type/version match what the provider implementation understands. If the model/provider changes, the selected item renders from canonical content instead.
+
+For OpenAI Responses, the payload type is `responses.output_items`. It preserves assistant output items, including encrypted reasoning, without text matching.
+
+Provider response identity, such as request id and response id, is response provenance on the run, not an audit event stream.
+
+## Non-Goals For V0
 
 Do not implement yet:
 
@@ -105,53 +111,46 @@ Do not implement yet:
 - subagents;
 - MCP;
 - sandbox execution;
-- output peeking, streaming, redirection, or transforms;
-- assets/artifacts beyond future design space;
+- output peek/follow/redirection/transforms;
+- durable raw output chunks;
 - old Harness DB compatibility.
 
 ## Future Roadmap
 
-Future work should ship in small phases. Each phase must keep the v0 invariants: one canonical item log, explicit prompt selection, bounded compaction, per-item provider encodings, and a non-recursive conversation pump.
+Future work should ship in phases. Every phase must preserve the v0 invariants: one canonical item log, explicit context builds, bounded compaction, exact per-item provider payloads, and a non-recursive pump.
 
 1. Recovery hardening
-   Add startup/reopen reconciliation for stale `running` runs, queued input promotion, interrupted input, and provider encodings after a crash. Recovery must either resume from a valid durable boundary or fail the stale run explicitly; it must not silently continue from ambiguous in-memory state.
+   Reconcile stale `running` runs after restart, including interrupted input and pending queued input. Recovery must fail or resume from an explicit durable boundary.
 
-2. Tool execution core
-   Add assistant tool-call items, `tool_executions`, and tool-result transcript obligations. Every assistant tool call must eventually produce exactly one tool result. Pending means only that the result obligation is unresolved; it is not a separate wait system.
+2. Multimodal providers
+   Add provider renderers for image/file content across OpenAI, Anthropic, Google Gemini, and local providers. Unsupported blocks must fail clearly instead of being stringified.
 
-3. Canonical tool and multimodal items
-   Add provider-neutral item kinds/content blocks for tool calls, tool results, multimodal payloads, reasoning summaries, citations, and server-side tool metadata. Provider encodings can preserve exact OpenAI/Gemini/Anthropic wire fidelity, but canonical items must still contain enough truth to inspect and render history without the original provider.
+3. Tool execution core
+   Add assistant tool-call items, `tool_executions`, and tool-result obligations. Every assistant tool call must eventually have exactly one tool result.
 
-4. Plugin host and capability registry
-   Add plugin registration for tools, policy hooks, context contributors, durable plugin state, and named capabilities. Core validates contracts and ordering. Plugin context must be durable/model-visible or projection-backed, recorded in `context_builds`, and compatible with provider encoding selection. Plugins own domain behavior. No untyped side effects, hidden schedulers, or parallel transcripts.
+4. Plugin host
+   Add plugins for tools, policy hooks, context contributors, durable plugin state, and named capabilities. Plugins own domain behavior; core owns ordering, contracts, and prompt legality.
 
-5. Approval, policy, and steering
-   Implement approvals as transactional tool gates: append an approval request, mark the target tool execution pending, and store continuation state together. Deny/block is terminal and immediately resolves the tool call with a denial result.
+5. Approval and steering
+   Implement approvals as transactional tool gates. Add steering only at legal model/tool boundaries; never inject user input between a tool call and its required result.
 
-    Extend steering only at legal boundaries: model boundary, next run, manual promotion, or interrupt. Interrupt must define what happens to active model calls, pending tool obligations, approvals, and activity-backed work without injecting user input between an assistant tool call and its required tool result.
-
-6. Activities and output plugins
-   Activities own long-running work, activity records, drivers, status, cancellation, and activity-backed tool result obligations. Output owns runtime streaming frames, peek/follow/subscribe, UI preview, redaction, transforms, and explicit file redirection. Runtime output is not durable transcript or prompt material unless a plugin explicitly converts a bounded result into a model-visible item or projection. SQLite must not store raw output chunks.
+6. Activities and output
+   Add activity and output plugins for long-running work, status, cancellation, output preview/follow, redaction, transforms, and explicit file redirection. Raw output chunks are not conversation history.
 
 7. Execution, bash, and subagents
-   Bash should create activities through the activities capability, use execution/sandbox capability for processes, and use output capability for stdout/stderr. Subagents should be normal plugin tools backed by child conversations and optional activities; parent prompts must not absorb child transcripts accidentally.
+   Build bash and subagents as plugins on top of tools, activities, output, and child conversations. Parent prompts must not accidentally absorb child transcripts.
 
 8. MCP, tasks, and richer UI
-   MCP tools, elicitation, task workflows, and richer TUI/web/daemon surfaces should be plugins on top of the same tool/activity/output contracts. UI support should display pending approvals, activity status, output preview/follow, redirection state, and plugin-owned lifecycle items without making those concepts core.
-
-Roadmap rule: a phase is not accepted unless it includes focused regression tests, preserves prompt legality, has crash/recovery behavior for its durable records, and deletes obsolete paths instead of carrying compatibility shims.
+   Add MCP, elicitation, task workflows, and richer TUI/web/daemon surfaces as plugin-backed features.
 
 ## Acceptance Criteria
 
-- `harness` installs, typechecks, tests, and builds.
-- CLI runs from source and from built `dist`.
-- Simple fake-model conversation creates ordered user/run/assistant records.
-- Failed model call persists no partial assistant text.
-- Manual input is inspectable but excluded from model context.
-- Queued input is handled after the active run.
-- Interrupt cancels active run and persists only the fresh assistant output.
-- Compaction keeps old items inspectable and future prompts use projection plus newer transcript.
-- Provider encodings attach only to selected matching items.
-- OpenAI adapter stores and reuses per-item output item encodings without text matching.
-- OpenAI adapter rejects function calls and enforces terminal completed streams.
-- Tests use explicit timeouts for scheduler and async model cases.
+- `harness` installs, lints, typechecks, tests, and builds.
+- Simple fake-model conversation creates ordered user and assistant messages.
+- Failed model call persists no partial assistant message and appends `model_error`.
+- Queued input is not persisted until promoted after the active assistant message.
+- Interrupt cancels the active run and persists only fresh output.
+- Compaction keeps old items inspectable and future prompts use compaction plus newer messages.
+- Provider payloads attach only to selected matching items.
+- OpenAI stores/reuses per-item output item payloads and rejects function calls.
+- Tests cover async scheduler behavior with explicit timeouts.

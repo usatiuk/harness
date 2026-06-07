@@ -3,10 +3,9 @@ import type {
     OpenAIChatGptAuthManager,
     OpenAIChatGptSession,
 } from "@harness/auth-openai";
-import { OpenAIResponsesSdkAdapter } from "@harness/model-openai-common";
+import { OpenAIResponsesProvider } from "@harness/model-openai-common";
 
 export const OPENAI_CHATGPT_PROVIDER = "openai-chatgpt";
-export const OPENAI_CHATGPT_CODEX_RESPONSES_ADAPTER_ID = "codex-responses";
 export const DEFAULT_OPENAI_CHATGPT_MODEL = "gpt-5.5";
 export const DEFAULT_OPENAI_CHATGPT_CODEX_BASE_URL =
     "https://chatgpt.com/backend-api/codex";
@@ -15,19 +14,18 @@ export type OpenAIChatGptClientOptions = ConstructorParameters<
     typeof OpenAI
 >[0];
 
-export interface OpenAIChatGptResponsesModelAdapterOptions {
+export interface OpenAIChatGptResponsesModelProviderOptions {
     auth: OpenAIChatGptAuthManager;
     createClient?: (
         session: OpenAIChatGptSession,
         options: OpenAIChatGptClientOptions,
     ) => OpenAI;
-    defaultModel?: string;
     baseUrl?: string;
     userAgent?: string;
 }
 
-export class OpenAIChatGptResponsesModelAdapter extends OpenAIResponsesSdkAdapter {
-    public constructor(options: OpenAIChatGptResponsesModelAdapterOptions) {
+export class OpenAIChatGptResponsesModelProvider extends OpenAIResponsesProvider {
+    public constructor(options: OpenAIChatGptResponsesModelProviderOptions) {
         const createClient = async (forceRefresh = false): Promise<OpenAI> => {
             const session = await options.auth.getValidSession(
                 forceRefresh ? { forceRefresh: true } : {},
@@ -44,22 +42,17 @@ export class OpenAIChatGptResponsesModelAdapter extends OpenAIResponsesSdkAdapte
 
         super({
             provider: OPENAI_CHATGPT_PROVIDER,
-            adapterId: OPENAI_CHATGPT_CODEX_RESPONSES_ADAPTER_ID,
-            defaultModel:
-                options.defaultModel ??
-                process.env.HARNESS_MODEL ??
-                DEFAULT_OPENAI_CHATGPT_MODEL,
-            label: "OpenAI ChatGPT Codex Responses adapter",
+            label: "OpenAI ChatGPT Codex Responses provider",
             client: () => createClient(false),
             refreshClientAfterUnauthorized: () => createClient(true),
         });
     }
 }
 
-export function createOpenAIChatGptResponsesModelAdapter(
-    options: OpenAIChatGptResponsesModelAdapterOptions,
-): OpenAIChatGptResponsesModelAdapter {
-    return new OpenAIChatGptResponsesModelAdapter(options);
+export function createOpenAIChatGptResponsesModelProvider(
+    options: OpenAIChatGptResponsesModelProviderOptions,
+): OpenAIChatGptResponsesModelProvider {
+    return new OpenAIChatGptResponsesModelProvider(options);
 }
 
 export function buildOpenAIChatGptClientOptions(

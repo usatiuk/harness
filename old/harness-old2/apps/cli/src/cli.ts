@@ -8,18 +8,16 @@ import {
     createOpenAIChatGptAuthManager,
     type OpenAIChatGptAuthManager,
 } from "@harness/auth-openai";
-import { HarnessKernel, type ModelAdapter } from "@harness/core";
+import { HarnessKernel, type ModelProvider } from "@harness/core";
 import {
     DEFAULT_OPENAI_CHATGPT_MODEL,
-    OPENAI_CHATGPT_CODEX_RESPONSES_ADAPTER_ID,
     OPENAI_CHATGPT_PROVIDER,
-    createOpenAIChatGptResponsesModelAdapter,
+    createOpenAIChatGptResponsesModelProvider,
 } from "@harness/model-openai-chatgpt";
 import {
     DEFAULT_OPENAI_MODEL,
     OPENAI_PROVIDER,
-    OPENAI_RESPONSES_ADAPTER_ID,
-    createOpenAIResponsesModelAdapter,
+    createOpenAIResponsesModelProvider,
 } from "@harness/model-openai";
 import type {
     ContentBlock,
@@ -51,7 +49,6 @@ interface CliProgramOptions {
 interface CommonOptions {
     profile?: string;
     provider?: string;
-    adapter?: string;
     model?: string;
     modelId?: string;
     prompt?: string;
@@ -104,7 +101,6 @@ Config:
             "Profile name or built-in: fake, openai, chatgpt",
         )
         .option("--provider <provider>", "Provider override")
-        .option("--adapter <adapter>", "Adapter override")
         .option("--model <model>", "Model id override")
         .option("--model-id <modelId>", "Model id override")
         .action(
@@ -122,7 +118,6 @@ Config:
         .option("-m, --m <message>", "Prompt text")
         .option("--profile <name>", "Profile name or built-in")
         .option("--provider <provider>", "Provider override")
-        .option("--adapter <adapter>", "Adapter override")
         .option("--model <model>", "Model id override")
         .option("--model-id <modelId>", "Model id override")
         .option("--json", "Print conversation items as JSON")
@@ -144,7 +139,11 @@ Config:
                         return;
                     }
                     const assistant = items
-                        .filter((item) => item.kind === "assistant_message")
+                        .filter(
+                            (item) =>
+                                item.type === "message" &&
+                                item.role === "assistant",
+                        )
                         .at(-1);
                     if (assistant) {
                         console.log(renderBlocks(assistant.content));
@@ -160,7 +159,6 @@ Config:
         .command("create")
         .argument("<name>", "Profile name")
         .option("--provider <provider>", "Provider", "fake")
-        .option("--adapter <adapter>", "Adapter")
         .option("--model <model>", "Model id")
         .option("--model-id <modelId>", "Model id")
         .option("--prompt <text>", "System prompt fragment")
@@ -173,7 +171,6 @@ Config:
                 ) ?? {
                     model: {
                         provider: "fake",
-                        adapter: "fake",
                         modelId: "fake-text",
                     },
                     promptFragments: [],
@@ -184,7 +181,7 @@ Config:
                     select: options.select ?? false,
                 });
                 console.log(
-                    `${profile.name} ${profile.config.model.provider}/${profile.config.model.adapter}/${profile.config.model.modelId}`,
+                    `${profile.name} ${profile.config.model.provider}/${profile.config.model.modelId}`,
                 );
             }),
         );
@@ -198,7 +195,7 @@ Config:
                     profilesList
                         .map(
                             (profile) =>
-                                `${profile.name}\t${profile.config.model.provider}/${profile.config.model.adapter}/${profile.config.model.modelId}`,
+                                `${profile.name}\t${profile.config.model.provider}/${profile.config.model.modelId}`,
                         )
                         .join("\n"),
                 );
@@ -264,7 +261,6 @@ Config:
         .option("--title <title>", "Conversation title")
         .option("--profile <name>", "Profile name or built-in")
         .option("--provider <provider>", "Provider override")
-        .option("--adapter <adapter>", "Adapter override")
         .option("--model <model>", "Model id override")
         .option("--model-id <modelId>", "Model id override")
         .option("--json", "Print items as JSON")
@@ -330,29 +326,11 @@ Config:
                             ),
                         ),
                     );
-                    console.log(`queued item ${item.sequence}`);
-                },
-            ),
-        );
-    conversation
-        .command("manual")
-        .argument("<conversationId>")
-        .option("--message <message>")
-        .option("-m, --m <message>")
-        .action(
-            withApp(
-                async (app, conversationId: string, options: CommonOptions) => {
-                    const normalized = normalizeOptions(options);
-                    const item = await app.service.manual(
-                        conversationId,
-                        textBlocks(
-                            requiredText(
-                                normalized.message ?? normalized.m,
-                                "message",
-                            ),
-                        ),
+                    console.log(
+                        "sequence" in item
+                            ? `queued item ${item.sequence}`
+                            : `queued pending input ${item.id}`,
                     );
-                    console.log(`manual item ${item.sequence}`);
                 },
             ),
         );
@@ -374,7 +352,11 @@ Config:
                             ),
                         ),
                     );
-                    console.log(`interrupt item ${item.sequence}`);
+                    console.log(
+                        "sequence" in item
+                            ? `interrupt item ${item.sequence}`
+                            : `interrupt pending input ${item.id}`,
+                    );
                 },
             ),
         );
@@ -459,15 +441,13 @@ Config:
             }),
         );
     context
-        .command("projections")
+        .command("compactions")
         .argument("<conversationId>")
         .action(
             withApp(async (app, conversationId: string) => {
                 console.log(
                     JSON.stringify(
-                        await app.service.listContextProjections(
-                            conversationId,
-                        ),
+                        await app.service.listCompactions(conversationId),
                         null,
                         2,
                     ),
@@ -477,7 +457,7 @@ Config:
 
     const compaction = program
         .command("compaction")
-        .description("Compact model-visible transcript into a projection");
+        .description("Compact conversation messages into a summary item");
     compaction
         .command("run")
         .argument("<conversationId>")
@@ -508,9 +488,9 @@ async function createCliApp(): Promise<CliApp> {
     await fs.mkdir(defaultHarnessHome(), { recursive: true });
     const store = openSqliteHarnessStore({ path: defaultDbPath() });
     const openAIAuth = createCliAuth().openAIAuth;
-    const models: ModelAdapter[] = [
-        createOpenAIResponsesModelAdapter(),
-        createOpenAIChatGptResponsesModelAdapter({ auth: openAIAuth }),
+    const models: ModelProvider[] = [
+        createOpenAIResponsesModelProvider(),
+        createOpenAIChatGptResponsesModelProvider({ auth: openAIAuth }),
     ];
     const kernel = new HarnessKernel({ store, models });
     const service = new HarnessService(kernel);
@@ -554,7 +534,7 @@ async function runTui(app: CliApp, options: CommonOptions): Promise<void> {
     const rl = createInterface({ input, output });
     console.log("Harness");
     console.log(
-        "Commands: /exit, /conversation, /items, /compact, /manual <text>, /queue <text>, /interrupt <text>",
+        "Commands: /exit, /conversation, /items, /compact, /queue <text>, /interrupt <text>",
     );
     try {
         for (;;) {
@@ -586,18 +566,10 @@ async function runTui(app: CliApp, options: CommonOptions): Promise<void> {
                 continue;
             }
             if (trimmed === "/compact") {
-                const projection = await app.service.runCompaction(
+                const compaction = await app.service.runCompaction(
                     conversation.id,
                 );
-                console.log(`projection item ${projection.sequence}`);
-                continue;
-            }
-            if (trimmed.startsWith("/manual ")) {
-                const item = await app.service.manual(
-                    conversation.id,
-                    textBlocks(trimmed.slice("/manual ".length)),
-                );
-                console.log(`manual item ${item.sequence}`);
+                console.log(`compaction item ${compaction.sequence}`);
                 continue;
             }
             if (trimmed.startsWith("/queue ")) {
@@ -643,7 +615,6 @@ function conversationCreateOptions(
     const config = profileConfigFromOptions(options, options.profile);
     const hasExplicitModel =
         options.provider !== undefined ||
-        options.adapter !== undefined ||
         options.model !== undefined ||
         options.modelId !== undefined;
     return {
@@ -667,7 +638,6 @@ function profileConfigFromOptions(
     if (
         !base &&
         !options.provider &&
-        !options.adapter &&
         !options.model &&
         !options.modelId &&
         !options.prompt
@@ -675,8 +645,6 @@ function profileConfigFromOptions(
         return undefined;
     }
     const provider = options.provider ?? base?.provider ?? "fake";
-    const adapter =
-        options.adapter ?? base?.adapter ?? defaultAdapterForProvider(provider);
     const modelId =
         options.modelId ??
         options.model ??
@@ -685,7 +653,6 @@ function profileConfigFromOptions(
     return {
         model: {
             provider,
-            adapter,
             modelId,
         },
         promptFragments: options.prompt ? [options.prompt] : [],
@@ -698,36 +665,21 @@ function builtInModelConfig(name: string | undefined): ModelConfig | undefined {
     }
     switch (name) {
         case "fake":
-            return { provider: "fake", adapter: "fake", modelId: "fake-text" };
+            return { provider: "fake", modelId: "fake-text" };
         case "openai":
             return {
                 provider: OPENAI_PROVIDER,
-                adapter: OPENAI_RESPONSES_ADAPTER_ID,
                 modelId: DEFAULT_OPENAI_MODEL,
             };
         case "chatgpt":
         case "openai-chatgpt":
             return {
                 provider: OPENAI_CHATGPT_PROVIDER,
-                adapter: OPENAI_CHATGPT_CODEX_RESPONSES_ADAPTER_ID,
                 modelId: DEFAULT_OPENAI_CHATGPT_MODEL,
             };
         default:
             return undefined;
     }
-}
-
-function defaultAdapterForProvider(provider: string): string {
-    if (provider === OPENAI_PROVIDER) {
-        return OPENAI_RESPONSES_ADAPTER_ID;
-    }
-    if (provider === OPENAI_CHATGPT_PROVIDER) {
-        return OPENAI_CHATGPT_CODEX_RESPONSES_ADAPTER_ID;
-    }
-    if (provider === "fake") {
-        return "fake";
-    }
-    return "default";
 }
 
 function defaultModelForProvider(provider: string): string {
@@ -785,10 +737,10 @@ async function printConversationItems(
         return;
     }
     for (const item of items) {
-        if (item.class === "transcript" && item.kind === "user_message") {
+        if (item.type === "message" && item.role === "user") {
             console.log(`user> ${renderBlocks(item.content)}`);
         }
-        if (item.class === "transcript" && item.kind === "assistant_message") {
+        if (item.type === "message" && item.role === "assistant") {
             console.log(`assistant> ${renderBlocks(item.content)}`);
         }
     }
@@ -801,14 +753,14 @@ async function printNewItems(
 ): Promise<number> {
     const items = await service.listItems(conversationId, { after });
     for (const item of items) {
-        if (item.class === "transcript" && item.kind === "user_message") {
+        if (item.type === "message" && item.role === "user") {
             console.log(`user> ${renderBlocks(item.content)}`);
         }
-        if (item.class === "transcript" && item.kind === "assistant_message") {
+        if (item.type === "message" && item.role === "assistant") {
             console.log(`assistant> ${renderBlocks(item.content)}`);
         }
-        if (item.visibility === "ui" && item.kind === "model_error") {
-            console.log(`error> ${renderBlocks(item.content)}`);
+        if (item.type === "model_error") {
+            console.log(`error> ${item.message}`);
         }
     }
     return items.at(-1)?.sequence ?? after;
@@ -817,7 +769,7 @@ async function printNewItems(
 function renderBlocks(blocks: ContentBlock[]): string {
     return blocks
         .map((block) =>
-            block.type === "text" ? block.text : JSON.stringify(block.data),
+            block.type === "text" ? block.text : `[${block.type}]`,
         )
         .join("\n");
 }

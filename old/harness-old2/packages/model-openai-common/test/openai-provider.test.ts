@@ -4,24 +4,28 @@ import type {
     ResponseCreateParamsStreaming,
     ResponseOutputItem,
     ResponseStreamEvent,
+    ResponseUsage,
 } from "openai/resources/responses/responses";
-import type OpenAI from "openai";
+import OpenAI, { APIError } from "openai";
 import {
-    OPENAI_RESPONSES_OUTPUT_ITEMS_FORMAT,
-    OPENAI_RESPONSES_OUTPUT_ITEMS_FORMAT_VERSION,
-    OpenAIResponsesSdkAdapter,
+    OPENAI_RESPONSES_OUTPUT_ITEMS_PAYLOAD_TYPE,
+    OPENAI_RESPONSES_OUTPUT_ITEMS_PAYLOAD_VERSION,
+    OpenAIResponsesProvider,
     buildOpenAIResponseInput,
     buildOpenAIResponseParams,
     collectOpenAIResponsesStream,
 } from "@harness/model-openai-common";
 import {
     modelStreamEventSchema,
+    type ContentBlock,
+    type ModelContextItem,
     type ModelRequest,
     type ModelStreamEvent,
+    type ProviderPayload,
 } from "@harness/protocol";
-import { z } from "zod";
+import type { JSONType } from "zod";
 
-describe("OpenAI message-only adapter", () => {
+describe("OpenAI Responses model provider", () => {
     test("maps selected model items into Responses input items", () => {
         const input = modelRequest([
             { role: "system", text: "rules" },
@@ -42,29 +46,32 @@ describe("OpenAI message-only adapter", () => {
             instructions: [{ type: "text", text: "Follow project rules" }],
         } satisfies ModelRequest;
 
-        expect(
-            buildOpenAIResponseParams(input, { defaultModel: "gpt-test" }),
-        ).toMatchObject({
+        expect(buildOpenAIResponseParams(input)).toMatchObject({
             instructions: "Follow project rules",
             input: [{ type: "message", role: "user", content: "hello" }],
+            model: "gpt-test",
             stream: true,
+            store: false,
+            include: ["reasoning.encrypted_content"],
         });
     }, 5000);
 
-    test("rejects tool-enabling provider options before request creation", () => {
+    test("rejects unsupported content blocks instead of stringifying them", () => {
         const input = {
-            ...modelRequest([{ role: "user", text: "x" }]),
-            modelConfig: {
-                provider: "openai",
-                adapter: "responses",
-                modelId: "gpt-test",
-                providerOptions: { tools: [{ type: "web_search" }] },
-            },
+            ...modelRequest([]),
+            items: [
+                contextItem("item_1", 1, "user", [
+                    {
+                        type: "image",
+                        source: { type: "url", url: "https://example.com/a.png" },
+                    },
+                ]),
+            ],
         } satisfies ModelRequest;
 
-        expect(() =>
-            buildOpenAIResponseParams(input, { defaultModel: "gpt-test" }),
-        ).toThrow("has no tools");
+        expect(() => buildOpenAIResponseInput(input)).toThrow(
+            "cannot render image content blocks",
+        );
     }, 5000);
 
     test("rejects function calls because harness v0 has no tools", async () => {
@@ -109,7 +116,7 @@ describe("OpenAI message-only adapter", () => {
         ).rejects.toThrow("without response.completed");
     }, 5000);
 
-    test("emits text deltas, provider events, and one completed response", async () => {
+    test("emits text deltas and one completed response", async () => {
         const events = await collectEvents(
             collectOpenAIResponsesStream(
                 modelRequest([{ role: "user", text: "x" }]),
@@ -126,10 +133,8 @@ describe("OpenAI message-only adapter", () => {
         );
 
         expect(events.map((event) => event.type)).toEqual([
-            "provider_event",
             "text_delta",
             "text_delta",
-            "provider_event",
             "completed",
         ]);
         expect(
@@ -140,22 +145,22 @@ describe("OpenAI message-only adapter", () => {
         expect(completed(events).assistant.content).toEqual([
             { type: "text", text: "done" },
         ]);
-        expect(completed(events).assistant.metadata.providerRequestId).toBe(
-            "req_stream",
-        );
-        expect(completed(events).assistant.providerEncoding).toMatchObject({
-            format: OPENAI_RESPONSES_OUTPUT_ITEMS_FORMAT,
-            formatVersion: OPENAI_RESPONSES_OUTPUT_ITEMS_FORMAT_VERSION,
-            payload: { responseId: "resp_1", requestId: "req_stream" },
+        expect(completed(events).providerResponse).toEqual({
+            provider: "openai",
+            modelId: "gpt-test",
+            requestId: "req_stream",
+            responseId: "resp_1",
+        });
+        expect(completed(events).assistant.providerPayload).toMatchObject({
+            type: OPENAI_RESPONSES_OUTPUT_ITEMS_PAYLOAD_TYPE,
+            version: OPENAI_RESPONSES_OUTPUT_ITEMS_PAYLOAD_VERSION,
+            payload: [messageOutput("done")],
         });
     }, 5000);
 
-    test("uses selected assistant provider encoding output items by item id", () => {
+    test("uses selected assistant provider payload output items by item id", () => {
         const input = {
-            ...modelRequest([
-                { role: "user", text: "hello" },
-                { role: "assistant", text: "hi" },
-            ]),
+            ...modelRequest([]),
             items: [
                 contextItem("item_1", 1, "user", "hello"),
                 contextItem(
@@ -163,7 +168,7 @@ describe("OpenAI message-only adapter", () => {
                     2,
                     "assistant",
                     "hi",
-                    openAIEncoding("item_2", 2, [messageOutput("hi")]),
+                    openAIProviderPayload("item_2", 2, [messageOutput("hi")]),
                 ),
             ],
         } satisfies ModelRequest;
@@ -174,7 +179,31 @@ describe("OpenAI message-only adapter", () => {
         ]);
     }, 5000);
 
-    test("uses multiple selected assistant provider encodings in order", () => {
+    test("replays encrypted reasoning output items as opaque provider-native payload", () => {
+        const reasoning = encryptedReasoningOutput("encrypted_reasoning");
+        const input = {
+            ...modelRequest([]),
+            items: [
+                contextItem(
+                    "item_1",
+                    1,
+                    "assistant",
+                    "hi",
+                    openAIProviderPayload("item_1", 1, [
+                        reasoning,
+                        messageOutput("hi"),
+                    ]),
+                ),
+            ],
+        } satisfies ModelRequest;
+
+        expect(buildOpenAIResponseInput(input)).toEqual([
+            reasoning,
+            messageOutput("hi"),
+        ]);
+    }, 5000);
+
+    test("uses multiple selected assistant provider payloads in order", () => {
         const input = {
             ...modelRequest([]),
             items: [
@@ -184,7 +213,7 @@ describe("OpenAI message-only adapter", () => {
                     2,
                     "assistant",
                     "first answer",
-                    openAIEncoding("item_2", 2, [
+                    openAIProviderPayload("item_2", 2, [
                         messageOutput("first answer"),
                     ]),
                 ),
@@ -194,7 +223,7 @@ describe("OpenAI message-only adapter", () => {
                     4,
                     "assistant",
                     "second answer",
-                    openAIEncoding("item_4", 4, [
+                    openAIProviderPayload("item_4", 4, [
                         messageOutput("second answer"),
                     ]),
                 ),
@@ -209,80 +238,28 @@ describe("OpenAI message-only adapter", () => {
         ]);
     }, 5000);
 
-    test("rejects provider encodings that do not match the selected item and model", () => {
+    test("rejects provider payloads that do not match the selected item and model", () => {
         const input = {
             ...modelRequest([]),
             items: [
                 contextItem("item_1", 1, "assistant", "hi", {
-                    ...openAIEncoding("other_item", 1, [messageOutput("hi")]),
+                    ...openAIProviderPayload("other_item", 1, [
+                        messageOutput("hi"),
+                    ]),
                     modelId: "other-model",
                 }),
             ],
         } satisfies ModelRequest;
 
         expect(() => buildOpenAIResponseInput(input)).toThrow(
-            "Provider encoding does not match",
+            "Provider payload does not match",
         );
     }, 5000);
 
-    test("filters unencrypted reasoning output items from provider encodings", () => {
-        const unencryptedReasoning = {
-            id: "rs_1",
-            type: "reasoning",
-            summary: [],
-        };
-        const input = {
-            ...modelRequest([]),
-            items: [
-                contextItem(
-                    "item_1",
-                    1,
-                    "assistant",
-                    "hi",
-                    openAIEncoding("item_1", 1, [
-                        unencryptedReasoning as unknown as ResponseOutputItem,
-                        messageOutput("hi"),
-                    ]),
-                ),
-            ],
-        } satisfies ModelRequest;
-
-        expect(buildOpenAIResponseInput(input)).toEqual([messageOutput("hi")]);
-    }, 5000);
-
-    test("rejects unsupported native output item types from provider encodings", () => {
-        const input = {
-            ...modelRequest([]),
-            items: [
-                contextItem(
-                    "item_1",
-                    1,
-                    "assistant",
-                    "hi",
-                    openAIEncoding("item_1", 1, [
-                        {
-                            id: "call_1",
-                            type: "function_call",
-                            call_id: "call_1",
-                            name: "bash",
-                            arguments: "{}",
-                        } as unknown as ResponseOutputItem,
-                    ]),
-                ),
-            ],
-        } satisfies ModelRequest;
-
-        expect(() => buildOpenAIResponseInput(input)).toThrow(
-            "unsupported output item type function_call",
-        );
-    }, 5000);
-
-    test("adapter stream validates model config before creating a request", async () => {
-        const adapter = new OpenAIResponsesSdkAdapter({
+    test("provider validates model config before creating a request", async () => {
+        const provider = new OpenAIResponsesProvider({
             provider: "openai",
-            adapterId: "responses",
-            defaultModel: "gpt-test",
-            label: "test adapter",
+            label: "test provider",
             client: async () => {
                 throw new Error(
                     "client should not be constructed for invalid config",
@@ -292,11 +269,10 @@ describe("OpenAI message-only adapter", () => {
 
         await expect(
             collectEvents(
-                adapter.stream({
+                provider.stream({
                     ...modelRequest([{ role: "user", text: "hello" }]),
                     modelConfig: {
                         provider: "fake",
-                        adapter: "responses",
                         modelId: "gpt-test",
                     },
                 }),
@@ -304,7 +280,7 @@ describe("OpenAI message-only adapter", () => {
         ).rejects.toThrow("cannot run provider fake");
     }, 5000);
 
-    test("adapter stream always uses the streaming SDK path", async () => {
+    test("provider always uses the streaming SDK path", async () => {
         const client = new StubOpenAIClient({
             data: asyncEvents([
                 { type: "response.output_text.delta", delta: "streamed" },
@@ -315,16 +291,14 @@ describe("OpenAI message-only adapter", () => {
             ]),
             requestId: "req_stream",
         });
-        const adapter = new OpenAIResponsesSdkAdapter({
+        const provider = new OpenAIResponsesProvider({
             provider: "openai",
-            adapterId: "responses",
-            defaultModel: "gpt-test",
-            label: "test adapter",
+            label: "test provider",
             client: async () => client as unknown as OpenAI,
         });
 
         const events = await collectEvents(
-            adapter.stream(modelRequest([{ role: "user", text: "hello" }])),
+            provider.stream(modelRequest([{ role: "user", text: "hello" }])),
         );
 
         expect(client.calls).toHaveLength(1);
@@ -332,21 +306,15 @@ describe("OpenAI message-only adapter", () => {
         expect(completed(events).assistant.content).toEqual([
             { type: "text", text: "streamed" },
         ]);
-        expect(completed(events).assistant.metadata.providerRequestId).toBe(
-            "req_stream",
-        );
-        expect(events[0]).toMatchObject({
-            type: "provider_event",
-            event: {
-                kind: "response.request",
-                providerRequestId: "req_stream",
-            },
+        expect(completed(events).providerResponse).toMatchObject({
+            requestId: "req_stream",
+            responseId: "resp_1",
         });
     }, 5000);
 
-    test("adapter refreshes ChatGPT-style auth once after an unauthorized response", async () => {
+    test("provider refreshes ChatGPT-style auth once after an unauthorized response", async () => {
         const expiredClient = new StubOpenAIClient({
-            error: Object.assign(new Error("expired token"), { status: 401 }),
+            error: new APIError(401, undefined, "expired token", new Headers()),
         });
         const refreshedClient = new StubOpenAIClient({
             data: asyncEvents([
@@ -358,11 +326,9 @@ describe("OpenAI message-only adapter", () => {
             requestId: "req_refresh",
         });
         let refreshCount = 0;
-        const adapter = new OpenAIResponsesSdkAdapter({
+        const provider = new OpenAIResponsesProvider({
             provider: "openai",
-            adapterId: "responses",
-            defaultModel: "gpt-test",
-            label: "test adapter",
+            label: "test provider",
             client: async () => expiredClient as unknown as OpenAI,
             refreshClientAfterUnauthorized: async () => {
                 refreshCount += 1;
@@ -371,7 +337,7 @@ describe("OpenAI message-only adapter", () => {
         });
 
         const events = await collectEvents(
-            adapter.stream(modelRequest([{ role: "user", text: "hello" }])),
+            provider.stream(modelRequest([{ role: "user", text: "hello" }])),
         );
 
         expect(refreshCount).toBe(1);
@@ -380,9 +346,36 @@ describe("OpenAI message-only adapter", () => {
         expect(completed(events).assistant.content).toEqual([
             { type: "text", text: "after refresh" },
         ]);
-        expect(completed(events).assistant.metadata.providerRequestId).toBe(
-            "req_refresh",
+        expect(completed(events).providerResponse).toMatchObject({
+            requestId: "req_refresh",
+            responseId: "resp_1",
+        });
+    }, 5000);
+
+    test("maps typed OpenAI usage into model accounting", async () => {
+        const events = await collectEvents(
+            collectOpenAIResponsesStream(
+                modelRequest([{ role: "user", text: "x" }]),
+                asyncEvents([
+                    {
+                        type: "response.completed",
+                        response: response([messageOutput("done")], {
+                            usage: responseUsage(),
+                        }),
+                    },
+                ]),
+            ),
         );
+
+        expect(completed(events).accounting).toEqual({
+            usage: {
+                inputTokens: 11,
+                cachedInputTokens: 3,
+                outputTokens: 7,
+                reasoningOutputTokens: 5,
+                totalTokens: 18,
+            },
+        });
     }, 5000);
 });
 
@@ -394,59 +387,47 @@ function modelRequest(
         runId: "run_test",
         modelConfig: {
             provider: "openai",
-            adapter: "responses",
             modelId: "gpt-test",
         },
         instructions: [],
         items: messages.map((message, index) =>
-            contextItem(
-                `item_${index + 1}`,
-                index + 1,
-                message.role,
-                message.text,
-            ),
+            contextItem(`item_${index + 1}`, index + 1, message.role, [
+                { type: "text", text: message.text },
+            ]),
         ),
     };
 }
 
 function contextItem(
-    id: string,
+    itemId: string,
     sequence: number,
     role: "system" | "user" | "assistant",
-    text: string,
-    providerEncoding?: ModelRequest["items"][number]["providerEncoding"],
-): ModelRequest["items"][number] {
+    content: ContentBlock[] | string,
+    providerPayload?: ProviderPayload,
+): ModelContextItem {
     return {
-        item: {
-            id,
-            conversationId: "conv_test",
-            sequence,
-            class: "transcript",
-            kind:
-                role === "assistant"
-                    ? "assistant_message"
-                    : role === "user"
-                      ? "user_message"
-                      : "system_message",
-            role,
-            visibility: "model",
-            content: [{ type: "text", text }],
-            createdAt: "2026-01-01T00:00:00.000Z",
-        },
-        ...(providerEncoding ? { providerEncoding } : {}),
+        itemId,
+        conversationId: "conv_test",
+        sequence,
+        role,
+        content:
+            typeof content === "string"
+                ? [{ type: "text", text: content }]
+                : content,
+        ...(providerPayload ? { providerPayload } : {}),
     };
 }
 
 function response(
     output: ResponseOutputItem[],
-    status = "completed",
+    options: { status?: Response["status"]; usage?: ResponseUsage } = {},
 ): Response {
     return {
         id: "resp_1",
-        status,
+        status: options.status ?? "completed",
         output,
-        usage: null,
-    } as unknown as Response;
+        ...(options.usage ? { usage: options.usage } : {}),
+    } as Response;
 }
 
 function messageOutput(text: string): ResponseOutputItem {
@@ -456,25 +437,46 @@ function messageOutput(text: string): ResponseOutputItem {
         role: "assistant",
         status: "completed",
         content: [{ type: "output_text", text, annotations: [] }],
+    } as ResponseOutputItem;
+}
+
+function encryptedReasoningOutput(
+    encryptedContent: string,
+): ResponseOutputItem {
+    return {
+        id: "rs_1",
+        type: "reasoning",
+        encrypted_content: encryptedContent,
+        summary: [],
+        status: "completed",
     } as unknown as ResponseOutputItem;
 }
 
-function openAIEncoding(
+function responseUsage(): ResponseUsage {
+    return {
+        input_tokens: 11,
+        input_tokens_details: { cached_tokens: 3 },
+        output_tokens: 7,
+        output_tokens_details: { reasoning_tokens: 5 },
+        total_tokens: 18,
+    };
+}
+
+function openAIProviderPayload(
     itemId: string,
     itemSequence: number,
     outputItems: ResponseOutputItem[],
-): NonNullable<ModelRequest["items"][number]["providerEncoding"]> {
+): ProviderPayload {
     return {
-        id: `penc_${itemSequence}`,
+        id: `ppay_${itemSequence}`,
         conversationId: "conv_test",
         itemId,
         itemSequence,
         provider: "openai",
-        adapter: "responses",
         modelId: "gpt-test",
-        format: OPENAI_RESPONSES_OUTPUT_ITEMS_FORMAT,
-        formatVersion: OPENAI_RESPONSES_OUTPUT_ITEMS_FORMAT_VERSION,
-        payload: z.json().parse({ outputItems }),
+        type: OPENAI_RESPONSES_OUTPUT_ITEMS_PAYLOAD_TYPE,
+        version: OPENAI_RESPONSES_OUTPUT_ITEMS_PAYLOAD_VERSION,
+        payload: outputItems as unknown as JSONType,
         createdAt: "2026-01-01T00:00:00.000Z",
     };
 }

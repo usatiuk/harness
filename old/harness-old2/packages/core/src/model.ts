@@ -1,63 +1,61 @@
 import type {
     ModelCapabilities,
     ModelConfig,
-    ModelFinalResponseDraft,
+    ModelFinalResponse,
     ModelRequest,
-    ModelStreamEventDraft,
+    ModelStreamEvent,
 } from "@harness/protocol";
 
-export interface ModelAdapter {
-    id: string;
+export interface ModelProvider {
     provider: string;
     capabilities(): ModelCapabilities;
     validateModelConfig(config: ModelConfig): void;
-    stream(input: ModelRequest): AsyncIterable<ModelStreamEventDraft>;
+    stream(input: ModelRequest): AsyncIterable<ModelStreamEvent>;
 }
 
 export class ModelRegistry {
-    private readonly adapters = new Map<string, ModelAdapter>();
+    private readonly providers = new Map<string, ModelProvider>();
 
-    public register(adapter: ModelAdapter): void {
-        this.adapters.set(`${adapter.provider}/${adapter.id}`, adapter);
+    public register(provider: ModelProvider): void {
+        this.providers.set(provider.provider, provider);
     }
 
-    public resolve(config: ModelConfig): ModelAdapter {
-        const adapter = this.adapters.get(
-            `${config.provider}/${config.adapter}`,
-        );
-        if (!adapter) {
-            const available = [...this.adapters.keys()].sort();
+    public resolve(config: ModelConfig): ModelProvider {
+        const provider = this.providers.get(config.provider);
+        if (!provider) {
+            const available = [...this.providers.keys()].sort();
             throw new Error(
-                `No model adapter registered for ${config.provider}/${config.adapter}${available.length ? ` (available: ${available.join(", ")})` : ""}`,
+                `No model provider registered for ${config.provider}${available.length ? ` (available: ${available.join(", ")})` : ""}`,
             );
         }
-        adapter.validateModelConfig(config);
-        return adapter;
+        provider.validateModelConfig(config);
+        return provider;
     }
 }
 
-export class EchoModelAdapter implements ModelAdapter {
-    public readonly id = "fake";
+export class EchoModelProvider implements ModelProvider {
     public readonly provider = "fake";
 
     public capabilities(): ModelCapabilities {
-        return { textInput: true, textOutput: true, reasoningMetadata: false };
+        return {
+            inputContent: ["text"],
+            outputContent: ["text"],
+            providerPayloads: false,
+        };
     }
 
     public validateModelConfig(config: ModelConfig): void {
-        if (config.provider !== this.provider || config.adapter !== this.id) {
+        if (config.provider !== this.provider) {
             throw new Error(
-                `Echo adapter cannot run ${config.provider}/${config.adapter}`,
+                `Echo provider cannot run provider ${config.provider}`,
             );
         }
     }
 
-    public async *stream(
-        input: ModelRequest,
-    ): AsyncIterable<ModelStreamEventDraft> {
+    public async *stream(input: ModelRequest): AsyncIterable<ModelStreamEvent> {
         const text = [
             ...input.instructions,
-            ...input.items.flatMap((contextItem) => contextItem.item.content),
+            ...input.items.flatMap((contextItem) => contextItem.content),
         ]
             .filter((block) => block.type === "text")
             .map((block) => block.text)
@@ -70,15 +68,14 @@ export class EchoModelAdapter implements ModelAdapter {
                         text: text.length > 0 ? `echo: ${text}` : "echo",
                     },
                 ],
-                metadata: { adapter: "fake" },
             },
         });
     }
 }
 
 export function finalResponseEvents(
-    response: ModelFinalResponseDraft,
-): ModelStreamEventDraft[] {
+    response: ModelFinalResponse,
+): ModelStreamEvent[] {
     const text = renderText(response.assistant.content);
     return [
         ...(text.length > 0
@@ -89,12 +86,18 @@ export function finalResponseEvents(
 }
 
 function renderText(
-    blocks: ModelFinalResponseDraft["assistant"]["content"],
+    blocks: ModelFinalResponse["assistant"]["content"],
 ): string {
-    return blocks
-        .map((block) =>
-            block.type === "text" ? block.text : JSON.stringify(block.data),
-        )
-        .filter((text) => text.length > 0)
-        .join("\n");
+    const text: string[] = [];
+    for (const block of blocks) {
+        if (block.type !== "text") {
+            throw new Error(
+                `Model text delta cannot render ${block.type} content blocks`,
+            );
+        }
+        if (block.text.length > 0) {
+            text.push(block.text);
+        }
+    }
+    return text.join("\n");
 }

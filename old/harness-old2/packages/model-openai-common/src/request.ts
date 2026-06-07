@@ -1,56 +1,43 @@
 import type {
-    ResponseCreateParamsBase,
     ResponseCreateParamsStreaming,
     ResponseInput,
 } from "openai/resources/responses/responses";
 import type { ContentBlock, ModelRequest } from "@harness/protocol";
 import { openAIOutputItemsForContextItem } from "./encoding.ts";
-import { compactRecord, recordFromJson, renderContentBlocks } from "./utils.ts";
 
-export interface BuildOpenAIResponseParamsOptions {
-    defaultModel: string;
-    extraBody?: Record<string, unknown>;
-}
+const OPENAI_RESPONSE_INCLUDES = ["reasoning.encrypted_content"] as const;
 
 export function buildOpenAIResponseParams(
     input: ModelRequest,
-    options: BuildOpenAIResponseParamsOptions,
 ): ResponseCreateParamsStreaming {
-    const baseParams = buildOpenAIResponseBaseParams(input, options);
-    return { ...baseParams, stream: true };
-}
-
-function buildOpenAIResponseBaseParams(
-    input: ModelRequest,
-    options: BuildOpenAIResponseParamsOptions,
-): ResponseCreateParamsBase {
-    const providerOptions = recordFromJson(input.modelConfig.providerOptions);
-    const extraBody = options.extraBody ?? {};
-    assertNoToolEnablingOptions(providerOptions);
-    assertNoToolEnablingOptions(extraBody);
     const settings = input.modelConfig.settings;
-    return compactRecord({
-        ...providerOptions,
-        ...extraBody,
-        model: input.modelConfig.modelId || options.defaultModel,
+    const params: ResponseCreateParamsStreaming = {
+        model: input.modelConfig.modelId,
         input: buildOpenAIResponseInput(input),
-        instructions: renderedBlocks(input.instructions),
         store: false,
-        include: mergeInclude(
-            providerOptions.include,
-            extraBody.include,
-            "reasoning.encrypted_content",
-        ),
-        temperature: settings?.temperature,
-        top_p: settings?.topP,
-        max_output_tokens: settings?.maxOutputTokens,
-    });
+        stream: true,
+        include: [...OPENAI_RESPONSE_INCLUDES],
+    };
+    const instructions = openAITextContent(input.instructions);
+    if (instructions !== undefined) {
+        params.instructions = instructions;
+    }
+    if (settings?.temperature !== undefined) {
+        params.temperature = settings.temperature;
+    }
+    if (settings?.topP !== undefined) {
+        params.top_p = settings.topP;
+    }
+    if (settings?.maxOutputTokens !== undefined) {
+        params.max_output_tokens = settings.maxOutputTokens;
+    }
+    return params;
 }
 
 export function buildOpenAIResponseInput(input: ModelRequest): ResponseInput {
     const items: ResponseInput = [];
     for (const contextItem of input.items) {
-        if (contextItem.item.role === "assistant") {
+        if (contextItem.role === "assistant") {
             const encodedItems = openAIOutputItemsForContextItem(
                 contextItem,
                 input.modelConfig,
@@ -60,14 +47,11 @@ export function buildOpenAIResponseInput(input: ModelRequest): ResponseInput {
                 continue;
             }
         }
-        if (!contextItem.item.role) {
-            continue;
-        }
-        const text = renderContentBlocks(contextItem.item.content);
-        if (text.length > 0) {
+        const text = openAITextContent(contextItem.content);
+        if (text !== undefined) {
             items.push({
                 type: "message",
-                role: contextItem.item.role,
+                role: contextItem.role,
                 content: text,
             });
         }
@@ -76,53 +60,17 @@ export function buildOpenAIResponseInput(input: ModelRequest): ResponseInput {
     return items;
 }
 
-function renderedBlocks(blocks: ContentBlock[]): string | undefined {
-    const rendered = renderContentBlocks(blocks);
-    return rendered.length > 0 ? rendered : undefined;
-}
-
-function mergeInclude(...values: unknown[]): string[] {
-    const include = new Set<string>();
-    for (const value of values) {
-        if (value === undefined) {
-            continue;
-        }
-        if (typeof value === "string") {
-            include.add(value);
-            continue;
-        }
-        if (
-            !Array.isArray(value) ||
-            !value.every((item) => typeof item === "string")
-        ) {
+function openAITextContent(blocks: ContentBlock[]): string | undefined {
+    const text: string[] = [];
+    for (const block of blocks) {
+        if (block.type !== "text") {
             throw new Error(
-                "OpenAI Responses include must be a string or string array",
+                `OpenAI provider cannot render ${block.type} content blocks`,
             );
         }
-        for (const item of value) {
-            include.add(item);
+        if (block.text.length > 0) {
+            text.push(block.text);
         }
     }
-    return [...include];
-}
-
-function assertNoToolEnablingOptions(options: Record<string, unknown>): void {
-    const blockedKeys = [
-        "tools",
-        "tool_choice",
-        "toolChoice",
-        "parallel_tool_calls",
-        "parallelToolCalls",
-        "available_tools",
-        "availableTools",
-        "native_tools",
-        "nativeTools",
-    ];
-    for (const key of blockedKeys) {
-        if (Object.prototype.hasOwnProperty.call(options, key)) {
-            throw new Error(
-                `OpenAI tool option ${key} is not supported because harness v0 has no tools`,
-            );
-        }
-    }
+    return text.length > 0 ? text.join("\n") : undefined;
 }

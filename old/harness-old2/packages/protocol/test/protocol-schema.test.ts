@@ -6,42 +6,93 @@ import {
     modelFinalResponseSchema,
     modelStreamEventSchema,
     profileConfigSchema,
-    providerEncodingSchema,
+    providerPayloadSchema,
 } from "../src/index.ts";
 
 describe("protocol schemas", () => {
     test("applies profile and model defaults", () => {
         expect(profileConfigSchema.parse({})).toEqual({
-            model: { provider: "fake", adapter: "fake", modelId: "fake-text" },
+            model: { provider: "fake", modelId: "fake-text" },
             promptFragments: [],
         });
     }, 5000);
 
-    test("rejects invalid conversation item sequence and visibility", () => {
+    test("validates typed conversation message items", () => {
+        expect(
+            conversationItemSchema.parse({
+                id: "item_1",
+                conversationId: "conv_1",
+                sequence: 1,
+                type: "message",
+                role: "user",
+                status: "complete",
+                content: [{ type: "text", text: "hello" }],
+                createdAt: "2026-01-01T00:00:00.000Z",
+            }),
+        ).toMatchObject({
+            type: "message",
+            role: "user",
+        });
         expect(() =>
             conversationItemSchema.parse({
                 id: "item_1",
                 conversationId: "conv_1",
-                sequence: 0,
-                class: "transcript",
-                kind: "user_message",
-                role: "user",
-                visibility: "hidden",
+                sequence: 1,
+                type: "message",
+                status: "complete",
                 content: [{ type: "text", text: "hello" }],
                 createdAt: "2026-01-01T00:00:00.000Z",
             }),
         ).toThrow();
     }, 5000);
 
-    test("defaults model final response assistant metadata", () => {
+    test("validates non-message conversation item types", () => {
+        expect(
+            conversationItemSchema.parse({
+                id: "item_2",
+                conversationId: "conv_1",
+                sequence: 2,
+                type: "compaction",
+                summary: [{ type: "text", text: "summary" }],
+                coversThroughItemSequence: 1,
+                policyId: "deterministic-v0",
+                tokenEstimate: 2,
+                createdAt: "2026-01-01T00:00:00.000Z",
+            }),
+        ).toMatchObject({ type: "compaction" });
+        expect(
+            conversationItemSchema.parse({
+                id: "item_3",
+                conversationId: "conv_1",
+                sequence: 3,
+                type: "model_error",
+                runId: "run_1",
+                message: "provider down",
+                createdAt: "2026-01-01T00:00:00.000Z",
+            }),
+        ).toMatchObject({ type: "model_error" });
+    }, 5000);
+
+    test("validates final response provider identity", () => {
         expect(
             modelFinalResponseSchema.parse({
                 assistant: { content: [{ type: "text", text: "done" }] },
+                providerResponse: {
+                    provider: "openai",
+                    modelId: "gpt-test",
+                    requestId: "req_1",
+                    responseId: "resp_1",
+                },
             }),
         ).toEqual({
             assistant: {
                 content: [{ type: "text", text: "done" }],
-                metadata: {},
+            },
+            providerResponse: {
+                provider: "openai",
+                modelId: "gpt-test",
+                requestId: "req_1",
+                responseId: "resp_1",
             },
         });
     }, 5000);
@@ -56,20 +107,24 @@ describe("protocol schemas", () => {
         expect(() =>
             modelStreamEventSchema.parse({ type: "completed" }),
         ).toThrow();
+        expect(() =>
+            modelStreamEventSchema.parse({
+                type: "unsupported",
+            }),
+        ).toThrow();
     }, 5000);
 
-    test("validates provider encoding format version", () => {
+    test("validates provider payload version", () => {
         expect(() =>
-            providerEncodingSchema.parse({
-                id: "penc_1",
+            providerPayloadSchema.parse({
+                id: "ppay_1",
                 conversationId: "conv_1",
                 itemId: "item_1",
                 itemSequence: 1,
                 provider: "fake",
-                adapter: "recording",
                 modelId: "recording",
-                format: "fake.encoding",
-                formatVersion: 0,
+                type: "fake.payload",
+                version: 0,
                 payload: {},
                 createdAt: "2026-01-01T00:00:00.000Z",
             }),
@@ -84,7 +139,6 @@ describe("protocol schemas", () => {
                 runId: "run_1",
                 modelConfig: {
                     provider: "fake",
-                    adapter: "fake",
                     modelId: "fake-text",
                 },
                 selectedItemIds: ["item_1"],
@@ -103,7 +157,6 @@ describe("protocol schemas", () => {
                 startedThroughItemSequence: -1,
                 modelConfig: {
                     provider: "fake",
-                    adapter: "fake",
                     modelId: "fake-text",
                 },
                 createdAt: "2026-01-01T00:00:00.000Z",

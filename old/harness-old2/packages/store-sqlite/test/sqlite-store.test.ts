@@ -5,12 +5,12 @@ import { describe, expect, test } from "vitest";
 import { HarnessKernel } from "@harness/core";
 import { HarnessService } from "@harness/service";
 import { openSqliteHarnessStore } from "@harness/store-sqlite";
-import { RecordingModelAdapter } from "@harness/testkit";
+import { RecordingModelProvider } from "@harness/testkit";
 import type { ProfileConfig } from "@harness/protocol";
 import { runHarnessStoreContract } from "../../testkit/test/store-contract.ts";
 
 const recordingProfile: ProfileConfig = {
-    model: { provider: "fake", adapter: "recording", modelId: "recording" },
+    model: { provider: "fake", modelId: "recording" },
     promptFragments: [],
 };
 
@@ -20,15 +20,15 @@ runHarnessStoreContract("SqliteHarnessStore", async () => {
 });
 
 describe("SQLite conversation store persistence", () => {
-    test("persists conversation items, runs, context builds, and provider encodings across reopen", async () => {
+    test("persists conversation items, runs, context builds, and provider payloads across reopen", async () => {
         const dbPath = await tempDbPath();
-        const model = new RecordingModelAdapter();
+        const model = new RecordingModelProvider();
         model.enqueue({
             assistant: {
                 content: [{ type: "text", text: "persisted" }],
-                providerEncoding: {
-                    format: "fake.encoding",
-                    formatVersion: 1,
+                providerPayload: {
+                    type: "fake.payload",
+                    version: 1,
                     payload: { encoded: true },
                 },
             },
@@ -45,7 +45,7 @@ describe("SQLite conversation store persistence", () => {
             { type: "text", text: "persist me" },
         ]);
         const assistant = (await service.listItems(conversation.id)).find(
-            (item) => item.kind === "assistant_message",
+            (item) => item.type === "message" && item.role === "assistant",
         );
         firstStore.close();
 
@@ -53,7 +53,7 @@ describe("SQLite conversation store persistence", () => {
         try {
             expect(
                 await reopened.listConversationItems(conversation.id),
-            ).toHaveLength(4);
+            ).toHaveLength(2);
             expect(await reopened.listAgentRuns(conversation.id)).toMatchObject(
                 [{ status: "completed" }],
             );
@@ -61,19 +61,17 @@ describe("SQLite conversation store persistence", () => {
                 await reopened.listContextBuilds(conversation.id),
             ).toHaveLength(1);
             expect(
-                await reopened.listProviderEncodingsForItems({
+                await reopened.listProviderPayloadsForItems({
                     conversationId: conversation.id,
                     itemIds: assistant ? [assistant.id] : [],
                     provider: "fake",
-                    adapter: "recording",
                     modelId: "recording",
                 }),
             ).toMatchObject([
                 {
                     provider: "fake",
-                    adapter: "recording",
                     modelId: "recording",
-                    format: "fake.encoding",
+                    type: "fake.payload",
                 },
             ]);
         } finally {
@@ -87,10 +85,9 @@ describe("SQLite conversation store persistence", () => {
             await expect(
                 store.appendConversationItem({
                     conversationId: "conv_missing",
-                    class: "transcript",
-                    kind: "user_message",
+                    type: "message",
                     role: "user",
-                    visibility: "model",
+                    status: "complete",
                     content: [{ type: "text", text: "orphan" }],
                 }),
             ).rejects.toThrow();

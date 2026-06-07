@@ -3,7 +3,7 @@ import type { HarnessStore } from "@harness/core";
 import type { ProfileConfig } from "@harness/protocol";
 
 const recordingProfile: ProfileConfig = {
-    model: { provider: "fake", adapter: "recording", modelId: "recording" },
+    model: { provider: "fake", modelId: "recording" },
     promptFragments: ["system rules"],
 };
 
@@ -40,7 +40,7 @@ export function runHarnessStoreContract(
             }
         }, 5000);
 
-        test("appends conversation items with monotonic per-conversation sequences", async () => {
+        test("appends typed conversation items with monotonic sequences", async () => {
             const harness = await open();
             try {
                 const store = harness.store;
@@ -48,37 +48,47 @@ export function runHarnessStoreContract(
                     config: recordingProfile,
                 });
 
-                const first = await store.appendConversationItem({
+                const user = await store.appendConversationItem({
                     conversationId: conversation.id,
-                    class: "transcript",
-                    kind: "user_message",
+                    type: "message",
                     role: "user",
-                    visibility: "model",
+                    status: "complete",
                     content: [{ type: "text", text: "one" }],
                 });
-                const second = await store.appendConversationItem({
+                const modelChange = await store.appendConversationItem({
                     conversationId: conversation.id,
-                    class: "audit",
-                    kind: "audit_note",
-                    visibility: "audit",
-                    content: [{ type: "text", text: "two" }],
+                    type: "model_change",
+                    provider: "fake",
+                    modelId: "recording",
+                });
+                const compaction = await store.appendConversationItem({
+                    conversationId: conversation.id,
+                    type: "compaction",
+                    summary: [{ type: "text", text: "summary" }],
+                    coversThroughItemSequence: user.sequence,
+                    policyId: "test",
+                    tokenEstimate: 2,
                 });
 
-                expect([first.sequence, second.sequence]).toEqual([1, 2]);
-                expect(await store.getLatestItemSequence(conversation.id)).toBe(
+                expect([user.sequence, modelChange.sequence, compaction.sequence]).toEqual([
+                    1,
                     2,
+                    3,
+                ]);
+                expect(await store.getLatestItemSequence(conversation.id)).toBe(
+                    3,
                 );
                 expect(
                     await store.listConversationItems(conversation.id, {
                         after: 1,
                     }),
-                ).toEqual([second]);
+                ).toEqual([modelChange, compaction]);
             } finally {
                 harness.close?.();
             }
         }, 5000);
 
-        test("records runs, context builds, projections, and provider encodings", async () => {
+        test("records runs, context builds, and provider payloads", async () => {
             const harness = await open();
             try {
                 const store = harness.store;
@@ -87,10 +97,9 @@ export function runHarnessStoreContract(
                 });
                 const user = await store.appendConversationItem({
                     conversationId: conversation.id,
-                    class: "transcript",
-                    kind: "user_message",
+                    type: "message",
                     role: "user",
-                    visibility: "model",
+                    status: "complete",
                     content: [{ type: "text", text: "input" }],
                 });
                 const run = await store.createAgentRun({
@@ -98,33 +107,22 @@ export function runHarnessStoreContract(
                     startedThroughItemSequence: user.sequence,
                     modelConfig: recordingProfile.model,
                 });
-                const projection = await store.createContextProjection({
-                    conversationId: conversation.id,
-                    itemId: user.id,
-                    coversThroughItemSequence: user.sequence,
-                    policyId: "test",
-                    content: [{ type: "text", text: "summary" }],
-                    tokenEstimate: 2,
-                    diagnostics: { itemCount: 1 },
-                });
                 const contextBuild = await store.createContextBuild({
                     conversationId: conversation.id,
                     runId: run.id,
                     modelConfig: recordingProfile.model,
-                    projectionId: projection.id,
                     selectedItemIds: [user.id],
                     selectedItemSequences: [user.sequence],
-                    diagnostics: { providerEncodingCount: 0 },
+                    diagnostics: { providerPayloadCount: 0 },
                 });
-                const providerEncoding = await store.createProviderEncoding({
+                const providerPayload = await store.createProviderPayload({
                     conversationId: conversation.id,
                     itemId: user.id,
                     itemSequence: user.sequence,
                     provider: "fake",
-                    adapter: "recording",
                     modelId: "recording",
-                    format: "fake.encoding",
-                    formatVersion: 1,
+                    type: "fake.payload",
+                    version: 1,
                     payload: { encoded: true },
                 });
                 const completed = await store.updateAgentRun({
@@ -139,31 +137,26 @@ export function runHarnessStoreContract(
                 expect(
                     await store.getActiveAgentRun(conversation.id),
                 ).toBeUndefined();
-                expect(
-                    await store.listContextProjections(conversation.id),
-                ).toEqual([projection]);
                 expect(await store.listContextBuilds(conversation.id)).toEqual([
                     contextBuild,
                 ]);
                 expect(
-                    await store.listProviderEncodingsForItems({
+                    await store.listProviderPayloadsForItems({
                         conversationId: conversation.id,
                         itemIds: [user.id],
                         provider: "fake",
-                        adapter: "recording",
                         modelId: "recording",
                     }),
-                ).toEqual([providerEncoding]);
+                ).toEqual([providerPayload]);
                 await expect(
-                    store.createProviderEncoding({
+                    store.createProviderPayload({
                         conversationId: conversation.id,
                         itemId: user.id,
                         itemSequence: user.sequence,
                         provider: "fake",
-                        adapter: "recording",
                         modelId: "recording",
-                        format: "fake.encoding",
-                        formatVersion: 1,
+                        type: "fake.payload",
+                        version: 1,
                         payload: { encoded: "duplicate" },
                     }),
                 ).rejects.toThrow();
@@ -182,10 +175,9 @@ export function runHarnessStoreContract(
                 for (let index = 0; index < 1005; index += 1) {
                     await store.appendConversationItem({
                         conversationId: conversation.id,
-                        class: "transcript",
-                        kind: "user_message",
+                        type: "message",
                         role: "user",
-                        visibility: "model",
+                        status: "complete",
                         content: [{ type: "text", text: `message ${index}` }],
                     });
                 }
@@ -212,10 +204,9 @@ export function runHarnessStoreContract(
                 });
                 const user = await store.appendConversationItem({
                     conversationId: conversation.id,
-                    class: "transcript",
-                    kind: "user_message",
+                    type: "message",
                     role: "user",
-                    visibility: "model",
+                    status: "complete",
                     content: [{ type: "text", text: "input" }],
                 });
                 const run = await store.createAgentRun({
@@ -233,10 +224,9 @@ export function runHarnessStoreContract(
                         runId: run.id,
                         modelConfig: recordingProfile.model,
                         content: [{ type: "text", text: "bad output" }],
-                        providerEvents: [],
-                        providerEncoding: {
-                            format: "fake.encoding",
-                            formatVersion: 0,
+                        providerPayload: {
+                            type: "fake.payload",
+                            version: 0,
                             payload: { invalid: true },
                         },
                     }),
@@ -252,53 +242,47 @@ export function runHarnessStoreContract(
                     runId: run.id,
                     modelConfig: recordingProfile.model,
                     content: [{ type: "text", text: "good output" }],
-                    providerEvents: [
-                        {
-                            provider: "fake",
-                            modelId: "recording",
-                            sequence: 0,
-                            kind: "provider.test",
-                            normalized: { ok: true },
+                    providerResponse: {
+                        provider: "fake",
+                        modelId: "recording",
+                        responseId: "resp_fake",
+                    },
+                    accounting: {
+                        usage: {
+                            inputTokens: 1,
+                            outputTokens: 2,
                         },
-                    ],
-                    providerEncoding: {
-                        format: "fake.encoding",
-                        formatVersion: 1,
-                        payload: { encoded: true },
+                    },
+                    providerPayload: {
+                        type: "fake.payload",
+                        version: 1,
+                        payload: { text: "good output" },
                     },
                 });
 
-                expect(committed.assistantItem.kind).toBe("assistant_message");
-                expect(committed.providerEventItems).toHaveLength(1);
-                expect(committed.providerEncoding).toMatchObject({
-                    itemId: committed.assistantItem.id,
+                expect(committed.assistantItem).toMatchObject({
+                    type: "message",
+                    role: "assistant",
                 });
-                expect(committed.run).toMatchObject({ status: "completed" });
-            } finally {
-                harness.close?.();
-            }
-        }, 5000);
-
-        test("enforces one active run per conversation", async () => {
-            const harness = await open();
-            try {
-                const store = harness.store;
-                const conversation = await store.createConversation({
-                    config: recordingProfile,
+                expect(committed.providerPayload).toMatchObject({
+                    provider: "fake",
+                    modelId: "recording",
+                    type: "fake.payload",
+                    payload: { text: "good output" },
                 });
-                await store.createAgentRun({
-                    conversationId: conversation.id,
-                    startedThroughItemSequence: 0,
-                    modelConfig: recordingProfile.model,
+                expect(committed.run).toMatchObject({
+                    status: "completed",
+                    outputItemId: committed.assistantItem.id,
+                    providerResponse: {
+                        responseId: "resp_fake",
+                    },
+                    accounting: {
+                        usage: {
+                            inputTokens: 1,
+                            outputTokens: 2,
+                        },
+                    },
                 });
-
-                await expect(
-                    store.createAgentRun({
-                        conversationId: conversation.id,
-                        startedThroughItemSequence: 0,
-                        modelConfig: recordingProfile.model,
-                    }),
-                ).rejects.toThrow();
             } finally {
                 harness.close?.();
             }

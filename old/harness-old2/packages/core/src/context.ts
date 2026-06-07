@@ -1,10 +1,11 @@
 import type {
-    ConversationItem,
+    CompactionItem,
     ContentBlock,
+    ConversationItem,
     ModelConfig,
     ModelContextItem,
     ModelRequest,
-    ProviderEncoding,
+    ProviderPayload,
 } from "@harness/protocol";
 import { wasRunInterrupted } from "./run-state.ts";
 import type { HarnessStore } from "./store.ts";
@@ -23,31 +24,23 @@ export class ContextBuilder {
         const allItems = await this.store.listConversationItems(
             input.conversationId,
         );
-        const projections = await this.store.listContextProjections(
-            input.conversationId,
-        );
-        const projection = projections.at(-1);
-        const coveredThrough = projection?.coversThroughItemSequence;
+        const compaction = latestCompaction(allItems);
+        const coveredThrough = compaction?.coversThroughItemSequence;
         const abandonedSequences = await this.abandonedInputSequences(
             input.conversationId,
         );
 
-        const selectedItems: ConversationItem[] = [];
-        const projectionItem = projection
-            ? allItems.find((item) => item.id === projection.itemId)
-            : undefined;
-        if (projectionItem) {
-            selectedItems.push(projectionItem);
+        const selectedItems: Array<CompactionItem | Extract<ConversationItem, { type: "message" }>> = [];
+        if (compaction) {
+            selectedItems.push(compaction);
         }
         selectedItems.push(
             ...allItems.filter(
-                (item) =>
-                    item.class === "transcript" &&
-                    item.visibility === "model" &&
+                (item): item is Extract<ConversationItem, { type: "message" }> =>
+                    item.type === "message" &&
                     (coveredThrough === undefined ||
                         item.sequence > coveredThrough) &&
-                    !abandonedSequences.has(item.sequence) &&
-                    item.role !== undefined,
+                    !abandonedSequences.has(item.sequence),
             ),
         );
 
@@ -55,39 +48,36 @@ export class ContextBuilder {
         const selectedItemSequences = selectedItems.map(
             (item) => item.sequence,
         );
-        const providerEncodings =
-            await this.store.listProviderEncodingsForItems({
+        const providerPayloads =
+            await this.store.listProviderPayloadsForItems({
                 conversationId: input.conversationId,
-                itemIds: selectedItemIds,
+                itemIds: selectedItems
+                    .filter((item) => item.type === "message")
+                    .map((item) => item.id),
                 provider: input.modelConfig.provider,
-                adapter: input.modelConfig.adapter,
                 modelId: input.modelConfig.modelId,
             });
-        const encodingByItemId = firstEncodingByItemId(providerEncodings);
-        const contextItems: ModelContextItem[] = selectedItems.map((item) => {
-            const providerEncoding = encodingByItemId.get(item.id);
-            return {
-                item,
-                ...(providerEncoding ? { providerEncoding } : {}),
-            };
-        });
+        const payloadByItemId = firstPayloadByItemId(providerPayloads);
+        const contextItems = selectedItems.map((item) =>
+            contextItemFromConversationItem(item, payloadByItemId.get(item.id)),
+        );
 
         const contextBuild = await this.store.createContextBuild({
             conversationId: input.conversationId,
             runId: input.runId,
             modelConfig: input.modelConfig,
-            ...(projection ? { projectionId: projection.id } : {}),
+            ...(compaction ? { compactionItemId: compaction.id } : {}),
             selectedItemIds,
             selectedItemSequences,
             diagnostics: {
                 selectedItemCount: selectedItems.length,
-                selectedTranscriptItemCount: selectedItems.filter(
-                    (item) => item.class === "transcript",
+                selectedMessageItemCount: selectedItems.filter(
+                    (item) => item.type === "message",
                 ).length,
-                projectionSequence:
-                    projection?.coversThroughItemSequence ?? null,
-                providerEncodingCount: contextItems.filter(
-                    (item) => item.providerEncoding !== undefined,
+                compactionSequence:
+                    compaction?.coversThroughItemSequence ?? null,
+                providerPayloadCount: contextItems.filter(
+                    (item) => item.providerPayload !== undefined,
                 ).length,
             },
         });
@@ -135,12 +125,7 @@ export class ContextBuilder {
 }
 
 export function estimateTokens(blocks: ContentBlock[]): number {
-    const text = blocks
-        .map((block) =>
-            block.type === "text" ? block.text : JSON.stringify(block.data),
-        )
-        .join("\n");
-    return Math.ceil(text.length / 4);
+    return Math.ceil(textContent(blocks).length / 4);
 }
 
 export function summarizeItemsForProjection(
@@ -151,11 +136,7 @@ export function summarizeItemsForProjection(
     }>,
 ): ContentBlock[] {
     const lines = items.map((item) => {
-        const text = item.content
-            .map((block) =>
-                block.type === "text" ? block.text : JSON.stringify(block.data),
-            )
-            .join(" ");
+        const text = textContent(item.content).replaceAll("\n", " ");
         return `${item.sequence} ${item.role ?? "item"}: ${text}`;
     });
     return [
@@ -166,14 +147,58 @@ export function summarizeItemsForProjection(
     ];
 }
 
-function firstEncodingByItemId(
-    encodings: ProviderEncoding[],
-): Map<string, ProviderEncoding> {
-    const byItemId = new Map<string, ProviderEncoding>();
-    for (const encoding of encodings) {
-        if (!byItemId.has(encoding.itemId)) {
-            byItemId.set(encoding.itemId, encoding);
+function latestCompaction(items: ConversationItem[]): CompactionItem | undefined {
+    return items
+        .filter((item): item is CompactionItem => item.type === "compaction")
+        .at(-1);
+}
+
+function firstPayloadByItemId(
+    payloads: ProviderPayload[],
+): Map<string, ProviderPayload> {
+    const byItemId = new Map<string, ProviderPayload>();
+    for (const payload of payloads) {
+        if (!byItemId.has(payload.itemId)) {
+            byItemId.set(payload.itemId, payload);
         }
     }
     return byItemId;
+}
+
+function contextItemFromConversationItem(
+    item: CompactionItem | Extract<ConversationItem, { type: "message" }>,
+    providerPayload: ProviderPayload | undefined,
+): ModelContextItem {
+    if (item.type === "message") {
+        return {
+            itemId: item.id,
+            conversationId: item.conversationId,
+            sequence: item.sequence,
+            role: item.role,
+            content: item.content,
+            ...(providerPayload ? { providerPayload } : {}),
+        };
+    }
+    return {
+        itemId: item.id,
+        conversationId: item.conversationId,
+        sequence: item.sequence,
+        role: "system",
+        content: item.summary,
+    };
+}
+
+function textContent(blocks: ContentBlock[]): string {
+    const text: string[] = [];
+    for (const block of blocks) {
+        if (block.type !== "text") {
+            throw new Error(
+                `Context text rendering cannot render ${block.type} content blocks`,
+            );
+        }
+        if (block.text.length > 0) {
+            text.push(block.text);
+        }
+    }
+    return text.join("\n");
 }

@@ -6,7 +6,8 @@ import type {
     ConversationRecord,
     ContentBlock,
     ContextBuild,
-    ContextProjection,
+    CompactionItem,
+    PendingConversationInput,
     ProfileConfig,
     ProfileRecord,
 } from "@harness/protocol";
@@ -75,7 +76,7 @@ export class HarnessService {
         conversationId: string,
         content: ContentBlock[],
         delivery: ConversationInputDelivery = "send",
-    ): Promise<ConversationItem> {
+    ): Promise<ConversationItem | PendingConversationInput> {
         return this.kernel.sendConversationInput({
             conversationId,
             content,
@@ -86,21 +87,14 @@ export class HarnessService {
     public async queue(
         conversationId: string,
         content: ContentBlock[],
-    ): Promise<ConversationItem> {
+    ): Promise<ConversationItem | PendingConversationInput> {
         return this.send(conversationId, content, "queue");
-    }
-
-    public async manual(
-        conversationId: string,
-        content: ContentBlock[],
-    ): Promise<ConversationItem> {
-        return this.send(conversationId, content, "manual");
     }
 
     public async interrupt(
         conversationId: string,
         content: ContentBlock[],
-    ): Promise<ConversationItem> {
+    ): Promise<ConversationItem | PendingConversationInput> {
         return this.send(conversationId, content, "interrupt");
     }
 
@@ -129,9 +123,9 @@ export class HarnessService {
         return this.kernel.listContextBuilds(conversationId);
     }
 
-    public async listContextProjections(
+    public async listCompactions(
         conversationId: string,
-    ): Promise<ContextProjection[]> {
-        return this.kernel.listContextProjections(conversationId);
+    ): Promise<CompactionItem[]> {
+        return this.kernel.listCompactions(conversationId);
     }
 }

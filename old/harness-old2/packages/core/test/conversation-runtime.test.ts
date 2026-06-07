@@ -1,26 +1,27 @@
 import { describe, expect, test } from "vitest";
 import {
-    BlockingModelAdapter,
-    RecordingModelAdapter,
+    BlockingModelProvider,
+    RecordingModelProvider,
     createTestHarness,
 } from "@harness/testkit";
 import type {
-    ModelFinalResponseDraft,
+    ContentBlock,
+    ModelFinalResponse,
     ModelRequest,
     ProfileConfig,
 } from "@harness/protocol";
 
 const recordingProfile: ProfileConfig = {
-    model: { provider: "fake", adapter: "recording", modelId: "recording" },
+    model: { provider: "fake", modelId: "recording" },
     promptFragments: [],
 };
 
-function textBlocks(text: string) {
-    return [{ type: "text" as const, text }];
+function textBlocks(text: string): ContentBlock[] {
+    return [{ type: "text", text }];
 }
 
-describe("conversation item runtime", () => {
-    test("persists a simple user and assistant transcript as ordered conversation items", async () => {
+describe("conversation runtime", () => {
+    test("persists a simple user and assistant exchange as ordered conversation items", async () => {
         const { service, model } = createTestHarness();
         const conversation = await service.createConversation({
             profileConfig: recordingProfile,
@@ -29,42 +30,21 @@ describe("conversation item runtime", () => {
         await service.send(conversation.id, textBlocks("hello"));
 
         const items = await service.listItems(conversation.id);
-        expect(items.map((item) => item.sequence)).toEqual([1, 2, 3, 4]);
-        expect(items.map((item) => item.kind)).toEqual([
-            "audit_note",
-            "user_message",
-            "run_event",
-            "assistant_message",
-        ]);
+        expect(items.map((item) => item.sequence)).toEqual([1, 2]);
+        expect(items.map((item) => item.type)).toEqual(["message", "message"]);
         expect(
-            items
-                .filter((item) => item.visibility === "model")
-                .map((item) => item.kind),
-        ).toEqual(["user_message", "assistant_message"]);
+            items.map((item) =>
+                item.type === "message" ? item.role : item.type,
+            ),
+        ).toEqual(["user", "assistant"]);
         expect(model.inputs).toHaveLength(1);
         expect(inputRoles(model.inputs[0])).toEqual(["user"]);
-        expect(model.inputs[0]?.items[0]?.item.content).toEqual(
+        expect(model.inputs[0]?.items[0]?.content).toEqual(
             textBlocks("hello"),
         );
         expect(await service.listAgentRuns(conversation.id)).toMatchObject([
             { status: "completed" },
         ]);
-    }, 5000);
-
-    test("manual notes are UI-only and do not trigger a model run", async () => {
-        const { service, model } = createTestHarness();
-        const conversation = await service.createConversation({
-            profileConfig: recordingProfile,
-        });
-
-        const item = await service.manual(
-            conversation.id,
-            textBlocks("operator note"),
-        );
-
-        expect(item.visibility).toBe("ui");
-        expect(model.inputs).toHaveLength(0);
-        expect(await service.listAgentRuns(conversation.id)).toEqual([]);
     }, 5000);
 
     test("unknown profile names fail instead of falling back to fake defaults", async () => {
@@ -75,8 +55,8 @@ describe("conversation item runtime", () => {
         ).rejects.toThrow("Profile typo not found");
     }, 5000);
 
-    test("model failure appends a visible error but no partial assistant message", async () => {
-        const model = new RecordingModelAdapter({
+    test("model failure appends an ordered model_error item but no partial assistant message", async () => {
+        const model = new RecordingModelProvider({
             fail: new Error("provider down"),
         });
         const { service } = createTestHarness(model);
@@ -89,12 +69,14 @@ describe("conversation item runtime", () => {
         ).rejects.toThrow("provider down");
 
         const items = await service.listItems(conversation.id);
-        expect(items.some((item) => item.kind === "assistant_message")).toBe(
-            false,
-        );
         expect(
-            items.filter((item) => item.kind === "model_error"),
-        ).toHaveLength(1);
+            items.some(
+                (item) => item.type === "message" && item.role === "assistant",
+            ),
+        ).toBe(false);
+        expect(items.filter((item) => item.type === "model_error")).toHaveLength(
+            1,
+        );
         expect(await service.getConversation(conversation.id)).toMatchObject({
             status: "failed",
         });
@@ -103,7 +85,7 @@ describe("conversation item runtime", () => {
         ]);
     }, 5000);
 
-    test("compaction keeps old items inspectable while future prompts use projection plus newer transcript only", async () => {
+    test("compaction keeps old items inspectable while future prompts use compaction plus newer messages only", async () => {
         const { service, model } = createTestHarness();
         const conversation = await service.createConversation({
             profileConfig: recordingProfile,
@@ -112,39 +94,33 @@ describe("conversation item runtime", () => {
         await service.send(conversation.id, textBlocks("first"));
         await service.send(conversation.id, textBlocks("second"));
         const beforeCompaction = await service.listItems(conversation.id);
-        const projection = await service.runCompaction(conversation.id);
+        const compaction = await service.runCompaction(conversation.id);
         await service.send(conversation.id, textBlocks("third"));
 
-        expect(projection.kind).toBe("context_projection");
+        expect(compaction).toMatchObject({ type: "compaction" });
         expect(await service.listItems(conversation.id)).toHaveLength(
-            beforeCompaction.length + 4,
+            beforeCompaction.length + 3,
         );
         const latestInput = model.inputs.at(-1);
         expect(inputRoles(latestInput)).toEqual(["system", "user"]);
-        expect(latestInput?.items[0]?.item.content[0]).toMatchObject({
+        expect(latestInput?.items[0]?.content[0]).toMatchObject({
             type: "text",
         });
-        expect(latestInput?.items[1]?.item.content).toEqual(
-            textBlocks("third"),
-        );
+        expect(latestInput?.items[1]?.content).toEqual(textBlocks("third"));
         expect(
-            latestInput?.items.some((item) =>
-                JSON.stringify(item.item.content).includes("first"),
-            ),
+            JSON.stringify(latestInput?.items[0]?.content).includes("first"),
         ).toBe(true);
         expect(
             latestInput?.items
-                .filter((item) => item.item.role !== "system")
-                .some((item) =>
-                    JSON.stringify(item.item.content).includes("first"),
-                ),
+                .filter((item) => item.role !== "system")
+                .some((item) => JSON.stringify(item.content).includes("first")),
         ).toBe(false);
     }, 5000);
 
-    test("provider encodings attach only to selected matching items", async () => {
-        const model = new RecordingModelAdapter();
-        model.enqueue(() => providerEncodingResult("one"));
-        model.enqueue(() => providerEncodingResult("two"));
+    test("provider payloads attach only to selected matching assistant items", async () => {
+        const model = new RecordingModelProvider();
+        model.enqueue(() => providerPayloadResult("one"));
+        model.enqueue(() => providerPayloadResult("two"));
         model.enqueue({
             assistant: { content: [{ type: "text", text: "three" }] },
         });
@@ -155,11 +131,11 @@ describe("conversation item runtime", () => {
 
         await service.send(conversation.id, textBlocks("one"));
         await service.send(conversation.id, textBlocks("two"));
-        const assistantWithEncoding = model.inputs[1]?.items.find(
-            (item) => item.item.role === "assistant",
+        const assistantWithPayload = model.inputs[1]?.items.find(
+            (item) => item.role === "assistant",
         );
-        expect(assistantWithEncoding?.providerEncoding).toMatchObject({
-            format: "fake.encoding",
+        expect(assistantWithPayload?.providerPayload).toMatchObject({
+            type: "fake.payload",
             payload: { text: "one" },
         });
 
@@ -167,12 +143,14 @@ describe("conversation item runtime", () => {
         await service.send(conversation.id, textBlocks("three"));
 
         expect(
-            model.inputs[2]?.items.some((item) => item.providerEncoding),
+            model.inputs[2]?.items.some(
+                (item) => item.providerPayload !== undefined,
+            ),
         ).toBe(false);
     }, 5000);
 
-    test("queued input during an active run is promoted after the active assistant message", async () => {
-        const model = new BlockingModelAdapter();
+    test("queue during an active run is ephemeral and becomes a user message after the active assistant message", async () => {
+        const model = new BlockingModelProvider();
         const { service } = createTestHarness(model);
         const conversation = await service.createConversation({
             profileConfig: recordingProfile,
@@ -186,10 +164,12 @@ describe("conversation item runtime", () => {
         );
 
         expect(queued).toMatchObject({
-            class: "control",
-            visibility: "ui",
-            kind: "user_message",
+            conversationId: conversation.id,
+            requestedDelivery: "queue",
+            afterRunId: expect.any(String) as string,
         });
+        expect("sequence" in queued).toBe(false);
+        expect(await service.listItems(conversation.id)).toHaveLength(1);
 
         model.unblock({
             assistant: { content: [{ type: "text", text: "first answer" }] },
@@ -200,11 +180,7 @@ describe("conversation item runtime", () => {
             "assistant",
             "user",
         ]);
-        expect(
-            model.inputs[1]?.items.map(
-                (contextItem) => contextItem.item.content[0],
-            ),
-        ).toEqual([
+        expect(model.inputs[1]?.items.map((item) => item.content[0])).toEqual([
             { type: "text", text: "first" },
             { type: "text", text: "first answer" },
             { type: "text", text: "second" },
@@ -214,21 +190,19 @@ describe("conversation item runtime", () => {
         });
         await firstSend;
 
-        const items = await service.listItems(conversation.id);
-        expect(
-            items
-                .filter((item) => item.class === "transcript")
-                .map((item) => item.kind),
-        ).toEqual([
-            "user_message",
-            "assistant_message",
-            "user_message",
-            "assistant_message",
+        const messages = (await service.listItems(conversation.id)).filter(
+            (item) => item.type === "message",
+        );
+        expect(messages.map((item) => item.role)).toEqual([
+            "user",
+            "assistant",
+            "user",
+            "assistant",
         ]);
     }, 5000);
 
     test("interrupt cancels the active run and starts a fresh run without persisting interrupted output", async () => {
-        const model = new BlockingModelAdapter();
+        const model = new BlockingModelProvider();
         const { service } = createTestHarness(model);
         const conversation = await service.createConversation({
             profileConfig: recordingProfile,
@@ -247,11 +221,9 @@ describe("conversation item runtime", () => {
             },
         });
         await model.waitForCalls(2);
-        expect(
-            model.inputs[1]?.items.map(
-                (contextItem) => contextItem.item.content[0],
-            ),
-        ).toEqual([{ type: "text", text: "new input" }]);
+        expect(model.inputs[1]?.items.map((item) => item.content[0])).toEqual([
+            { type: "text", text: "new input" },
+        ]);
         model.unblock({
             assistant: { content: [{ type: "text", text: "fresh output" }] },
         });
@@ -259,12 +231,14 @@ describe("conversation item runtime", () => {
         await firstSend;
         await interrupt;
 
-        const items = await service.listItems(conversation.id);
-        expect(
-            items
-                .filter((item) => item.kind === "assistant_message")
-                .map((item) => item.content[0]),
-        ).toEqual([{ type: "text", text: "fresh output" }]);
+        const assistantMessages = (await service.listItems(conversation.id))
+            .filter(
+                (item) => item.type === "message" && item.role === "assistant",
+            )
+            .map((item) => item.content[0]);
+        expect(assistantMessages).toEqual([
+            { type: "text", text: "fresh output" },
+        ]);
         expect(await service.listAgentRuns(conversation.id)).toMatchObject([
             { status: "cancelled" },
             { status: "completed" },
@@ -275,16 +249,16 @@ describe("conversation item runtime", () => {
 function inputRoles(
     input: ModelRequest | undefined,
 ): Array<string | undefined> {
-    return input?.items.map((contextItem) => contextItem.item.role) ?? [];
+    return input?.items.map((contextItem) => contextItem.role) ?? [];
 }
 
-function providerEncodingResult(text: string): ModelFinalResponseDraft {
+function providerPayloadResult(text: string): ModelFinalResponse {
     return {
         assistant: {
             content: [{ type: "text", text }],
-            providerEncoding: {
-                format: "fake.encoding",
-                formatVersion: 1,
+            providerPayload: {
+                type: "fake.payload",
+                version: 1,
                 payload: { text },
             },
         },
