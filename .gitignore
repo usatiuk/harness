@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+
+# Reference-only prior attempts — each is its own repo with its own history.
+# Excluded from the new harness's git history (heavy node_modules + nested .git).
+old/
+
+# Local Claude settings
+.claude/settings.local.json
