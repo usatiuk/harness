@@ -1,0 +1,28 @@
+{
+  "name": "@harness/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "harness": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@harness/protocol": "*",
+    "@harness/service": "*",
+    "@harness/plugins": "*",
+    "@harness/tools": "*",
+    "@harness/core": "*",
+    "@harness/store-sqlite": "*",
+    "@harness/model-openai": "*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+old
+*.tsbuildinfo
+package-lock.json
+
+# Authored prose docs — keep manual line wrapping
+DESIGN.md
