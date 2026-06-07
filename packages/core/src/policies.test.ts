@@ -7,7 +7,12 @@ import type {
   ToolCall,
   ToolMiddlewareContext,
 } from "@harness/protocol";
-import { defaultContextPolicy, truncateMiddleware } from "./policies.ts";
+import {
+  compactedWindow,
+  defaultContextPolicy,
+  noCompaction,
+  truncateMiddleware,
+} from "./policies.ts";
 
 const item = (id: string, seq: number): Item => ({
   id: id as ItemId,
@@ -62,5 +67,41 @@ describe("truncateMiddleware", () => {
       status: "ok",
     }));
     expect(short.forModel[0]).toEqual({ type: "text", text: "ok" });
+  });
+});
+
+const compaction = (id: string, seq: number): Item => ({
+  id: id as ItemId,
+  conversationId: "c1" as ConversationId,
+  turnId: "t1" as never,
+  seq,
+  parent: null,
+  createdAt: 0,
+  type: "compaction",
+  content: [{ type: "text", text: id }],
+});
+
+describe("compactedWindow", () => {
+  it("returns the chain unchanged when there is no compaction", () => {
+    const chain = [item("a", 0), item("b", 1)];
+    expect(compactedWindow(chain)).toEqual(chain);
+  });
+
+  it("slices at the compaction item, keeping it and everything after", () => {
+    const chain = [item("a", 0), compaction("k", 1), item("b", 2)];
+    expect(compactedWindow(chain)).toEqual([chain[1], chain[2]]);
+  });
+
+  it("bounds at the latest of several compactions", () => {
+    const chain = [compaction("k1", 0), item("a", 1), compaction("k2", 2), item("b", 3)];
+    expect(compactedWindow(chain)).toEqual([chain[2], chain[3]]);
+  });
+});
+
+describe("noCompaction", () => {
+  it("always skips", async () => {
+    expect(
+      await noCompaction.compact({ conversationId: "c1" as ConversationId, items: [] }),
+    ).toBeNull();
   });
 });

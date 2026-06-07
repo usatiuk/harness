@@ -18,6 +18,20 @@ describe("itemSchema", () => {
     expect(itemSchema.parse(value)).toEqual(value);
   });
 
+  it("round-trips a compaction item", () => {
+    const value = {
+      id: "i1",
+      conversationId: "c1",
+      turnId: "t1",
+      seq: 0,
+      parent: null,
+      createdAt: 0,
+      type: "compaction",
+      content: [{ type: "text", text: "summary" }],
+    };
+    expect(itemSchema.parse(value)).toEqual(value);
+  });
+
   it("rejects an unknown item type", () => {
     expect(() => itemSchema.parse({ type: "nope" })).toThrow();
   });

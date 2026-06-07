@@ -32,3 +32,17 @@ export interface ContextBuild extends NewContextBuild {
 export interface ContextPolicy {
   select(input: ContextSelectInput): Promise<NewContextBuild>;
 }
+
+export interface CompactionInput {
+  conversationId: ConversationId;
+  items: Item[]; // the current (bounded) context window, in seq order
+}
+
+/**
+ * Decides whether to fold the active context at a turn boundary. The returned
+ * content is appended as one `compaction` item; everything before it leaves context.
+ */
+export interface CompactionStrategy {
+  /** Summary content to fold the window into, or null to skip. */
+  compact(input: CompactionInput): Promise<ContentBlock[] | null>;
+}

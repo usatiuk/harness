@@ -74,6 +74,18 @@ describe("buildResponseParams", () => {
     ]);
   });
 
+  it("maps a compaction item to a plain user message", () => {
+    const params = buildResponseParams(
+      baseRequest([
+        {
+          item: item({ type: "compaction", content: [{ type: "text", text: "the story so far" }] }),
+        },
+      ]),
+      REASONING,
+    );
+    expect(params.input).toEqual([{ role: "user", content: "the story so far" }]);
+  });
+
   it("skips a reasoning item whose payload is missing or from another provider", () => {
     const reasoning = item({ type: "reasoning", content: [{ type: "text", text: "s" }] });
     const foreign: ProviderPayload = { ...reasoningPayload("gpt-x"), provider: "anthropic" };

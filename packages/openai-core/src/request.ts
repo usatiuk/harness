@@ -44,6 +44,9 @@ function toInputItem(item: Item, payload?: ProviderPayload): InputItem | undefin
       };
     case "tool_result":
       return { type: "function_call_output", call_id: item.callId, output: textOf(item.content) };
+    case "compaction":
+      // No provider concept for a fold; send it as a plain user message.
+      return { role: "user", content: textOf(item.content) };
   }
 }
 

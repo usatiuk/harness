@@ -40,6 +40,9 @@ export function renderEvent(event: HarnessEvent): void {
     case "reasoning":
       process.stdout.write("\n");
       return;
+    case "compaction":
+      process.stdout.write("\n\x1b[2m✦ context compacted\x1b[0m\n");
+      return;
     case "tool_call.started":
       process.stdout.write(`\x1b[36m🔧 ${event.name}(${JSON.stringify(event.args)})\x1b[0m\n`);
       return;

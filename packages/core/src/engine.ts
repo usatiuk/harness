@@ -21,6 +21,7 @@ import {
   type TurnId,
 } from "@harness/protocol";
 import type { PluginHost } from "./plugin-host.ts";
+import { compactedWindow } from "./policies.ts";
 import { Runtime, type Delivery } from "./runtime.ts";
 import { applyDelivery } from "./delivery.ts";
 import { runToolChain } from "./compose.ts";
@@ -222,6 +223,7 @@ export class Engine {
     signal: AbortSignal,
     runtime: Runtime,
   ): Promise<void> {
+    await this.#maybeCompact(conversation, turnId, signal);
     for (let step = 0; step < MAX_MODEL_STEPS; step++) {
       const build = await this.#buildContext(conversation);
       const request: ModelRequest = {
@@ -439,11 +441,36 @@ export class Engine {
     });
   }
 
+  /**
+   * Appends a `compaction` item if the strategy folds the window; otherwise a no-op.
+   * Runs inside the turn's try so a strategy throw fails this turn, not the next.
+   */
+  async #maybeCompact(
+    conversation: Conversation,
+    turnId: TurnId,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (signal.aborted) return;
+    const window = compactedWindow(await this.store.listActiveItems(conversation.id));
+    const content = await this.host.policies.compaction.compact({
+      conversationId: conversation.id,
+      items: window,
+    });
+    if (!content) return;
+    const item = await this.store.appendItem({
+      conversationId: conversation.id,
+      turnId,
+      type: "compaction",
+      content,
+    });
+    this.#emit({ type: "compaction", item });
+  }
+
   async #buildContext(conversation: Conversation): Promise<ContextBuild> {
-    // Active chain, not raw log: after a rewind, abandoned-branch items must stay
-    // out of context. The store owns `head`; never read it off the cached
+    // Use the active chain (not the raw log): after a rewind, abandoned-branch items
+    // must stay out of context. Read `head` from the store, never off the cached
     // `Runtime.conversation` snapshot.
-    const items = await this.store.listActiveItems(conversation.id);
+    const items = compactedWindow(await this.store.listActiveItems(conversation.id));
     const payloadList = await this.store.getProviderPayloads(items.map((i) => i.id));
     const payloads = new Map(payloadList.map((p) => [p.itemId, p]));
     const sourceInstructions = (

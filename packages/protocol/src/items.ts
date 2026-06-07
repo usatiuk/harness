@@ -24,7 +24,11 @@ export type Item =
       callId: string;
       content: ContentBlock[];
       status: ToolStatus;
-    });
+    })
+  // A fold of everything before it (appended at head, so its position marks the
+  // coverage). Renders to the provider as a plain message; the `compaction` type is
+  // a kernel marker so context-build can bound the window at it.
+  | (ItemBase & { type: "compaction"; content: ContentBlock[] });
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -66,5 +70,10 @@ export const itemSchema = z.discriminatedUnion("type", [
     callId: z.string(),
     content: z.array(contentBlockSchema),
     status: z.enum(["ok", "error"]),
+  }),
+  z.object({
+    ...baseShape,
+    type: z.literal("compaction"),
+    content: z.array(contentBlockSchema),
   }),
 ]);

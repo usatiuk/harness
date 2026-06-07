@@ -5,7 +5,7 @@ import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
 import type { ExecutionProvider } from "./execution.ts";
 import type { HarnessEvent } from "./events.ts";
-import type { ContextPolicy } from "./policies.ts";
+import type { CompactionStrategy, ContextPolicy } from "./policies.ts";
 
 /** Contributes prompt fragments / project context into the cache-stable prefix. */
 export interface ContextSource {
@@ -20,6 +20,7 @@ export interface Observer {
 
 export interface PluginPolicies {
   context?: ContextPolicy;
+  compaction?: CompactionStrategy;
 }
 
 /**

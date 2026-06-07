@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ContextPolicy, Plugin, ToolMiddleware } from "@harness/protocol";
-import { EchoTool, FakeProvider } from "@harness/testkit";
+import { EchoTool, fakeCompaction, FakeProvider } from "@harness/testkit";
 import { PluginHost } from "./plugin-host.ts";
-import { defaultContextPolicy } from "./policies.ts";
+import { defaultContextPolicy, noCompaction } from "./policies.ts";
 
 const passThroughContext: ContextPolicy = {
   async select(input) {
@@ -14,6 +14,8 @@ const passThroughContext: ContextPolicy = {
     };
   },
 };
+
+const contributedCompaction = fakeCompaction({ over: 0 });
 
 const passThrough = (id: string): ToolMiddleware => ({
   id,
@@ -42,6 +44,28 @@ describe("PluginHost", () => {
   it("uses a contributed context policy in place of the default", () => {
     const host = new PluginHost([{ id: "p", policies: () => ({ context: passThroughContext }) }]);
     expect(host.policies.context).toBe(passThroughContext);
+  });
+
+  it("falls back to noCompaction when none is contributed", () => {
+    const host = new PluginHost([{ id: "p" }]);
+    expect(host.policies.compaction).toBe(noCompaction);
+  });
+
+  it("uses a contributed compaction strategy in place of the default", () => {
+    const host = new PluginHost([
+      { id: "p", policies: () => ({ compaction: contributedCompaction }) },
+    ]);
+    expect(host.policies.compaction).toBe(contributedCompaction);
+  });
+
+  it("rejects two contributors for the compaction slot", () => {
+    expect(
+      () =>
+        new PluginHost([
+          { id: "a", policies: () => ({ compaction: contributedCompaction }) },
+          { id: "b", policies: () => ({ compaction: contributedCompaction }) },
+        ]),
+    ).toThrow(/composition not yet supported/);
   });
 
   it("collects tool middleware in registration order, default truncate innermost", () => {

@@ -17,6 +17,7 @@ import {
   approvalMiddleware,
   counterIdGenerator,
   EchoTool,
+  fakeCompaction,
   FakeProvider,
   type FakeStep,
   fixedClock,
@@ -61,6 +62,7 @@ const shapeOf = (items: Item[]): string[] =>
     if (i.type === "message") return `${i.role}:${textOf(i.content)}`;
     if (i.type === "reasoning") return `reasoning:${textOf(i.content)}`;
     if (i.type === "tool_call") return `call:${i.callId}`;
+    if (i.type === "compaction") return `compaction:${textOf(i.content)}`;
     return `result:${i.callId}`;
   });
 
@@ -763,6 +765,91 @@ describe("Engine — rewind", () => {
 
     gate.release();
     await engine.whenIdle(conv.id);
+  });
+});
+
+const compactions = (items: Item[]) =>
+  items.filter((i): i is Extract<Item, { type: "compaction" }> => i.type === "compaction");
+
+describe("Engine — compaction", () => {
+  it("folds the context at the boundary and bounds later builds at the summary", async () => {
+    const provider = new RecordingProvider([
+      textStep("one"),
+      textStep("two"),
+      textStep("three"),
+      textStep("four"),
+    ]);
+    const { store, engine, events } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: fakeCompaction({ over: 3 }) }),
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+
+    for (const text of ["first", "second", "third", "fourth"]) {
+      await engine.deliver(conv.id, userInput(text));
+      await engine.whenIdle(conv.id);
+    }
+
+    // Exactly one fold (the window first exceeded 3 on turn 3), and an event for it.
+    const folds = compactions(await store.listItems(conv.id));
+    expect(folds.map((f) => textOf(f.content))).toEqual(["summary of 5 items"]);
+    expect(events.filter((e) => e.type === "compaction")).toHaveLength(1);
+
+    // The build right after the fold starts at the summary alone.
+    expect(shapeOf(provider.requests[2]!.items.map((i) => i.item))).toEqual([
+      "compaction:summary of 5 items",
+    ]);
+    // The next turn's window is [summary, ...newer] and never re-folds.
+    expect(shapeOf(provider.requests[3]!.items.map((i) => i.item))).toEqual([
+      "compaction:summary of 5 items",
+      "assistant:three",
+      "user:fourth",
+    ]);
+
+    // The raw log keeps the full pre-compaction history.
+    expect(userTexts(await store.listItems(conv.id))).toEqual([
+      "first",
+      "second",
+      "third",
+      "fourth",
+    ]);
+  });
+
+  it("un-compacts on rewind past the summary, restoring full history in the build", async () => {
+    const provider = new RecordingProvider([
+      textStep("A"),
+      textStep("B"),
+      textStep("C"),
+      textStep("D"),
+    ]);
+    const { store, engine } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: fakeCompaction({ over: 4 }) }),
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+
+    await engine.deliver(conv.id, userInput("a"));
+    await engine.whenIdle(conv.id);
+    const afterTurn1 = await store.listActiveItems(conv.id);
+    const rewindTarget = afterTurn1[afterTurn1.length - 1]!; // assistant "A"
+
+    for (const text of ["b", "c"]) {
+      await engine.deliver(conv.id, userInput(text));
+      await engine.whenIdle(conv.id);
+    }
+    expect(compactions(await store.listActiveItems(conv.id))).toHaveLength(1);
+
+    await engine.rewind(conv.id, rewindTarget.id);
+    await engine.deliver(conv.id, userInput("d"));
+    await engine.whenIdle(conv.id);
+
+    // The post-rewind branch excludes the abandoned summary; the build sees the
+    // pre-compaction history verbatim again.
+    const lastBuild = provider.requests.at(-1)!.items.map((i) => i.item);
+    expect(compactions(lastBuild)).toHaveLength(0);
+    expect(userTexts(lastBuild)).toEqual(["a", "d"]);
+    // The summary still lives in the raw log, on the abandoned branch.
+    expect(compactions(await store.listItems(conv.id))).toHaveLength(1);
   });
 });
 

@@ -1,6 +1,6 @@
-import type { ContextPolicy, ToolMiddleware } from "@harness/protocol";
+import type { CompactionStrategy, ContextPolicy, Item, ToolMiddleware } from "@harness/protocol";
 
-/** Selects every item in order; passes the prefix through unchanged. No compaction yet. */
+/** Selects every item in order; passes the prefix through unchanged. Compaction is a separate slot. */
 export const defaultContextPolicy: ContextPolicy = {
   async select({ conversationId, instructions, tools, items, payloads }) {
     return {
@@ -14,6 +14,23 @@ export const defaultContextPolicy: ContextPolicy = {
     };
   },
 };
+
+/** The default when no plugin contributes a strategy: never fold. */
+export const noCompaction: CompactionStrategy = {
+  async compact() {
+    return null;
+  },
+};
+
+/**
+ * Bounds a chain at its latest compaction: the summary stands for everything before
+ * it, so context starts there. Context-build and the compaction pass both slice
+ * through here, so they agree on the window by construction.
+ */
+export function compactedWindow(items: Item[]): Item[] {
+  const i = items.findLastIndex((item) => item.type === "compaction");
+  return i === -1 ? items : items.slice(i);
+}
 
 /**
  * Caps each text block of the tool's result. Ships as the default *innermost*
