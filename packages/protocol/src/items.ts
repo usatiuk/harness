@@ -16,6 +16,7 @@ export type MessageRole = "user" | "assistant" | "system";
 /** Immutable canonical log entry. The conversation owns one ordered list of these. */
 export type Item =
   | (ItemBase & { type: "message"; role: MessageRole; content: ContentBlock[] })
+  | (ItemBase & { type: "reasoning"; content: ContentBlock[] })
   | (ItemBase & { type: "tool_call"; callId: string; name: string; args: unknown })
   | (ItemBase & {
       type: "tool_result";
@@ -43,6 +44,11 @@ export const itemSchema = z.discriminatedUnion("type", [
     ...baseShape,
     type: z.literal("message"),
     role: z.enum(["user", "assistant", "system"]),
+    content: z.array(contentBlockSchema),
+  }),
+  z.object({
+    ...baseShape,
+    type: z.literal("reasoning"),
     content: z.array(contentBlockSchema),
   }),
   z.object({

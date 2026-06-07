@@ -163,22 +163,33 @@ interface ModelRequest {
   modelConfig: ModelConfig;
 }
 type ModelStreamEvent =
-  | { type: "text_delta"; text: string }
-  | { type: "tool_call"; callId: string; name: string; args: unknown }
-  | { type: "completed"; content: ContentBlock[]; payload?: ProviderPayload; usage: Usage };
+  | { type: "text_delta"; text: string }                                    // display
+  | { type: "reasoning_delta"; text: string }                               // display
+  | { type: "tool_call"; callId; name; args; payload?: ProviderPayloadDraft }
+  | { type: "reasoning"; content: ContentBlock[]; payload?: ProviderPayloadDraft }
+  | { type: "completed"; content: ContentBlock[]; payload?: ProviderPayloadDraft; usage };
 ```
 
+- **`*_delta` events are display-only**; `tool_call`/`reasoning`/`completed` carry the
+  authoritative items. **Payloads are per emitted item** (`completed.payload` binds the
+  step's final assistant message) — not one-per-step. Reasoning is a discrete item like
+  a tool call: it streams (`reasoning_delta`) for live display and commits as a
+  first-class `reasoning` item whose summary text is canonical content.
 - **The kernel never branches on provider id.** Codex OAuth, encrypted reasoning,
   `thoughtSignature` ordering — all live in the adapter and round-trip through
   opaque **`ProviderPayload`** `{ itemId, provider, modelId, type, version,
   payload }`. A payload is reused only when its item is selected *and*
   provider/model/type/version match; otherwise the item renders from canonical
   content. This single shape covers Anthropic signatures, OpenAI encrypted
-  reasoning, and Gemini thought-signatures uniformly.
-- **First adapter:** `model-openai` (Responses, stateless; ChatGPT/codex PKCE
-  OAuth + token refresh + keyring/`auth.json`). A `fake` provider that can script
-  tool calls backs all tests. Anthropic/Gemini are thin later additions behind the
-  unchanged contract.
+  reasoning, and Gemini thought-signatures uniformly — and is **not reasoning-specific**:
+  any provider-produced item (message, tool_call, reasoning) may carry one.
+- **First adapter:** `openai-core` (Responses, streaming-only, stateless via
+  `store:false` + `include:["reasoning.encrypted_content"]`) built on the official
+  `openai` SDK's **native types** — no hand-rolled request/response mapping. Split into
+  one-job modules (`request`/`stream`/`payload`/`provider`/`credentials`). `openai-api`
+  supplies API-key credentials + the plugin; ChatGPT/codex PKCE OAuth is a later
+  `openai-codex` package behind the `credentials()` seam. A `fake` provider that scripts
+  tool calls and reasoning backs all tests. Anthropic/Gemini are thin later additions.
 
 ---
 
@@ -288,15 +299,16 @@ bespoke path per source.
 
 The turn cycle, per step, is **two phases**: (1) *consume* the model stream, writing
 assistant content items in **emission order** — text accumulates into a segment
-flushed as a `message` the instant a `tool_call` arrives (and at `completed`), so a
-turn that interleaves text and tool calls is stored and replayed in the order the
-model produced it (not flattened to text-then-calls); (2) *dispatch*, pairing every
-recorded call with a `tool_result`. **Invariant (enforced in one place): every
-`tool_call` gets exactly one `tool_result`.** This loop is **tool-shaped from
-Phase 1** so tools are never a loop rewrite (§13). *(A distinct `thinking`/
-`reasoning` content type carrying its signature is deferred to the first real
-provider adapter — §5's `ProviderPayload` already reserves the seam; nothing emits
-thinking yet.)*
+flushed as a `message` the instant a `tool_call` or `reasoning` item arrives (and at
+`completed`); a `reasoning` item commits in place (its summary text is canonical
+content; its opaque blob binds via `ProviderPayload`), so a turn that interleaves
+reasoning, text, and tool calls is stored and replayed in the order the model produced
+it (not flattened); (2) *dispatch*, pairing every recorded call with a `tool_result`.
+**Invariant (enforced in one place): every `tool_call` gets exactly one
+`tool_result`.** This loop is **tool-shaped from Phase 1** so tools are never a loop
+rewrite (§13). *(Reasoning is standardized as a first-class item now — summary text +
+opaque payload. A distinct `thinking` content type with provider-specific structure
+beyond text is unneeded; the payload seam carries any provider fidelity.)*
 
 ---
 
@@ -457,8 +469,11 @@ core/           the loop, context builder, turn manager, policy composition,
 service/        façade API + typed event stream over core (what every client calls)
 cli/            thin CLI over service; the composition root that wires impls/plugins
 testkit/        shared fakes (provider, tool) + reusable contract test suites
-plugin-*/       each behavior is its own package (e.g. plugin-openai, plugin-fs).
-                Tools and providers are plugin contributions, never their own layer.
+openai-core/    OpenAI Responses mapping + streaming on the native `openai` SDK types
+                (request/stream/payload/provider/credentials). depends on protocol only.
+openai-api/     API-key credentials + plugin over openai-core (openai-codex/OAuth later)
+plugin-*/       each behavior is its own package (e.g. plugin-fs). Tools and providers
+                are plugin contributions, never their own layer.
 ```
 
 Tools and providers are **plugins, not layers** — there is no `tools/` package and
@@ -558,16 +573,19 @@ existing interface — never as kernel growth:
 take-all drain, per-turn `AbortController`, and all four intents wired — `send`/
 `queue`/`steer`/`interrupt`, with interrupt cancelling the stream + tools and saving
 partial output (§7, §9). Emission-order item writing supports interleaved
-text/tool-calls.
+reasoning/text/tool-calls. **Reasoning is standardized** as a first-class `reasoning`
+item (canonical summary text + opaque `ProviderPayload`), streamed for display and
+rendered dim; **payloads bind per emitted item**. **First real backend:** OpenAI
+Responses via `openai-core` (native SDK types, streaming-only) + `openai-api`
+(API-key).
 
 **Deferred behind seams already in place:**
 - **Approvals** — decision is a `ToolGate` plugin returning `ask`; blocking/park/
   resume is a kernel mechanism. The `ask` verdict currently returns an error result.
   (The request/response seam — `ctx.request` + correlated `respond` — that unifies
   approval / AskUserQuestion / elicitation is the next commit.)
-- **Distinct `thinking`/`reasoning` content + signatures** — emission order is
-  preserved now; a reasoning content type round-tripping its signature via
-  `ProviderPayload` lands with the first real provider adapter (§5).
+- **ChatGPT/codex OAuth** — `openai-codex` package behind the `credentials()` seam in
+  `openai-core`; API-key auth ships now, OAuth (PKCE + token refresh + keyring) later.
 - **Plugin-sourced delivery + conversation-scoped emit** (background activities):
   `DeliverySource.plugin` and `ctx.emit(PluginEvent)` exist; the activity machinery
   that uses them does not.

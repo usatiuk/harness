@@ -8,7 +8,9 @@ import type { TurnStatus } from "./conversation.ts";
 export type KernelEvent =
   | { type: "turn.status"; turnId: TurnId; status: TurnStatus; error?: string }
   | { type: "message"; item: Item }
+  | { type: "reasoning"; item: Item }
   | { type: "text_delta"; turnId: TurnId; text: string }
+  | { type: "reasoning_delta"; turnId: TurnId; text: string }
   | { type: "tool_call.started"; callId: string; name: string; args: unknown }
   | {
       type: "tool_call.completed";
@@ -32,7 +34,9 @@ export type HarnessEvent = KernelEvent | PluginEvent;
 const KERNEL_EVENT_TYPES = new Set<KernelEvent["type"]>([
   "turn.status",
   "message",
+  "reasoning",
   "text_delta",
+  "reasoning_delta",
   "tool_call.started",
   "tool_call.completed",
 ]);

@@ -6,8 +6,11 @@ export type FakeStep = ModelStreamEvent[];
 
 const ZERO_USAGE = { inputTokens: 0, outputTokens: 0 } as const;
 
-/** One part of an interleaved step: a text segment, or a tool call. */
-export type InterleavedPart = string | { callId: string; name: string; args: unknown };
+/** One part of an interleaved step: a text segment, a tool call, or a reasoning item. */
+export type InterleavedPart =
+  | string
+  | { callId: string; name: string; args: unknown; payload?: ProviderPayloadDraft }
+  | { reasoning: string; payload?: ProviderPayloadDraft };
 
 /** A step that streams `text` and completes with it as the final message. */
 export function textStep(text: string, payload?: ProviderPayloadDraft): FakeStep {
@@ -30,18 +33,49 @@ export function toolStep(callId: string, name: string, args: unknown): FakeStep 
   ];
 }
 
+/** A reasoning summary streamed as a delta then its complete item, like a real provider. */
+function reasoningEvents(summary: string, payload?: ProviderPayloadDraft): ModelStreamEvent[] {
+  return [
+    { type: "reasoning_delta", text: summary },
+    {
+      type: "reasoning",
+      content: [{ type: "text", text: summary }],
+      ...(payload ? { payload } : {}),
+    },
+  ];
+}
+
 /**
- * A step that emits its parts in order — e.g. `text → call → text → call` — so a
- * test can assert the engine preserves emission order (text/calls interleaved).
+ * A step that emits its parts in order — e.g. `reasoning → text → call` — so a test
+ * can assert the engine preserves emission order.
  */
 export function interleavedStep(parts: InterleavedPart[]): FakeStep {
-  const events: ModelStreamEvent[] = parts.map((part) =>
-    typeof part === "string"
-      ? { type: "text_delta", text: part }
-      : { type: "tool_call", callId: part.callId, name: part.name, args: part.args },
-  );
+  const events: ModelStreamEvent[] = parts.flatMap((part): ModelStreamEvent[] => {
+    if (typeof part === "string") return [{ type: "text_delta", text: part }];
+    if ("reasoning" in part) return reasoningEvents(part.reasoning, part.payload);
+    return [
+      {
+        type: "tool_call",
+        callId: part.callId,
+        name: part.name,
+        args: part.args,
+        ...(part.payload ? { payload: part.payload } : {}),
+      },
+    ];
+  });
   events.push({ type: "completed", content: [], usage: ZERO_USAGE });
   return events;
+}
+
+/** A step that streams a reasoning summary (+ optional opaque payload) then completes. */
+export function reasoningStep(
+  summary: string,
+  opts: { payload?: ProviderPayloadDraft } = {},
+): FakeStep {
+  return [
+    ...reasoningEvents(summary, opts.payload),
+    { type: "completed", content: [], usage: ZERO_USAGE },
+  ];
 }
 
 /**

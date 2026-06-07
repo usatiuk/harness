@@ -11,6 +11,7 @@ import {
   type ModelRequest,
   type ModelStreamEvent,
   type Observer,
+  type ProviderPayloadDraft,
   type Store,
   type ToolCall,
   type ToolContext,
@@ -208,9 +209,12 @@ export class Engine {
       const calls: ToolCall[] = [];
       let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
       let pendingText = "";
-      // The item the step's reasoning payload binds to: whatever content appeared
-      // first this step (an assistant message, else the first tool call).
-      let firstItemId: ItemId | undefined;
+      // The step's final assistant message — the item `completed.payload` binds to.
+      let lastMessageId: ItemId | undefined;
+
+      const bindPayload = async (itemId: ItemId, draft?: ProviderPayloadDraft): Promise<void> => {
+        if (draft) await this.store.putProviderPayload({ ...draft, itemId });
+      };
 
       const flushText = async (): Promise<void> => {
         if (pendingText.length === 0) return;
@@ -221,7 +225,7 @@ export class Engine {
           role: "assistant",
           content: [{ type: "text", text: pendingText }],
         });
-        firstItemId ??= message.id;
+        lastMessageId = message.id;
         this.#emit({ type: "message", item: message });
         pendingText = "";
       };
@@ -234,6 +238,21 @@ export class Engine {
             pendingText += event.text;
             this.#emit({ type: "text_delta", turnId, text: event.text });
             break;
+          case "reasoning_delta":
+            this.#emit({ type: "reasoning_delta", turnId, text: event.text });
+            break;
+          case "reasoning": {
+            await flushText(); // preserve emission order against any preceding text
+            const item = await this.store.appendItem({
+              conversationId: conversation.id,
+              turnId,
+              type: "reasoning",
+              content: event.content,
+            });
+            await bindPayload(item.id, event.payload);
+            this.#emit({ type: "reasoning", item });
+            break;
+          }
           case "tool_call": {
             await flushText(); // any text before this call is its own message item
             const callItem = await this.store.appendItem({
@@ -244,7 +263,7 @@ export class Engine {
               name: event.name,
               args: event.args,
             });
-            firstItemId ??= callItem.id;
+            await bindPayload(callItem.id, event.payload);
             calls.push({ callId: event.callId, name: event.name, args: event.args });
             this.#emit({
               type: "tool_call.started",
@@ -285,9 +304,7 @@ export class Engine {
       }
 
       // --- Finalize. ---
-      if (completed?.payload && firstItemId) {
-        await this.store.putProviderPayload({ ...completed.payload, itemId: firstItemId });
-      }
+      if (lastMessageId) await bindPayload(lastMessageId, completed?.payload);
       if (signal.aborted) throw new TurnAborted();
       if (!completed) {
         throw new Error("provider stream ended without a 'completed' event");

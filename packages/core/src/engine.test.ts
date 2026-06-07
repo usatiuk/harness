@@ -18,6 +18,7 @@ import {
   GateProvider,
   GateTool,
   interleavedStep,
+  reasoningStep,
   textStep,
   toolStep,
 } from "@harness/testkit";
@@ -53,6 +54,7 @@ const toolResults = (items: Item[]) =>
 const shapeOf = (items: Item[]): string[] =>
   items.map((i) => {
     if (i.type === "message") return `${i.role}:${textOf(i.content)}`;
+    if (i.type === "reasoning") return `reasoning:${textOf(i.content)}`;
     if (i.type === "tool_call") return `call:${i.callId}`;
     return `result:${i.callId}`;
   });
@@ -155,6 +157,81 @@ describe("Engine — turn cycle", () => {
     expect(payloads).toHaveLength(1);
     expect(payloads[0]?.itemId).toBe(assistant!.id);
     expect(payloads[0]?.payload).toEqual({ enc: "x" });
+  });
+
+  it("stores a reasoning item with its summary, opaque payload, and stream events", async () => {
+    const reasoningPayload = {
+      provider: "fake",
+      model: "fake-1",
+      type: "reasoning",
+      version: 1,
+      payload: { encryptedContent: "BLOB" },
+    };
+    const { store, engine, events } = setup([
+      reasoningStep("thinking it through", { payload: reasoningPayload }),
+    ]);
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("hello"));
+    await engine.whenIdle(conv.id);
+
+    const items = await store.listItems(conv.id);
+    const reasoning = items.find((i) => i.type === "reasoning");
+    if (reasoning?.type !== "reasoning") throw new Error("expected a reasoning item");
+    expect(textOf(reasoning.content)).toBe("thinking it through");
+
+    // The opaque blob round-trips, bound to the reasoning item itself.
+    const payloads = await store.getProviderPayloads([reasoning.id]);
+    expect(payloads[0]?.payload).toEqual({ encryptedContent: "BLOB" });
+
+    // Reasoning streams (delta) and commits (item) like ordinary output.
+    expect(events.filter(isKernelEvent).map((e) => e.type)).toContain("reasoning_delta");
+    expect(events.filter(isKernelEvent).map((e) => e.type)).toContain("reasoning");
+  });
+
+  it("preserves emission order: reasoning → text → call", async () => {
+    const { store, engine } = setup([
+      interleavedStep([
+        { reasoning: "ponder" },
+        "answer: ",
+        { callId: "c1", name: "echo", args: {} },
+      ]),
+      textStep("done"),
+    ]);
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("hello"));
+    await engine.whenIdle(conv.id);
+
+    const items = await store.listItems(conv.id);
+    expect(shapeOf(items)).toEqual([
+      "user:hello",
+      "reasoning:ponder",
+      "assistant:answer: ",
+      "call:c1",
+      "result:c1",
+      "assistant:done",
+    ]);
+  });
+
+  it("binds a per-item payload carried on a tool_call", async () => {
+    const callPayload = {
+      provider: "fake",
+      model: "fake-1",
+      type: "tool_call",
+      version: 1,
+      payload: { sig: "S" },
+    };
+    const { store, engine } = setup([
+      interleavedStep([{ callId: "c1", name: "echo", args: {}, payload: callPayload }]),
+      textStep("done"),
+    ]);
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("hello"));
+    await engine.whenIdle(conv.id);
+
+    const items = await store.listItems(conv.id);
+    const call = items.find((i) => i.type === "tool_call");
+    const payloads = await store.getProviderPayloads([call!.id]);
+    expect(payloads[0]?.payload).toEqual({ sig: "S" });
   });
 });
 

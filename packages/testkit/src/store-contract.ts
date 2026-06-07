@@ -42,6 +42,23 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect(mid.map((i) => i.seq)).toEqual([1]);
     });
 
+    it("round-trips a reasoning item", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation({ config: sampleConfig() });
+      const turn = await store.createTurn(conv.id);
+      const item = await store.appendItem({
+        conversationId: conv.id,
+        turnId: turn.id,
+        type: "reasoning",
+        content: [{ type: "text", text: "thinking" }],
+      });
+      const [stored] = await store.listItems(conv.id);
+      expect(stored).toEqual(item);
+      expect(stored?.type === "reasoning" && stored.content).toEqual([
+        { type: "text", text: "thinking" },
+      ]);
+    });
+
     it("tracks at most one running turn", async () => {
       const store = makeStore();
       const conv = await store.createConversation({ config: sampleConfig() });

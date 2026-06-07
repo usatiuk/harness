@@ -18,7 +18,8 @@
     "@harness/core": "*",
     "@harness/service": "*",
     "@harness/store": "*",
-    "@harness/testkit": "*"
+    "@harness/testkit": "*",
+    "@harness/openai-api": "*"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

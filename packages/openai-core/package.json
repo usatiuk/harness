@@ -1,0 +1,20 @@
+{
+  "name": "@harness/openai-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@harness/protocol": "*",
+    "openai": "^6.42.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
+  }
+}

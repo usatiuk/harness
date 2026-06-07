@@ -1,27 +1,32 @@
 import { createInterface } from "node:readline";
-import { isKernelEvent } from "@harness/protocol";
+import { isKernelEvent, type Plugin } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import { EchoTool } from "@harness/testkit";
 import { HarnessService } from "@harness/service";
+import { createOpenAIPlugin } from "@harness/openai-api";
 import { DemoProvider } from "./demo-provider.ts";
 import { renderEvent } from "./render.ts";
 
 const BANNER =
-  "harness demo — type to send (steers a running turn); `> ` queues; `! ` interrupts " +
+  "harness — type to send (steers a running turn); `> ` queues; `! ` interrupts " +
   "(bare `!` or Esc aborts); /tick = external input; /exit to quit.\n";
 
-/** Composition root: wires the store, the demo plugin, and an event-driven REPL. */
+/** Composition root: wires the store, a model plugin, and an event-driven REPL. */
 export async function run(): Promise<void> {
   const store = new InMemoryStore();
+
+  // Real backend when an API key is present; otherwise the offline demo provider.
+  const apiKey = process.env.OPENAI_API_KEY;
+  const modelPlugin: Plugin = apiKey
+    ? createOpenAIPlugin({ apiKey })
+    : { id: "demo", providers: () => [new DemoProvider()] };
+  const model = apiKey
+    ? { provider: "openai", model: process.env.OPENAI_MODEL ?? "gpt-5.1" }
+    : { provider: "demo", model: "demo-1" };
+
   const service = new HarnessService({
     store,
-    plugins: [
-      {
-        id: "demo",
-        providers: () => [new DemoProvider()],
-        tools: () => [new EchoTool()],
-      },
-    ],
+    plugins: [modelPlugin, { id: "tools", tools: () => [new EchoTool()] }],
   });
 
   // Liveness from turn.status (not from blocking on a send), so it tracks turns
@@ -35,8 +40,8 @@ export async function run(): Promise<void> {
   });
 
   const conversation = await service.createConversation({
-    instructions: "You are a demo agent.",
-    model: { provider: "demo", model: "demo-1" },
+    instructions: "You are a helpful coding agent.",
+    model,
   });
 
   // Codex-style input syntax → intent: `>` queue, `!` interrupt, plain steers when

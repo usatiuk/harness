@@ -34,6 +34,12 @@ export function renderEvent(event: HarnessEvent): void {
     case "text_delta":
       process.stdout.write(event.text);
       return;
+    case "reasoning_delta":
+      process.stdout.write(`\x1b[2m${event.text}\x1b[0m`); // dim
+      return;
+    case "reasoning":
+      process.stdout.write("\n");
+      return;
     case "tool_call.started":
       process.stdout.write(`\x1b[36m🔧 ${event.name}(${JSON.stringify(event.args)})\x1b[0m\n`);
       return;

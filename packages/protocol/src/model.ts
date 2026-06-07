@@ -47,13 +47,23 @@ export interface ModelRequest {
   modelConfig: ModelConfig;
 }
 
+// `*_delta` events are display-only; `reasoning`/`tool_call`/`completed` carry the
+// authoritative items. `payload` is the item's opaque provider fidelity (round-tripped).
 export type ModelStreamEvent =
   | { type: "text_delta"; text: string }
-  | { type: "tool_call"; callId: string; name: string; args: unknown }
+  | { type: "reasoning_delta"; text: string }
+  | {
+      type: "tool_call";
+      callId: string;
+      name: string;
+      args: unknown;
+      payload?: ProviderPayloadDraft;
+    }
+  | { type: "reasoning"; content: ContentBlock[]; payload?: ProviderPayloadDraft }
   | {
       type: "completed";
       content: ContentBlock[];
-      payload?: ProviderPayloadDraft;
+      payload?: ProviderPayloadDraft; // binds to the step's final assistant message
       usage: Usage;
     };
 
