@@ -598,6 +598,14 @@ is the authority on "is a turn running" while the process is alive; the store's
 persisted `running` is *not* authoritative — crash reconciliation collapses a stale
 `running` → `failed` (§9).
 
+**Durable-store contract obligations (P1, when `store-sqlite` lands):**
+reconciliation (§9) runs lazily on first touch and is idempotent only by store
+guarantee, so the durable store and its contract suite (testkit `store-contract`)
+must enforce: (1) a partial unique index on `(conversationId, callId)` for
+`tool_result`, so a losing concurrent reconciler's insert fails atomically; (2)
+compare-and-set on the turn status (`… WHERE status = 'running'`), so only one
+reconciler wins the `running` → `failed` transition.
+
 ## 17. Open questions
 
 - **Profiles vs. per-conversation config** overlap — settle the precedence in P1.
