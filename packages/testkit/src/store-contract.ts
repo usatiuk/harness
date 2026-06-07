@@ -31,6 +31,14 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect(items.map((i) => i.seq)).toEqual([0, 1]);
     });
 
+    it("listConversations returns every conversation, most-recent-first", async () => {
+      const store = makeStore();
+      const a = await store.createConversation({ config: sampleConfig() });
+      const b = await store.createConversation({ config: sampleConfig() });
+      const c = await store.createConversation({ config: sampleConfig() });
+      expect((await store.listConversations()).map((x) => x.id)).toEqual([c.id, b.id, a.id]);
+    });
+
     it("links parent to the prior head and advances head on append", async () => {
       const store = makeStore();
       const conv = await store.createConversation({ config: sampleConfig() });

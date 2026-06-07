@@ -5,8 +5,9 @@ export default defineConfig({
   resolve: {
     conditions: ["development"],
   },
+  // .tsx tests need no JSX config: Vitest's oxc transform applies the automatic runtime.
   test: {
-    include: ["packages/*/src/**/*.test.ts"],
+    include: ["packages/*/src/**/*.test.{ts,tsx}"],
     environment: "node",
     passWithNoTests: true,
     server: {

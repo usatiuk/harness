@@ -55,6 +55,10 @@ export class InMemoryStore implements Store {
     return this.#conversations.get(id);
   }
 
+  async listConversations(): Promise<Conversation[]> {
+    return [...this.#conversations.values()].sort((a, b) => b.createdAt - a.createdAt);
+  }
+
   async appendItem(input: NewItem): Promise<Item> {
     const log = this.#items.get(input.conversationId);
     if (!log) {

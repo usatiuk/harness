@@ -19,6 +19,8 @@ export interface ByteRange {
 export interface Store {
   createConversation(input: NewConversation): Promise<Conversation>;
   getConversation(id: ConversationId): Promise<Conversation | undefined>;
+  /** All conversations, most-recent-first (by `createdAt`). The resume/listing source. */
+  listConversations(): Promise<Conversation[]>;
 
   /**
    * Append-only. Assigns `seq`/`createdAt`, links `parent` to the current `head`,

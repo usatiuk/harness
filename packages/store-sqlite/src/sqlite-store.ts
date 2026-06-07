@@ -93,13 +93,16 @@ export class SqliteStore implements Store {
       .selectAll()
       .where("id", "=", id)
       .executeTakeFirst();
-    if (!row) return undefined;
-    return {
-      id: row.id as ConversationId,
-      config: JSON.parse(row.config) as Conversation["config"],
-      head: row.head as ItemId | null,
-      createdAt: row.created_at,
-    };
+    return row ? rowToConversation(row) : undefined;
+  }
+
+  async listConversations(): Promise<Conversation[]> {
+    const rows = await this.#k
+      .selectFrom("conversations")
+      .selectAll()
+      .orderBy("created_at", "desc")
+      .execute();
+    return rows.map(rowToConversation);
   }
 
   // Atomic read-then-write of seq/parent + head. Native IMMEDIATE txn (Kysely only issues
@@ -365,6 +368,15 @@ function rowToItem(row: ItemRow): Item {
     type: row.type,
     ...(JSON.parse(row.body) as object),
   }) as Item;
+}
+
+function rowToConversation(row: Database["conversations"]): Conversation {
+  return {
+    id: row.id as ConversationId,
+    config: JSON.parse(row.config) as Conversation["config"],
+    head: row.head as ItemId | null,
+    createdAt: row.created_at,
+  };
 }
 
 function rowToTurn(row: Database["turns"]): Turn {

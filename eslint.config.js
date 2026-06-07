@@ -1,5 +1,6 @@
 import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
 import prettier from "eslint-config-prettier";
 
 export default tseslint.config(
@@ -20,6 +21,11 @@ export default tseslint.config(
       // `await` is intentional, so thrown errors surface as rejections.
       "@typescript-eslint/require-await": "off",
     },
+  },
+  {
+    // React Hooks rules for the Ink TUI components.
+    ...reactHooks.configs.flat["recommended-latest"],
+    files: ["**/*.tsx"],
   },
   {
     // Config files aren't in any package's tsconfig.

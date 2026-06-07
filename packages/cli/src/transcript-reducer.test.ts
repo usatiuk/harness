@@ -1,0 +1,136 @@
+import { describe, expect, it } from "vitest";
+import type { ContentBlock, HarnessEvent, Item } from "@harness/protocol";
+import { emptyState, init, reduce, type State } from "./transcript-reducer.ts";
+
+const text = (t: string): ContentBlock[] => [{ type: "text", text: t }];
+
+/** Minimal Item builder; the reducer only reads the fields it switches on (ids unbranded). */
+const item = (over: { type: Item["type"] } & Record<string, unknown>): Item =>
+  ({
+    id: "i",
+    conversationId: "c",
+    turnId: "t1",
+    seq: 0,
+    parent: null,
+    createdAt: 0,
+    ...over,
+  }) as Item;
+
+const fold = (events: HarnessEvent[], from: State = emptyState): State =>
+  events.reduce(reduce, from);
+
+describe("transcript reducer", () => {
+  it("streams assistant deltas then finalizes on the message item", () => {
+    const state = fold([
+      { type: "turn.status", turnId: "t1", status: "running" },
+      { type: "text_delta", turnId: "t1", text: "Hel" },
+      { type: "text_delta", turnId: "t1", text: "lo" },
+      {
+        type: "message",
+        item: item({ type: "message", role: "assistant", id: "m1", content: text("Hello") }),
+      },
+      { type: "turn.status", turnId: "t1", status: "completed" },
+    ]);
+    expect(state.cells).toEqual([
+      { kind: "assistant", turnId: "t1", text: "Hello", streaming: false, id: "m1" },
+    ]);
+    expect(state.turn.status).toBe("completed");
+  });
+
+  it("orders reasoning, then assistant text, then a tool call", () => {
+    const state = fold([
+      { type: "reasoning_delta", turnId: "t1", text: "think" },
+      { type: "reasoning", item: item({ type: "reasoning", id: "r1", content: text("think") }) },
+      { type: "text_delta", turnId: "t1", text: "answer" },
+      { type: "tool_call.started", callId: "k1", name: "bash", args: { cmd: "ls" } },
+    ]);
+    expect(state.cells.map((c) => c.kind)).toEqual(["reasoning", "assistant", "tool"]);
+    expect(state.cells[0]).toMatchObject({ kind: "reasoning", streaming: false });
+    expect(state.cells[1]).toMatchObject({ kind: "assistant", text: "answer", streaming: true });
+  });
+
+  it("fills a running tool cell by callId on completion", () => {
+    const state = fold([
+      { type: "tool_call.started", callId: "k1", name: "bash", args: {} },
+      { type: "tool_call.completed", callId: "k1", status: "ok", forModel: text("done") },
+    ]);
+    expect(state.cells).toEqual([
+      { kind: "tool", callId: "k1", name: "bash", args: {}, status: "ok", output: "done" },
+    ]);
+  });
+
+  it("sets a pending approval and clears it on resolution", () => {
+    const created = reduce(emptyState, {
+      type: "request.created",
+      requestId: "q1",
+      conversationId: "c",
+      request: { kind: "approval", call: { name: "bash" } },
+    });
+    expect(created.pending).toEqual({ requestId: "q1", summary: "approve bash?" });
+    const resolved = reduce(created, {
+      type: "request.resolved",
+      requestId: "q1",
+      conversationId: "c",
+    });
+    expect(resolved.pending).toBeUndefined();
+  });
+
+  it("clears a pending approval when the turn ends without an explicit resolve", () => {
+    const created = reduce(
+      { ...emptyState, turn: { id: "t1", status: "running" } },
+      {
+        type: "request.created",
+        requestId: "q1",
+        conversationId: "c",
+        request: { kind: "approval", call: { name: "bash" } },
+      },
+    );
+    const ended = reduce(created, { type: "turn.status", turnId: "t1", status: "aborted" });
+    expect(ended.pending).toBeUndefined();
+  });
+
+  it("init folds a committed log into the same cells a live replay yields", () => {
+    const log: Item[] = [
+      item({ type: "message", role: "user", id: "u1", seq: 0, content: text("hi") }),
+      item({
+        type: "tool_call",
+        id: "tc1",
+        seq: 1,
+        callId: "k1",
+        name: "bash",
+        args: { cmd: "ls" },
+      }),
+      item({
+        type: "tool_result",
+        id: "tr1",
+        seq: 2,
+        callId: "k1",
+        status: "ok",
+        content: text("files"),
+      }),
+      item({ type: "message", role: "assistant", id: "a1", seq: 3, content: text("done") }),
+    ];
+    const seeded = init(log);
+
+    const replayed = fold([
+      { type: "message", item: log[0]! },
+      { type: "tool_call.started", callId: "k1", name: "bash", args: { cmd: "ls" } },
+      { type: "tool_call.completed", callId: "k1", status: "ok", forModel: text("files") },
+      { type: "message", item: log[3]! },
+    ]);
+
+    expect(seeded.cells).toEqual(replayed.cells);
+    expect(seeded.cells).toEqual([
+      { kind: "user", id: "u1", text: "hi" },
+      {
+        kind: "tool",
+        callId: "k1",
+        name: "bash",
+        args: { cmd: "ls" },
+        status: "ok",
+        output: "files",
+      },
+      { kind: "assistant", turnId: "t1", text: "done", streaming: false, id: "a1" },
+    ]);
+  });
+});

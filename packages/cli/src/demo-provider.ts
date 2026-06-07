@@ -1,20 +1,14 @@
-import type {
-  ContentBlock,
-  ModelProvider,
-  ModelRequest,
-  ModelStreamEvent,
+import {
+  textOf,
+  type ModelProvider,
+  type ModelRequest,
+  type ModelStreamEvent,
 } from "@harness/protocol";
 
 const ZERO_USAGE = { inputTokens: 0, outputTokens: 0 } as const;
 
 /** Demo-only pause so a turn lasts long enough to steer/interrupt by hand. */
 const DEMO_LATENCY_MS = 400;
-
-const textOf = (content: ContentBlock[]): string =>
-  content
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("");
 
 /** Resolves after `ms`, or immediately when the signal aborts. Demo-only. */
 const delay = (ms: number, signal: AbortSignal): Promise<void> =>

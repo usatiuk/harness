@@ -3,6 +3,7 @@ import type {
   ConversationId,
   DeliveryIntent,
   HarnessEvent,
+  Item,
   ItemId,
   Plugin,
   PluginEntry,
@@ -115,5 +116,20 @@ export class HarnessService {
   /** Subscribes to the typed event stream. Returns an unsubscribe handle. */
   subscribe(listener: EventListener): () => void {
     return this.#engine.subscribe({ onEvent: listener });
+  }
+
+  /** One conversation by id. Backs session resume. */
+  getConversation(id: ConversationId): Promise<Conversation | undefined> {
+    return this.#store.getConversation(id);
+  }
+
+  /** All conversations, most-recent-first. Backs the resume picker. */
+  listConversations(): Promise<Conversation[]> {
+    return this.#store.listConversations();
+  }
+
+  /** The active item chain (head's ancestry) — the render/resume source for a conversation. */
+  getItems(id: ConversationId): Promise<Item[]> {
+    return this.#store.listActiveItems(id);
   }
 }

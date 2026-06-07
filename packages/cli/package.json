@@ -8,7 +8,7 @@
   },
   "exports": {
     ".": {
-      "development": "./src/index.ts",
+      "development": "./src/index.tsx",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
@@ -22,9 +22,15 @@
     "@harness/execution": "*",
     "@harness/workspace": "*",
     "@harness/approval": "*",
-    "@harness/openai-api": "*"
+    "@harness/openai-api": "*",
+    "@inkjs/ui": "^2.0.0",
+    "commander": "^15.0.0",
+    "ink": "^7.0.5",
+    "react": "^19.2.0"
   },
   "devDependencies": {
+    "@types/react": "^19.2.0",
+    "ink-testing-library": "^4.0.0",
     "vitest": "^4.1.8"
   }
 }

@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  // Override the root's `exclude: ["packages/cli"]`, which `extends` would otherwise inherit.
+  "exclude": []
+}

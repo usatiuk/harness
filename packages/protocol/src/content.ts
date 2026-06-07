@@ -7,3 +7,10 @@ export const contentBlockSchema = z.object({
   type: z.literal("text"),
   text: z.string(),
 });
+
+/** Concatenates the text of a content array, ignoring non-text blocks. */
+export const textOf = (content: ContentBlock[]): string =>
+  content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("");
