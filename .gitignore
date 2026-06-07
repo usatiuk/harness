@@ -6,6 +6,7 @@ coverage/
 
 # Editor / IDE
 .idea/
+.DS_Store
 
 # Local Claude settings
 .claude/settings.local.json
