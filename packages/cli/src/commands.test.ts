@@ -6,10 +6,12 @@ import { runCommand, type CommandContext } from "./commands.ts";
 const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   service: {} as unknown as HarnessService,
   conversationId: "c1" as ConversationId,
+  model: { provider: "openai", model: "gpt-5.1" },
   note: vi.fn(),
   clear: vi.fn(),
   resume: vi.fn(),
   pickModel: vi.fn(),
+  pickEffort: vi.fn(),
   exit: vi.fn(),
   ...over,
 });
@@ -76,5 +78,51 @@ describe("runCommand", () => {
     runCommand("/model bogus", ctx);
     expect(setModel).not.toHaveBeenCalled();
     expect(ctx.note).toHaveBeenCalledWith("unknown model: bogus");
+  });
+
+  const withEfforts = (setModel = vi.fn().mockResolvedValue(undefined)): HarnessService =>
+    ({
+      availableModels: () => [
+        { provider: "openai", model: "gpt-5.1", efforts: [{ value: "low" }, { value: "high" }] },
+      ],
+      setModel,
+    }) as unknown as HarnessService;
+
+  it("/effort with no args opens the picker", () => {
+    const ctx = makeCtx({ service: withEfforts() });
+    runCommand("/effort", ctx);
+    expect(ctx.pickEffort).toHaveBeenCalledOnce();
+  });
+
+  it("/effort <value> switches when the current model offers it", async () => {
+    const setModel = vi.fn().mockResolvedValue(undefined);
+    const ctx = makeCtx({ service: withEfforts(setModel) });
+    runCommand("/effort high", ctx);
+    expect(setModel).toHaveBeenCalledWith("c1", {
+      provider: "openai",
+      model: "gpt-5.1",
+      effort: "high",
+    });
+    await Promise.resolve();
+    expect(ctx.note).toHaveBeenCalledWith("effort → openai/gpt-5.1/high");
+  });
+
+  it("/effort <value> notes an error for an unoffered effort and never switches", () => {
+    const setModel = vi.fn();
+    const ctx = makeCtx({ service: withEfforts(setModel) });
+    runCommand("/effort bogus", ctx);
+    expect(setModel).not.toHaveBeenCalled();
+    expect(ctx.note).toHaveBeenCalledWith("unknown effort: bogus (try: low, high)");
+  });
+
+  it("/effort notes when the current model has no effort axis", () => {
+    const service = {
+      availableModels: () => [{ provider: "openai", model: "gpt-5.1" }],
+      setModel: vi.fn(),
+    } as unknown as HarnessService;
+    const ctx = makeCtx({ service });
+    runCommand("/effort", ctx);
+    expect(ctx.pickEffort).not.toHaveBeenCalled();
+    expect(ctx.note).toHaveBeenCalledWith("gpt-5.1 has no effort options");
   });
 });

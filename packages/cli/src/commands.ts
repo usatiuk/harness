@@ -1,10 +1,22 @@
-import { modelId, type ConversationId } from "@harness/protocol";
+import {
+  modelId,
+  selectionId,
+  type ConversationId,
+  type EffortInfo,
+  type ModelConfig,
+} from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
+
+/** The effort levels the given selection's model offers; empty when it has no effort axis. */
+export const effortsFor = (service: HarnessService, model: ModelConfig): EffortInfo[] =>
+  service.availableModels().find((m) => modelId(m) === modelId(model))?.efforts ?? [];
 
 /** What a slash command can act on. Kept narrow on purpose. */
 export interface CommandContext {
   service: HarnessService;
   conversationId: ConversationId;
+  /** The conversation's current selection (model + effort). */
+  model: ModelConfig;
   /** Append a local note line (command output / errors) to the transcript. */
   note: (text: string) => void;
   /** Clear the visible transcript. */
@@ -13,6 +25,8 @@ export interface CommandContext {
   resume: (id?: string) => void;
   /** Open the model switcher overlay. */
   pickModel: () => void;
+  /** Open the effort switcher overlay (for the current model). */
+  pickEffort: () => void;
   /** Quit the app. */
   exit: () => void;
 }
@@ -53,6 +67,31 @@ export const commands: Command[] = [
       void ctx.service.setModel(ctx.conversationId, model).then(
         () => ctx.note(`model → ${modelId(model)}`),
         (e: unknown) => ctx.note(`model switch failed: ${String(e)}`),
+      );
+    },
+  },
+  {
+    name: "effort",
+    summary: "set reasoning effort (/effort <value>, or /effort to pick)",
+    run: (ctx, args) => {
+      const efforts = effortsFor(ctx.service, ctx.model);
+      if (efforts.length === 0) {
+        ctx.note(`${ctx.model.model} has no effort options`);
+        return;
+      }
+      const value = args[0];
+      if (!value) {
+        ctx.pickEffort();
+        return;
+      }
+      if (!efforts.some((e) => e.value === value)) {
+        ctx.note(`unknown effort: ${value} (try: ${efforts.map((e) => e.value).join(", ")})`);
+        return;
+      }
+      const model = { ...ctx.model, effort: value };
+      void ctx.service.setModel(ctx.conversationId, model).then(
+        () => ctx.note(`effort → ${selectionId(model)}`),
+        (e: unknown) => ctx.note(`effort switch failed: ${String(e)}`),
       );
     },
   },

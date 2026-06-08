@@ -5,6 +5,15 @@ import type { Item } from "./items.ts";
 export interface ModelConfig {
   provider: string;
   model: string;
+  /** Provider-opaque effort token (e.g. reasoning level); absent = the model's default. */
+  effort?: string;
+}
+
+/** One effort level a model offers. The `value` is opaque to everything but the provider. */
+export interface EffortInfo {
+  value: string;
+  /** Display name; falls back to `value` when absent. */
+  label?: string;
 }
 
 /** One selectable model in a provider's catalog. */
@@ -13,11 +22,19 @@ export interface ModelInfo {
   model: string;
   /** Display name; falls back to `model` when absent. */
   label?: string;
+  /** Effort levels this model offers, in display order. Absent/empty = no effort axis. */
+  efforts?: EffortInfo[];
+  /** Effort used when none is chosen; must be one of `efforts` when present. */
+  defaultEffort?: string;
 }
 
-/** Canonical id for a model selection: `provider/model`. */
+/** Canonical id for a model (ignores effort): `provider/model`. */
 export const modelId = (m: { provider: string; model: string }): string =>
   `${m.provider}/${m.model}`;
+
+/** Full selection id including effort when set: `provider/model[/effort]`. */
+export const selectionId = (m: ModelConfig): string =>
+  m.effort ? `${modelId(m)}/${m.effort}` : modelId(m);
 
 export interface ProviderCapabilities {
   contentTypes: readonly string[];

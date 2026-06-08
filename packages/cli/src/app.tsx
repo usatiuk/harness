@@ -4,8 +4,8 @@ import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
 import { isKernelEvent, type Conversation, type HarnessEvent, type Item } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
-import { runCommand, type CommandContext } from "./commands.ts";
-import { ModelPicker } from "./model-picker.tsx";
+import { effortsFor, runCommand, type CommandContext } from "./commands.ts";
+import { EffortPicker, ModelPicker } from "./model-picker.tsx";
 import { CellView, cellKey } from "./cells.tsx";
 
 const INSTRUCTIONS_PLACEHOLDER = "type a message…   (> queue · ! interrupt · /help · Esc abort)";
@@ -56,6 +56,7 @@ export function App({
   const [state, dispatch] = useReducer(appReduce, initialItems, init);
   const [model, setModel] = useState(conversation.config.model);
   const [modelPicking, setModelPicking] = useState(false);
+  const [effortPicking, setEffortPicking] = useState(false);
   const noteId = useRef(0);
   const busy = state.turn.status === "running";
   const pending = state.pending;
@@ -75,20 +76,23 @@ export function App({
     [service, conversation.id],
   );
 
-  // Esc closes the model picker, else interrupts a running turn (also cancels a parked request).
+  // Esc closes an open picker, else interrupts a running turn (also cancels a parked request).
   useInput((_input, key) => {
     if (!key.escape) return;
     if (modelPicking) setModelPicking(false);
+    else if (effortPicking) setEffortPicking(false);
     else if (busy) void service.deliver(conversation.id, "", "interrupt");
   });
 
   const ctx: CommandContext = {
     service,
     conversationId: conversation.id,
+    model,
     note: (text) => dispatch({ type: "note", id: `note-${++noteId.current}`, text }),
     clear: () => dispatch({ type: "clear" }),
     resume: onResume,
     pickModel: () => setModelPicking(true),
+    pickEffort: () => setEffortPicking(true),
     exit,
   };
 
@@ -141,9 +145,18 @@ export function App({
             void service.setModel(conversation.id, next);
           }}
         />
+      ) : effortPicking ? (
+        <EffortPicker
+          efforts={effortsFor(service, model)}
+          current={model.effort}
+          onSelect={(value) => {
+            setEffortPicking(false);
+            void service.setModel(conversation.id, { ...model, effort: value });
+          }}
+        />
       ) : (
         <>
-          <StatusBar busy={busy} model={model.model} cwd={cwd} />
+          <StatusBar busy={busy} model={model.model} effort={model.effort} cwd={cwd} />
           <Composer onSubmit={submit} />
         </>
       )}
@@ -154,16 +167,19 @@ export function App({
 function StatusBar({
   busy,
   model,
+  effort,
   cwd,
 }: {
   busy: boolean;
   model: string;
+  effort: string | undefined;
   cwd: string;
 }): ReactElement {
+  const label = effort ? `${model} (${effort})` : model;
   return (
     <Box>
       {busy ? <Spinner label="working" /> : <Text color="green">●</Text>}
-      <Text dimColor>{`  ${model} · ${cwd}`}</Text>
+      <Text dimColor>{`  ${label} · ${cwd}`}</Text>
     </Box>
   );
 }

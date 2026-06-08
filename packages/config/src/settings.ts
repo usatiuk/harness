@@ -5,7 +5,11 @@ import { z } from "zod";
  * and named profiles. Strict: an unknown top-level key (a typo) is rejected. Plugin
  * slices are opaque here and validated later against each plugin's own schema.
  */
-const modelSchema = z.strictObject({ provider: z.string(), model: z.string() });
+const modelSchema = z.strictObject({
+  provider: z.string(),
+  model: z.string(),
+  effort: z.string().optional(),
+});
 const toolsSchema = z.strictObject({ allow: z.array(z.string()).optional() });
 
 const baseFields = {

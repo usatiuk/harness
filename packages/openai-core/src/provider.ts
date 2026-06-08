@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 import type {
+  EffortInfo,
+  ModelConfig,
   ModelInfo,
   ModelProvider,
   ModelRequest,
@@ -9,6 +11,42 @@ import type {
 import type { OpenAICredentials } from "./credentials.ts";
 import { buildResponseParams } from "./request.ts";
 import { toModelEvents } from "./stream.ts";
+
+/** One model in the provider catalog. */
+interface ModelSpec {
+  model: string;
+  efforts: EffortInfo[];
+  /** Effort used when the selection omits one; must appear in `efforts`. */
+  defaultEffort: string;
+}
+
+const effort = (value: OpenAI.ReasoningEffort & string): EffortInfo => ({ value });
+
+// Default medium preserves prior behavior (a fixed medium effort). See openai `ReasoningEffort`.
+const MODELS: ModelSpec[] = [
+  {
+    model: "gpt-5.1",
+    efforts: [effort("none"), effort("low"), effort("medium"), effort("high")],
+    defaultEffort: "medium",
+  },
+  {
+    model: "gpt-5.1-codex",
+    efforts: [effort("low"), effort("medium"), effort("high")],
+    defaultEffort: "medium",
+  },
+];
+
+/** Chosen effort if the model offers it, else its default; unknown model → `base` unchanged. */
+export function reasoningForSelection(
+  config: ModelConfig,
+  base: OpenAI.Reasoning,
+): OpenAI.Reasoning {
+  const spec = MODELS.find((m) => m.model === config.model);
+  if (!spec) return base;
+  const offered = spec.efforts.some((e) => e.value === config.effort);
+  const value = (offered ? config.effort : spec.defaultEffort) as OpenAI.ReasoningEffort;
+  return { ...base, effort: value };
+}
 
 export interface OpenAIProviderOptions {
   credentials: OpenAICredentials;
@@ -37,16 +75,20 @@ export class OpenAIResponsesProvider implements ModelProvider {
   validateConfig(): void {}
 
   listModels(): ModelInfo[] {
-    return [
-      { provider: this.provider, model: "gpt-5.1" },
-      { provider: this.provider, model: "gpt-5.1-codex" },
-    ];
+    return MODELS.map((m) => ({
+      provider: this.provider,
+      model: m.model,
+      efforts: m.efforts,
+      defaultEffort: m.defaultEffort,
+    }));
   }
 
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
     const client = await this.#credentials.client();
-    const params = buildResponseParams(request, this.#reasoning);
-    const stream = await client.responses.create(params, { signal });
+    const reasoning = reasoningForSelection(request.modelConfig, this.#reasoning);
+    const stream = await client.responses.create(buildResponseParams(request, reasoning), {
+      signal,
+    });
     yield* toModelEvents(stream, request.modelConfig.model, signal);
   }
 }

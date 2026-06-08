@@ -15,6 +15,16 @@ describe("updateGlobalModel", () => {
     expect((await readDoc(home)).model).toEqual({ provider: "openai", model: "gpt-5.1" });
   });
 
+  it("persists the effort when present and validates against the schema", async () => {
+    const home = await newHome();
+    await updateGlobalModel(home, { provider: "openai", model: "gpt-5.1", effort: "high" });
+    expect((await readDoc(home)).model).toEqual({
+      provider: "openai",
+      model: "gpt-5.1",
+      effort: "high",
+    });
+  });
+
   it("overwrites model while preserving other keys and profiles", async () => {
     const home = await newHome();
     await mkdir(home, { recursive: true });

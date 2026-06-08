@@ -46,7 +46,14 @@ export class DemoProvider implements ModelProvider {
   validateConfig(): void {}
 
   listModels(): ModelInfo[] {
-    return [{ provider: this.provider, model: "demo-1" }];
+    return [
+      {
+        provider: this.provider,
+        model: "demo-1",
+        efforts: [{ value: "low" }, { value: "medium" }, { value: "high" }],
+        defaultEffort: "medium",
+      },
+    ];
   }
 
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {

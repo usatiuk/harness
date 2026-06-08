@@ -60,7 +60,11 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
 
   return {
     instructions: doc.instructions ?? "",
-    model: doc.model,
+    model: {
+      provider: doc.model.provider,
+      model: doc.model.model,
+      ...(doc.model.effort ? { effort: doc.model.effort } : {}),
+    },
     workspaceRoot: root ?? opts.cwd ?? null,
     ...(doc.tools?.allow ? { tools: { allow: doc.tools.allow } } : {}),
     plugins: resolvePlugins(doc.plugins ?? {}, opts.schemas, sources),
