@@ -1,19 +1,4 @@
-import type { CompactionStrategy, ContextPolicy, Item, ToolMiddleware } from "@harness/protocol";
-
-/** Selects every item in order; passes the prefix through unchanged. Compaction is a separate slot. */
-export const defaultContextPolicy: ContextPolicy = {
-  async select({ conversationId, instructions, tools, items, payloads }) {
-    return {
-      conversationId,
-      instructions,
-      tools,
-      items: items.map((item) => {
-        const payload = payloads.get(item.id);
-        return payload ? { item, payload } : { item };
-      }),
-    };
-  },
-};
+import type { CompactionStrategy, Item, ToolMiddleware } from "@harness/protocol";
 
 /** The default when no plugin contributes a strategy: never fold. */
 export const noCompaction: CompactionStrategy = {

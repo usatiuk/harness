@@ -166,6 +166,31 @@ describe("Engine — turn cycle", () => {
     expect(payloads[0]?.payload).toEqual({ enc: "x" });
   });
 
+  it("re-attaches a stored payload onto its item in the next turn's build", async () => {
+    const provider = new RecordingProvider([
+      textStep("hi", {
+        provider: "fake",
+        model: "fake-1",
+        type: "reasoning",
+        version: 1,
+        payload: { enc: "x" },
+      }),
+      textStep("bye"),
+    ]);
+    const { store, engine } = setup([], { providers: () => [provider] });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("first"));
+    await engine.whenIdle(conv.id);
+    await engine.deliver(conv.id, userInput("second"));
+    await engine.whenIdle(conv.id);
+
+    // The second turn's build carries the first turn's assistant payload, paired to its item.
+    const assistant = provider.requests[1]!.items.find(
+      (i) => i.item.type === "message" && i.item.role === "assistant",
+    );
+    expect(assistant?.payload?.payload).toEqual({ enc: "x" });
+  });
+
   it("stores a reasoning item with its summary, opaque payload, and stream events", async () => {
     const reasoningPayload = {
       provider: "fake",

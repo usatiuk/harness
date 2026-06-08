@@ -1,6 +1,5 @@
 import type {
   CompactionStrategy,
-  ContextPolicy,
   ContextSource,
   ExecutionProvider,
   Observer,
@@ -8,11 +7,10 @@ import type {
   ToolMiddleware,
 } from "@harness/protocol";
 import { ProviderRegistry, ToolRegistry } from "./registry.ts";
-import { defaultContextPolicy, noCompaction, truncateMiddleware } from "./policies.ts";
+import { noCompaction, truncateMiddleware } from "./policies.ts";
 
 /** The single composed instance of each policy slot. */
 export interface ResolvedPolicies {
-  context: ContextPolicy;
   compaction: CompactionStrategy;
 }
 
@@ -40,7 +38,6 @@ export class PluginHost {
   constructor(plugins: readonly Plugin[]) {
     const contextSources: ContextSource[] = [];
     const observers: Observer[] = [];
-    const context: ContextPolicy[] = [];
     const compaction: CompactionStrategy[] = [];
     const execution: ExecutionProvider[] = [];
     const toolMiddleware: ToolMiddleware[] = [];
@@ -60,14 +57,12 @@ export class PluginHost {
       if (provided) execution.push(provided);
 
       const policies = plugin.policies?.() ?? {};
-      if (policies.context) context.push(policies.context);
       if (policies.compaction) compaction.push(policies.compaction);
     }
 
     this.contextSources = contextSources;
     this.observers = observers;
     this.policies = {
-      context: pick("context", context, defaultContextPolicy),
       compaction: pick("compaction", compaction, noCompaction),
     };
     this.execution = pick<ExecutionProvider | undefined>("execution", execution, undefined);

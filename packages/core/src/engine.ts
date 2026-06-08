@@ -11,6 +11,7 @@ import {
   type ItemId,
   type ModelRequest,
   type ModelStreamEvent,
+  type NewContextBuild,
   type Observer,
   type ProviderPayloadDraft,
   type Store,
@@ -481,15 +482,16 @@ export class Engine {
       ...sourceInstructions,
     ];
 
-    return this.store.recordContextBuild(
-      await this.host.policies.context.select({
-        conversationId: conversation.id,
-        instructions,
-        tools: this.host.tools.schemas(),
-        items,
-        payloads,
+    const built: NewContextBuild = {
+      conversationId: conversation.id,
+      instructions,
+      tools: this.host.tools.schemas(),
+      items: items.map((item) => {
+        const payload = payloads.get(item.id);
+        return payload ? { item, payload } : { item };
       }),
-    );
+    };
+    return this.store.recordContextBuild(built);
   }
 
   #emit(event: HarnessEvent): void {

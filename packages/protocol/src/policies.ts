@@ -1,19 +1,11 @@
 import type { ContentBlock } from "./content.ts";
-import type { ConversationId, ItemId } from "./ids.ts";
+import type { ConversationId } from "./ids.ts";
 import type { Item } from "./items.ts";
 import type { ProviderPayload, ToolSchema } from "./model.ts";
 
 export interface ContextItem {
   item: Item;
   payload?: ProviderPayload;
-}
-
-export interface ContextSelectInput {
-  conversationId: ConversationId;
-  instructions: ContentBlock[];
-  tools: ToolSchema[];
-  items: Item[];
-  payloads: ReadonlyMap<ItemId, ProviderPayload>;
 }
 
 export interface NewContextBuild {
@@ -27,10 +19,6 @@ export interface NewContextBuild {
 export interface ContextBuild extends NewContextBuild {
   id: string;
   createdAt: number;
-}
-
-export interface ContextPolicy {
-  select(input: ContextSelectInput): Promise<NewContextBuild>;
 }
 
 export interface CompactionInput {

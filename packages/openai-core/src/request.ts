@@ -17,14 +17,14 @@ const textOf = (content: ContentBlock[]): string =>
     .join("");
 
 /** One log item → one Responses input item, or `undefined` to omit it. */
-function toInputItem(item: Item, payload?: ProviderPayload): InputItem | undefined {
+function toInputItem(item: Item, model: string, payload?: ProviderPayload): InputItem | undefined {
   switch (item.type) {
     case "message":
       return { role: item.role, content: textOf(item.content) };
     case "reasoning": {
-      // Replayable only with our own opaque blob; a foreign/absent payload is skipped
+      // Replayable only with our own opaque blob; a mismatched/absent payload is skipped
       // rather than sent as bare summary text (the API rejects that).
-      const stored = readReasoningPayload(payload);
+      const stored = readReasoningPayload(payload, model);
       if (!stored) return undefined;
       return {
         type: "reasoning",
@@ -67,7 +67,7 @@ export function buildResponseParams(
 ): OpenAI.Responses.ResponseCreateParamsStreaming {
   const input: InputItem[] = [];
   for (const { item, payload } of request.items) {
-    const mapped = toInputItem(item, payload);
+    const mapped = toInputItem(item, request.modelConfig.model, payload);
     if (mapped) input.push(mapped);
   }
   const tools = request.tools?.map(toFunctionTool) ?? [];

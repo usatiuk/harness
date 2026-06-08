@@ -27,11 +27,15 @@ export function encodeReasoningPayload(
   };
 }
 
-/** Reads a reasoning payload; `undefined` unless it is ours and the version matches. */
-export function readReasoningPayload(payload?: ProviderPayload): ReasoningPayload | undefined {
+/** Reads a reasoning payload; `undefined` unless provider/model/type/version all match. */
+export function readReasoningPayload(
+  payload: ProviderPayload | undefined,
+  currentModel: string,
+): ReasoningPayload | undefined {
   if (
     !payload ||
     payload.provider !== OPENAI_PROVIDER ||
+    payload.model !== currentModel ||
     payload.type !== REASONING_PAYLOAD_TYPE ||
     payload.version !== REASONING_PAYLOAD_VERSION
   ) {

@@ -1,19 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ContextPolicy, Plugin, ToolMiddleware } from "@harness/protocol";
+import type { Plugin, ToolMiddleware } from "@harness/protocol";
 import { EchoTool, fakeCompaction, FakeProvider } from "@harness/testkit";
 import { PluginHost } from "./plugin-host.ts";
-import { defaultContextPolicy, noCompaction } from "./policies.ts";
-
-const passThroughContext: ContextPolicy = {
-  async select(input) {
-    return {
-      conversationId: input.conversationId,
-      instructions: input.instructions,
-      tools: input.tools,
-      items: [],
-    };
-  },
-};
+import { noCompaction } from "./policies.ts";
 
 const contributedCompaction = fakeCompaction({ over: 0 });
 
@@ -34,16 +23,6 @@ describe("PluginHost", () => {
     expect(host.tools.get("echo").name).toBe("echo");
     expect(host.providers.get("fake").provider).toBe("fake");
     expect(host.tools.schemas().map((s) => s.name)).toEqual(["echo"]);
-  });
-
-  it("falls back to the default context policy when none is contributed", () => {
-    const host = new PluginHost([{ id: "p" }]);
-    expect(host.policies.context).toBe(defaultContextPolicy);
-  });
-
-  it("uses a contributed context policy in place of the default", () => {
-    const host = new PluginHost([{ id: "p", policies: () => ({ context: passThroughContext }) }]);
-    expect(host.policies.context).toBe(passThroughContext);
   });
 
   it("falls back to noCompaction when none is contributed", () => {
@@ -87,15 +66,5 @@ describe("PluginHost", () => {
       tools: () => [new EchoTool(), new EchoTool()],
     };
     expect(() => new PluginHost([plugin])).toThrow(/duplicate tool/);
-  });
-
-  it("rejects two contributors for the same policy slot", () => {
-    expect(
-      () =>
-        new PluginHost([
-          { id: "a", policies: () => ({ context: passThroughContext }) },
-          { id: "b", policies: () => ({ context: passThroughContext }) },
-        ]),
-    ).toThrow(/composition not yet supported/);
   });
 });

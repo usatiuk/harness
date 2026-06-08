@@ -99,4 +99,14 @@ describe("buildResponseParams", () => {
     expect(noPayload.input).toEqual([]);
     expect(wrongProvider.input).toEqual([]);
   });
+
+  it("skips a reasoning item whose payload was bound to a different model", () => {
+    // baseRequest builds under model "gpt-x"; the blob is from "gpt-old".
+    const reasoning = item({ type: "reasoning", content: [{ type: "text", text: "s" }] });
+    const params = buildResponseParams(
+      baseRequest([{ item: reasoning, payload: reasoningPayload("gpt-old") }]),
+      REASONING,
+    );
+    expect(params.input).toEqual([]);
+  });
 });
