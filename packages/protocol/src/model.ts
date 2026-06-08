@@ -1,5 +1,5 @@
 import type { ContentBlock } from "./content.ts";
-import type { ItemId } from "./ids.ts";
+import type { ConversationId, ItemId } from "./ids.ts";
 import type { Item } from "./items.ts";
 
 export interface ModelConfig {
@@ -104,4 +104,26 @@ export interface ModelProvider {
   stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent>;
   /** Selectable models this provider offers; absent = none. */
   listModels?(): ModelInfo[];
+}
+
+/** A point in the model-middleware chain: runs the next inner middleware, or the provider. */
+export type ModelHandler = (request: ModelRequest) => AsyncIterable<ModelStreamEvent>;
+
+export interface ModelMiddlewareContext {
+  conversationId: ConversationId;
+  signal: AbortSignal;
+}
+
+/**
+ * Wraps one model step, symmetric to `ToolMiddleware`. `next` may be called zero times
+ * (short-circuit/cache), once (normal), or many (retry/fallback). Only re-issue before the
+ * first yielded event — streamed events can't be un-emitted.
+ */
+export interface ModelMiddleware {
+  readonly id: string;
+  wrap(
+    request: ModelRequest,
+    ctx: ModelMiddlewareContext,
+    next: ModelHandler,
+  ): AsyncIterable<ModelStreamEvent>;
 }

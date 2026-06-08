@@ -47,6 +47,9 @@ function toInputItem(item: Item, model: string, payload?: ProviderPayload): Inpu
     case "compaction":
       // No provider concept for a fold; send it as a plain user message.
       return { role: "user", content: textOf(item.content) };
+    case "context":
+      // Plugin-injected context (e.g. an AGENTS.md); a developer message.
+      return { role: "developer", content: textOf(item.content) };
   }
 }
 

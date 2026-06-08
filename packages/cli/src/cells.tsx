@@ -27,6 +27,7 @@ export function cellKey(cell: Cell): string {
     case "tool":
       return cell.callId;
     case "compaction":
+    case "context":
     case "error":
     case "note":
       return cell.id;
@@ -53,6 +54,8 @@ export function CellView({ cell }: { cell: Cell }): ReactElement {
       return <ToolCard cell={cell} />;
     case "compaction":
       return <Text dimColor>✦ context compacted</Text>;
+    case "context":
+      return <Text dimColor>{`✦ ${truncate(cell.text.split("\n")[0] ?? "", ARGS_CAP)}`}</Text>;
     case "error":
       return <Text color="red">{`✗ ${cell.text}`}</Text>;
     case "note":

@@ -152,6 +152,24 @@ export function storeContract(name: string, makeStore: () => Store): void {
       ]);
     });
 
+    it("round-trips a context item, key intact, on the active chain", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation({ config: sampleConfig() });
+      const turn = await store.createTurn(conv.id);
+      const item = await store.appendItem({
+        conversationId: conv.id,
+        turnId: turn.id,
+        type: "context",
+        key: "agents-md:src/api/AGENTS.md",
+        content: [{ type: "text", text: "project rules" }],
+      });
+      const [stored] = await store.listItems(conv.id);
+      expect(stored).toEqual(item);
+      expect(stored?.type === "context" && stored.key).toBe("agents-md:src/api/AGENTS.md");
+      // it is on the active chain (the source the model build reads)
+      expect(await store.listActiveItems(conv.id)).toEqual([item]);
+    });
+
     it("tracks at most one running turn", async () => {
       const store = makeStore();
       const conv = await store.createConversation({ config: sampleConfig() });

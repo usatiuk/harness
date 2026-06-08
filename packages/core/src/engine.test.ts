@@ -5,6 +5,7 @@ import type {
   DeliveryInput,
   HarnessEvent,
   Item,
+  ModelMiddleware,
   ModelProvider,
   ModelRequest,
   ModelStreamEvent,
@@ -63,6 +64,7 @@ const shapeOf = (items: Item[]): string[] =>
     if (i.type === "reasoning") return `reasoning:${textOf(i.content)}`;
     if (i.type === "tool_call") return `call:${i.callId}`;
     if (i.type === "compaction") return `compaction:${textOf(i.content)}`;
+    if (i.type === "context") return `context:${i.key}`;
     return `result:${i.callId}`;
   });
 
@@ -992,6 +994,142 @@ function recordingSetup() {
 }
 
 const recConfig = { instructions: "", model: { provider: "rec", model: "m1" } };
+
+/** Injects a keyed context item the first time `echo` is called; dedups by scanning
+ *  the active window. */
+const injectorMw = (key: string, text: string): ToolMiddleware => ({
+  id: "injector",
+  async wrap(call, ctx, next) {
+    const result = await next(call);
+    if (call.name === "echo") {
+      const present = (await ctx.active()).some((i) => i.type === "context" && i.key === key);
+      if (!present) await ctx.appendContext(key, [{ type: "text", text }]);
+    }
+    return result;
+  },
+});
+
+describe("Engine — context injection", () => {
+  it("injects a keyed context item once across repeated triggering calls", async () => {
+    const { store, engine } = setup(
+      [toolStep("c1", "echo", {}), toolStep("c2", "echo", {}), textStep("done")],
+      { toolMiddleware: () => [injectorMw("ctx", "RULES")] },
+    );
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    // One context item, appended after its triggering tool_call and before that result.
+    expect(shapeOf(await store.listActiveItems(conv.id))).toEqual([
+      "user:go",
+      "call:c1",
+      "context:ctx",
+      "result:c1",
+      "call:c2",
+      "result:c2",
+      "assistant:done",
+    ]);
+  });
+
+  it("re-injects context after a rewind drops it from the active chain", async () => {
+    const { store, engine } = setup(
+      [toolStep("c1", "echo", {}), textStep("done"), toolStep("c2", "echo", {}), textStep("done2")],
+      { toolMiddleware: () => [injectorMw("ctx", "RULES")] },
+    );
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    const userMsg = (await store.listItems(conv.id)).find(
+      (i) => i.type === "message" && i.role === "user",
+    )!;
+    await engine.rewind(conv.id, userMsg.id);
+
+    await engine.deliver(conv.id, userInput("go2"));
+    await engine.whenIdle(conv.id);
+
+    const ctxOf = (items: Item[]) => items.filter((i) => i.type === "context");
+    // The active chain carries exactly one context item (the re-injected one).
+    expect(ctxOf(await store.listActiveItems(conv.id))).toHaveLength(1);
+    // The raw log retains both the abandoned and the re-injected copy.
+    expect(ctxOf(await store.listItems(conv.id))).toHaveLength(2);
+  });
+});
+
+describe("Engine — model middleware", () => {
+  it("passes the stream through unchanged when a middleware just forwards", async () => {
+    const passthrough: ModelMiddleware = { id: "pass", wrap: (req, _ctx, next) => next(req) };
+    const { store, engine } = setup([textStep("hi")], { modelMiddleware: () => [passthrough] });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("yo"));
+    await engine.whenIdle(conv.id);
+    expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:yo", "assistant:hi"]);
+  });
+
+  it("lets a retry middleware re-issue a step that failed before the first event", async () => {
+    let calls = 0;
+    const flaky: ModelProvider = {
+      provider: "fake",
+      capabilities: () => ({ contentTypes: ["text"], toolCalling: true }),
+      validateConfig: () => {},
+      async *stream() {
+        if (++calls === 1) throw new Error("transient");
+        yield* textStep("recovered");
+      },
+    };
+    const retry: ModelMiddleware = {
+      id: "retry",
+      async *wrap(req, _ctx, next) {
+        for (let attempt = 0; ; attempt++) {
+          try {
+            yield* next(req);
+            return;
+          } catch (err) {
+            if (attempt >= 1) throw err;
+          }
+        }
+      },
+    };
+    const { store, engine, events } = setup([], {
+      providers: () => [flaky],
+      modelMiddleware: () => [retry],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+    expect(calls).toBe(2);
+    expect(turnStatuses(events)).toEqual(["running", "completed"]);
+    expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:go", "assistant:recovered"]);
+  });
+
+  it("lets a middleware short-circuit without calling the provider", async () => {
+    let providerCalled = false;
+    const provider: ModelProvider = {
+      provider: "fake",
+      capabilities: () => ({ contentTypes: ["text"], toolCalling: true }),
+      validateConfig: () => {},
+      async *stream() {
+        providerCalled = true;
+        yield* textStep("");
+      },
+    };
+    const canned: ModelMiddleware = {
+      id: "canned",
+      async *wrap() {
+        yield* textStep("canned");
+      },
+    };
+    const { store, engine } = setup([], {
+      providers: () => [provider],
+      modelMiddleware: () => [canned],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+    expect(providerCalled).toBe(false);
+    expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:go", "assistant:canned"]);
+  });
+});
 
 describe("Engine — model switching", () => {
   it("setModel persists the new model and emits config.changed", async () => {

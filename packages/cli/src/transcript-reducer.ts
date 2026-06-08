@@ -26,6 +26,8 @@ export type Cell =
       output?: string;
     }
   | { kind: "compaction"; id: string }
+  // Plugin-injected context (e.g. an AGENTS.md), shown as a distinct transcript line.
+  | { kind: "context"; id: string; text: string }
   // A failed turn's error message. Immutable, so it migrates straight to scrollback.
   | { kind: "error"; id: string; text: string }
   // Local-only (command output / errors). The pure reducer never emits this; the app
@@ -140,6 +142,14 @@ export function reduce(state: State, event: HarnessEvent): State {
     }
     case "compaction":
       return { ...state, cells: [...state.cells, { kind: "compaction", id: event.item.id }] };
+    case "context": {
+      const item = event.item;
+      if (item.type !== "context") return state;
+      return {
+        ...state,
+        cells: [...state.cells, { kind: "context", id: item.id, text: textOf(item.content) }],
+      };
+    }
     case "text_delta":
       return appendDelta(state, "assistant", event.turnId, event.text);
     case "reasoning_delta":
@@ -229,6 +239,9 @@ export function init(items: Item[]): State {
       }
       case "compaction":
         cells.push({ kind: "compaction", id: item.id });
+        break;
+      case "context":
+        cells.push({ kind: "context", id: item.id, text: textOf(item.content) });
         break;
       default:
         assertNever(item);

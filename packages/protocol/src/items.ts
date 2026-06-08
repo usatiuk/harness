@@ -28,7 +28,11 @@ export type Item =
   // A fold of everything before it (appended at head, so its position marks the
   // coverage). Renders to the provider as a plain message; the `compaction` type is
   // a kernel marker so context-build can bound the window at it.
-  | (ItemBase & { type: "compaction"; content: ContentBlock[] });
+  | (ItemBase & { type: "compaction"; content: ContentBlock[] })
+  // Plugin-injected durable context (e.g. a nested AGENTS.md), appended at exec time by a
+  // tool middleware. `key` is an opaque dedup identity the kernel stores but never reads.
+  // Renders to the provider as a plain message.
+  | (ItemBase & { type: "context"; content: ContentBlock[]; key: string });
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -75,5 +79,11 @@ export const itemSchema = z.discriminatedUnion("type", [
     ...baseShape,
     type: z.literal("compaction"),
     content: z.array(contentBlockSchema),
+  }),
+  z.object({
+    ...baseShape,
+    type: z.literal("context"),
+    content: z.array(contentBlockSchema),
+    key: z.string(),
   }),
 ]);

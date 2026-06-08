@@ -27,6 +27,8 @@ function contextFor(decision?: string): { ctx: ToolMiddlewareContext; asked: () 
       asked = true;
       return Promise.resolve({ decision });
     },
+    active: () => Promise.resolve([]),
+    appendContext: () => Promise.resolve(),
   };
   return { ctx, asked: () => asked };
 }

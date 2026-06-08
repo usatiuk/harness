@@ -86,6 +86,22 @@ describe("buildResponseParams", () => {
     expect(params.input).toEqual([{ role: "user", content: "the story so far" }]);
   });
 
+  it("maps a context item to a developer message", () => {
+    const params = buildResponseParams(
+      baseRequest([
+        {
+          item: item({
+            type: "context",
+            key: "agents-md:src/AGENTS.md",
+            content: [{ type: "text", text: "project rules" }],
+          }),
+        },
+      ]),
+      REASONING,
+    );
+    expect(params.input).toEqual([{ role: "developer", content: "project rules" }]);
+  });
+
   it("skips a reasoning item whose payload is missing or from another provider", () => {
     const reasoning = item({ type: "reasoning", content: [{ type: "text", text: "s" }] });
     const foreign: ProviderPayload = { ...reasoningPayload("gpt-x"), provider: "anthropic" };

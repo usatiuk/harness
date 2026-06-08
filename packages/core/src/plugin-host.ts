@@ -2,6 +2,7 @@ import type {
   CompactionStrategy,
   ContextSource,
   ExecutionProvider,
+  ModelMiddleware,
   Observer,
   Plugin,
   ToolMiddleware,
@@ -34,6 +35,8 @@ export class PluginHost {
   readonly execution: ExecutionProvider | undefined;
   /** Outer→inner; contributed first (registration order), default truncate innermost. */
   readonly toolMiddleware: readonly ToolMiddleware[];
+  /** Outer→inner (registration order); absence = direct provider stream. */
+  readonly modelMiddleware: readonly ModelMiddleware[];
 
   constructor(plugins: readonly Plugin[]) {
     const contextSources: ContextSource[] = [];
@@ -41,6 +44,7 @@ export class PluginHost {
     const compaction: CompactionStrategy[] = [];
     const execution: ExecutionProvider[] = [];
     const toolMiddleware: ToolMiddleware[] = [];
+    const modelMiddleware: ModelMiddleware[] = [];
 
     for (const plugin of plugins) {
       for (const provider of plugin.providers?.() ?? []) {
@@ -50,6 +54,7 @@ export class PluginHost {
         this.tools.register(tool);
       }
       toolMiddleware.push(...(plugin.toolMiddleware?.() ?? []));
+      modelMiddleware.push(...(plugin.modelMiddleware?.() ?? []));
       contextSources.push(...(plugin.contextSources?.() ?? []));
       observers.push(...(plugin.observers?.() ?? []));
 
@@ -67,5 +72,6 @@ export class PluginHost {
     };
     this.execution = pick<ExecutionProvider | undefined>("execution", execution, undefined);
     this.toolMiddleware = [...toolMiddleware, truncateMiddleware()];
+    this.modelMiddleware = modelMiddleware;
   }
 }

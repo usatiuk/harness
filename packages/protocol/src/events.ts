@@ -11,6 +11,7 @@ export type KernelEvent =
   | { type: "message"; item: Item }
   | { type: "reasoning"; item: Item }
   | { type: "compaction"; item: Item }
+  | { type: "context"; item: Item }
   | { type: "text_delta"; turnId: TurnId; text: string }
   | { type: "reasoning_delta"; turnId: TurnId; text: string }
   | { type: "tool_call.started"; callId: string; name: string; args: unknown }
@@ -46,6 +47,7 @@ const KERNEL_EVENT_TYPES = new Set<KernelEvent["type"]>([
   "message",
   "reasoning",
   "compaction",
+  "context",
   "text_delta",
   "reasoning_delta",
   "tool_call.started",

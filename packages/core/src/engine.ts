@@ -27,7 +27,7 @@ import type { PluginHost } from "./plugin-host.ts";
 import { compactedWindow } from "./policies.ts";
 import { Runtime, type Delivery } from "./runtime.ts";
 import { applyDelivery } from "./delivery.ts";
-import { runToolChain } from "./compose.ts";
+import { runModelChain, runToolChain } from "./compose.ts";
 import { reconcileConversation } from "./reconcile.ts";
 
 const MAX_MODEL_STEPS = 100;
@@ -278,7 +278,13 @@ export class Engine {
       };
 
       // --- Consume phase: assistant content, in emission order. ---
-      for await (const event of provider.stream(request, signal)) {
+      const stream = runModelChain(
+        this.host.modelMiddleware,
+        request,
+        { conversationId: conversation.id, signal },
+        (req) => provider.stream(req, signal),
+      );
+      for await (const event of stream) {
         if (signal.aborted) break;
         switch (event.type) {
           case "text_delta":
@@ -333,7 +339,7 @@ export class Engine {
       for (const call of calls) {
         const result = signal.aborted
           ? interruptedResult()
-          : await this.#dispatchInterruptible(call, conversation.id, signal, runtime);
+          : await this.#dispatchInterruptible(call, conversation.id, turnId, signal, runtime);
         await this.store.appendItem({
           conversationId: conversation.id,
           turnId,
@@ -385,6 +391,7 @@ export class Engine {
   #dispatchInterruptible(
     call: ToolCall,
     conversationId: ConversationId,
+    turnId: TurnId,
     signal: AbortSignal,
     runtime: Runtime,
   ): Promise<ToolResult> {
@@ -392,7 +399,7 @@ export class Engine {
     const aborted = new Promise<ToolResult>((resolve) => {
       signal.addEventListener("abort", () => resolve(interruptedResult()), { once: true });
     });
-    return Promise.race([this.#dispatch(call, conversationId, signal, runtime), aborted]);
+    return Promise.race([this.#dispatch(call, conversationId, turnId, signal, runtime), aborted]);
   }
 
   /**
@@ -404,6 +411,7 @@ export class Engine {
   async #dispatch(
     call: ToolCall,
     conversationId: ConversationId,
+    turnId: TurnId,
     signal: AbortSignal,
     runtime: Runtime,
   ): Promise<ToolResult> {
@@ -414,6 +422,17 @@ export class Engine {
       emit: (event) => this.#emit(event),
       putBlob: (bytes) => this.store.putBlob(bytes),
       request: (request) => this.#request(request, conversationId, signal, runtime),
+      active: async () => compactedWindow(await this.store.listActiveItems(conversationId)),
+      appendContext: async (key, content) => {
+        const item = await this.store.appendItem({
+          conversationId,
+          turnId,
+          type: "context",
+          key,
+          content,
+        });
+        this.#emit({ type: "context", item });
+      },
     };
     const execute: ToolHandler = (c) =>
       this.host.tools.has(c.name)

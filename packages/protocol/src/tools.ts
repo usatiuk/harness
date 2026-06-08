@@ -1,5 +1,6 @@
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
+import type { Item } from "./items.ts";
 import type { ToolSchema } from "./model.ts";
 import type { PluginEvent } from "./events.ts";
 
@@ -61,6 +62,17 @@ export interface ToolMiddlewareContext extends ToolContext {
    * (e.g. `{kind:"approval", call}` → `{decision}`). Rejects if the turn is aborted.
    */
   request(request: unknown): Promise<unknown>;
+  /**
+   * The compacted active window, re-derived from the log — the same source the model
+   * build reads. Reflects `context` items appended earlier in this dispatch.
+   */
+  active(): Promise<readonly Item[]>;
+  /**
+   * Append a durable, keyed `context` item to the log now (e.g. a nested AGENTS.md).
+   * `key` is opaque to the kernel; dedup is the caller's job — scan `active()` first.
+   * Logged as a real item, so the injection is rewind-safe.
+   */
+  appendContext(key: string, content: ContentBlock[]): Promise<void>;
 }
 
 /**

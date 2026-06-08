@@ -1,5 +1,5 @@
 import type { ZodType } from "zod";
-import type { ModelProvider } from "./model.ts";
+import type { ModelMiddleware, ModelProvider } from "./model.ts";
 import type { Tool, ToolMiddleware } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
@@ -32,6 +32,8 @@ export interface Plugin {
   tools?(): Tool[];
   /** Wraps tool execution, outermost first. Absence of any gate = allow. */
   toolMiddleware?(): ToolMiddleware[];
+  /** Wraps each model step, outermost first (retry / cache / model-fallback). */
+  modelMiddleware?(): ModelMiddleware[];
   contextSources?(): ContextSource[];
   /** The execution substrate (local/docker/remote). At most one host-wide. */
   execution?(): ExecutionProvider;
