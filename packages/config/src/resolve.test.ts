@@ -70,6 +70,20 @@ describe("resolveSettings cascade", () => {
     expect(config.plugins?.demo).toEqual({ level: "high", rules: {} });
   });
 
+  it("roots the workspace at cwd, not at an ancestor that holds a .harness/ dir", async () => {
+    const home = await tmp();
+    const root = await tmp(); // an ancestor with project settings (e.g. a ~/.harness-style dir)
+    await writeJson(join(home, "settings.json"), { model });
+    await writeJson(join(root, ".harness", "settings.json"), { instructions: "project" });
+    const sub = join(root, "packages", "cli");
+    await mkdir(sub, { recursive: true });
+
+    const config = await resolveSettings({ home, cwd: sub, schemas });
+
+    expect(config.workspaceRoot).toBe(sub); // workspace is the cwd, not the ancestor
+    expect(config.instructions).toBe("project"); // settings still discovered up the tree
+  });
+
   it("skips project layers and applies schema defaults when projectless", async () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), { model });

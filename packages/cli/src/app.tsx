@@ -15,6 +15,8 @@ export interface AppProps {
   conversation: Conversation;
   initialItems: Item[];
   cwd: string;
+  /** Where this process was launched; a note flags it when it differs from `cwd`. */
+  launchCwd: string;
   /** Switch conversation (id resumes directly; omitted opens the picker). */
   onResume: (id?: string) => void;
 }
@@ -50,6 +52,7 @@ export function App({
   conversation,
   initialItems,
   cwd,
+  launchCwd,
   onResume,
 }: AppProps): ReactElement {
   const { exit } = useApp();
@@ -75,6 +78,17 @@ export function App({
       }),
     [service, conversation.id],
   );
+
+  // Resuming a conversation rooted elsewhere: commands run in its workspace, not your cwd.
+  useEffect(() => {
+    if (cwd !== launchCwd) {
+      dispatch({
+        type: "note",
+        id: "workspace-notice",
+        text: `this conversation runs in ${cwd} (you launched from ${launchCwd})`,
+      });
+    }
+  }, [cwd, launchCwd]);
 
   // Esc closes an open picker, else interrupts a running turn (also cancels a parked request).
   useInput((_input, key) => {

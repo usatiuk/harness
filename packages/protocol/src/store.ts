@@ -24,7 +24,7 @@ export interface Store {
    * created); a no-op otherwise.
    */
   deleteConversationIfEmpty(id: ConversationId): Promise<void>;
-  /** Switch the conversation's model in place. The one mutable field of `config`. */
+  /** Switch the conversation's model in place; the only `config` field updated post-creation today. */
   updateConversationModel(id: ConversationId, model: ModelConfig): Promise<void>;
   /** All conversations, most-recent-first (by `createdAt`). The resume/listing source. */
   listConversations(): Promise<Conversation[]>;

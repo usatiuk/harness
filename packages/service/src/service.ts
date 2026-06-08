@@ -45,7 +45,7 @@ export type EventListener = (event: HarnessEvent) => void;
  * The single façade every client calls: typed events out, one delivery seam in.
  * Holds no control state — that lives in the loop and the log. Owns config
  * resolution: it builds the plugin schema registry and resolves the settings
- * cascade into each conversation's frozen snapshot at creation.
+ * cascade into each conversation's initial config at creation.
  */
 export class HarnessService {
   readonly #store: Store;
@@ -69,7 +69,7 @@ export class HarnessService {
     this.#engine = new Engine(this.#store, new PluginHost(plugins));
   }
 
-  /** Resolves the settings cascade and stores the frozen snapshot on the new conversation. */
+  /** Resolves the settings cascade and stores the resolved config on the new conversation. */
   async createConversation(options: CreateConversationOptions = {}): Promise<Conversation> {
     const config = await resolveSettings({
       home: this.#home,

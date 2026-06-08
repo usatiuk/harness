@@ -3,24 +3,30 @@ import { render } from "ink-testing-library";
 import type { Conversation } from "@harness/protocol";
 import { ResumePicker } from "./resume-picker.tsx";
 
-const conv = (id: string, model: string): Conversation =>
+const conv = (id: string, model: string, workspaceRoot?: string | null): Conversation =>
   ({
     id,
-    config: { instructions: "", model: { provider: "x", model } },
+    config: { instructions: "", model: { provider: "x", model }, workspaceRoot },
     head: null,
     createdAt: Date.now(),
   }) as unknown as Conversation;
 
 describe("ResumePicker", () => {
-  it("lists conversations with a short id and model", () => {
+  it("lists conversations with a short id, workspace, and model", () => {
     const { lastFrame } = render(
       <ResumePicker
-        conversations={[conv("abcdefgh-1111", "gpt-x"), conv("zzzzzzzz-2222", "claude-y")]}
+        conversations={[
+          conv("abcdefgh-1111", "gpt-x", "/home/me/proj"),
+          conv("zzzzzzzz-2222", "claude-y", null),
+        ]}
+        showingAll={false}
         onSelect={() => {}}
       />,
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("abcdefgh");
     expect(frame).toContain("gpt-x");
+    expect(frame).toContain("proj"); // workspace basename
+    expect(frame).toContain("no workspace"); // projectless
   });
 });

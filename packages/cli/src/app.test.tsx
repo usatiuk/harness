@@ -33,6 +33,7 @@ const mount = (service: HarnessService) =>
       conversation={conversation}
       initialItems={[]}
       cwd="/tmp"
+      launchCwd="/tmp"
       onResume={() => {}}
     />,
   );

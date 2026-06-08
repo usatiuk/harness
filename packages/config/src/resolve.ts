@@ -25,7 +25,7 @@ interface Layer {
 }
 
 /**
- * Collapses the settings cascade into a frozen `ConversationConfig` snapshot:
+ * Collapses the settings cascade into a `ConversationConfig`:
  * `global < project-shared < project-local < profile < overrides`. Validates the
  * kernel doc per file and each plugin slice against its schema; unknown plugins and
  * unknown keys fail fast, citing the source file.
@@ -65,7 +65,7 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
       model: doc.model.model,
       ...(doc.model.effort ? { effort: doc.model.effort } : {}),
     },
-    workspaceRoot: root ?? opts.cwd ?? null,
+    workspaceRoot: opts.cwd ?? null,
     ...(doc.tools?.allow ? { tools: { allow: doc.tools.allow } } : {}),
     plugins: resolvePlugins(doc.plugins ?? {}, opts.schemas, sources),
   };

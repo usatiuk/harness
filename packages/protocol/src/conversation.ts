@@ -2,10 +2,8 @@ import type { ConversationId, ItemId, TurnId } from "./ids.ts";
 import type { ModelConfig } from "./model.ts";
 
 /**
- * The resolved settings for one conversation: the cascade (global < project <
- * profile < overrides) collapsed once at creation. `model` is subsequently mutable
- * via the service (the switcher writes it back); the other fields are creation-time
- * only. Editing settings files later affects only new conversations.
+ * A conversation's settings, snapshotted from the cascade at creation. Only `model`
+ * is mutated thereafter; later edits to settings files reach only new conversations.
  */
 export interface ConversationConfig {
   instructions: string;
@@ -22,7 +20,7 @@ export interface ConversationConfig {
 export interface Conversation {
   id: ConversationId;
   config: ConversationConfig;
-  /** Tip of the active chain; the only mutable cell. `null` until the first append. */
+  /** Tip of the active chain; advances on each append. `null` until the first append. */
   head: ItemId | null;
   createdAt: number;
 }

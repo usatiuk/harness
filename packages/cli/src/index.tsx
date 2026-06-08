@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { useEffect, useState, type ReactElement } from "react";
 import { Box, Text, render, useApp, useInput } from "ink";
 import type {
@@ -68,7 +68,8 @@ async function loadSession(service: HarnessService, id: string): Promise<Session
 /** Parses launch flags into a running TUI: new session, resume by id, or resume picker. */
 export async function launch(opts: LaunchOptions = {}): Promise<void> {
   const { service, store, model } = buildHarness();
-  const cwd = opts.cwd ?? process.cwd();
+  // Canonicalize once so a `--cwd ./x` flag and a stored `workspaceRoot` compare equal.
+  const cwd = resolve(opts.cwd ?? process.cwd());
   // Conversations this instance created; empty ones are dropped on exit.
   const created = new Set<ConversationId>();
 
@@ -134,6 +135,7 @@ function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null
     return (
       <PickerScreen
         service={service}
+        cwd={cwd}
         onSelect={(id) => void loadSession(service, id).then(open)}
         onCancel={() => (session ? setPicking(false) : exit())}
       />
@@ -148,38 +150,52 @@ function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null
       conversation={session.conversation}
       initialItems={session.items}
       cwd={session.conversation.config.workspaceRoot ?? cwd}
+      launchCwd={cwd}
       onResume={resume}
     />
   );
 }
 
-/** Fetches the conversation list and renders the picker; Esc cancels. */
+/**
+ * Fetches the conversation list and renders the picker. Defaults to the current
+ * project (conversations rooted at `cwd`); `a` toggles showing all. Esc cancels.
+ */
 function PickerScreen({
   service,
+  cwd,
   onSelect,
   onCancel,
 }: {
   service: HarnessService;
+  cwd: string;
   onSelect: (id: string) => void;
   onCancel: () => void;
 }): ReactElement {
   const [list, setList] = useState<Conversation[] | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     void service.listConversations().then(setList);
   }, [service]);
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) onCancel();
+    else if (input === "a") setShowAll((v) => !v);
   });
 
   if (list === null) return <Text dimColor>loading…</Text>;
-  if (list.length === 0)
+  const shown = showAll ? list : list.filter((c) => c.config.workspaceRoot === cwd);
+  if (shown.length === 0) {
+    const hint =
+      !showAll && list.length > 0
+        ? "no conversations in this project — press a to show all"
+        : "no conversations yet.";
     return (
       <Box flexDirection="column">
-        <Text dimColor>no conversations yet.</Text>
+        <Text dimColor>{hint}</Text>
         <Text dimColor>(esc to go back)</Text>
       </Box>
     );
-  return <ResumePicker conversations={list} onSelect={onSelect} />;
+  }
+  return <ResumePicker conversations={shown} showingAll={showAll} onSelect={onSelect} />;
 }

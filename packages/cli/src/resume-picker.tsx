@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { basename } from "node:path";
 import { Box, Text } from "ink";
 import { Select } from "@inkjs/ui";
 import type { Conversation } from "@harness/protocol";
@@ -6,19 +7,24 @@ import type { Conversation } from "@harness/protocol";
 /** A list to pick a conversation to resume. Assumes a non-empty list. */
 export function ResumePicker({
   conversations,
+  showingAll,
   onSelect,
 }: {
   conversations: Conversation[];
+  showingAll: boolean;
   onSelect: (id: string) => void;
 }): ReactElement {
   const options = conversations.map((c) => ({
-    label: `${shortId(c.id)} · ${c.config.model.model} · ${timeAgo(c.createdAt)}`,
+    label: `${shortId(c.id)} · ${workspaceLabel(c.config.workspaceRoot)} · ${c.config.model.model} · ${timeAgo(c.createdAt)}`,
     value: c.id,
   }));
   return (
     <Box flexDirection="column">
       <Text bold>
-        Resume a conversation <Text dimColor>(esc to cancel)</Text>
+        Resume a conversation{" "}
+        <Text
+          dimColor
+        >{`(${showingAll ? "all projects" : "this project"} · a to toggle · esc to cancel)`}</Text>
       </Text>
       <Select options={options} onChange={onSelect} />
     </Box>
@@ -26,6 +32,10 @@ export function ResumePicker({
 }
 
 const shortId = (id: string): string => id.slice(0, 8);
+
+/** Basename of the conversation's workspace, or a placeholder for projectless ones. */
+const workspaceLabel = (root: string | null | undefined): string =>
+  root ? basename(root) : "no workspace";
 
 /** Coarse relative time ("3m ago"), no dependency. */
 function timeAgo(epochMs: number): string {
