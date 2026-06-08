@@ -8,13 +8,15 @@ import type {
   ModelConfig,
   PluginEntry,
 } from "@harness/protocol";
-import { defaultHome } from "@harness/config";
+import { defaultHome, type SettingsDoc } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
 import { localExecutionPlugin } from "@harness/execution";
 import { workspacePlugin } from "@harness/workspace";
 import { approvalPlugin } from "@harness/approval";
 import { HarnessService } from "@harness/service";
 import { createOpenAIPlugin } from "@harness/openai-api";
+import { KeyringSecretStore } from "@harness/secrets";
+import { CodexAuth, codexPlugin } from "@harness/openai-codex";
 import { DemoProvider } from "./demo-provider.ts";
 import { App } from "./app.tsx";
 import { ResumePicker } from "./resume-picker.tsx";
@@ -39,24 +41,28 @@ type Start = { kind: "session"; session: Session } | { kind: "picker" };
 interface Harness {
   service: HarnessService;
   store: SqliteStore;
-  model: ModelConfig;
+  /** Model used only when no settings layer configures one (no `auth login`, no project config). */
+  fallbackModel: ModelConfig;
 }
 
-/** Composition root: the durable store, a model plugin, and the execution/approval stack. */
+/** Composition root: the durable store, the model plugins, and the execution/approval stack. */
 function buildHarness(): Harness {
   const store = new SqliteStore(join(defaultHome(), "store.db"));
   const apiKey = process.env.OPENAI_API_KEY;
-  const modelPlugin: PluginEntry = apiKey
-    ? createOpenAIPlugin({ apiKey })
-    : { id: "demo", providers: () => [new DemoProvider()] };
-  const model: ModelConfig = apiKey
+  const codex = new CodexAuth({ store: new KeyringSecretStore() });
+  const plugins: PluginEntry[] = [
+    codexPlugin(codex),
+    ...(apiKey ? [createOpenAIPlugin({ apiKey })] : []),
+    { id: "demo", providers: () => [new DemoProvider()] },
+    localExecutionPlugin,
+    workspacePlugin,
+    approvalPlugin,
+  ];
+  const fallbackModel: ModelConfig = apiKey
     ? { provider: "openai", model: process.env.OPENAI_MODEL ?? "gpt-5.1" }
     : { provider: "demo", model: "demo-1" };
-  const service = new HarnessService({
-    store,
-    plugins: [modelPlugin, localExecutionPlugin, workspacePlugin, approvalPlugin],
-  });
-  return { service, store, model };
+  const service = new HarnessService({ store, plugins });
+  return { service, store, fallbackModel };
 }
 
 async function loadSession(service: HarnessService, id: string): Promise<Session> {
@@ -67,7 +73,7 @@ async function loadSession(service: HarnessService, id: string): Promise<Session
 
 /** Parses launch flags into a running TUI: new session, resume by id, or resume picker. */
 export async function launch(opts: LaunchOptions = {}): Promise<void> {
-  const { service, store, model } = buildHarness();
+  const { service, store, fallbackModel } = buildHarness();
   // Canonicalize once so a `--cwd ./x` flag and a stored `workspaceRoot` compare equal.
   const cwd = resolve(opts.cwd ?? process.cwd());
   // Conversations this instance created; empty ones are dropped on exit.
@@ -79,10 +85,15 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
   } else if (opts.resume) {
     start = { kind: "picker" };
   } else {
-    const modelConfig = opts.model ? { ...model, model: opts.model } : model;
+    // `--model` overrides the model id on the fallback provider (a dev convenience); otherwise
+    // the settings cascade picks the model, falling back to `fallbackModel` only when none is set.
+    const overrides: SettingsDoc = opts.model
+      ? { instructions: INSTRUCTIONS, model: { ...fallbackModel, model: opts.model } }
+      : { instructions: INSTRUCTIONS };
     const conversation = await service.createConversation({
       cwd,
-      overrides: { instructions: INSTRUCTIONS, model: modelConfig },
+      defaults: { model: fallbackModel },
+      overrides,
     });
     console.log(`conversation ${conversation.id}`);
     created.add(conversation.id);

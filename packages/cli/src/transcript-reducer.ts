@@ -26,6 +26,8 @@ export type Cell =
       output?: string;
     }
   | { kind: "compaction"; id: string }
+  // A failed turn's error message. Immutable, so it migrates straight to scrollback.
+  | { kind: "error"; id: string; text: string }
   // Local-only (command output / errors). The pure reducer never emits this; the app
   // wrapper does. Always immutable, so it migrates straight to scrollback.
   | { kind: "note"; id: string; text: string };
@@ -96,8 +98,26 @@ export function reduce(state: State, event: HarnessEvent): State {
   switch (event.type) {
     case "turn.status": {
       const turn = { id: event.turnId, status: event.status };
+      if (event.status === "running") return { ...state, turn };
       // A parked request can't outlive its turn.
-      return event.status === "running" ? { ...state, turn } : { ...clearPending(state), turn };
+      const ended = clearPending(state);
+      if (event.status !== "failed") return { ...ended, turn };
+      // A failed turn never reaches "completed", so its streaming cells need closing here.
+      const cells = ended.cells.map((c) =>
+        (c.kind === "assistant" || c.kind === "reasoning") &&
+        c.streaming &&
+        c.turnId === event.turnId
+          ? { ...c, streaming: false }
+          : c,
+      );
+      return {
+        ...ended,
+        turn,
+        cells: [
+          ...cells,
+          { kind: "error", id: `${event.turnId}:error`, text: event.error ?? "turn failed" },
+        ],
+      };
     }
     case "message": {
       const item = event.item;

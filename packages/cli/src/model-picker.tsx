@@ -14,11 +14,16 @@ export function ModelPicker({
   onSelect: (model: ModelConfig) => void;
 }): ReactElement {
   const currentId = modelId(current);
-  const options = models.map((m) => ({
-    label: `${m.label ?? m.model}${modelId(m) === currentId ? " ✓" : ""}`,
+  // Cluster by provider and qualify each label with it; the same model name can appear under
+  // multiple providers (e.g. openai vs openai-codex), so a bare name would render as duplicates.
+  const sorted = [...models].sort(
+    (a, b) => a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model),
+  );
+  const options = sorted.map((m) => ({
+    label: `${m.provider}/${m.label ?? m.model}${modelId(m) === currentId ? " ✓" : ""}`,
     value: modelId(m),
   }));
-  const byId = new Map(models.map((m) => [modelId(m), m]));
+  const byId = new Map(sorted.map((m) => [modelId(m), m]));
   return (
     <Box flexDirection="column">
       <Text bold>

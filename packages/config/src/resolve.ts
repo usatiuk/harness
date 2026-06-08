@@ -8,6 +8,8 @@ import { formatIssue, settingsDocSchema, type SettingsDoc } from "./settings.ts"
 export interface ResolveOptions {
   /** Harness home directory; the global layer is `<home>/settings.json`. */
   home: string;
+  /** Lowest-precedence base layer, below global settings (e.g. a CLI fallback model). */
+  defaults?: SettingsDoc;
   /** Where the project search starts. Absent ⇒ projectless (project layers skipped). */
   cwd?: string;
   /** Named profile to overlay above the project layers. */
@@ -34,6 +36,7 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
   const root = opts.cwd ? await findProjectRoot(opts.cwd) : undefined;
 
   const layers: Layer[] = [];
+  if (opts.defaults !== undefined) layers.push({ label: "defaults", doc: opts.defaults });
   await pushFileLayer(layers, "global settings", join(opts.home, "settings.json"));
   if (root) {
     await pushFileLayer(layers, "project settings", join(root, ".harness", "settings.json"));

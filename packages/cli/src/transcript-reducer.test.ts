@@ -89,6 +89,35 @@ describe("transcript reducer", () => {
     expect(ended.pending).toBeUndefined();
   });
 
+  it("appends an error cell carrying the message when a turn fails", () => {
+    const state = fold([
+      { type: "turn.status", turnId: "t1", status: "running" },
+      { type: "turn.status", turnId: "t1", status: "failed", error: "404 model unavailable" },
+    ]);
+    expect(state.cells).toEqual([{ kind: "error", id: "t1:error", text: "404 model unavailable" }]);
+    expect(state.turn.status).toBe("failed");
+  });
+
+  it("does not append an error cell for an aborted turn", () => {
+    const state = fold([
+      { type: "turn.status", turnId: "t1", status: "running" },
+      { type: "turn.status", turnId: "t1", status: "aborted" },
+    ]);
+    expect(state.cells).toEqual([]);
+  });
+
+  it("closes a still-streaming cell when its turn fails mid-stream", () => {
+    const state = fold([
+      { type: "turn.status", turnId: "t1", status: "running" },
+      { type: "text_delta", turnId: "t1", text: "partial" },
+      { type: "turn.status", turnId: "t1", status: "failed", error: "boom" },
+    ]);
+    expect(state.cells).toEqual([
+      { kind: "assistant", turnId: "t1", text: "partial", streaming: false },
+      { kind: "error", id: "t1:error", text: "boom" },
+    ]);
+  });
+
   it("init folds a committed log into the same cells a live replay yields", () => {
     const log: Item[] = [
       item({ type: "message", role: "user", id: "u1", seq: 0, content: text("hi") }),

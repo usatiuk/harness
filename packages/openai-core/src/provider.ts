@@ -30,6 +30,11 @@ const MODELS: ModelSpec[] = [
     defaultEffort: "medium",
   },
   {
+    model: "gpt-5.5",
+    efforts: [effort("none"), effort("low"), effort("medium"), effort("high")],
+    defaultEffort: "medium",
+  },
+  {
     model: "gpt-5.1-codex",
     efforts: [effort("low"), effort("medium"), effort("high")],
     defaultEffort: "medium",

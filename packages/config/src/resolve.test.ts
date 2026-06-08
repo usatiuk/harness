@@ -147,4 +147,22 @@ describe("resolveSettings validation", () => {
     const home = await tmp();
     await expect(resolveSettings({ home, schemas })).rejects.toThrow(/no model configured/);
   });
+
+  it("applies defaults below global, so a configured model still wins", async () => {
+    const fallback = { provider: "fallback", model: "f" };
+
+    // No settings file ⇒ defaults supplies the model instead of throwing.
+    const bare = await resolveSettings({
+      home: await tmp(),
+      defaults: { model: fallback },
+      schemas,
+    });
+    expect(bare.model).toEqual(fallback);
+
+    // Global settings outrank defaults.
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), { model });
+    const layered = await resolveSettings({ home, defaults: { model: fallback }, schemas });
+    expect(layered.model).toEqual(model);
+  });
 });

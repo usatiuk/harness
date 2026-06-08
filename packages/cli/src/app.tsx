@@ -64,6 +64,13 @@ export function App({
   const busy = state.turn.status === "running";
   const pending = state.pending;
 
+  const note = (text: string): void =>
+    dispatch({ type: "note", id: `note-${++noteId.current}`, text });
+  // Surface a rejected service call instead of letting the floating promise vanish.
+  const report = (p: Promise<unknown>): void => {
+    void p.catch((e: unknown) => note(`error: ${String(e)}`));
+  };
+
   useEffect(
     () =>
       service.subscribe((event) => {
@@ -95,14 +102,14 @@ export function App({
     if (!key.escape) return;
     if (modelPicking) setModelPicking(false);
     else if (effortPicking) setEffortPicking(false);
-    else if (busy) void service.deliver(conversation.id, "", "interrupt");
+    else if (busy) report(service.deliver(conversation.id, "", "interrupt"));
   });
 
   const ctx: CommandContext = {
     service,
     conversationId: conversation.id,
     model,
-    note: (text) => dispatch({ type: "note", id: `note-${++noteId.current}`, text }),
+    note,
     clear: () => dispatch({ type: "clear" }),
     resume: onResume,
     pickModel: () => setModelPicking(true),
@@ -118,14 +125,14 @@ export function App({
       return;
     }
     if (line.startsWith(">")) {
-      void service.deliver(conversation.id, line.slice(1).trim(), "queue");
+      report(service.deliver(conversation.id, line.slice(1).trim(), "queue"));
       return;
     }
     if (line.startsWith("!")) {
-      void service.deliver(conversation.id, line.slice(1).trim(), "interrupt");
+      report(service.deliver(conversation.id, line.slice(1).trim(), "interrupt"));
       return;
     }
-    void service.deliver(conversation.id, line, busy ? "steer" : "send");
+    report(service.deliver(conversation.id, line, busy ? "steer" : "send"));
   };
 
   // Finalized cells (longest immutable prefix) print once to native scrollback via
@@ -156,7 +163,7 @@ export function App({
           current={model}
           onSelect={(next) => {
             setModelPicking(false);
-            void service.setModel(conversation.id, next);
+            report(service.setModel(conversation.id, next));
           }}
         />
       ) : effortPicking ? (
@@ -165,7 +172,7 @@ export function App({
           current={model.effort}
           onSelect={(value) => {
             setEffortPicking(false);
-            void service.setModel(conversation.id, { ...model, effort: value });
+            report(service.setModel(conversation.id, { ...model, effort: value }));
           }}
         />
       ) : (

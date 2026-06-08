@@ -31,6 +31,8 @@ export interface HarnessServiceOptions {
 }
 
 export interface CreateConversationOptions {
+  /** Lowest-precedence base layer, below all settings files (e.g. a CLI fallback model). */
+  defaults?: SettingsDoc;
   /** Project search root; absent ⇒ projectless (no project settings, no workspace). */
   cwd?: string;
   /** Named profile to overlay above project settings. */
@@ -74,6 +76,7 @@ export class HarnessService {
     const config = await resolveSettings({
       home: this.#home,
       schemas: this.#schemas,
+      ...(options.defaults !== undefined ? { defaults: options.defaults } : {}),
       ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
       ...(options.profile !== undefined ? { profile: options.profile } : {}),
       ...(options.overrides !== undefined ? { overrides: options.overrides } : {}),
