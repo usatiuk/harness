@@ -9,6 +9,7 @@ const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   note: vi.fn(),
   clear: vi.fn(),
   resume: vi.fn(),
+  pickModel: vi.fn(),
   exit: vi.fn(),
   ...over,
 });
@@ -44,5 +45,36 @@ describe("runCommand", () => {
     const noId = makeCtx();
     runCommand("/resume", noId);
     expect(noId.resume).toHaveBeenCalledWith(undefined);
+  });
+
+  it("/model with no args opens the picker", () => {
+    const ctx = makeCtx();
+    runCommand("/model", ctx);
+    expect(ctx.pickModel).toHaveBeenCalledOnce();
+  });
+
+  it("/model <id> resolves the id against the catalog and switches", async () => {
+    const setModel = vi.fn().mockResolvedValue(undefined);
+    const service = {
+      availableModels: () => [{ provider: "openai", model: "gpt-5.1" }],
+      setModel,
+    } as unknown as HarnessService;
+    const ctx = makeCtx({ service });
+    runCommand("/model gpt-5.1", ctx);
+    expect(setModel).toHaveBeenCalledWith("c1", { provider: "openai", model: "gpt-5.1" });
+    await Promise.resolve();
+    expect(ctx.note).toHaveBeenCalledWith("model → openai/gpt-5.1");
+  });
+
+  it("/model <id> notes an error for an unknown model and never switches", () => {
+    const setModel = vi.fn();
+    const service = {
+      availableModels: () => [{ provider: "openai", model: "gpt-5.1" }],
+      setModel,
+    } as unknown as HarnessService;
+    const ctx = makeCtx({ service });
+    runCommand("/model bogus", ctx);
+    expect(setModel).not.toHaveBeenCalled();
+    expect(ctx.note).toHaveBeenCalledWith("unknown model: bogus");
   });
 });

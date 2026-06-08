@@ -9,6 +9,8 @@ import {
   type DeliveryIntent,
   type HarnessEvent,
   type ItemId,
+  type ModelConfig,
+  type ModelInfo,
   type ModelRequest,
   type ModelStreamEvent,
   type NewContextBuild,
@@ -113,6 +115,17 @@ export class Engine {
     return this.#runtimes.get(conversationId)?.whenIdle() ?? Promise.resolve();
   }
 
+  /** Aggregate model catalog across registered providers. */
+  availableModels(): ModelInfo[] {
+    return this.host.providers.listModels();
+  }
+
+  /** Persists the new model (read fresh by the next turn) and emits config.changed. */
+  async setModel(conversationId: ConversationId, model: ModelConfig): Promise<void> {
+    await this.store.updateConversationModel(conversationId, model);
+    this.#emit({ type: "config.changed", conversationId, model });
+  }
+
   /** Loads (and caches) the runtime, guarding against concurrent first-touch. */
   #runtime(conversationId: ConversationId): Promise<Runtime> {
     const existing = this.#runtimes.get(conversationId);
@@ -167,7 +180,12 @@ export class Engine {
 
   /** Runs one turn seeded by a batch: each entry's content is a user message. */
   async #runTurn(runtime: Runtime, batch: Delivery[]): Promise<void> {
-    const conversation = runtime.conversation;
+    // Re-read config from the store each turn: a setModel between turns lands here; one
+    // mid-turn can't affect the in-flight turn.
+    const conversation = await this.store.getConversation(runtime.conversation.id);
+    if (!conversation) {
+      throw new Error(`unknown conversation: ${runtime.conversation.id}`);
+    }
     const controller = new AbortController();
     runtime.controller = controller;
 

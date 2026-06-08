@@ -12,6 +12,7 @@ import type {
   IdGenerator,
   Item,
   ItemId,
+  ModelConfig,
   NewContextBuild,
   NewConversation,
   NewItem,
@@ -94,6 +95,19 @@ export class SqliteStore implements Store {
       .where("id", "=", id)
       .executeTakeFirst();
     return row ? rowToConversation(row) : undefined;
+  }
+
+  async updateConversationModel(id: ConversationId, model: ModelConfig): Promise<void> {
+    const conversation = await this.getConversation(id);
+    if (!conversation) {
+      throw new Error(`unknown conversation: ${id}`);
+    }
+    const config = { ...conversation.config, model };
+    await this.#k
+      .updateTable("conversations")
+      .set({ config: JSON.stringify(config) })
+      .where("id", "=", id)
+      .execute();
   }
 
   async listConversations(): Promise<Conversation[]> {

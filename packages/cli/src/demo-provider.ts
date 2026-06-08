@@ -1,5 +1,6 @@
 import {
   textOf,
+  type ModelInfo,
   type ModelProvider,
   type ModelRequest,
   type ModelStreamEvent,
@@ -43,6 +44,10 @@ export class DemoProvider implements ModelProvider {
   }
 
   validateConfig(): void {}
+
+  listModels(): ModelInfo[] {
+    return [{ provider: this.provider, model: "demo-1" }];
+  }
 
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
     const last = request.items.at(-1)?.item;

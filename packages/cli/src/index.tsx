@@ -143,7 +143,6 @@ function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null
       service={service}
       conversation={session.conversation}
       initialItems={session.items}
-      model={session.conversation.config.model.model}
       cwd={session.conversation.config.workspaceRoot ?? cwd}
       onResume={resume}
     />

@@ -1,10 +1,11 @@
 import { useEffect, useReducer, useRef, useState, type ReactElement } from "react";
 import { Box, Static, Text, useApp, useInput } from "ink";
 import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
-import type { Conversation, HarnessEvent, Item } from "@harness/protocol";
+import { isKernelEvent, type Conversation, type HarnessEvent, type Item } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
 import { runCommand, type CommandContext } from "./commands.ts";
+import { ModelPicker } from "./model-picker.tsx";
 import { CellView, cellKey } from "./cells.tsx";
 
 const INSTRUCTIONS_PLACEHOLDER = "type a message…   (> queue · ! interrupt · /help · Esc abort)";
@@ -13,7 +14,6 @@ export interface AppProps {
   service: HarnessService;
   conversation: Conversation;
   initialItems: Item[];
-  model: string;
   cwd: string;
   /** Switch conversation (id resumes directly; omitted opens the picker). */
   onResume: (id?: string) => void;
@@ -49,21 +49,37 @@ export function App({
   service,
   conversation,
   initialItems,
-  model,
   cwd,
   onResume,
 }: AppProps): ReactElement {
   const { exit } = useApp();
   const [state, dispatch] = useReducer(appReduce, initialItems, init);
+  const [model, setModel] = useState(conversation.config.model);
+  const [modelPicking, setModelPicking] = useState(false);
   const noteId = useRef(0);
   const busy = state.turn.status === "running";
   const pending = state.pending;
 
-  useEffect(() => service.subscribe((event) => dispatch({ type: "event", event })), [service]);
+  useEffect(
+    () =>
+      service.subscribe((event) => {
+        dispatch({ type: "event", event });
+        if (
+          isKernelEvent(event) &&
+          event.type === "config.changed" &&
+          event.conversationId === conversation.id
+        ) {
+          setModel(event.model);
+        }
+      }),
+    [service, conversation.id],
+  );
 
-  // Esc interrupts a running turn (aborting also cancels any parked request).
+  // Esc closes the model picker, else interrupts a running turn (also cancels a parked request).
   useInput((_input, key) => {
-    if (key.escape && busy) void service.deliver(conversation.id, "", "interrupt");
+    if (!key.escape) return;
+    if (modelPicking) setModelPicking(false);
+    else if (busy) void service.deliver(conversation.id, "", "interrupt");
   });
 
   const ctx: CommandContext = {
@@ -72,6 +88,7 @@ export function App({
     note: (text) => dispatch({ type: "note", id: `note-${++noteId.current}`, text }),
     clear: () => dispatch({ type: "clear" }),
     resume: onResume,
+    pickModel: () => setModelPicking(true),
     exit,
   };
 
@@ -115,9 +132,18 @@ export function App({
             }
           />
         </Box>
+      ) : modelPicking ? (
+        <ModelPicker
+          models={service.availableModels()}
+          current={model}
+          onSelect={(next) => {
+            setModelPicking(false);
+            void service.setModel(conversation.id, next);
+          }}
+        />
       ) : (
         <>
-          <StatusBar busy={busy} model={model} cwd={cwd} />
+          <StatusBar busy={busy} model={model.model} cwd={cwd} />
           <Composer onSubmit={submit} />
         </>
       )}

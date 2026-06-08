@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type {
+  ModelInfo,
   ModelProvider,
   ModelRequest,
   ModelStreamEvent,
@@ -34,6 +35,13 @@ export class OpenAIResponsesProvider implements ModelProvider {
   }
 
   validateConfig(): void {}
+
+  listModels(): ModelInfo[] {
+    return [
+      { provider: this.provider, model: "gpt-5.1" },
+      { provider: this.provider, model: "gpt-5.1-codex" },
+    ];
+  }
 
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
     const client = await this.#credentials.client();

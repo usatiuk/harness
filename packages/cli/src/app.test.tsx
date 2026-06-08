@@ -32,7 +32,6 @@ const mount = (service: HarnessService) =>
       service={service}
       conversation={conversation}
       initialItems={[]}
-      model="demo-1"
       cwd="/tmp"
       onResume={() => {}}
     />,
@@ -44,6 +43,19 @@ describe("App", () => {
     const { lastFrame } = mount(service);
     expect(lastFrame()).toContain("type a message");
     expect(lastFrame()).toContain("demo-1");
+  });
+
+  it("updates the displayed model when a config.changed event arrives", async () => {
+    const { service, emit } = harness();
+    const { lastFrame } = mount(service);
+    expect(lastFrame()).toContain("demo-1");
+    emit({
+      type: "config.changed",
+      conversationId: "c1",
+      model: { provider: "openai", model: "gpt-5.1" },
+    });
+    await flush();
+    expect(lastFrame()).toContain("gpt-5.1");
   });
 
   it("renders streaming assistant text from the event stream", async () => {

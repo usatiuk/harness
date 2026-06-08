@@ -6,6 +6,7 @@ import type {
   IdGenerator,
   Item,
   ItemId,
+  ModelConfig,
   NewContextBuild,
   NewConversation,
   NewItem,
@@ -53,6 +54,14 @@ export class InMemoryStore implements Store {
 
   async getConversation(id: ConversationId): Promise<Conversation | undefined> {
     return this.#conversations.get(id);
+  }
+
+  async updateConversationModel(id: ConversationId, model: ModelConfig): Promise<void> {
+    const conversation = this.#conversations.get(id);
+    if (!conversation) {
+      throw new Error(`unknown conversation: ${id}`);
+    }
+    this.#conversations.set(id, { ...conversation, config: { ...conversation.config, model } });
   }
 
   async listConversations(): Promise<Conversation[]> {

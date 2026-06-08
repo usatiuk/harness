@@ -151,6 +151,8 @@ export function reduce(state: State, event: HarnessEvent): State {
     }
     case "request.resolved":
       return state.pending?.requestId === event.requestId ? clearPending(state) : state;
+    case "config.changed":
+      return state; // not a transcript line
     default:
       return assertNever(event);
   }

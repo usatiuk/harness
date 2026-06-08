@@ -957,3 +957,76 @@ describe("Engine — crash reconciliation on load", () => {
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
   });
 });
+
+/** Records the model of every request it serves, so a test can see what each turn used. */
+class CatalogProvider implements ModelProvider {
+  readonly provider = "rec";
+  readonly seen: string[] = [];
+  capabilities() {
+    return { contentTypes: ["text"], toolCalling: false };
+  }
+  validateConfig(): void {}
+  listModels() {
+    return [
+      { provider: "rec", model: "m1" },
+      { provider: "rec", model: "m2" },
+    ];
+  }
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
+    this.seen.push(request.modelConfig.model);
+    yield {
+      type: "completed",
+      content: [{ type: "text", text: "ok" }],
+      usage: { inputTokens: 0, outputTokens: 0 },
+    };
+  }
+}
+
+function recordingSetup() {
+  const provider = new CatalogProvider();
+  const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+  const engine = new Engine(store, new PluginHost([{ id: "rec", providers: () => [provider] }]));
+  const events: HarnessEvent[] = [];
+  engine.subscribe({ onEvent: (e) => events.push(e) });
+  return { provider, store, engine, events };
+}
+
+const recConfig = { instructions: "", model: { provider: "rec", model: "m1" } };
+
+describe("Engine — model switching", () => {
+  it("setModel persists the new model and emits config.changed", async () => {
+    const { store, engine, events } = recordingSetup();
+    const conv = await store.createConversation({ config: recConfig });
+
+    await engine.setModel(conv.id, { provider: "rec", model: "m2" });
+
+    expect((await store.getConversation(conv.id))?.config.model).toEqual({
+      provider: "rec",
+      model: "m2",
+    });
+    expect(events.filter(isKernelEvent).filter((e) => e.type === "config.changed")).toEqual([
+      { type: "config.changed", conversationId: conv.id, model: { provider: "rec", model: "m2" } },
+    ]);
+  });
+
+  it("availableModels aggregates the registered providers' catalogs", () => {
+    const { engine } = recordingSetup();
+    expect(engine.availableModels()).toEqual([
+      { provider: "rec", model: "m1" },
+      { provider: "rec", model: "m2" },
+    ]);
+  });
+
+  it("reads the model fresh per turn, so a switch between turns lands on the next turn", async () => {
+    const { provider, store, engine } = recordingSetup();
+    const conv = await store.createConversation({ config: recConfig });
+
+    await engine.deliver(conv.id, userInput("one"));
+    await engine.whenIdle(conv.id);
+    await engine.setModel(conv.id, { provider: "rec", model: "m2" });
+    await engine.deliver(conv.id, userInput("two"));
+    await engine.whenIdle(conv.id);
+
+    expect(provider.seen).toEqual(["m1", "m2"]);
+  });
+});

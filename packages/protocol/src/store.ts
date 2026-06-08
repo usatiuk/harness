@@ -1,7 +1,7 @@
 import type { ConversationId, ItemId, TurnId } from "./ids.ts";
 import type { Conversation, NewConversation, Turn, TurnStatus } from "./conversation.ts";
 import type { Item, NewItem } from "./items.ts";
-import type { ProviderPayload } from "./model.ts";
+import type { ModelConfig, ProviderPayload } from "./model.ts";
 import type { ContextBuild, NewContextBuild } from "./policies.ts";
 import type { OutputRef } from "./tools.ts";
 
@@ -19,6 +19,8 @@ export interface ByteRange {
 export interface Store {
   createConversation(input: NewConversation): Promise<Conversation>;
   getConversation(id: ConversationId): Promise<Conversation | undefined>;
+  /** Switch the conversation's model in place. The one mutable field of `config`. */
+  updateConversationModel(id: ConversationId, model: ModelConfig): Promise<void>;
   /** All conversations, most-recent-first (by `createdAt`). The resume/listing source. */
   listConversations(): Promise<Conversation[]>;
 

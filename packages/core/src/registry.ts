@@ -1,4 +1,4 @@
-import type { ModelProvider, Tool, ToolSchema } from "@harness/protocol";
+import type { ModelInfo, ModelProvider, Tool, ToolSchema } from "@harness/protocol";
 
 export class ProviderRegistry {
   readonly #byName = new Map<string, ModelProvider>();
@@ -8,6 +8,11 @@ export class ProviderRegistry {
       throw new Error(`duplicate provider: ${provider.provider}`);
     }
     this.#byName.set(provider.provider, provider);
+  }
+
+  /** Every registered provider's catalog, in registration order. */
+  listModels(): ModelInfo[] {
+    return [...this.#byName.values()].flatMap((p) => p.listModels?.() ?? []);
   }
 
   get(name: string): ModelProvider {

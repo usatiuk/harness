@@ -7,6 +7,18 @@ export interface ModelConfig {
   model: string;
 }
 
+/** One selectable model in a provider's catalog. */
+export interface ModelInfo {
+  provider: string;
+  model: string;
+  /** Display name; falls back to `model` when absent. */
+  label?: string;
+}
+
+/** Canonical id for a model selection: `provider/model`. */
+export const modelId = (m: { provider: string; model: string }): string =>
+  `${m.provider}/${m.model}`;
+
 export interface ProviderCapabilities {
   contentTypes: readonly string[];
   toolCalling: boolean;
@@ -73,4 +85,6 @@ export interface ModelProvider {
   validateConfig(config: ModelConfig): void;
   /** Streams one model step. The signal aborts the underlying network stream. */
   stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent>;
+  /** Selectable models this provider offers; absent = none. */
+  listModels?(): ModelInfo[];
 }

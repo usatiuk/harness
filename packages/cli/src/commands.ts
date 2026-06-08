@@ -1,4 +1,4 @@
-import type { ConversationId } from "@harness/protocol";
+import { modelId, type ConversationId } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 
 /** What a slash command can act on. Kept narrow on purpose. */
@@ -11,6 +11,8 @@ export interface CommandContext {
   clear: () => void;
   /** Switch conversation: an id resumes it directly; omitting it opens the picker. */
   resume: (id?: string) => void;
+  /** Open the model switcher overlay. */
+  pickModel: () => void;
   /** Quit the app. */
   exit: () => void;
 }
@@ -30,6 +32,29 @@ export const commands: Command[] = [
     name: "resume",
     summary: "switch conversation (/resume <id>, or /resume to pick)",
     run: (ctx, args) => ctx.resume(args[0]),
+  },
+  {
+    name: "model",
+    summary: "switch model (/model <id>, or /model to pick)",
+    run: (ctx, args) => {
+      const id = args[0];
+      if (!id) {
+        ctx.pickModel();
+        return;
+      }
+      // Resolve the bare id against the catalog so the provider comes along and an
+      // unknown id is rejected up front. Accept either "model" or "provider/model".
+      const match = ctx.service.availableModels().find((m) => m.model === id || modelId(m) === id);
+      if (!match) {
+        ctx.note(`unknown model: ${id}`);
+        return;
+      }
+      const model = { provider: match.provider, model: match.model };
+      void ctx.service.setModel(ctx.conversationId, model).then(
+        () => ctx.note(`model → ${modelId(model)}`),
+        (e: unknown) => ctx.note(`model switch failed: ${String(e)}`),
+      );
+    },
   },
   { name: "exit", summary: "quit", run: (ctx) => ctx.exit() },
   {

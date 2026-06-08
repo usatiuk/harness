@@ -5,13 +5,21 @@ import type {
   HarnessEvent,
   Item,
   ItemId,
+  ModelConfig,
+  ModelInfo,
   Plugin,
   PluginEntry,
   Store,
 } from "@harness/protocol";
 import { isPluginDefinition } from "@harness/protocol";
 import { Engine, PluginHost } from "@harness/core";
-import { defaultHome, resolveSettings, StoreConfigReader, type SettingsDoc } from "@harness/config";
+import {
+  defaultHome,
+  resolveSettings,
+  StoreConfigReader,
+  updateGlobalModel,
+  type SettingsDoc,
+} from "@harness/config";
 import type { ZodType } from "zod";
 
 export interface HarnessServiceOptions {
@@ -111,6 +119,21 @@ export class HarnessService {
   /** Resolves when the conversation has no running or queued work. */
   whenIdle(conversationId: ConversationId): Promise<void> {
     return this.#engine.whenIdle(conversationId);
+  }
+
+  /** Aggregate model catalog across registered providers. */
+  availableModels(): ModelInfo[] {
+    return this.#engine.availableModels();
+  }
+
+  /**
+   * Switches the conversation's model and persists it as the global default for future
+   * conversations. The conversation switch goes first so its `config.changed` is emitted
+   * before the global write can fail.
+   */
+  async setModel(conversationId: ConversationId, model: ModelConfig): Promise<void> {
+    await this.#engine.setModel(conversationId, model);
+    await updateGlobalModel(this.#home, model);
   }
 
   /** Subscribes to the typed event stream. Returns an unsubscribe handle. */

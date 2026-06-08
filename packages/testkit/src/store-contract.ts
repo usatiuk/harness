@@ -4,6 +4,7 @@ import type { ConversationId, NewItem, Store, TurnId } from "@harness/protocol";
 const sampleConfig = () => ({
   instructions: "be helpful",
   model: { provider: "fake", model: "fake-1" },
+  plugins: { demo: { level: "high" } },
 });
 
 const message = (conversationId: ConversationId, turnId: TurnId, text: string): NewItem => ({
@@ -37,6 +38,16 @@ export function storeContract(name: string, makeStore: () => Store): void {
       const b = await store.createConversation({ config: sampleConfig() });
       const c = await store.createConversation({ config: sampleConfig() });
       expect((await store.listConversations()).map((x) => x.id)).toEqual([c.id, b.id, a.id]);
+    });
+
+    it("updateConversationModel switches the model and leaves other config untouched", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation({ config: sampleConfig() });
+      await store.updateConversationModel(conv.id, { provider: "fake", model: "fake-2" });
+      const updated = await store.getConversation(conv.id);
+      expect(updated?.config.model).toEqual({ provider: "fake", model: "fake-2" });
+      expect(updated?.config.instructions).toBe("be helpful");
+      expect(updated?.config.plugins).toEqual({ demo: { level: "high" } });
     });
 
     it("links parent to the prior head and advances head on append", async () => {
