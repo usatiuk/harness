@@ -10,6 +10,12 @@ export interface ToolCall {
   args: unknown;
 }
 
+/**
+ * Canonical name of the patch-based file editor. Shared so the workspace tool and any
+ * provider that renders it natively (OpenAI `apply_patch`) agree on one identity.
+ */
+export const APPLY_PATCH = "apply_patch";
+
 export type ToolStatus = "ok" | "error";
 
 /** Reference to full raw output in the blob store; never auto-sent to the model. */

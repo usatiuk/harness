@@ -11,8 +11,9 @@
     }
   },
   "dependencies": {
-    "@harness/protocol": "*",
     "@harness/execution": "*",
+    "@harness/protocol": "*",
+    "@openai/agents-core": "^0.11.6",
     "zod": "^4.4.3"
   },
   "devDependencies": {

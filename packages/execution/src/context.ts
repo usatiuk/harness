@@ -28,6 +28,8 @@ export interface ExecutionContext {
   readonly workspaceRoot: string | null;
   read(path: string, range?: ByteRange): Promise<Uint8Array>;
   write(path: string, bytes: Uint8Array): Promise<void>;
+  /** Deletes `path`. Errors if it does not exist. */
+  remove(path: string): Promise<void>;
   /** Workspace-relative paths matching a glob. Rejects when projectless. */
   list(pattern: string): Promise<string[]>;
   run(command: string, opts?: ExecOptions): Promise<ExecResult>;

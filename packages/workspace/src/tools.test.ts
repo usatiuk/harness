@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ConversationId, ToolContext } from "@harness/protocol";
 import { LocalExecutionContext } from "@harness/execution";
-import { BashTool, EditTool, GlobTool, GrepTool, ReadFileTool, WriteTool } from "./tools.ts";
+import { ApplyPatchTool, BashTool, GlobTool, GrepTool, ReadFileTool, WriteTool } from "./tools.ts";
 
 const created: string[] = [];
 async function workspace(): Promise<ToolContext> {
@@ -34,28 +34,34 @@ describe("workspace tools", () => {
     expect(text(r)).toBe("hi");
   });
 
-  it("edits the unique occurrence and rejects missing/ambiguous matches", async () => {
+  it("applies create/update/delete patches and reports bad diffs", async () => {
     const ctx = await workspace();
-    await new WriteTool().execute({ path: "f.txt", content: "one two one" }, ctx);
+    const tool = new ApplyPatchTool();
+    const read = () => new ReadFileTool().execute({ path: "f.txt" }, ctx);
 
-    const missing = await new EditTool().execute(
-      { path: "f.txt", old_string: "zzz", new_string: "x" },
+    const created = await tool.execute(
+      { type: "create_file", path: "f.txt", diff: "+alpha\n+beta\n+gamma" },
       ctx,
     );
-    expect(missing.status).toBe("error");
+    expect(created.status).toBe("ok");
+    expect(text(await read())).toBe("alpha\nbeta\ngamma");
 
-    const ambiguous = await new EditTool().execute(
-      { path: "f.txt", old_string: "one", new_string: "X" },
+    const updated = await tool.execute(
+      { type: "update_file", path: "f.txt", diff: "@@\n alpha\n-beta\n+BETA\n gamma" },
       ctx,
     );
-    expect(ambiguous.status).toBe("error");
+    expect(updated.status).toBe("ok");
+    expect(text(await read())).toBe("alpha\nBETA\ngamma");
 
-    const edited = await new EditTool().execute(
-      { path: "f.txt", old_string: "two", new_string: "TWO" },
+    const bad = await tool.execute(
+      { type: "update_file", path: "f.txt", diff: "@@\n nope\n-zzz\n+q" },
       ctx,
     );
-    expect(edited.status).toBe("ok");
-    expect(text(await new ReadFileTool().execute({ path: "f.txt" }, ctx))).toBe("one TWO one");
+    expect(bad.status).toBe("error");
+
+    const deleted = await tool.execute({ type: "delete_file", path: "f.txt" }, ctx);
+    expect(deleted.status).toBe("ok");
+    await expect(read()).rejects.toThrow();
   });
 
   it("globs and greps the workspace", async () => {

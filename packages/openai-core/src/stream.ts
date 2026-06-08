@@ -1,5 +1,5 @@
 import type OpenAI from "openai";
-import type { ModelStreamEvent } from "@harness/protocol";
+import { APPLY_PATCH, type ModelStreamEvent } from "@harness/protocol";
 import { encodeReasoningPayload } from "./payload.ts";
 
 type StreamEvent = OpenAI.Responses.ResponseStreamEvent;
@@ -20,6 +20,11 @@ function* fromItem(
       name: item.name,
       args: parseArgs(item.arguments),
     };
+  } else if (item.type === "apply_patch_call") {
+    // The structured operation (incl. its V4A diff) is the canonical, provider-neutral args.
+    // apply_patch carries no per-call opaque state; a provider that does (e.g. a reasoning
+    // signature bound to the call) attaches it via the event's `payload`, like reasoning.
+    yield { type: "tool_call", callId: item.call_id, name: APPLY_PATCH, args: item.operation };
   }
 }
 

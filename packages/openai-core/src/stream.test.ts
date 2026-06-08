@@ -82,6 +82,24 @@ describe("toModelEvents", () => {
     expect(out[0]).toEqual({ type: "tool_call", callId: "c", name: "f", args: "not json" });
   });
 
+  it("maps an apply_patch_call to a tool_call carrying the structured operation", async () => {
+    const operation = { type: "update_file", path: "a.ts", diff: "@@\n-x\n+y" };
+    const stream = emit(
+      {
+        type: "response.output_item.done",
+        item: { type: "apply_patch_call", call_id: "call_p", status: "completed", operation },
+      },
+      { type: "response.completed", response: { usage: { input_tokens: 0, output_tokens: 0 } } },
+    );
+    const out = await collect(toModelEvents(stream, "m", never));
+    expect(out[0]).toEqual({
+      type: "tool_call",
+      callId: "call_p",
+      name: "apply_patch",
+      args: operation,
+    });
+  });
+
   it("throws on a failed response", async () => {
     const stream = emit({ type: "response.failed", response: { error: { message: "boom" } } });
     await expect(collect(toModelEvents(stream, "m", never))).rejects.toThrow(/boom/);

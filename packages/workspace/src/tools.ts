@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { errorResult, type Tool, type ToolContext, type ToolResult } from "@harness/protocol";
+import { applyDiff } from "@openai/agents-core/utils";
+import {
+  APPLY_PATCH,
+  errorResult,
+  type Tool,
+  type ToolContext,
+  type ToolResult,
+} from "@harness/protocol";
 import { executionOf } from "@harness/execution";
 
 const decoder = new TextDecoder();
@@ -54,33 +61,42 @@ export class WriteTool implements Tool {
   }
 }
 
-const editArgs = z.strictObject({
-  path: z.string(),
-  old_string: z.string().min(1),
-  new_string: z.string(),
-});
-export class EditTool implements Tool {
-  readonly name = "edit";
+const applyPatchArgs = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("create_file"), path: z.string(), diff: z.string() }),
+  z.strictObject({ type: z.literal("update_file"), path: z.string(), diff: z.string() }),
+  z.strictObject({ type: z.literal("delete_file"), path: z.string() }),
+]);
+export class ApplyPatchTool implements Tool {
+  readonly name = APPLY_PATCH;
   readonly schema = {
     name: this.name,
     description:
-      "Replace the unique occurrence of `old_string` with `new_string` in `path`. " +
-      "Fails if `old_string` is missing or appears more than once.",
-    parameters: parameters(editArgs),
+      "Create, update, or delete a file with a V4A unified `diff`. `type` selects the " +
+      "operation; `path` is relative to the workspace. `delete_file` takes no `diff`.",
+    parameters: parameters(applyPatchArgs),
   };
   async execute(rawArgs: unknown, ctx: ToolContext): Promise<ToolResult> {
-    const args = parseArgs(editArgs, rawArgs);
+    const args = parseArgs(applyPatchArgs, rawArgs);
     if ("forModel" in args) return args;
-    const { path, old_string, new_string } = args.data;
+    const op = args.data;
     const exec = executionOf(ctx);
-    const text = decoder.decode(await exec.read(path));
-    const matches = text.split(old_string).length - 1;
-    if (matches === 0) return errorResult(`old_string not found in ${path}`);
-    if (matches > 1) {
-      return errorResult(`old_string is not unique in ${path} (${matches} matches); add context`);
+    try {
+      switch (op.type) {
+        case "create_file":
+          await exec.write(op.path, encoder.encode(applyDiff("", op.diff, "create")));
+          return ok(`created ${op.path}`);
+        case "update_file": {
+          const current = decoder.decode(await exec.read(op.path));
+          await exec.write(op.path, encoder.encode(applyDiff(current, op.diff)));
+          return ok(`updated ${op.path}`);
+        }
+        case "delete_file":
+          await exec.remove(op.path);
+          return ok(`deleted ${op.path}`);
+      }
+    } catch (error) {
+      return errorResult(`apply_patch failed on ${op.path}: ${(error as Error).message}`);
     }
-    await exec.write(path, encoder.encode(text.replace(old_string, new_string)));
-    return ok(`edited ${path}`);
   }
 }
 

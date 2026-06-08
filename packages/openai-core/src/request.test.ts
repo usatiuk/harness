@@ -44,7 +44,7 @@ describe("buildResponseParams", () => {
       },
     ]);
 
-    const params = buildResponseParams(request, REASONING);
+    const params = buildResponseParams(request, REASONING, true);
 
     expect(params.model).toBe("gpt-x");
     expect(params.instructions).toBe("be nice");
@@ -82,6 +82,7 @@ describe("buildResponseParams", () => {
         },
       ]),
       REASONING,
+      true,
     );
     expect(params.input).toEqual([{ role: "user", content: "the story so far" }]);
   });
@@ -98,6 +99,7 @@ describe("buildResponseParams", () => {
         },
       ]),
       REASONING,
+      true,
     );
     expect(params.input).toEqual([{ role: "developer", content: "project rules" }]);
   });
@@ -106,10 +108,11 @@ describe("buildResponseParams", () => {
     const reasoning = item({ type: "reasoning", content: [{ type: "text", text: "s" }] });
     const foreign: ProviderPayload = { ...reasoningPayload("gpt-x"), provider: "anthropic" };
 
-    const noPayload = buildResponseParams(baseRequest([{ item: reasoning }]), REASONING);
+    const noPayload = buildResponseParams(baseRequest([{ item: reasoning }]), REASONING, true);
     const wrongProvider = buildResponseParams(
       baseRequest([{ item: reasoning, payload: foreign }]),
       REASONING,
+      true,
     );
 
     expect(noPayload.input).toEqual([]);
@@ -122,7 +125,74 @@ describe("buildResponseParams", () => {
     const params = buildResponseParams(
       baseRequest([{ item: reasoning, payload: reasoningPayload("gpt-old") }]),
       REASONING,
+      true,
     );
     expect(params.input).toEqual([]);
+  });
+
+  describe("apply_patch", () => {
+    const updateCall = item({
+      type: "tool_call",
+      callId: "call_p",
+      name: "apply_patch",
+      args: { type: "update_file", path: "a.ts", diff: "@@\n-x\n+y" },
+    });
+    const callResult = item({
+      type: "tool_result",
+      callId: "call_p",
+      content: [{ type: "text", text: "updated a.ts" }],
+      status: "ok",
+    });
+    const patchRequest = (items: ModelRequest["items"]): ModelRequest => ({
+      ...baseRequest(items),
+      tools: [
+        { name: "echo", description: "echoes", parameters: { type: "object" } },
+        { name: "apply_patch", description: "patch", parameters: { type: "object" } },
+      ],
+    });
+
+    it("renders the native tool and round-trips its history items when enabled", () => {
+      const params = buildResponseParams(
+        patchRequest([{ item: updateCall }, { item: callResult }]),
+        REASONING,
+        true,
+      );
+      // Native tool offered; no function tool named apply_patch.
+      expect(params.tools).toContainEqual({ type: "apply_patch" });
+      expect(params.tools?.some((t) => "name" in t && t.name === "apply_patch")).toBe(false);
+      expect(params.input).toEqual([
+        {
+          type: "apply_patch_call",
+          call_id: "call_p",
+          status: "completed",
+          operation: { type: "update_file", path: "a.ts", diff: "@@\n-x\n+y" },
+        },
+        {
+          type: "apply_patch_call_output",
+          call_id: "call_p",
+          status: "completed",
+          output: "updated a.ts",
+        },
+      ]);
+    });
+
+    it("falls back to a JSON function tool and function_call items when disabled", () => {
+      const params = buildResponseParams(
+        patchRequest([{ item: updateCall }, { item: callResult }]),
+        REASONING,
+        false,
+      );
+      expect(params.tools).not.toContainEqual({ type: "apply_patch" });
+      expect(params.tools?.some((t) => "name" in t && t.name === "apply_patch")).toBe(true);
+      expect(params.input).toEqual([
+        {
+          type: "function_call",
+          call_id: "call_p",
+          name: "apply_patch",
+          arguments: '{"type":"update_file","path":"a.ts","diff":"@@\\n-x\\n+y"}',
+        },
+        { type: "function_call_output", call_id: "call_p", output: "updated a.ts" },
+      ]);
+    });
   });
 });

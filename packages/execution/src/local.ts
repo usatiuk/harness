@@ -1,5 +1,5 @@
 import { exec } from "node:child_process";
-import { glob, mkdir, readFile, writeFile } from "node:fs/promises";
+import { glob, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { ByteRange, Conversation, ToolCall } from "@harness/protocol";
 import type { ExecOptions, ExecResult, ExecutionContext, Relationship } from "./context.ts";
@@ -33,6 +33,10 @@ export class LocalExecutionContext implements ExecutionContext {
     const abs = this.#resolve(path);
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, bytes);
+  }
+
+  async remove(path: string): Promise<void> {
+    await rm(this.#resolve(path));
   }
 
   async list(pattern: string): Promise<string[]> {
