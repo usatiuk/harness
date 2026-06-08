@@ -56,6 +56,16 @@ export class InMemoryStore implements Store {
     return this.#conversations.get(id);
   }
 
+  async deleteConversationIfEmpty(id: ConversationId): Promise<void> {
+    const conversation = this.#conversations.get(id);
+    if (!conversation || conversation.head !== null) return;
+    for (const turn of this.#turns.values()) {
+      if (turn.conversationId === id) return;
+    }
+    this.#conversations.delete(id);
+    this.#items.delete(id);
+  }
+
   async updateConversationModel(id: ConversationId, model: ModelConfig): Promise<void> {
     const conversation = this.#conversations.get(id);
     if (!conversation) {

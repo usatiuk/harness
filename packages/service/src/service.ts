@@ -146,6 +146,11 @@ export class HarnessService {
     return this.#store.getConversation(id);
   }
 
+  /** Drops a conversation a client created but left empty (head null, no turns). */
+  deleteConversationIfEmpty(id: ConversationId): Promise<void> {
+    return this.#store.deleteConversationIfEmpty(id);
+  }
+
   /** All conversations, most-recent-first. Backs the resume picker. */
   listConversations(): Promise<Conversation[]> {
     return this.#store.listConversations();

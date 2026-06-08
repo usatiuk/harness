@@ -97,6 +97,15 @@ export class SqliteStore implements Store {
     return row ? rowToConversation(row) : undefined;
   }
 
+  async deleteConversationIfEmpty(id: ConversationId): Promise<void> {
+    await this.#k
+      .deleteFrom("conversations")
+      .where("id", "=", id)
+      .where("head", "is", null)
+      .where("id", "not in", (eb) => eb.selectFrom("turns").select("conversation_id"))
+      .execute();
+  }
+
   async updateConversationModel(id: ConversationId, model: ModelConfig): Promise<void> {
     const conversation = await this.getConversation(id);
     if (!conversation) {

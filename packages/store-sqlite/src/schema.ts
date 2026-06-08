@@ -72,7 +72,8 @@ interface ContextBuildsTable {
 
 // Forward FK refs are legal in SQLite (checked at DML, not DDL), so the mutual
 // conversations⇄items cycle needs no ordering or DEFERRABLE — the append order satisfies
-// every FK (item before head advances; head starts NULL). No deletes ⇒ plain REFERENCES.
+// every FK (item before head advances; head starts NULL). The only delete
+// (deleteConversationIfEmpty) targets rows nothing references, so plain REFERENCES still holds.
 const SCHEMA = `
 CREATE TABLE conversations (
   id TEXT PRIMARY KEY,

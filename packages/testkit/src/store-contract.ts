@@ -50,6 +50,27 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect(updated?.config.plugins).toEqual({ demo: { level: "high" } });
     });
 
+    it("deleteConversationIfEmpty drops untouched conversations and spares used ones", async () => {
+      const store = makeStore();
+      const empty = await store.createConversation({ config: sampleConfig() });
+      const used = await store.createConversation({ config: sampleConfig() });
+      const turn = await store.createTurn(used.id);
+      await store.appendItem(message(used.id, turn.id, "hi"));
+
+      // A conversation whose turn never appended (head still null) counts as in-use.
+      const started = await store.createConversation({ config: sampleConfig() });
+      await store.createTurn(started.id);
+
+      await store.deleteConversationIfEmpty(empty.id);
+      await store.deleteConversationIfEmpty(used.id);
+      await store.deleteConversationIfEmpty(started.id);
+      await store.deleteConversationIfEmpty("missing" as ConversationId); // no-op
+
+      expect((await store.listConversations()).map((x) => x.id).sort()).toEqual(
+        [used.id, started.id].sort(),
+      );
+    });
+
     it("links parent to the prior head and advances head on append", async () => {
       const store = makeStore();
       const conv = await store.createConversation({ config: sampleConfig() });

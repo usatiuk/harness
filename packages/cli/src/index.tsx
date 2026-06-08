@@ -69,6 +69,8 @@ async function loadSession(service: HarnessService, id: string): Promise<Session
 export async function launch(opts: LaunchOptions = {}): Promise<void> {
   const { service, store, model } = buildHarness();
   const cwd = opts.cwd ?? process.cwd();
+  // Conversations this instance created; empty ones are dropped on exit.
+  const created = new Set<ConversationId>();
 
   let start: Start;
   if (opts.conversationId) {
@@ -82,6 +84,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
       overrides: { instructions: INSTRUCTIONS, model: modelConfig },
     });
     console.log(`conversation ${conversation.id}`);
+    created.add(conversation.id);
     start = { kind: "session", session: { conversation, items: [] } };
   }
 
@@ -93,6 +96,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
   try {
     await waitUntilExit();
     await Promise.all([...touched].map((id) => service.whenIdle(id)));
+    await Promise.all([...created].map((id) => service.deleteConversationIfEmpty(id)));
   } finally {
     store.close();
   }

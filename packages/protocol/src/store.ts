@@ -19,6 +19,11 @@ export interface ByteRange {
 export interface Store {
   createConversation(input: NewConversation): Promise<Conversation>;
   getConversation(id: ConversationId): Promise<Conversation | undefined>;
+  /**
+   * Deletes the conversation iff still empty (head === null and no turn was ever
+   * created); a no-op otherwise.
+   */
+  deleteConversationIfEmpty(id: ConversationId): Promise<void>;
   /** Switch the conversation's model in place. The one mutable field of `config`. */
   updateConversationModel(id: ConversationId, model: ModelConfig): Promise<void>;
   /** All conversations, most-recent-first (by `createdAt`). The resume/listing source. */
