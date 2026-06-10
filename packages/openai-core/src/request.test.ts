@@ -21,7 +21,9 @@ const reasoningPayload = (model: string): ProviderPayload => ({
 const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
   instructions: [{ type: "text", text: "be nice" }],
   modelConfig: { provider: "openai", model: "gpt-x" },
-  tools: [{ name: "echo", description: "echoes", parameters: { type: "object" } }],
+  tools: [
+    { kind: "function", name: "echo", description: "echoes", parameters: { type: "object" } },
+  ],
   items,
 });
 
@@ -44,7 +46,7 @@ describe("buildResponseParams", () => {
       },
     ]);
 
-    const params = buildResponseParams(request, REASONING, true);
+    const params = buildResponseParams(request, REASONING, "openai");
 
     expect(params.model).toBe("gpt-x");
     expect(params.instructions).toBe("be nice");
@@ -82,7 +84,7 @@ describe("buildResponseParams", () => {
         },
       ]),
       REASONING,
-      true,
+      "openai",
     );
     expect(params.input).toEqual([{ role: "user", content: "the story so far" }]);
   });
@@ -99,20 +101,20 @@ describe("buildResponseParams", () => {
         },
       ]),
       REASONING,
-      true,
+      "openai",
     );
     expect(params.input).toEqual([{ role: "developer", content: "project rules" }]);
   });
 
   it("skips a reasoning item whose payload is missing or from another provider", () => {
     const reasoning = item({ type: "reasoning", content: [{ type: "text", text: "s" }] });
-    const foreign: ProviderPayload = { ...reasoningPayload("gpt-x"), provider: "anthropic" };
+    const foreign: ProviderPayload = { ...reasoningPayload("gpt-x"), provider: "openai-codex" };
 
-    const noPayload = buildResponseParams(baseRequest([{ item: reasoning }]), REASONING, true);
+    const noPayload = buildResponseParams(baseRequest([{ item: reasoning }]), REASONING, "openai");
     const wrongProvider = buildResponseParams(
       baseRequest([{ item: reasoning, payload: foreign }]),
       REASONING,
-      true,
+      "openai",
     );
 
     expect(noPayload.input).toEqual([]);
@@ -125,17 +127,18 @@ describe("buildResponseParams", () => {
     const params = buildResponseParams(
       baseRequest([{ item: reasoning, payload: reasoningPayload("gpt-old") }]),
       REASONING,
-      true,
+      "openai",
     );
     expect(params.input).toEqual([]);
   });
 
-  describe("apply_patch", () => {
+  describe("freeform tools (apply_patch)", () => {
+    const patch = "*** Begin Patch\n*** Update File: a.ts\n@@\n-x\n+y\n*** End Patch\n";
     const updateCall = item({
       type: "tool_call",
       callId: "call_p",
       name: "apply_patch",
-      args: { type: "update_file", path: "a.ts", diff: "@@\n-x\n+y" },
+      args: patch,
     });
     const callResult = item({
       type: "tool_result",
@@ -146,52 +149,48 @@ describe("buildResponseParams", () => {
     const patchRequest = (items: ModelRequest["items"]): ModelRequest => ({
       ...baseRequest(items),
       tools: [
-        { name: "echo", description: "echoes", parameters: { type: "object" } },
-        { name: "apply_patch", description: "patch", parameters: { type: "object" } },
+        { kind: "function", name: "echo", description: "echoes", parameters: { type: "object" } },
+        {
+          kind: "custom",
+          name: "apply_patch",
+          description: "patch",
+          grammar: { syntax: "lark", definition: "GRAMMAR" },
+        },
       ],
     });
 
-    it("renders the native tool and round-trips its history items when enabled", () => {
+    it("renders a freeform tool as a grammar-constrained custom tool", () => {
+      const params = buildResponseParams(patchRequest([]), REASONING, "openai");
+      expect(params.tools).toContainEqual({
+        type: "custom",
+        name: "apply_patch",
+        description: "patch",
+        format: { type: "grammar", syntax: "lark", definition: "GRAMMAR" },
+      });
+      // Non-freeform tools still render as JSON functions.
+      expect(params.tools?.some((t) => t.type === "function" && t.name === "echo")).toBe(true);
+    });
+
+    it("round-trips a freeform call/result as custom_tool_call items, args verbatim", () => {
       const params = buildResponseParams(
         patchRequest([{ item: updateCall }, { item: callResult }]),
         REASONING,
-        true,
+        "openai",
       );
-      // Native tool offered; no function tool named apply_patch.
-      expect(params.tools).toContainEqual({ type: "apply_patch" });
-      expect(params.tools?.some((t) => "name" in t && t.name === "apply_patch")).toBe(false);
       expect(params.input).toEqual([
-        {
-          type: "apply_patch_call",
-          call_id: "call_p",
-          status: "completed",
-          operation: { type: "update_file", path: "a.ts", diff: "@@\n-x\n+y" },
-        },
-        {
-          type: "apply_patch_call_output",
-          call_id: "call_p",
-          status: "completed",
-          output: "updated a.ts",
-        },
+        { type: "custom_tool_call", call_id: "call_p", name: "apply_patch", input: patch },
+        { type: "custom_tool_call_output", call_id: "call_p", output: "updated a.ts" },
       ]);
     });
 
-    it("falls back to a JSON function tool and function_call items when disabled", () => {
-      const params = buildResponseParams(
-        patchRequest([{ item: updateCall }, { item: callResult }]),
-        REASONING,
-        false,
-      );
-      expect(params.tools).not.toContainEqual({ type: "apply_patch" });
-      expect(params.tools?.some((t) => "name" in t && t.name === "apply_patch")).toBe(true);
-      expect(params.input).toEqual([
-        {
-          type: "function_call",
-          call_id: "call_p",
-          name: "apply_patch",
-          arguments: '{"type":"update_file","path":"a.ts","diff":"@@\\n-x\\n+y"}',
-        },
-        { type: "function_call_output", call_id: "call_p", output: "updated a.ts" },
+    it("renders a freeform tool without a grammar as a plain custom (text) tool", () => {
+      const request: ModelRequest = {
+        ...baseRequest([]),
+        tools: [{ kind: "custom", name: "scratch", description: "free text" }],
+      };
+      const params = buildResponseParams(request, REASONING, "openai");
+      expect(params.tools).toEqual([
+        { type: "custom", name: "scratch", description: "free text", format: { type: "text" } },
       ]);
     });
   });

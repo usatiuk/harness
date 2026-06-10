@@ -6,7 +6,7 @@ import type {
   ModelProvider,
   ModelRequest,
   ModelStreamEvent,
-  ProviderCapabilities,
+  ModelCapabilities,
 } from "@harness/protocol";
 import type { OpenAICredentials } from "./credentials.ts";
 import { buildResponseParams } from "./request.ts";
@@ -59,11 +59,6 @@ export interface OpenAIProviderOptions {
   provider?: string;
   /** Reasoning effort/summary; defaults to medium effort with auto summaries. */
   reasoning?: OpenAI.Reasoning;
-  /**
-   * Render tools the model is trained on (e.g. `apply_patch`) in their native wire form
-   * instead of as plain JSON functions. Defaults to `true`.
-   */
-  nativeTools?: boolean;
 }
 
 /** A `ModelProvider` backed by the OpenAI Responses API, streaming only. */
@@ -71,17 +66,16 @@ export class OpenAIResponsesProvider implements ModelProvider {
   readonly provider: string;
   readonly #credentials: OpenAICredentials;
   readonly #reasoning: OpenAI.Reasoning;
-  readonly #nativeTools: boolean;
 
   constructor(opts: OpenAIProviderOptions) {
     this.provider = opts.provider ?? "openai";
     this.#credentials = opts.credentials;
     this.#reasoning = opts.reasoning ?? { effort: "medium", summary: "auto" };
-    this.#nativeTools = opts.nativeTools ?? true;
   }
 
-  capabilities(): ProviderCapabilities {
-    return { contentTypes: ["text"], toolCalling: true };
+  capabilities(): ModelCapabilities {
+    // Every GPT model this class serves is trained on the V4A apply_patch dialect.
+    return { contentTypes: ["text"], toolCalling: true, editFormat: "v4a" };
   }
 
   validateConfig(): void {}
@@ -99,9 +93,9 @@ export class OpenAIResponsesProvider implements ModelProvider {
     const client = await this.#credentials.client();
     const reasoning = reasoningForSelection(request.modelConfig, this.#reasoning);
     const stream = await client.responses.create(
-      buildResponseParams(request, reasoning, this.#nativeTools),
+      buildResponseParams(request, reasoning, this.provider),
       { signal },
     );
-    yield* toModelEvents(stream, request.modelConfig.model, signal);
+    yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
   }
 }

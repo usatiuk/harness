@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
 import OpenAI from "openai";
-import {
-  APPLY_PATCH,
-  type Item,
-  type ModelRequest,
-  type ModelStreamEvent,
-} from "@harness/protocol";
+import type { Item, ModelRequest, ModelStreamEvent } from "@harness/protocol";
 import { OpenAIResponsesProvider } from "./provider.ts";
 
 // A real network smoke test: opt in by exporting OPENAI_API_KEY (skipped in CI).
 const apiKey = process.env.OPENAI_API_KEY;
 const model = process.env.OPENAI_MODEL ?? "gpt-5.1";
+const APPLY_PATCH = "apply_patch";
+
+// A minimal V4A grammar (the canonical one lives in @harness/workspace) — enough to confirm
+// the API accepts a freeform custom tool.
+const APPLY_PATCH_LARK = `start: "*** Begin Patch" LF hunk+ "*** End Patch" LF?
+hunk: "*** Add File: " /(.+)/ LF add_line+
+add_line: "+" /(.*)/ LF -> line
+%import common.LF`;
 
 const userMessage = {
   id: "i",
@@ -41,14 +44,23 @@ describe.skipIf(!apiKey)("OpenAIResponsesProvider (live)", () => {
     expect(events.at(-1)?.type).toBe("completed");
   }, 60_000);
 
-  it("emits a native apply_patch call as a structured create_file operation", async () => {
+  it("emits a freeform apply_patch call as a raw V4A envelope string", async () => {
     const provider = new OpenAIResponsesProvider({
       credentials: { client: () => Promise.resolve(new OpenAI({ apiKey })) },
     });
     const request: ModelRequest = {
       instructions: [{ type: "text", text: "Use the apply_patch tool to edit files." }],
       modelConfig: { provider: "openai", model },
-      tools: [{ name: APPLY_PATCH, description: "Patch files.", parameters: { type: "object" } }],
+      tools: [
+        {
+          kind: "custom",
+          name: APPLY_PATCH,
+          description:
+            "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not " +
+            "wrap the patch in JSON.",
+          grammar: { syntax: "lark", definition: APPLY_PATCH_LARK },
+        },
+      ],
       items: [
         {
           item: {
@@ -64,13 +76,9 @@ describe.skipIf(!apiKey)("OpenAIResponsesProvider (live)", () => {
 
     const call = events.find((e) => e.type === "tool_call" && e.name === APPLY_PATCH);
     expect(call).toBeDefined();
-    const op = (call as Extract<ModelStreamEvent, { type: "tool_call" }>).args as {
-      type: string;
-      path: string;
-      diff: string;
-    };
-    expect(op.type).toBe("create_file");
-    expect(op.path).toContain("hello.txt");
-    expect(typeof op.diff).toBe("string");
+    const input = (call as Extract<ModelStreamEvent, { type: "tool_call" }>).args;
+    expect(typeof input).toBe("string");
+    expect(input as string).toContain("*** Begin Patch");
+    expect(input as string).toContain("hello.txt");
   }, 60_000);
 });

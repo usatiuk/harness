@@ -1,5 +1,5 @@
 import type OpenAI from "openai";
-import { APPLY_PATCH, type ModelStreamEvent } from "@harness/protocol";
+import type { ModelStreamEvent } from "@harness/protocol";
 import { encodeReasoningPayload } from "./payload.ts";
 
 type StreamEvent = OpenAI.Responses.ResponseStreamEvent;
@@ -7,11 +7,12 @@ type StreamEvent = OpenAI.Responses.ResponseStreamEvent;
 /** A completed output item → its model event(s). Messages arrive via text deltas. */
 function* fromItem(
   item: OpenAI.Responses.ResponseOutputItem,
+  provider: string,
   model: string,
 ): Iterable<ModelStreamEvent> {
   if (item.type === "reasoning") {
     const content = item.summary.map((s) => ({ type: "text" as const, text: s.text }));
-    const payload = encodeReasoningPayload(item, model);
+    const payload = encodeReasoningPayload(item, provider, model);
     yield { type: "reasoning", content, ...(payload ? { payload } : {}) };
   } else if (item.type === "function_call") {
     yield {
@@ -20,11 +21,10 @@ function* fromItem(
       name: item.name,
       args: parseArgs(item.arguments),
     };
-  } else if (item.type === "apply_patch_call") {
-    // The structured operation (incl. its V4A diff) is the canonical, provider-neutral args.
-    // apply_patch carries no per-call opaque state; a provider that does (e.g. a reasoning
-    // signature bound to the call) attaches it via the event's `payload`, like reasoning.
-    yield { type: "tool_call", callId: item.call_id, name: APPLY_PATCH, args: item.operation };
+  } else if (item.type === "custom_tool_call") {
+    // A freeform tool's raw input string is the canonical, provider-neutral args; the tool
+    // owns parsing it (e.g. apply_patch parses its V4A envelope).
+    yield { type: "tool_call", callId: item.call_id, name: item.name, args: item.input };
   }
 }
 
@@ -44,6 +44,7 @@ function parseArgs(raw: string): unknown {
  */
 export async function* toModelEvents(
   stream: AsyncIterable<StreamEvent>,
+  provider: string,
   model: string,
   signal: AbortSignal,
 ): AsyncIterable<ModelStreamEvent> {
@@ -57,7 +58,7 @@ export async function* toModelEvents(
         yield { type: "reasoning_delta", text: event.delta };
         break;
       case "response.output_item.done":
-        yield* fromItem(event.item, model);
+        yield* fromItem(event.item, provider, model);
         break;
       case "response.completed":
         // Canonical text is reconstructed from the streamed deltas, so content is empty.

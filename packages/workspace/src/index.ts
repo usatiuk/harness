@@ -1,17 +1,26 @@
 import type { Plugin } from "@harness/protocol";
-import { ApplyPatchTool, BashTool, GlobTool, GrepTool, ReadFileTool, WriteTool } from "./tools.ts";
+import {
+  ApplyPatchTool,
+  BashTool,
+  EditTool,
+  GlobTool,
+  GrepTool,
+  ReadFileTool,
+  WriteTool,
+} from "./tools.ts";
 
 export * from "./tools.ts";
+export * from "./apply-patch-parse.ts";
 
 /** Workspace tools: read/search/write/patch files and run commands via `ctx.execution`. */
 export const workspacePlugin: Plugin = {
   id: "workspace",
-  tools: () => [
+  tools: (caps) => [
     new ReadFileTool(),
     new GlobTool(),
     new GrepTool(),
     new WriteTool(),
-    new ApplyPatchTool(),
     new BashTool(),
+    caps.editFormat === "v4a" ? new ApplyPatchTool() : new EditTool(),
   ],
 };

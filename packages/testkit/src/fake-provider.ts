@@ -92,7 +92,7 @@ export class FakeProvider implements ModelProvider {
   }
 
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: true };
+    return { contentTypes: ["text"], toolCalling: true, editFormat: "string_replace" as const };
   }
 
   validateConfig(): void {}
@@ -133,7 +133,7 @@ export class GateProvider implements ModelProvider {
   }
 
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: true };
+    return { contentTypes: ["text"], toolCalling: true, editFormat: "string_replace" as const };
   }
 
   validateConfig(): void {}

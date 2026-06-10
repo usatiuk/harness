@@ -2,7 +2,7 @@ import { defaultHome, updateGlobalModel } from "@harness/config";
 import { KeyringSecretStore } from "@harness/secrets";
 import { CodexAuth } from "@harness/openai-codex";
 
-const CODEX_DEFAULT_MODEL = "gpt-5.1-codex";
+const CODEX_DEFAULT_MODEL = "gpt-5.5";
 
 /**
  * The auth-provider dispatch seam. One entry today (`openai-codex`); a second provider is a

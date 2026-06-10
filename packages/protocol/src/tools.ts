@@ -1,7 +1,8 @@
+import type { ZodType } from "zod";
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
 import type { Item } from "./items.ts";
-import type { ToolSchema } from "./model.ts";
+import type { ToolGrammar } from "./model.ts";
 import type { PluginEvent } from "./events.ts";
 
 export interface ToolCall {
@@ -9,12 +10,6 @@ export interface ToolCall {
   name: string;
   args: unknown;
 }
-
-/**
- * Canonical name of the patch-based file editor. Shared so the workspace tool and any
- * provider that renders it natively (OpenAI `apply_patch`) agree on one identity.
- */
-export const APPLY_PATCH = "apply_patch";
 
 export type ToolStatus = "ok" | "error";
 
@@ -50,10 +45,20 @@ export interface ToolContext {
   emit(event: PluginEvent): void;
 }
 
-export interface Tool {
+/**
+ * What a tool declares about its arguments. `function` is a zod schema; `custom` is a raw
+ * string the model emits, `parse`d to `A`. The kernel derives the wire `ToolSchema` from this
+ * and validates raw args against it, so `execute` only ever sees a validated `A`.
+ */
+export type ToolInput<A> =
+  | { kind: "function"; schema: ZodType<A> }
+  | { kind: "custom"; grammar?: ToolGrammar; parse: (raw: string) => A };
+
+export interface Tool<A = unknown> {
   readonly name: string;
-  readonly schema: ToolSchema;
-  execute(args: unknown, ctx: ToolContext): Promise<ToolResult>;
+  readonly description: string;
+  readonly input: ToolInput<A>;
+  execute(args: A, ctx: ToolContext): Promise<ToolResult>;
 }
 
 /** A point in the middleware chain: runs the next inner middleware, or the tool. */

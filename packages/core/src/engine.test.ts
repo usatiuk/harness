@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { isKernelEvent } from "@harness/protocol";
 import type {
   ContentBlock,
@@ -292,7 +293,8 @@ describe("Engine — delivery seam", () => {
   it("forwards a plugin event emitted by a tool onto the stream", async () => {
     const emitTool: Tool = {
       name: "emit",
-      schema: { name: "emit", description: "emits a note", parameters: { type: "object" } },
+      description: "emits a note",
+      input: { kind: "function", schema: z.unknown() },
       async execute(_args, ctx) {
         ctx.emit({ type: "demo.note", text: "from tool" });
         return { forModel: [{ type: "text", text: "ok" }], status: "ok" };
@@ -559,7 +561,8 @@ const makeProbe = (): { tool: Tool; state: { ran: boolean } } => {
   const state = { ran: false };
   const tool: Tool = {
     name: "probe",
-    schema: { name: "probe", description: "records execution", parameters: { type: "object" } },
+    description: "records execution",
+    input: { kind: "function", schema: z.unknown() },
     async execute() {
       state.ran = true;
       return { forModel: [{ type: "text", text: "ran" }], status: "ok" };
@@ -617,7 +620,8 @@ describe("Engine — tool middleware", () => {
     let attempts = 0;
     const flaky: Tool = {
       name: "flaky",
-      schema: { name: "flaky", description: "fails once", parameters: { type: "object" } },
+      description: "fails once",
+      input: { kind: "function", schema: z.unknown() },
       async execute() {
         attempts++;
         return {
@@ -965,7 +969,7 @@ class CatalogProvider implements ModelProvider {
   readonly provider = "rec";
   readonly seen: string[] = [];
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: false };
+    return { contentTypes: ["text"], toolCalling: false, editFormat: "string_replace" as const };
   }
   validateConfig(): void {}
   listModels() {
@@ -1070,7 +1074,11 @@ describe("Engine — model middleware", () => {
     let calls = 0;
     const flaky: ModelProvider = {
       provider: "fake",
-      capabilities: () => ({ contentTypes: ["text"], toolCalling: true }),
+      capabilities: () => ({
+        contentTypes: ["text"],
+        toolCalling: true,
+        editFormat: "string_replace",
+      }),
       validateConfig: () => {},
       async *stream() {
         if (++calls === 1) throw new Error("transient");
@@ -1106,7 +1114,11 @@ describe("Engine — model middleware", () => {
     let providerCalled = false;
     const provider: ModelProvider = {
       provider: "fake",
-      capabilities: () => ({ contentTypes: ["text"], toolCalling: true }),
+      capabilities: () => ({
+        contentTypes: ["text"],
+        toolCalling: true,
+        editFormat: "string_replace",
+      }),
       validateConfig: () => {},
       async *stream() {
         providerCalled = true;

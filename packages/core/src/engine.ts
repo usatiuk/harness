@@ -21,9 +21,12 @@ import {
   type ToolHandler,
   type ToolMiddlewareContext,
   type ToolResult,
+  type ToolSchema,
   type TurnId,
 } from "@harness/protocol";
 import type { PluginHost } from "./plugin-host.ts";
+import type { ToolSet } from "./registry.ts";
+import { parseToolArgs } from "./tools.ts";
 import { compactedWindow } from "./policies.ts";
 import { Runtime, type Delivery } from "./runtime.ts";
 import { applyDelivery } from "./delivery.ts";
@@ -243,15 +246,19 @@ export class Engine {
     runtime: Runtime,
   ): Promise<void> {
     await this.#maybeCompact(conversation, turnId, signal);
+    // Model config is fixed for the whole turn, so the provider, tool set, and tool schemas
+    // are resolved once here rather than per step.
+    const provider = this.host.providers.get(conversation.config.model.provider);
+    const toolSet = this.host.toolsFor(provider.capabilities(conversation.config.model.model));
+    const toolSchemas = toolSet.schemas();
     for (let step = 0; step < MAX_MODEL_STEPS; step++) {
-      const build = await this.#buildContext(conversation);
+      const build = await this.#buildContext(conversation, toolSchemas);
       const request: ModelRequest = {
         instructions: build.instructions,
         items: build.items,
         tools: build.tools,
         modelConfig: conversation.config.model,
       };
-      const provider = this.host.providers.get(conversation.config.model.provider);
 
       const calls: ToolCall[] = [];
       let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
@@ -339,7 +346,14 @@ export class Engine {
       for (const call of calls) {
         const result = signal.aborted
           ? interruptedResult()
-          : await this.#dispatchInterruptible(call, conversation.id, turnId, signal, runtime);
+          : await this.#dispatchInterruptible(
+              call,
+              toolSet,
+              conversation.id,
+              turnId,
+              signal,
+              runtime,
+            );
         await this.store.appendItem({
           conversationId: conversation.id,
           turnId,
@@ -390,6 +404,7 @@ export class Engine {
    */
   #dispatchInterruptible(
     call: ToolCall,
+    toolSet: ToolSet,
     conversationId: ConversationId,
     turnId: TurnId,
     signal: AbortSignal,
@@ -399,7 +414,10 @@ export class Engine {
     const aborted = new Promise<ToolResult>((resolve) => {
       signal.addEventListener("abort", () => resolve(interruptedResult()), { once: true });
     });
-    return Promise.race([this.#dispatch(call, conversationId, turnId, signal, runtime), aborted]);
+    return Promise.race([
+      this.#dispatch(call, toolSet, conversationId, turnId, signal, runtime),
+      aborted,
+    ]);
   }
 
   /**
@@ -410,6 +428,7 @@ export class Engine {
    */
   async #dispatch(
     call: ToolCall,
+    toolSet: ToolSet,
     conversationId: ConversationId,
     turnId: TurnId,
     signal: AbortSignal,
@@ -434,10 +453,13 @@ export class Engine {
         this.#emit({ type: "context", item });
       },
     };
-    const execute: ToolHandler = (c) =>
-      this.host.tools.has(c.name)
-        ? this.host.tools.get(c.name).execute(c.args, ctx)
-        : Promise.resolve(errorResult(`unknown tool: ${c.name}`));
+    const execute: ToolHandler = (c) => {
+      if (!toolSet.has(c.name)) return Promise.resolve(errorResult(`unknown tool: ${c.name}`));
+      const tool = toolSet.get(c.name);
+      const parsed = parseToolArgs(tool, c.args);
+      if (!parsed.ok) return Promise.resolve(parsed.result);
+      return tool.execute(parsed.data, ctx);
+    };
     try {
       return await runToolChain(this.host.toolMiddleware, call, ctx, execute);
     } catch (error) {
@@ -504,7 +526,7 @@ export class Engine {
     this.#emit({ type: "compaction", item });
   }
 
-  async #buildContext(conversation: Conversation): Promise<ContextBuild> {
+  async #buildContext(conversation: Conversation, tools: ToolSchema[]): Promise<ContextBuild> {
     // Use the active chain (not the raw log): after a rewind, abandoned-branch items
     // must stay out of context. Read `head` from the store, never off the cached
     // `Runtime.conversation` snapshot.
@@ -522,7 +544,7 @@ export class Engine {
     const built: NewContextBuild = {
       conversationId: conversation.id,
       instructions,
-      tools: this.host.tools.schemas(),
+      tools,
       items: items.map((item) => {
         const payload = payloads.get(item.id);
         return payload ? { item, payload } : { item };

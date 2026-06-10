@@ -1,5 +1,5 @@
 import type { ZodType } from "zod";
-import type { ModelMiddleware, ModelProvider } from "./model.ts";
+import type { ModelCapabilities, ModelMiddleware, ModelProvider } from "./model.ts";
 import type { Tool, ToolMiddleware } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
@@ -29,7 +29,7 @@ export interface PluginPolicies {
 export interface Plugin {
   readonly id: string;
   providers?(): ModelProvider[];
-  tools?(): Tool[];
+  tools?(caps: ModelCapabilities): Tool[];
   /** Wraps tool execution, outermost first. Absence of any gate = allow. */
   toolMiddleware?(): ToolMiddleware[];
   /** Wraps each model step, outermost first (retry / cache / model-fallback). */

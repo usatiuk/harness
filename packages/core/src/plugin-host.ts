@@ -2,12 +2,14 @@ import type {
   CompactionStrategy,
   ContextSource,
   ExecutionProvider,
+  ModelCapabilities,
   ModelMiddleware,
   Observer,
   Plugin,
+  Tool,
   ToolMiddleware,
 } from "@harness/protocol";
-import { ProviderRegistry, ToolRegistry } from "./registry.ts";
+import { ProviderRegistry, ToolSet } from "./registry.ts";
 import { noCompaction, truncateMiddleware } from "./policies.ts";
 
 /** The single composed instance of each policy slot. */
@@ -27,7 +29,8 @@ function pick<T>(slot: string, contributed: T[], fallback: T): T {
  */
 export class PluginHost {
   readonly providers = new ProviderRegistry();
-  readonly tools = new ToolRegistry();
+  /** Per-plugin tool contributors; resolved against the active model's capabilities per turn. */
+  readonly #toolContributors: readonly ((caps: ModelCapabilities) => Tool[])[];
   readonly contextSources: readonly ContextSource[];
   readonly observers: readonly Observer[];
   readonly policies: ResolvedPolicies;
@@ -43,6 +46,7 @@ export class PluginHost {
     const observers: Observer[] = [];
     const compaction: CompactionStrategy[] = [];
     const execution: ExecutionProvider[] = [];
+    const toolContributors: ((caps: ModelCapabilities) => Tool[])[] = [];
     const toolMiddleware: ToolMiddleware[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
 
@@ -50,9 +54,7 @@ export class PluginHost {
       for (const provider of plugin.providers?.() ?? []) {
         this.providers.register(provider);
       }
-      for (const tool of plugin.tools?.() ?? []) {
-        this.tools.register(tool);
-      }
+      if (plugin.tools) toolContributors.push(plugin.tools.bind(plugin));
       toolMiddleware.push(...(plugin.toolMiddleware?.() ?? []));
       modelMiddleware.push(...(plugin.modelMiddleware?.() ?? []));
       contextSources.push(...(plugin.contextSources?.() ?? []));
@@ -65,6 +67,7 @@ export class PluginHost {
       if (policies.compaction) compaction.push(policies.compaction);
     }
 
+    this.#toolContributors = toolContributors;
     this.contextSources = contextSources;
     this.observers = observers;
     this.policies = {
@@ -73,5 +76,10 @@ export class PluginHost {
     this.execution = pick<ExecutionProvider | undefined>("execution", execution, undefined);
     this.toolMiddleware = [...toolMiddleware, truncateMiddleware()];
     this.modelMiddleware = modelMiddleware;
+  }
+
+  /** The tools to offer the active model — each contributor's choice for these capabilities. */
+  toolsFor(caps: ModelCapabilities): ToolSet {
+    return new ToolSet(this.#toolContributors.flatMap((contribute) => contribute(caps)));
   }
 }

@@ -1,20 +1,18 @@
+import { z } from "zod";
 import {
   errorResult,
   type Tool,
   type ToolContext,
+  type ToolInput,
   type ToolResult,
-  type ToolSchema,
 } from "@harness/protocol";
 import { awaitReleaseOrAbort } from "./gate.ts";
 
 /** Echoes its JSON args back as the model-facing result. */
 export class EchoTool implements Tool {
   readonly name = "echo";
-  readonly schema = {
-    name: "echo",
-    description: "Echoes its arguments back.",
-    parameters: { type: "object", additionalProperties: true },
-  };
+  readonly description = "Echoes its arguments back.";
+  readonly input: ToolInput<unknown> = { kind: "function", schema: z.unknown() };
 
   execute(args: unknown): Promise<ToolResult> {
     return Promise.resolve({
@@ -32,7 +30,8 @@ export class EchoTool implements Tool {
  */
 export class GateTool implements Tool {
   readonly name: string;
-  readonly schema: ToolSchema;
+  readonly description = "Blocks until released.";
+  readonly input: ToolInput<unknown> = { kind: "function", schema: z.unknown() };
   readonly started: Promise<void>;
   readonly #honorSignal: boolean;
   #markStarted!: () => void;
@@ -41,11 +40,6 @@ export class GateTool implements Tool {
 
   constructor(opts: { name?: string; honorSignal?: boolean } = {}) {
     this.name = opts.name ?? "gate";
-    this.schema = {
-      name: this.name,
-      description: "Blocks until released.",
-      parameters: { type: "object" },
-    };
     this.#honorSignal = opts.honorSignal ?? false;
     this.started = new Promise<void>((resolve) => (this.#markStarted = resolve));
     this.#gate = new Promise<void>((resolve) => (this.#open = resolve));

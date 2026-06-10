@@ -1,4 +1,5 @@
 import type { ModelInfo, ModelProvider, Tool, ToolSchema } from "@harness/protocol";
+import { toToolSchema } from "./tools.ts";
 
 export class ProviderRegistry {
   readonly #byName = new Map<string, ModelProvider>();
@@ -28,14 +29,17 @@ export class ProviderRegistry {
   }
 }
 
-export class ToolRegistry {
+/** The tools offered to the model on a single turn; duplicate names throw. */
+export class ToolSet {
   readonly #byName = new Map<string, Tool>();
 
-  register(tool: Tool): void {
-    if (this.#byName.has(tool.name)) {
-      throw new Error(`duplicate tool: ${tool.name}`);
+  constructor(tools: readonly Tool[]) {
+    for (const tool of tools) {
+      if (this.#byName.has(tool.name)) {
+        throw new Error(`duplicate tool: ${tool.name}`);
+      }
+      this.#byName.set(tool.name, tool);
     }
-    this.#byName.set(tool.name, tool);
   }
 
   get(name: string): Tool {
@@ -50,10 +54,10 @@ export class ToolRegistry {
     return this.#byName.has(name);
   }
 
-  /** Tool schemas in a deterministic (name-sorted) order for a cache-stable prefix. */
+  /** Wire schemas for the offered tools, name-sorted for a cache-stable prefix. */
   schemas(): ToolSchema[] {
     return [...this.#byName.values()]
-      .map((t) => t.schema)
+      .map(toToolSchema)
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 }

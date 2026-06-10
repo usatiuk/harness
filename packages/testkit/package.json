@@ -16,7 +16,8 @@
     }
   },
   "dependencies": {
-    "@harness/protocol": "*"
+    "@harness/protocol": "*",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

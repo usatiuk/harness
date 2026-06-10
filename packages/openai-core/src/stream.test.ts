@@ -39,7 +39,7 @@ describe("toModelEvents", () => {
       { type: "response.completed", response: { usage: { input_tokens: 10, output_tokens: 5 } } },
     );
 
-    expect(await collect(toModelEvents(stream, "gpt-test", never))).toEqual([
+    expect(await collect(toModelEvents(stream, "openai", "gpt-test", never))).toEqual([
       { type: "reasoning_delta", text: "think" },
       {
         type: "reasoning",
@@ -58,6 +58,18 @@ describe("toModelEvents", () => {
     ]);
   });
 
+  it("tags the reasoning payload with the live provider id", async () => {
+    const stream = emit(
+      {
+        type: "response.output_item.done",
+        item: { type: "reasoning", id: "rs_3", summary: [], encrypted_content: "BLOB" },
+      },
+      { type: "response.completed", response: { usage: { input_tokens: 0, output_tokens: 0 } } },
+    );
+    const out = await collect(toModelEvents(stream, "openai-codex", "gpt-5.5", never));
+    expect(out[0]).toMatchObject({ payload: { provider: "openai-codex", model: "gpt-5.5" } });
+  });
+
   it("omits the payload when reasoning has no encrypted_content", async () => {
     const stream = emit(
       {
@@ -66,7 +78,7 @@ describe("toModelEvents", () => {
       },
       { type: "response.completed", response: { usage: { input_tokens: 0, output_tokens: 0 } } },
     );
-    const out = await collect(toModelEvents(stream, "m", never));
+    const out = await collect(toModelEvents(stream, "openai", "m", never));
     expect(out[0]).toEqual({ type: "reasoning", content: [{ type: "text", text: "s" }] });
   });
 
@@ -78,37 +90,37 @@ describe("toModelEvents", () => {
       },
       { type: "response.completed", response: { usage: { input_tokens: 0, output_tokens: 0 } } },
     );
-    const out = await collect(toModelEvents(stream, "m", never));
+    const out = await collect(toModelEvents(stream, "openai", "m", never));
     expect(out[0]).toEqual({ type: "tool_call", callId: "c", name: "f", args: "not json" });
   });
 
-  it("maps an apply_patch_call to a tool_call carrying the structured operation", async () => {
-    const operation = { type: "update_file", path: "a.ts", diff: "@@\n-x\n+y" };
+  it("maps a custom_tool_call to a tool_call carrying the raw input string", async () => {
+    const patch = "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch\n";
     const stream = emit(
       {
         type: "response.output_item.done",
-        item: { type: "apply_patch_call", call_id: "call_p", status: "completed", operation },
+        item: { type: "custom_tool_call", call_id: "call_p", name: "apply_patch", input: patch },
       },
       { type: "response.completed", response: { usage: { input_tokens: 0, output_tokens: 0 } } },
     );
-    const out = await collect(toModelEvents(stream, "m", never));
+    const out = await collect(toModelEvents(stream, "openai", "m", never));
     expect(out[0]).toEqual({
       type: "tool_call",
       callId: "call_p",
       name: "apply_patch",
-      args: operation,
+      args: patch,
     });
   });
 
   it("throws on a failed response", async () => {
     const stream = emit({ type: "response.failed", response: { error: { message: "boom" } } });
-    await expect(collect(toModelEvents(stream, "m", never))).rejects.toThrow(/boom/);
+    await expect(collect(toModelEvents(stream, "openai", "m", never))).rejects.toThrow(/boom/);
   });
 
   it("stops immediately when the signal is already aborted", async () => {
     const ctrl = new AbortController();
     ctrl.abort();
     const stream = emit({ type: "response.output_text.delta", delta: "x" });
-    expect(await collect(toModelEvents(stream, "m", ctrl.signal))).toEqual([]);
+    expect(await collect(toModelEvents(stream, "openai", "m", ctrl.signal))).toEqual([]);
   });
 });

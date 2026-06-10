@@ -36,9 +36,13 @@ export const modelId = (m: { provider: string; model: string }): string =>
 export const selectionId = (m: ModelConfig): string =>
   m.effort ? `${modelId(m)}/${m.effort}` : modelId(m);
 
-export interface ProviderCapabilities {
+/** The file-edit dialect a model is trained on; `string_replace` is the neutral default. */
+export type EditFormat = "v4a" | "string_replace";
+
+export interface ModelCapabilities {
   contentTypes: readonly string[];
   toolCalling: boolean;
+  editFormat: EditFormat;
 }
 
 export interface Usage {
@@ -63,11 +67,22 @@ export interface ProviderPayload {
 /** What a provider emits before its item exists; the loop binds `itemId` on append. */
 export type ProviderPayloadDraft = Omit<ProviderPayload, "itemId">;
 
-export interface ToolSchema {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>; // JSON Schema
+/** Grammar constraining a freeform tool's raw string input; ignored where unsupported. */
+export interface ToolGrammar {
+  syntax: "lark" | "regex";
+  definition: string;
 }
+
+/** The tool description a provider renders, derived by the kernel from a `Tool`'s `input`. */
+export type ToolSchema =
+  | {
+      kind: "function";
+      name: string;
+      description: string;
+      // JSON Schema the kernel derives from the tool's zod schema; zod stays the source of truth.
+      parameters: Record<string, unknown>;
+    }
+  | { kind: "custom"; name: string; description: string; grammar?: ToolGrammar };
 
 export interface ModelRequest {
   instructions: ContentBlock[];
@@ -98,7 +113,7 @@ export type ModelStreamEvent =
 
 export interface ModelProvider {
   readonly provider: string;
-  capabilities(): ProviderCapabilities;
+  capabilities(model: string): ModelCapabilities;
   validateConfig(config: ModelConfig): void;
   /** Streams one model step. The signal aborts the underlying network stream. */
   stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent>;

@@ -1,16 +1,14 @@
 import type OpenAI from "openai";
-import {
-  APPLY_PATCH,
-  type ContentBlock,
-  type Item,
-  type ModelRequest,
-  type ProviderPayload,
-  type ToolSchema,
+import type {
+  ContentBlock,
+  Item,
+  ModelRequest,
+  ProviderPayload,
+  ToolSchema,
 } from "@harness/protocol";
 import { readReasoningPayload } from "./payload.ts";
 
 type InputItem = OpenAI.Responses.ResponseInputItem;
-type ApplyPatchOperation = OpenAI.Responses.ResponseInputItem.ApplyPatchCall["operation"];
 
 const textOf = (content: ContentBlock[]): string =>
   content
@@ -21,9 +19,11 @@ const textOf = (content: ContentBlock[]): string =>
 /** One log item → one Responses input item, or `undefined` to omit it. */
 function toInputItem(
   item: Item,
+  provider: string,
   model: string,
-  // Call ids rendered in apply_patch's native shape, or `null` outside native-patch mode.
-  applyPatchCallIds: ReadonlySet<string> | null,
+  // Call ids whose tool is freeform this turn — rendered as `custom_tool_call` rather than
+  // a JSON function call.
+  freeformCallIds: ReadonlySet<string>,
   payload?: ProviderPayload,
 ): InputItem | undefined {
   switch (item.type) {
@@ -32,7 +32,7 @@ function toInputItem(
     case "reasoning": {
       // Replayable only with our own opaque blob; a mismatched/absent payload is skipped
       // rather than sent as bare summary text (the API rejects that).
-      const stored = readReasoningPayload(payload, model);
+      const stored = readReasoningPayload(payload, provider, model);
       if (!stored) return undefined;
       return {
         type: "reasoning",
@@ -44,13 +44,13 @@ function toInputItem(
       };
     }
     case "tool_call":
-      // apply_patch round-trips in its native item shape; args are already the operation.
-      if (applyPatchCallIds && item.name === APPLY_PATCH) {
+      // A freeform tool's canonical args are the raw input string; round-trip it natively.
+      if (freeformCallIds.has(item.callId)) {
         return {
-          type: "apply_patch_call",
+          type: "custom_tool_call",
           call_id: item.callId,
-          status: "completed",
-          operation: item.args as ApplyPatchOperation,
+          name: item.name,
+          input: item.args as string,
         };
       }
       return {
@@ -60,11 +60,10 @@ function toInputItem(
         arguments: JSON.stringify(item.args),
       };
     case "tool_result":
-      if (applyPatchCallIds?.has(item.callId)) {
+      if (freeformCallIds.has(item.callId)) {
         return {
-          type: "apply_patch_call_output",
+          type: "custom_tool_call_output",
           call_id: item.callId,
-          status: item.status === "ok" ? "completed" : "failed",
           output: textOf(item.content),
         };
       }
@@ -78,7 +77,9 @@ function toInputItem(
   }
 }
 
-function toFunctionTool(schema: ToolSchema): OpenAI.Responses.FunctionTool {
+function toFunctionTool(
+  schema: Extract<ToolSchema, { kind: "function" }>,
+): OpenAI.Responses.FunctionTool {
   return {
     type: "function",
     name: schema.name,
@@ -88,38 +89,45 @@ function toFunctionTool(schema: ToolSchema): OpenAI.Responses.FunctionTool {
   };
 }
 
+/** A custom (freeform) tool → a `custom` tool, grammar-constrained when the schema carries one. */
+function toCustomTool(
+  schema: Extract<ToolSchema, { kind: "custom" }>,
+): OpenAI.Responses.CustomTool {
+  const grammar = schema.grammar;
+  return {
+    type: "custom",
+    name: schema.name,
+    description: schema.description,
+    format: grammar
+      ? { type: "grammar", syntax: grammar.syntax, definition: grammar.definition }
+      : { type: "text" },
+  };
+}
+
 /** Maps a harness `ModelRequest` onto native Responses streaming params. */
 export function buildResponseParams(
   request: ModelRequest,
   reasoning: OpenAI.Reasoning,
-  nativeTools: boolean,
+  provider: string,
 ): OpenAI.Responses.ResponseCreateParamsStreaming {
-  // Render the patch editor in its trained `apply_patch` wire form (and round-trip its
-  // history items natively) only when it is both enabled and offered this turn. A
-  // tool_result carries only its callId, so pre-scan the calls to know which results
-  // render as apply_patch output; `null` means the generic function-calling path.
-  const useApplyPatch =
-    nativeTools && (request.tools?.some((t) => t.name === APPLY_PATCH) ?? false);
-  let applyPatchCallIds: ReadonlySet<string> | null = null;
-  if (useApplyPatch) {
-    const ids = new Set<string>();
-    for (const { item } of request.items) {
-      if (item.type === "tool_call" && item.name === APPLY_PATCH) ids.add(item.callId);
-    }
-    applyPatchCallIds = ids;
+  // Freeform tools round-trip as `custom_tool_call` items. A tool_result carries only its
+  // callId, so pre-scan the calls to know which results render as custom output.
+  const freeformNames = new Set(
+    request.tools?.filter((t) => t.kind === "custom").map((t) => t.name) ?? [],
+  );
+  const freeformCallIds = new Set<string>();
+  for (const { item } of request.items) {
+    if (item.type === "tool_call" && freeformNames.has(item.name)) freeformCallIds.add(item.callId);
   }
 
   const input: InputItem[] = [];
   for (const { item, payload } of request.items) {
-    const mapped = toInputItem(item, request.modelConfig.model, applyPatchCallIds, payload);
+    const mapped = toInputItem(item, provider, request.modelConfig.model, freeformCallIds, payload);
     if (mapped) input.push(mapped);
   }
 
-  // apply_patch renders as the native wire tool below, not as a JSON function.
   const tools: OpenAI.Responses.Tool[] =
-    request.tools?.filter((t) => !(useApplyPatch && t.name === APPLY_PATCH)).map(toFunctionTool) ??
-    [];
-  if (useApplyPatch) tools.push({ type: "apply_patch" });
+    request.tools?.map((t) => (t.kind === "custom" ? toCustomTool(t) : toFunctionTool(t))) ?? [];
 
   return {
     model: request.modelConfig.model,

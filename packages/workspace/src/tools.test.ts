@@ -2,9 +2,19 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ConversationId, ToolContext } from "@harness/protocol";
+import type { ConversationId, EditFormat, ToolContext } from "@harness/protocol";
 import { LocalExecutionContext } from "@harness/execution";
-import { ApplyPatchTool, BashTool, GlobTool, GrepTool, ReadFileTool, WriteTool } from "./tools.ts";
+import {
+  ApplyPatchTool,
+  BashTool,
+  EditTool,
+  GlobTool,
+  GrepTool,
+  ReadFileTool,
+  WriteTool,
+} from "./tools.ts";
+import { parseEnvelope } from "./apply-patch-parse.ts";
+import { workspacePlugin } from "./index.ts";
 
 const created: string[] = [];
 async function workspace(): Promise<ToolContext> {
@@ -34,34 +44,72 @@ describe("workspace tools", () => {
     expect(text(r)).toBe("hi");
   });
 
-  it("applies create/update/delete patches and reports bad diffs", async () => {
+  // ApplyPatchTool receives changes already parsed from the V4A envelope by the kernel
+  // (`parseEnvelope`); these tests feed it the same parsed form.
+  it("applies create/update/delete patches from a V4A envelope and reports bad diffs", async () => {
     const ctx = await workspace();
     const tool = new ApplyPatchTool();
+    const apply = (patch: string) => tool.execute(parseEnvelope(patch), ctx);
     const read = () => new ReadFileTool().execute({ path: "f.txt" }, ctx);
 
-    const created = await tool.execute(
-      { type: "create_file", path: "f.txt", diff: "+alpha\n+beta\n+gamma" },
-      ctx,
+    const created = await apply(
+      "*** Begin Patch\n*** Add File: f.txt\n+alpha\n+beta\n+gamma\n*** End Patch\n",
     );
     expect(created.status).toBe("ok");
     expect(text(await read())).toBe("alpha\nbeta\ngamma");
 
-    const updated = await tool.execute(
-      { type: "update_file", path: "f.txt", diff: "@@\n alpha\n-beta\n+BETA\n gamma" },
-      ctx,
+    const updated = await apply(
+      "*** Begin Patch\n*** Update File: f.txt\n@@\n alpha\n-beta\n+BETA\n gamma\n*** End Patch\n",
     );
     expect(updated.status).toBe("ok");
     expect(text(await read())).toBe("alpha\nBETA\ngamma");
 
-    const bad = await tool.execute(
-      { type: "update_file", path: "f.txt", diff: "@@\n nope\n-zzz\n+q" },
-      ctx,
+    const bad = await apply(
+      "*** Begin Patch\n*** Update File: f.txt\n@@\n nope\n-zzz\n+q\n*** End Patch\n",
     );
     expect(bad.status).toBe("error");
 
-    const deleted = await tool.execute({ type: "delete_file", path: "f.txt" }, ctx);
+    const deleted = await apply("*** Begin Patch\n*** Delete File: f.txt\n*** End Patch\n");
     expect(deleted.status).toBe("ok");
     await expect(read()).rejects.toThrow();
+  });
+
+  it("applies a multi-file envelope in one call", async () => {
+    const ctx = await workspace();
+    await new WriteTool().execute({ path: "keep.txt", content: "old\n" }, ctx);
+    const result = await new ApplyPatchTool().execute(
+      parseEnvelope(
+        "*** Begin Patch\n" +
+          "*** Add File: new.txt\n+fresh\n" +
+          "*** Update File: keep.txt\n@@\n-old\n+new\n" +
+          "*** End Patch\n",
+      ),
+      ctx,
+    );
+    expect(result.status).toBe("ok");
+    expect(text(await new ReadFileTool().execute({ path: "new.txt" }, ctx))).toBe("fresh");
+    expect(text(await new ReadFileTool().execute({ path: "keep.txt" }, ctx))).toBe("new\n");
+  });
+
+  it("edit replaces a unique occurrence and errors on absent/ambiguous matches", async () => {
+    const ctx = await workspace();
+    const tool = new EditTool();
+    await new WriteTool().execute({ path: "f.txt", content: "one two two\n" }, ctx);
+
+    const missing = await tool.execute({ path: "f.txt", old_string: "zzz", new_string: "q" }, ctx);
+    expect(missing.status).toBe("error");
+    expect(text(missing)).toContain("not found");
+
+    const ambiguous = await tool.execute(
+      { path: "f.txt", old_string: "two", new_string: "x" },
+      ctx,
+    );
+    expect(ambiguous.status).toBe("error");
+    expect(text(ambiguous)).toContain("not unique");
+
+    const ok = await tool.execute({ path: "f.txt", old_string: "one", new_string: "1" }, ctx);
+    expect(ok.status).toBe("ok");
+    expect(text(await new ReadFileTool().execute({ path: "f.txt" }, ctx))).toBe("1 two two\n");
   });
 
   it("globs and greps the workspace", async () => {
@@ -88,5 +136,31 @@ describe("workspace tools", () => {
     const failResult = await new BashTool().execute({ command: "exit 2" }, ctx);
     expect(failResult.status).toBe("error");
     expect(text(failResult)).toContain("exit 2");
+  });
+});
+
+describe("workspacePlugin editor selection", () => {
+  const names = (editFormat: EditFormat) =>
+    workspacePlugin.tools!({ contentTypes: ["text"], toolCalling: true, editFormat }).map(
+      (t) => t.name,
+    );
+
+  it("offers apply_patch to a V4A model and edit otherwise", () => {
+    expect(names("v4a")).toContain("apply_patch");
+    expect(names("v4a")).not.toContain("edit");
+    expect(names("string_replace")).toContain("edit");
+    expect(names("string_replace")).not.toContain("apply_patch");
+  });
+});
+
+describe("parseEnvelope", () => {
+  it("throws on an envelope with no markers", () => {
+    expect(() => parseEnvelope("no markers here")).toThrow(/Begin Patch/);
+  });
+
+  it("throws on an unrecognized line inside the envelope", () => {
+    expect(() => parseEnvelope("*** Begin Patch\ngarbage\n*** End Patch\n")).toThrow(
+      /unexpected line/,
+    );
   });
 });

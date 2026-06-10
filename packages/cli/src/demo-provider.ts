@@ -40,7 +40,7 @@ export class DemoProvider implements ModelProvider {
   #calls = 0;
 
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: true };
+    return { contentTypes: ["text"], toolCalling: true, editFormat: "string_replace" as const };
   }
 
   validateConfig(): void {}
