@@ -4,6 +4,7 @@ import type { Item, NewItem } from "./items.ts";
 import type { ModelConfig, ProviderPayload } from "./model.ts";
 import type { ContextBuild, NewContextBuild } from "./policies.ts";
 import type { OutputRef } from "./tools.ts";
+import type { ModelUsage, NewModelUsage } from "./usage.ts";
 
 export interface SeqRange {
   fromSeq?: number; // inclusive
@@ -51,6 +52,11 @@ export interface Store {
   getActiveTurn(conversationId: ConversationId): Promise<Turn | undefined>;
 
   recordContextBuild(input: NewContextBuild): Promise<ContextBuild>;
+
+  /** Append-only. Assigns `id`/`createdAt`. */
+  recordModelUsage(input: NewModelUsage): Promise<ModelUsage>;
+  /** All usage rows for a conversation, in record order. */
+  listModelUsage(conversationId: ConversationId): Promise<ModelUsage[]>;
 
   putProviderPayload(payload: ProviderPayload): Promise<void>;
   getProviderPayloads(itemIds: ItemId[]): Promise<ProviderPayload[]>;

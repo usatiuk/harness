@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ContentBlock, HarnessEvent, Item } from "@harness/protocol";
+import type { ContentBlock, HarnessEvent, Item, ModelUsage, Usage } from "@harness/protocol";
 import { emptyState, init, reduce, type State } from "./transcript-reducer.ts";
 
 const text = (t: string): ContentBlock[] => [{ type: "text", text: t }];
@@ -161,5 +161,49 @@ describe("transcript reducer", () => {
       },
       { kind: "assistant", turnId: "t1", text: "done", streaming: false, id: "a1" },
     ]);
+  });
+
+  it("accumulates usage totals, cost, and the latest input size", () => {
+    const usageEvent = (usage: Usage, cost: number | null): HarnessEvent => ({
+      type: "usage",
+      conversationId: "c",
+      turnId: "t1",
+      provider: "fake",
+      model: "fake-1",
+      usage,
+      cost,
+    });
+    const state = fold([
+      usageEvent({ inputTokens: 1000, outputTokens: 50, cachedReadTokens: 0 }, 0.01),
+      usageEvent({ inputTokens: 1500, outputTokens: 100, cachedReadTokens: 900 }, null),
+    ]);
+    expect(state.usage).toEqual({ inputTokens: 2500, outputTokens: 150, cachedReadTokens: 900 });
+    expect(state.cost).toBeCloseTo(0.01, 10);
+    expect(state.lastInputTokens).toBe(1500); // latest step, not the sum — the ctx-fill numerator
+  });
+
+  it("seeds totals from stored usage rows on resume", () => {
+    const row = (id: string, usage: Usage, cost: number | null): ModelUsage => ({
+      id,
+      conversationId: "c" as ModelUsage["conversationId"],
+      turnId: "t1" as ModelUsage["turnId"],
+      contextBuildId: null,
+      provider: "fake",
+      model: "fake-1",
+      usage,
+      cost,
+      createdAt: 0,
+    });
+    const seeded = init(
+      [],
+      [
+        row("u1", { inputTokens: 200, outputTokens: 20, cachedReadTokens: 0 }, 0.02),
+        row("u2", { inputTokens: 300, outputTokens: 30, cachedReadTokens: 150 }, 0.01),
+      ],
+    );
+    expect(seeded.usage).toEqual({ inputTokens: 500, outputTokens: 50, cachedReadTokens: 150 });
+    expect(seeded.cost).toBeCloseTo(0.03, 10);
+    expect(seeded.lastInputTokens).toBe(300);
+    expect(init([]).lastInputTokens).toBeUndefined(); // no rows → no ctx-fill yet
   });
 });

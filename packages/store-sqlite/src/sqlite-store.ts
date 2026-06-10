@@ -13,9 +13,11 @@ import type {
   Item,
   ItemId,
   ModelConfig,
+  ModelUsage,
   NewContextBuild,
   NewConversation,
   NewItem,
+  NewModelUsage,
   OutputRef,
   ProviderPayload,
   SeqRange,
@@ -23,8 +25,9 @@ import type {
   Turn,
   TurnId,
   TurnStatus,
+  Usage,
 } from "@harness/protocol";
-import { itemSchema } from "@harness/protocol";
+import { itemSchema, usageSchema } from "@harness/protocol";
 import { systemClock, uuidIdGenerator } from "@harness/store";
 import { migrate, type Database } from "./schema.ts";
 
@@ -250,6 +253,37 @@ export class SqliteStore implements Store {
     return build;
   }
 
+  async recordModelUsage(input: NewModelUsage): Promise<ModelUsage> {
+    const record: ModelUsage = { ...input, id: randomUUID(), createdAt: this.clock.now() };
+    await this.#k
+      .insertInto("model_usage")
+      .values({
+        id: record.id,
+        conversation_id: input.conversationId,
+        turn_id: input.turnId,
+        context_build_id: input.contextBuildId,
+        provider: input.provider,
+        model: input.model,
+        usage: JSON.stringify(input.usage),
+        cost: input.cost,
+        created_at: record.createdAt,
+      })
+      .execute();
+    return record;
+  }
+
+  async listModelUsage(conversationId: ConversationId): Promise<ModelUsage[]> {
+    // rowid tiebreak: created_at has only ms resolution.
+    const rows = await this.#k
+      .selectFrom("model_usage")
+      .selectAll()
+      .where("conversation_id", "=", conversationId)
+      .orderBy("created_at", "asc")
+      .orderBy(sql`rowid`, "asc")
+      .execute();
+    return rows.map(rowToModelUsage);
+  }
+
   async putProviderPayload(payload: ProviderPayload): Promise<void> {
     const values = {
       item_id: payload.itemId,
@@ -391,6 +425,20 @@ function rowToItem(row: ItemRow): Item {
     type: row.type,
     ...(JSON.parse(row.body) as object),
   }) as Item;
+}
+
+function rowToModelUsage(row: Database["model_usage"]): ModelUsage {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id as ConversationId,
+    turnId: row.turn_id as TurnId,
+    contextBuildId: row.context_build_id,
+    provider: row.provider,
+    model: row.model,
+    usage: usageSchema.parse(JSON.parse(row.usage)) as Usage,
+    cost: row.cost,
+    createdAt: row.created_at,
+  };
 }
 
 function rowToConversation(row: Database["conversations"]): Conversation {

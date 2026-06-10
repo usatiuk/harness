@@ -3,6 +3,7 @@ import type {
   EffortInfo,
   ModelConfig,
   ModelInfo,
+  ModelPricing,
   ModelProvider,
   ModelRequest,
   ModelStreamEvent,
@@ -18,26 +19,42 @@ interface ModelSpec {
   efforts: EffortInfo[];
   /** Effort used when the selection omits one; must appear in `efforts`. */
   defaultEffort: string;
+  /** Max context tokens. */
+  contextWindow: number;
+  /** USD per MTok. No `cacheWrite`: OpenAI bills no cache-write premium. */
+  pricing: ModelPricing;
 }
 
 const effort = (value: OpenAI.ReasoningEffort & string): EffortInfo => ({ value });
 
 // Default medium preserves prior behavior (a fixed medium effort). See openai `ReasoningEffort`.
+// Rates: developers.openai.com/api/docs/pricing, as of 2026-06.
 const MODELS: ModelSpec[] = [
   {
     model: "gpt-5.1",
     efforts: [effort("none"), effort("low"), effort("medium"), effort("high")],
     defaultEffort: "medium",
+    contextWindow: 400_000,
+    pricing: { input: 1.25, output: 10, cachedRead: 0.125 },
   },
   {
     model: "gpt-5.5",
     efforts: [effort("none"), effort("low"), effort("medium"), effort("high")],
     defaultEffort: "medium",
+    contextWindow: 1_050_000,
+    pricing: {
+      input: 5,
+      output: 30,
+      cachedRead: 0.5,
+      longContext: { threshold: 272_000, input: 10, output: 45, cachedRead: 1 },
+    },
   },
   {
     model: "gpt-5.1-codex",
     efforts: [effort("low"), effort("medium"), effort("high")],
     defaultEffort: "medium",
+    contextWindow: 400_000,
+    pricing: { input: 1.25, output: 10, cachedRead: 0.125 },
   },
 ];
 
@@ -86,6 +103,8 @@ export class OpenAIResponsesProvider implements ModelProvider {
       model: m.model,
       efforts: m.efforts,
       defaultEffort: m.defaultEffort,
+      contextWindow: m.contextWindow,
+      pricing: m.pricing,
     }));
   }
 

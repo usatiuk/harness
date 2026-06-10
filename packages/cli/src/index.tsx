@@ -6,6 +6,7 @@ import type {
   ConversationId,
   Item,
   ModelConfig,
+  ModelUsage,
   PluginEntry,
 } from "@harness/protocol";
 import { defaultHome, type SettingsDoc } from "@harness/config";
@@ -34,6 +35,7 @@ export interface LaunchOptions {
 interface Session {
   conversation: Conversation;
   items: Item[];
+  usage: ModelUsage[];
 }
 
 type Start = { kind: "session"; session: Session } | { kind: "picker" };
@@ -68,7 +70,11 @@ function buildHarness(): Harness {
 async function loadSession(service: HarnessService, id: string): Promise<Session> {
   const conversation = await service.getConversation(id as ConversationId);
   if (!conversation) throw new Error(`unknown conversation: ${id}`);
-  return { conversation, items: await service.getItems(conversation.id) };
+  const [items, usage] = await Promise.all([
+    service.getItems(conversation.id),
+    service.usage(conversation.id),
+  ]);
+  return { conversation, items, usage };
 }
 
 /** Parses launch flags into a running TUI: new session, resume by id, or resume picker. */
@@ -97,7 +103,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
     });
     console.log(`conversation ${conversation.id}`);
     created.add(conversation.id);
-    start = { kind: "session", session: { conversation, items: [] } };
+    start = { kind: "session", session: { conversation, items: [], usage: [] } };
   }
 
   // Every conversation shown this run, so all in-flight turns drain before the WAL closes.
@@ -160,6 +166,7 @@ function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null
       service={service}
       conversation={session.conversation}
       initialItems={session.items}
+      initialUsage={session.usage}
       cwd={session.conversation.config.workspaceRoot ?? cwd}
       launchCwd={cwd}
       onResume={resume}

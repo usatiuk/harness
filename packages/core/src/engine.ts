@@ -1,6 +1,8 @@
 import {
   assertNever,
+  costOf,
   errorResult,
+  findModel,
   type Conversation,
   type ConversationId,
   type ContentBlock,
@@ -11,6 +13,7 @@ import {
   type ItemId,
   type ModelConfig,
   type ModelInfo,
+  type ModelPricing,
   type ModelRequest,
   type ModelStreamEvent,
   type NewContextBuild,
@@ -251,6 +254,7 @@ export class Engine {
     const provider = this.host.providers.get(conversation.config.model.provider);
     const toolSet = this.host.toolsFor(provider.capabilities(conversation.config.model.model));
     const toolSchemas = toolSet.schemas();
+    const pricing = this.#pricingFor(conversation.config.model);
     for (let step = 0; step < MAX_MODEL_STEPS; step++) {
       const build = await this.#buildContext(conversation, toolSchemas);
       const request: ModelRequest = {
@@ -372,6 +376,29 @@ export class Engine {
 
       // --- Finalize. ---
       if (lastMessageId) await bindPayload(lastMessageId, completed?.payload);
+      // Before the abort throw: a completed-then-aborted step still records its spend.
+      // Aborted mid-stream ⇒ no `completed` ⇒ no row.
+      if (completed) {
+        const { provider: providerName, model } = conversation.config.model;
+        const recorded = await this.store.recordModelUsage({
+          conversationId: conversation.id,
+          turnId,
+          contextBuildId: build.id,
+          provider: providerName,
+          model,
+          usage: completed.usage,
+          cost: pricing ? costOf(completed.usage, pricing) : null,
+        });
+        this.#emit({
+          type: "usage",
+          conversationId: conversation.id,
+          turnId,
+          provider: providerName,
+          model,
+          usage: recorded.usage,
+          cost: recorded.cost,
+        });
+      }
       if (signal.aborted) throw new TurnAborted();
       if (!completed) {
         throw new Error("provider stream ended without a 'completed' event");
@@ -524,6 +551,11 @@ export class Engine {
       content,
     });
     this.#emit({ type: "compaction", item });
+  }
+
+  /** The model's rate card from its provider's catalog; undefined = cost not computable. */
+  #pricingFor(model: ModelConfig): ModelPricing | undefined {
+    return findModel(this.host.providers.listModels(), model)?.pricing;
   }
 
   async #buildContext(conversation: Conversation, tools: ToolSchema[]): Promise<ContextBuild> {

@@ -7,9 +7,11 @@ import type {
   Item,
   ItemId,
   ModelConfig,
+  ModelUsage,
   NewContextBuild,
   NewConversation,
   NewItem,
+  NewModelUsage,
   OutputRef,
   ProviderPayload,
   Store,
@@ -33,6 +35,7 @@ export class InMemoryStore implements Store {
   readonly #pluginState = new Map<string, unknown>();
   readonly #blobs = new Map<string, Uint8Array>();
   readonly #contextBuilds: ContextBuild[] = [];
+  readonly #modelUsage: ModelUsage[] = [];
   #counter = 0;
 
   constructor(
@@ -165,6 +168,20 @@ export class InMemoryStore implements Store {
     };
     this.#contextBuilds.push(build);
     return build;
+  }
+
+  async recordModelUsage(input: NewModelUsage): Promise<ModelUsage> {
+    const record: ModelUsage = {
+      ...input,
+      id: `mu-${++this.#counter}`,
+      createdAt: this.clock.now(),
+    };
+    this.#modelUsage.push(record);
+    return record;
+  }
+
+  async listModelUsage(conversationId: ConversationId): Promise<ModelUsage[]> {
+    return this.#modelUsage.filter((u) => u.conversationId === conversationId);
   }
 
   async putProviderPayload(payload: ProviderPayload): Promise<void> {

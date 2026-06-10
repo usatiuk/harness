@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId, ItemId } from "./ids.ts";
 import type { Item } from "./items.ts";
@@ -16,6 +17,21 @@ export interface EffortInfo {
   label?: string;
 }
 
+/** Cache-write TTL expressed in seconds (provider-neutral; Anthropic: 300 = 5m, 3600 = 1h). */
+export type CacheTtlSeconds = number;
+
+/** Rate card in USD per million tokens. */
+export interface ModelPricing {
+  input: number;
+  output: number;
+  /** Absent = cached reads billed at the input rate. */
+  cachedRead?: number;
+  /** Write rate keyed by TTL seconds. */
+  cacheWrite?: Record<CacheTtlSeconds, number>;
+  /** Replacement card for a whole request whose inputTokens exceed the threshold. */
+  longContext?: { threshold: number } & Omit<ModelPricing, "longContext">;
+}
+
 /** One selectable model in a provider's catalog. */
 export interface ModelInfo {
   provider: string;
@@ -26,11 +42,21 @@ export interface ModelInfo {
   efforts?: EffortInfo[];
   /** Effort used when none is chosen; must be one of `efforts` when present. */
   defaultEffort?: string;
+  /** Max context size in tokens; absent = unknown. */
+  contextWindow?: number;
+  /** Absent = cost not computable for this model. */
+  pricing?: ModelPricing;
 }
 
 /** Canonical id for a model (ignores effort): `provider/model`. */
 export const modelId = (m: { provider: string; model: string }): string =>
   `${m.provider}/${m.model}`;
+
+/** Catalog lookup by provider + model (ignores effort). */
+export const findModel = (
+  models: ModelInfo[],
+  m: { provider: string; model: string },
+): ModelInfo | undefined => models.find((x) => x.provider === m.provider && x.model === m.model);
 
 /** Full selection id including effort when set: `provider/model[/effort]`. */
 export const selectionId = (m: ModelConfig): string =>
@@ -46,9 +72,23 @@ export interface ModelCapabilities {
 }
 
 export interface Usage {
+  /** TOTAL prompt tokens — cached reads and cache writes are subsets, never additive. */
   inputTokens: number;
   outputTokens: number;
+  /** Subset of `inputTokens` served from cache. Required so adapters must state it; 0 = none. */
+  cachedReadTokens: number;
+  /** Subset of `inputTokens` written to cache, keyed by TTL seconds (Anthropic-style). */
+  cacheWriteTokens?: Record<CacheTtlSeconds, number>;
 }
+
+// Validates the structural shape; the exact-optional `Usage` is cast at the parse site.
+const tokens = z.number().int().nonnegative();
+export const usageSchema = z.object({
+  inputTokens: tokens,
+  outputTokens: tokens,
+  cachedReadTokens: tokens,
+  cacheWriteTokens: z.record(z.coerce.number().int().positive(), tokens).optional(),
+});
 
 /**
  * Opaque per-item provider fidelity (encrypted reasoning, thought signatures, …).

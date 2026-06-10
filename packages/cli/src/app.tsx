@@ -1,7 +1,15 @@
-import { useEffect, useReducer, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactElement } from "react";
 import { Box, Static, Text, useApp, useInput } from "ink";
 import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
-import { isKernelEvent, type Conversation, type HarnessEvent, type Item } from "@harness/protocol";
+import {
+  findModel,
+  isKernelEvent,
+  type Conversation,
+  type HarnessEvent,
+  type Item,
+  type ModelUsage,
+  type Usage,
+} from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
 import { effortsFor, runCommand, type CommandContext } from "./commands.ts";
@@ -14,6 +22,8 @@ export interface AppProps {
   service: HarnessService;
   conversation: Conversation;
   initialItems: Item[];
+  /** Stored usage rows seeding the footer totals on resume. */
+  initialUsage: ModelUsage[];
   cwd: string;
   /** Where this process was launched; a note flags it when it differs from `cwd`. */
   launchCwd: string;
@@ -51,18 +61,26 @@ export function App({
   service,
   conversation,
   initialItems,
+  initialUsage,
   cwd,
   launchCwd,
   onResume,
 }: AppProps): ReactElement {
   const { exit } = useApp();
-  const [state, dispatch] = useReducer(appReduce, initialItems, init);
+  const [state, dispatch] = useReducer(appReduce, undefined, () =>
+    init(initialItems, initialUsage),
+  );
   const [model, setModel] = useState(conversation.config.model);
   const [modelPicking, setModelPicking] = useState(false);
   const [effortPicking, setEffortPicking] = useState(false);
   const noteId = useRef(0);
   const busy = state.turn.status === "running";
   const pending = state.pending;
+  // Keeps the catalog scan off the per-delta render path.
+  const contextWindow = useMemo(
+    () => findModel(service.availableModels(), model)?.contextWindow,
+    [service, model],
+  );
 
   const note = (text: string): void =>
     dispatch({ type: "note", id: `note-${++noteId.current}`, text });
@@ -177,7 +195,16 @@ export function App({
         />
       ) : (
         <>
-          <StatusBar busy={busy} model={model.model} effort={model.effort} cwd={cwd} />
+          <StatusBar
+            busy={busy}
+            model={model.model}
+            effort={model.effort}
+            cwd={cwd}
+            usage={state.usage}
+            cost={state.cost}
+            lastInputTokens={state.lastInputTokens}
+            contextWindow={contextWindow}
+          />
           <Composer onSubmit={submit} />
         </>
       )}
@@ -185,22 +212,56 @@ export function App({
   );
 }
 
+const fmtTokens = (n: number): string => {
+  if (n < 1000) return `${n}`;
+  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${Math.round(n / 1000)}k`;
+};
+
+/** `↑124k 38% cached ↓8.2k · $0.41 · ctx 31%`; empty until any tokens flow. */
+export function usageLabel(
+  usage: Usage,
+  cost: number,
+  lastInputTokens: number | undefined,
+  contextWindow: number | undefined,
+): string {
+  if (usage.inputTokens === 0 && usage.outputTokens === 0) return "";
+  const cachedPct = Math.round((usage.cachedReadTokens / Math.max(usage.inputTokens, 1)) * 100);
+  let label = `↑${fmtTokens(usage.inputTokens)}`;
+  if (cachedPct > 0) label += ` ${cachedPct}% cached`;
+  label += ` ↓${fmtTokens(usage.outputTokens)}`;
+  if (cost > 0) label += ` · $${cost.toFixed(2)}`;
+  if (lastInputTokens !== undefined && contextWindow) {
+    label += ` · ctx ${Math.round((lastInputTokens / contextWindow) * 100)}%`;
+  }
+  return label;
+}
+
 function StatusBar({
   busy,
   model,
   effort,
   cwd,
+  usage,
+  cost,
+  lastInputTokens,
+  contextWindow,
 }: {
   busy: boolean;
   model: string;
   effort: string | undefined;
   cwd: string;
+  usage: Usage;
+  cost: number;
+  lastInputTokens: number | undefined;
+  contextWindow: number | undefined;
 }): ReactElement {
   const label = effort ? `${model} (${effort})` : model;
+  const tokens = usageLabel(usage, cost, lastInputTokens, contextWindow);
   return (
     <Box>
       {busy ? <Spinner label="working" /> : <Text color="green">●</Text>}
-      <Text dimColor>{`  ${label} · ${cwd}`}</Text>
+      <Text dimColor>{`  ${label}${tokens ? ` · ${tokens}` : ""} · ${cwd}`}</Text>
     </Box>
   );
 }

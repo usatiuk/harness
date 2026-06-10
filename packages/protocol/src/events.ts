@@ -1,7 +1,7 @@
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId, TurnId } from "./ids.ts";
 import type { Item } from "./items.ts";
-import type { ModelConfig } from "./model.ts";
+import type { ModelConfig, Usage } from "./model.ts";
 import type { ToolStatus } from "./tools.ts";
 import type { TurnStatus } from "./conversation.ts";
 
@@ -28,7 +28,16 @@ export type KernelEvent =
       request: unknown;
     }
   | { type: "request.resolved"; requestId: string; conversationId: ConversationId }
-  | { type: "config.changed"; conversationId: ConversationId; model: ModelConfig };
+  | { type: "config.changed"; conversationId: ConversationId; model: ModelConfig }
+  | {
+      type: "usage";
+      conversationId: ConversationId;
+      turnId: TurnId;
+      provider: string;
+      model: string;
+      usage: Usage;
+      cost: number | null; // stored fact, priced at record time; null = no rate card
+    };
 
 /**
  * A plugin-defined event. `string & {}` keeps the union open without collapsing
@@ -55,6 +64,7 @@ const KERNEL_EVENT_TYPES = new Set<KernelEvent["type"]>([
   "request.created",
   "request.resolved",
   "config.changed",
+  "usage",
 ]);
 
 /**

@@ -7,6 +7,7 @@ import type {
   ItemId,
   ModelConfig,
   ModelInfo,
+  ModelUsage,
   Plugin,
   PluginEntry,
   Store,
@@ -162,5 +163,10 @@ export class HarnessService {
   /** The active item chain (head's ancestry) — the render/resume source for a conversation. */
   getItems(id: ConversationId): Promise<Item[]> {
     return this.#store.listActiveItems(id);
+  }
+
+  /** Per-request usage/cost rows, in record order. Backs resume footer totals. */
+  usage(id: ConversationId): Promise<ModelUsage[]> {
+    return this.#store.listModelUsage(id);
   }
 }

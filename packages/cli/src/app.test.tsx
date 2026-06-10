@@ -20,6 +20,7 @@ function harness(): { service: HarnessService; emit: (e: HarnessEvent) => void }
     },
     deliver: vi.fn(async () => {}),
     respond: vi.fn(),
+    availableModels: () => [],
   } as unknown as HarnessService;
   return { service, emit: (e) => listener?.(e) };
 }
@@ -32,6 +33,7 @@ const mount = (service: HarnessService) =>
       service={service}
       conversation={conversation}
       initialItems={[]}
+      initialUsage={[]}
       cwd="/tmp"
       launchCwd="/tmp"
       onResume={() => {}}

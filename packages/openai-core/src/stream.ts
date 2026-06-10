@@ -68,6 +68,8 @@ export async function* toModelEvents(
           usage: {
             inputTokens: event.response.usage?.input_tokens ?? 0,
             outputTokens: event.response.usage?.output_tokens ?? 0,
+            // Already a subset of input_tokens — matches the Usage normalization.
+            cachedReadTokens: event.response.usage?.input_tokens_details?.cached_tokens ?? 0,
           },
         };
         break;

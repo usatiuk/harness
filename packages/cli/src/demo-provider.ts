@@ -1,12 +1,13 @@
 import {
   textOf,
+  zeroUsage,
   type ModelInfo,
   type ModelProvider,
   type ModelRequest,
   type ModelStreamEvent,
 } from "@harness/protocol";
 
-const ZERO_USAGE = { inputTokens: 0, outputTokens: 0 } as const;
+const ZERO_USAGE = zeroUsage();
 
 /** Demo-only pause so a turn lasts long enough to steer/interrupt by hand. */
 const DEMO_LATENCY_MS = 400;

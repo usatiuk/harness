@@ -13,6 +13,7 @@ export interface Database {
   plugin_state: PluginStateTable;
   blobs: BlobsTable;
   context_builds: ContextBuildsTable;
+  model_usage: ModelUsageTable;
 }
 
 interface ConversationsTable {
@@ -68,6 +69,18 @@ interface ContextBuildsTable {
   conversation_id: string;
   created_at: number;
   data: string;
+}
+
+interface ModelUsageTable {
+  id: string;
+  conversation_id: string;
+  turn_id: string;
+  context_build_id: string | null;
+  provider: string;
+  model: string;
+  usage: string;
+  cost: number | null;
+  created_at: number;
 }
 
 // Forward FK refs are legal in SQLite (checked at DML, not DDL), so the mutual
@@ -136,9 +149,30 @@ CREATE TABLE context_builds (
 );
 `;
 
-/** Idempotent bootstrap: creates the schema once, gated on `user_version`. */
+const MODEL_USAGE = `
+CREATE TABLE model_usage (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id),
+  turn_id TEXT NOT NULL REFERENCES turns(id),
+  context_build_id TEXT REFERENCES context_builds(id),
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  usage TEXT NOT NULL,
+  cost REAL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX model_usage_conv ON model_usage(conversation_id);
+`;
+
+// Index i migrates user_version i → i+1; a fresh DB replays the whole list.
+const MIGRATIONS = [SCHEMA, MODEL_USAGE];
+
+/** Idempotent bootstrap: applies pending migrations, gated on `user_version`. */
 export function migrate(db: BetterSqlite3.Database): void {
-  if (db.pragma("user_version", { simple: true }) !== 0) return;
-  db.exec(SCHEMA);
-  db.pragma("user_version = 1");
+  const version = db.pragma("user_version", { simple: true }) as number;
+  for (const [i, migration] of MIGRATIONS.entries()) {
+    if (i < version) continue;
+    db.exec(migration);
+    db.pragma(`user_version = ${i + 1}`);
+  }
 }

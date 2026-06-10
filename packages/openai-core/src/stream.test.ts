@@ -54,8 +54,31 @@ describe("toModelEvents", () => {
       },
       { type: "text_delta", text: "Hello" },
       { type: "tool_call", callId: "call_1", name: "echo", args: { x: 1 } },
-      { type: "completed", content: [], usage: { inputTokens: 10, outputTokens: 5 } },
+      {
+        type: "completed",
+        content: [],
+        usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
+      },
     ]);
+  });
+
+  it("surfaces cached prompt tokens as a subset of inputTokens", async () => {
+    const stream = emit({
+      type: "response.completed",
+      response: {
+        usage: {
+          input_tokens: 2000,
+          output_tokens: 50,
+          input_tokens_details: { cached_tokens: 1536 },
+        },
+      },
+    });
+    const out = await collect(toModelEvents(stream, "openai", "m", never));
+    expect(out[0]).toEqual({
+      type: "completed",
+      content: [],
+      usage: { inputTokens: 2000, outputTokens: 50, cachedReadTokens: 1536 },
+    });
   });
 
   it("tags the reasoning payload with the live provider id", async () => {

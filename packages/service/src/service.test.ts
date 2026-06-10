@@ -42,8 +42,10 @@ describe("HarnessService", () => {
       "message",
       "tool_call.started",
       "tool_call.completed",
+      "usage",
       "text_delta",
       "message",
+      "usage",
       "turn.status",
     ]);
   });

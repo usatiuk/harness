@@ -1,11 +1,15 @@
 import {
+  addUsage,
   assertNever,
   isKernelEvent,
   textOf,
+  zeroUsage,
   type HarnessEvent,
   type Item,
+  type ModelUsage,
   type ToolStatus,
   type TurnStatus,
+  type Usage,
 } from "@harness/protocol";
 
 /**
@@ -39,9 +43,20 @@ export interface State {
   turn: { id?: string; status: TurnStatus | "idle" };
   /** A middleware request (e.g. approval) awaiting a decision; cleared when its turn ends. */
   pending?: { requestId: string; summary: string };
+  /** Running token totals across the conversation (live events + resume seed). */
+  usage: Usage;
+  /** Σ of stored per-row costs in USD; rows with no rate card contribute nothing. */
+  cost: number;
+  /** The latest request's total prompt size — the context-fill numerator. */
+  lastInputTokens?: number;
 }
 
-export const emptyState: State = { cells: [], turn: { status: "idle" } };
+export const emptyState: State = {
+  cells: [],
+  turn: { status: "idle" },
+  usage: zeroUsage(),
+  cost: 0,
+};
 
 /** Index of the still-open streaming cell of `kind` for `turnId`, or -1. */
 function openIndex(cells: Cell[], kind: "assistant" | "reasoning", turnId: string): number {
@@ -183,6 +198,13 @@ export function reduce(state: State, event: HarnessEvent): State {
       return state.pending?.requestId === event.requestId ? clearPending(state) : state;
     case "config.changed":
       return state; // not a transcript line
+    case "usage":
+      return {
+        ...state,
+        usage: addUsage(state.usage, event.usage),
+        cost: state.cost + (event.cost ?? 0),
+        lastInputTokens: event.usage.inputTokens,
+      };
     default:
       return assertNever(event);
   }
@@ -191,8 +213,9 @@ export function reduce(state: State, event: HarnessEvent): State {
 /**
  * Seed state from a committed item log (resume). Folds items into finalized cells,
  * pairing `tool_call`+`tool_result` by `callId` — the same cells a live replay yields.
+ * `usageRows` seed the running totals so a resumed footer matches a live one.
  */
-export function init(items: Item[]): State {
+export function init(items: Item[], usageRows: ModelUsage[] = []): State {
   const cells: Cell[] = [];
   const toolByCall = new Map<string, Extract<Cell, { kind: "tool" }>>();
   for (const item of items) {
@@ -247,5 +270,14 @@ export function init(items: Item[]): State {
         assertNever(item);
     }
   }
-  return { cells, turn: { status: "idle" } };
+  const usage = usageRows.reduce((sum, row) => addUsage(sum, row.usage), zeroUsage());
+  const cost = usageRows.reduce((sum, row) => sum + (row.cost ?? 0), 0);
+  const last = usageRows.at(-1)?.usage.inputTokens;
+  return {
+    cells,
+    turn: { status: "idle" },
+    usage,
+    cost,
+    ...(last !== undefined ? { lastInputTokens: last } : {}),
+  };
 }

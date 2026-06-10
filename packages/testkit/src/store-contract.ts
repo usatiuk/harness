@@ -201,6 +201,43 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect(await store.getProviderPayloads([b.id])).toEqual([]);
     });
 
+    it("round-trips model usage rows in record order", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation({ config: sampleConfig() });
+      const turn = await store.createTurn(conv.id);
+      const build = await store.recordContextBuild({
+        conversationId: conv.id,
+        instructions: [],
+        tools: [],
+        items: [],
+      });
+      const first = await store.recordModelUsage({
+        conversationId: conv.id,
+        turnId: turn.id,
+        contextBuildId: build.id,
+        provider: "fake",
+        model: "fake-1",
+        usage: {
+          inputTokens: 1200,
+          outputTokens: 80,
+          cachedReadTokens: 1000,
+          cacheWriteTokens: { 300: 100 },
+        },
+        cost: 0.0123,
+      });
+      const second = await store.recordModelUsage({
+        conversationId: conv.id,
+        turnId: turn.id,
+        contextBuildId: null,
+        provider: "fake",
+        model: "fake-2", // differs from the conversation's config: the row snapshots the model
+        usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
+        cost: null,
+      });
+      expect(await store.listModelUsage(conv.id)).toEqual([first, second]);
+      expect(await store.listModelUsage("missing" as ConversationId)).toEqual([]);
+    });
+
     it("namespaces plugin state by plugin + conversation + key", async () => {
       const store = makeStore();
       const conv = await store.createConversation({ config: sampleConfig() });

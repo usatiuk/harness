@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import BetterSqlite3 from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ConversationId, NewItem, TurnId } from "@harness/protocol";
 import { counterIdGenerator, fixedClock } from "@harness/testkit";
@@ -58,6 +59,41 @@ describe("SqliteStore (durable-only)", () => {
     const reopened = new SqliteStore(path);
     const items = await reopened.listItems(conv.id);
     expect(items).toEqual([item]);
+    reopened.close();
+  });
+
+  it("migrates a v1 database in place: adds model_usage, keeps existing data", async () => {
+    const path = tempDb();
+    const first = new SqliteStore(path);
+    const conv = await first.createConversation({ config: config() });
+    const turn = await first.createTurn(conv.id);
+    const item = await first.appendItem({
+      conversationId: conv.id,
+      turnId: turn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "pre-migration" }],
+    });
+    first.close();
+
+    // Rewind to v1: drop what the 1→2 migration adds (its index goes with the table).
+    const raw = new BetterSqlite3(path);
+    raw.exec("DROP TABLE model_usage");
+    raw.pragma("user_version = 1");
+    raw.close();
+
+    const reopened = new SqliteStore(path);
+    expect(await reopened.listItems(conv.id)).toEqual([item]);
+    const recorded = await reopened.recordModelUsage({
+      conversationId: conv.id,
+      turnId: turn.id,
+      contextBuildId: null,
+      provider: "fake",
+      model: "fake-1",
+      usage: { inputTokens: 7, outputTokens: 3, cachedReadTokens: 0 },
+      cost: null,
+    });
+    expect(await reopened.listModelUsage(conv.id)).toEqual([recorded]);
     reopened.close();
   });
 });

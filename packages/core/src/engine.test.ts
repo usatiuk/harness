@@ -13,6 +13,7 @@ import type {
   Plugin,
   Tool,
   ToolMiddleware,
+  Usage,
 } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import {
@@ -120,8 +121,10 @@ describe("Engine — turn cycle", () => {
       "message",
       "tool_call.started",
       "tool_call.completed",
+      "usage",
       "text_delta",
       "message",
+      "usage",
       "turn.status",
     ]);
   });
@@ -130,7 +133,11 @@ describe("Engine — turn cycle", () => {
     const twoCalls: FakeStep = [
       { type: "tool_call", callId: "c1", name: "echo", args: { a: 1 } },
       { type: "tool_call", callId: "c2", name: "echo", args: { b: 2 } },
-      { type: "completed", content: [], usage: { inputTokens: 0, outputTokens: 0 } },
+      {
+        type: "completed",
+        content: [],
+        usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+      },
     ];
     const { store, engine } = setup([twoCalls, textStep("ok")]);
     const conv = await store.createConversation({ config: CONFIG });
@@ -476,7 +483,11 @@ describe("Engine — interrupt", () => {
       { type: "tool_call", callId: "A", name: "gate", args: {} },
       { type: "tool_call", callId: "B", name: "echo", args: {} },
       { type: "tool_call", callId: "C", name: "echo", args: {} },
-      { type: "completed", content: [], usage: { inputTokens: 0, outputTokens: 0 } },
+      {
+        type: "completed",
+        content: [],
+        usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+      },
     ];
     const { store, engine, events } = setup([parallel, textStep("after")], {
       tools: () => [gate, new EchoTool()],
@@ -983,7 +994,7 @@ class CatalogProvider implements ModelProvider {
     yield {
       type: "completed",
       content: [{ type: "text", text: "ok" }],
-      usage: { inputTokens: 0, outputTokens: 0 },
+      usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
     };
   }
 }
@@ -1178,5 +1189,78 @@ describe("Engine — model switching", () => {
     await engine.whenIdle(conv.id);
 
     expect(provider.seen).toEqual(["m1", "m2"]);
+  });
+});
+
+describe("Engine — usage recording", () => {
+  it("records one model_usage row per provider request and emits usage events", async () => {
+    const u1: Usage = { inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 };
+    const u2: Usage = { inputTokens: 250, outputTokens: 20, cachedReadTokens: 120 };
+    const { store, engine, events } = setup([
+      toolStep("c1", "echo", { x: 1 }, u1),
+      textStep("done", undefined, u2),
+    ]);
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    const rows = await store.listModelUsage(conv.id);
+    expect(rows.map((r) => r.usage)).toEqual([u1, u2]);
+    const [item] = await store.listItems(conv.id);
+    expect(rows.map((r) => r.turnId)).toEqual([item!.turnId, item!.turnId]);
+    for (const row of rows) {
+      expect(row.provider).toBe("fake");
+      expect(row.model).toBe("fake-1"); // snapshotted from the turn's config
+      expect(row.contextBuildId).not.toBeNull();
+      expect(row.cost).toBeNull(); // FakeProvider publishes no rate card
+    }
+    const usageEvents = events.filter(isKernelEvent).filter((e) => e.type === "usage");
+    expect(usageEvents.map((e) => (e.type === "usage" ? e.usage : null))).toEqual([u1, u2]);
+  });
+
+  it("records no usage for a step aborted mid-stream (no completed event)", async () => {
+    const provider = new GateProvider("hel");
+    const { store, engine } = setup([], { providers: () => [provider] });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await provider.started;
+    await engine.deliver(conv.id, noContent, "interrupt");
+    await engine.whenIdle(conv.id);
+
+    expect(await store.listModelUsage(conv.id)).toEqual([]);
+  });
+
+  it("prices the row at record time when the provider catalog has a rate card", async () => {
+    class PricedProvider extends FakeProvider {
+      listModels() {
+        return [
+          {
+            provider: "fake",
+            model: "fake-1",
+            pricing: { input: 2, output: 10, cachedRead: 0.2 },
+          },
+        ];
+      }
+    }
+    const usage: Usage = {
+      inputTokens: 1_000_000,
+      outputTokens: 100_000,
+      cachedReadTokens: 500_000,
+    };
+    const provider = new PricedProvider([textStep("done", undefined, usage)]);
+    const { store, engine, events } = setup([], { providers: () => [provider] });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    // 500K uncached × $2 + 500K cached × $0.2 + 100K out × $10, per MTok
+    const expected = 0.5 * 2 + 0.5 * 0.2 + 0.1 * 10;
+    const [row] = await store.listModelUsage(conv.id);
+    expect(row?.cost).toBeCloseTo(expected, 10);
+    const usageEvent = events.filter(isKernelEvent).find((e) => e.type === "usage");
+    expect(usageEvent && usageEvent.type === "usage" ? usageEvent.cost : null).toBeCloseTo(
+      expected,
+      10,
+    );
   });
 });
