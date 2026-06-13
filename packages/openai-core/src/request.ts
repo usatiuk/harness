@@ -126,8 +126,14 @@ export function buildResponseParams(
     if (mapped) input.push(mapped);
   }
 
+  // `native` tools are a provider's own built-ins; no OpenAI model offers one (they arrive only
+  // under the `text_editor` profile), so encountering one is a wiring bug, not a runtime input.
   const tools: OpenAI.Responses.Tool[] =
-    request.tools?.map((t) => (t.kind === "custom" ? toCustomTool(t) : toFunctionTool(t))) ?? [];
+    request.tools?.map((t) => {
+      if (t.kind === "custom") return toCustomTool(t);
+      if (t.kind === "native") throw new Error(`openai cannot render native tool: ${t.name}`);
+      return toFunctionTool(t);
+    }) ?? [];
 
   return {
     model: request.modelConfig.model,

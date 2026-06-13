@@ -8,7 +8,7 @@ const contributedCompaction = fakeCompaction({ over: 0 });
 const caps: ModelCapabilities = {
   contentTypes: ["text"],
   toolCalling: true,
-  editFormat: "string_replace",
+  fileTools: "string_replace",
 };
 
 const passThrough = (id: string): ToolMiddleware => ({

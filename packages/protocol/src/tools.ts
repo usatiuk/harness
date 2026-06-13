@@ -2,7 +2,7 @@ import type { ZodType } from "zod";
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
 import type { Item } from "./items.ts";
-import type { ToolGrammar } from "./model.ts";
+import type { NativeToolId, ToolGrammar } from "./model.ts";
 import type { PluginEvent } from "./events.ts";
 
 export interface ToolCall {
@@ -47,12 +47,15 @@ export interface ToolContext {
 
 /**
  * What a tool declares about its arguments. `function` is a zod schema; `custom` is a raw
- * string the model emits, `parse`d to `A`. The kernel derives the wire `ToolSchema` from this
- * and validates raw args against it, so `execute` only ever sees a validated `A`.
+ * string the model emits, `parse`d to `A`; `native` is a provider built-in whose wire schema
+ * the provider owns — the zod `schema` here defensively validates the model's structured input.
+ * The kernel derives the wire `ToolSchema` from this and validates raw args against it, so
+ * `execute` only ever sees a validated `A`.
  */
 export type ToolInput<A> =
   | { kind: "function"; schema: ZodType<A> }
-  | { kind: "custom"; grammar?: ToolGrammar; parse: (raw: string) => A };
+  | { kind: "custom"; grammar?: ToolGrammar; parse: (raw: string) => A }
+  | { kind: "native"; id: NativeToolId; schema: ZodType<A> };
 
 export interface Tool<A = unknown> {
   readonly name: string;

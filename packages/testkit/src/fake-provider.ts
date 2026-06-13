@@ -106,7 +106,7 @@ export class FakeProvider implements ModelProvider {
   }
 
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: true, editFormat: "string_replace" as const };
+    return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" as const };
   }
 
   validateConfig(): void {}
@@ -147,7 +147,7 @@ export class GateProvider implements ModelProvider {
   }
 
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: true, editFormat: "string_replace" as const };
+    return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" as const };
   }
 
   validateConfig(): void {}

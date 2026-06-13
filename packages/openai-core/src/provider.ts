@@ -92,7 +92,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
 
   capabilities(): ModelCapabilities {
     // Every GPT model this class serves is trained on the V4A apply_patch dialect.
-    return { contentTypes: ["text"], toolCalling: true, editFormat: "v4a" };
+    return { contentTypes: ["text"], toolCalling: true, fileTools: "apply_patch" };
   }
 
   validateConfig(): void {}

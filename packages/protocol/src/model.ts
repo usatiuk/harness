@@ -62,13 +62,24 @@ export const findModel = (
 export const selectionId = (m: ModelConfig): string =>
   m.effort ? `${modelId(m)}/${m.effort}` : modelId(m);
 
-/** The file-edit dialect a model is trained on; `string_replace` is the neutral default. */
-export type EditFormat = "v4a" | "string_replace";
+/**
+ * The file-editing tool profile a model is trained on — one indivisible choice that selects
+ * the whole edit/read/write roster, so nonsense combinations can't be expressed.
+ * `string_replace` is the neutral default; `apply_patch` is OpenAI's V4A; `text_editor` is
+ * Claude's native editor (the provider plugin contributes the tool itself).
+ */
+export type FileToolsProfile = "string_replace" | "apply_patch" | "text_editor";
+
+/**
+ * Identifies a provider's built-in (natively trained) tool, e.g. `"anthropic.text_editor"`.
+ * Convention: `"<provider>.<family>"`. The provider maps it to its versioned wire type.
+ */
+export type NativeToolId = string;
 
 export interface ModelCapabilities {
   contentTypes: readonly string[];
   toolCalling: boolean;
-  editFormat: EditFormat;
+  fileTools: FileToolsProfile;
 }
 
 export interface Usage {
@@ -122,7 +133,10 @@ export type ToolSchema =
       // JSON Schema the kernel derives from the tool's zod schema; zod stays the source of truth.
       parameters: Record<string, unknown>;
     }
-  | { kind: "custom"; name: string; description: string; grammar?: ToolGrammar };
+  | { kind: "custom"; name: string; description: string; grammar?: ToolGrammar }
+  // A provider's natively trained built-in (e.g. Claude's text_editor). The provider renders
+  // it from `id` onto its versioned wire type; there is no harness-supplied JSON Schema.
+  | { kind: "native"; name: string; description: string; id: NativeToolId };
 
 export interface ModelRequest {
   instructions: ContentBlock[];

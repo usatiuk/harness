@@ -27,6 +27,9 @@ export interface ExecutionContext {
   /** The root commands run in and paths resolve against; `null` when projectless. */
   readonly workspaceRoot: string | null;
   read(path: string, range?: ByteRange): Promise<Uint8Array>;
+  /** Path metadata, or `undefined` when the path does not exist — lets callers tell a directory
+   *  from a file without inferring it from a failed read. */
+  stat(path: string): Promise<{ isDirectory: boolean } | undefined>;
   write(path: string, bytes: Uint8Array): Promise<void>;
   /** Deletes `path`. Errors if it does not exist. */
   remove(path: string): Promise<void>;

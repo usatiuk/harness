@@ -12,15 +12,22 @@ import {
 export * from "./tools.ts";
 export * from "./apply-patch-parse.ts";
 
-/** Workspace tools: read/search/write/patch files and run commands via `ctx.execution`. */
+/**
+ * Workspace tools: search files and run commands via `ctx.execution`, plus a file-edit roster
+ * chosen by the model's `fileTools` profile. `text_editor` contributes no read/write/edit here —
+ * the Anthropic plugin supplies the native editor, so the trio would only overlap it.
+ */
 export const workspacePlugin: Plugin = {
   id: "workspace",
-  tools: (caps) => [
-    new ReadFileTool(),
-    new GlobTool(),
-    new GrepTool(),
-    new WriteTool(),
-    new BashTool(),
-    caps.editFormat === "v4a" ? new ApplyPatchTool() : new EditTool(),
-  ],
+  tools: (caps) => {
+    const base = [new GlobTool(), new GrepTool(), new BashTool()];
+    switch (caps.fileTools) {
+      case "apply_patch":
+        return [...base, new ReadFileTool(), new WriteTool(), new ApplyPatchTool()];
+      case "text_editor":
+        return base;
+      case "string_replace":
+        return [...base, new ReadFileTool(), new WriteTool(), new EditTool()];
+    }
+  },
 };

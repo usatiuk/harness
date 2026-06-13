@@ -16,6 +16,7 @@ import { workspacePlugin } from "@harness/workspace";
 import { approvalPlugin } from "@harness/approval";
 import { HarnessService } from "@harness/service";
 import { createOpenAIPlugin } from "@harness/openai-api";
+import { createAnthropicPlugin } from "@harness/anthropic-api";
 import { KeyringSecretStore } from "@harness/secrets";
 import { CodexAuth, codexPlugin } from "@harness/openai-codex";
 import { DemoProvider } from "./demo-provider.ts";
@@ -51,10 +52,12 @@ interface Harness {
 function buildHarness(): Harness {
   const store = new SqliteStore(join(defaultHome(), "store.db"));
   const apiKey = process.env.OPENAI_API_KEY;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const codex = new CodexAuth({ store: new KeyringSecretStore() });
   const plugins: PluginEntry[] = [
     codexPlugin(codex),
     ...(apiKey ? [createOpenAIPlugin({ apiKey })] : []),
+    ...(anthropicKey ? [createAnthropicPlugin({ apiKey: anthropicKey })] : []),
     { id: "demo", providers: () => [new DemoProvider()] },
     localExecutionPlugin,
     workspacePlugin,
@@ -62,7 +65,9 @@ function buildHarness(): Harness {
   ];
   const fallbackModel: ModelConfig = apiKey
     ? { provider: "openai", model: process.env.OPENAI_MODEL ?? "gpt-5.1" }
-    : { provider: "demo", model: "demo-1" };
+    : anthropicKey
+      ? { provider: "anthropic", model: process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8" }
+      : { provider: "demo", model: "demo-1" };
   const service = new HarnessService({ store, plugins });
   return { service, store, fallbackModel };
 }

@@ -18,6 +18,23 @@ function ok(text: string): ToolResult {
   return { forModel: [{ type: "text", text }], status: "ok" };
 }
 
+/** Outcome of a unique string replacement: the new text, or why it couldn't be done. */
+export type ReplaceResult =
+  | { ok: true; text: string }
+  | { ok: false; reason: "absent" | "ambiguous"; count: number };
+
+/**
+ * Replaces the single occurrence of `oldStr` with `newStr` in `current`, or reports why it
+ * can't: `absent` (no match) or `ambiguous` (more than one). The one source of truth for the
+ * "edit a unique span" semantics shared by `edit` and Claude's `text_editor` `str_replace`.
+ */
+export function uniqueReplace(current: string, oldStr: string, newStr: string): ReplaceResult {
+  const count = current.split(oldStr).length - 1;
+  if (count === 0) return { ok: false, reason: "absent", count };
+  if (count > 1) return { ok: false, reason: "ambiguous", count };
+  return { ok: true, text: current.replace(oldStr, newStr) };
+}
+
 const readArgs = z.strictObject({ path: z.string() });
 export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
   readonly name = "read_file";
@@ -113,12 +130,15 @@ export class EditTool implements Tool<z.infer<typeof editArgs>> {
     } catch (error) {
       return errorResult(`edit failed: cannot read ${path}: ${(error as Error).message}`);
     }
-    const count = current.split(old_string).length - 1;
-    if (count === 0) return errorResult(`edit failed: old_string not found in ${path}`);
-    if (count > 1) {
-      return errorResult(`edit failed: old_string is not unique in ${path} (${count} matches)`);
+    const result = uniqueReplace(current, old_string, new_string);
+    if (!result.ok) {
+      return errorResult(
+        result.reason === "absent"
+          ? `edit failed: old_string not found in ${path}`
+          : `edit failed: old_string is not unique in ${path} (${result.count} matches)`,
+      );
     }
-    await exec.write(path, encoder.encode(current.replace(old_string, new_string)));
+    await exec.write(path, encoder.encode(result.text));
     return ok(`edited ${path}`);
   }
 }

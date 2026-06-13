@@ -5,7 +5,7 @@ import { ProviderRegistry, ToolSet } from "./registry.ts";
 
 const provider = (name: string, models?: ModelInfo[]): ModelProvider => ({
   provider: name,
-  capabilities: () => ({ contentTypes: ["text"], toolCalling: true, editFormat: "string_replace" }),
+  capabilities: () => ({ contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" }),
   validateConfig: () => {},
   stream: async function* (): AsyncIterable<ModelStreamEvent> {},
   ...(models ? { listModels: () => models } : {}),

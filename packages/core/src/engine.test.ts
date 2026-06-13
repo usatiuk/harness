@@ -980,7 +980,7 @@ class CatalogProvider implements ModelProvider {
   readonly provider = "rec";
   readonly seen: string[] = [];
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: false, editFormat: "string_replace" as const };
+    return { contentTypes: ["text"], toolCalling: false, fileTools: "string_replace" as const };
   }
   validateConfig(): void {}
   listModels() {
@@ -1088,7 +1088,7 @@ describe("Engine — model middleware", () => {
       capabilities: () => ({
         contentTypes: ["text"],
         toolCalling: true,
-        editFormat: "string_replace",
+        fileTools: "string_replace",
       }),
       validateConfig: () => {},
       async *stream() {
@@ -1128,7 +1128,7 @@ describe("Engine — model middleware", () => {
       capabilities: () => ({
         contentTypes: ["text"],
         toolCalling: true,
-        editFormat: "string_replace",
+        fileTools: "string_replace",
       }),
       validateConfig: () => {},
       async *stream() {

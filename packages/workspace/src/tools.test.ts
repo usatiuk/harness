@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ConversationId, EditFormat, ToolContext } from "@harness/protocol";
+import type { ConversationId, FileToolsProfile, ToolContext } from "@harness/protocol";
 import { LocalExecutionContext } from "@harness/execution";
 import {
   ApplyPatchTool,
@@ -139,17 +139,32 @@ describe("workspace tools", () => {
   });
 });
 
-describe("workspacePlugin editor selection", () => {
-  const names = (editFormat: EditFormat) =>
-    workspacePlugin.tools!({ contentTypes: ["text"], toolCalling: true, editFormat }).map(
+describe("workspacePlugin file-tools roster by profile", () => {
+  const names = (fileTools: FileToolsProfile) =>
+    workspacePlugin.tools!({ contentTypes: ["text"], toolCalling: true, fileTools }).map(
       (t) => t.name,
     );
 
-  it("offers apply_patch to a V4A model and edit otherwise", () => {
-    expect(names("v4a")).toContain("apply_patch");
-    expect(names("v4a")).not.toContain("edit");
-    expect(names("string_replace")).toContain("edit");
+  it("gives apply_patch (with read/write) to a V4A model", () => {
+    expect(names("apply_patch")).toEqual(
+      expect.arrayContaining(["read_file", "write", "apply_patch"]),
+    );
+    expect(names("apply_patch")).not.toContain("edit");
+  });
+
+  it("gives edit (with read/write) to a string_replace model", () => {
+    expect(names("string_replace")).toEqual(expect.arrayContaining(["read_file", "write", "edit"]));
     expect(names("string_replace")).not.toContain("apply_patch");
+  });
+
+  it("gives no read/write/edit to a text_editor model (the native editor replaces them)", () => {
+    const ns = names("text_editor");
+    expect(ns).not.toContain("read_file");
+    expect(ns).not.toContain("write");
+    expect(ns).not.toContain("edit");
+    expect(ns).not.toContain("apply_patch");
+    // search + bash remain.
+    expect(ns).toEqual(expect.arrayContaining(["glob", "grep", "bash"]));
   });
 });
 

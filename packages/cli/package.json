@@ -24,6 +24,7 @@
     "@harness/approval": "*",
     "@harness/openai-api": "*",
     "@harness/openai-codex": "*",
+    "@harness/anthropic-api": "*",
     "@harness/secrets": "*",
     "@inkjs/ui": "^2.0.0",
     "commander": "^15.0.0",

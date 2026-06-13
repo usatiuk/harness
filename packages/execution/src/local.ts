@@ -1,5 +1,5 @@
 import { exec } from "node:child_process";
-import { glob, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { glob, mkdir, readFile, rm, stat as fsStat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { ByteRange, Conversation, ToolCall } from "@harness/protocol";
 import type { ExecOptions, ExecResult, ExecutionContext, Relationship } from "./context.ts";
@@ -27,6 +27,15 @@ export class LocalExecutionContext implements ExecutionContext {
   async read(path: string, range?: ByteRange): Promise<Uint8Array> {
     const buf = await readFile(this.#resolve(path));
     return range ? buf.subarray(range.offset, range.offset + range.length) : buf;
+  }
+
+  async stat(path: string): Promise<{ isDirectory: boolean } | undefined> {
+    try {
+      return { isDirectory: (await fsStat(this.#resolve(path))).isDirectory() };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
   }
 
   async write(path: string, bytes: Uint8Array): Promise<void> {
