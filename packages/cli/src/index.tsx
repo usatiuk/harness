@@ -18,11 +18,9 @@ import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
 import { approvalPlugin } from "@harness/approval";
 import { HarnessService } from "@harness/service";
-import { createOpenAIPlugin } from "@harness/openai-api";
-import { createAnthropicPlugin } from "@harness/anthropic-api";
-import { KeyringSecretStore } from "@harness/secrets";
-import { CodexAuth, codexPlugin } from "@harness/openai-codex";
 import { DemoProvider } from "./demo-provider.ts";
+import { authRegistry } from "./auth.ts";
+import { credentialStoreForRead } from "./credential-store.ts";
 import { App } from "./app.tsx";
 import type { ActivitiesView } from "./activities-overlay.tsx";
 import { ResumePicker } from "./resume-picker.tsx";
@@ -64,30 +62,61 @@ interface Harness {
   fallbackModel: ModelConfig;
 }
 
-/** Composition root: the durable store, the model plugins, and the execution/approval stack. */
-function buildHarness(): Harness {
+/**
+ * Composition root. Each registry provider contributes a plugin when it has credentials (a stored
+ * key, its env var, or an OAuth session); the first such provider seeds the fallback model.
+ */
+async function buildHarness(): Promise<Harness> {
   const store = new SqliteStore(join(defaultHome(), "store.db"));
-  const apiKey = process.env.OPENAI_API_KEY;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  const codex = new CodexAuth({ store: new KeyringSecretStore() });
-  const plugins: PluginEntry[] = [
-    codexPlugin(codex),
-    ...(apiKey ? [createOpenAIPlugin({ apiKey })] : []),
-    ...(anthropicKey ? [createAnthropicPlugin({ apiKey: anthropicKey })] : []),
+  const { store: secrets } = await credentialStoreForRead(defaultHome());
+  const registry = authRegistry(secrets);
+  const plugins: PluginEntry[] = [];
+  let fallbackModel: ModelConfig | undefined;
+  // Resolve providers concurrently; a configured backend that can't be reached (e.g. a locked
+  // keyring) warns and is skipped — we never silently fall back to a different store.
+  const built = await Promise.all(
+    [...registry.values()].map((entry) =>
+      entry.buildPlugin().then(
+        (plugin) => ({ entry, plugin }),
+        (reason: unknown) => {
+          console.error(`Could not load ${entry.method.label}: ${String(reason)}`);
+          return { entry, plugin: null };
+        },
+      ),
+    ),
+  );
+  for (const { entry, plugin } of built) {
+    if (!plugin) continue;
+    plugins.push(plugin);
+    fallbackModel ??= entry.defaultModel;
+  }
+  plugins.push(
     { id: "demo", providers: () => [new DemoProvider()] },
     localExecutionPlugin,
     activitiesPlugin,
     outputPlugin,
     workspacePlugin,
     approvalPlugin,
-  ];
-  const fallbackModel: ModelConfig = apiKey
-    ? { provider: "openai", model: process.env.OPENAI_MODEL ?? "gpt-5.1" }
-    : anthropicKey
-      ? { provider: "anthropic", model: process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8" }
-      : { provider: "demo", model: "demo-1" };
+  );
   const service = new HarnessService({ store, plugins });
-  return { service, store, fallbackModel };
+  return { service, store, fallbackModel: fallbackModel ?? { provider: "demo", model: "demo-1" } };
+}
+
+/** Warns when the session's configured model isn't backed by a registered (signed-in) provider. */
+function notifyModel(service: HarnessService, model: ModelConfig): void {
+  if (model.provider === "demo") {
+    console.log(
+      "No model provider configured — running on the demo provider. Run `harness auth login` to sign in.",
+    );
+    return;
+  }
+  const registered = new Set(service.availableModels().map((m) => m.provider));
+  if (!registered.has(model.provider)) {
+    console.log(
+      `Configured model ${model.provider}/${model.model} isn't signed in. ` +
+        `Run \`harness auth login --provider ${model.provider}\` (or set its API key env var).`,
+    );
+  }
 }
 
 async function loadSession(service: HarnessService, id: string): Promise<Session> {
@@ -102,7 +131,7 @@ async function loadSession(service: HarnessService, id: string): Promise<Session
 
 /** Parses launch flags into a running TUI: new session, resume by id, or resume picker. */
 export async function launch(opts: LaunchOptions = {}): Promise<void> {
-  const { service, store, fallbackModel } = buildHarness();
+  const { service, store, fallbackModel } = await buildHarness();
   // Canonicalize once so a `--cwd ./x` flag and a stored `workspaceRoot` compare equal.
   const cwd = resolve(opts.cwd ?? process.cwd());
   // Conversations this instance created; empty ones are dropped on exit.
@@ -128,6 +157,8 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
     created.add(conversation.id);
     start = { kind: "session", session: { conversation, items: [], usage: [] } };
   }
+
+  if (start.kind === "session") notifyModel(service, start.session.conversation.config.model);
 
   // Every conversation shown this run, so all in-flight turns drain before the WAL closes.
   const touched = new Set<ConversationId>();

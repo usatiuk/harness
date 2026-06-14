@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { launch } from "./index.tsx";
-import { runLogin, runLogout, runStatus } from "./auth.ts";
+import { runLogin, runLogout, runStatus } from "./auth-app.tsx";
 
 const program = new Command();
 
@@ -23,26 +23,26 @@ program
   });
 
 const auth = program.command("auth").description("manage model-provider sign-in");
-const providerOption = ["--provider <id>", "auth provider", "openai-codex"] as const;
 auth
   .command("login")
-  .description("sign in to a model provider via OAuth")
-  .option(...providerOption)
-  .action(async (opts: { provider: string }) => {
-    await runLogin(opts.provider);
+  .description("sign in to a model provider (interactive picker by default)")
+  .option("--provider <id>", "provider to sign in to (skips the picker)")
+  .option("--store <backend>", 'where to keep the key: "keyring" or "file"')
+  .action(async (opts: { provider?: string; store?: string }) => {
+    await runLogin({ provider: opts.provider, store: opts.store });
   });
 auth
   .command("status")
-  .description("show whether you are signed in")
-  .option(...providerOption)
-  .action(async (opts: { provider: string }) => {
+  .description("show sign-in status (all providers, or one with --provider)")
+  .option("--provider <id>", "limit to one provider")
+  .action(async (opts: { provider?: string }) => {
     await runStatus(opts.provider);
   });
 auth
   .command("logout")
   .description("sign out and clear stored credentials")
-  .option(...providerOption)
-  .action(async (opts: { provider: string }) => {
+  .option("--provider <id>", "provider to sign out of")
+  .action(async (opts: { provider?: string }) => {
     await runLogout(opts.provider);
   });
 

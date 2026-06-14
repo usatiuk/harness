@@ -1,52 +1,107 @@
-import { defaultHome, updateGlobalModel } from "@harness/config";
-import { KeyringSecretStore } from "@harness/secrets";
-import { CodexAuth } from "@harness/openai-codex";
+import type { ModelConfig, Plugin } from "@harness/protocol";
+import type { SecretStore } from "@harness/secrets";
+import { ApiKeyAuth, type AuthMethod, type OAuthMethod } from "@harness/auth";
+import { createAnthropicPlugin } from "@harness/anthropic-api";
+import { createOpenAIPlugin } from "@harness/openai-api";
+import { CodexAuth, codexPlugin } from "@harness/openai-codex";
 
-const CODEX_DEFAULT_MODEL = "gpt-5.5";
+/** A provider's sign-in method plus how an authenticated session becomes a runnable plugin. */
+export interface AuthEntry {
+  method: AuthMethod;
+  /** The plugin to register when authenticated, or null when there are no credentials. */
+  buildPlugin(): Promise<Plugin | null>;
+  /** The model `auth login` records as the global default. */
+  defaultModel: ModelConfig;
+}
+
+/** Wraps the Codex OAuth lifecycle in the generic `OAuthMethod` seam. */
+function codexMethod(auth: CodexAuth): OAuthMethod {
+  return {
+    kind: "oauth",
+    id: "openai-codex",
+    label: "ChatGPT / Codex",
+    login: async ({ onUrl }) => {
+      await auth.loginWithBrowser({ onUrl });
+    },
+    status: async () => {
+      const s = await auth.status();
+      if (!s.authenticated) return { authenticated: false };
+      const detail = s.email ?? (s.accountId ? `account ${s.accountId}` : undefined);
+      return {
+        authenticated: true,
+        ...(detail !== undefined ? { detail } : {}),
+        ...(s.expiresAt !== undefined ? { expiresAt: s.expiresAt } : {}),
+      };
+    },
+    logout: () => auth.logout(),
+  };
+}
+
+/** Builds an API-key entry: the env var or a stored key lights up the provider's plugin. */
+function apiKeyEntry(opts: {
+  id: string;
+  label: string;
+  envVar: string;
+  store: SecretStore;
+  defaultModel: ModelConfig;
+  validate: (key: string) => string | null;
+  createPlugin: (init: { apiKey: string }) => Plugin;
+}): [string, AuthEntry] {
+  const method = new ApiKeyAuth({
+    id: opts.id,
+    label: opts.label,
+    store: opts.store,
+    envVar: opts.envVar,
+    validate: opts.validate,
+  });
+  return [
+    opts.id,
+    {
+      method,
+      defaultModel: opts.defaultModel,
+      buildPlugin: async () => {
+        const apiKey = await method.getKey();
+        return apiKey ? opts.createPlugin({ apiKey }) : null;
+      },
+    },
+  ];
+}
 
 /**
- * The auth-provider dispatch seam. One entry today (`openai-codex`); a second provider is a
- * new entry here, not a refactor.
+ * The providers a user can sign in to. Both the `auth` command and the composition root iterate
+ * this map, so adding a provider is one new entry here.
  */
-const PROVIDERS: Record<string, () => CodexAuth> = {
-  "openai-codex": () => new CodexAuth({ store: new KeyringSecretStore() }),
-};
-
-function authFor(provider: string): CodexAuth {
-  const make = PROVIDERS[provider];
-  if (!make)
-    throw new Error(
-      `unknown auth provider: ${provider} (known: ${Object.keys(PROVIDERS).join(", ")})`,
-    );
-  return make();
-}
-
-/** Runs the browser login flow and makes the provider the global default model. */
-export async function runLogin(provider: string): Promise<void> {
-  const auth = authFor(provider);
-  console.log("Opening your browser to sign in to Codex…");
-  const session = await auth.loginWithBrowser({
-    onUrl: (url) => console.log(`\nIf the browser does not open, visit:\n${url}\n`),
-  });
-  await updateGlobalModel(defaultHome(), { provider, model: CODEX_DEFAULT_MODEL });
-  const who = session.email ? ` as ${session.email}` : "";
-  console.log(`Signed in${who}. Default model set to ${provider}/${CODEX_DEFAULT_MODEL}.`);
-}
-
-export async function runStatus(provider: string): Promise<void> {
-  const status = await authFor(provider).status();
-  if (!status.authenticated) {
-    console.log(`${provider}: not signed in`);
-    return;
-  }
-  const expires = status.expiresAt ? new Date(status.expiresAt).toISOString() : "unknown";
-  const who = status.email ? ` as ${status.email}` : "";
-  console.log(
-    `${provider}: signed in${who} (account ${status.accountId}, token expires ${expires})`,
-  );
-}
-
-export async function runLogout(provider: string): Promise<void> {
-  const removed = await authFor(provider).logout();
-  console.log(removed ? `${provider}: signed out` : `${provider}: was not signed in`);
+export function authRegistry(store: SecretStore): Map<string, AuthEntry> {
+  const codex = new CodexAuth({ store });
+  return new Map<string, AuthEntry>([
+    apiKeyEntry({
+      id: "openai",
+      label: "OpenAI (API key)",
+      envVar: "OPENAI_API_KEY",
+      store,
+      defaultModel: { provider: "openai", model: process.env.OPENAI_MODEL ?? "gpt-5.1" },
+      validate: (k) => (k.startsWith("sk-") ? null : "OpenAI keys start with 'sk-'"),
+      createPlugin: ({ apiKey }) => createOpenAIPlugin({ apiKey }),
+    }),
+    apiKeyEntry({
+      id: "anthropic",
+      label: "Anthropic (API key)",
+      envVar: "ANTHROPIC_API_KEY",
+      store,
+      defaultModel: {
+        provider: "anthropic",
+        model: process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8",
+      },
+      validate: (k) => (k.startsWith("sk-ant-") ? null : "Anthropic keys start with 'sk-ant-'"),
+      createPlugin: ({ apiKey }) => createAnthropicPlugin({ apiKey }),
+    }),
+    [
+      "openai-codex",
+      {
+        method: codexMethod(codex),
+        defaultModel: { provider: "openai-codex", model: "gpt-5.5" },
+        buildPlugin: async () => ((await codex.status()).authenticated ? codexPlugin(codex) : null),
+      },
+    ],
+  ]);
 }

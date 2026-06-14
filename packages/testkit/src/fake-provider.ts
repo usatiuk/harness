@@ -1,4 +1,5 @@
 import type {
+  ModelInfo,
   ModelProvider,
   ModelStreamEvent,
   ProviderPayloadDraft,
@@ -111,6 +112,10 @@ export class FakeProvider implements ModelProvider {
 
   validateConfig(): void {}
 
+  listModels(): ModelInfo[] {
+    return [];
+  }
+
   async *stream(): AsyncIterable<ModelStreamEvent> {
     const step = this.#steps[this.#cursor++];
     if (!step) {
@@ -151,6 +156,10 @@ export class GateProvider implements ModelProvider {
   }
 
   validateConfig(): void {}
+
+  listModels(): ModelInfo[] {
+    return [];
+  }
 
   async *stream(_request: unknown, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
     if (this.#text) yield { type: "text_delta", text: this.#text };

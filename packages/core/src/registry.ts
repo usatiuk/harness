@@ -13,7 +13,7 @@ export class ProviderRegistry {
 
   /** Every registered provider's catalog, in registration order. */
   listModels(): ModelInfo[] {
-    return [...this.#byName.values()].flatMap((p) => p.listModels?.() ?? []);
+    return [...this.#byName.values()].flatMap((p) => p.listModels());
   }
 
   get(name: string): ModelProvider {
