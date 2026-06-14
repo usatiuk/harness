@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useReducer, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { Box, Static, Text, useApp, useInput } from "ink";
-import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
+import { ConfirmInput, Spinner } from "@inkjs/ui";
 import {
   findModel,
   isKernelEvent,
@@ -16,9 +24,8 @@ import { effortsFor, runCommand, type CommandContext } from "./commands.ts";
 import { EffortPicker, ModelPicker } from "./model-picker.tsx";
 import { ActivitiesOverlay, type ActivitiesView } from "./activities-overlay.tsx";
 import { CellView, cellKey, truncate } from "./cells.tsx";
-
-const INSTRUCTIONS_PLACEHOLDER =
-  "type a message…   (> queue · ! interrupt · /activities · /help · Esc abort)";
+import { Composer } from "./composer.tsx";
+import { useHistory } from "./use-history.ts";
 
 export interface AppProps {
   service: HarnessService;
@@ -79,6 +86,9 @@ export function App({
   const [modelPicking, setModelPicking] = useState(false);
   const [effortPicking, setEffortPicking] = useState(false);
   const [showActivities, setShowActivities] = useState(false);
+  const history = useHistory();
+  // Set by the composer while its menu is open; lets Esc close the menu before interrupting.
+  const menuOpen = useRef(false);
   const noteId = useRef(0);
   const busy = state.turn.status === "running";
   const pending = state.pending;
@@ -93,8 +103,15 @@ export function App({
     [service, model],
   );
 
-  const note = (text: string): void =>
-    dispatch({ type: "note", id: `note-${++noteId.current}`, text });
+  // Stable identities so the memoized ctx (via note) and the composer's menu-open
+  // effect (via setMenuOpen) don't rebuild/refire each render.
+  const note = useCallback(
+    (text: string): void => dispatch({ type: "note", id: `note-${++noteId.current}`, text }),
+    [],
+  );
+  const setMenuOpen = useCallback((o: boolean): void => {
+    menuOpen.current = o;
+  }, []);
   // Surface a rejected service call instead of letting the floating promise vanish.
   const report = (p: Promise<unknown>): void => {
     void p.catch((e: unknown) => note(`error: ${String(e)}`));
@@ -130,21 +147,28 @@ export function App({
     if (showActivities) setShowActivities(false);
     else if (modelPicking) setModelPicking(false);
     else if (effortPicking) setEffortPicking(false);
+    else if (menuOpen.current)
+      return; // the composer closes its own menu
     else if (busy) report(service.deliver(conversation.id, "", "interrupt"));
   });
 
-  const ctx: CommandContext = {
-    service,
-    conversationId: conversation.id,
-    model,
-    note,
-    clear: () => dispatch({ type: "clear" }),
-    resume: onResume,
-    pickModel: () => setModelPicking(true),
-    pickEffort: () => setEffortPicking(true),
-    showActivities: () => setShowActivities(true),
-    exit,
-  };
+  // Memoized so the composer's completion menu (keyed on ctx) doesn't recompute on
+  // every streaming re-render.
+  const ctx: CommandContext = useMemo(
+    () => ({
+      service,
+      conversationId: conversation.id,
+      model,
+      note,
+      clear: () => dispatch({ type: "clear" }),
+      resume: onResume,
+      pickModel: () => setModelPicking(true),
+      pickEffort: () => setEffortPicking(true),
+      showActivities: () => setShowActivities(true),
+      exit,
+    }),
+    [service, conversation.id, model, note, onResume, exit],
+  );
 
   const submit = (raw: string): void => {
     const line = raw.trim();
@@ -224,7 +248,7 @@ export function App({
             contextWindow={contextWindow}
             activeCount={activeCount}
           />
-          <Composer onSubmit={submit} />
+          <Composer ctx={ctx} history={history} onSubmit={submit} onMenuOpenChange={setMenuOpen} />
         </>
       )}
     </Box>
@@ -303,24 +327,6 @@ function PendingPreview({
           {`⤷ ${p.intent}: ${truncate(p.text, 60)}`}
         </Text>
       ))}
-    </Box>
-  );
-}
-
-function Composer({ onSubmit }: { onSubmit: (value: string) => void }): ReactElement {
-  // Remount on each submit (key bump) to clear the uncontrolled input.
-  const [gen, setGen] = useState(0);
-  return (
-    <Box>
-      <Text color="cyan">{"› "}</Text>
-      <TextInput
-        key={gen}
-        placeholder={INSTRUCTIONS_PLACEHOLDER}
-        onSubmit={(value) => {
-          onSubmit(value);
-          setGen((g) => g + 1);
-        }}
-      />
     </Box>
   );
 }
