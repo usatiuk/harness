@@ -54,6 +54,11 @@ export class ToolSet {
     return this.#byName.has(name);
   }
 
+  /** A tool's opaque `meta` bag by name, or `undefined` if unknown / none. */
+  metaOf(name: string): Record<string, unknown> | undefined {
+    return this.#byName.get(name)?.meta;
+  }
+
   /** Wire schemas for the offered tools, name-sorted for a cache-stable prefix. */
   schemas(): ToolSchema[] {
     return [...this.#byName.values()]

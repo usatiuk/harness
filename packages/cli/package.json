@@ -20,6 +20,8 @@
     "@harness/config": "*",
     "@harness/store-sqlite": "*",
     "@harness/execution": "*",
+    "@harness/activities": "*",
+    "@harness/output": "*",
     "@harness/workspace": "*",
     "@harness/approval": "*",
     "@harness/openai-api": "*",

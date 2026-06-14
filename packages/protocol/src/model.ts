@@ -181,6 +181,12 @@ export type ModelHandler = (request: ModelRequest) => AsyncIterable<ModelStreamE
 export interface ModelMiddlewareContext {
   conversationId: ConversationId;
   signal: AbortSignal;
+  /**
+   * The opaque `meta` bag of an offered tool by name (`undefined` if unknown / none) — tool metadata
+   * the wire `ToolSchema` omits, so a request-shaping middleware can read it (e.g. inject a
+   * `background` argument into `backgroundable` tools).
+   */
+  toolMeta(name: string): Record<string, unknown> | undefined;
 }
 
 /**

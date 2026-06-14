@@ -32,17 +32,39 @@ export const errorResult = (text: string): ToolResult => ({
   status: "error",
 });
 
+/** A single-text-block success result — the `ok` mirror of `errorResult`. */
+export const okResult = (text: string): ToolResult => ({
+  forModel: [{ type: "text", text }],
+  status: "ok",
+});
+
 /** Per-call environment handed to a tool. */
 export interface ToolContext {
   conversationId: ConversationId;
+  /** This call's id (`ToolCall.callId`); lets a tool correlate state it registers for itself. */
+  callId: string;
   signal: AbortSignal;
   /**
    * Per-conversation execution handle from the execution plugin (`undefined` if none
    * is wired). Opaque to the kernel — narrow via `executionOf` from `@harness/execution`.
    */
   execution: unknown;
+  /**
+   * A per-conversation service another plugin hangs off `ctx` (e.g. an activity registry),
+   * keyed and built lazily by its `ServiceProvider`. `undefined` when no plugin owns `key`.
+   * Opaque to the kernel — narrow via a typed accessor like `executionOf`/`activitiesOf`.
+   */
+  service(key: string): unknown;
   /** Emit a plugin-defined event onto the conversation's stream. */
   emit(event: PluginEvent): void;
+  /**
+   * Deliver plugin-originated content into this conversation as a `steer`: it surfaces at the
+   * next after-tool-result boundary of a live turn, or starts a turn when idle. Valid after the
+   * call returns (it closes over the conversation, not the turn) — so a backgrounded unit of work
+   * can wake the agent long after its spawning tool returned. Stamped with the dispatching tool's
+   * name as provenance.
+   */
+  deliver(content: ContentBlock[]): void;
 }
 
 /**
@@ -61,6 +83,12 @@ export interface Tool<A = unknown> {
   readonly name: string;
   readonly description: string;
   readonly input: ToolInput<A>;
+  /**
+   * Open, kernel-opaque metadata bag. The kernel only ferries it and exposes a name→meta
+   * lookup (`ModelMiddlewareContext.toolMeta`); plugins agree on namespaced keys by convention
+   * (cf. `PluginEvent.type`). E.g. the activities plugin reads `meta.backgroundable`.
+   */
+  readonly meta?: Record<string, unknown>;
   execute(args: A, ctx: ToolContext): Promise<ToolResult>;
 }
 
@@ -68,6 +96,12 @@ export interface Tool<A = unknown> {
 export type ToolHandler = (call: ToolCall) => Promise<ToolResult>;
 
 export interface ToolMiddlewareContext extends ToolContext {
+  /**
+   * The opaque `meta` bag of an offered tool by name (`undefined` if unknown / none) — the same
+   * lookup `ModelMiddlewareContext` exposes, so a result-shaping middleware can read tool metadata
+   * (e.g. skip bounding `addressableOutput` tools) without the `Tool` itself.
+   */
+  toolMeta(name: string): Record<string, unknown> | undefined;
   /** Spill bytes the model shouldn't see inline; the returned ref goes on `full`. */
   putBlob(bytes: Uint8Array): Promise<OutputRef>;
   /**

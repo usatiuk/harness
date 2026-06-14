@@ -1,22 +1,24 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { applyDiff } from "@openai/agents-core/utils";
 import {
   errorResult,
+  okResult,
   type Tool,
   type ToolContext,
   type ToolInput,
   type ToolResult,
 } from "@harness/protocol";
-import { executionOf } from "@harness/execution";
+import { boundView, executionOf } from "@harness/execution";
+import { activitiesOf } from "@harness/activities";
+import { createProcessActivity } from "./process-activity.ts";
 import { APPLY_PATCH_LARK, parseEnvelope, type FileChange } from "./apply-patch-parse.ts";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
-const MAX_HITS = 200;
-
-function ok(text: string): ToolResult {
-  return { forModel: [{ type: "text", text }], status: "ok" };
-}
+// A generous safety bound on matches collected; large results are preserved to a file by the
+// output-bounding middleware, so this only guards against pathological memory use.
+const MAX_HITS = 1000;
 
 /** Outcome of a unique string replacement: the new text, or why it couldn't be done. */
 export type ReplaceResult =
@@ -35,13 +37,38 @@ export function uniqueReplace(current: string, oldStr: string, newStr: string): 
   return { ok: true, text: current.replace(oldStr, newStr) };
 }
 
-const readArgs = z.strictObject({ path: z.string() });
+const DEFAULT_READ_LINES = 2000;
+const readArgs = z.strictObject({
+  path: z.string(),
+  offset: z.number().int().nonnegative().optional(),
+  limit: z.number().int().positive().optional(),
+});
 export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
   readonly name = "read_file";
-  readonly description = "Read a UTF-8 text file. `path` is relative to the workspace root.";
+  readonly description =
+    "Read a UTF-8 text file. `path` is relative to the workspace root. Reads a window of lines " +
+    "(`offset` 0-based, `limit` line count); large files are shown a window you can scroll with " +
+    "`offset`/`limit`.";
   readonly input: ToolInput<z.infer<typeof readArgs>> = { kind: "function", schema: readArgs };
-  async execute({ path }: z.infer<typeof readArgs>, ctx: ToolContext): Promise<ToolResult> {
-    return ok(decoder.decode(await executionOf(ctx).read(path)));
+  // Output is itself a named file the model narrows via offset/limit; the bounding middleware skips it.
+  readonly meta = { addressableOutput: true };
+  async execute(
+    { path, offset, limit }: z.infer<typeof readArgs>,
+    ctx: ToolContext,
+  ): Promise<ToolResult> {
+    const lines = decoder.decode(await executionOf(ctx).read(path)).split("\n");
+    const start = offset ?? 0;
+    const count = limit ?? DEFAULT_READ_LINES;
+    const end = Math.min(start + count, lines.length);
+    const body = boundView(lines.slice(start, start + count).join("\n"), {
+      maxLines: count,
+      maxLineBytes: 2048,
+      maxTotalBytes: 256 * 1024,
+      mode: "head",
+    });
+    const windowed = start > 0 || end < lines.length;
+    const header = windowed ? `[lines ${start + 1}-${end} of ${lines.length}]\n` : "";
+    return okResult(header + body);
   }
 }
 
@@ -57,7 +84,7 @@ export class WriteTool implements Tool<z.infer<typeof writeArgs>> {
   ): Promise<ToolResult> {
     const bytes = encoder.encode(content);
     await executionOf(ctx).write(path, bytes);
-    return ok(`wrote ${bytes.length} bytes to ${path}`);
+    return okResult(`wrote ${bytes.length} bytes to ${path}`);
   }
 }
 
@@ -103,7 +130,7 @@ export class ApplyPatchTool implements Tool<FileChange[]> {
         return errorResult(`apply_patch failed on ${change.path}: ${(error as Error).message}`);
       }
     }
-    return ok(done.join("\n") || "no changes");
+    return okResult(done.join("\n") || "no changes");
   }
 }
 
@@ -139,24 +166,36 @@ export class EditTool implements Tool<z.infer<typeof editArgs>> {
       );
     }
     await exec.write(path, encoder.encode(result.text));
-    return ok(`edited ${path}`);
+    return okResult(`edited ${path}`);
   }
 }
 
 const bashArgs = z.strictObject({ command: z.string() });
 export class BashTool implements Tool<z.infer<typeof bashArgs>> {
   readonly name = "bash";
-  readonly description = "Run a shell command in the workspace root.";
+  readonly description =
+    "Run a shell command in the workspace root. Quick commands return their output inline; " +
+    "long-running ones (dev servers, watchers, builds) become activities you can wait on, peek " +
+    "at, or kill.";
   readonly input: ToolInput<z.infer<typeof bashArgs>> = { kind: "function", schema: bashArgs };
-  async execute({ command }: z.infer<typeof bashArgs>, ctx: ToolContext): Promise<ToolResult> {
-    const result = await executionOf(ctx).run(command, { signal: ctx.signal });
-    const parts = [`exit ${result.exitCode}`];
-    if (result.stdout) parts.push(`stdout:\n${result.stdout}`);
-    if (result.stderr) parts.push(`stderr:\n${result.stderr}`);
-    return {
-      forModel: [{ type: "text", text: parts.join("\n\n") }],
-      status: result.exitCode === 0 ? "ok" : "error",
-    };
+  // The activities plugin reads this to inject the `background` argument into the wire schema.
+  readonly meta = { backgroundable: true };
+  execute({ command }: z.infer<typeof bashArgs>, ctx: ToolContext): Promise<ToolResult> {
+    const exec = executionOf(ctx);
+    const id = `act_${randomUUID().slice(0, 8)}`;
+    // Spawn unbound from `ctx.signal`; backgrounded commands survive turn-end.
+    const activity = createProcessActivity({
+      id,
+      title: command,
+      proc: exec.spawn(command),
+      store: exec.outputStore(ctx.conversationId),
+    });
+    activitiesOf(ctx).track(activity, { callId: ctx.callId });
+    // Placeholder; the consumption middleware owns the real model-facing result.
+    return Promise.resolve({
+      forModel: [{ type: "text", text: `started activity ${id}` }],
+      status: "ok",
+    });
   }
 }
 
@@ -175,7 +214,7 @@ export class GlobTool implements Tool<z.infer<typeof globArgs>> {
     ctx: ToolContext,
   ): Promise<ToolResult> {
     const matches = await executionOf(ctx).list(path ? `${path}/${pattern}` : pattern);
-    return ok(matches.length ? matches.join("\n") : "no matches");
+    return okResult(matches.length ? matches.join("\n") : "no matches");
   }
 }
 
@@ -215,6 +254,10 @@ export class GrepTool implements Tool<z.infer<typeof grepArgs>> {
         if (regex.test(lines[i]!)) hits.push(`${file}:${i + 1}:${lines[i]}`);
       }
     }
-    return ok(hits.length ? hits.join("\n") : "no matches");
+    if (hits.length === 0) return okResult("no matches");
+    const capped = hits.length >= MAX_HITS;
+    const header = `${hits.length}${capped ? "+" : ""} match(es):\n`;
+    const footer = capped ? `\n…[stopped at ${MAX_HITS} matches; refine your pattern]` : "";
+    return okResult(header + hits.join("\n") + footer);
   }
 }

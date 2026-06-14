@@ -292,7 +292,7 @@ export class Engine {
       const stream = runModelChain(
         this.host.modelMiddleware,
         request,
-        { conversationId: conversation.id, signal },
+        { conversationId: conversation.id, signal, toolMeta: (name) => toolSet.metaOf(name) },
         (req) => provider.stream(req, signal),
       );
       for await (const event of stream) {
@@ -463,9 +463,24 @@ export class Engine {
   ): Promise<ToolResult> {
     const ctx: ToolMiddlewareContext = {
       conversationId,
+      callId: call.callId,
       signal,
+      toolMeta: (name) => toolSet.metaOf(name),
       execution: (runtime.execution ??= this.host.execution?.for(runtime.conversation)),
+      service: (key) => {
+        if (runtime.services.has(key)) return runtime.services.get(key);
+        const built = this.host.services.get(key)?.for(runtime.conversation);
+        runtime.services.set(key, built);
+        return built;
+      },
       emit: (event) => this.#emit(event),
+      // Plugin-origin delivery, fixed to `steer`, stamped with the dispatching tool's name.
+      deliver: (content) =>
+        void this.deliver(
+          conversationId,
+          { source: { kind: "plugin", pluginId: call.name }, content },
+          "steer",
+        ),
       putBlob: (bytes) => this.store.putBlob(bytes),
       request: (request) => this.#request(request, conversationId, signal, runtime),
       active: async () => compactedWindow(await this.store.listActiveItems(conversationId)),

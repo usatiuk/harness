@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ConversationId, FileToolsProfile, ToolContext } from "@harness/protocol";
+import type { ConversationId, FileToolsProfile, ToolContext, ToolResult } from "@harness/protocol";
 import { LocalExecutionContext } from "@harness/execution";
+import { ActivityManager, activitiesOf, consume } from "@harness/activities";
 import {
   ApplyPatchTool,
   BashTool,
@@ -20,12 +21,28 @@ const created: string[] = [];
 async function workspace(): Promise<ToolContext> {
   const root = await mkdtemp(join(tmpdir(), "hws-"));
   created.push(root);
+  const manager = new ActivityManager();
   return {
     conversationId: "conv" as ConversationId,
+    callId: "call_0",
     signal: new AbortController().signal,
     execution: new LocalExecutionContext(root),
+    service: (key) => (key === "activities" ? manager : undefined),
     emit: () => {},
+    deliver: () => {},
   };
+}
+
+/**
+ * Drives bash the way the engine does: the tool mints + tracks an activity (returning a
+ * placeholder), then the consumption layer claims it by callId and produces the real result.
+ */
+async function runBash(ctx: ToolContext, command: string): Promise<ToolResult> {
+  const mgr = activitiesOf(ctx);
+  await new BashTool().execute({ command }, ctx);
+  const activity = mgr.claim(ctx.callId);
+  if (!activity) throw new Error("bash did not register an activity");
+  return consume(mgr, activity, false, ctx);
 }
 afterEach(async () => {
   while (created.length) await rm(created.pop()!, { recursive: true, force: true });
@@ -127,15 +144,15 @@ describe("workspace tools", () => {
     expect(grep).not.toContain("src/b.ts");
   });
 
-  it("runs a command via bash, surfacing exit status", async () => {
+  it("runs a quick command as an activity, surfacing exit status inline", async () => {
     const ctx = await workspace();
-    const okResult = await new BashTool().execute({ command: "echo hi" }, ctx);
+    const okResult = await runBash(ctx, "echo hi");
     expect(okResult.status).toBe("ok");
     expect(text(okResult)).toContain("hi");
 
-    const failResult = await new BashTool().execute({ command: "exit 2" }, ctx);
+    const failResult = await runBash(ctx, "exit 2");
     expect(failResult.status).toBe("error");
-    expect(text(failResult)).toContain("exit 2");
+    expect(text(failResult)).toContain("exited 2");
   });
 });
 

@@ -27,6 +27,8 @@ export class Runtime {
   controller: AbortController | undefined;
   /** Execution handle (opaque to the kernel), built lazily on first dispatch. Never durable. */
   execution: unknown;
+  /** Per-conversation plugin services hung off `ctx.service(key)`, built lazily per key. Never durable. */
+  readonly services = new Map<string, unknown>();
   /**
    * In-flight `ctx.request` calls awaiting a `respond`, keyed by requestId.
    * Ephemeral: a parked request that outlives the process is recovered by crash

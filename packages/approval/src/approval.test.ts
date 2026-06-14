@@ -19,9 +19,13 @@ function contextFor(decision?: string): { ctx: ToolMiddlewareContext; asked: () 
   let asked = false;
   const ctx: ToolMiddlewareContext = {
     conversationId: "c" as ConversationId,
+    callId: "call_0",
     signal: new AbortController().signal,
     execution: new LocalExecutionContext("/work"),
+    service: () => undefined,
+    toolMeta: () => undefined,
     emit: () => {},
+    deliver: () => {},
     putBlob: () => Promise.resolve({ id: "b", bytes: 0, contentType: "text/plain" }),
     request: () => {
       asked = true;

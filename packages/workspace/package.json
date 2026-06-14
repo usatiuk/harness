@@ -11,6 +11,7 @@
     }
   },
   "dependencies": {
+    "@harness/activities": "*",
     "@harness/execution": "*",
     "@harness/protocol": "*",
     "@openai/agents-core": "^0.11.6",

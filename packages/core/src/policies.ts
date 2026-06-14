@@ -18,16 +18,15 @@ export function compactedWindow(items: Item[]): Item[] {
 }
 
 /**
- * Caps each text block of the tool's result. Ships as the default *innermost*
- * middleware so it bounds raw tool output; contributed middlewares wrap outside it,
- * so e.g. LSP diagnostics appended afterwards are not truncated. Spilling raw output
- * to a blob is a later middleware.
+ * Caps each text block of the tool's result, but only when there is no execution backend to spill
+ * to a file — otherwise the output-bounding middleware preserves the full output, so this defers.
  */
 export function truncateMiddleware(maxChars = 10_000): ToolMiddleware {
   return {
     id: "truncate",
-    async wrap(call, _ctx, next) {
+    async wrap(call, ctx, next) {
       const result = await next(call);
+      if (ctx.execution) return result; // a file host exists ⇒ defer to the output-bounding policy
       const forModel = result.forModel.map((block) =>
         block.type === "text" && block.text.length > maxChars
           ? { type: "text" as const, text: `${block.text.slice(0, maxChars)}…[truncated]` }

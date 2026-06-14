@@ -12,9 +12,12 @@ async function workspace(): Promise<ToolContext> {
   created.push(root);
   return {
     conversationId: "conv" as ConversationId,
+    callId: "call_0",
     signal: new AbortController().signal,
     execution: new LocalExecutionContext(root),
+    service: () => undefined,
     emit: () => {},
+    deliver: () => {},
   };
 }
 afterEach(async () => {
@@ -89,9 +92,12 @@ describe("TextEditorTool", () => {
     created.push(root);
     const ctx: ToolContext = {
       conversationId: "conv" as ConversationId,
+      callId: "call_0",
       signal: new AbortController().signal,
       execution: new LocalExecutionContext(root),
+      service: () => undefined,
       emit: () => {},
+      deliver: () => {},
     };
     await mkdir(join(root, "empty"));
     const r = await read(ctx, "empty");

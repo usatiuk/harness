@@ -12,6 +12,8 @@ import type {
 import { defaultHome, type SettingsDoc } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
 import { localExecutionPlugin } from "@harness/execution";
+import { activitiesPlugin } from "@harness/activities";
+import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
 import { approvalPlugin } from "@harness/approval";
 import { HarnessService } from "@harness/service";
@@ -60,6 +62,8 @@ function buildHarness(): Harness {
     ...(anthropicKey ? [createAnthropicPlugin({ apiKey: anthropicKey })] : []),
     { id: "demo", providers: () => [new DemoProvider()] },
     localExecutionPlugin,
+    activitiesPlugin,
+    outputPlugin,
     workspacePlugin,
     approvalPlugin,
   ];
@@ -121,6 +125,8 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
     await Promise.all([...touched].map((id) => service.whenIdle(id)));
     await Promise.all([...created].map((id) => service.deleteConversationIfEmpty(id)));
   } finally {
+    // Reap any still-running background activities (dev servers, watchers) before exit.
+    activitiesPlugin.shutdownAll();
     store.close();
   }
 }

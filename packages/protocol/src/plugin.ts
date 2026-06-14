@@ -2,6 +2,7 @@ import type { ZodType } from "zod";
 import type { ModelCapabilities, ModelMiddleware, ModelProvider } from "./model.ts";
 import type { Tool, ToolMiddleware } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
+import type { Conversation } from "./conversation.ts";
 import type { ConversationId } from "./ids.ts";
 import type { ExecutionProvider } from "./execution.ts";
 import type { HarnessEvent } from "./events.ts";
@@ -11,6 +12,16 @@ import type { CompactionStrategy } from "./policies.ts";
 export interface ContextSource {
   readonly id: string;
   instructions(): Promise<ContentBlock[]>;
+}
+
+/**
+ * Builds a per-conversation service a plugin hangs off `ctx.service(key)` — the general form
+ * of the `ExecutionProvider` slot. The kernel calls `for`, caches the result per (conversation,
+ * key), and never inspects it; tools narrow the opaque value with a typed accessor.
+ */
+export interface ServiceProvider {
+  readonly key: string;
+  for(conversation: Conversation): unknown;
 }
 
 /** Read-only event subscriber. The only fan-out; must never mutate state. */
@@ -37,6 +48,8 @@ export interface Plugin {
   contextSources?(): ContextSource[];
   /** The execution substrate (local/docker/remote). At most one host-wide. */
   execution?(): ExecutionProvider;
+  /** Per-conversation services hung off `ctx.service(key)`; keys must be unique host-wide. */
+  services?(): ServiceProvider[];
   policies?(): PluginPolicies;
   observers?(): Observer[];
 }

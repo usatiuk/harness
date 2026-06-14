@@ -6,6 +6,7 @@ import type {
   ModelMiddleware,
   Observer,
   Plugin,
+  ServiceProvider,
   Tool,
   ToolMiddleware,
 } from "@harness/protocol";
@@ -36,6 +37,8 @@ export class PluginHost {
   readonly policies: ResolvedPolicies;
   /** The single execution substrate, or `undefined` when no plugin provides one. */
   readonly execution: ExecutionProvider | undefined;
+  /** Per-conversation service providers by key, for `ctx.service(key)`. */
+  readonly services: ReadonlyMap<string, ServiceProvider>;
   /** Outer→inner; contributed first (registration order), default truncate innermost. */
   readonly toolMiddleware: readonly ToolMiddleware[];
   /** Outer→inner (registration order); absence = direct provider stream. */
@@ -46,6 +49,7 @@ export class PluginHost {
     const observers: Observer[] = [];
     const compaction: CompactionStrategy[] = [];
     const execution: ExecutionProvider[] = [];
+    const services = new Map<string, ServiceProvider>();
     const toolContributors: ((caps: ModelCapabilities) => Tool[])[] = [];
     const toolMiddleware: ToolMiddleware[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
@@ -63,6 +67,13 @@ export class PluginHost {
       const provided = plugin.execution?.();
       if (provided) execution.push(provided);
 
+      for (const service of plugin.services?.() ?? []) {
+        if (services.has(service.key)) {
+          throw new Error(`duplicate service key: ${service.key}`);
+        }
+        services.set(service.key, service);
+      }
+
       const policies = plugin.policies?.() ?? {};
       if (policies.compaction) compaction.push(policies.compaction);
     }
@@ -74,6 +85,7 @@ export class PluginHost {
       compaction: pick("compaction", compaction, noCompaction),
     };
     this.execution = pick<ExecutionProvider | undefined>("execution", execution, undefined);
+    this.services = services;
     this.toolMiddleware = [...toolMiddleware, truncateMiddleware()];
     this.modelMiddleware = modelMiddleware;
   }

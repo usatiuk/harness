@@ -6,6 +6,7 @@ import { isKernelEvent, type HarnessEvent } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import { FakeProvider, textStep, toolStep } from "@harness/testkit";
 import { localExecutionPlugin } from "@harness/execution";
+import { activitiesPlugin } from "@harness/activities";
 import { workspacePlugin } from "@harness/workspace";
 import { approvalPlugin } from "@harness/approval";
 import { HarnessService } from "./service.ts";
@@ -28,6 +29,7 @@ function service(steps: ReturnType<typeof toolStep>[], onRequest?: (id: string) 
     plugins: [
       { id: "fake", providers: () => [new FakeProvider(steps)] },
       localExecutionPlugin,
+      activitiesPlugin,
       workspacePlugin,
       approvalPlugin,
     ],
@@ -76,5 +78,23 @@ describe("execution + approval pipeline", () => {
     expect(events.some((e) => e.type === "request.created")).toBe(true);
     const completed = events.find((e) => e.type === "tool_call.completed");
     expect(completed && "status" in completed && completed.status).toBe("error");
+  });
+
+  it("runs an approved bash command as an activity and inlines its output", async () => {
+    const root = await workspace();
+    const { svc, events } = service(
+      [toolStep("c1", "bash", { command: "echo hi" }), textStep("done")],
+      () => ({}), // no `deny` ⇒ approval allows
+    );
+    const conv = await svc.createConversation({ cwd: root, overrides });
+
+    await svc.send(conv.id, "go");
+    await svc.whenIdle(conv.id);
+
+    const completed = events.find((e) => e.type === "tool_call.completed");
+    expect(completed && "status" in completed && completed.status).toBe("ok");
+    expect(completed && "forModel" in completed && JSON.stringify(completed.forModel)).toContain(
+      "hi",
+    );
   });
 });
