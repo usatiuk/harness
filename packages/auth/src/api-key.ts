@@ -1,0 +1,68 @@
+import type { SecretStore } from "@harness/secrets";
+import type { ApiKeyMethod, AuthStatus } from "./method.ts";
+
+export interface ApiKeyAuthOptions {
+  id: string;
+  label: string;
+  store: SecretStore;
+  /** Environment variable that overrides the stored key. */
+  envVar: string;
+  /** Storage key; defaults to `apikey:<id>`. */
+  storeKey?: string;
+  /** Optional shape check returning an error message, or null when the key looks valid. */
+  validate?: (key: string) => string | null;
+}
+
+/**
+ * Generic API-key sign-in over any `SecretStore`. The env var wins over the stored key (so CI and
+ * one-off overrides keep working); `auth login` persists a key for everyone who doesn't set it.
+ */
+export class ApiKeyAuth implements ApiKeyMethod {
+  readonly kind = "api-key" as const;
+  readonly id: string;
+  readonly label: string;
+  readonly envVar: string;
+  readonly #store: SecretStore;
+  readonly #storeKey: string;
+  readonly #validate: (key: string) => string | null;
+
+  constructor(opts: ApiKeyAuthOptions) {
+    this.id = opts.id;
+    this.label = opts.label;
+    this.envVar = opts.envVar;
+    this.#store = opts.store;
+    this.#storeKey = opts.storeKey ?? `apikey:${opts.id}`;
+    this.#validate = opts.validate ?? (() => null);
+  }
+
+  validate(key: string): string | null {
+    const trimmed = key.trim();
+    if (trimmed === "") return "API key must not be empty";
+    return this.#validate(trimmed);
+  }
+
+  async submit(key: string): Promise<void> {
+    const trimmed = key.trim();
+    const error = this.validate(trimmed);
+    if (error) throw new Error(error);
+    await this.#store.set(this.#storeKey, trimmed);
+  }
+
+  async getKey(): Promise<string | null> {
+    const fromEnv = process.env[this.envVar]?.trim();
+    if (fromEnv) return fromEnv;
+    return this.#store.get(this.#storeKey);
+  }
+
+  async status(): Promise<AuthStatus> {
+    const fromEnv = process.env[this.envVar]?.trim();
+    if (fromEnv) return { authenticated: true, source: "env", detail: `$${this.envVar}` };
+    const stored = await this.#store.get(this.#storeKey);
+    if (stored) return { authenticated: true, source: "stored", detail: "stored credential" };
+    return { authenticated: false };
+  }
+
+  logout(): Promise<boolean> {
+    return this.#store.delete(this.#storeKey);
+  }
+}

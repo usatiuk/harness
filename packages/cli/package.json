@@ -17,6 +17,7 @@
     "@harness/activities": "*",
     "@harness/anthropic-api": "*",
     "@harness/approval": "*",
+    "@harness/auth": "*",
     "@harness/config": "*",
     "@harness/core": "*",
     "@harness/execution": "*",

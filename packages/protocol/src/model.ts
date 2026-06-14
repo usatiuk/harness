@@ -171,8 +171,8 @@ export interface ModelProvider {
   validateConfig(config: ModelConfig): void;
   /** Streams one model step. The signal aborts the underlying network stream. */
   stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent>;
-  /** Selectable models this provider offers; absent = none. */
-  listModels?(): ModelInfo[];
+  /** The selectable models this provider offers (may be empty). */
+  listModels(): ModelInfo[];
 }
 
 /** A point in the model-middleware chain: runs the next inner middleware, or the provider. */

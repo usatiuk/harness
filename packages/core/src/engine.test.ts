@@ -809,6 +809,10 @@ class RecordingProvider implements ModelProvider {
 
   validateConfig(): void {}
 
+  listModels() {
+    return this.#inner.listModels();
+  }
+
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
     this.requests.push(request);
     yield* this.#inner.stream();
@@ -1141,6 +1145,7 @@ describe("Engine — model middleware", () => {
         fileTools: "string_replace",
       }),
       validateConfig: () => {},
+      listModels: () => [],
       async *stream() {
         if (++calls === 1) throw new Error("transient");
         yield* textStep("recovered");
@@ -1181,6 +1186,7 @@ describe("Engine — model middleware", () => {
         fileTools: "string_replace",
       }),
       validateConfig: () => {},
+      listModels: () => [],
       async *stream() {
         providerCalled = true;
         yield* textStep("");
@@ -1282,7 +1288,7 @@ describe("Engine — usage recording", () => {
 
   it("prices the row at record time when the provider catalog has a rate card", async () => {
     class PricedProvider extends FakeProvider {
-      listModels() {
+      override listModels() {
         return [
           {
             provider: "fake",

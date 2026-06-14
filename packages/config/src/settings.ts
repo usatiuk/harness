@@ -12,6 +12,11 @@ const modelSchema = z.strictObject({
 });
 const toolsSchema = z.strictObject({ allow: z.array(z.string()).optional() });
 
+/** Which credential backend `auth login` chose for this machine; resolved once and pinned. */
+export const AUTH_STORE_KINDS = ["keyring", "file"] as const;
+const authSchema = z.strictObject({ store: z.enum(AUTH_STORE_KINDS) });
+export type AuthStoreKind = (typeof AUTH_STORE_KINDS)[number];
+
 const baseFields = {
   model: modelSchema.optional(),
   instructions: z.string().optional(),
@@ -25,6 +30,7 @@ export const profileDocSchema = z.strictObject(baseFields);
 export const settingsDocSchema = z.strictObject({
   ...baseFields,
   profiles: z.record(z.string(), profileDocSchema).optional(),
+  auth: authSchema.optional(),
 });
 
 export type SettingsDoc = z.infer<typeof settingsDocSchema>;
