@@ -6,6 +6,7 @@ import {
   type ModelConfig,
 } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
+import type { Suggestion } from "./completion.ts";
 
 /** The effort levels the given selection's model offers; empty when it has no effort axis. */
 export const effortsFor = (service: HarnessService, model: ModelConfig): EffortInfo[] =>
@@ -37,6 +38,8 @@ export interface Command {
   name: string;
   summary: string;
   run: (ctx: CommandContext, args: string[]) => void;
+  /** Completion candidates for this command's arguments; filtered by the typed partial. */
+  complete?: (ctx: CommandContext, args: string[]) => Suggestion[];
 }
 
 // Whitespace-split args suffice while commands take at most a bare id; defer a
@@ -52,6 +55,8 @@ export const commands: Command[] = [
   {
     name: "model",
     summary: "switch model (/model <id>, or /model to pick)",
+    complete: (ctx) =>
+      ctx.service.availableModels().map((m) => ({ value: modelId(m), label: modelId(m) })),
     run: (ctx, args) => {
       const id = args[0];
       if (!id) {
@@ -75,6 +80,11 @@ export const commands: Command[] = [
   {
     name: "effort",
     summary: "set reasoning effort (/effort <value>, or /effort to pick)",
+    complete: (ctx) =>
+      effortsFor(ctx.service, ctx.model).map((e) => ({
+        value: e.value,
+        label: e.label ?? e.value,
+      })),
     run: (ctx, args) => {
       const efforts = effortsFor(ctx.service, ctx.model);
       if (efforts.length === 0) {
@@ -108,7 +118,7 @@ export const commands: Command[] = [
   },
 ];
 
-const byName = new Map(commands.map((c) => [c.name, c]));
+export const byName = new Map(commands.map((c) => [c.name, c]));
 
 /** Dispatch a `/command [args…]` line. Returns false if the command is unknown. */
 export function runCommand(line: string, ctx: CommandContext): boolean {
