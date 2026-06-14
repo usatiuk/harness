@@ -3,6 +3,7 @@ import {
   costOf,
   errorResult,
   findModel,
+  textOf,
   type Conversation,
   type ConversationId,
   type ContentBlock,
@@ -91,6 +92,7 @@ export class Engine {
   ): Promise<void> {
     const runtime = await this.#runtime(conversationId);
     applyDelivery(runtime, { input, intent });
+    this.#emitInbox(runtime);
     this.#ensureRunning(runtime);
   }
 
@@ -178,6 +180,7 @@ export class Engine {
   async #drain(runtime: Runtime): Promise<void> {
     while (runtime.inbox.length > 0) {
       const batch = runtime.inbox.splice(0);
+      this.#emitInbox(runtime);
       await this.#runTurn(runtime, batch);
     }
     runtime.running = false;
@@ -409,7 +412,9 @@ export class Engine {
 
       // After-tool-result boundary: only steers flush into this turn; queued
       // entries wait for the next batch.
-      for (const steer of runtime.takeSteers()) {
+      const steers = runtime.takeSteers();
+      if (steers.length > 0) this.#emitInbox(runtime);
+      for (const steer of steers) {
         const message = await this.store.appendItem({
           conversationId: conversation.id,
           turnId,
@@ -604,5 +609,14 @@ export class Engine {
     for (const observer of this.#observers) {
       observer.onEvent(event);
     }
+  }
+
+  /** Re-emit the conversation's current inbox snapshot; called after every inbox mutation. */
+  #emitInbox(runtime: Runtime): void {
+    this.#emit({
+      type: "inbox",
+      conversationId: runtime.conversation.id,
+      pending: runtime.inbox.map((d) => ({ intent: d.intent, text: textOf(d.input.content) })),
+    });
   }
 }

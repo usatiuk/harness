@@ -58,9 +58,9 @@ function fakeMwCtx(over: Partial<ToolMiddlewareContext> = {}): ToolMiddlewareCon
 
 describe("ActivityManager — surface a completion exactly once", () => {
   it("suppresses the proactive notice when a wait is in flight", async () => {
-    const mgr = new ActivityManager();
+    const mgr = new ActivityManager("c" as ConversationId);
     const { activity, settle } = fakeActivity("a1");
-    mgr.track(activity, { callId: "k1" });
+    mgr.track(activity, { callId: "k1", emit: () => {} });
     const notices: ContentBlock[][] = [];
     mgr.notifyOnExit("a1", (c) => notices.push(c));
     const waiting = mgr.wait("a1", 1000); // registers #waiting synchronously
@@ -71,9 +71,9 @@ describe("ActivityManager — surface a completion exactly once", () => {
   });
 
   it("delivers exactly one proactive notice when never waited", async () => {
-    const mgr = new ActivityManager();
+    const mgr = new ActivityManager("c" as ConversationId);
     const { activity, settle } = fakeActivity("a2");
-    mgr.track(activity, { callId: "k2" });
+    mgr.track(activity, { callId: "k2", emit: () => {} });
     const notices: ContentBlock[][] = [];
     mgr.notifyOnExit("a2", (c) => notices.push(c));
     settle({ status: "ok", summary: "done", view: [{ type: "text", text: "out" }] });
@@ -82,12 +82,31 @@ describe("ActivityManager — surface a completion exactly once", () => {
     expect(text(notices[0]!)).toContain("[activity a2]");
   });
 
+  it("emits activity.started on track and activity.exited on settle", async () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    const events: { type: string; id: unknown; status?: unknown }[] = [];
+    const { activity, settle } = fakeActivity("a6");
+    mgr.track(activity, { callId: "k6", emit: (e) => events.push(e as never) });
+    expect(events).toEqual([
+      { type: "activity.started", conversationId: "c", id: "a6", kind: "test", title: "a6" },
+    ]);
+    settle({ status: "error", summary: "boom", view: [] });
+    await tick();
+    expect(events[1]).toEqual({
+      type: "activity.exited",
+      conversationId: "c",
+      id: "a6",
+      status: "error",
+      summary: "boom",
+    });
+  });
+
   it("claim is one-shot and parallel-call-safe", () => {
-    const mgr = new ActivityManager();
+    const mgr = new ActivityManager("c" as ConversationId);
     const a = fakeActivity("x").activity;
     const b = fakeActivity("y").activity;
-    mgr.track(a, { callId: "ca" });
-    mgr.track(b, { callId: "cb" });
+    mgr.track(a, { callId: "ca", emit: () => {} });
+    mgr.track(b, { callId: "cb", emit: () => {} });
     expect(mgr.claim("ca")).toBe(a);
     expect(mgr.claim("cb")).toBe(b);
     expect(mgr.claim("ca")).toBeUndefined(); // consumed
@@ -96,9 +115,9 @@ describe("ActivityManager — surface a completion exactly once", () => {
 
 describe("consume", () => {
   it("backgrounds, returns a started status, and delivers on exit", async () => {
-    const mgr = new ActivityManager();
+    const mgr = new ActivityManager("c" as ConversationId);
     const { activity, settle } = fakeActivity("a3");
-    mgr.track(activity, { callId: "k" });
+    mgr.track(activity, { callId: "k", emit: () => {} });
     const delivered: ContentBlock[][] = [];
     const result = await consume(
       mgr,
@@ -115,9 +134,9 @@ describe("consume", () => {
   });
 
   it("foreground inlines a fast result", async () => {
-    const mgr = new ActivityManager();
+    const mgr = new ActivityManager("c" as ConversationId);
     const { activity, settle } = fakeActivity("a4");
-    mgr.track(activity, { callId: "k" });
+    mgr.track(activity, { callId: "k", emit: () => {} });
     const pending = consume(mgr, activity, false, fakeCtx());
     settle({ status: "error", summary: "boom", view: [{ type: "text", text: "stderr" }] });
     const result = await pending;
@@ -128,13 +147,13 @@ describe("consume", () => {
 
 describe("consumeMiddleware", () => {
   it("strips background, claims the activity, and owns the result", async () => {
-    const mgr = new ActivityManager();
+    const mgr = new ActivityManager("c" as ConversationId);
     const ctx = fakeMwCtx({ service: (k) => (k === "activities" ? mgr : undefined) });
     const next = (call: { callId: string; args: unknown }): Promise<ToolResult> => {
       expect(call.args).toEqual({ command: "x" }); // background was stripped before the tool
       const { activity, settle } = fakeActivity("a5");
       settle({ status: "ok", summary: "s", view: [{ type: "text", text: "yo" }] });
-      mgr.track(activity, { callId: call.callId });
+      mgr.track(activity, { callId: call.callId, emit: () => {} });
       return Promise.resolve({ forModel: [{ type: "text", text: "placeholder" }], status: "ok" });
     };
     const result = await consumeMiddleware().wrap(
@@ -147,7 +166,7 @@ describe("consumeMiddleware", () => {
   });
 
   it("passes through a tool that registers no activity", async () => {
-    const mgr = new ActivityManager();
+    const mgr = new ActivityManager("c" as ConversationId);
     const ctx = fakeMwCtx({ service: () => mgr });
     const out: ToolResult = { forModel: [{ type: "text", text: "plain" }], status: "ok" };
     const result = await consumeMiddleware().wrap(

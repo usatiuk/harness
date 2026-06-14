@@ -19,10 +19,15 @@ class ActivitiesPlugin implements Plugin {
   #managerFor(id: ConversationId): ActivityManager {
     let manager = this.#managers.get(id);
     if (!manager) {
-      manager = new ActivityManager();
+      manager = new ActivityManager(id);
       this.#managers.set(id, manager);
     }
     return manager;
+  }
+
+  /** The manager for a conversation if one exists — a non-creating read for clients (the TUI). */
+  manager(id: ConversationId): ActivityManager | undefined {
+    return this.#managers.get(id);
   }
 
   services(): ServiceProvider[] {

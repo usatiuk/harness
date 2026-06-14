@@ -37,7 +37,7 @@ describe("HarnessService", () => {
     await service.send(conv.id, "hello");
     await service.whenIdle(conv.id);
 
-    expect(events.map((e) => e.type)).toEqual([
+    expect(events.map((e) => e.type).filter((t) => t !== "inbox")).toEqual([
       "turn.status",
       "message",
       "tool_call.started",

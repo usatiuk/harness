@@ -23,7 +23,14 @@ import { KeyringSecretStore } from "@harness/secrets";
 import { CodexAuth, codexPlugin } from "@harness/openai-codex";
 import { DemoProvider } from "./demo-provider.ts";
 import { App } from "./app.tsx";
+import type { ActivitiesView } from "./activities-overlay.tsx";
 import { ResumePicker } from "./resume-picker.tsx";
+
+/** Live activity output/kill handles for a conversation, read off the activities plugin. */
+const makeActivities = (convId: ConversationId): ActivitiesView => ({
+  peek: (id) => activitiesPlugin.manager(convId)?.get(id)?.peek() ?? [],
+  kill: (id) => activitiesPlugin.manager(convId)?.get(id)?.kill(),
+});
 
 const INSTRUCTIONS = "You are a helpful coding agent.";
 
@@ -181,6 +188,7 @@ function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null
       cwd={session.conversation.config.workspaceRoot ?? cwd}
       launchCwd={cwd}
       onResume={resume}
+      activities={makeActivities(session.conversation.id)}
     />
   );
 }

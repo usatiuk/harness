@@ -12,6 +12,7 @@ const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   resume: vi.fn(),
   pickModel: vi.fn(),
   pickEffort: vi.fn(),
+  showActivities: vi.fn(),
   exit: vi.fn(),
   ...over,
 });
@@ -31,6 +32,12 @@ describe("runCommand", () => {
     const ctx = makeCtx();
     runCommand("/help", ctx);
     expect(ctx.note).toHaveBeenCalledOnce();
+  });
+
+  it("/activities opens the activities overlay", () => {
+    const ctx = makeCtx();
+    expect(runCommand("/activities", ctx)).toBe(true);
+    expect(ctx.showActivities).toHaveBeenCalledOnce();
   });
 
   it("/exit quits", () => {

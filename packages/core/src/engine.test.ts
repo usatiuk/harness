@@ -116,7 +116,7 @@ describe("Engine — turn cycle", () => {
     expect(result?.content).toEqual([{ type: "text", text: JSON.stringify({ x: 1 }) }]);
 
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
-    expect(events.map((e) => e.type)).toEqual([
+    expect(events.map((e) => e.type).filter((t) => t !== "inbox")).toEqual([
       "turn.status",
       "message",
       "tool_call.started",
@@ -448,6 +448,29 @@ describe("Engine — steering and queueing", () => {
     expect(byText("queued1").turnId).not.toBe(byText("go").turnId);
     // Exactly two turns ran (not three).
     expect(turnStatuses(events).filter((s) => s === "completed")).toHaveLength(2);
+  });
+
+  it("emits an inbox snapshot reflecting pending input, empty once drained", async () => {
+    const gate = new GateTool();
+    const { store, engine, events } = setup([toolStep("c1", "gate", {}), textStep("done")], {
+      tools: () => [gate],
+    });
+    const conv = await store.createConversation({ config: CONFIG });
+    await engine.deliver(conv.id, userInput("go"));
+    await gate.started;
+    await engine.deliver(conv.id, userInput("queued"), "queue");
+    const inboxes = (): { intent: string; text: string }[][] =>
+      events
+        .filter((e) => e.type === "inbox")
+        .map((e) => (e as unknown as { pending: { intent: string; text: string }[] }).pending);
+    // A queue-while-busy snapshot carries the pending entry.
+    expect(inboxes().some((p) => p.some((d) => d.text === "queued" && d.intent === "queue"))).toBe(
+      true,
+    );
+    gate.release();
+    await engine.whenIdle(conv.id);
+    // The last snapshot is empty: everything drained into turns.
+    expect(inboxes().at(-1)).toEqual([]);
   });
 });
 

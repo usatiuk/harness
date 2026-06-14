@@ -14,9 +14,11 @@ import type { HarnessService } from "@harness/service";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
 import { effortsFor, runCommand, type CommandContext } from "./commands.ts";
 import { EffortPicker, ModelPicker } from "./model-picker.tsx";
-import { CellView, cellKey } from "./cells.tsx";
+import { ActivitiesOverlay, type ActivitiesView } from "./activities-overlay.tsx";
+import { CellView, cellKey, truncate } from "./cells.tsx";
 
-const INSTRUCTIONS_PLACEHOLDER = "type a message…   (> queue · ! interrupt · /help · Esc abort)";
+const INSTRUCTIONS_PLACEHOLDER =
+  "type a message…   (> queue · ! interrupt · /activities · /help · Esc abort)";
 
 export interface AppProps {
   service: HarnessService;
@@ -29,6 +31,8 @@ export interface AppProps {
   launchCwd: string;
   /** Switch conversation (id resumes directly; omitted opens the picker). */
   onResume: (id?: string) => void;
+  /** Live activity output/kill handles for this conversation (list/count come from events). */
+  activities: ActivitiesView;
 }
 
 type Action =
@@ -65,6 +69,7 @@ export function App({
   cwd,
   launchCwd,
   onResume,
+  activities,
 }: AppProps): ReactElement {
   const { exit } = useApp();
   const [state, dispatch] = useReducer(appReduce, undefined, () =>
@@ -73,9 +78,15 @@ export function App({
   const [model, setModel] = useState(conversation.config.model);
   const [modelPicking, setModelPicking] = useState(false);
   const [effortPicking, setEffortPicking] = useState(false);
+  const [showActivities, setShowActivities] = useState(false);
   const noteId = useRef(0);
   const busy = state.turn.status === "running";
   const pending = state.pending;
+  // Memoized to keep the per-delta render path free of the activities scan.
+  const activeCount = useMemo(
+    () => state.activities.filter((a) => a.status === undefined).length,
+    [state.activities],
+  );
   // Keeps the catalog scan off the per-delta render path.
   const contextWindow = useMemo(
     () => findModel(service.availableModels(), model)?.contextWindow,
@@ -118,7 +129,8 @@ export function App({
   // Esc closes an open picker, else interrupts a running turn (also cancels a parked request).
   useInput((_input, key) => {
     if (!key.escape) return;
-    if (modelPicking) setModelPicking(false);
+    if (showActivities) setShowActivities(false);
+    else if (modelPicking) setModelPicking(false);
     else if (effortPicking) setEffortPicking(false);
     else if (busy) report(service.deliver(conversation.id, "", "interrupt"));
   });
@@ -132,6 +144,7 @@ export function App({
     resume: onResume,
     pickModel: () => setModelPicking(true),
     pickEffort: () => setEffortPicking(true),
+    showActivities: () => setShowActivities(true),
     exit,
   };
 
@@ -193,8 +206,15 @@ export function App({
             report(service.setModel(conversation.id, { ...model, effort: value }));
           }}
         />
+      ) : showActivities ? (
+        <ActivitiesOverlay
+          activities={state.activities}
+          view={activities}
+          onClose={() => setShowActivities(false)}
+        />
       ) : (
         <>
+          <PendingPreview pending={state.pendingInput} />
           <StatusBar
             busy={busy}
             model={model.model}
@@ -204,6 +224,7 @@ export function App({
             cost={state.cost}
             lastInputTokens={state.lastInputTokens}
             contextWindow={contextWindow}
+            activeCount={activeCount}
           />
           <Composer onSubmit={submit} />
         </>
@@ -246,6 +267,7 @@ function StatusBar({
   cost,
   lastInputTokens,
   contextWindow,
+  activeCount,
 }: {
   busy: boolean;
   model: string;
@@ -255,13 +277,34 @@ function StatusBar({
   cost: number;
   lastInputTokens: number | undefined;
   contextWindow: number | undefined;
+  activeCount: number;
 }): ReactElement {
   const label = effort ? `${model} (${effort})` : model;
   const tokens = usageLabel(usage, cost, lastInputTokens, contextWindow);
+  const active =
+    activeCount > 0 ? ` · ${activeCount} ${activeCount === 1 ? "activity" : "activities"}` : "";
   return (
     <Box>
       {busy ? <Spinner label="working" /> : <Text color="green">●</Text>}
-      <Text dimColor>{`  ${label}${tokens ? ` · ${tokens}` : ""} · ${cwd}`}</Text>
+      <Text dimColor>{`  ${label}${tokens ? ` · ${tokens}` : ""}${active} · ${cwd}`}</Text>
+    </Box>
+  );
+}
+
+/** Compact preview of accepted-but-not-yet-injected input, above the composer. */
+function PendingPreview({
+  pending,
+}: {
+  pending: { intent: string; text: string }[];
+}): ReactElement | null {
+  if (pending.length === 0) return null;
+  return (
+    <Box flexDirection="column">
+      {pending.map((p, i) => (
+        <Text key={i} dimColor>
+          {`⤷ ${p.intent}: ${truncate(p.text, 60)}`}
+        </Text>
+      ))}
     </Box>
   );
 }

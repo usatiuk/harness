@@ -1,4 +1,5 @@
 import type { ContentBlock } from "./content.ts";
+import type { DeliveryIntent } from "./delivery.ts";
 import type { ConversationId, TurnId } from "./ids.ts";
 import type { Item } from "./items.ts";
 import type { ModelConfig, Usage } from "./model.ts";
@@ -29,6 +30,13 @@ export type KernelEvent =
     }
   | { type: "request.resolved"; requestId: string; conversationId: ConversationId }
   | { type: "config.changed"; conversationId: ConversationId; model: ModelConfig }
+  | {
+      // A snapshot of the conversation's accepted-but-not-yet-injected input (queue/steer),
+      // re-emitted on every inbox mutation; `pending: []` means it drained.
+      type: "inbox";
+      conversationId: ConversationId;
+      pending: { intent: DeliveryIntent; text: string }[];
+    }
   | {
       type: "usage";
       conversationId: ConversationId;
@@ -64,6 +72,7 @@ const KERNEL_EVENT_TYPES = new Set<KernelEvent["type"]>([
   "request.created",
   "request.resolved",
   "config.changed",
+  "inbox",
   "usage",
 ]);
 

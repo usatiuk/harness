@@ -190,7 +190,7 @@ export class BashTool implements Tool<z.infer<typeof bashArgs>> {
       proc: exec.spawn(command),
       store: exec.outputStore(ctx.conversationId),
     });
-    activitiesOf(ctx).track(activity, { callId: ctx.callId });
+    activitiesOf(ctx).track(activity, { callId: ctx.callId, emit: (e) => ctx.emit(e) });
     // Placeholder; the consumption middleware owns the real model-facing result.
     return Promise.resolve({
       forModel: [{ type: "text", text: `started activity ${id}` }],

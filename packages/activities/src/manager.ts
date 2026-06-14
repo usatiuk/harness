@@ -1,5 +1,30 @@
-import type { ContentBlock, ToolContext } from "@harness/protocol";
+import type { ContentBlock, ConversationId, PluginEvent, ToolContext } from "@harness/protocol";
 import type { Activity, ActivityResult } from "./activity.ts";
+
+/** Lifecycle events the manager emits onto the conversation's stream. */
+export type ActivityEvent =
+  | {
+      type: "activity.started";
+      conversationId: ConversationId;
+      id: string;
+      kind: string;
+      title: string;
+    }
+  | {
+      type: "activity.exited";
+      conversationId: ConversationId;
+      id: string;
+      status: ActivityResult["status"];
+      summary: string;
+    };
+
+/** Narrows the open event stream to this plugin's events; mirror of `isKernelEvent`. */
+export function isActivityEvent(event: { type: string }): event is ActivityEvent {
+  return event.type === "activity.started" || event.type === "activity.exited";
+}
+
+/** Pushes a plugin event onto the conversation's stream (the engine's `ctx.emit`). */
+type Emit = (event: PluginEvent) => void;
 
 /** Cap on tracked activities per conversation; settled ones are GC'd to make room. */
 const MAX_LIVE = 50;
@@ -15,11 +40,29 @@ export class ActivityManager {
   readonly #surfaced = new Set<string>(); // result already shown once
   readonly #waiting = new Set<string>(); // a foreground/explicit wait is in flight
 
-  track(activity: Activity, { callId }: { callId: string }): void {
+  constructor(private readonly conversationId: ConversationId) {}
+
+  track(activity: Activity, { callId, emit }: { callId: string; emit: Emit }): void {
     this.#gc();
     this.#byId.set(activity.id, activity);
     this.#byCall.set(callId, activity.id);
-    void activity.done.then((result) => this.#settled.set(activity.id, result));
+    emit({
+      type: "activity.started",
+      conversationId: this.conversationId,
+      id: activity.id,
+      kind: activity.kind,
+      title: activity.title,
+    });
+    void activity.done.then((result) => {
+      this.#settled.set(activity.id, result);
+      emit({
+        type: "activity.exited",
+        conversationId: this.conversationId,
+        id: activity.id,
+        status: result.status,
+        summary: result.summary,
+      });
+    });
   }
 
   /** The activity THIS dispatch started, consumed once. */

@@ -37,6 +37,7 @@ const mount = (service: HarnessService) =>
       cwd="/tmp"
       launchCwd="/tmp"
       onResume={() => {}}
+      activities={{ peek: () => [], kill: () => {} }}
     />,
   );
 

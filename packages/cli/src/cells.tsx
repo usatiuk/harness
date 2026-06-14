@@ -6,10 +6,10 @@ import type { Cell } from "./transcript-reducer.ts";
 const TOOL_OUTPUT_CAP = 800;
 const ARGS_CAP = 120;
 
-const truncate = (s: string, n: number): string =>
+export const truncate = (s: string, n: number): string =>
   s.length > n ? `${s.slice(0, n)}… (+${s.length - n})` : s;
 
-const indent = (s: string): string =>
+export const indent = (s: string): string =>
   s
     .split("\n")
     .map((line) => `   ${line}`)

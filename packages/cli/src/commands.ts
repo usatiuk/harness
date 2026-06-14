@@ -27,6 +27,8 @@ export interface CommandContext {
   pickModel: () => void;
   /** Open the effort switcher overlay (for the current model). */
   pickEffort: () => void;
+  /** Open the activities overlay. */
+  showActivities: () => void;
   /** Quit the app. */
   exit: () => void;
 }
@@ -95,6 +97,7 @@ export const commands: Command[] = [
       );
     },
   },
+  { name: "activities", summary: "show running activities", run: (ctx) => ctx.showActivities() },
   { name: "exit", summary: "quit", run: (ctx) => ctx.exit() },
   {
     name: "tick",

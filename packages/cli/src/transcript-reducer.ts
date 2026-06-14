@@ -4,6 +4,7 @@ import {
   isKernelEvent,
   textOf,
   zeroUsage,
+  type DeliveryIntent,
   type HarnessEvent,
   type Item,
   type ModelUsage,
@@ -11,6 +12,7 @@ import {
   type TurnStatus,
   type Usage,
 } from "@harness/protocol";
+import { isActivityEvent } from "@harness/activities";
 
 /**
  * One rendered line of transcript. Derived purely from the event stream (live) or
@@ -38,11 +40,24 @@ export type Cell =
   // wrapper does. Always immutable, so it migrates straight to scrollback.
   | { kind: "note"; id: string; text: string };
 
+/** One row in the activities overlay; `status === undefined` ⟺ still running. */
+export interface ActivityLine {
+  id: string;
+  kind: string;
+  title: string;
+  status?: "ok" | "error";
+  summary?: string;
+}
+
 export interface State {
   cells: Cell[];
   turn: { id?: string; status: TurnStatus | "idle" };
   /** A middleware request (e.g. approval) awaiting a decision; cleared when its turn ends. */
   pending?: { requestId: string; summary: string };
+  /** Accepted-but-not-yet-injected input (queue/steer), mirrored from the engine's `inbox` event. */
+  pendingInput: { intent: DeliveryIntent; text: string }[];
+  /** Tracked activities this session, newest last; folded from `activity.*` plugin events. */
+  activities: ActivityLine[];
   /** Running token totals across the conversation (live events + resume seed). */
   usage: Usage;
   /** Σ of stored per-row costs in USD; rows with no rate card contribute nothing. */
@@ -54,6 +69,8 @@ export interface State {
 export const emptyState: State = {
   cells: [],
   turn: { status: "idle" },
+  pendingInput: [],
+  activities: [],
   usage: zeroUsage(),
   cost: 0,
 };
@@ -109,10 +126,26 @@ function clearPending(state: State): State {
   return next;
 }
 
-/** Fold one event into the transcript state. Pure; ignores plugin events. */
+/** Fold one event into the transcript state. Pure; handles `activity.*` plugin events plus kernel events. */
 export function reduce(state: State, event: HarnessEvent): State {
+  if (isActivityEvent(event)) {
+    if (event.type === "activity.started") {
+      return {
+        ...state,
+        activities: [...state.activities, { id: event.id, kind: event.kind, title: event.title }],
+      };
+    }
+    return {
+      ...state,
+      activities: state.activities.map((a) =>
+        a.id === event.id ? { ...a, status: event.status, summary: event.summary } : a,
+      ),
+    };
+  }
   if (!isKernelEvent(event)) return state;
   switch (event.type) {
+    case "inbox":
+      return { ...state, pendingInput: event.pending };
     case "turn.status": {
       const turn = { id: event.turnId, status: event.status };
       if (event.status === "running") return { ...state, turn };
@@ -276,6 +309,8 @@ export function init(items: Item[], usageRows: ModelUsage[] = []): State {
   return {
     cells,
     turn: { status: "idle" },
+    pendingInput: [],
+    activities: [],
     usage,
     cost,
     ...(last !== undefined ? { lastInputTokens: last } : {}),

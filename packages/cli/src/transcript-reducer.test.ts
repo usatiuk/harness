@@ -206,4 +206,33 @@ describe("transcript reducer", () => {
     expect(seeded.lastInputTokens).toBe(300);
     expect(init([]).lastInputTokens).toBeUndefined(); // no rows → no ctx-fill yet
   });
+
+  it("mirrors the inbox snapshot into pendingInput", () => {
+    const state = fold([
+      { type: "inbox", conversationId: "c", pending: [{ intent: "queue", text: "later" }] },
+    ]);
+    expect(state.pendingInput).toEqual([{ intent: "queue", text: "later" }]);
+    const drained = fold([{ type: "inbox", conversationId: "c", pending: [] }], state);
+    expect(drained.pendingInput).toEqual([]);
+  });
+
+  it("appends an activity on start and marks it settled on exit", () => {
+    const started = fold([
+      {
+        type: "activity.started",
+        conversationId: "c",
+        id: "a1",
+        kind: "process",
+        title: "npm run dev",
+      },
+    ]);
+    expect(started.activities).toEqual([{ id: "a1", kind: "process", title: "npm run dev" }]);
+    const exited = fold(
+      [{ type: "activity.exited", conversationId: "c", id: "a1", status: "ok", summary: "exit 0" }],
+      started,
+    );
+    expect(exited.activities).toEqual([
+      { id: "a1", kind: "process", title: "npm run dev", status: "ok", summary: "exit 0" },
+    ]);
+  });
 });

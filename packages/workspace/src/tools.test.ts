@@ -21,7 +21,7 @@ const created: string[] = [];
 async function workspace(): Promise<ToolContext> {
   const root = await mkdtemp(join(tmpdir(), "hws-"));
   created.push(root);
-  const manager = new ActivityManager();
+  const manager = new ActivityManager("conv" as ConversationId);
   return {
     conversationId: "conv" as ConversationId,
     callId: "call_0",
