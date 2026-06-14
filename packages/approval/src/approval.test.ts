@@ -17,12 +17,12 @@ function middlewareFor(config: unknown): ToolMiddleware {
 
 function contextFor(decision?: string): { ctx: ToolMiddlewareContext; asked: () => boolean } {
   let asked = false;
+  const execution = new LocalExecutionContext("/work");
   const ctx: ToolMiddlewareContext = {
     conversationId: "c" as ConversationId,
     callId: "call_0",
     signal: new AbortController().signal,
-    execution: new LocalExecutionContext("/work"),
-    service: () => undefined,
+    service: (key) => (key === "execution" ? execution : undefined),
     toolMeta: () => undefined,
     emit: () => {},
     deliver: () => {},

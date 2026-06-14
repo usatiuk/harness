@@ -13,7 +13,7 @@ export * from "./tools.ts";
 export * from "./apply-patch-parse.ts";
 
 /**
- * Workspace tools: search files and run commands via `ctx.execution`, plus a file-edit roster
+ * Workspace tools: search files and run commands via the execution service, plus a file-edit roster
  * chosen by the model's `fileTools` profile. `text_editor` contributes no read/write/edit here —
  * the Anthropic plugin supplies the native editor, so the trio would only overlap it.
  */

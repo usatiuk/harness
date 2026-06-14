@@ -4,7 +4,6 @@ import type { Tool, ToolMiddleware } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
 import type { Conversation } from "./conversation.ts";
 import type { ConversationId } from "./ids.ts";
-import type { ExecutionProvider } from "./execution.ts";
 import type { HarnessEvent } from "./events.ts";
 import type { CompactionStrategy } from "./policies.ts";
 
@@ -15,9 +14,10 @@ export interface ContextSource {
 }
 
 /**
- * Builds a per-conversation service a plugin hangs off `ctx.service(key)` — the general form
- * of the `ExecutionProvider` slot. The kernel calls `for`, caches the result per (conversation,
- * key), and never inspects it; tools narrow the opaque value with a typed accessor.
+ * Builds a per-conversation service a plugin hangs off `ctx.service(key)` — the single
+ * mechanism for per-conversation plugin substrate (the execution backend is one, keyed
+ * `"execution"`). The kernel calls `for`, caches the result per (conversation, key), and
+ * never inspects it; tools narrow the opaque value with a typed accessor.
  */
 export interface ServiceProvider {
   readonly key: string;
@@ -46,8 +46,6 @@ export interface Plugin {
   /** Wraps each model step, outermost first (retry / cache / model-fallback). */
   modelMiddleware?(): ModelMiddleware[];
   contextSources?(): ContextSource[];
-  /** The execution substrate (local/docker/remote). At most one host-wide. */
-  execution?(): ExecutionProvider;
   /** Per-conversation services hung off `ctx.service(key)`; keys must be unique host-wide. */
   services?(): ServiceProvider[];
   policies?(): PluginPolicies;

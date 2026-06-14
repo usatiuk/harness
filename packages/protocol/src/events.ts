@@ -6,46 +6,44 @@ import type { ModelConfig, Usage } from "./model.ts";
 import type { ToolStatus } from "./tools.ts";
 import type { TurnStatus } from "./conversation.ts";
 
-/** The fixed set the kernel itself emits. Structured data, never pre-rendered text. */
-export type KernelEvent =
-  | { type: "turn.status"; turnId: TurnId; status: TurnStatus; error?: string }
-  | { type: "message"; item: Item }
-  | { type: "reasoning"; item: Item }
-  | { type: "compaction"; item: Item }
-  | { type: "context"; item: Item }
-  | { type: "text_delta"; turnId: TurnId; text: string }
-  | { type: "reasoning_delta"; turnId: TurnId; text: string }
-  | { type: "tool_call.started"; callId: string; name: string; args: unknown }
-  | {
-      type: "tool_call.completed";
-      callId: string;
-      status: ToolStatus;
-      forModel: ContentBlock[];
-    }
-  | {
-      type: "request.created";
-      requestId: string;
-      conversationId: ConversationId;
-      request: unknown;
-    }
-  | { type: "request.resolved"; requestId: string; conversationId: ConversationId }
-  | { type: "config.changed"; conversationId: ConversationId; model: ModelConfig }
-  | {
-      // A snapshot of the conversation's accepted-but-not-yet-injected input (queue/steer),
-      // re-emitted on every inbox mutation; `pending: []` means it drained.
-      type: "inbox";
-      conversationId: ConversationId;
-      pending: { intent: DeliveryIntent; text: string }[];
-    }
-  | {
-      type: "usage";
-      conversationId: ConversationId;
-      turnId: TurnId;
-      provider: string;
-      model: string;
-      usage: Usage;
-      cost: number | null; // stored fact, priced at record time; null = no rate card
-    };
+/**
+ * Carried by every event bound to a single conversation, so a client (or the scoped
+ * subscription) can attribute it without inspecting the variant. Global events carry none.
+ */
+export interface ConversationEvent {
+  conversationId: ConversationId;
+}
+
+/**
+ * The fixed set the kernel itself emits. Structured data, never pre-rendered text.
+ * `conversationId` is factored out via `ConversationEvent`, so every arm carries it.
+ */
+export type KernelEvent = ConversationEvent &
+  (
+    | { type: "turn.status"; turnId: TurnId; status: TurnStatus; error?: string }
+    | { type: "message"; item: Item }
+    | { type: "reasoning"; item: Item }
+    | { type: "compaction"; item: Item }
+    | { type: "context"; item: Item }
+    | { type: "text_delta"; turnId: TurnId; text: string }
+    | { type: "reasoning_delta"; turnId: TurnId; text: string }
+    | { type: "tool_call.started"; callId: string; name: string; args: unknown }
+    | { type: "tool_call.completed"; callId: string; status: ToolStatus; forModel: ContentBlock[] }
+    | { type: "request.created"; requestId: string; request: unknown }
+    | { type: "request.resolved"; requestId: string }
+    | { type: "config.changed"; model: ModelConfig }
+    // `inbox`: snapshot of accepted-but-not-yet-injected input (queue/steer), re-emitted on
+    // every inbox mutation; `pending: []` means it drained.
+    | { type: "inbox"; pending: { intent: DeliveryIntent; text: string }[] }
+    | {
+        type: "usage";
+        turnId: TurnId;
+        provider: string;
+        model: string;
+        usage: Usage;
+        cost: number | null; // stored fact, priced at record time; null = no rate card
+      }
+  );
 
 /**
  * A plugin-defined event. `string & {}` keeps the union open without collapsing
@@ -83,4 +81,13 @@ const KERNEL_EVENT_TYPES = new Set<KernelEvent["type"]>([
  */
 export function isKernelEvent(event: HarnessEvent): event is KernelEvent {
   return (KERNEL_EVENT_TYPES as Set<string>).has(event.type);
+}
+
+/**
+ * The conversation an event belongs to, or `undefined` for a global event that carries none.
+ * The seam the scoped subscription filters on; plugin events opt in by carrying `conversationId`.
+ */
+export function conversationOf(event: HarnessEvent): ConversationId | undefined {
+  const id = (event as { conversationId?: unknown }).conversationId;
+  return typeof id === "string" ? (id as ConversationId) : undefined;
 }

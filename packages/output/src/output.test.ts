@@ -24,13 +24,15 @@ afterEach(async () => {
 const text = (blocks: ContentBlock[]): string =>
   blocks.map((b) => (b.type === "text" ? b.text : "")).join("\n");
 
-function ctxWith(over: Partial<ToolMiddlewareContext> = {}): ToolMiddlewareContext {
+function ctxWith(
+  over: Partial<ToolMiddlewareContext> = {},
+  execution?: LocalExecutionContext,
+): ToolMiddlewareContext {
   return {
     conversationId: "conv" as ConversationId,
     callId: "call_0",
     signal: new AbortController().signal,
-    execution: undefined,
-    service: () => undefined,
+    service: (key) => (key === "execution" ? execution : undefined),
     toolMeta: () => undefined,
     emit: () => {},
     deliver: () => {},
@@ -47,7 +49,7 @@ const passthrough = (result: ToolResult) => () => Promise.resolve(result);
 
 describe("outputBoundMiddleware", () => {
   it("spills oversized output to a file and shows a head view + pointer", async () => {
-    const ctx = ctxWith({ execution: new LocalExecutionContext(await tmpRoot()) });
+    const ctx = ctxWith({}, new LocalExecutionContext(await tmpRoot()));
     const result = await outputBoundMiddleware().wrap(
       { callId: "g", name: "grep", args: {} },
       ctx,
@@ -61,10 +63,10 @@ describe("outputBoundMiddleware", () => {
   });
 
   it("skips addressableOutput tools", async () => {
-    const ctx = ctxWith({
-      execution: new LocalExecutionContext(await tmpRoot()),
-      toolMeta: () => ({ addressableOutput: true }),
-    });
+    const ctx = ctxWith(
+      { toolMeta: () => ({ addressableOutput: true }) },
+      new LocalExecutionContext(await tmpRoot()),
+    );
     const result: ToolResult = {
       forModel: [{ type: "text", text: "z".repeat(20_000) }],
       status: "ok",
@@ -80,7 +82,7 @@ describe("outputBoundMiddleware", () => {
 
   it("leaves small output and execution-less calls untouched", async () => {
     const small: ToolResult = { forModel: [{ type: "text", text: "small" }], status: "ok" };
-    const withExec = ctxWith({ execution: new LocalExecutionContext(await tmpRoot()) });
+    const withExec = ctxWith({}, new LocalExecutionContext(await tmpRoot()));
     expect(
       await outputBoundMiddleware().wrap(
         { callId: "x", name: "grep", args: {} },

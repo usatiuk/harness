@@ -1,5 +1,6 @@
 import {
   assertNever,
+  conversationOf,
   costOf,
   errorResult,
   findModel,
@@ -12,6 +13,7 @@ import {
   type DeliveryIntent,
   type HarnessEvent,
   type ItemId,
+  type KernelEvent,
   type ModelConfig,
   type ModelInfo,
   type ModelPricing,
@@ -19,6 +21,7 @@ import {
   type ModelStreamEvent,
   type NewContextBuild,
   type Observer,
+  type PluginEvent,
   type ProviderPayloadDraft,
   type Store,
   type ToolCall,
@@ -57,7 +60,8 @@ class TurnAborted extends Error {
  * continues, so one conversation never crashes the process.
  */
 export class Engine {
-  readonly #observers: Observer[];
+  /** Each observer with its optional conversation scope; unscoped ones see every event. */
+  readonly #observers: { observer: Observer; scope?: ConversationId }[];
   readonly #runtimes = new Map<ConversationId, Runtime>();
   readonly #loading = new Map<ConversationId, Promise<Runtime>>();
   /** Monotonic source for ephemeral request ids (process-local; not durable). */
@@ -67,14 +71,19 @@ export class Engine {
     private readonly store: Store,
     private readonly host: PluginHost,
   ) {
-    this.#observers = [...host.observers];
+    this.#observers = host.observers.map((observer) => ({ observer }));
   }
 
-  /** Read-only event subscription. Returns an unsubscribe handle. */
-  subscribe(observer: Observer): () => void {
-    this.#observers.push(observer);
+  /**
+   * Read-only event subscription. With a `conversationId`, the observer receives only
+   * that conversation's events (events carrying no conversation are not delivered to a
+   * scoped observer); without one, it receives every event. Returns an unsubscribe handle.
+   */
+  subscribe(observer: Observer, conversationId?: ConversationId): () => void {
+    const entry = conversationId === undefined ? { observer } : { observer, scope: conversationId };
+    this.#observers.push(entry);
     return () => {
-      const i = this.#observers.indexOf(observer);
+      const i = this.#observers.indexOf(entry);
       if (i >= 0) this.#observers.splice(i, 1);
     };
   }
@@ -123,6 +132,24 @@ export class Engine {
     return this.#runtimes.get(conversationId)?.whenIdle() ?? Promise.resolve();
   }
 
+  /**
+   * Resolve a per-conversation plugin service for a client read (e.g. the TUI reading the
+   * activity manager) — the same instance tools see via `ctx.service`. `undefined` when the
+   * conversation has no live runtime yet or no plugin owns `key`; never loads a runtime.
+   */
+  serviceFor(conversationId: ConversationId, key: string): unknown {
+    const runtime = this.#runtimes.get(conversationId);
+    return runtime ? this.#service(runtime, key) : undefined;
+  }
+
+  /** Resolve-and-cache a service for a runtime, building it from its provider on first use. */
+  #service(runtime: Runtime, key: string): unknown {
+    if (runtime.services.has(key)) return runtime.services.get(key);
+    const built = this.host.services.get(key)?.for(runtime.conversation);
+    runtime.services.set(key, built);
+    return built;
+  }
+
   /** Aggregate model catalog across registered providers. */
   availableModels(): ModelInfo[] {
     return this.host.providers.listModels();
@@ -131,7 +158,7 @@ export class Engine {
   /** Persists the new model (read fresh by the next turn) and emits config.changed. */
   async setModel(conversationId: ConversationId, model: ModelConfig): Promise<void> {
     await this.store.updateConversationModel(conversationId, model);
-    this.#emit({ type: "config.changed", conversationId, model });
+    this.#emitKernel({ type: "config.changed", conversationId, model });
   }
 
   /** Loads (and caches) the runtime, guarding against concurrent first-touch. */
@@ -200,7 +227,12 @@ export class Engine {
 
     const turn = await this.store.createTurn(conversation.id);
     runtime.currentTurnId = turn.id;
-    this.#emit({ type: "turn.status", turnId: turn.id, status: "running" });
+    this.#emitKernel({
+      type: "turn.status",
+      conversationId: conversation.id,
+      turnId: turn.id,
+      status: "running",
+    });
 
     for (const delivery of batch) {
       const message = await this.store.appendItem({
@@ -210,21 +242,32 @@ export class Engine {
         role: "user",
         content: delivery.input.content,
       });
-      this.#emit({ type: "message", item: message });
+      this.#emitKernel({ type: "message", conversationId: conversation.id, item: message });
     }
 
     try {
       await this.#runSteps(conversation, turn.id, controller.signal, runtime);
       await this.store.updateTurn(turn.id, "completed");
-      this.#emit({ type: "turn.status", turnId: turn.id, status: "completed" });
+      this.#emitKernel({
+        type: "turn.status",
+        conversationId: conversation.id,
+        turnId: turn.id,
+        status: "completed",
+      });
     } catch (error) {
       if (error instanceof TurnAborted) {
         await this.store.updateTurn(turn.id, "aborted");
-        this.#emit({ type: "turn.status", turnId: turn.id, status: "aborted" });
+        this.#emitKernel({
+          type: "turn.status",
+          conversationId: conversation.id,
+          turnId: turn.id,
+          status: "aborted",
+        });
       } else {
         await this.store.updateTurn(turn.id, "failed");
-        this.#emit({
+        this.#emitKernel({
           type: "turn.status",
+          conversationId: conversation.id,
           turnId: turn.id,
           status: "failed",
           error: String(error),
@@ -287,7 +330,7 @@ export class Engine {
           content: [{ type: "text", text: pendingText }],
         });
         lastMessageId = message.id;
-        this.#emit({ type: "message", item: message });
+        this.#emitKernel({ type: "message", conversationId: conversation.id, item: message });
         pendingText = "";
       };
 
@@ -303,10 +346,20 @@ export class Engine {
         switch (event.type) {
           case "text_delta":
             pendingText += event.text;
-            this.#emit({ type: "text_delta", turnId, text: event.text });
+            this.#emitKernel({
+              type: "text_delta",
+              conversationId: conversation.id,
+              turnId,
+              text: event.text,
+            });
             break;
           case "reasoning_delta":
-            this.#emit({ type: "reasoning_delta", turnId, text: event.text });
+            this.#emitKernel({
+              type: "reasoning_delta",
+              conversationId: conversation.id,
+              turnId,
+              text: event.text,
+            });
             break;
           case "reasoning": {
             await flushText(); // preserve emission order against any preceding text
@@ -317,7 +370,7 @@ export class Engine {
               content: event.content,
             });
             await bindPayload(item.id, event.payload);
-            this.#emit({ type: "reasoning", item });
+            this.#emitKernel({ type: "reasoning", conversationId: conversation.id, item });
             break;
           }
           case "tool_call": {
@@ -332,8 +385,9 @@ export class Engine {
             });
             await bindPayload(callItem.id, event.payload);
             calls.push({ callId: event.callId, name: event.name, args: event.args });
-            this.#emit({
+            this.#emitKernel({
               type: "tool_call.started",
+              conversationId: conversation.id,
               callId: event.callId,
               name: event.name,
               args: event.args,
@@ -369,8 +423,9 @@ export class Engine {
           content: result.forModel,
           status: result.status,
         });
-        this.#emit({
+        this.#emitKernel({
           type: "tool_call.completed",
+          conversationId: conversation.id,
           callId: call.callId,
           status: result.status,
           forModel: result.forModel,
@@ -392,7 +447,7 @@ export class Engine {
           usage: completed.usage,
           cost: pricing ? costOf(completed.usage, pricing) : null,
         });
-        this.#emit({
+        this.#emitKernel({
           type: "usage",
           conversationId: conversation.id,
           turnId,
@@ -422,7 +477,7 @@ export class Engine {
           role: "user",
           content: steer.input.content,
         });
-        this.#emit({ type: "message", item: message });
+        this.#emitKernel({ type: "message", conversationId: conversation.id, item: message });
       }
     }
 
@@ -471,14 +526,10 @@ export class Engine {
       callId: call.callId,
       signal,
       toolMeta: (name) => toolSet.metaOf(name),
-      execution: (runtime.execution ??= this.host.execution?.for(runtime.conversation)),
-      service: (key) => {
-        if (runtime.services.has(key)) return runtime.services.get(key);
-        const built = this.host.services.get(key)?.for(runtime.conversation);
-        runtime.services.set(key, built);
-        return built;
-      },
-      emit: (event) => this.#emit(event),
+      service: (key) => this.#service(runtime, key),
+      // Default the dispatching conversation onto the event so a plugin can't emit an
+      // unscoped (and thus silently dropped) event; an explicit id in the event still wins.
+      emit: (event) => this.#emitPlugin({ conversationId, ...event }),
       // Plugin-origin delivery, fixed to `steer`, stamped with the dispatching tool's name.
       deliver: (content) =>
         void this.deliver(
@@ -497,7 +548,7 @@ export class Engine {
           key,
           content,
         });
-        this.#emit({ type: "context", item });
+        this.#emitKernel({ type: "context", conversationId, item });
       },
     };
     const execute: ToolHandler = (c) => {
@@ -540,11 +591,11 @@ export class Engine {
       runtime.pendingRequests.set(requestId, {
         resolve: (response) => {
           cleanup();
-          this.#emit({ type: "request.resolved", requestId, conversationId });
+          this.#emitKernel({ type: "request.resolved", requestId, conversationId });
           resolve(response);
         },
       });
-      this.#emit({ type: "request.created", requestId, conversationId, request });
+      this.#emitKernel({ type: "request.created", requestId, conversationId, request });
     });
   }
 
@@ -570,7 +621,7 @@ export class Engine {
       type: "compaction",
       content,
     });
-    this.#emit({ type: "compaction", item });
+    this.#emitKernel({ type: "compaction", conversationId: conversation.id, item });
   }
 
   /** The model's rate card from its provider's catalog; undefined = cost not computable. */
@@ -605,18 +656,37 @@ export class Engine {
     return this.store.recordContextBuild(built);
   }
 
-  #emit(event: HarnessEvent): void {
-    for (const observer of this.#observers) {
-      observer.onEvent(event);
+  /** The single scope-filtered fan-out behind the `#emit*` pair. */
+  #broadcast(event: HarnessEvent): void {
+    const scope = conversationOf(event);
+    for (const { observer, scope: s } of this.#observers) {
+      if (s === undefined || s === scope) observer.onEvent(event);
     }
+  }
+
+  /**
+   * Emit a kernel event. Typed to the closed `KernelEvent` (not the open `HarnessEvent`) so a
+   * literal that forgets `conversationId` is a compile error, not a silently untagged event.
+   */
+  #emitKernel(event: KernelEvent): void {
+    this.#broadcast(event);
+  }
+
+  /** Emit a plugin-defined event; the `ctx.emit` seam guarantees it carries a `conversationId`. */
+  #emitPlugin(event: PluginEvent): void {
+    this.#broadcast(event);
   }
 
   /** Re-emit the conversation's current inbox snapshot; called after every inbox mutation. */
   #emitInbox(runtime: Runtime): void {
-    this.#emit({
+    this.#emitKernel({
       type: "inbox",
       conversationId: runtime.conversation.id,
-      pending: runtime.inbox.map((d) => ({ intent: d.intent, text: textOf(d.input.content) })),
+      // Only queue/steer are "pending"; a send/interrupt passes through the buffer in the same
+      // drain tick, so it never belongs in the snapshot — keeping the event true to its contract.
+      pending: runtime.inbox
+        .filter((d) => d.intent === "queue" || d.intent === "steer")
+        .map((d) => ({ intent: d.intent, text: textOf(d.input.content) })),
     });
   }
 }

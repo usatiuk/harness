@@ -22,7 +22,8 @@ const item = (id: string, seq: number): Item => ({
 
 describe("truncateMiddleware", () => {
   const call: ToolCall = { callId: "1", name: "echo", args: {} };
-  const ctx = {} as ToolMiddlewareContext; // truncate ignores ctx
+  // No execution backend wired ⇒ truncate caps the text itself.
+  const ctx = { service: () => undefined } as unknown as ToolMiddlewareContext;
 
   it("caps long text and leaves short text untouched", async () => {
     const mw = truncateMiddleware(5);

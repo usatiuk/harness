@@ -81,6 +81,13 @@ export class ActivityManager {
     return [...this.#byId.values()];
   }
 
+  /** How many tracked activities haven't settled yet. */
+  runningCount(): number {
+    let n = 0;
+    for (const id of this.#byId.keys()) if (!this.#settled.has(id)) n++;
+    return n;
+  }
+
   /** The settled result, or `undefined` while still running. */
   resultOf(id: string): ActivityResult | undefined {
     return this.#settled.get(id);

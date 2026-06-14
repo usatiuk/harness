@@ -36,7 +36,6 @@ function fakeCtx(over: Partial<ToolContext> = {}): ToolContext {
     conversationId: "c" as ConversationId,
     callId: "call_0",
     signal: new AbortController().signal,
-    execution: undefined,
     service: () => undefined,
     emit: () => {},
     deliver: () => {},
@@ -110,6 +109,18 @@ describe("ActivityManager — surface a completion exactly once", () => {
     expect(mgr.claim("ca")).toBe(a);
     expect(mgr.claim("cb")).toBe(b);
     expect(mgr.claim("ca")).toBeUndefined(); // consumed
+  });
+
+  it("runningCount counts only unsettled activities", async () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    const { activity: a, settle } = fakeActivity("r1");
+    const { activity: b } = fakeActivity("r2");
+    mgr.track(a, { callId: "k1", emit: () => {} });
+    mgr.track(b, { callId: "k2", emit: () => {} });
+    expect(mgr.runningCount()).toBe(2);
+    settle({ status: "ok", summary: "done", view: [] });
+    await tick();
+    expect(mgr.runningCount()).toBe(1);
   });
 });
 

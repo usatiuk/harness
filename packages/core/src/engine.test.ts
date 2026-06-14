@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { isKernelEvent } from "@harness/protocol";
+import { conversationOf, isKernelEvent } from "@harness/protocol";
 import type {
   ContentBlock,
   DeliveryInput,
@@ -366,6 +366,31 @@ describe("Engine — delivery seam", () => {
   });
 });
 
+describe("Engine — scoped subscription", () => {
+  it("delivers only the scoped conversation's events; an unscoped observer sees all", async () => {
+    const { store, engine } = setup([textStep("a"), textStep("b")]);
+    const convA = await store.createConversation({ config: CONFIG });
+    const convB = await store.createConversation({ config: CONFIG });
+
+    const all: HarnessEvent[] = [];
+    const onlyA: HarnessEvent[] = [];
+    engine.subscribe({ onEvent: (e) => all.push(e) });
+    engine.subscribe({ onEvent: (e) => onlyA.push(e) }, convA.id);
+
+    await engine.deliver(convA.id, userInput("hi A"));
+    await engine.whenIdle(convA.id);
+    await engine.deliver(convB.id, userInput("hi B"));
+    await engine.whenIdle(convB.id);
+
+    // The scoped observer saw A's events and none of B's.
+    expect(onlyA.length).toBeGreaterThan(0);
+    expect(onlyA.every((e) => conversationOf(e) === convA.id)).toBe(true);
+    // The unscoped observer saw both conversations.
+    expect(all.some((e) => conversationOf(e) === convA.id)).toBe(true);
+    expect(all.some((e) => conversationOf(e) === convB.id)).toBe(true);
+  });
+});
+
 describe("Engine — interleaving order", () => {
   it("writes interleaved text and calls in emission order", async () => {
     const { store, engine } = setup([
@@ -467,6 +492,8 @@ describe("Engine — steering and queueing", () => {
     expect(inboxes().some((p) => p.some((d) => d.text === "queued" && d.intent === "queue"))).toBe(
       true,
     );
+    // A plain `send` is never surfaced as pending — only queue/steer are.
+    expect(inboxes().every((p) => p.every((d) => d.intent !== "send"))).toBe(true);
     gate.release();
     await engine.whenIdle(conv.id);
     // The last snapshot is empty: everything drained into turns.

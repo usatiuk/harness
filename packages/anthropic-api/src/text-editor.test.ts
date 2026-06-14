@@ -10,12 +10,12 @@ const created: string[] = [];
 async function workspace(): Promise<ToolContext> {
   const root = await mkdtemp(join(tmpdir(), "hae-"));
   created.push(root);
+  const execution = new LocalExecutionContext(root);
   return {
     conversationId: "conv" as ConversationId,
     callId: "call_0",
     signal: new AbortController().signal,
-    execution: new LocalExecutionContext(root),
-    service: () => undefined,
+    service: (key) => (key === "execution" ? execution : undefined),
     emit: () => {},
     deliver: () => {},
   };
@@ -90,12 +90,12 @@ describe("TextEditorTool", () => {
   it("reports an empty (non-root) directory instead of a read error", async () => {
     const root = await mkdtemp(join(tmpdir(), "hae-"));
     created.push(root);
+    const execution = new LocalExecutionContext(root);
     const ctx: ToolContext = {
       conversationId: "conv" as ConversationId,
       callId: "call_0",
       signal: new AbortController().signal,
-      execution: new LocalExecutionContext(root),
-      service: () => undefined,
+      service: (key) => (key === "execution" ? execution : undefined),
       emit: () => {},
       deliver: () => {},
     };

@@ -45,14 +45,10 @@ export interface ToolContext {
   callId: string;
   signal: AbortSignal;
   /**
-   * Per-conversation execution handle from the execution plugin (`undefined` if none
-   * is wired). Opaque to the kernel — narrow via `executionOf` from `@harness/execution`.
-   */
-  execution: unknown;
-  /**
-   * A per-conversation service another plugin hangs off `ctx` (e.g. an activity registry),
-   * keyed and built lazily by its `ServiceProvider`. `undefined` when no plugin owns `key`.
-   * Opaque to the kernel — narrow via a typed accessor like `executionOf`/`activitiesOf`.
+   * A per-conversation service a plugin hangs off `ctx`, keyed and built lazily by its
+   * `ServiceProvider` (e.g. the execution substrate under `"execution"`, or an activity
+   * registry under `"activities"`). `undefined` when no plugin owns `key`. Opaque to the
+   * kernel — narrow via a typed accessor like `executionOf`/`activitiesOf`.
    */
   service(key: string): unknown;
   /** Emit a plugin-defined event onto the conversation's stream. */

@@ -43,7 +43,7 @@ function approvalMiddleware(reader: ConfigReader): ToolMiddleware {
     id: "approval",
     async wrap(call, ctx, next) {
       const config = approvalConfigSchema.parse(await reader.get("approval", ctx.conversationId));
-      const relationship: Relationship = ctx.execution
+      const relationship: Relationship = ctx.service("execution")
         ? executionOf(ctx).classify(call)
         : "out-of-workspace";
       const decision = effectFor(config, call.name, relationship);

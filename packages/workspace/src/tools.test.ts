@@ -22,12 +22,13 @@ async function workspace(): Promise<ToolContext> {
   const root = await mkdtemp(join(tmpdir(), "hws-"));
   created.push(root);
   const manager = new ActivityManager("conv" as ConversationId);
+  const execution = new LocalExecutionContext(root);
   return {
     conversationId: "conv" as ConversationId,
     callId: "call_0",
     signal: new AbortController().signal,
-    execution: new LocalExecutionContext(root),
-    service: (key) => (key === "activities" ? manager : undefined),
+    service: (key) =>
+      key === "activities" ? manager : key === "execution" ? execution : undefined,
     emit: () => {},
     deliver: () => {},
   };

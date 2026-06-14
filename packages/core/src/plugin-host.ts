@@ -1,7 +1,6 @@
 import type {
   CompactionStrategy,
   ContextSource,
-  ExecutionProvider,
   ModelCapabilities,
   ModelMiddleware,
   Observer,
@@ -35,8 +34,6 @@ export class PluginHost {
   readonly contextSources: readonly ContextSource[];
   readonly observers: readonly Observer[];
   readonly policies: ResolvedPolicies;
-  /** The single execution substrate, or `undefined` when no plugin provides one. */
-  readonly execution: ExecutionProvider | undefined;
   /** Per-conversation service providers by key, for `ctx.service(key)`. */
   readonly services: ReadonlyMap<string, ServiceProvider>;
   /** Outer→inner; contributed first (registration order), default truncate innermost. */
@@ -48,7 +45,6 @@ export class PluginHost {
     const contextSources: ContextSource[] = [];
     const observers: Observer[] = [];
     const compaction: CompactionStrategy[] = [];
-    const execution: ExecutionProvider[] = [];
     const services = new Map<string, ServiceProvider>();
     const toolContributors: ((caps: ModelCapabilities) => Tool[])[] = [];
     const toolMiddleware: ToolMiddleware[] = [];
@@ -63,9 +59,6 @@ export class PluginHost {
       modelMiddleware.push(...(plugin.modelMiddleware?.() ?? []));
       contextSources.push(...(plugin.contextSources?.() ?? []));
       observers.push(...(plugin.observers?.() ?? []));
-
-      const provided = plugin.execution?.();
-      if (provided) execution.push(provided);
 
       for (const service of plugin.services?.() ?? []) {
         if (services.has(service.key)) {
@@ -84,7 +77,6 @@ export class PluginHost {
     this.policies = {
       compaction: pick("compaction", compaction, noCompaction),
     };
-    this.execution = pick<ExecutionProvider | undefined>("execution", execution, undefined);
     this.services = services;
     this.toolMiddleware = [...toolMiddleware, truncateMiddleware()];
     this.modelMiddleware = modelMiddleware;

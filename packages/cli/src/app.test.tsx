@@ -14,7 +14,8 @@ const conversation = {
 function harness(): { service: HarnessService; emit: (e: HarnessEvent) => void } {
   let listener: ((e: HarnessEvent) => void) | undefined;
   const service = {
-    subscribe: (l: (e: HarnessEvent) => void) => {
+    // Mirrors the scoped overload the App uses: subscribe(conversationId, listener).
+    subscribe: (_conversationId: unknown, l: (e: HarnessEvent) => void) => {
       listener = l;
       return () => (listener = undefined);
     },
@@ -65,8 +66,8 @@ describe("App", () => {
   it("renders streaming assistant text from the event stream", async () => {
     const { service, emit } = harness();
     const { lastFrame } = mount(service);
-    emit({ type: "turn.status", turnId: "t1", status: "running" });
-    emit({ type: "text_delta", turnId: "t1", text: "Hello there" });
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "Hello there" });
     await flush();
     expect(lastFrame()).toContain("Hello there");
   });
@@ -74,7 +75,7 @@ describe("App", () => {
   it("shows an approval prompt and hides the composer while pending", async () => {
     const { service, emit } = harness();
     const { lastFrame } = mount(service);
-    emit({ type: "turn.status", turnId: "t1", status: "running" });
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
     emit({
       type: "request.created",
       requestId: "q1",

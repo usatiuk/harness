@@ -140,9 +140,24 @@ export class HarnessService {
     await updateGlobalModel(this.#home, model);
   }
 
-  /** Subscribes to the typed event stream. Returns an unsubscribe handle. */
-  subscribe(listener: EventListener): () => void {
-    return this.#engine.subscribe({ onEvent: listener });
+  /**
+   * Subscribes to the typed event stream. With a `conversationId`, receives only that
+   * conversation's events; without one, receives every event. Returns an unsubscribe handle.
+   */
+  subscribe(listener: EventListener): () => void;
+  subscribe(conversationId: ConversationId, listener: EventListener): () => void;
+  subscribe(a: EventListener | ConversationId, b?: EventListener): () => void {
+    if (typeof a === "function") return this.#engine.subscribe({ onEvent: a });
+    return this.#engine.subscribe({ onEvent: b! }, a);
+  }
+
+  /**
+   * Resolve a per-conversation plugin service for a client read — the same instance tools
+   * see via `ctx.service` (e.g. the TUI reading the `"activities"` manager). `undefined` when
+   * the conversation has no live runtime yet or no plugin owns `key`. Opaque: narrow it client-side.
+   */
+  service(conversationId: ConversationId, key: string): unknown {
+    return this.#engine.serviceFor(conversationId, key);
   }
 
   /** One conversation by id. Backs session resume. */

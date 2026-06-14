@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { conversationOf } from "@harness/protocol";
 import type { HarnessEvent, Store } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import { EchoTool, FakeProvider, textStep, toolStep } from "@harness/testkit";
@@ -48,6 +49,25 @@ describe("HarnessService", () => {
       "usage",
       "turn.status",
     ]);
+  });
+
+  it("scopes a subscription to a single conversation", async () => {
+    const store = new InMemoryStore();
+    const service = serviceOn(store, [textStep("a"), textStep("b")]);
+    const overrides = { instructions: "be helpful", model: { provider: "fake", model: "fake-1" } };
+    const a = await service.createConversation({ overrides });
+    const b = await service.createConversation({ overrides });
+
+    const scoped: HarnessEvent[] = [];
+    service.subscribe(a.id, (e) => scoped.push(e));
+
+    await service.send(a.id, "hi");
+    await service.whenIdle(a.id);
+    await service.send(b.id, "yo");
+    await service.whenIdle(b.id);
+
+    expect(scoped.length).toBeGreaterThan(0);
+    expect(scoped.every((e) => conversationOf(e) === a.id)).toBe(true);
   });
 
   it("resumes a conversation from the store in a fresh service and continues it", async () => {

@@ -2,7 +2,7 @@ import { createWriteStream, mkdirSync, writeFileSync } from "node:fs";
 import { exec, spawn as nodeSpawn } from "node:child_process";
 import { glob, mkdir, readFile, rm, stat as fsStat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import type { ByteRange, Conversation, ToolCall } from "@harness/protocol";
+import type { ByteRange, ToolCall } from "@harness/protocol";
 import type {
   ExecOptions,
   ExecResult,
@@ -210,12 +210,5 @@ export class LocalOutputStore implements OutputStore {
     const rel = this.#rel(id);
     await writeFile(resolve(this.#root(), rel), text);
     return rel;
-  }
-}
-
-/** One local context per conversation, rooted at its resolved workspace. */
-export class LocalExecutionProvider {
-  for(conversation: Conversation): ExecutionContext {
-    return new LocalExecutionContext(conversation.config.workspaceRoot ?? null);
   }
 }

@@ -25,11 +25,6 @@ class ActivitiesPlugin implements Plugin {
     return manager;
   }
 
-  /** The manager for a conversation if one exists — a non-creating read for clients (the TUI). */
-  manager(id: ConversationId): ActivityManager | undefined {
-    return this.#managers.get(id);
-  }
-
   services(): ServiceProvider[] {
     return [
       { key: "activities", for: (conversation: Conversation) => this.#managerFor(conversation.id) },

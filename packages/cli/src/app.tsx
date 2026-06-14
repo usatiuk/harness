@@ -102,13 +102,11 @@ export function App({
 
   useEffect(
     () =>
-      service.subscribe((event) => {
+      // Scoped: the engine filters the stream, so another conversation's events can't
+      // leak into this reducer.
+      service.subscribe(conversation.id, (event) => {
         dispatch({ type: "event", event });
-        if (
-          isKernelEvent(event) &&
-          event.type === "config.changed" &&
-          event.conversationId === conversation.id
-        ) {
+        if (isKernelEvent(event) && event.type === "config.changed") {
           setModel(event.model);
         }
       }),

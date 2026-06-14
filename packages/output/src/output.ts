@@ -16,7 +16,7 @@ export function outputBoundMiddleware(): ToolMiddleware {
     id: "output-bound",
     async wrap(call, ctx, next) {
       const result = await next(call);
-      if (ctx.toolMeta(call.name)?.addressableOutput || !ctx.execution) return result;
+      if (ctx.toolMeta(call.name)?.addressableOutput || !ctx.service("execution")) return result;
       const full = textOf(result.forModel);
       if (Buffer.byteLength(full, "utf8") <= SPILL_BYTES) return result;
 

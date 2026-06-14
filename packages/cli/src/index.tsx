@@ -1,6 +1,7 @@
 import { join, resolve } from "node:path";
 import { useEffect, useState, type ReactElement } from "react";
 import { Box, Text, render, useApp, useInput } from "ink";
+import { ConfirmInput } from "@inkjs/ui";
 import type {
   Conversation,
   ConversationId,
@@ -12,7 +13,7 @@ import type {
 import { defaultHome, type SettingsDoc } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
 import { localExecutionPlugin } from "@harness/execution";
-import { activitiesPlugin } from "@harness/activities";
+import { activitiesPlugin, type ActivityManager } from "@harness/activities";
 import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
 import { approvalPlugin } from "@harness/approval";
@@ -26,10 +27,16 @@ import { App } from "./app.tsx";
 import type { ActivitiesView } from "./activities-overlay.tsx";
 import { ResumePicker } from "./resume-picker.tsx";
 
-/** Live activity output/kill handles for a conversation, read off the activities plugin. */
-const makeActivities = (convId: ConversationId): ActivitiesView => ({
-  peek: (id) => activitiesPlugin.manager(convId)?.get(id)?.peek() ?? [],
-  kill: (id) => activitiesPlugin.manager(convId)?.get(id)?.kill(),
+/** The activity manager for a conversation, resolved off the engine — the same instance tools use. */
+const activityManager = (
+  service: HarnessService,
+  id: ConversationId,
+): ActivityManager | undefined => service.service(id, "activities") as ActivityManager | undefined;
+
+/** Live activity output/kill handles for a conversation; list/count come from the event stream. */
+const makeActivities = (service: HarnessService, convId: ConversationId): ActivitiesView => ({
+  peek: (id) => activityManager(service, convId)?.get(id)?.peek() ?? [],
+  kill: (id) => activityManager(service, convId)?.get(id)?.kill(),
 });
 
 const INSTRUCTIONS = "You are a helpful coding agent.";
@@ -152,20 +159,57 @@ function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null
     start.kind === "session" ? start.session : null,
   );
   const [picking, setPicking] = useState(start.kind === "picker");
+  // A switch to a different conversation that the user must confirm because it will stop
+  // the leaving conversation's running activities.
+  const [pendingSwitch, setPendingSwitch] = useState<{
+    next: Session;
+    leavingId: ConversationId;
+    running: number;
+  } | null>(null);
 
   useEffect(() => {
     if (session) onActive(session.conversation.id);
   }, [session, onActive]);
 
-  const open = (next: Session): void => {
+  const commit = (next: Session): void => {
     setSession(next);
     setPicking(false);
+    setPendingSwitch(null);
+  };
+  // Leaving a conversation would strand its background activities (invisible and unkillable
+  // from the new view), so confirm-and-stop first. Durable turns keep running; only the
+  // ephemeral activities are reaped.
+  const open = (next: Session): void => {
+    if (session && session.conversation.id !== next.conversation.id) {
+      const running = activityManager(service, session.conversation.id)?.runningCount() ?? 0;
+      if (running > 0) {
+        setPendingSwitch({ next, leavingId: session.conversation.id, running });
+        return;
+      }
+    }
+    commit(next);
   };
   const resume = (id?: string): void => {
     if (id) void loadSession(service, id).then(open);
     else setPicking(true);
   };
 
+  if (pendingSwitch) {
+    const { next, leavingId, running } = pendingSwitch;
+    const noun = running === 1 ? "activity" : "activities";
+    return (
+      <Box>
+        <Text color="yellow">{`stop ${running} running ${noun} and switch? `}</Text>
+        <ConfirmInput
+          onConfirm={() => {
+            activityManager(service, leavingId)?.killAll();
+            commit(next);
+          }}
+          onCancel={() => setPendingSwitch(null)}
+        />
+      </Box>
+    );
+  }
   if (picking) {
     return (
       <PickerScreen
@@ -188,7 +232,7 @@ function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null
       cwd={session.conversation.config.workspaceRoot ?? cwd}
       launchCwd={cwd}
       onResume={resume}
-      activities={makeActivities(session.conversation.id)}
+      activities={makeActivities(service, session.conversation.id)}
     />
   );
 }

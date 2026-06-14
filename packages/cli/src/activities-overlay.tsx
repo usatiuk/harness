@@ -36,7 +36,7 @@ export function ActivitiesOverlay({
 }): ReactElement {
   const [selected, setSelected] = useState(0);
   const [, setTick] = useState(0);
-  const index = activities.length === 0 ? 0 : Math.min(selected, activities.length - 1);
+  const index = Math.max(0, Math.min(selected, activities.length - 1));
   const current = activities[index];
 
   // `index` is already clamped, so step from it and let the next render re-clamp.
