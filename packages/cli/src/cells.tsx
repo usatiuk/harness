@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { Box, Text } from "ink";
 import { assertNever } from "@harness/protocol";
 import type { Cell } from "./transcript-reducer.ts";
+import { Markdown } from "./markdown.tsx";
 
 const TOOL_OUTPUT_CAP = 800;
 const ARGS_CAP = 120;
@@ -47,9 +48,9 @@ export function CellView({ cell }: { cell: Cell }): ReactElement {
         </Box>
       );
     case "assistant":
-      return <Text>{cell.text}</Text>;
+      return <Markdown text={cell.text} streaming={cell.streaming} />;
     case "reasoning":
-      return <Text dimColor>{cell.text}</Text>;
+      return <Markdown text={cell.text} streaming={cell.streaming} dim />;
     case "tool":
       return <ToolCard cell={cell} />;
     case "compaction":
