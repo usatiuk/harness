@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
 import type { Conversation, HarnessEvent } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
-import { App } from "./app.tsx";
+import { App, appReduce } from "./app.tsx";
+import { emptyState, type Cell } from "./transcript-reducer.ts";
+
+const shellCells = (cells: Cell[]): Extract<Cell, { kind: "shell" }>[] =>
+  cells.filter((c): c is Extract<Cell, { kind: "shell" }> => c.kind === "shell");
 
 const conversation = {
   id: "c1",
@@ -22,6 +26,7 @@ function harness(): { service: HarnessService; emit: (e: HarnessEvent) => void }
     deliver: vi.fn(async () => {}),
     respond: vi.fn(),
     availableModels: () => [],
+    service: () => undefined,
   } as unknown as HarnessService;
   return { service, emit: (e) => listener?.(e) };
 }
@@ -85,5 +90,31 @@ describe("App", () => {
     await flush();
     expect(lastFrame()).toContain("approve bash?");
     expect(lastFrame()).not.toContain("type a message");
+  });
+});
+
+describe("appReduce: !cmd shell streaming", () => {
+  it("starts a streaming cell, grows it per chunk, and finalizes with the exit code", () => {
+    let s = appReduce(emptyState, { type: "shell-start", id: "sh1", command: "echo hi" });
+    s = appReduce(s, { type: "shell-delta", id: "sh1", text: "hi\n" });
+    s = appReduce(s, { type: "shell-delta", id: "sh1", text: "there\n" });
+    expect(shellCells(s.cells)).toEqual([
+      { kind: "shell", id: "sh1", command: "echo hi", text: "hi\nthere\n", streaming: true },
+    ]);
+    s = appReduce(s, { type: "shell-end", id: "sh1", exitCode: 3 });
+    expect(shellCells(s.cells)[0]).toMatchObject({ streaming: false, exitCode: 3 });
+  });
+
+  it("bounds the live cell to a tail so a chatty command can't grow without limit", () => {
+    let s = appReduce(emptyState, { type: "shell-start", id: "sh1", command: "yes" });
+    s = appReduce(s, { type: "shell-delta", id: "sh1", text: "x".repeat(100_000) });
+    expect(shellCells(s.cells)[0]!.text.length).toBe(16 * 1024);
+  });
+
+  it("ignores deltas for an already-finalized cell", () => {
+    let s = appReduce(emptyState, { type: "shell-start", id: "sh1", command: "echo hi" });
+    s = appReduce(s, { type: "shell-end", id: "sh1", exitCode: 0 });
+    s = appReduce(s, { type: "shell-delta", id: "sh1", text: "late" });
+    expect(shellCells(s.cells)[0]!.text).toBe("");
   });
 });

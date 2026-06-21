@@ -34,12 +34,14 @@ describe("LocalExecutionContext", () => {
     expect(await ctx.list("**/*.ts")).toEqual(["a.ts", "b/c.ts"]);
   });
 
-  it("runs a command in the workspace root, reporting exit codes", async () => {
+  it("spawns a command in the workspace root, streaming output and reporting exit codes", async () => {
     const ctx = new LocalExecutionContext(await tmp());
-    const ok = await ctx.run("echo hi");
-    expect(ok.exitCode).toBe(0);
-    expect(ok.stdout.trim()).toBe("hi");
-    expect((await ctx.run("exit 3")).exitCode).toBe(3);
+    const ok = ctx.spawn("echo hi");
+    let out = "";
+    ok.onData((chunk) => (out += chunk));
+    expect((await ok.exit).code).toBe(0);
+    expect(out.trim()).toBe("hi");
+    expect((await ctx.spawn("exit 3").exit).code).toBe(3);
   });
 
   it("classifies by path containment", () => {

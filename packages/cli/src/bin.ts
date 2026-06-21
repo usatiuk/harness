@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { launch } from "./index.tsx";
 import { runLogin, runLogout, runStatus } from "./auth.ts";
+import { runSandboxShell, runSandboxStop } from "./sandbox-cli.ts";
 
 const program = new Command();
 
@@ -44,6 +45,22 @@ auth
   .option(...providerOption)
   .action(async (opts: { provider: string }) => {
     await runLogout(opts.provider);
+  });
+
+const sandbox = program.command("sandbox").description("manage the dev-container sandbox");
+sandbox
+  .command("shell")
+  .description("open an interactive shell inside the workspace's dev container")
+  .action(async (_opts: unknown, cmd: Command) => {
+    const globals: { cwd?: string } = cmd.optsWithGlobals();
+    await runSandboxShell(globals.cwd);
+  });
+sandbox
+  .command("stop")
+  .description("stop the workspace's dev container")
+  .action(async (_opts: unknown, cmd: Command) => {
+    const globals: { cwd?: string } = cmd.optsWithGlobals();
+    await runSandboxStop(globals.cwd);
   });
 
 program.parseAsync().catch((error: unknown) => {

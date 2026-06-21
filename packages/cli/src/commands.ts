@@ -6,6 +6,7 @@ import {
   type ModelConfig,
 } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
+import type { SandboxView } from "./sandbox-overlay.tsx";
 
 /** The effort levels the given selection's model offers; empty when it has no effort axis. */
 export const effortsFor = (service: HarnessService, model: ModelConfig): EffortInfo[] =>
@@ -15,6 +16,8 @@ export const effortsFor = (service: HarnessService, model: ModelConfig): EffortI
 export interface CommandContext {
   service: HarnessService;
   conversationId: ConversationId;
+  /** This conversation's workspace root, for writing project-local settings. */
+  cwd: string;
   /** The conversation's current selection (model + effort). */
   model: ModelConfig;
   /** Append a local note line (command output / errors) to the transcript. */
@@ -29,6 +32,10 @@ export interface CommandContext {
   pickEffort: () => void;
   /** Open the activities overlay. */
   showActivities: () => void;
+  /** Open the sandbox overlay. */
+  showSandbox: () => void;
+  /** Imperative sandbox actions (enable/disable, rebuild, stop). */
+  sandbox: SandboxView;
   /** Quit the app. */
   exit: () => void;
 }
@@ -98,6 +105,26 @@ export const commands: Command[] = [
     },
   },
   { name: "activities", summary: "show running activities", run: (ctx) => ctx.showActivities() },
+  {
+    name: "sandbox",
+    summary: "manage the dev-container sandbox (/sandbox [on|off|rebuild|stop])",
+    run: (ctx, args) => {
+      switch (args[0]) {
+        case undefined:
+          return ctx.showSandbox();
+        case "on":
+          return ctx.sandbox.setEnabled(true);
+        case "off":
+          return ctx.sandbox.setEnabled(false);
+        case "rebuild":
+          return ctx.sandbox.rebuild();
+        case "stop":
+          return ctx.sandbox.stop();
+        default:
+          return ctx.note(`unknown sandbox action: ${args[0]} (on|off|rebuild|stop)`);
+      }
+    },
+  },
   { name: "exit", summary: "quit", run: (ctx) => ctx.exit() },
   {
     name: "tick",

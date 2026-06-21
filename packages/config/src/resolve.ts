@@ -137,7 +137,7 @@ async function readDoc(file: string): Promise<SettingsDoc | undefined> {
 }
 
 /** Walks up from `start` to the first ancestor containing a `.harness/` directory. */
-async function findProjectRoot(start: string): Promise<string | undefined> {
+export async function findProjectRoot(start: string): Promise<string | undefined> {
   let dir = resolve(start);
   for (;;) {
     if (await isDirectory(join(dir, ".harness"))) return dir;

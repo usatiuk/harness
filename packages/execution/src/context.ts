@@ -6,17 +6,6 @@ import type { ByteRange, ToolCall, ToolContext } from "@harness/protocol";
  */
 export type Relationship = "in-workspace" | "out-of-workspace";
 
-export interface ExecResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-
-export interface ExecOptions {
-  /** Aborts the child process when the turn is interrupted. */
-  signal?: AbortSignal;
-}
-
 /**
  * A streaming child process — the primitive an activity is built on. Completion prefers stdio
  * drain but falls back to a watchdog after `exit`, so a command that forks children can't hang the
@@ -70,20 +59,26 @@ export interface ExecutionContext {
   remove(path: string): Promise<void>;
   /** Workspace-relative paths matching a glob. Rejects when projectless. */
   list(pattern: string): Promise<string[]>;
-  run(command: string, opts?: ExecOptions): Promise<ExecResult>;
   /** Start a streaming child process (cwd = workspace root) — the primitive activities build on. */
   spawn(command: string): SpawnedProcess;
   /** Output store for this conversation's spilled files. */
   outputStore(conversationId: string): OutputStore;
   /** The substrate's verdict on where a call acts — the approval policy's input. */
   classify(call: ToolCall): Relationship;
+  /**
+   * Optional: `executionOf` passes the live tool context on every access, letting a substrate that
+   * provisions lazily (docker) capture an event-emit channel for build progress. The local
+   * substrate doesn't implement it. Kept off the hot path — it must stay cheap and idempotent.
+   */
+  bind?(ctx: ToolContext): void;
 }
 
 /** Narrows the opaque `ctx.service("execution")` to `ExecutionContext`; throws if no plugin is wired. */
 export function executionOf(ctx: ToolContext): ExecutionContext {
-  const execution = ctx.service("execution");
+  const execution = ctx.service("execution") as ExecutionContext | undefined;
   if (!execution) {
     throw new Error("no execution backend configured (add an execution plugin)");
   }
-  return execution as ExecutionContext;
+  execution.bind?.(ctx);
+  return execution;
 }
