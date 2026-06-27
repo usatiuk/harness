@@ -31,6 +31,7 @@ export function cellKey(cell: Cell): string {
     case "context":
     case "error":
     case "note":
+    case "shell":
       return cell.id;
     default:
       return assertNever(cell);
@@ -61,9 +62,22 @@ export function CellView({ cell }: { cell: Cell }): ReactElement {
       return <Text color="red">{`✗ ${cell.text}`}</Text>;
     case "note":
       return <Text dimColor>{cell.text}</Text>;
+    case "shell":
+      return <ShellCard cell={cell} />;
     default:
       return assertNever(cell);
   }
+}
+
+function ShellCard({ cell }: { cell: Extract<Cell, { kind: "shell" }> }): ReactElement {
+  const failed = !cell.streaming && (cell.exitCode ?? 0) !== 0;
+  return (
+    <Box flexDirection="column">
+      <Text color="cyan">{`$ ${cell.command}`}</Text>
+      {cell.text ? <Text dimColor>{indent(cell.text)}</Text> : null}
+      {failed ? <Text color="red">{`   (exit ${cell.exitCode})`}</Text> : null}
+    </Box>
+  );
 }
 
 function ToolCard({ cell }: { cell: Extract<Cell, { kind: "tool" }> }): ReactElement {

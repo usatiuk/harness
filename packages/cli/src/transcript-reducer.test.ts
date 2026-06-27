@@ -235,4 +235,13 @@ describe("transcript reducer", () => {
       { id: "a1", kind: "process", title: "npm run dev", status: "ok", summary: "exit 0" },
     ]);
   });
+
+  it("folds the latest sandbox.status phase", () => {
+    const building = fold([
+      { type: "sandbox.status", conversationId: "c", phase: "build", message: "pulling image" },
+    ]);
+    expect(building.sandbox).toEqual({ phase: "build", message: "pulling image" });
+    const ready = fold([{ type: "sandbox.status", conversationId: "c", phase: "ready" }], building);
+    expect(ready.sandbox).toEqual({ phase: "ready" });
+  });
 });

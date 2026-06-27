@@ -140,9 +140,24 @@ describe("workspace tools", () => {
       ["src/a.ts", "src/b.ts"],
     );
 
-    const grep = text(await new GrepTool().execute({ pattern: "needle", path: "src" }, ctx));
+    // POSIX ERE: alternation/grouping resolves server-side via `grep -E`, path-scoped to `src`.
+    const grep = text(await new GrepTool().execute({ pattern: "need(le|x)", path: "src" }, ctx));
     expect(grep).toContain("src/a.ts:1:needle here");
     expect(grep).not.toContain("src/b.ts");
+  });
+
+  it("grep skips dot-directories (e.g. the .harness output store), not just .git", async () => {
+    const ctx = await workspace();
+    await new WriteTool().execute({ path: "src/a.ts", content: "needle here" }, ctx);
+    await new WriteTool().execute({ path: ".harness/conv/outputs/x.log", content: "needle" }, ctx);
+    await new WriteTool().execute({ path: ".git/MERGE_MSG", content: "needle" }, ctx);
+    const grep = text(await new GrepTool().execute({ pattern: "needle", path: "." }, ctx));
+    expect(grep).toContain("src/a.ts:1:needle here");
+    expect(grep).not.toContain(".harness");
+
+    // …but an explicit path INTO a skipped dir is honored — the agent can still grep git internals.
+    const inGit = text(await new GrepTool().execute({ pattern: "needle", path: ".git" }, ctx));
+    expect(inGit).toContain(".git/MERGE_MSG:1:needle");
   });
 
   it("runs a quick command as an activity, surfacing exit status inline", async () => {

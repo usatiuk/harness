@@ -13,6 +13,7 @@ import {
   type Usage,
 } from "@harness/protocol";
 import { isActivityEvent } from "@harness/activities";
+import { isSandboxStatus, type SandboxPhase } from "@harness/sandbox";
 
 /**
  * One rendered line of transcript. Derived purely from the event stream (live) or
@@ -38,7 +39,10 @@ export type Cell =
   | { kind: "error"; id: string; text: string }
   // Local-only (command output / errors). The pure reducer never emits this; the app
   // wrapper does. Always immutable, so it migrates straight to scrollback.
-  | { kind: "note"; id: string; text: string };
+  | { kind: "note"; id: string; text: string }
+  // Local-only `!cmd` shell output, streamed live from a spawned process. The pure reducer
+  // never emits this; the app wrapper grows `text` per chunk and finalizes on exit.
+  | { kind: "shell"; id: string; command: string; text: string; streaming: boolean; exitCode?: number }; // prettier-ignore
 
 /** One row in the activities overlay; `status === undefined` ⟺ still running. */
 export interface ActivityLine {
@@ -58,6 +62,8 @@ export interface State {
   pendingInput: { intent: DeliveryIntent; text: string }[];
   /** Tracked activities this session, newest last; folded from `activity.*` plugin events. */
   activities: ActivityLine[];
+  /** Latest dev-container build/start phase; folded from `sandbox.status` events. Absent until one arrives. */
+  sandbox?: { phase: SandboxPhase; message?: string };
   /** Running token totals across the conversation (live events + resume seed). */
   usage: Usage;
   /** Σ of stored per-row costs in USD; rows with no rate card contribute nothing. */
@@ -141,6 +147,10 @@ export function reduce(state: State, event: HarnessEvent): State {
         a.id === event.id ? { ...a, status: event.status, summary: event.summary } : a,
       ),
     };
+  }
+  if (isSandboxStatus(event)) {
+    const message = typeof event.message === "string" ? event.message : undefined;
+    return { ...state, sandbox: { phase: event.phase, ...(message ? { message } : {}) } };
   }
   if (!isKernelEvent(event)) return state;
   switch (event.type) {

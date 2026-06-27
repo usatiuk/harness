@@ -74,6 +74,23 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
   };
 }
 
+/**
+ * Merges only the file layers of the cascade — `global < project < local` — into a raw settings
+ * doc, skipping the model requirement and the programmatic layers (defaults/profile/overrides). For
+ * readers that need a single setting (e.g. the sandbox CLI resolving `configPath`) without building
+ * a full `ConversationConfig`. Reuses the same layer primitives as `resolveSettings`.
+ */
+export async function loadMergedSettings(home: string, cwd?: string): Promise<SettingsDoc> {
+  const root = cwd ? await findProjectRoot(cwd) : undefined;
+  const layers: Layer[] = [];
+  await pushFileLayer(layers, "global settings", join(home, "settings.json"));
+  if (root) {
+    await pushFileLayer(layers, "project settings", join(root, ".harness", "settings.json"));
+    await pushFileLayer(layers, "local settings", join(root, ".harness", "settings.local.json"));
+  }
+  return mergeDocs(layers);
+}
+
 /** Validates each plugin slice against its schema (applying defaults); rejects unknowns. */
 function resolvePlugins(
   raw: Record<string, unknown>,
@@ -137,7 +154,7 @@ async function readDoc(file: string): Promise<SettingsDoc | undefined> {
 }
 
 /** Walks up from `start` to the first ancestor containing a `.harness/` directory. */
-async function findProjectRoot(start: string): Promise<string | undefined> {
+export async function findProjectRoot(start: string): Promise<string | undefined> {
   let dir = resolve(start);
   for (;;) {
     if (await isDirectory(join(dir, ".harness"))) return dir;

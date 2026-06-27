@@ -106,6 +106,20 @@ export class Engine {
   }
 
   /**
+   * Warms a conversation before its first turn: loads the runtime and resolves its execution
+   * backend, binding the plugin-emit channel so a lazily-provisioned substrate (docker) can stream
+   * build progress and the TUI's pre-turn `!cmd`/`/sandbox` reach a live backend. Idempotent —
+   * `#runtime`/`#service` are cached and `bind` is cheap. Unlike `deliver`, it starts no turn.
+   */
+  async prepare(conversationId: ConversationId): Promise<void> {
+    const runtime = await this.#runtime(conversationId);
+    const execution = this.#service(runtime, "execution") as
+      | { bind?: (emit: (event: PluginEvent) => void) => void }
+      | undefined;
+    execution?.bind?.((event) => this.#emitPlugin({ conversationId, ...event }));
+  }
+
+  /**
    * Answers a pending `ctx.request` raised by a middleware. Point-to-point and
    * correlated by id — deliberately not routed through the inbox/delivery intents.
    * A no-op if the request is unknown (already resolved, or cancelled by abort).

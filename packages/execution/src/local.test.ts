@@ -34,12 +34,26 @@ describe("LocalExecutionContext", () => {
     expect(await ctx.list("**/*.ts")).toEqual(["a.ts", "b/c.ts"]);
   });
 
-  it("runs a command in the workspace root, reporting exit codes", async () => {
+  // The matcher (minimatch, dot:false) is shared with the docker backend, so these semantics —
+  // brace expansion and dotfile exclusion — must hold identically there (see docker.test.ts).
+  it("expands braces and excludes dotfiles by default", async () => {
     const ctx = new LocalExecutionContext(await tmp());
-    const ok = await ctx.run("echo hi");
-    expect(ok.exitCode).toBe(0);
-    expect(ok.stdout.trim()).toBe("hi");
-    expect((await ctx.run("exit 3")).exitCode).toBe(3);
+    await ctx.write("a.ts", te.encode(""));
+    await ctx.write("d.md", te.encode(""));
+    await ctx.write(".hidden.ts", te.encode(""));
+    await ctx.write(".dir/e.ts", te.encode(""));
+    expect(await ctx.list("*.{ts,md}")).toEqual(["a.ts", "d.md"]);
+    expect(await ctx.list("**/*.ts")).toEqual(["a.ts"]);
+  });
+
+  it("spawns a command in the workspace root, streaming output and reporting exit codes", async () => {
+    const ctx = new LocalExecutionContext(await tmp());
+    const ok = ctx.spawn("echo hi");
+    let out = "";
+    ok.onData((chunk) => (out += chunk));
+    expect((await ok.exit).code).toBe(0);
+    expect(out.trim()).toBe("hi");
+    expect((await ctx.spawn("exit 3").exit).code).toBe(3);
   });
 
   it("classifies by path containment", () => {

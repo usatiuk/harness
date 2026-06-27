@@ -86,6 +86,14 @@ export class HarnessService {
   }
 
   /**
+   * Warms a conversation's runtime and execution backend before its first turn, so pre-turn
+   * `!cmd`/`/sandbox` work and lazy sandbox provisioning can stream progress. Idempotent.
+   */
+  prepare(conversationId: ConversationId): Promise<void> {
+    return this.#engine.prepare(conversationId);
+  }
+
+  /**
    * Delivers user text with the given intent (`send`/`steer`/`queue`/`interrupt`).
    * Resolves once it is accepted, not once its turn completes. An empty-text
    * `interrupt` is a pure abort (no message seeds the next turn).

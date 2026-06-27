@@ -6,6 +6,7 @@ import { runCommand, type CommandContext } from "./commands.ts";
 const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   service: {} as unknown as HarnessService,
   conversationId: "c1" as ConversationId,
+  cwd: "/work",
   model: { provider: "openai", model: "gpt-5.1" },
   note: vi.fn(),
   clear: vi.fn(),
@@ -13,6 +14,15 @@ const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   pickModel: vi.fn(),
   pickEffort: vi.fn(),
   showActivities: vi.fn(),
+  showSandbox: vi.fn(),
+  sandbox: {
+    enabled: false,
+    active: false,
+    phase: undefined,
+    setEnabled: vi.fn(),
+    rebuild: vi.fn(),
+    stop: vi.fn(),
+  },
   exit: vi.fn(),
   ...over,
 });
@@ -38,6 +48,30 @@ describe("runCommand", () => {
     const ctx = makeCtx();
     expect(runCommand("/activities", ctx)).toBe(true);
     expect(ctx.showActivities).toHaveBeenCalledOnce();
+  });
+
+  it("/sandbox with no args opens the overlay", () => {
+    const ctx = makeCtx();
+    expect(runCommand("/sandbox", ctx)).toBe(true);
+    expect(ctx.showSandbox).toHaveBeenCalledOnce();
+  });
+
+  it("/sandbox on|off|rebuild|stop dispatch to the view", () => {
+    const ctx = makeCtx();
+    runCommand("/sandbox on", ctx);
+    expect(ctx.sandbox.setEnabled).toHaveBeenCalledWith(true);
+    runCommand("/sandbox off", ctx);
+    expect(ctx.sandbox.setEnabled).toHaveBeenCalledWith(false);
+    runCommand("/sandbox rebuild", ctx);
+    expect(ctx.sandbox.rebuild).toHaveBeenCalledOnce();
+    runCommand("/sandbox stop", ctx);
+    expect(ctx.sandbox.stop).toHaveBeenCalledOnce();
+  });
+
+  it("/sandbox with an unknown action notes an error", () => {
+    const ctx = makeCtx();
+    runCommand("/sandbox bogus", ctx);
+    expect(ctx.note).toHaveBeenCalledWith("unknown sandbox action: bogus (on|off|rebuild|stop)");
   });
 
   it("/exit quits", () => {

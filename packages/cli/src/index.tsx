@@ -12,7 +12,7 @@ import type {
 } from "@harness/protocol";
 import { defaultHome, type SettingsDoc } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
-import { localExecutionPlugin } from "@harness/execution";
+import { reapStoppedSandboxes, sandboxPlugin } from "@harness/sandbox";
 import { activitiesPlugin, type ActivityManager } from "@harness/activities";
 import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
@@ -92,7 +92,7 @@ async function buildHarness(): Promise<Harness> {
   }
   plugins.push(
     { id: "demo", providers: () => [new DemoProvider()] },
-    localExecutionPlugin,
+    sandboxPlugin,
     activitiesPlugin,
     outputPlugin,
     workspacePlugin,
@@ -132,6 +132,8 @@ async function loadSession(service: HarnessService, id: string): Promise<Session
 /** Parses launch flags into a running TUI: new session, resume by id, or resume picker. */
 export async function launch(opts: LaunchOptions = {}): Promise<void> {
   const { service, store, fallbackModel } = await buildHarness();
+  // Best-effort sweep of stopped sandbox containers left by past sessions (no-op without docker).
+  void reapStoppedSandboxes();
   // Canonicalize once so a `--cwd ./x` flag and a stored `workspaceRoot` compare equal.
   const cwd = resolve(opts.cwd ?? process.cwd());
   // Conversations this instance created; empty ones are dropped on exit.
@@ -158,7 +160,12 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
     start = { kind: "session", session: { conversation, items: [], usage: [] } };
   }
 
-  if (start.kind === "session") notifyModel(service, start.session.conversation.config.model);
+  if (start.kind === "session") {
+    notifyModel(service, start.session.conversation.config.model);
+    // Warm the runtime so the execution backend (and its emit channel) is live before the first
+    // turn: pre-turn `!cmd`/`/sandbox` reach a real backend and sandbox build progress streams.
+    await service.prepare(start.session.conversation.id);
+  }
 
   // Every conversation shown this run, so all in-flight turns drain before the WAL closes.
   const touched = new Set<ConversationId>();

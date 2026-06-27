@@ -5,7 +5,7 @@ import { complete, slashCompletion, type CompletionProvider } from "./completion
 import { Suggestions } from "./suggestions.tsx";
 import type { History } from "./use-history.ts";
 
-const PLACEHOLDER = "type a message…   (> queue · ! interrupt · /activities · /help · Esc abort)";
+const PLACEHOLDER = "type a message…   (> queue · ! shell · /sandbox · /help · Esc abort)";
 
 // Completion sources, tried in order; first non-null wins.
 const PROVIDERS: CompletionProvider[] = [slashCompletion];

@@ -25,6 +25,7 @@
     "@harness/openai-codex": "*",
     "@harness/output": "*",
     "@harness/protocol": "*",
+    "@harness/sandbox": "*",
     "@harness/secrets": "*",
     "@harness/service": "*",
     "@harness/store-sqlite": "*",

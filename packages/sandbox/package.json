@@ -1,0 +1,23 @@
+{
+  "name": "@harness/sandbox",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@devcontainers/cli": "^0.80.0",
+    "@harness/config": "*",
+    "@harness/protocol": "*",
+    "@harness/execution": "*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
+  }
+}
