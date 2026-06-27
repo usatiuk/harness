@@ -84,9 +84,20 @@ describe.skipIf(!dockerOk)("DockerExecutionContext (real container)", () => {
     expect(await c.list("sp ace/*.ts")).toEqual(["sp ace/x.ts"]);
   });
 
-  it("treats a glob pattern literally — never shell-evaluates it", async () => {
+  // Parity with the local backend (see local.test.ts): one shared matcher, identical semantics.
+  it("expands braces and excludes dotfiles by default", async () => {
     const c = ctx();
-    // A command substitution in the pattern must be matched as literal glob chars, not executed.
+    await c.write("br/a.ts", te.encode(""));
+    await c.write("br/d.md", te.encode(""));
+    await c.write("br/.hidden.ts", te.encode(""));
+    expect(await c.list("br/*.{ts,md}")).toEqual(["br/a.ts", "br/d.md"]);
+    expect(await c.list("br/**/*.ts")).toEqual(["br/a.ts"]);
+  });
+
+  it("never shell-evaluates a pattern — matching is host-side", async () => {
+    const c = ctx();
+    // The pattern is filtered host-side and never reaches the container, so a command
+    // substitution in it can neither match nor execute.
     expect(await c.list("inj/$(touch pwned).ts")).toEqual([]);
     expect(await c.stat("pwned")).toBeUndefined();
   });

@@ -131,6 +131,10 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
     start = { kind: "session", session: { conversation, items: [], usage: [] } };
   }
 
+  // Warm the runtime so the execution backend (and its emit channel) is live before the first
+  // turn: pre-turn `!cmd`/`/sandbox` reach a real backend and sandbox build progress streams.
+  if (start.kind === "session") await service.prepare(start.session.conversation.id);
+
   // Every conversation shown this run, so all in-flight turns drain before the WAL closes.
   const touched = new Set<ConversationId>();
   const { waitUntilExit } = render(

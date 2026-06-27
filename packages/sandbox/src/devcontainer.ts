@@ -1,8 +1,23 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { findProjectRoot } from "@harness/config";
 import { captureText } from "./docker-cli.ts";
+
+/** Default devcontainer config path (relative to the project root); the CLI auto-discovers it. */
+export const DEFAULT_DEVCONTAINER_CONFIG = ".devcontainer/devcontainer.json";
+
+/**
+ * The root the sandbox keys, provisions, and tears down on: the project root (nearest ancestor with
+ * a `.harness/` dir), else the path itself. Keying on this — not the raw cwd — means a CLI command
+ * or conversation started from a subdirectory resolves to the same container, so containers can't
+ * leak or fork by working directory. Mirrors `updateLocalSettings`' project-root resolution.
+ */
+async function sandboxRoot(root: string): Promise<string> {
+  return (await findProjectRoot(root)) ?? root;
+}
 
 /**
  * Locates the devcontainer CLI to run. Prefers the vendored `@devcontainers/cli` (so users need no
@@ -70,29 +85,39 @@ export interface ProvisionOptions {
  * ourselves. Progress lines on stderr feed `onStatus`; the final result JSON on stdout carries the
  * container handle. Reuses an existing container by id-label, so this is cheap on warm starts.
  */
-export function provisionDevcontainer(
+export async function provisionDevcontainer(
   hostRoot: string,
   opts: ProvisionOptions,
 ): Promise<Provisioned> {
+  // Resolve to the project root so the container key (and the devcontainer config lookup) is the
+  // same whether invoked from the project root or a subdirectory.
+  const root = await sandboxRoot(hostRoot);
+  // Fail fast on a misconfiguration ("sandbox enabled, no devcontainer") with a clear message,
+  // rather than letting the devcontainer CLI fail opaquely deep in `up`.
+  if (!existsSync(join(root, opts.configPath))) {
+    throw new Error(
+      `sandbox enabled but no devcontainer config found at ${opts.configPath} (under ${root})`,
+    );
+  }
   const args = [
     "up",
     "--workspace-folder",
-    hostRoot,
+    root,
     "--id-label",
-    workspaceLabel(hostRoot),
+    workspaceLabel(root),
     "--id-label",
     HARNESS_OWNER_LABEL,
     "--log-format",
     "json",
   ];
-  // The CLI auto-discovers `.devcontainer/devcontainer.json`; only point it elsewhere when asked.
-  if (opts.configPath && opts.configPath !== ".devcontainer/devcontainer.json") {
-    args.push("--config", join(hostRoot, opts.configPath));
+  // The CLI auto-discovers the default config; only point it elsewhere when asked.
+  if (opts.configPath && opts.configPath !== DEFAULT_DEVCONTAINER_CONFIG) {
+    args.push("--config", join(root, opts.configPath));
   }
 
   const { cmd, pre } = devcontainerCmd();
   return new Promise<Provisioned>((resolvePromise, reject) => {
-    const child = spawn(cmd, [...pre, ...args], { cwd: hostRoot });
+    const child = spawn(cmd, [...pre, ...args], { cwd: root });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
@@ -193,7 +218,10 @@ function tail(s: string): string {
  * the live `DockerExecutionContext.stop()` and the standalone `harness sandbox stop` command.
  */
 export async function stopSandbox(hostRoot: string): Promise<number> {
-  const ls = await captureText("docker", ["ps", "-aq", "--filter", `label=${workspaceLabel(hostRoot)}`]); // prettier-ignore
+  // Same project-root key as `provisionDevcontainer`, so `stop` from a subdirectory targets the
+  // container that was built — no leak, no spurious "no sandbox container running".
+  const root = await sandboxRoot(hostRoot);
+  const ls = await captureText("docker", ["ps", "-aq", "--filter", `label=${workspaceLabel(root)}`]); // prettier-ignore
   const ids = ls.stdout.split("\n").filter(Boolean);
   if (ids.length > 0) await captureText("docker", ["rm", "-f", ...ids]);
   return ids.length;

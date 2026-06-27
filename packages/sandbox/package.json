@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@devcontainers/cli": "^0.80.0",
+    "@harness/config": "*",
     "@harness/protocol": "*",
     "@harness/execution": "*",
     "zod": "^4.4.3"

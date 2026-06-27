@@ -1,14 +1,14 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
-import type { ByteRange, PluginEvent, ToolContext } from "@harness/protocol";
+import type { ByteRange, PluginEvent } from "@harness/protocol";
 import type {
   ExecutionContext,
   OutputStore,
   Relationship,
   SpawnedProcess,
 } from "@harness/execution";
-import { LocalOutputStore, streamProcess } from "@harness/execution";
+import { LocalOutputStore, matchGlob, streamProcess } from "@harness/execution";
 import { capture, captureText } from "./docker-cli.ts";
 import { provisionDevcontainer, stopSandbox, type Provisioned } from "./devcontainer.ts";
 import type { SandboxConfig } from "./plugin.ts";
@@ -36,8 +36,8 @@ export class DockerExecutionContext implements ExecutionContext {
   }
 
   /** Capture the latest emit channel so lazy provisioning can stream `sandbox.status` progress. */
-  bind(ctx: ToolContext): void {
-    this.#emit = (event) => ctx.emit(event);
+  bind(emit: (event: PluginEvent) => void): void {
+    this.#emit = emit;
   }
 
   async read(path: string, range?: ByteRange): Promise<Uint8Array> {
@@ -97,16 +97,17 @@ export class DockerExecutionContext implements ExecutionContext {
   async list(pattern: string): Promise<string[]> {
     if (!this.workspaceRoot) throw new Error("list requires a workspace");
     const h = await this.#ready();
-    // Pass the pattern as a positional ($1), never interpolated: bash glob-expands the value but does
-    // not re-scan it for command substitution, so `$(...)`/backticks in a pattern can't execute.
-    // `IFS=` disables word splitting so a pattern with spaces stays one glob (matching node-glob);
-    // `globstar` gives `**` (dotfiles excluded by default, like node `dot:false`). `nullglob` drops a
-    // glob with no match, and the `[ -e ]` guard drops a literal pattern (no glob chars) that doesn't
-    // exist — together that matches node-glob's "existing matches only". cwd = workspace ⇒ relative.
-    const script = `shopt -s globstar nullglob; IFS=; for f in $1; do if [ -e "$f" ]; then printf '%s\\n' "$f"; fi; done`; // prettier-ignore
-    const r = await captureText("docker", [...this.#exec(h, { cwd: true }), "bash", "-lc", script, "bash", pattern]); // prettier-ignore
+    // Enumerate every path under the workspace, then filter host-side through the shared matcher.
+    // `find` is invoked directly (no shell), so the pattern never reaches a shell and the result is
+    // free of login-shell banner noise; the `( … )` are find's own grouping operators, passed as
+    // plain argv. The pattern is never sent to the container at all. cwd = workspace ⇒ relative.
+    const r = await captureText("docker", [...this.#exec(h, { cwd: true }), "find", ".", "(", "-type", "f", "-o", "-type", "d", ")"]); // prettier-ignore
     if (r.exitCode !== 0) this.#fail("list", pattern, r);
-    return r.stdout.split("\n").filter(Boolean).sort();
+    const paths = r.stdout
+      .split("\n")
+      .map((line) => line.replace(/^\.\//, ""))
+      .filter((line) => line && line !== ".");
+    return matchGlob(paths, pattern);
   }
 
   spawn(command: string): SpawnedProcess {

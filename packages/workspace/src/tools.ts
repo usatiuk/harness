@@ -218,6 +218,14 @@ export class GlobTool implements Tool<z.infer<typeof globArgs>> {
   }
 }
 
+/** Single-quote a value for a POSIX shell, so a model-supplied pattern/path can't break out. */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+// Bound on collected grep output; beyond it the search is killed and the result marked truncated.
+const MAX_GREP_BYTES = 2 * 1024 * 1024;
+
 const grepArgs = z.strictObject({
   pattern: z.string(),
   path: z.string().optional(),
@@ -225,39 +233,53 @@ const grepArgs = z.strictObject({
 export class GrepTool implements Tool<z.infer<typeof grepArgs>> {
   readonly name = "grep";
   readonly description =
-    "Search file contents by JS regex `pattern`, returning `file:line:text`. Optional " +
-    '`path` scopes the search to a subdirectory (use "." for the whole workspace).';
+    "Search file contents by POSIX extended-regex `pattern` (`grep -E`), returning " +
+    '`file:line:text`. Optional `path` scopes the search to a subdirectory (use "." for the ' +
+    "whole workspace). The whole-workspace search skips `.git` and `.harness`; pass one as `path` " +
+    "to search inside it.";
   readonly input: ToolInput<z.infer<typeof grepArgs>> = { kind: "function", schema: grepArgs };
   async execute(
     { pattern, path }: z.infer<typeof grepArgs>,
     ctx: ToolContext,
   ): Promise<ToolResult> {
-    let regex: RegExp;
-    try {
-      regex = new RegExp(pattern);
-    } catch (error) {
-      return errorResult(`invalid regex: ${(error as Error).message}`);
-    }
     const exec = executionOf(ctx);
-    const files = await exec.list(path ? `${path}/**/*` : "**/*");
-    const hits: string[] = [];
-    for (const file of files) {
-      if (hits.length >= MAX_HITS) break;
-      let text: string;
-      try {
-        text = decoder.decode(await exec.read(file));
-      } catch {
-        continue; // directories and unreadable entries are skipped
+    // A specific `path` is a deliberate scope, so search it verbatim. Only the broad whole-workspace
+    // search skips the noise dirs (VCS metadata, the agent's own `.harness` output store) — so the
+    // agent can still grep inside them by naming them (`path: ".git"`), which `--exclude-dir` would
+    // otherwise silently prune even when targeted. Excludes are by name: a `.*` glob isn't portable
+    // here, as BSD grep then prunes the search root `.` itself.
+    const scoped = path !== undefined && path !== ".";
+    const target = scoped ? path : ".";
+    const excludes = scoped ? "" : "--exclude-dir=.git --exclude-dir=.harness ";
+    // One recursive grep in the substrate (host or container) instead of read-every-file: `-r`
+    // recurse, `-n` line numbers, `-I` skip binaries, `-E` ERE.
+    const command = `grep -rnIE ${excludes}-- ${shellQuote(pattern)} ${shellQuote(target)}`;
+    const proc = exec.spawn(command);
+    let out = "";
+    let truncated = false;
+    proc.onData((chunk) => {
+      if (truncated) return;
+      out += chunk;
+      if (out.length > MAX_GREP_BYTES) {
+        truncated = true;
+        proc.kill();
       }
-      const lines = text.split("\n");
-      for (let i = 0; i < lines.length && hits.length < MAX_HITS; i++) {
-        if (regex.test(lines[i]!)) hits.push(`${file}:${i + 1}:${lines[i]}`);
-      }
+    });
+    const { code } = await proc.exit;
+    // grep exits 1 for "no matches" (not an error) and ≥2 for a real failure (e.g. a bad regex);
+    // a kill for truncation lands as a null code, which we treat as a successful capped result.
+    if (!truncated && code !== null && code >= 2) {
+      return errorResult(`grep failed: ${out.trim() || `exit ${code}`}`);
     }
+    const hits = out
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.replace(/^\.\//, ""));
     if (hits.length === 0) return okResult("no matches");
-    const capped = hits.length >= MAX_HITS;
-    const header = `${hits.length}${capped ? "+" : ""} match(es):\n`;
-    const footer = capped ? `\n…[stopped at ${MAX_HITS} matches; refine your pattern]` : "";
-    return okResult(header + hits.join("\n") + footer);
+    const capped = truncated || hits.length > MAX_HITS;
+    const shown = hits.slice(0, MAX_HITS);
+    const header = `${shown.length}${capped ? "+" : ""} match(es):\n`;
+    const footer = capped ? `\n…[stopped at ${shown.length} matches; refine your pattern]` : "";
+    return okResult(header + shown.join("\n") + footer);
   }
 }

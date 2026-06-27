@@ -1,4 +1,4 @@
-import type { ByteRange, ToolCall, ToolContext } from "@harness/protocol";
+import type { ByteRange, PluginEvent, ToolCall, ToolContext } from "@harness/protocol";
 
 /**
  * Where a tool call acts relative to the workspace. Computed by the substrate (not
@@ -66,11 +66,12 @@ export interface ExecutionContext {
   /** The substrate's verdict on where a call acts — the approval policy's input. */
   classify(call: ToolCall): Relationship;
   /**
-   * Optional: `executionOf` passes the live tool context on every access, letting a substrate that
-   * provisions lazily (docker) capture an event-emit channel for build progress. The local
-   * substrate doesn't implement it. Kept off the hot path — it must stay cheap and idempotent.
+   * Optional: callers pass a scoped event-emit channel, letting a substrate that provisions lazily
+   * (docker) stream build progress before/outside a turn. `executionOf` rebinds it on every access
+   * with the live tool context's emit; `Engine.prepare` binds it once at startup with the engine's
+   * plugin-emit seam. The local substrate doesn't implement it. Must stay cheap and idempotent.
    */
-  bind?(ctx: ToolContext): void;
+  bind?(emit: (event: PluginEvent) => void): void;
 }
 
 /** Narrows the opaque `ctx.service("execution")` to `ExecutionContext`; throws if no plugin is wired. */
@@ -79,6 +80,6 @@ export function executionOf(ctx: ToolContext): ExecutionContext {
   if (!execution) {
     throw new Error("no execution backend configured (add an execution plugin)");
   }
-  execution.bind?.(ctx);
+  execution.bind?.((event) => ctx.emit(event));
   return execution;
 }

@@ -1,7 +1,8 @@
 import { createWriteStream, mkdirSync, writeFileSync } from "node:fs";
 import { spawn as nodeSpawn } from "node:child_process";
-import { glob, mkdir, readFile, rm, stat as fsStat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat as fsStat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { matchGlob, mayDescend } from "./glob.ts";
 import type { ByteRange, ToolCall } from "@harness/protocol";
 import type {
   ExecutionContext,
@@ -55,10 +56,29 @@ export class LocalExecutionContext implements ExecutionContext {
   }
 
   async list(pattern: string): Promise<string[]> {
-    if (!this.workspaceRoot) throw new Error("list requires a workspace");
-    const out: string[] = [];
-    for await (const entry of glob(pattern, { cwd: this.workspaceRoot })) out.push(entry);
-    return out.sort();
+    const root = this.workspaceRoot;
+    if (!root) throw new Error("list requires a workspace");
+    // Enumerate workspace-relative paths, pruning subtrees that can't match, then filter through the
+    // shared matcher — the same one the docker backend uses, so glob semantics have one source.
+    const paths: string[] = [];
+    const walk = async (rel: string): Promise<void> => {
+      let entries;
+      try {
+        entries = await readdir(rel ? resolve(root, rel) : root, { withFileTypes: true });
+      } catch (error) {
+        // The workspace root must be listable; an unreadable nested dir is skipped, not fatal —
+        // matching node-glob, which yields what it can rather than throwing on one bad subtree.
+        if (rel === "") throw error;
+        return;
+      }
+      for (const entry of entries) {
+        const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+        paths.push(childRel);
+        if (entry.isDirectory() && mayDescend(childRel, pattern)) await walk(childRel);
+      }
+    };
+    await walk("");
+    return matchGlob(paths, pattern);
   }
 
   spawn(command: string): SpawnedProcess {
