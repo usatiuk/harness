@@ -336,7 +336,10 @@ export class Engine {
     // Model config is fixed for the whole turn, so the provider, tool set, and tool schemas
     // are resolved once here rather than per step.
     const provider = this.host.providers.get(conversation.config.model.provider);
-    const toolSet = this.host.toolsFor(provider.capabilities(conversation.config.model.model));
+    const toolSet = this.host.toolsFor(
+      provider.capabilities(conversation.config.model.model),
+      conversation.config.tools?.allow,
+    );
     const toolSchemas = toolSet.schemas();
     const pricing = this.#pricingFor(conversation.config.model);
     for (let step = 0; step < MAX_MODEL_STEPS; step++) {

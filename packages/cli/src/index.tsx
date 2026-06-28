@@ -17,6 +17,7 @@ import { activitiesPlugin, type ActivityManager } from "@harness/activities";
 import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
 import { approvalPlugin } from "@harness/approval";
+import { subagentsDefinition } from "@harness/subagents";
 import { HarnessService } from "@harness/service";
 import { DemoProvider } from "./demo-provider.ts";
 import { authRegistry } from "./auth.ts";
@@ -97,11 +98,15 @@ async function buildHarness(): Promise<Harness> {
     outputPlugin,
     workspacePlugin,
     approvalPlugin,
+    subagentsDefinition,
   );
   const resolvedFallback: ModelConfig = fallbackModel ?? { provider: "demo", model: "demo-1" };
   // Lowest cascade layer: every conversation has a model even on resume with no settings, and
   // resolution never fails "no model configured".
   const service = new HarnessService({ store, plugins, defaults: { model: resolvedFallback } });
+  // Late-bind the runner so the subagents tool can spawn/observe/abort children. Mirrors the
+  // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
+  subagentsDefinition.bindRunner(service);
   return { service, store, fallbackModel: resolvedFallback };
 }
 
@@ -178,6 +183,8 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
   } finally {
     // Reap any still-running background activities (dev servers, watchers) before exit.
     activitiesPlugin.shutdownAll();
+    // Awaited: an aborted child's final `updateTurn` must land before the DB closes.
+    await subagentsDefinition.shutdownAll();
     store.close();
   }
 }
@@ -240,6 +247,8 @@ function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null
         <ConfirmInput
           onConfirm={() => {
             activityManager(service, leavingId)?.killAll();
+            // Cascade-stop the subagent tree (children + grandchildren) so none strand invisibly.
+            subagentsDefinition.stopTree(service, leavingId);
             commit(next);
           }}
           onCancel={() => setPendingSwitch(null)}
@@ -293,7 +302,15 @@ function PickerScreen({
   const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
-    void service.listConversations().then(setList);
+    // Hide spawn-marked subagent children so only user-started conversations list. One keyed read
+    // per row is cheap against the listing's per-record resolve; batch if it ever profiles.
+    void (async () => {
+      const all = await service.listConversations();
+      const marks = await Promise.all(
+        all.map((c) => service.getPluginState("subagents", c.id, "spawn")),
+      );
+      setList(all.filter((_, i) => marks[i] == null));
+    })();
   }, [service]);
 
   useInput((input, key) => {

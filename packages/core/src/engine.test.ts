@@ -715,6 +715,22 @@ describe("Engine — tool middleware", () => {
   });
 });
 
+describe("Engine — tool scope", () => {
+  it("withholds tools outside config.tools.allow and rejects a call to one as unknown", async () => {
+    const { store, engine } = setup([toolStep("c1", "echo", {}), textStep("done")]);
+    const conv = await store.createConversation(
+      newConversationInput({ ...CONFIG, tools: { allow: ["read"] } }),
+    );
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    // `echo` is contributed but withheld by the allow-list, so its call gets the unknown-tool result.
+    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    expect(result?.status).toBe("error");
+    expect(textOf(result?.content ?? [])).toBe("unknown tool: echo");
+  });
+});
+
 /** Resolves with the first `request.created` raised on the engine's stream. */
 const firstRequest = (engine: Engine): Promise<{ requestId: string; request: unknown }> =>
   new Promise((resolve) => {

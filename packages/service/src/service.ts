@@ -3,6 +3,7 @@ import type {
   Conversation,
   ConversationId,
   ConversationRecord,
+  ConversationRunner,
   DeliveryIntent,
   HarnessEvent,
   Item,
@@ -57,7 +58,7 @@ export type EventListener = (event: HarnessEvent) => void;
  * resolution: it builds the plugin schema registry and resolves the settings
  * cascade into each conversation's initial config at creation.
  */
-export class HarnessService {
+export class HarnessService implements ConversationRunner {
   readonly #store: Store;
   readonly #engine: Engine;
   readonly #home: string;
@@ -240,5 +241,14 @@ export class HarnessService {
   /** Per-request usage/cost rows, in record order. Backs resume footer totals. */
   usage(id: ConversationId): Promise<ModelUsage[]> {
     return this.#store.listModelUsage(id);
+  }
+
+  /** Durable per-conversation plugin metadata — the `ConversationRunner` seam, forwarded to the store. */
+  putPluginState(plugin: string, id: ConversationId, key: string, value: unknown): Promise<void> {
+    return this.#store.putPluginState(plugin, id, key, value);
+  }
+
+  getPluginState(plugin: string, id: ConversationId, key: string): Promise<unknown> {
+    return this.#store.getPluginState(plugin, id, key);
   }
 }

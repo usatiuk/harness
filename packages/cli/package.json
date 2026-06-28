@@ -29,6 +29,7 @@
     "@harness/secrets": "*",
     "@harness/service": "*",
     "@harness/store-sqlite": "*",
+    "@harness/subagents": "*",
     "@harness/workspace": "*",
     "@inkjs/ui": "^2.0.0",
     "commander": "^15.0.0",

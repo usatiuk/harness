@@ -82,8 +82,13 @@ export class PluginHost {
     this.modelMiddleware = modelMiddleware;
   }
 
-  /** The tools to offer the active model — each contributor's choice for these capabilities. */
-  toolsFor(caps: ModelCapabilities): ToolSet {
-    return new ToolSet(this.#toolContributors.flatMap((contribute) => contribute(caps)));
+  /**
+   * The tools to offer the active model, narrowed to the conversation's `tools.allow` scope when set.
+   * Withholding (not executing) is the point: it scopes a subagent's tool set and bounds recursion
+   * structurally — a disallowed call is rejected by the dispatch's `unknown tool` path, no tool-side guard.
+   */
+  toolsFor(caps: ModelCapabilities, allow?: readonly string[]): ToolSet {
+    const tools = this.#toolContributors.flatMap((contribute) => contribute(caps));
+    return new ToolSet(allow ? tools.filter((tool) => allow.includes(tool.name)) : tools);
   }
 }

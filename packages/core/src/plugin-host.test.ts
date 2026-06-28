@@ -77,4 +77,13 @@ describe("PluginHost", () => {
     };
     expect(() => new PluginHost([plugin]).toolsFor(caps)).toThrow(/duplicate tool/);
   });
+
+  it("narrows the offered tools to a tools.allow scope when one is given", () => {
+    const host = new PluginHost([{ id: "p", tools: () => [new EchoTool()] }]);
+    // No allow-list: the full contributed surface is offered.
+    expect(host.toolsFor(caps).has("echo")).toBe(true);
+    // An allow-list withholds any tool not named in it.
+    expect(host.toolsFor(caps, ["read"]).has("echo")).toBe(false);
+    expect(host.toolsFor(caps, ["echo", "read"]).has("echo")).toBe(true);
+  });
 });

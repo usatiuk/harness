@@ -9,7 +9,7 @@ import type { ModelConfig } from "./model.ts";
 export interface ConversationConfig {
   instructions: string;
   model: ModelConfig;
-  /** Tool scope (which tools this conversation may use). Enforcement deferred. */
+  /** Tool scope (which tools this conversation may use). Enforced by `PluginHost.toolsFor`. */
   tools?: { allow?: string[] };
   /** Per-plugin config, validated against each plugin's schema. Read via `ConfigReader`. */
   plugins?: Record<string, unknown>;
