@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { resolveSettings } from "./resolve.ts";
+import { findProjectRoot, resolveSettings } from "./resolve.ts";
 
 const schemas = new Map<string, z.ZodType>([
   [
@@ -164,5 +164,76 @@ describe("resolveSettings validation", () => {
     await writeJson(join(home, "settings.json"), { model });
     const layered = await resolveSettings({ home, defaults: { model: fallback }, schemas });
     expect(layered.model).toEqual(model);
+  });
+});
+
+describe("findProjectRoot", () => {
+  // `home` plays the role of `~/.harness`: its basename is `.harness`, so the home-skip
+  // (join(dir, ".harness") === home) matches it exactly as it does for the real home.
+  it("never returns the harness home as a project root", async () => {
+    const parent = await tmp();
+    const home = join(parent, ".harness");
+    await mkdir(home, { recursive: true }); // the home looks like a project marker
+    const proj = join(parent, "myproject");
+    await mkdir(proj, { recursive: true }); // no `.harness`, no `.git` of its own
+
+    expect(await findProjectRoot(proj, home)).toBe(proj); // not `parent`, not `home`
+  });
+
+  it("prefers a nearer project .harness over the home", async () => {
+    const parent = await tmp();
+    const home = join(parent, ".harness");
+    await mkdir(home, { recursive: true });
+    const proj = join(parent, "myproject");
+    await mkdir(join(proj, ".harness"), { recursive: true });
+    const sub = join(proj, "packages", "cli");
+    await mkdir(sub, { recursive: true });
+
+    expect(await findProjectRoot(sub, home)).toBe(proj);
+  });
+
+  it("falls back to the enclosing git repo when no .harness exists", async () => {
+    const parent = await tmp();
+    const home = join(parent, ".harness");
+    await mkdir(home, { recursive: true });
+    const proj = join(parent, "myproject");
+    await mkdir(join(proj, ".git"), { recursive: true }); // a git repo, no `.harness`
+    const sub = join(proj, "packages", "cli");
+    await mkdir(sub, { recursive: true });
+
+    expect(await findProjectRoot(sub, home)).toBe(proj);
+  });
+});
+
+describe("resolveSettings home/project separation", () => {
+  it("does not read the harness home's .harness as project settings (the leak)", async () => {
+    const parent = await tmp();
+    const home = join(parent, ".harness"); // `~/.harness`
+    await mkdir(home, { recursive: true });
+    await writeJson(join(home, "settings.json"), { model, instructions: "global" });
+    // The stray file the old bug wrote/read as project-local when the walk landed on `~`.
+    await writeJson(join(home, "settings.local.json"), { instructions: "LEAKED" });
+    const proj = join(parent, "myproject");
+    await mkdir(proj, { recursive: true }); // project under the home, no `.harness`/`.git`
+
+    const config = await resolveSettings({ home, cwd: proj, schemas });
+
+    expect(config.workspaceRoot).toBe(proj);
+    expect(config.instructions).toBe("global"); // not "LEAKED"
+  });
+
+  it("does not leak when the root falls back to the home itself (cwd === ~)", async () => {
+    const parent = await tmp();
+    const home = join(parent, ".harness");
+    await mkdir(home, { recursive: true });
+    await writeJson(join(home, "settings.json"), { model, instructions: "global" });
+    // Old bug: findProjectRoot(parent) skips the marked home but the start/git fallback returns
+    // `parent`, whose `.harness` IS the home — so `~/.harness/settings.local.json` was read as
+    // project-local. The read-site `isHomeRoot` guard must skip it.
+    await writeJson(join(home, "settings.local.json"), { instructions: "LEAKED" });
+
+    const config = await resolveSettings({ home, cwd: parent, schemas });
+
+    expect(config.instructions).toBe("global"); // not "LEAKED"
   });
 });

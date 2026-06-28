@@ -28,6 +28,7 @@ export class DockerExecutionContext implements ExecutionContext {
   readonly workspaceRoot: string | null;
   readonly #config: SandboxConfig;
   #provision: Promise<Provisioned> | undefined;
+  #abort: AbortController | undefined;
   #emit: ((event: PluginEvent) => void) | undefined;
 
   constructor(hostRoot: string | null, config: SandboxConfig) {
@@ -184,10 +185,26 @@ export class DockerExecutionContext implements ExecutionContext {
     return "in-workspace";
   }
 
-  /** Tear down the workspace's container(s) by id-label and drop the cached handle. Idempotent. */
+  /**
+   * Tear down the workspace's container(s) by id-label and drop the cached handle. Idempotent.
+   *
+   * Cancels any in-flight provision and AWAITS it before reaping: `devcontainer up` labels the
+   * container as it creates it, so reaping mid-build could run `docker ps` before that container
+   * exists and leave it orphaned. Aborting makes the build give up promptly; waiting for it to settle
+   * guarantees the label filter then sees whatever it managed to create.
+   */
   async stop(): Promise<void> {
+    this.#abort?.abort();
+    const inflight = this.#provision;
     this.#provision = undefined;
+    this.#abort = undefined;
+    if (inflight) await inflight.catch(() => {}); // rejection (incl. the abort) is expected here
     if (this.workspaceRoot) await stopSandbox(this.workspaceRoot);
+  }
+
+  /** Whether a container has been (or is being) provisioned — the live-toggle's "running" signal. */
+  isProvisioned(): boolean {
+    return this.#provision !== undefined;
   }
 
   /** Stop the container then re-provision (streaming progress via the bound emit). */
@@ -197,19 +214,26 @@ export class DockerExecutionContext implements ExecutionContext {
   }
 
   #ready(): Promise<Provisioned> {
-    if (!this.#provision) {
-      const root = this.workspaceRoot;
-      if (!root) return Promise.reject(new Error("sandbox requires a workspace root"));
-      // Clear the cache on failure so a later call retries rather than wedging the conversation.
-      this.#provision = provisionDevcontainer(root, {
-        configPath: this.#config.configPath,
-        onStatus: (s) => this.#emit?.(s),
-      }).catch((err: unknown) => {
+    if (this.#provision) return this.#provision;
+    const root = this.workspaceRoot;
+    if (!root) return Promise.reject(new Error("sandbox requires a workspace root"));
+    const abort = new AbortController();
+    this.#abort = abort;
+    // Clear the cache on failure so a later call retries rather than wedging the conversation — but
+    // only if this is still the current attempt, so a concurrent stop/rebuild isn't clobbered.
+    const provision: Promise<Provisioned> = provisionDevcontainer(root, {
+      configPath: this.#config.configPath,
+      onStatus: (s) => this.#emit?.(s),
+      signal: abort.signal,
+    }).catch((err: unknown) => {
+      if (this.#provision === provision) {
         this.#provision = undefined;
-        throw err;
-      });
-    }
-    return this.#provision;
+        this.#abort = undefined;
+      }
+      throw err;
+    });
+    this.#provision = provision;
+    return provision;
   }
 
   /** `docker exec` argv prefix as the remote user; `interactive` adds `-i`, `cwd` runs in the workspace. */

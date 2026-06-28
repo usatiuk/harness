@@ -20,7 +20,7 @@ import {
 } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import type { ExecutionContext } from "@harness/execution";
-import { DockerExecutionContext, type SandboxPhase } from "@harness/sandbox";
+import { SwitchableSandboxContext, type SandboxControl, type SandboxPhase } from "@harness/sandbox";
 import { updateLocalSettings } from "@harness/config";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
 import { effortsFor, runCommand, type CommandContext } from "./commands.ts";
@@ -148,6 +148,9 @@ export function App({
   const sandboxEnabled =
     (conversation.config.plugins?.["sandbox"] as { enabled?: boolean } | undefined)?.enabled ===
     true;
+  // Live mirror of the toggle: seeded from the config snapshot, updated as `/sandbox on|off` flips the
+  // proxy (config is frozen, so without this the chip/overlay couldn't react mid-conversation).
+  const [sandboxLive, setSandboxLive] = useState(sandboxEnabled);
 
   // Stable identities so the memoized ctx (via note) and the composer's menu-open
   // effect (via setMenuOpen) don't rebuild/refire each render.
@@ -213,47 +216,64 @@ export function App({
   };
 
   // Memoized so its identity stays stable across streaming re-renders, rebuilding only when a real
-  // input changes (notably the live provisioning `phase`). The methods re-resolve the cached
-  // execution instance at call time, so rebuild/stop act on the running container. Errors report
-  // inline (not via the unstable `report`) to keep the dep list clean.
+  // input changes (notably `sandboxLive` and the provisioning `phase`). The methods re-resolve the
+  // cached execution instance at call time, so rebuild/stop act on the running container. Errors
+  // report inline (not via the unstable `report`) to keep the dep list clean.
   const sandboxView: SandboxView = useMemo(() => {
-    const dockerContext = (): DockerExecutionContext | undefined => {
+    const control = (): SandboxControl | undefined => {
       const ex = service.service(conversation.id, "execution");
-      return ex instanceof DockerExecutionContext ? ex : undefined;
+      return ex instanceof SwitchableSandboxContext ? ex : undefined;
     };
     const onLive = (
-      act: (ex: DockerExecutionContext) => Promise<unknown>,
+      ready: (c: SandboxControl) => boolean,
+      notReady: string,
+      act: (c: SandboxControl) => Promise<unknown>,
       doing: string,
       done: string,
     ): void => {
-      const ex = dockerContext();
-      if (!ex)
-        return note("this conversation is not sandboxed (enabling applies to new conversations)");
+      const c = control();
+      if (!c || !ready(c)) return note(notReady);
       note(doing);
-      void act(ex).then(
+      void act(c).then(
         () => note(done),
         (e: unknown) => note(`error: ${String(e)}`),
       );
     };
     return {
-      enabled: sandboxEnabled,
-      active: dockerContext() !== undefined,
+      enabled: sandboxLive,
+      active: control()?.running ?? false,
       phase: state.sandbox?.phase,
       setEnabled: (next) =>
         void updateLocalSettings(cwd, (doc) => {
           const prev = (doc.plugins?.["sandbox"] as Record<string, unknown> | undefined) ?? {};
           return { ...doc, plugins: { ...doc.plugins, sandbox: { ...prev, enabled: next } } };
         }).then(
-          (path) =>
-            note(
-              `sandbox ${next ? "enabled" : "disabled"} in ${path} — applies to new conversations`,
-            ),
+          (path) => {
+            control()?.setEnabled(next); // live: flip routing + tear down/provision
+            setSandboxLive(next);
+            note(`sandbox ${next ? "enabled" : "disabled"} in ${path} — live`);
+          },
           (e: unknown) => note(`error: ${String(e)}`),
         ),
-      rebuild: () => onLive((ex) => ex.rebuild(), "rebuilding sandbox…", "sandbox rebuilt"),
-      stop: () => onLive((ex) => ex.stop(), "stopping sandbox…", "sandbox stopped"),
+      // rebuild can cold-start (provision-from-stopped), so it gates on `enabled`, not `running`.
+      rebuild: () =>
+        onLive(
+          (c) => c.enabled,
+          "sandbox is disabled (enable it first)",
+          (c) => c.rebuild(),
+          "rebuilding sandbox…",
+          "sandbox rebuilt",
+        ),
+      stop: () =>
+        onLive(
+          (c) => c.running,
+          "no sandbox container running",
+          (c) => c.stop(),
+          "stopping sandbox…",
+          "sandbox stopped",
+        ),
     };
-  }, [service, conversation.id, sandboxEnabled, state.sandbox?.phase, cwd, note]);
+  }, [service, conversation.id, sandboxLive, state.sandbox?.phase, cwd, note]);
 
   // Memoized (main's intent) so the composer's completion menu, keyed on `ctx`, doesn't recompute
   // on every streaming re-render. The sandbox controls come from the memoized `sandboxView` above,
@@ -358,7 +378,7 @@ export function App({
             lastInputTokens={state.lastInputTokens}
             contextWindow={contextWindow}
             activeCount={activeCount}
-            sandboxEnabled={sandboxEnabled}
+            sandboxEnabled={sandboxLive}
             sandboxPhase={state.sandbox?.phase}
           />
           <Composer ctx={ctx} history={history} onSubmit={submit} onMenuOpenChange={setMenuOpen} />

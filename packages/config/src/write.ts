@@ -1,7 +1,8 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ModelConfig } from "@harness/protocol";
-import { findProjectRoot } from "./resolve.ts";
+import { defaultHome } from "./home.ts";
+import { findProjectRoot, isHomeRoot } from "./resolve.ts";
 import {
   AUTH_STORE_KINDS,
   formatIssue,
@@ -50,15 +51,21 @@ async function writeSettings(path: string, doc: Record<string, unknown>): Promis
 
 /**
  * Applies `mutate` to the project's `.harness/settings.local.json`, validating before writing and
- * returning the path. Project root is the nearest ancestor of `cwd` with a `.harness/` dir, else
- * `cwd`. A conversation reads its config once at creation, so changes apply to new conversations.
+ * returning the path. The project root is `findProjectRoot(cwd)` (nearest `.harness/` ancestor,
+ * never the home; else the git root; else `cwd`), and `.harness/` is created here on first write.
+ * When the root resolves to the home itself (run from `~`, or a projectless dir under a git-tracked
+ * `~`), there's no project to write into — and the read side ignores `~/.harness/settings.local.json`
+ * — so the change persists to the global `settings.json`, the only layer that then applies.
  */
 export async function updateLocalSettings(
   cwd: string,
   mutate: (doc: SettingsDoc) => SettingsDoc,
+  home = defaultHome(),
 ): Promise<string> {
-  const root = (await findProjectRoot(cwd)) ?? cwd;
-  const path = join(root, ".harness", "settings.local.json");
+  const root = await findProjectRoot(cwd, home);
+  const path = isHomeRoot(root, home)
+    ? globalPath(home)
+    : join(root, ".harness", "settings.local.json");
   const existing = (await readSettings(path)) as SettingsDoc;
   const merged = mutate(existing);
   const parsed = settingsDocSchema.safeParse(merged);

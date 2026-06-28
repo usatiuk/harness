@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import type { ZodType } from "zod";
 import type { ConversationConfig } from "@harness/protocol";
 import { deepMerge } from "./merge.ts";
+import { defaultHome } from "./home.ts";
 import { formatIssue, settingsDocSchema, type SettingsDoc } from "./settings.ts";
 
 export interface ResolveOptions {
@@ -33,12 +34,12 @@ interface Layer {
  * unknown keys fail fast, citing the source file.
  */
 export async function resolveSettings(opts: ResolveOptions): Promise<ConversationConfig> {
-  const root = opts.cwd ? await findProjectRoot(opts.cwd) : undefined;
+  const root = opts.cwd ? await findProjectRoot(opts.cwd, opts.home) : undefined;
 
   const layers: Layer[] = [];
   if (opts.defaults !== undefined) layers.push({ label: "defaults", doc: opts.defaults });
   await pushFileLayer(layers, "global settings", join(opts.home, "settings.json"));
-  if (root) {
+  if (root && !isHomeRoot(root, opts.home)) {
     await pushFileLayer(layers, "project settings", join(root, ".harness", "settings.json"));
     await pushFileLayer(layers, "local settings", join(root, ".harness", "settings.local.json"));
   }
@@ -81,10 +82,10 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
  * a full `ConversationConfig`. Reuses the same layer primitives as `resolveSettings`.
  */
 export async function loadMergedSettings(home: string, cwd?: string): Promise<SettingsDoc> {
-  const root = cwd ? await findProjectRoot(cwd) : undefined;
+  const root = cwd ? await findProjectRoot(cwd, home) : undefined;
   const layers: Layer[] = [];
   await pushFileLayer(layers, "global settings", join(home, "settings.json"));
-  if (root) {
+  if (root && !isHomeRoot(root, home)) {
     await pushFileLayer(layers, "project settings", join(root, ".harness", "settings.json"));
     await pushFileLayer(layers, "local settings", join(root, ".harness", "settings.local.json"));
   }
@@ -153,14 +154,53 @@ async function readDoc(file: string): Promise<SettingsDoc | undefined> {
   return parsed.data;
 }
 
-/** Walks up from `start` to the first ancestor containing a `.harness/` directory. */
-export async function findProjectRoot(start: string): Promise<string | undefined> {
+/** Walks up from `start`, returning the first dir where `match` holds, else `undefined`. */
+async function walkUp(
+  start: string,
+  match: (dir: string) => Promise<boolean>,
+): Promise<string | undefined> {
   let dir = resolve(start);
   for (;;) {
-    if (await isDirectory(join(dir, ".harness"))) return dir;
+    if (await match(dir)) return dir;
     const parent = dirname(dir);
     if (parent === dir) return undefined;
     dir = parent;
+  }
+}
+
+/**
+ * The conversation's project root. An existing project is marked by a `.harness/` dir — but never
+ * the harness home itself (`~/.harness` is settings storage, not a project), so a project living
+ * under the home with no `.harness/` of its own isn't mistaken for the home. A project still has a
+ * root before its `.harness/` exists (the settings writer and output store `mkdir` it on demand):
+ * the enclosing git repo, else the start dir. Always returns a dir when `start` is given.
+ */
+export async function findProjectRoot(start: string, home = defaultHome()): Promise<string> {
+  const marked = await walkUp(start, async (d) => {
+    return (await isDirectory(join(d, ".harness"))) && join(d, ".harness") !== home;
+  });
+  if (marked) return marked;
+  return (await walkUp(start, async (d) => await exists(join(d, ".git")))) ?? resolve(start);
+}
+
+/**
+ * Whether a resolved root IS the harness home (its `.harness/` is the home itself). The marked walk
+ * already skips the home, but the git/start fallbacks can still climb to it — `~` directly, or a
+ * project under a git-tracked `~` — so callers must treat such a root as projectless (read the global
+ * layer only, never `~/.harness/settings.local.json` as project-local). Guards the leak at the point
+ * where `<root>/.harness/*` is consumed, since that's the invariant: the home is settings storage,
+ * not a project.
+ */
+export function isHomeRoot(root: string, home = defaultHome()): boolean {
+  return join(root, ".harness") === home;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
   }
 }
 

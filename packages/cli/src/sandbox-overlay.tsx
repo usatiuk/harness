@@ -10,7 +10,7 @@ export interface SandboxView {
   active: boolean;
   /** Latest build/start phase, if any has been reported. */
   phase: SandboxPhase | undefined;
-  /** Persist enable/disable to `.harness/settings.local.json` (applies to new conversations). */
+  /** Persist enable/disable and apply it live to this conversation. */
   setEnabled: (enabled: boolean) => void;
   /** Rebuild the live container (only when this conversation is sandboxed). */
   rebuild: () => void;
@@ -37,11 +37,11 @@ export function SandboxOverlay({
   return (
     <Box flexDirection="column">
       <Text bold>Sandbox</Text>
-      <Text dimColor>{`enabled (config): ${yn(view.enabled)}`}</Text>
+      <Text dimColor>{`enabled: ${yn(view.enabled)}`}</Text>
       <Text dimColor>{`this conversation sandboxed: ${yn(view.active)}`}</Text>
       <Text dimColor>{`phase: ${view.phase ?? "—"}`}</Text>
       <Text dimColor>enter the container: run `harness sandbox shell` in a terminal</Text>
-      <Text dimColor>e toggle (new conversations) · r rebuild · s stop · esc close</Text>
+      <Text dimColor>e toggle (live) · r rebuild · s stop · esc close</Text>
     </Box>
   );
 }

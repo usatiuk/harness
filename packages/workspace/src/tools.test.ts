@@ -13,6 +13,7 @@ import {
   GrepTool,
   ReadFileTool,
   WriteTool,
+  scopedPattern,
 } from "./tools.ts";
 import { parseEnvelope } from "./apply-patch-parse.ts";
 import { workspacePlugin } from "./index.ts";
@@ -146,6 +147,32 @@ describe("workspace tools", () => {
     expect(grep).not.toContain("src/b.ts");
   });
 
+  it("glob treats path '.' as the whole workspace, not a literal './' prefix", async () => {
+    const ctx = await workspace();
+    await new WriteTool().execute({ path: "src/a.ts", content: "" }, ctx);
+    await new WriteTool().execute({ path: "readme.md", content: "" }, ctx);
+
+    // Regression: `path: "."` built `./**/*`, but `list` returns workspace-relative paths with no
+    // `./` prefix, so it matched nothing. "." must mean the whole workspace (matching the tool's
+    // own description and grep's convention).
+    expect(text(await new GlobTool().execute({ pattern: "**/*.md", path: "." }, ctx))).toBe(
+      "readme.md",
+    );
+    expect(text(await new GlobTool().execute({ pattern: "**/*.md" }, ctx))).toBe("readme.md");
+  });
+
+  it("glob scopes by path robustly: './src', 'src/' and 'src' all behave like 'src'", async () => {
+    const ctx = await workspace();
+    await new WriteTool().execute({ path: "src/a.ts", content: "" }, ctx);
+    await new WriteTool().execute({ path: "other/b.ts", content: "" }, ctx);
+
+    for (const path of ["src", "src/", "./src"]) {
+      expect(text(await new GlobTool().execute({ pattern: "**/*.ts", path }, ctx))).toBe(
+        "src/a.ts",
+      );
+    }
+  });
+
   it("grep skips dot-directories (e.g. the .harness output store), not just .git", async () => {
     const ctx = await workspace();
     await new WriteTool().execute({ path: "src/a.ts", content: "needle here" }, ctx);
@@ -199,6 +226,27 @@ describe("workspacePlugin file-tools roster by profile", () => {
     // search + bash remain.
     expect(ns).toEqual(expect.arrayContaining(["glob", "grep", "bash"]));
   });
+});
+
+describe("scopedPattern", () => {
+  // `list` matches workspace-relative paths with no `./` prefix, so the effective glob must be in
+  // that convention. Each row: [pattern, path] → expected combined glob.
+  const cases: Array<[string, string | undefined, string]> = [
+    ["**/*.ts", undefined, "**/*.ts"], // omitted → whole workspace
+    ["**/*.ts", ".", "**/*.ts"], // "." → whole workspace
+    ["**/*.ts", "", "**/*.ts"], // empty → whole workspace (not "/**/*.ts")
+    ["**/*.ts", "./", "**/*.ts"], // "./" → whole workspace
+    ["**/*.ts", "src", "src/**/*.ts"], // bare dir scope
+    ["**/*.ts", "src/", "src/**/*.ts"], // trailing slash stripped
+    ["**/*.ts", "./src", "src/**/*.ts"], // leading "./" stripped
+    ["./**/*.ts", undefined, "**/*.ts"], // leading "./" on the pattern stripped too
+    ["./**/*.ts", "src", "src/**/*.ts"],
+  ];
+  for (const [pattern, path, expected] of cases) {
+    it(`pattern=${pattern} path=${String(path)} → ${expected}`, () => {
+      expect(scopedPattern(pattern, path)).toBe(expected);
+    });
+  }
 });
 
 describe("parseEnvelope", () => {

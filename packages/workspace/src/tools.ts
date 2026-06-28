@@ -203,6 +203,21 @@ const globArgs = z.strictObject({
   pattern: z.string(),
   path: z.string().optional(),
 });
+
+/**
+ * Builds the effective glob string from `pattern` + optional `path`. `list` matches against
+ * workspace-relative paths with no `./` prefix (minimatch, which treats a leading `./` as literal and
+ * matches nothing), so both inputs are normalized to that convention: strip a leading `./` and any
+ * trailing `/`, and treat ""/"."/undefined `path` as the whole workspace. A bare directory scope
+ * becomes `dir/pattern`. This is the documented "." contract made robust — `"./src"`, `"src/"`, and
+ * `""` all behave like `"src"` / whole-workspace instead of silently matching nothing.
+ */
+export function scopedPattern(pattern: string, path?: string): string {
+  const clean = (s: string): string => s.replace(/^\.\/+/, "").replace(/\/+$/, "");
+  const dir = path === undefined ? "" : clean(path);
+  const pat = pattern.replace(/^\.\/+/, "");
+  return dir === "" || dir === "." ? pat : `${dir}/${pat}`;
+}
 export class GlobTool implements Tool<z.infer<typeof globArgs>> {
   readonly name = "glob";
   readonly description =
@@ -213,7 +228,7 @@ export class GlobTool implements Tool<z.infer<typeof globArgs>> {
     { pattern, path }: z.infer<typeof globArgs>,
     ctx: ToolContext,
   ): Promise<ToolResult> {
-    const matches = await executionOf(ctx).list(path ? `${path}/${pattern}` : pattern);
+    const matches = await executionOf(ctx).list(scopedPattern(pattern, path));
     return okResult(matches.length ? matches.join("\n") : "no matches");
   }
 }

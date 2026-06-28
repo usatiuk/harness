@@ -1,22 +1,38 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { findProjectRoot } from "@harness/config";
+import { dirname, join, resolve } from "node:path";
 import { captureText } from "./docker-cli.ts";
 
 /** Default devcontainer config path (relative to the project root); the CLI auto-discovers it. */
 export const DEFAULT_DEVCONTAINER_CONFIG = ".devcontainer/devcontainer.json";
 
 /**
- * The root the sandbox keys, provisions, and tears down on: the project root (nearest ancestor with
- * a `.harness/` dir), else the path itself. Keying on this — not the raw cwd — means a CLI command
- * or conversation started from a subdirectory resolves to the same container, so containers can't
- * leak or fork by working directory. Mirrors `updateLocalSettings`' project-root resolution.
+ * The root the sandbox keys, provisions, and tears down on: the nearest ancestor with a
+ * `.devcontainer/` dir (the container's definition), else the path itself. The container is defined
+ * by `.devcontainer/`, not the `.harness/` settings marker — decoupled so a project under the harness
+ * home with `.devcontainer/` but no `.harness/` provisions against the project, not `~`. Keying on
+ * this (not the raw cwd) means a CLI command or conversation started from a subdirectory resolves to
+ * the same container, so containers can't leak or fork by working directory.
  */
-async function sandboxRoot(root: string): Promise<string> {
-  return (await findProjectRoot(root)) ?? root;
+export async function containerRoot(start: string): Promise<string> {
+  let dir = resolve(start);
+  for (;;) {
+    if (await isDirectory(join(dir, ".devcontainer"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return resolve(start);
+    dir = parent;
+  }
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -77,6 +93,12 @@ export interface ProvisionOptions {
   /** Devcontainer config path relative to the workspace; only passed through when non-default. */
   configPath: string;
   onStatus?: (status: SandboxStatus) => void;
+  /**
+   * Cancels an in-flight build: aborting kills the `devcontainer up` child (the promise then
+   * rejects). The container `up` may already have created is still labelled, so the caller reaps it
+   * by label after this settles — see `DockerExecutionContext.stop`.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -89,9 +111,9 @@ export async function provisionDevcontainer(
   hostRoot: string,
   opts: ProvisionOptions,
 ): Promise<Provisioned> {
-  // Resolve to the project root so the container key (and the devcontainer config lookup) is the
-  // same whether invoked from the project root or a subdirectory.
-  const root = await sandboxRoot(hostRoot);
+  // Resolve to the `.devcontainer/` root so the container key (and the config lookup) is the same
+  // whether invoked from the project root or a subdirectory.
+  const root = await containerRoot(hostRoot);
   // Fail fast on a misconfiguration ("sandbox enabled, no devcontainer") with a clear message,
   // rather than letting the devcontainer CLI fail opaquely deep in `up`.
   if (!existsSync(join(root, opts.configPath))) {
@@ -117,7 +139,7 @@ export async function provisionDevcontainer(
 
   const { cmd, pre } = devcontainerCmd();
   return new Promise<Provisioned>((resolvePromise, reject) => {
-    const child = spawn(cmd, [...pre, ...args], { cwd: root });
+    const child = spawn(cmd, [...pre, ...args], { cwd: root, signal: opts.signal });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
@@ -134,6 +156,11 @@ export async function provisionDevcontainer(
       ),
     );
     child.on("close", (code) => {
+      // Intentional cancellation, not a build failure — reject quietly without an `error` phase.
+      if (opts.signal?.aborted) {
+        reject(new Error("devcontainer up aborted"));
+        return;
+      }
       if (code !== 0) {
         opts.onStatus?.({ type: "sandbox.status", phase: "error", message: tail(stderr) });
         reject(new Error(`devcontainer up failed (exit ${code}): ${tail(stderr)}`));
@@ -218,9 +245,9 @@ function tail(s: string): string {
  * the live `DockerExecutionContext.stop()` and the standalone `harness sandbox stop` command.
  */
 export async function stopSandbox(hostRoot: string): Promise<number> {
-  // Same project-root key as `provisionDevcontainer`, so `stop` from a subdirectory targets the
-  // container that was built — no leak, no spurious "no sandbox container running".
-  const root = await sandboxRoot(hostRoot);
+  // Same `.devcontainer/` root key as `provisionDevcontainer`, so `stop` from a subdirectory targets
+  // the container that was built — no leak, no spurious "no sandbox container running".
+  const root = await containerRoot(hostRoot);
   const ls = await captureText("docker", ["ps", "-aq", "--filter", `label=${workspaceLabel(root)}`]); // prettier-ignore
   const ids = ls.stdout.split("\n").filter(Boolean);
   if (ids.length > 0) await captureText("docker", ["rm", "-f", ...ids]);
