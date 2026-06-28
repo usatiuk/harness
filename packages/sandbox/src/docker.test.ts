@@ -43,7 +43,14 @@ describe.skipIf(!dockerOk)("DockerExecutionContext (real container)", () => {
   }, 120_000);
 
   afterAll(async () => {
-    if (cid) spawnSync("docker", ["rm", "-f", cid], { stdio: "ignore" });
+    // Container runs as root, so its bind-mounted files are root-owned and the host (CI) user can't
+    // unlink them — clear /work from inside the container first. Plain-argv `find` handles dotfiles.
+    if (cid) {
+      spawnSync("docker", ["exec", cid, "find", "/work", "-mindepth", "1", "-delete"], {
+        stdio: "ignore",
+      });
+      spawnSync("docker", ["rm", "-f", cid], { stdio: "ignore" });
+    }
     if (hostDir) await rm(hostDir, { recursive: true, force: true });
   });
 

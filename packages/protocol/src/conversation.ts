@@ -16,11 +16,10 @@ export interface ConversationConfig {
 }
 
 /**
- * The durable per-conversation settings fragment: the top layer of the cascade, re-applied on every
- * resolve. It distinguishes "the user chose X for this conversation" from "X was the default the day
- * it was created" — so a `/model` switch survives resume while later settings-file edits still reach
- * the conversation. Opaque here (a `SettingsDoc` fragment validated by the config layer); typing it
- * concretely would create a protocol→config dependency cycle.
+ * The durable top-of-cascade settings layer, re-applied on every resolve: distinguishes a
+ * per-conversation choice (e.g. `/model`) from the creation-time default, so the choice survives
+ * resume. Opaque (`SettingsDoc` fragment, validated by the config layer) — a concrete type would
+ * pull `@harness/config` into the protocol.
  */
 export type ConversationOverrides = Record<string, unknown>;
 
@@ -41,8 +40,6 @@ export interface ConversationRecord {
 
 /**
  * A record together with its resolved config — the view the engine/service/plugins/CLI consume.
- * `conversation.workspaceRoot` (identity) and `conversation.config.model` (resolved) are both
- * reachable, and the type makes the derived-ness explicit.
  */
 export type Conversation = ConversationRecord & { config: ConversationConfig };
 

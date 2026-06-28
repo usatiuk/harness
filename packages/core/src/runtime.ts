@@ -46,9 +46,8 @@ export class Runtime {
 
   /**
    * Swap in a re-resolved conversation (e.g. after a `/model` override). Replaced wholesale, never
-   * mutated: a running turn captured its own `conversation` reference at the turn boundary, so this
-   * only affects the NEXT turn — the in-flight turn's model stays fixed (the model used for a request
-   * must match the model recorded as its usage).
+   * mutated — a running turn holds its own turn-boundary snapshot, so this only affects the next
+   * turn (a request's model must match its recorded usage).
    */
   setConversation(conversation: Conversation): void {
     this.#conversation = conversation;

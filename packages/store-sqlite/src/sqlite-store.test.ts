@@ -90,7 +90,6 @@ describe("SqliteStore (durable-only)", () => {
     raw.pragma("user_version = 2");
     raw.close();
 
-    // Opening with the current store applies the v2 → v3 migration.
     const store = new SqliteStore(path);
     // Old conversation data is wiped (the user chose reset over backfill)...
     expect(await store.getConversation("c1" as ConversationId)).toBeUndefined();

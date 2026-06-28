@@ -33,8 +33,8 @@ export interface HarnessServiceOptions {
   home?: string;
   /**
    * Lowest-precedence base layer, below all settings files (e.g. a CLI fallback model). Held on the
-   * service (not per-create) so it re-applies on every resolve — including resume — which also means
-   * config resolution can never fail "no model configured" when a fallback is supplied.
+   * service (not per-create) so it re-applies on every resolve, including resume — a fallback means
+   * resolution can never fail "no model configured".
    */
   defaults?: SettingsDoc;
 }
@@ -68,9 +68,8 @@ export class HarnessService {
     this.#store = options.store;
     this.#home = options.home ?? defaultHome();
     const defaults = options.defaults;
-    // Re-resolve a record's config from the cascade on demand: project search rooted at the
-    // conversation's workspace, its durable overrides as the top layer. The `#schemas`/`#engine`
-    // it closes over are populated below before this is ever called (at load/create time).
+    // Safe to close over `#schemas`: the plugin loop below populates it before this is ever
+    // invoked (at load/create time).
     this.#resolveConfig = (record) =>
       resolveSettings({
         home: this.#home,
@@ -79,9 +78,8 @@ export class HarnessService {
         ...(record.workspaceRoot !== null ? { cwd: record.workspaceRoot } : {}),
         overrides: record.overrides,
       });
-    // Reads a plugin's slice off the live runtime's resolved config (hot path), falling back to
-    // resolving the stored record. Late-binds `#engine.configFor` — `#engine` is assigned below,
-    // before any tool call (the only caller) can run.
+    // Late-binds `#engine.configFor` — `#engine` is assigned below, before any tool call (the only
+    // caller) can run.
     const reader = new ResolvedConfigReader(this.#store, this.#resolveConfig, (id) =>
       this.#engine.configFor(id),
     );
@@ -109,9 +107,8 @@ export class HarnessService {
     try {
       return await this.#resolve(record);
     } catch (e) {
-      // Resolve can fail on bad project settings or an unknown plugin in `overrides`. Persist-then-
-      // resolve would leave an empty, unusable record behind; roll it back so a failed create never
-      // existed (the record has no head/turns yet, so the if-empty delete always reaps it).
+      // Resolve can fail (bad project settings, unknown plugin in `overrides`); roll back so a failed
+      // create leaves nothing. The record has no head/turns yet, so deleteConversationIfEmpty always reaps.
       await this.#store.deleteConversationIfEmpty(record.id);
       throw e;
     }

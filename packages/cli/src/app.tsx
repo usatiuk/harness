@@ -144,9 +144,8 @@ export function App({
     () => findModel(service.availableModels(), model)?.contextWindow,
     [service, model],
   );
-  // Whether THIS conversation runs in the container. Config is resolved at load and fixed for the
-  // session (no live switching), so this is stable; `/sandbox on|off` changes the setting for the
-  // next conversation and on resume, not the running one. Config slice is opaque, so read defensively.
+  // Fixed for this session: config re-resolves on load, and `/sandbox on|off` applies to the next
+  // conversation and on resume, not this one. Slice is opaque, so read defensively.
   const sandboxEnabled =
     (conversation.config.plugins?.["sandbox"] as { enabled?: boolean } | undefined)?.enabled ===
     true;
@@ -215,11 +214,8 @@ export function App({
   };
 
   // Memoized so the completion menu (keyed on `ctx`) doesn't recompute on every streaming re-render.
-  // `/sandbox on|off` writes the project-local setting — it does NOT flip the running conversation;
-  // it applies on the next conversation and on resume (lossless, since config re-resolves on load).
-  // `rebuild`/`stop` act on THIS conversation's live container via its execution context (a narrow
-  // downcast, like `runShell`), so they clear the cached handle + idle timer — no stale-handle hiccup
-  // on the next message. When the sandbox is off the context is Local, so there's nothing to act on.
+  // `rebuild`/`stop` act on this conversation's live container via its execution context (a narrow
+  // downcast, like `runShell`); no-op when the sandbox is off (context is Local, nothing to act on).
   const sandboxView: SandboxView = useMemo(() => {
     const dockerCtx = (): DockerExecutionContext | undefined => {
       const ex = service.service(conversation.id, "execution");

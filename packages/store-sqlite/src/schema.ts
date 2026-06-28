@@ -168,13 +168,11 @@ CREATE TABLE model_usage (
 CREATE INDEX model_usage_conv ON model_usage(conversation_id);
 `;
 
-// v2 → v3: a conversation no longer stores a resolved-config snapshot — it stores `workspace_root`
-// (identity) + an `overrides` settings layer, and config is re-resolved from the cascade on load.
-// The store is disposable, so we WIPE conversation-scoped data rather than backfill a `workspace_root`
-// dug out of each old `config` blob (the user chose reset over migration). Only `conversations`
-// changes shape (drop+recreate); the child tables are just emptied. FKs are toggled off for the
-// reshape so the drop/recreate needs no delete-ordering dance, then restored (the connection keeps
-// this pragma, and the schema relies on FK enforcement).
+// v2 → v3: store `workspace_root` (identity) + an `overrides` layer; config is re-resolved from the
+// cascade on load. The store is disposable, so conversation-scoped data is WIPED, not backfilled from
+// old `config` blobs (reset chosen over migration). FKs are toggled off for the conversations
+// drop/recreate so no delete-ordering is needed, then restored — the connection retains the pragma
+// and the schema relies on FK enforcement.
 const CONVERSATIONS_OVERRIDES = `
 PRAGMA foreign_keys = OFF;
 DROP TABLE IF EXISTS conversations;

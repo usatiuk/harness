@@ -99,9 +99,8 @@ async function buildHarness(): Promise<Harness> {
     approvalPlugin,
   );
   const resolvedFallback: ModelConfig = fallbackModel ?? { provider: "demo", model: "demo-1" };
-  // The fallback is the lowest cascade layer (below all settings files), re-applied on every resolve
-  // — so every conversation has a model even on resume with no settings, and config resolution never
-  // fails "no model configured".
+  // Lowest cascade layer: every conversation has a model even on resume with no settings, and
+  // resolution never fails "no model configured".
   const service = new HarnessService({ store, plugins, defaults: { model: resolvedFallback } });
   return { service, store, fallbackModel: resolvedFallback };
 }

@@ -7,11 +7,9 @@ import type {
 } from "@harness/protocol";
 
 /**
- * Serves a plugin's resolved config slice for a conversation. Reads the already-resolved config off
- * the live runtime via `configFor` (the hot path — a tool call only runs inside a loaded runtime),
- * and falls back to resolving the stored record when no runtime is live (e.g. a client read before
- * the first turn). Either way it reflects the current settings cascade + the conversation's
- * overrides — never a stale creation-time snapshot.
+ * Serves a plugin's resolved config slice for a conversation. Hot path reads the live runtime's
+ * resolved config via `configFor`; falls back to resolving the stored record when no runtime is
+ * live. Always reflects the current cascade + overrides — never a stale creation-time snapshot.
  */
 export class ResolvedConfigReader implements ConfigReader {
   constructor(

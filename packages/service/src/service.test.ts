@@ -106,8 +106,7 @@ describe("HarnessService", () => {
     const good = await service.createConversation({
       overrides: { model: { provider: "fake", model: "fake-1" } },
     });
-    // A record referencing an unknown plugin can't resolve; inserted via the store directly because
-    // createConversation would (correctly) reject it. One bad project settings shouldn't break the picker.
+    // Inserted via the store directly — createConversation would (correctly) reject an unknown plugin.
     await store.createConversation({ workspaceRoot: null, overrides: { plugins: { ghost: {} } } });
 
     expect((await service.listConversations()).map((c) => c.id)).toEqual([good.id]);
@@ -121,7 +120,6 @@ describe("HarnessService", () => {
         overrides: { model: { provider: "fake", model: "fake-1" }, plugins: { ghost: {} } },
       }),
     ).rejects.toThrow(/unknown plugin 'ghost'/);
-    // No empty, unusable record left behind.
     expect(await store.listConversations()).toEqual([]);
   });
 });

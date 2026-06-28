@@ -242,9 +242,8 @@ function tail(s: string): string {
 
 /**
  * Tears down the workspace's container(s) by id-label (`rm -f`), returning how many were removed.
- * Reached by `DockerExecutionContext.stop()`/`rebuild()` (so the CLI's `/sandbox stop`/`rebuild`) and
- * the standalone `harness sandbox stop` command; reserved for explicit teardown (idle reaping uses
- * `docker stop`).
+ * Reserved for explicit teardown (`stop()`/`rebuild()` and the standalone `harness sandbox stop`);
+ * idle reaping uses `docker stop` instead.
  */
 export async function stopSandbox(hostRoot: string): Promise<number> {
   // Same `.devcontainer/` root key as `provisionDevcontainer`, so `stop` from a subdirectory targets

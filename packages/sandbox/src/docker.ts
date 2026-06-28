@@ -274,11 +274,9 @@ export class DockerExecutionContext implements ExecutionContext {
   }
 
   /**
-   * Whether an interactive (`-it`) session is attached: it allocates a pty, which shows as a numbered
-   * entry under `/dev/pts` (alongside the always-present `ptmx`). The agent's own execs are not
-   * `-t`, so they leave no pty — only `harness sandbox shell` does. Best-effort: if the probe itself
-   * can't run (daemon unreachable) treat it as busy, since a wrongly-reaped container would kill an
-   * attached shell; a container that's merely gone returns a non-zero exit (count 0) and is reaped.
+   * Whether an interactive (`harness sandbox shell`, the only `-t` caller) is attached: it leaves a
+   * numbered pty under `/dev/pts` (agent execs don't). Best-effort — treat a failed probe as busy,
+   * since a wrongly-reaped container would kill an attached shell.
    */
   async #hasInteractiveSession(): Promise<boolean> {
     const h = await this.#provision?.catch(() => undefined);
@@ -290,8 +288,6 @@ export class DockerExecutionContext implements ExecutionContext {
       "-c",
       "ls -1 /dev/pts 2>/dev/null | grep -vc ptmx",
     ]).catch(() => undefined);
-    // A live container whose probe failed (transient daemon hiccup) is treated as busy: a missed
-    // reap just retries next window, but a wrongly-reaped container kills an attached shell.
     if (!r) return true;
     return Number(r.stdout.trim()) > 0;
   }
@@ -343,12 +339,10 @@ export class DockerExecutionContext implements ExecutionContext {
   }
 
   /**
-   * Run a `docker exec` against the live container, retrying ONCE if it failed because the container
-   * was torn down out-of-band (e.g. `harness sandbox stop` in another terminal, or an external
-   * `docker rm`): drop the stale handle, re-provision, and try again — so external teardown self-heals
-   * transparently instead of surfacing a failed tool call. `build` takes the freshly-resolved handle
-   * so the retry targets the new container. Only safe for the idempotent file ops; `spawn` (which may
-   * have side effects) deliberately doesn't retry.
+   * Run `docker exec`, retrying ONCE if the container was torn down out-of-band (external `docker rm`,
+   * `harness sandbox stop` in another terminal): re-provision and retry so external teardown self-heals
+   * instead of surfacing a failed tool call. Only idempotent file ops go through this; `spawn` (side
+   * effects) deliberately doesn't retry.
    */
   async #withRetry<R extends { stderr: string; exitCode: number }>(
     build: (h: Provisioned) => Promise<R>,

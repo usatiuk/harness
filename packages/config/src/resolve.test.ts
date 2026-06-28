@@ -69,9 +69,8 @@ describe("resolveSettings cascade", () => {
     expect(config.plugins?.demo).toEqual({ level: "high", rules: {} });
   });
 
-  // A `/model` switch persists `overrides.model = {provider, model}` with no effort; because the
-  // cascade deep-merges, a settings-level effort rides along. Accepted: effort is orthogonal to the
-  // model id. (This documents the behavior the conversation `overrides` layer relies on.)
+  // `/model` persists `overrides.model = {provider, model}` with no effort; the cascade deep-merges,
+  // so a settings-level effort rides along. Accepted — effort is orthogonal to the model id.
   it("a model override without effort inherits a settings-level effort (deep-merge)", async () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
