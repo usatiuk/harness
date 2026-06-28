@@ -1,12 +1,33 @@
-import type { ConfigReader, ConversationId, Store } from "@harness/protocol";
+import type {
+  ConfigReader,
+  ConfigResolver,
+  ConversationConfig,
+  ConversationId,
+  Store,
+} from "@harness/protocol";
 
-/** Reads plugin config slices from the store row each call — no cache, so a live config change is never stale. */
-export class StoreConfigReader implements ConfigReader {
-  constructor(private readonly store: Store) {}
+/**
+ * Serves a plugin's resolved config slice for a conversation. Reads the already-resolved config off
+ * the live runtime via `configFor` (the hot path — a tool call only runs inside a loaded runtime),
+ * and falls back to resolving the stored record when no runtime is live (e.g. a client read before
+ * the first turn). Either way it reflects the current settings cascade + the conversation's
+ * overrides — never a stale creation-time snapshot.
+ */
+export class ResolvedConfigReader implements ConfigReader {
+  constructor(
+    private readonly store: Store,
+    private readonly resolveConfig: ConfigResolver,
+    private readonly configFor: (id: ConversationId) => ConversationConfig | undefined,
+  ) {}
 
   async get<C = unknown>(pluginId: string, conversationId: ConversationId): Promise<C> {
-    const conversation = await this.store.getConversation(conversationId);
-    if (!conversation) throw new Error(`unknown conversation: ${conversationId}`);
-    return (conversation.config.plugins?.[pluginId] ?? {}) as C;
+    const config = this.configFor(conversationId) ?? (await this.#resolve(conversationId));
+    return (config.plugins?.[pluginId] ?? {}) as C;
+  }
+
+  async #resolve(conversationId: ConversationId): Promise<ConversationConfig> {
+    const record = await this.store.getConversation(conversationId);
+    if (!record) throw new Error(`unknown conversation: ${conversationId}`);
+    return this.resolveConfig(record);
   }
 }

@@ -46,7 +46,6 @@ describe("resolveSettings cascade", () => {
 
     expect(config.instructions).toBe("local"); // local wins
     expect(config.model).toEqual(model); // only global set it
-    expect(config.workspaceRoot).toBe(root);
     expect(config.plugins?.demo).toEqual({ level: "high", rules: {} });
   });
 
@@ -70,6 +69,24 @@ describe("resolveSettings cascade", () => {
     expect(config.plugins?.demo).toEqual({ level: "high", rules: {} });
   });
 
+  // A `/model` switch persists `overrides.model = {provider, model}` with no effort; because the
+  // cascade deep-merges, a settings-level effort rides along. Accepted: effort is orthogonal to the
+  // model id. (This documents the behavior the conversation `overrides` layer relies on.)
+  it("a model override without effort inherits a settings-level effort (deep-merge)", async () => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model: { provider: "p", model: "m1", effort: "high" },
+    });
+
+    const config = await resolveSettings({
+      home,
+      schemas,
+      overrides: { model: { provider: "p", model: "m2" } },
+    });
+
+    expect(config.model).toEqual({ provider: "p", model: "m2", effort: "high" });
+  });
+
   it("roots the workspace at cwd, not at an ancestor that holds a .harness/ dir", async () => {
     const home = await tmp();
     const root = await tmp(); // an ancestor with project settings (e.g. a ~/.harness-style dir)
@@ -80,7 +97,6 @@ describe("resolveSettings cascade", () => {
 
     const config = await resolveSettings({ home, cwd: sub, schemas });
 
-    expect(config.workspaceRoot).toBe(sub); // workspace is the cwd, not the ancestor
     expect(config.instructions).toBe("project"); // settings still discovered up the tree
   });
 
@@ -90,7 +106,6 @@ describe("resolveSettings cascade", () => {
 
     const config = await resolveSettings({ home, schemas });
 
-    expect(config.workspaceRoot).toBeNull();
     expect(config.plugins?.demo).toEqual({ level: "low", rules: {} });
   });
 
@@ -218,7 +233,6 @@ describe("resolveSettings home/project separation", () => {
 
     const config = await resolveSettings({ home, cwd: proj, schemas });
 
-    expect(config.workspaceRoot).toBe(proj);
     expect(config.instructions).toBe("global"); // not "LEAKED"
   });
 

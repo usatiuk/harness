@@ -3,10 +3,12 @@ import { render } from "ink-testing-library";
 import type { Conversation } from "@harness/protocol";
 import { ResumePicker } from "./resume-picker.tsx";
 
-const conv = (id: string, model: string, workspaceRoot?: string | null): Conversation =>
+const conv = (id: string, model: string, workspaceRoot: string | null = null): Conversation =>
   ({
     id,
-    config: { instructions: "", model: { provider: "x", model }, workspaceRoot },
+    workspaceRoot,
+    overrides: {},
+    config: { instructions: "", model: { provider: "x", model } },
     head: null,
     createdAt: Date.now(),
   }) as unknown as Conversation;

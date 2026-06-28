@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationId, NewItem, Store, TurnId } from "@harness/protocol";
+import { newConversationInput } from "./conversation.ts";
 
-const sampleConfig = () => ({
-  instructions: "be helpful",
-  model: { provider: "fake", model: "fake-1" },
-  plugins: { demo: { level: "high" } },
-});
+const sampleRecord = () =>
+  newConversationInput({
+    instructions: "be helpful",
+    model: { provider: "fake", model: "fake-1" },
+    plugins: { demo: { level: "high" } },
+  });
 
 const message = (conversationId: ConversationId, turnId: TurnId, text: string): NewItem => ({
   conversationId,
@@ -23,7 +25,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
   describe(name, () => {
     it("assigns monotonic per-conversation seq on append", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(conv.id);
       const a = await store.appendItem(message(conv.id, turn.id, "hi"));
       const b = await store.appendItem(message(conv.id, turn.id, "yo"));
@@ -34,31 +36,49 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("listConversations returns every conversation, most-recent-first", async () => {
       const store = makeStore();
-      const a = await store.createConversation({ config: sampleConfig() });
-      const b = await store.createConversation({ config: sampleConfig() });
-      const c = await store.createConversation({ config: sampleConfig() });
+      const a = await store.createConversation(sampleRecord());
+      const b = await store.createConversation(sampleRecord());
+      const c = await store.createConversation(sampleRecord());
       expect((await store.listConversations()).map((x) => x.id)).toEqual([c.id, b.id, a.id]);
     });
 
-    it("updateConversationModel switches the model and leaves other config untouched", async () => {
+    it("updateConversationOverrides shallow-merges the patch and preserves the rest", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
-      await store.updateConversationModel(conv.id, { provider: "fake", model: "fake-2" });
+      const conv = await store.createConversation(sampleRecord());
+      await store.updateConversationOverrides(conv.id, {
+        model: { provider: "fake", model: "fake-2" },
+      });
       const updated = await store.getConversation(conv.id);
-      expect(updated?.config.model).toEqual({ provider: "fake", model: "fake-2" });
-      expect(updated?.config.instructions).toBe("be helpful");
-      expect(updated?.config.plugins).toEqual({ demo: { level: "high" } });
+      expect(updated?.overrides.model).toEqual({ provider: "fake", model: "fake-2" });
+      expect(updated?.overrides.instructions).toBe("be helpful");
+      expect(updated?.overrides.plugins).toEqual({ demo: { level: "high" } });
+    });
+
+    it("updateConversationOverrides applies concurrent different-key patches without losing a write", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation(sampleRecord());
+      // Both fire before either is awaited. A non-atomic read-modify-write would let the two patches
+      // read the same base and the second clobber the first's key; an atomic merge keeps both.
+      await Promise.all([
+        store.updateConversationOverrides(conv.id, {
+          model: { provider: "fake", model: "fake-2" },
+        }),
+        store.updateConversationOverrides(conv.id, { instructions: "be terse" }),
+      ]);
+      const updated = await store.getConversation(conv.id);
+      expect(updated?.overrides.model).toEqual({ provider: "fake", model: "fake-2" });
+      expect(updated?.overrides.instructions).toBe("be terse");
     });
 
     it("deleteConversationIfEmpty drops untouched conversations and spares used ones", async () => {
       const store = makeStore();
-      const empty = await store.createConversation({ config: sampleConfig() });
-      const used = await store.createConversation({ config: sampleConfig() });
+      const empty = await store.createConversation(sampleRecord());
+      const used = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(used.id);
       await store.appendItem(message(used.id, turn.id, "hi"));
 
       // A conversation whose turn never appended (head still null) counts as in-use.
-      const started = await store.createConversation({ config: sampleConfig() });
+      const started = await store.createConversation(sampleRecord());
       await store.createTurn(started.id);
 
       await store.deleteConversationIfEmpty(empty.id);
@@ -73,7 +93,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("links parent to the prior head and advances head on append", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       expect(conv.head).toBeNull();
       const turn = await store.createTurn(conv.id);
       const a = await store.appendItem(message(conv.id, turn.id, "a"));
@@ -85,7 +105,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("setHead moves head and listActiveItems follows the new lineage", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(conv.id);
       const a = await store.appendItem(message(conv.id, turn.id, "a"));
       const b = await store.appendItem(message(conv.id, turn.id, "b"));
@@ -96,8 +116,8 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("setHead rejects an item from another conversation", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
-      const other = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
+      const other = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(other.id);
       const stray = await store.appendItem(message(other.id, turn.id, "x"));
       await expect(store.setHead(conv.id, stray.id)).rejects.toThrow();
@@ -105,7 +125,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("branches: the abandoned tail is off the active chain but kept in the raw log", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(conv.id);
       const a = await store.appendItem(message(conv.id, turn.id, "a"));
       const abandoned = await store.appendItem(message(conv.id, turn.id, "abandoned"));
@@ -126,7 +146,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("listItems honors a seq range", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(conv.id);
       await store.appendItem(message(conv.id, turn.id, "a"));
       await store.appendItem(message(conv.id, turn.id, "b"));
@@ -137,7 +157,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("round-trips a reasoning item", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(conv.id);
       const item = await store.appendItem({
         conversationId: conv.id,
@@ -154,7 +174,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("round-trips a context item, key intact, on the active chain", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(conv.id);
       const item = await store.appendItem({
         conversationId: conv.id,
@@ -172,7 +192,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("tracks at most one running turn", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(conv.id);
       expect(await store.getActiveTurn(conv.id)).toEqual(turn);
       await expect(store.createTurn(conv.id)).rejects.toThrow();
@@ -184,7 +204,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("round-trips provider payloads by itemId", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(conv.id);
       const a = await store.appendItem(message(conv.id, turn.id, "x"));
       const b = await store.appendItem(message(conv.id, turn.id, "y"));
@@ -203,7 +223,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("round-trips model usage rows in record order", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(conv.id);
       const build = await store.recordContextBuild({
         conversationId: conv.id,
@@ -240,7 +260,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
 
     it("namespaces plugin state by plugin + conversation + key", async () => {
       const store = makeStore();
-      const conv = await store.createConversation({ config: sampleConfig() });
+      const conv = await store.createConversation(sampleRecord());
       await store.putPluginState("p", conv.id, "k", { v: 1 });
       expect(await store.getPluginState("p", conv.id, "k")).toEqual({ v: 1 });
       expect(await store.getPluginState("p", conv.id, "other")).toBeUndefined();

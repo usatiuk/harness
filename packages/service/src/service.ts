@@ -1,6 +1,8 @@
 import type {
+  ConfigResolver,
   Conversation,
   ConversationId,
+  ConversationRecord,
   DeliveryIntent,
   HarnessEvent,
   Item,
@@ -17,7 +19,7 @@ import { Engine, PluginHost } from "@harness/core";
 import {
   defaultHome,
   resolveSettings,
-  StoreConfigReader,
+  ResolvedConfigReader,
   updateGlobalModel,
   type SettingsDoc,
 } from "@harness/config";
@@ -29,17 +31,22 @@ export interface HarnessServiceOptions {
   plugins: PluginEntry[];
   /** Harness home directory (global settings; later the db root). Defaults to `~/.harness`. */
   home?: string;
+  /**
+   * Lowest-precedence base layer, below all settings files (e.g. a CLI fallback model). Held on the
+   * service (not per-create) so it re-applies on every resolve — including resume — which also means
+   * config resolution can never fail "no model configured" when a fallback is supplied.
+   */
+  defaults?: SettingsDoc;
 }
 
 export interface CreateConversationOptions {
-  /** Lowest-precedence base layer, below all settings files (e.g. a CLI fallback model). */
-  defaults?: SettingsDoc;
   /** Project search root; absent ⇒ projectless (no project settings, no workspace). */
   cwd?: string;
-  /** Named profile to overlay above project settings. */
-  profile?: string;
-  /** Programmatic top layer (highest precedence), e.g. a CLI-chosen model. */
-  overrides?: SettingsDoc;
+  /**
+   * The conversation's durable `overrides` (top cascade layer), e.g. a CLI-chosen model or seed
+   * instructions. Re-applied on every resolve, so it survives resume.
+   */
+  overrides?: Record<string, unknown>;
 }
 
 export type EventListener = (event: HarnessEvent) => void;
@@ -55,11 +62,29 @@ export class HarnessService {
   readonly #engine: Engine;
   readonly #home: string;
   readonly #schemas = new Map<string, ZodType>();
+  readonly #resolveConfig: ConfigResolver;
 
   constructor(options: HarnessServiceOptions) {
     this.#store = options.store;
     this.#home = options.home ?? defaultHome();
-    const reader = new StoreConfigReader(this.#store);
+    const defaults = options.defaults;
+    // Re-resolve a record's config from the cascade on demand: project search rooted at the
+    // conversation's workspace, its durable overrides as the top layer. The `#schemas`/`#engine`
+    // it closes over are populated below before this is ever called (at load/create time).
+    this.#resolveConfig = (record) =>
+      resolveSettings({
+        home: this.#home,
+        schemas: this.#schemas,
+        ...(defaults !== undefined ? { defaults } : {}),
+        ...(record.workspaceRoot !== null ? { cwd: record.workspaceRoot } : {}),
+        overrides: record.overrides,
+      });
+    // Reads a plugin's slice off the live runtime's resolved config (hot path), falling back to
+    // resolving the stored record. Late-binds `#engine.configFor` — `#engine` is assigned below,
+    // before any tool call (the only caller) can run.
+    const reader = new ResolvedConfigReader(this.#store, this.#resolveConfig, (id) =>
+      this.#engine.configFor(id),
+    );
     const plugins: Plugin[] = [];
     for (const entry of options.plugins) {
       if (isPluginDefinition(entry)) {
@@ -69,20 +94,32 @@ export class HarnessService {
         plugins.push(entry);
       }
     }
-    this.#engine = new Engine(this.#store, new PluginHost(plugins));
+    this.#engine = new Engine(this.#store, new PluginHost(plugins), this.#resolveConfig);
   }
 
-  /** Resolves the settings cascade and stores the resolved config on the new conversation. */
+  /**
+   * Persists a new conversation record (its workspace + durable overrides) and returns it with its
+   * freshly resolved config. Config is never stored — it is re-derived on every load.
+   */
   async createConversation(options: CreateConversationOptions = {}): Promise<Conversation> {
-    const config = await resolveSettings({
-      home: this.#home,
-      schemas: this.#schemas,
-      ...(options.defaults !== undefined ? { defaults: options.defaults } : {}),
-      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-      ...(options.profile !== undefined ? { profile: options.profile } : {}),
-      ...(options.overrides !== undefined ? { overrides: options.overrides } : {}),
+    const record = await this.#store.createConversation({
+      workspaceRoot: options.cwd ?? null,
+      overrides: options.overrides ?? {},
     });
-    return this.#store.createConversation({ config });
+    try {
+      return await this.#resolve(record);
+    } catch (e) {
+      // Resolve can fail on bad project settings or an unknown plugin in `overrides`. Persist-then-
+      // resolve would leave an empty, unusable record behind; roll it back so a failed create never
+      // existed (the record has no head/turns yet, so the if-empty delete always reaps it).
+      await this.#store.deleteConversationIfEmpty(record.id);
+      throw e;
+    }
+  }
+
+  /** Pair a durable record with its freshly resolved config — the resolved view clients consume. */
+  async #resolve(record: ConversationRecord): Promise<Conversation> {
+    return { ...record, config: await this.#resolveConfig(record) };
   }
 
   /**
@@ -168,9 +205,11 @@ export class HarnessService {
     return this.#engine.serviceFor(conversationId, key);
   }
 
-  /** One conversation by id. Backs session resume. */
-  getConversation(id: ConversationId): Promise<Conversation | undefined> {
-    return this.#store.getConversation(id);
+  /** One conversation by id, with its config resolved on read. Backs session resume. */
+  async getConversation(id: ConversationId): Promise<Conversation | undefined> {
+    const record = await this.#store.getConversation(id);
+    if (!record) return undefined;
+    return this.#resolve(record);
   }
 
   /** Drops a conversation a client created but left empty (head null, no turns). */
@@ -178,9 +217,22 @@ export class HarnessService {
     return this.#store.deleteConversationIfEmpty(id);
   }
 
-  /** All conversations, most-recent-first. Backs the resume picker. */
-  listConversations(): Promise<Conversation[]> {
-    return this.#store.listConversations();
+  /**
+   * All conversations, most-recent-first, each with its config resolved. Resolution is per-record
+   * and defensive: one conversation whose project `settings.json` is broken (invalid JSON, unknown
+   * plugin, no model) is skipped rather than breaking the whole picker.
+   */
+  async listConversations(): Promise<Conversation[]> {
+    const records = await this.#store.listConversations();
+    const out: Conversation[] = [];
+    for (const record of records) {
+      try {
+        out.push(await this.#resolve(record));
+      } catch {
+        // Unresolvable (and thus unloadable) until its settings are fixed — omit from the listing.
+      }
+    }
+    return out;
   }
 
   /** The active item chain (head's ancestry) — the render/resume source for a conversation. */

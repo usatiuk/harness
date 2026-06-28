@@ -6,16 +6,16 @@ import { Kysely, SqliteDialect, sql } from "kysely";
 import type {
   ByteRange,
   Clock,
-  Conversation,
   ConversationId,
+  ConversationOverrides,
+  ConversationRecord,
   ContextBuild,
   IdGenerator,
   Item,
   ItemId,
-  ModelConfig,
   ModelUsage,
   NewContextBuild,
-  NewConversation,
+  NewConversationRecord,
   NewItem,
   NewModelUsage,
   OutputRef,
@@ -50,6 +50,7 @@ export class SqliteStore implements Store {
   readonly #db: BetterSqlite3.Database;
   readonly #k: Kysely<Database>;
   readonly #appendTxn: (p: AppendParams) => { seq: number; parent: string | null };
+  readonly #updateOverridesTxn: (id: string, patch: ConversationOverrides) => void;
 
   constructor(
     path: string,
@@ -65,6 +66,7 @@ export class SqliteStore implements Store {
     migrate(this.#db);
     this.#k = new Kysely<Database>({ dialect: new SqliteDialect({ database: this.#db }) });
     this.#appendTxn = this.#buildAppendTxn();
+    this.#updateOverridesTxn = this.#buildUpdateOverridesTxn();
   }
 
   /** Releases the connection (checkpoints WAL). Not in the `Store` interface. */
@@ -72,32 +74,34 @@ export class SqliteStore implements Store {
     this.#db.close();
   }
 
-  async createConversation(input: NewConversation): Promise<Conversation> {
-    const conversation: Conversation = {
+  async createConversation(input: NewConversationRecord): Promise<ConversationRecord> {
+    const record: ConversationRecord = {
       id: this.ids.conversationId(),
-      config: input.config,
+      workspaceRoot: input.workspaceRoot,
+      overrides: input.overrides,
       head: null,
       createdAt: this.clock.now(),
     };
     await this.#k
       .insertInto("conversations")
       .values({
-        id: conversation.id,
-        config: JSON.stringify(conversation.config),
+        id: record.id,
+        workspace_root: record.workspaceRoot,
+        overrides: JSON.stringify(record.overrides),
         head: null,
-        created_at: conversation.createdAt,
+        created_at: record.createdAt,
       })
       .execute();
-    return conversation;
+    return record;
   }
 
-  async getConversation(id: ConversationId): Promise<Conversation | undefined> {
+  async getConversation(id: ConversationId): Promise<ConversationRecord | undefined> {
     const row = await this.#k
       .selectFrom("conversations")
       .selectAll()
       .where("id", "=", id)
       .executeTakeFirst();
-    return row ? rowToConversation(row) : undefined;
+    return row ? rowToRecord(row) : undefined;
   }
 
   async deleteConversationIfEmpty(id: ConversationId): Promise<void> {
@@ -109,26 +113,20 @@ export class SqliteStore implements Store {
       .execute();
   }
 
-  async updateConversationModel(id: ConversationId, model: ModelConfig): Promise<void> {
-    const conversation = await this.getConversation(id);
-    if (!conversation) {
-      throw new Error(`unknown conversation: ${id}`);
-    }
-    const config = { ...conversation.config, model };
-    await this.#k
-      .updateTable("conversations")
-      .set({ config: JSON.stringify(config) })
-      .where("id", "=", id)
-      .execute();
+  async updateConversationOverrides(
+    id: ConversationId,
+    patch: ConversationOverrides,
+  ): Promise<void> {
+    this.#updateOverridesTxn(id, patch);
   }
 
-  async listConversations(): Promise<Conversation[]> {
+  async listConversations(): Promise<ConversationRecord[]> {
     const rows = await this.#k
       .selectFrom("conversations")
       .selectAll()
       .orderBy("created_at", "desc")
       .execute();
-    return rows.map(rowToConversation);
+    return rows.map(rowToRecord);
   }
 
   // Atomic read-then-write of seq/parent + head. Native IMMEDIATE txn (Kysely only issues
@@ -412,6 +410,24 @@ export class SqliteStore implements Store {
     });
     return (p) => txn.immediate(p);
   }
+
+  // Atomic shallow-merge of the overrides layer. The read-merge-write runs in one IMMEDIATE txn, so
+  // two concurrent patches of different keys can't lose a write the way a deferred SELECT-then-UPDATE
+  // could. Kept in JS rather than SQLite's json_patch() — that's a *deep* RFC-7396 merge, which would
+  // change the documented overrides.model effort-inheritance (top-level keys must be replaced whole).
+  #buildUpdateOverridesTxn(): (id: string, patch: ConversationOverrides) => void {
+    const read = this.#db.prepare<[string], { overrides: string }>(
+      "SELECT overrides FROM conversations WHERE id = ?",
+    );
+    const write = this.#db.prepare("UPDATE conversations SET overrides = ? WHERE id = ?");
+    const txn = this.#db.transaction((id: string, patch: ConversationOverrides) => {
+      const row = read.get(id);
+      if (!row) throw new Error(`unknown conversation: ${id}`);
+      const overrides = { ...(JSON.parse(row.overrides) as ConversationOverrides), ...patch };
+      write.run(JSON.stringify(overrides), id);
+    });
+    return (id, patch) => txn.immediate(id, patch);
+  }
 }
 
 function rowToItem(row: ItemRow): Item {
@@ -441,10 +457,11 @@ function rowToModelUsage(row: Database["model_usage"]): ModelUsage {
   };
 }
 
-function rowToConversation(row: Database["conversations"]): Conversation {
+function rowToRecord(row: Database["conversations"]): ConversationRecord {
   return {
     id: row.id as ConversationId,
-    config: JSON.parse(row.config) as Conversation["config"],
+    workspaceRoot: row.workspace_root,
+    overrides: JSON.parse(row.overrides) as ConversationOverrides,
     head: row.head as ItemId | null,
     createdAt: row.created_at,
   };

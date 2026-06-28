@@ -1,15 +1,15 @@
 import type {
   Clock,
-  Conversation,
   ContextBuild,
   ConversationId,
+  ConversationOverrides,
+  ConversationRecord,
   IdGenerator,
   Item,
   ItemId,
-  ModelConfig,
   ModelUsage,
   NewContextBuild,
-  NewConversation,
+  NewConversationRecord,
   NewItem,
   NewModelUsage,
   OutputRef,
@@ -28,7 +28,7 @@ const pluginStateKey = (plugin: string, conversationId: ConversationId, key: str
 
 /** Reference, non-durable Store. The contract suite (testkit) holds the spec. */
 export class InMemoryStore implements Store {
-  readonly #conversations = new Map<ConversationId, Conversation>();
+  readonly #conversations = new Map<ConversationId, ConversationRecord>();
   readonly #items = new Map<ConversationId, Item[]>();
   readonly #turns = new Map<TurnId, Turn>();
   readonly #payloads = new Map<ItemId, ProviderPayload>();
@@ -43,19 +43,20 @@ export class InMemoryStore implements Store {
     private readonly clock: Clock = systemClock,
   ) {}
 
-  async createConversation(input: NewConversation): Promise<Conversation> {
-    const conversation: Conversation = {
+  async createConversation(input: NewConversationRecord): Promise<ConversationRecord> {
+    const record: ConversationRecord = {
       id: this.ids.conversationId(),
-      config: input.config,
+      workspaceRoot: input.workspaceRoot,
+      overrides: input.overrides,
       head: null,
       createdAt: this.clock.now(),
     };
-    this.#conversations.set(conversation.id, conversation);
-    this.#items.set(conversation.id, []);
-    return conversation;
+    this.#conversations.set(record.id, record);
+    this.#items.set(record.id, []);
+    return record;
   }
 
-  async getConversation(id: ConversationId): Promise<Conversation | undefined> {
+  async getConversation(id: ConversationId): Promise<ConversationRecord | undefined> {
     return this.#conversations.get(id);
   }
 
@@ -69,15 +70,18 @@ export class InMemoryStore implements Store {
     this.#items.delete(id);
   }
 
-  async updateConversationModel(id: ConversationId, model: ModelConfig): Promise<void> {
-    const conversation = this.#conversations.get(id);
-    if (!conversation) {
+  async updateConversationOverrides(
+    id: ConversationId,
+    patch: ConversationOverrides,
+  ): Promise<void> {
+    const record = this.#conversations.get(id);
+    if (!record) {
       throw new Error(`unknown conversation: ${id}`);
     }
-    this.#conversations.set(id, { ...conversation, config: { ...conversation.config, model } });
+    this.#conversations.set(id, { ...record, overrides: { ...record.overrides, ...patch } });
   }
 
-  async listConversations(): Promise<Conversation[]> {
+  async listConversations(): Promise<ConversationRecord[]> {
     return [...this.#conversations.values()].sort((a, b) => b.createdAt - a.createdAt);
   }
 

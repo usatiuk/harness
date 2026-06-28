@@ -11,8 +11,7 @@ export const localExecutionPlugin: Plugin = {
   services: () => [
     {
       key: "execution",
-      for: (conversation: Conversation) =>
-        new LocalExecutionContext(conversation.config.workspaceRoot ?? null),
+      for: (conversation: Conversation) => new LocalExecutionContext(conversation.workspaceRoot),
     },
   ],
 };

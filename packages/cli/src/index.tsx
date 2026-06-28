@@ -98,8 +98,12 @@ async function buildHarness(): Promise<Harness> {
     workspacePlugin,
     approvalPlugin,
   );
-  const service = new HarnessService({ store, plugins });
-  return { service, store, fallbackModel: fallbackModel ?? { provider: "demo", model: "demo-1" } };
+  const resolvedFallback: ModelConfig = fallbackModel ?? { provider: "demo", model: "demo-1" };
+  // The fallback is the lowest cascade layer (below all settings files), re-applied on every resolve
+  // — so every conversation has a model even on resume with no settings, and config resolution never
+  // fails "no model configured".
+  const service = new HarnessService({ store, plugins, defaults: { model: resolvedFallback } });
+  return { service, store, fallbackModel: resolvedFallback };
 }
 
 /** Warns when the session's configured model isn't backed by a registered (signed-in) provider. */
@@ -150,11 +154,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
     const overrides: SettingsDoc = opts.model
       ? { instructions: INSTRUCTIONS, model: { ...fallbackModel, model: opts.model } }
       : { instructions: INSTRUCTIONS };
-    const conversation = await service.createConversation({
-      cwd,
-      defaults: { model: fallbackModel },
-      overrides,
-    });
+    const conversation = await service.createConversation({ cwd, overrides });
     console.log(`conversation ${conversation.id}`);
     created.add(conversation.id);
     start = { kind: "session", session: { conversation, items: [], usage: [] } };
@@ -267,7 +267,7 @@ function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null
       conversation={session.conversation}
       initialItems={session.items}
       initialUsage={session.usage}
-      cwd={session.conversation.config.workspaceRoot ?? cwd}
+      cwd={session.conversation.workspaceRoot ?? cwd}
       launchCwd={cwd}
       onResume={resume}
       activities={makeActivities(service, session.conversation.id)}
@@ -303,7 +303,7 @@ function PickerScreen({
   });
 
   if (list === null) return <Text dimColor>loading…</Text>;
-  const shown = showAll ? list : list.filter((c) => c.config.workspaceRoot === cwd);
+  const shown = showAll ? list : list.filter((c) => c.workspaceRoot === cwd);
   if (shown.length === 0) {
     const hint =
       !showAll && list.length > 0

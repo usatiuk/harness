@@ -15,8 +15,12 @@ export interface ResolveOptions {
   cwd?: string;
   /** Named profile to overlay above the project layers. */
   profile?: string;
-  /** Programmatic top layer (highest precedence), e.g. CLI-chosen model. */
-  overrides?: SettingsDoc;
+  /**
+   * Programmatic top layer (highest precedence), e.g. a conversation's durable `overrides`. Opaque
+   * (`Record<string, unknown>`) because it comes from durable storage; validated here as a
+   * `SettingsDoc` before it joins the cascade.
+   */
+  overrides?: Record<string, unknown>;
   /** Plugin id → config schema, for central validation of plugin slices. */
   schemas: Map<string, ZodType>;
 }
@@ -69,7 +73,6 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
       model: doc.model.model,
       ...(doc.model.effort ? { effort: doc.model.effort } : {}),
     },
-    workspaceRoot: opts.cwd ?? null,
     ...(doc.tools?.allow ? { tools: { allow: doc.tools.allow } } : {}),
     plugins: resolvePlugins(doc.plugins ?? {}, opts.schemas, sources),
   };

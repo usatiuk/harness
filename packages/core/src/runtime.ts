@@ -12,7 +12,7 @@ export interface Delivery {
  * logic; this is just data. One Engine drives many Runtimes.
  */
 export class Runtime {
-  readonly conversation: Conversation;
+  #conversation: Conversation;
   /**
    * One ordered, intent-tagged buffer of accepted-but-not-yet-injected input. The
    * drain loop takes it all at each turn boundary; mid-turn only `steer` entries
@@ -36,7 +36,22 @@ export class Runtime {
   #idleWaiters: Array<() => void> = [];
 
   constructor(conversation: Conversation) {
-    this.conversation = conversation;
+    this.#conversation = conversation;
+  }
+
+  /** The resolved conversation (durable record + its derived config). */
+  get conversation(): Conversation {
+    return this.#conversation;
+  }
+
+  /**
+   * Swap in a re-resolved conversation (e.g. after a `/model` override). Replaced wholesale, never
+   * mutated: a running turn captured its own `conversation` reference at the turn boundary, so this
+   * only affects the NEXT turn — the in-flight turn's model stays fixed (the model used for a request
+   * must match the model recorded as its usage).
+   */
+  setConversation(conversation: Conversation): void {
+    this.#conversation = conversation;
   }
 
   /** Removes and returns the `steer`-tagged entries, preserving inbox order. */

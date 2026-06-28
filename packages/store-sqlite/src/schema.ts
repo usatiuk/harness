@@ -1,9 +1,10 @@
 import type BetterSqlite3 from "better-sqlite3";
 
 /**
- * Kysely row types. JSON columns (`config`/`body`/`payload`/`value`) are TEXT;
+ * Kysely row types. JSON columns (`overrides`/`body`/`payload`/`value`) are TEXT;
  * `blobs.data` is a real BLOB. `items.call_id` is denormalized out of `body` so the
- * `tool_result` partial unique index needs no JSON expression.
+ * `tool_result` partial unique index needs no JSON expression. The types describe the
+ * CURRENT (post-migration) schema, which is what every query sees.
  */
 export interface Database {
   conversations: ConversationsTable;
@@ -18,7 +19,10 @@ export interface Database {
 
 interface ConversationsTable {
   id: string;
-  config: string;
+  /** The execution workspace root; NULL when projectless. */
+  workspace_root: string | null;
+  /** Durable settings-overrides layer, JSON. Config itself is resolved on load, never stored. */
+  overrides: string;
   head: string | null;
   created_at: number;
 }
@@ -164,8 +168,35 @@ CREATE TABLE model_usage (
 CREATE INDEX model_usage_conv ON model_usage(conversation_id);
 `;
 
-// Index i migrates user_version i → i+1; a fresh DB replays the whole list.
-const MIGRATIONS = [SCHEMA, MODEL_USAGE];
+// v2 → v3: a conversation no longer stores a resolved-config snapshot — it stores `workspace_root`
+// (identity) + an `overrides` settings layer, and config is re-resolved from the cascade on load.
+// The store is disposable, so we WIPE conversation-scoped data rather than backfill a `workspace_root`
+// dug out of each old `config` blob (the user chose reset over migration). Only `conversations`
+// changes shape (drop+recreate); the child tables are just emptied. FKs are toggled off for the
+// reshape so the drop/recreate needs no delete-ordering dance, then restored (the connection keeps
+// this pragma, and the schema relies on FK enforcement).
+const CONVERSATIONS_OVERRIDES = `
+PRAGMA foreign_keys = OFF;
+DROP TABLE IF EXISTS conversations;
+CREATE TABLE conversations (
+  id TEXT PRIMARY KEY,
+  workspace_root TEXT,
+  overrides TEXT NOT NULL DEFAULT '{}',
+  head TEXT REFERENCES items(id),
+  created_at INTEGER NOT NULL
+);
+DELETE FROM items;
+DELETE FROM turns;
+DELETE FROM provider_payloads;
+DELETE FROM plugin_state;
+DELETE FROM context_builds;
+DELETE FROM model_usage;
+PRAGMA foreign_keys = ON;
+`;
+
+// Index i migrates user_version i → i+1; a fresh DB replays the whole list. Historical entries are
+// immutable (existing DBs already ran them); shape changes are appended, never edited.
+const MIGRATIONS = [SCHEMA, MODEL_USAGE, CONVERSATIONS_OVERRIDES];
 
 /** Idempotent bootstrap: applies pending migrations, gated on `user_version`. */
 export function migrate(db: BetterSqlite3.Database): void {

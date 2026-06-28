@@ -1,7 +1,13 @@
 import type { ConversationId, ItemId, TurnId } from "./ids.ts";
-import type { Conversation, NewConversation, Turn, TurnStatus } from "./conversation.ts";
+import type {
+  ConversationOverrides,
+  ConversationRecord,
+  NewConversationRecord,
+  Turn,
+  TurnStatus,
+} from "./conversation.ts";
 import type { Item, NewItem } from "./items.ts";
-import type { ModelConfig, ProviderPayload } from "./model.ts";
+import type { ProviderPayload } from "./model.ts";
 import type { ContextBuild, NewContextBuild } from "./policies.ts";
 import type { OutputRef } from "./tools.ts";
 import type { ModelUsage, NewModelUsage } from "./usage.ts";
@@ -16,19 +22,27 @@ export interface ByteRange {
   length: number;
 }
 
-/** Persistence boundary. The item log is the only durable state. */
+/**
+ * Persistence boundary. The item log is the only durable state. The store deals in
+ * `ConversationRecord` (durable identity + overrides) — it never sees the resolved `config`, which
+ * the service derives from the settings cascade on load.
+ */
 export interface Store {
-  createConversation(input: NewConversation): Promise<Conversation>;
-  getConversation(id: ConversationId): Promise<Conversation | undefined>;
+  createConversation(input: NewConversationRecord): Promise<ConversationRecord>;
+  getConversation(id: ConversationId): Promise<ConversationRecord | undefined>;
   /**
    * Deletes the conversation iff still empty (head === null and no turn was ever
    * created); a no-op otherwise.
    */
   deleteConversationIfEmpty(id: ConversationId): Promise<void>;
-  /** Switch the conversation's model in place; the only `config` field updated post-creation today. */
-  updateConversationModel(id: ConversationId, model: ModelConfig): Promise<void>;
+  /**
+   * Shallow-merge `patch` into the conversation's durable `overrides` layer (the only
+   * post-creation mutation of conversation settings, e.g. a `/model` switch). Re-resolved on the
+   * next load, so the change survives resume.
+   */
+  updateConversationOverrides(id: ConversationId, patch: ConversationOverrides): Promise<void>;
   /** All conversations, most-recent-first (by `createdAt`). The resume/listing source. */
-  listConversations(): Promise<Conversation[]>;
+  listConversations(): Promise<ConversationRecord[]>;
 
   /**
    * Append-only. Assigns `seq`/`createdAt`, links `parent` to the current `head`,

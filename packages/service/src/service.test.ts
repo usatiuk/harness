@@ -99,4 +99,29 @@ describe("HarnessService", () => {
       { type: "text", text: "welcome back" },
     ]);
   });
+
+  it("listConversations skips a conversation whose settings fail to resolve", async () => {
+    const store = new InMemoryStore();
+    const service = serviceOn(store, [textStep("x")]);
+    const good = await service.createConversation({
+      overrides: { model: { provider: "fake", model: "fake-1" } },
+    });
+    // A record referencing an unknown plugin can't resolve; inserted via the store directly because
+    // createConversation would (correctly) reject it. One bad project settings shouldn't break the picker.
+    await store.createConversation({ workspaceRoot: null, overrides: { plugins: { ghost: {} } } });
+
+    expect((await service.listConversations()).map((c) => c.id)).toEqual([good.id]);
+  });
+
+  it("createConversation rolls back the record when its settings fail to resolve", async () => {
+    const store = new InMemoryStore();
+    const service = serviceOn(store, [textStep("x")]);
+    await expect(
+      service.createConversation({
+        overrides: { model: { provider: "fake", model: "fake-1" }, plugins: { ghost: {} } },
+      }),
+    ).rejects.toThrow(/unknown plugin 'ghost'/);
+    // No empty, unusable record left behind.
+    expect(await store.listConversations()).toEqual([]);
+  });
 });

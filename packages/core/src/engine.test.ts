@@ -27,7 +27,9 @@ import {
   GateProvider,
   GateTool,
   interleavedStep,
+  newConversationInput,
   reasoningStep,
+  testConfigResolver,
   textStep,
   toolStep,
 } from "@harness/testkit";
@@ -93,7 +95,7 @@ function setup(steps: FakeStep[], plugin?: Partial<Plugin>, existingStore?: InMe
       ...plugin,
     },
   ]);
-  const engine = new Engine(store, host);
+  const engine = new Engine(store, host, testConfigResolver());
   const events: HarnessEvent[] = [];
   engine.subscribe({ onEvent: (e) => events.push(e) });
   return { store, engine, events };
@@ -105,7 +107,7 @@ describe("Engine — turn cycle", () => {
       toolStep("call1", "echo", { x: 1 }),
       textStep("done"),
     ]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
@@ -140,7 +142,7 @@ describe("Engine — turn cycle", () => {
       },
     ];
     const { store, engine } = setup([twoCalls, textStep("ok")]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
@@ -163,7 +165,7 @@ describe("Engine — turn cycle", () => {
         payload: { enc: "x" },
       }),
     ]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
@@ -188,7 +190,7 @@ describe("Engine — turn cycle", () => {
       textStep("bye"),
     ]);
     const { store, engine } = setup([], { providers: () => [provider] });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("first"));
     await engine.whenIdle(conv.id);
     await engine.deliver(conv.id, userInput("second"));
@@ -212,7 +214,7 @@ describe("Engine — turn cycle", () => {
     const { store, engine, events } = setup([
       reasoningStep("thinking it through", { payload: reasoningPayload }),
     ]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
@@ -239,7 +241,7 @@ describe("Engine — turn cycle", () => {
       ]),
       textStep("done"),
     ]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
@@ -266,7 +268,7 @@ describe("Engine — turn cycle", () => {
       interleavedStep([{ callId: "c1", name: "echo", args: {}, payload: callPayload }]),
       textStep("done"),
     ]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
@@ -280,7 +282,7 @@ describe("Engine — turn cycle", () => {
 describe("Engine — delivery seam", () => {
   it("runs two rapid sends as two turns, in order", async () => {
     const { store, engine, events } = setup([textStep("one"), textStep("two")]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
 
     // Deliver twice without awaiting idle between: the second lands in the
     // inbox and runs after the first — never as a second concurrent turn.
@@ -310,7 +312,7 @@ describe("Engine — delivery seam", () => {
     const { store, engine, events } = setup([toolStep("c1", "emit", {}), textStep("done")], {
       tools: () => [emitTool],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
@@ -320,7 +322,7 @@ describe("Engine — delivery seam", () => {
 
   it("marks the turn failed when the provider stream is malformed", async () => {
     const { store, engine, events } = setup([[{ type: "text_delta", text: "oops" }]]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("x"));
     await engine.whenIdle(conv.id);
 
@@ -335,7 +337,7 @@ describe("Engine — delivery seam", () => {
 
   it("starts a turn from plugin-sourced input", async () => {
     const { store, engine, events } = setup([textStep("hi")]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, {
       source: { kind: "plugin", pluginId: "demo" },
       content: [{ type: "text", text: "ping" }],
@@ -354,7 +356,7 @@ describe("Engine — delivery seam", () => {
         tools: () => [gate],
       },
     );
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("first"));
     await gate.started;
     await engine.deliver(conv.id, userInput("second")); // arrives while busy → next turn
@@ -369,8 +371,8 @@ describe("Engine — delivery seam", () => {
 describe("Engine — scoped subscription", () => {
   it("delivers only the scoped conversation's events; an unscoped observer sees all", async () => {
     const { store, engine } = setup([textStep("a"), textStep("b")]);
-    const convA = await store.createConversation({ config: CONFIG });
-    const convB = await store.createConversation({ config: CONFIG });
+    const convA = await store.createConversation(newConversationInput(CONFIG));
+    const convB = await store.createConversation(newConversationInput(CONFIG));
 
     const all: HarnessEvent[] = [];
     const onlyA: HarnessEvent[] = [];
@@ -402,7 +404,7 @@ describe("Engine — interleaving order", () => {
       ]),
       textStep("done"),
     ]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
@@ -426,7 +428,7 @@ describe("Engine — steering and queueing", () => {
     const { store, engine } = setup([toolStep("c1", "gate", {}), textStep("done")], {
       tools: () => [gate],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await gate.started;
     await engine.deliver(conv.id, userInput("steer1"), "steer");
@@ -451,7 +453,7 @@ describe("Engine — steering and queueing", () => {
       [toolStep("c1", "gate", {}), textStep("done"), textStep("done2")],
       { tools: () => [gate] },
     );
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await gate.started;
     await engine.deliver(conv.id, userInput("queued1"), "queue");
@@ -480,7 +482,7 @@ describe("Engine — steering and queueing", () => {
     const { store, engine, events } = setup([toolStep("c1", "gate", {}), textStep("done")], {
       tools: () => [gate],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await gate.started;
     await engine.deliver(conv.id, userInput("queued"), "queue");
@@ -507,7 +509,7 @@ describe("Engine — interrupt", () => {
     const { store, engine, events } = setup([toolStep("c1", "gate", {}), textStep("after")], {
       tools: () => [gate],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await gate.started;
     await engine.deliver(conv.id, userInput("do this instead"), "interrupt");
@@ -542,7 +544,7 @@ describe("Engine — interrupt", () => {
     const { store, engine, events } = setup([parallel, textStep("after")], {
       tools: () => [gate, new EchoTool()],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await gate.started; // A is executing; B and C not yet dispatched
     await engine.deliver(conv.id, userInput("redo"), "interrupt");
@@ -568,7 +570,7 @@ describe("Engine — interrupt", () => {
   it("cancels the stream and saves the partial assistant text", async () => {
     const provider = new GateProvider("hel");
     const { store, engine, events } = setup([], { providers: () => [provider] });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await provider.started; // "hel" streamed; provider now blocking before completed
     await engine.deliver(conv.id, noContent, "interrupt");
@@ -586,7 +588,7 @@ describe("Engine — interrupt", () => {
     const { store, engine, events } = setup([toolStep("c1", "gate", {}), textStep("after")], {
       tools: () => [gate],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await gate.started;
     await engine.deliver(conv.id, noContent, "interrupt");
@@ -602,7 +604,7 @@ describe("Engine — interrupt", () => {
     const { store, engine, events } = setup([toolStep("c1", "gate", {}), textStep("after")], {
       tools: () => [gate],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await gate.started;
     await engine.deliver(conv.id, noContent, "interrupt");
@@ -647,7 +649,7 @@ describe("Engine — tool middleware", () => {
     const { store, engine } = setup([toolStep("c1", "echo", { x: 1 }), textStep("done")], {
       toolMiddleware: () => [trace("a"), trace("b")],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
@@ -667,7 +669,7 @@ describe("Engine — tool middleware", () => {
       tools: () => [probe],
       toolMiddleware: () => [deny],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
@@ -702,7 +704,7 @@ describe("Engine — tool middleware", () => {
       tools: () => [flaky],
       toolMiddleware: () => [retry],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
@@ -731,7 +733,7 @@ describe("Engine — request/respond", () => {
     const { store, engine, events } = setup([toolStep("c1", "echo", { x: 1 }), textStep("done")], {
       toolMiddleware: () => [approvalMiddleware((call) => call.name === "echo")],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     const pending = firstRequest(engine);
     await engine.deliver(conv.id, userInput("go"));
 
@@ -754,7 +756,7 @@ describe("Engine — request/respond", () => {
       tools: () => [probe],
       toolMiddleware: () => [approvalMiddleware(() => true)],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     const pending = firstRequest(engine);
     await engine.deliver(conv.id, userInput("go"));
 
@@ -772,7 +774,7 @@ describe("Engine — request/respond", () => {
     const { store, engine, events } = setup([toolStep("c1", "echo", {}), textStep("after")], {
       toolMiddleware: () => [approvalMiddleware(() => true)],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     const pending = firstRequest(engine);
     await engine.deliver(conv.id, userInput("go"));
     await pending;
@@ -823,7 +825,7 @@ describe("Engine — rewind", () => {
   it("rewinds to an earlier item; the next turn branches off the abandoned tail", async () => {
     const provider = new RecordingProvider([textStep("one"), textStep("two"), textStep("three")]);
     const { store, engine } = setup([], { providers: () => [provider] });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
 
     await engine.deliver(conv.id, userInput("first"));
     await engine.whenIdle(conv.id);
@@ -852,7 +854,7 @@ describe("Engine — rewind", () => {
     const { store, engine } = setup([toolStep("c1", "gate", {}), textStep("done")], {
       tools: () => [gate],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await gate.started;
 
@@ -879,7 +881,7 @@ describe("Engine — compaction", () => {
       providers: () => [provider],
       policies: () => ({ compaction: fakeCompaction({ over: 3 }) }),
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
 
     for (const text of ["first", "second", "third", "fourth"]) {
       await engine.deliver(conv.id, userInput(text));
@@ -922,7 +924,7 @@ describe("Engine — compaction", () => {
       providers: () => [provider],
       policies: () => ({ compaction: fakeCompaction({ over: 4 }) }),
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
 
     await engine.deliver(conv.id, userInput("a"));
     await engine.whenIdle(conv.id);
@@ -952,7 +954,7 @@ describe("Engine — compaction", () => {
 describe("reconcileConversation", () => {
   it("closes a dangling tool_call and fails the turn", async () => {
     const store = new InMemoryStore(counterIdGenerator(), fixedClock());
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     const turn = await store.createTurn(conv.id);
     await store.appendItem({
       conversationId: conv.id,
@@ -982,7 +984,7 @@ describe("Engine — crash reconciliation on load", () => {
     // Without on-load reconcile, the stale `running` turn makes `createTurn` throw
     // forever — the conversation is permanently wedged.
     const store = new InMemoryStore(counterIdGenerator(), fixedClock());
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     const stale = await store.createTurn(conv.id);
     await store.appendItem({
       conversationId: conv.id,
@@ -1017,7 +1019,7 @@ describe("Engine — crash reconciliation on load", () => {
 
   it("is a no-op on a clean conversation", async () => {
     const { store, engine, events } = setup([textStep("hi")]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
@@ -1056,7 +1058,11 @@ class CatalogProvider implements ModelProvider {
 function recordingSetup() {
   const provider = new CatalogProvider();
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
-  const engine = new Engine(store, new PluginHost([{ id: "rec", providers: () => [provider] }]));
+  const engine = new Engine(
+    store,
+    new PluginHost([{ id: "rec", providers: () => [provider] }]),
+    testConfigResolver(),
+  );
   const events: HarnessEvent[] = [];
   engine.subscribe({ onEvent: (e) => events.push(e) });
   return { provider, store, engine, events };
@@ -1084,7 +1090,7 @@ describe("Engine — context injection", () => {
       [toolStep("c1", "echo", {}), toolStep("c2", "echo", {}), textStep("done")],
       { toolMiddleware: () => [injectorMw("ctx", "RULES")] },
     );
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
@@ -1105,7 +1111,7 @@ describe("Engine — context injection", () => {
       [toolStep("c1", "echo", {}), textStep("done"), toolStep("c2", "echo", {}), textStep("done2")],
       { toolMiddleware: () => [injectorMw("ctx", "RULES")] },
     );
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
@@ -1129,7 +1135,7 @@ describe("Engine — model middleware", () => {
   it("passes the stream through unchanged when a middleware just forwards", async () => {
     const passthrough: ModelMiddleware = { id: "pass", wrap: (req, _ctx, next) => next(req) };
     const { store, engine } = setup([textStep("hi")], { modelMiddleware: () => [passthrough] });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("yo"));
     await engine.whenIdle(conv.id);
     expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:yo", "assistant:hi"]);
@@ -1168,7 +1174,7 @@ describe("Engine — model middleware", () => {
       providers: () => [flaky],
       modelMiddleware: () => [retry],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
     expect(calls).toBe(2);
@@ -1202,7 +1208,7 @@ describe("Engine — model middleware", () => {
       providers: () => [provider],
       modelMiddleware: () => [canned],
     });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
     expect(providerCalled).toBe(false);
@@ -1213,11 +1219,11 @@ describe("Engine — model middleware", () => {
 describe("Engine — model switching", () => {
   it("setModel persists the new model and emits config.changed", async () => {
     const { store, engine, events } = recordingSetup();
-    const conv = await store.createConversation({ config: recConfig });
+    const conv = await store.createConversation(newConversationInput(recConfig));
 
     await engine.setModel(conv.id, { provider: "rec", model: "m2" });
 
-    expect((await store.getConversation(conv.id))?.config.model).toEqual({
+    expect((await store.getConversation(conv.id))?.overrides.model).toEqual({
       provider: "rec",
       model: "m2",
     });
@@ -1236,7 +1242,7 @@ describe("Engine — model switching", () => {
 
   it("reads the model fresh per turn, so a switch between turns lands on the next turn", async () => {
     const { provider, store, engine } = recordingSetup();
-    const conv = await store.createConversation({ config: recConfig });
+    const conv = await store.createConversation(newConversationInput(recConfig));
 
     await engine.deliver(conv.id, userInput("one"));
     await engine.whenIdle(conv.id);
@@ -1245,6 +1251,58 @@ describe("Engine — model switching", () => {
     await engine.whenIdle(conv.id);
 
     expect(provider.seen).toEqual(["m1", "m2"]);
+  });
+
+  it("a mid-turn setModel can't change the in-flight turn's model; the next turn picks it up", async () => {
+    const gate = new GateTool();
+    const provider = new RecordingProvider([
+      toolStep("c1", "gate", {}),
+      textStep("done"), // second step of turn 1
+      textStep("next"), // turn 2
+    ]);
+    const { store, engine } = setup([], { providers: () => [provider], tools: () => [gate] });
+    const conv = await store.createConversation(newConversationInput(CONFIG)); // fake-1
+
+    await engine.deliver(conv.id, userInput("go"));
+    await gate.started; // paused mid-turn, after step 1's request, at the gate tool
+    await engine.setModel(conv.id, { provider: "fake", model: "fake-2" });
+    gate.release();
+    await engine.whenIdle(conv.id);
+
+    await engine.deliver(conv.id, userInput("again"));
+    await engine.whenIdle(conv.id);
+
+    // The in-flight turn's BOTH requests stayed on fake-1 (the turn snapshot), and its usage was
+    // recorded on the same model — only the next turn sees fake-2. (Request model ≡ usage model.)
+    expect(provider.requests.map((r) => r.modelConfig.model)).toEqual([
+      "fake-1",
+      "fake-1",
+      "fake-2",
+    ]);
+    expect((await store.listModelUsage(conv.id)).map((u) => u.model)).toEqual([
+      "fake-1",
+      "fake-1",
+      "fake-2",
+    ]);
+  });
+
+  it("re-resolves config on load, so an overrides edit before first load is picked up", async () => {
+    const provider = new CatalogProvider();
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    const conv = await store.createConversation(newConversationInput(recConfig));
+    // Edit the durable overrides directly (as a settings/model change does), before any runtime
+    // loads it — the creation-time snapshot is gone, so load must re-resolve from the record.
+    await store.updateConversationOverrides(conv.id, { model: { provider: "rec", model: "m2" } });
+
+    const engine = new Engine(
+      store,
+      new PluginHost([{ id: "rec", providers: () => [provider] }]),
+      testConfigResolver(),
+    );
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    expect(provider.seen).toEqual(["m2"]); // loaded with the edited model, not the creation default
   });
 });
 
@@ -1256,7 +1314,7 @@ describe("Engine — usage recording", () => {
       toolStep("c1", "echo", { x: 1 }, u1),
       textStep("done", undefined, u2),
     ]);
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
@@ -1277,7 +1335,7 @@ describe("Engine — usage recording", () => {
   it("records no usage for a step aborted mid-stream (no completed event)", async () => {
     const provider = new GateProvider("hel");
     const { store, engine } = setup([], { providers: () => [provider] });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await provider.started;
     await engine.deliver(conv.id, noContent, "interrupt");
@@ -1305,7 +1363,7 @@ describe("Engine — usage recording", () => {
     };
     const provider = new PricedProvider([textStep("done", undefined, usage)]);
     const { store, engine, events } = setup([], { providers: () => [provider] });
-    const conv = await store.createConversation({ config: CONFIG });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 

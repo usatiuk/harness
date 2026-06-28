@@ -4,17 +4,17 @@ import type { SandboxPhase } from "@harness/sandbox";
 
 /** Imperative handles + state snapshot the overlay renders; actions report their result via notes. */
 export interface SandboxView {
-  /** Whether the sandbox is enabled in this conversation's config snapshot. */
+  /** Whether this conversation runs in the dev-container sandbox (resolved config; fixed this session). */
   enabled: boolean;
-  /** Whether this conversation is actually running on the Docker substrate right now. */
+  /** Whether a container is provisioned right now (vs. not yet started, or stopped). */
   active: boolean;
   /** Latest build/start phase, if any has been reported. */
   phase: SandboxPhase | undefined;
-  /** Persist enable/disable and apply it live to this conversation. */
+  /** Persist enable/disable to project-local settings; applies to new conversations and on resume. */
   setEnabled: (enabled: boolean) => void;
-  /** Rebuild the live container (only when this conversation is sandboxed). */
+  /** Tear down the container so the next message rebuilds it (only meaningful when sandboxed). */
   rebuild: () => void;
-  /** Stop the live container (only when this conversation is sandboxed). */
+  /** Tear down this workspace's container now. */
   stop: () => void;
 }
 
@@ -37,11 +37,11 @@ export function SandboxOverlay({
   return (
     <Box flexDirection="column">
       <Text bold>Sandbox</Text>
-      <Text dimColor>{`enabled: ${yn(view.enabled)}`}</Text>
-      <Text dimColor>{`this conversation sandboxed: ${yn(view.active)}`}</Text>
+      <Text dimColor>{`this conversation sandboxed: ${yn(view.enabled)}`}</Text>
+      <Text dimColor>{`container running: ${yn(view.active)}`}</Text>
       <Text dimColor>{`phase: ${view.phase ?? "—"}`}</Text>
       <Text dimColor>enter the container: run `harness sandbox shell` in a terminal</Text>
-      <Text dimColor>e toggle (live) · r rebuild · s stop · esc close</Text>
+      <Text dimColor>e toggle (new conversations) · r rebuild · s stop · esc close</Text>
     </Box>
   );
 }

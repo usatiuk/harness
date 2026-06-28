@@ -5,7 +5,9 @@ import {
   errorResult,
   findModel,
   textOf,
+  type ConfigResolver,
   type Conversation,
+  type ConversationConfig,
   type ConversationId,
   type ContentBlock,
   type ContextBuild,
@@ -70,6 +72,9 @@ export class Engine {
   constructor(
     private readonly store: Store,
     private readonly host: PluginHost,
+    /** Derives a conversation's config from its record on every load — injected so core stays free
+     *  of `@harness/config`. */
+    private readonly resolveConfig: ConfigResolver,
   ) {
     this.#observers = host.observers.map((observer) => ({ observer }));
   }
@@ -169,10 +174,27 @@ export class Engine {
     return this.host.providers.listModels();
   }
 
-  /** Persists the new model (read fresh by the next turn) and emits config.changed. */
+  /**
+   * Persists the model into the conversation's durable `overrides` (so it survives resume),
+   * re-resolves its config, and swaps it onto the live runtime for the next turn. Emits the
+   * *resolved* model (which may differ from the requested one — e.g. a settings-level `effort` rides
+   * along), keeping clients in sync with what the next turn will actually use.
+   */
   async setModel(conversationId: ConversationId, model: ModelConfig): Promise<void> {
-    await this.store.updateConversationModel(conversationId, model);
-    this.#emitKernel({ type: "config.changed", conversationId, model });
+    await this.store.updateConversationOverrides(conversationId, { model });
+    const record = await this.store.getConversation(conversationId);
+    if (!record) throw new Error(`unknown conversation: ${conversationId}`);
+    const config = await this.resolveConfig(record);
+    this.#runtimes.get(conversationId)?.setConversation({ ...record, config });
+    this.#emitKernel({ type: "config.changed", conversationId, model: config.model });
+  }
+
+  /**
+   * The resolved config of a live runtime, or `undefined` when none is loaded. Backs the config
+   * reader's hot path (a tool call always runs inside a loaded runtime); never loads a runtime.
+   */
+  configFor(conversationId: ConversationId): ConversationConfig | undefined {
+    return this.#runtimes.get(conversationId)?.conversation.config;
   }
 
   /** Loads (and caches) the runtime, guarding against concurrent first-touch. */
@@ -189,14 +211,17 @@ export class Engine {
 
   async #loadRuntime(conversationId: ConversationId): Promise<Runtime> {
     try {
-      const conversation = await this.store.getConversation(conversationId);
-      if (!conversation) {
+      const record = await this.store.getConversation(conversationId);
+      if (!record) {
         throw new Error(`unknown conversation: ${conversationId}`);
       }
       // Repair crash residue before a turn can start: a stale `running` turn would
       // wedge `createTurn`. Single-flighted by `#loading`, so it runs once.
       await reconcileConversation(this.store, conversationId);
-      const runtime = new Runtime(conversation);
+      // Resolve config from the cascade + overrides HERE, on every load — not frozen at creation —
+      // so settings edits and the durable overrides both reach a resumed conversation.
+      const config = await this.resolveConfig(record);
+      const runtime = new Runtime({ ...record, config });
       this.#runtimes.set(conversationId, runtime);
       return runtime;
     } finally {
@@ -230,12 +255,11 @@ export class Engine {
 
   /** Runs one turn seeded by a batch: each entry's content is a user message. */
   async #runTurn(runtime: Runtime, batch: Delivery[]): Promise<void> {
-    // Re-read config from the store each turn: a setModel between turns lands here; one
-    // mid-turn can't affect the in-flight turn.
-    const conversation = await this.store.getConversation(runtime.conversation.id);
-    if (!conversation) {
-      throw new Error(`unknown conversation: ${runtime.conversation.id}`);
-    }
+    // Snapshot the resolved conversation for the whole turn. `setModel` replaces
+    // `runtime.conversation` wholesale (never mutates it in place), so a switch between turns is
+    // picked up here on the next turn, while one mid-turn leaves this captured reference — and thus
+    // the model used for every request and recorded as its usage — unchanged.
+    const conversation = runtime.conversation;
     const controller = new AbortController();
     runtime.controller = controller;
 
