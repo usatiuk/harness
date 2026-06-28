@@ -275,8 +275,8 @@ export function App({
     };
   }, [service, conversation.id, sandboxLive, state.sandbox?.phase, cwd, note]);
 
-  // Memoized (main's intent) so the composer's completion menu, keyed on `ctx`, doesn't recompute
-  // on every streaming re-render. The sandbox controls come from the memoized `sandboxView` above,
+  // Memoized so the composer's completion menu, keyed on `ctx`, doesn't recompute on every
+  // streaming re-render. The sandbox controls come from the memoized `sandboxView` above,
   // so they don't churn this identity.
   const ctx: CommandContext = useMemo(
     () => ({
