@@ -7,7 +7,7 @@ import {
   useState,
   type ReactElement,
 } from "react";
-import { Box, Static, Text, useApp, useInput } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import { ConfirmInput, Spinner } from "@inkjs/ui";
 import {
   findModel,
@@ -27,7 +27,7 @@ import { effortsFor, runCommand, type CommandContext } from "./commands.ts";
 import { EffortPicker, ModelPicker } from "./model-picker.tsx";
 import { ActivitiesOverlay, type ActivitiesView } from "./activities-overlay.tsx";
 import { SandboxOverlay, type SandboxView } from "./sandbox-overlay.tsx";
-import { CellView, cellKey, truncate } from "./cells.tsx";
+import { CellView, cellKey, truncate, VerboseContext } from "./cells.tsx";
 import { Composer } from "./composer.tsx";
 import { useHistory } from "./use-history.ts";
 
@@ -56,6 +56,9 @@ type Action =
 
 /** Bounds a live `!cmd` cell so a chatty command streams a tail rather than growing without limit. */
 const SHELL_TAIL_CAP = 16 * 1024;
+
+/** Clear the visible screen + scrollback buffer and home the cursor. Used on verbose toggle to wipe the frozen <Static> scrollback before reprinting it. */
+const CLEAR_SCREEN_AND_SCROLLBACK = "[3J[H[2J";
 
 /** Maps over a still-open shell cell, leaving every other cell (and finalized shells) untouched. */
 function updateShell(
@@ -120,6 +123,7 @@ export function App({
   activities,
 }: AppProps): ReactElement {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   const [state, dispatch] = useReducer(appReduce, undefined, () =>
     init(initialItems, initialUsage),
   );
@@ -128,6 +132,10 @@ export function App({
   const [effortPicking, setEffortPicking] = useState(false);
   const [showActivities, setShowActivities] = useState(false);
   const [showSandbox, setShowSandbox] = useState(false);
+  const [verbose, setVerbose] = useState(false);
+  // Bumped on verbose toggle to remount <Static> (new key) so it re-emits every
+  // finalized cell — otherwise the scrollback is write-once and stays compact.
+  const [staticEpoch, setStaticEpoch] = useState(0);
   const history = useHistory();
   // Set by the composer while its menu is open; lets Esc close the menu before interrupting.
   const menuOpen = useRef(false);
@@ -189,7 +197,22 @@ export function App({
   }, [cwd, launchCwd]);
 
   // Esc closes an open picker, else interrupts a running turn (also cancels a parked request).
-  useInput((_input, key) => {
+  useInput((input, key) => {
+    if (key.ctrl && input === "o") {
+      // Clear the frozen scrollback before reprinting — see `staticEpoch` for the why.
+      stdout?.write(CLEAR_SCREEN_AND_SCROLLBACK);
+      setStaticEpoch((e) => e + 1);
+      setVerbose((v) => !v);
+      return;
+    }
+    if (key.ctrl && input === "c") {
+      // Cancel the topmost overlay; in the main view the composer clears/interrupts instead.
+      if (showActivities) return setShowActivities(false);
+      if (showSandbox) return setShowSandbox(false);
+      if (modelPicking) return setModelPicking(false);
+      if (effortPicking) return setEffortPicking(false);
+      return;
+    }
     if (!key.escape) return;
     if (showActivities) setShowActivities(false);
     else if (showSandbox) setShowSandbox(false);
@@ -298,75 +321,93 @@ export function App({
     report(service.deliver(conversation.id, line, busy ? "steer" : "send"));
   };
 
-  // Finalized cells (longest immutable prefix) print once to native scrollback via
-  // <Static>; only the live tail repaints. The prefix only ever grows, so Static is safe.
-  const cut = firstLiveIndex(state.cells);
+  // Finalized cells print once to <Static>; only the live tail repaints (it also keeps
+  // the last few reasoning blocks expanded). `liveStartIndex` keeps the split duplicate-free.
+  const cut = liveStartIndex(state.cells);
   const done = state.cells.slice(0, cut);
   const live = state.cells.slice(cut);
 
   return (
-    <Box flexDirection="column">
-      <Static items={done}>{renderCell}</Static>
-      {live.map(renderCell)}
-      {pending ? (
-        <Box>
-          <Text color="magenta">{`❓ ${pending.summary} `}</Text>
-          <ConfirmInput
-            onConfirm={() =>
-              service.respond(conversation.id, pending.requestId, { decision: "allow" })
-            }
-            onCancel={() =>
-              service.respond(conversation.id, pending.requestId, { decision: "deny" })
-            }
+    <VerboseContext.Provider value={verbose}>
+      <Box flexDirection="column">
+        <Static key={staticEpoch} items={done}>
+          {renderCell}
+        </Static>
+        {live.map((cell) => (
+          <Box key={cellKey(cell)}>
+            <CellView cell={cell} recent />
+          </Box>
+        ))}
+        {pending ? (
+          <Box>
+            <Text color="magenta">{`❓ ${pending.summary} `}</Text>
+            <ConfirmInput
+              onConfirm={() =>
+                service.respond(conversation.id, pending.requestId, { decision: "allow" })
+              }
+              onCancel={() =>
+                service.respond(conversation.id, pending.requestId, { decision: "deny" })
+              }
+            />
+          </Box>
+        ) : modelPicking ? (
+          <ModelPicker
+            models={service.availableModels()}
+            current={model}
+            onSelect={(next) => {
+              setModelPicking(false);
+              report(service.setModel(conversation.id, next));
+            }}
           />
-        </Box>
-      ) : modelPicking ? (
-        <ModelPicker
-          models={service.availableModels()}
-          current={model}
-          onSelect={(next) => {
-            setModelPicking(false);
-            report(service.setModel(conversation.id, next));
-          }}
-        />
-      ) : effortPicking ? (
-        <EffortPicker
-          efforts={effortsFor(service, model)}
-          current={model.effort}
-          onSelect={(value) => {
-            setEffortPicking(false);
-            report(service.setModel(conversation.id, { ...model, effort: value }));
-          }}
-        />
-      ) : showActivities ? (
-        <ActivitiesOverlay
-          activities={state.activities}
-          view={activities}
-          onClose={() => setShowActivities(false)}
-        />
-      ) : showSandbox ? (
-        <SandboxOverlay view={sandboxView} onClose={() => setShowSandbox(false)} />
-      ) : (
-        <>
-          <PendingPreview pending={state.pendingInput} />
-          <SandboxProgress sandbox={state.sandbox} />
-          <StatusBar
-            busy={busy}
-            model={model.model}
-            effort={model.effort}
-            cwd={cwd}
-            usage={state.usage}
-            cost={state.cost}
-            lastInputTokens={state.lastInputTokens}
-            contextWindow={contextWindow}
-            activeCount={activeCount}
-            sandboxEnabled={sandboxEnabled}
-            sandboxPhase={state.sandbox?.phase}
+        ) : effortPicking ? (
+          <EffortPicker
+            efforts={effortsFor(service, model)}
+            current={model.effort}
+            onSelect={(value) => {
+              setEffortPicking(false);
+              report(service.setModel(conversation.id, { ...model, effort: value }));
+            }}
           />
-          <Composer ctx={ctx} history={history} onSubmit={submit} onMenuOpenChange={setMenuOpen} />
-        </>
-      )}
-    </Box>
+        ) : showActivities ? (
+          <ActivitiesOverlay
+            activities={state.activities}
+            view={activities}
+            onClose={() => setShowActivities(false)}
+          />
+        ) : showSandbox ? (
+          <SandboxOverlay view={sandboxView} onClose={() => setShowSandbox(false)} />
+        ) : (
+          <>
+            <PendingPreview pending={state.pendingInput} />
+            <SandboxProgress sandbox={state.sandbox} />
+            <Rule />
+            <Composer
+              ctx={ctx}
+              history={history}
+              onSubmit={submit}
+              onMenuOpenChange={setMenuOpen}
+              onInterrupt={() => {
+                if (busy) report(service.deliver(conversation.id, "", "interrupt"));
+              }}
+            />
+            <Rule />
+            <StatusBar
+              busy={busy}
+              model={model.model}
+              effort={model.effort}
+              cwd={cwd}
+              usage={state.usage}
+              cost={state.cost}
+              lastInputTokens={state.lastInputTokens}
+              contextWindow={contextWindow}
+              activeCount={activeCount}
+              sandboxEnabled={sandboxEnabled}
+              sandboxPhase={state.sandbox?.phase}
+            />
+          </>
+        )}
+      </Box>
+    </VerboseContext.Provider>
   );
 }
 
@@ -482,13 +523,38 @@ function PendingPreview({
   );
 }
 
+/** A dim horizontal rule spanning the terminal width; delimits the prompt region. */
+function Rule(): ReactElement {
+  const { stdout } = useStdout();
+  const width = stdout?.columns ?? 80;
+  return <Text dimColor>{"─".repeat(Math.max(0, width))}</Text>;
+}
+
 const isLive = (c: Cell): boolean => {
   if (c.kind === "assistant" || c.kind === "reasoning" || c.kind === "shell") return c.streaming;
   if (c.kind === "tool") return c.status === undefined;
   return false;
 };
 
-const firstLiveIndex = (cells: Cell[]): number => {
-  const i = cells.findIndex(isLive);
-  return i === -1 ? cells.length : i;
+// Finalized reasoning blocks kept expanded in the live tail for recent context; older
+// ones collapse into <Static>. Small and bounded, so it stays off the per-delta hot path.
+const RECENT_REASONING = 2;
+
+// Start of the live region: the streaming tail, extended back to hold the last
+// RECENT_REASONING finalized reasoning blocks. `done` is a prefix that only grows
+// (cells migrate live→done, never back), so <Static> stays duplicate-free.
+const liveStartIndex = (cells: Cell[]): number => {
+  const firstStreaming = cells.findIndex(isLive);
+  const base = firstStreaming === -1 ? cells.length : firstStreaming;
+  let seen = 0;
+  let cut = base;
+  for (let i = base - 1; i >= 0; i--) {
+    const c = cells[i]!;
+    if (c.kind === "reasoning" && !c.streaming) {
+      if (seen >= RECENT_REASONING) break;
+      seen++;
+      cut = i;
+    }
+  }
+  return cut;
 };

@@ -77,6 +77,55 @@ describe("App", () => {
     expect(lastFrame()).toContain("Hello there");
   });
 
+  it("collapses a running tool's args by default and expands them on Ctrl+O", async () => {
+    const { service, emit } = harness();
+    const { stdin, lastFrame } = mount(service);
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    emit({
+      type: "tool_call.started",
+      conversationId: "c1",
+      callId: "k1",
+      name: "bash",
+      args: { command: "npm test" },
+    });
+    await flush();
+    // Compact: the command is shown as a summary, the raw args JSON is not.
+    expect(lastFrame()).toContain("npm test");
+    expect(lastFrame()).not.toContain('"command"');
+    stdin.write("\x0f"); // Ctrl+O toggles verbose
+    await flush();
+    // Verbose: the full args blob renders for the still-live cell.
+    expect(lastFrame()).toContain('"command"');
+  });
+
+  it("reprints a finalized tool's full output when verbose toggles", async () => {
+    const { service, emit } = harness();
+    const { stdin, lastFrame } = mount(service);
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    emit({
+      type: "tool_call.started",
+      conversationId: "c1",
+      callId: "k1",
+      name: "bash",
+      args: { command: "npm test" },
+    });
+    emit({
+      type: "tool_call.completed",
+      conversationId: "c1",
+      callId: "k1",
+      status: "ok",
+      forModel: [{ type: "text", text: "all good\nsecond line" }],
+    });
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
+    await flush();
+    // Finalized → compact: one-line result, the rest of the output hidden.
+    expect(lastFrame()).toContain("all good");
+    expect(lastFrame()).not.toContain("second line");
+    stdin.write("\x0f"); // Ctrl+O: wipe + reprint verbose
+    await flush();
+    expect(lastFrame()).toContain("second line");
+  });
+
   it("shows an approval prompt and hides the composer while pending", async () => {
     const { service, emit } = harness();
     const { lastFrame } = mount(service);

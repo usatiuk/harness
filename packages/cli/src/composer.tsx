@@ -5,7 +5,7 @@ import { complete, slashCompletion, type CompletionProvider } from "./completion
 import { Suggestions } from "./suggestions.tsx";
 import type { History } from "./use-history.ts";
 
-const PLACEHOLDER = "type a message…   (> queue · ! shell · /sandbox · /help · Esc abort)";
+const PLACEHOLDER = "type a message… · /help · Esc abort";
 
 // Completion sources, tried in order; first non-null wins.
 const PROVIDERS: CompletionProvider[] = [slashCompletion];
@@ -17,6 +17,8 @@ export interface ComposerProps {
   onSubmit: (value: string) => void;
   /** Lets the app suppress its own Esc handling while the menu owns Esc. */
   onMenuOpenChange: (open: boolean) => void;
+  /** Ctrl+C with an empty prompt interrupts the running turn. */
+  onInterrupt: () => void;
 }
 
 /**
@@ -29,6 +31,7 @@ export function Composer({
   history,
   onSubmit,
   onMenuOpenChange,
+  onInterrupt,
 }: ComposerProps): ReactElement {
   const [value, setValue] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -75,6 +78,22 @@ export function Composer({
   };
 
   useInput((input, key) => {
+    // Ctrl+C clears the prompt (interrupts when empty); Ctrl+D quits when empty, else
+    // forward-deletes. Both bypass the menu/history/edit precedence below.
+    if (key.ctrl && input === "c") {
+      if (value !== "") reset();
+      else onInterrupt();
+      return;
+    }
+    if (key.ctrl && input === "d") {
+      if (value === "") ctx.exit();
+      else if (cursor < value.length) {
+        setValue(value.slice(0, cursor) + value.slice(cursor + 1));
+        setSuppress(false);
+      }
+      return;
+    }
+
     // Enter arrives as '\r' (return) or '\n' (LF: pasted newline / some terminals).
     const isSubmit = key.return || input === "\n" || input === "\r";
 
