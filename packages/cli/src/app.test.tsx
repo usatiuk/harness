@@ -31,8 +31,8 @@ function harness(): { service: HarnessService; emit: (e: HarnessEvent) => void }
   return { service, emit: (e) => listener?.(e) };
 }
 
-const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
-
+// React commits emitted updates asynchronously (scheduler ticks), so frame assertions
+// after an emit poll with vi.waitFor instead of racing the commit with a timer.
 const mount = (service: HarnessService) =>
   render(
     <App
@@ -64,8 +64,7 @@ describe("App", () => {
       conversationId: "c1",
       model: { provider: "openai", model: "gpt-5.1" },
     });
-    await flush();
-    expect(lastFrame()).toContain("gpt-5.1");
+    await vi.waitFor(() => expect(lastFrame()).toContain("gpt-5.1"));
   });
 
   it("renders streaming assistant text from the event stream", async () => {
@@ -73,8 +72,7 @@ describe("App", () => {
     const { lastFrame } = mount(service);
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
     emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "Hello there" });
-    await flush();
-    expect(lastFrame()).toContain("Hello there");
+    await vi.waitFor(() => expect(lastFrame()).toContain("Hello there"));
   });
 
   it("collapses a running tool's args by default and expands them on Ctrl+O", async () => {
@@ -88,14 +86,12 @@ describe("App", () => {
       name: "bash",
       args: { command: "npm test" },
     });
-    await flush();
     // Compact: the command is shown as a summary, the raw args JSON is not.
-    expect(lastFrame()).toContain("npm test");
+    await vi.waitFor(() => expect(lastFrame()).toContain("npm test"));
     expect(lastFrame()).not.toContain('"command"');
     stdin.write("\x0f"); // Ctrl+O toggles verbose
-    await flush();
     // Verbose: the full args blob renders for the still-live cell.
-    expect(lastFrame()).toContain('"command"');
+    await vi.waitFor(() => expect(lastFrame()).toContain('"command"'));
   });
 
   it("reprints a finalized tool's full output when verbose toggles", async () => {
@@ -117,13 +113,11 @@ describe("App", () => {
       forModel: [{ type: "text", text: "all good\nsecond line" }],
     });
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
-    await flush();
     // Finalized → compact: one-line result, the rest of the output hidden.
-    expect(lastFrame()).toContain("all good");
+    await vi.waitFor(() => expect(lastFrame()).toContain("all good"));
     expect(lastFrame()).not.toContain("second line");
     stdin.write("\x0f"); // Ctrl+O: wipe + reprint verbose
-    await flush();
-    expect(lastFrame()).toContain("second line");
+    await vi.waitFor(() => expect(lastFrame()).toContain("second line"));
   });
 
   it("shows an approval prompt and hides the composer while pending", async () => {
@@ -136,8 +130,7 @@ describe("App", () => {
       conversationId: "c1",
       request: { kind: "approval", call: { name: "bash" } },
     });
-    await flush();
-    expect(lastFrame()).toContain("approve bash?");
+    await vi.waitFor(() => expect(lastFrame()).toContain("approve bash?"));
     expect(lastFrame()).not.toContain("type a message");
   });
 });

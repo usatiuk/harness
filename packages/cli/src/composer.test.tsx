@@ -4,7 +4,11 @@ import type { CommandContext } from "./commands.ts";
 import type { History } from "./use-history.ts";
 import { Composer } from "./composer.tsx";
 
-const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+// Drains scheduler ticks (setImmediate in Node) so React commits a keystroke's state before
+// the next write's handler reads it; a bare setTimeout(0) can lose that race under load.
+const flush = async (): Promise<void> => {
+  for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+};
 // xterm escape sequences (ESC [ …).
 const ESC = String.fromCharCode(27);
 const UP = ESC + "[A";
