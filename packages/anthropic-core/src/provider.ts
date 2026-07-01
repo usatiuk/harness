@@ -120,7 +120,10 @@ export class AnthropicProvider implements ModelProvider {
       request,
       {
         maxTokens: spec?.maxTokens ?? MAX_TOKENS_FALLBACK,
-        ...(spec?.adaptiveThinking ? { thinking: { type: "adaptive" } } : {}),
+        // display must be explicit: Opus 4.7+ defaults to "omitted" (empty thinking text).
+        ...(spec?.adaptiveThinking
+          ? { thinking: { type: "adaptive", display: "summarized" } }
+          : {}),
         ...(effort ? { effort } : {}),
       },
       this.provider,
