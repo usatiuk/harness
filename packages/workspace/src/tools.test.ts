@@ -7,10 +7,9 @@ import { LocalExecutionContext } from "@harness/execution";
 import { ActivityManager, activitiesOf, consume } from "@harness/activities";
 import {
   ApplyPatchTool,
-  BashTool,
+  CommandTool,
   EditTool,
   GlobTool,
-  GrepTool,
   ReadFileTool,
   WriteTool,
   scopedPattern,
@@ -36,14 +35,15 @@ async function workspace(): Promise<ToolContext> {
 }
 
 /**
- * Drives bash the way the engine does: the tool mints + tracks an activity (returning a
+ * Drives the active command tool the way the engine does: the tool mints + tracks an activity (returning a
  * placeholder), then the consumption layer claims it by callId and produces the real result.
  */
-async function runBash(ctx: ToolContext, command: string): Promise<ToolResult> {
+async function runCommand(ctx: ToolContext, command: string): Promise<ToolResult> {
   const mgr = activitiesOf(ctx);
-  await new BashTool().execute({ command }, ctx);
+  const execution = ctx.service("execution") as LocalExecutionContext;
+  await new CommandTool(execution.shellKind).execute({ command }, ctx);
   const activity = mgr.claim(ctx.callId);
-  if (!activity) throw new Error("bash did not register an activity");
+  if (!activity) throw new Error("command did not register an activity");
   return consume(mgr, activity, false, ctx);
 }
 afterEach(async () => {
@@ -131,7 +131,7 @@ describe("workspace tools", () => {
     expect(text(await new ReadFileTool().execute({ path: "f.txt" }, ctx))).toBe("1 two two\n");
   });
 
-  it("globs and greps the workspace", async () => {
+  it("globs the workspace", async () => {
     const ctx = await workspace();
     await new WriteTool().execute({ path: "src/a.ts", content: "needle here" }, ctx);
     await new WriteTool().execute({ path: "src/b.ts", content: "nothing" }, ctx);
@@ -140,11 +140,6 @@ describe("workspace tools", () => {
     expect(text(await new GlobTool().execute({ pattern: "src/**/*.ts" }, ctx)).split("\n")).toEqual(
       ["src/a.ts", "src/b.ts"],
     );
-
-    // POSIX ERE: alternation/grouping resolves server-side via `grep -E`, path-scoped to `src`.
-    const grep = text(await new GrepTool().execute({ pattern: "need(le|x)", path: "src" }, ctx));
-    expect(grep).toContain("src/a.ts:1:needle here");
-    expect(grep).not.toContain("src/b.ts");
   });
 
   it("glob treats path '.' as the whole workspace, not a literal './' prefix", async () => {
@@ -154,7 +149,7 @@ describe("workspace tools", () => {
 
     // Regression: `path: "."` built `./**/*`, but `list` returns workspace-relative paths with no
     // `./` prefix, so it matched nothing. "." must mean the whole workspace (matching the tool's
-    // own description and grep's convention).
+    // own description and the other workspace tools' convention).
     expect(text(await new GlobTool().execute({ pattern: "**/*.md", path: "." }, ctx))).toBe(
       "readme.md",
     );
@@ -173,37 +168,24 @@ describe("workspace tools", () => {
     }
   });
 
-  it("grep skips dot-directories (e.g. the .harness output store), not just .git", async () => {
-    const ctx = await workspace();
-    await new WriteTool().execute({ path: "src/a.ts", content: "needle here" }, ctx);
-    await new WriteTool().execute({ path: ".harness/conv/outputs/x.log", content: "needle" }, ctx);
-    await new WriteTool().execute({ path: ".git/MERGE_MSG", content: "needle" }, ctx);
-    const grep = text(await new GrepTool().execute({ pattern: "needle", path: "." }, ctx));
-    expect(grep).toContain("src/a.ts:1:needle here");
-    expect(grep).not.toContain(".harness");
-
-    // …but an explicit path INTO a skipped dir is honored — the agent can still grep git internals.
-    const inGit = text(await new GrepTool().execute({ pattern: "needle", path: ".git" }, ctx));
-    expect(inGit).toContain(".git/MERGE_MSG:1:needle");
-  });
-
   it("runs a quick command as an activity, surfacing exit status inline", async () => {
     const ctx = await workspace();
-    const okResult = await runBash(ctx, "echo hi");
+    const okResult = await runCommand(ctx, "echo hi");
     expect(okResult.status).toBe("ok");
     expect(text(okResult)).toContain("hi");
 
-    const failResult = await runBash(ctx, "exit 2");
+    const failResult = await runCommand(ctx, "exit 2");
     expect(failResult.status).toBe("error");
     expect(text(failResult)).toContain("exited 2");
   });
 });
 
 describe("workspacePlugin file-tools roster by profile", () => {
-  const names = (fileTools: FileToolsProfile) =>
-    workspacePlugin.tools!({ contentTypes: ["text"], toolCalling: true, fileTools }).map(
-      (t) => t.name,
-    );
+  const names = (fileTools: FileToolsProfile, shellKind: "bash" | "powershell" = "bash") =>
+    workspacePlugin.tools!(
+      { contentTypes: ["text"], toolCalling: true, fileTools },
+      { service: () => ({ shellKind }) },
+    ).map((t) => t.name);
 
   it("gives apply_patch (with read/write) to a V4A model", () => {
     expect(names("apply_patch")).toEqual(
@@ -223,8 +205,12 @@ describe("workspacePlugin file-tools roster by profile", () => {
     expect(ns).not.toContain("write");
     expect(ns).not.toContain("edit");
     expect(ns).not.toContain("apply_patch");
-    // search + bash remain.
-    expect(ns).toEqual(expect.arrayContaining(["glob", "grep", "bash"]));
+    // glob + the active command tool remain.
+    expect(ns).toEqual(expect.arrayContaining(["glob", "bash"]));
+    expect(names("text_editor", "powershell")).toEqual(
+      expect.arrayContaining(["glob", "powershell"]),
+    );
+    expect(ns).not.toContain("grep");
   });
 });
 

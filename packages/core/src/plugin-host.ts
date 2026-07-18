@@ -7,6 +7,7 @@ import type {
   Plugin,
   ServiceProvider,
   Tool,
+  ToolContributionContext,
   ToolMiddleware,
 } from "@harness/protocol";
 import { ProviderRegistry, ToolSet } from "./registry.ts";
@@ -30,7 +31,10 @@ function pick<T>(slot: string, contributed: T[], fallback: T): T {
 export class PluginHost {
   readonly providers = new ProviderRegistry();
   /** Per-plugin tool contributors; resolved against the active model's capabilities per turn. */
-  readonly #toolContributors: readonly ((caps: ModelCapabilities) => Tool[])[];
+  readonly #toolContributors: readonly ((
+    caps: ModelCapabilities,
+    ctx: ToolContributionContext,
+  ) => Tool[])[];
   readonly contextSources: readonly ContextSource[];
   readonly observers: readonly Observer[];
   readonly policies: ResolvedPolicies;
@@ -46,7 +50,8 @@ export class PluginHost {
     const observers: Observer[] = [];
     const compaction: CompactionStrategy[] = [];
     const services = new Map<string, ServiceProvider>();
-    const toolContributors: ((caps: ModelCapabilities) => Tool[])[] = [];
+    const toolContributors: ((caps: ModelCapabilities, ctx: ToolContributionContext) => Tool[])[] =
+      [];
     const toolMiddleware: ToolMiddleware[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
 
@@ -87,8 +92,12 @@ export class PluginHost {
    * Withholding (not executing) is the point: it scopes a subagent's tool set and bounds recursion
    * structurally — a disallowed call is rejected by the dispatch's `unknown tool` path, no tool-side guard.
    */
-  toolsFor(caps: ModelCapabilities, allow?: readonly string[]): ToolSet {
-    const tools = this.#toolContributors.flatMap((contribute) => contribute(caps));
+  toolsFor(
+    caps: ModelCapabilities,
+    ctx: ToolContributionContext,
+    allow?: readonly string[],
+  ): ToolSet {
+    const tools = this.#toolContributors.flatMap((contribute) => contribute(caps, ctx));
     return new ToolSet(allow ? tools.filter((tool) => allow.includes(tool.name)) : tools);
   }
 }

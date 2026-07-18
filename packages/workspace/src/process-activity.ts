@@ -57,11 +57,15 @@ export function createProcessActivity(init: ProcessActivityInit): Activity {
     return [{ type: "text", text: view || "(no output yet)" }];
   };
 
-  const done: Promise<ActivityResult> = proc.exit.then(async ({ code, signal }) => {
+  const done: Promise<ActivityResult> = proc.exit.then(async ({ code, signal, error }) => {
     const secs = ((Date.now() - started) / 1000).toFixed(1);
-    const how = signal ? `killed (${signal})` : `exited ${code ?? 0}`;
+    const how = error
+      ? `failed to start (${error.message})`
+      : signal
+        ? `killed (${signal})`
+        : `exited ${code ?? 0}`;
     const summary = `\`${title}\` ${how} after ${secs}s`;
-    const status: "ok" | "error" = signal || (code ?? 0) !== 0 ? "error" : "ok";
+    const status: "ok" | "error" = error || signal || code === null || code !== 0 ? "error" : "ok";
     const view: ContentBlock[] = [{ type: "text", text: boundView(recent, VIEW) || "(no output)" }];
     try {
       if (writer) {

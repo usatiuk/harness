@@ -54,11 +54,53 @@ describe("LocalExecutionContext", () => {
     expect((await ok.exit).code).toBe(0);
     expect(out.trim()).toBe("hi");
     expect((await ctx.spawn("exit 3").exit).code).toBe(3);
+  }, 15_000);
+
+  it.runIf(process.platform === "win32")("preserves native Windows exit codes", async () => {
+    const ctx = new LocalExecutionContext(await tmp());
+    const proc = ctx.spawn(`& "${process.execPath}" -e "process.exit(7)"`);
+    expect((await proc.exit).code).toBe(7);
+
+    const recovered = ctx.spawn(
+      `& "${process.execPath}" -e "process.exit(7)"; Write-Output recovered`,
+    );
+    let output = "";
+    recovered.onData((chunk) => (output += chunk));
+    expect((await recovered.exit).code).toBe(0);
+    expect(output.trim()).toBe("recovered");
+
+    const cmdletFailure = ctx.spawn(
+      `& "${process.execPath}" -e "process.exit(0)"; Get-Item -LiteralPath '__missing__'`,
+    );
+    expect((await cmdletFailure.exit).code).toBe(1);
+  });
+
+  it("advertises the host shell and preserves UTF-8 command output", async () => {
+    const ctx = new LocalExecutionContext(await tmp());
+    expect(ctx.shellKind).toBe(process.platform === "win32" ? "powershell" : "bash");
+    const invoke =
+      ctx.shellKind === "powershell" ? `& "${process.execPath}"` : `"${process.execPath}"`;
+    const proc = ctx.spawn(`${invoke} -e "console.log('žluťoučký')"`);
+    let out = "";
+    proc.onData((chunk) => (out += chunk));
+    expect((await proc.exit).code).toBe(0);
+    expect(out).toContain("žluťoučký");
+
+    const pipeline = ctx.spawn(
+      ctx.shellKind === "powershell"
+        ? `'žluťoučký' | ${invoke} -e "process.stdin.pipe(process.stdout)"`
+        : `printf '%s' 'žluťoučký' | ${invoke} -e "process.stdin.pipe(process.stdout)"`,
+    );
+    let piped = "";
+    pipeline.onData((chunk) => (piped += chunk));
+    expect((await pipeline.exit).code).toBe(0);
+    expect(piped).toContain("žluťoučký");
   });
 
   it("classifies by path containment", () => {
     const ctx = new LocalExecutionContext("/work");
     expect(ctx.classify(call({ path: "src/x.ts" }))).toBe("in-workspace");
+    expect(ctx.classify(call({ path: "..safe/x.ts" }))).toBe("in-workspace");
     expect(ctx.classify(call({ path: "../escape" }))).toBe("out-of-workspace");
     expect(ctx.classify(call({ path: "/etc/passwd" }))).toBe("out-of-workspace");
     expect(ctx.classify(call({ command: "ls" }))).toBe("out-of-workspace"); // no path arg

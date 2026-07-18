@@ -93,6 +93,15 @@ export class ActivityManager {
     return this.#settled.get(id);
   }
 
+  /** Request termination only while an activity is live; settled handles must never be reused. */
+  kill(id: string): "requested" | "settled" | "unknown" {
+    const activity = this.#byId.get(id);
+    if (!activity) return "unknown";
+    if (this.#settled.has(id)) return "settled";
+    activity.kill();
+    return "requested";
+  }
+
   /** Bounded wait over `activity.done`; marks the result surfaced on settle. */
   async wait(id: string, timeoutMs: number): Promise<ActivityResult | "running"> {
     const activity = this.#byId.get(id);
@@ -129,7 +138,9 @@ export class ActivityManager {
 
   /** Shutdown sweep: kill every tracked activity (CLI exit). */
   killAll(): void {
-    for (const activity of this.#byId.values()) activity.kill();
+    for (const [id, activity] of this.#byId) {
+      if (!this.#settled.has(id)) activity.kill();
+    }
   }
 
   #gc(): void {

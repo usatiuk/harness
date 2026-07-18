@@ -33,6 +33,11 @@ export interface PluginPolicies {
   compaction?: CompactionStrategy;
 }
 
+/** Per-conversation context supplied when a plugin resolves its turn-local tool roster. */
+export interface ToolContributionContext {
+  service(key: string): unknown;
+}
+
 /**
  * The single extension surface. A plugin contributes typed capabilities; it never
  * touches control flow.
@@ -40,7 +45,7 @@ export interface PluginPolicies {
 export interface Plugin {
   readonly id: string;
   providers?(): ModelProvider[];
-  tools?(caps: ModelCapabilities): Tool[];
+  tools?(caps: ModelCapabilities, ctx: ToolContributionContext): Tool[];
   /** Wraps tool execution, outermost first. Absence of any gate = allow. */
   toolMiddleware?(): ToolMiddleware[];
   /** Wraps each model step, outermost first (retry / cache / model-fallback). */

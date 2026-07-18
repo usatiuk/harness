@@ -27,12 +27,12 @@ const delay = (ms: number, signal: AbortSignal): Promise<void> =>
     );
   });
 
-/** Wraps a string for safe use inside a single-quoted shell argument. */
-const shellQuote = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
+const bashQuote = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
+const powershellQuote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 
 /**
- * Demo-only provider. Each turn calls `bash` to echo the user's text, then replies —
- * exercising the full tool + approval pipeline (bash is out-of-workspace, so it
+ * Demo-only provider. Each turn calls the offered command tool to echo the user's text, then replies —
+ * exercising the full tool + approval pipeline (commands are out-of-workspace, so it
  * prompts for approval). Artificial latency keeps turns long enough to steer/interrupt
  * by hand, and it honors the abort signal.
  */
@@ -61,7 +61,7 @@ export class DemoProvider implements ModelProvider {
     const last = request.items.at(-1)?.item;
 
     if (last?.type === "tool_result") {
-      const text = "Done — ran your message through the bash tool.";
+      const text = "Done — ran your message through the command tool.";
       await delay(DEMO_LATENCY_MS, signal);
       if (signal.aborted) return;
       yield { type: "text_delta", text };
@@ -77,11 +77,23 @@ export class DemoProvider implements ModelProvider {
 
     await delay(DEMO_LATENCY_MS, signal);
     if (signal.aborted) return;
+    const tools = request.tools ?? [];
+    const shell = tools.some((tool) => tool.name === "powershell")
+      ? "powershell"
+      : tools.some((tool) => tool.name === "bash")
+        ? "bash"
+        : undefined;
+    if (!shell) throw new Error("demo provider requires a bash or powershell tool");
     yield {
       type: "tool_call",
       callId: `call-${++this.#calls}`,
-      name: "bash",
-      args: { command: `echo ${shellQuote(youSaid)}` },
+      name: shell,
+      args: {
+        command:
+          shell === "powershell"
+            ? `Write-Output ${powershellQuote(youSaid)}`
+            : `printf '%s\\n' ${bashQuote(youSaid)}`,
+      },
     };
     yield { type: "completed", content: [], usage: ZERO_USAGE };
   }

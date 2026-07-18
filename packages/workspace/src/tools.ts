@@ -9,17 +9,13 @@ import {
   type ToolInput,
   type ToolResult,
 } from "@harness/protocol";
-import { boundView, executionOf } from "@harness/execution";
+import { boundView, executionOf, type ShellKind } from "@harness/execution";
 import { activitiesOf } from "@harness/activities";
 import { createProcessActivity } from "./process-activity.ts";
 import { APPLY_PATCH_LARK, parseEnvelope, type FileChange } from "./apply-patch-parse.ts";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
-// A generous safety bound on matches collected; large results are preserved to a file by the
-// output-bounding middleware, so this only guards against pathological memory use.
-const MAX_HITS = 1000;
-
 /** Outcome of a unique string replacement: the new text, or why it couldn't be done. */
 export type ReplaceResult =
   | { ok: true; text: string }
@@ -170,17 +166,26 @@ export class EditTool implements Tool<z.infer<typeof editArgs>> {
   }
 }
 
-const bashArgs = z.strictObject({ command: z.string() });
-export class BashTool implements Tool<z.infer<typeof bashArgs>> {
-  readonly name = "bash";
-  readonly description =
-    "Run a shell command in the workspace root. Quick commands return their output inline; " +
-    "long-running ones (dev servers, watchers, builds) become activities you can wait on, peek " +
-    "at, or kill.";
-  readonly input: ToolInput<z.infer<typeof bashArgs>> = { kind: "function", schema: bashArgs };
+const commandArgs = z.strictObject({ command: z.string() });
+export class CommandTool implements Tool<z.infer<typeof commandArgs>> {
+  readonly name: ShellKind;
+  readonly description: string;
+
+  constructor(kind: ShellKind) {
+    this.name = kind;
+    this.description =
+      `Run a ${shellLabel(kind)} command in the workspace root. ` +
+      "Quick commands return their output inline; " +
+      "long-running ones (dev servers, watchers, builds) become activities you can wait on, peek " +
+      "at, or kill.";
+  }
+  readonly input: ToolInput<z.infer<typeof commandArgs>> = {
+    kind: "function",
+    schema: commandArgs,
+  };
   // The activities plugin reads this to inject the `background` argument into the wire schema.
   readonly meta = { backgroundable: true };
-  execute({ command }: z.infer<typeof bashArgs>, ctx: ToolContext): Promise<ToolResult> {
+  execute({ command }: z.infer<typeof commandArgs>, ctx: ToolContext): Promise<ToolResult> {
     const exec = executionOf(ctx);
     const id = `act_${randomUUID().slice(0, 8)}`;
     // Spawn unbound from `ctx.signal`; backgrounded commands survive turn-end.
@@ -196,6 +201,19 @@ export class BashTool implements Tool<z.infer<typeof bashArgs>> {
       forModel: [{ type: "text", text: `started activity ${id}` }],
       status: "ok",
     });
+  }
+}
+
+function shellLabel(kind: ShellKind): string {
+  switch (kind) {
+    case "bash":
+      return "Bash";
+    case "powershell":
+      return "PowerShell";
+    default: {
+      const exhaustive: never = kind;
+      return exhaustive;
+    }
   }
 }
 
@@ -230,71 +248,5 @@ export class GlobTool implements Tool<z.infer<typeof globArgs>> {
   ): Promise<ToolResult> {
     const matches = await executionOf(ctx).list(scopedPattern(pattern, path));
     return okResult(matches.length ? matches.join("\n") : "no matches");
-  }
-}
-
-/** Single-quote a value for a POSIX shell, so a model-supplied pattern/path can't break out. */
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-// Bound on collected grep output; beyond it the search is killed and the result marked truncated.
-const MAX_GREP_BYTES = 2 * 1024 * 1024;
-
-const grepArgs = z.strictObject({
-  pattern: z.string(),
-  path: z.string().optional(),
-});
-export class GrepTool implements Tool<z.infer<typeof grepArgs>> {
-  readonly name = "grep";
-  readonly description =
-    "Search file contents by POSIX extended-regex `pattern` (`grep -E`), returning " +
-    '`file:line:text`. Optional `path` scopes the search to a subdirectory (use "." for the ' +
-    "whole workspace). The whole-workspace search skips `.git` and `.harness`; pass one as `path` " +
-    "to search inside it.";
-  readonly input: ToolInput<z.infer<typeof grepArgs>> = { kind: "function", schema: grepArgs };
-  async execute(
-    { pattern, path }: z.infer<typeof grepArgs>,
-    ctx: ToolContext,
-  ): Promise<ToolResult> {
-    const exec = executionOf(ctx);
-    // A specific `path` is a deliberate scope, so search it verbatim. Only the broad whole-workspace
-    // search skips the noise dirs (VCS metadata, the agent's own `.harness` output store) — so the
-    // agent can still grep inside them by naming them (`path: ".git"`), which `--exclude-dir` would
-    // otherwise silently prune even when targeted. Excludes are by name: a `.*` glob isn't portable
-    // here, as BSD grep then prunes the search root `.` itself.
-    const scoped = path !== undefined && path !== ".";
-    const target = scoped ? path : ".";
-    const excludes = scoped ? "" : "--exclude-dir=.git --exclude-dir=.harness ";
-    // One recursive grep in the substrate (host or container) instead of read-every-file: `-r`
-    // recurse, `-n` line numbers, `-I` skip binaries, `-E` ERE.
-    const command = `grep -rnIE ${excludes}-- ${shellQuote(pattern)} ${shellQuote(target)}`;
-    const proc = exec.spawn(command);
-    let out = "";
-    let truncated = false;
-    proc.onData((chunk) => {
-      if (truncated) return;
-      out += chunk;
-      if (out.length > MAX_GREP_BYTES) {
-        truncated = true;
-        proc.kill();
-      }
-    });
-    const { code } = await proc.exit;
-    // grep exits 1 for "no matches" (not an error) and ≥2 for a real failure (e.g. a bad regex);
-    // a kill for truncation lands as a null code, which we treat as a successful capped result.
-    if (!truncated && code !== null && code >= 2) {
-      return errorResult(`grep failed: ${out.trim() || `exit ${code}`}`);
-    }
-    const hits = out
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => line.replace(/^\.\//, ""));
-    if (hits.length === 0) return okResult("no matches");
-    const capped = truncated || hits.length > MAX_HITS;
-    const shown = hits.slice(0, MAX_HITS);
-    const header = `${shown.length}${capped ? "+" : ""} match(es):\n`;
-    const footer = capped ? `\n…[stopped at ${shown.length} matches; refine your pattern]` : "";
-    return okResult(header + shown.join("\n") + footer);
   }
 }

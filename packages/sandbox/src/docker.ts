@@ -26,6 +26,7 @@ import type { SandboxConfig } from "./plugin.ts";
  */
 export class DockerExecutionContext implements ExecutionContext {
   readonly workspaceRoot: string | null;
+  readonly shellKind = "bash" as const;
   readonly #config: SandboxConfig;
   #provision: Promise<Provisioned> | undefined;
   #abort: AbortController | undefined;
@@ -129,6 +130,9 @@ export class DockerExecutionContext implements ExecutionContext {
     const listeners: ((chunk: string) => void)[] = [];
     let child: ChildProcess | undefined;
     let killed = false;
+    // The activity can remain unsettled while exited-client stdio drains. Never signal a process
+    // group after the client terminal event, when its id may already belong to another process.
+    let terminal = false;
     let resolveExit!: (r: { code: number | null; signal: string | null }) => void;
     const exit = new Promise<{ code: number | null; signal: string | null }>(
       (res) => (resolveExit = res),
@@ -142,7 +146,7 @@ export class DockerExecutionContext implements ExecutionContext {
     });
 
     const kill = (): void => {
-      if (killed) return;
+      if (killed || terminal) return;
       killed = true;
       void this.#reap(marker);
       if (child?.pid !== undefined) {
@@ -159,6 +163,7 @@ export class DockerExecutionContext implements ExecutionContext {
     void this.#ready().then(
       (h) => {
         if (killed) {
+          terminal = true;
           resolveExit({ code: null, signal: "SIGTERM" });
           return;
         }
@@ -166,14 +171,20 @@ export class DockerExecutionContext implements ExecutionContext {
           detached: true,
         });
         child = c;
+        c.once("exit", () => (terminal = true));
+        c.once("error", () => (terminal = true));
         const inner = streamProcess(c, () => {});
         inner.onData((chunk) => {
           for (const l of listeners) l(chunk);
         });
-        void inner.exit.then(resolveExit);
+        void inner.exit.then((result) => {
+          terminal = true;
+          resolveExit(result);
+        });
       },
       (err: Error) => {
         for (const l of listeners) l(`sandbox provisioning failed: ${err.message}\n`);
+        terminal = true;
         resolveExit({ code: 1, signal: null });
       },
     );

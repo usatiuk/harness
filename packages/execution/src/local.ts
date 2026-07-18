@@ -1,7 +1,7 @@
 import { createWriteStream, mkdirSync, writeFileSync } from "node:fs";
 import { spawn as nodeSpawn } from "node:child_process";
 import { mkdir, readdir, readFile, rm, stat as fsStat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { matchGlob, mayDescend } from "./glob.ts";
 import type { ByteRange, ToolCall } from "@harness/protocol";
 import type {
@@ -12,6 +12,7 @@ import type {
   SpawnedProcess,
 } from "./context.ts";
 import { streamProcess } from "./spawn.ts";
+import { killWindowsProcessTree } from "./windows-process.ts";
 
 /** The call's target path: the `path` arg if present and a string, else undefined. */
 function callPath(call: ToolCall): string | undefined {
@@ -29,6 +30,8 @@ function callPath(call: ToolCall): string | undefined {
  * adds enforcement behind the same interface. Commands run with `cwd = workspaceRoot`.
  */
 export class LocalExecutionContext implements ExecutionContext {
+  readonly shellKind = process.platform === "win32" ? "powershell" : "bash";
+
   constructor(readonly workspaceRoot: string | null) {}
 
   async read(path: string, range?: ByteRange): Promise<Uint8Array> {
@@ -83,12 +86,38 @@ export class LocalExecutionContext implements ExecutionContext {
 
   spawn(command: string): SpawnedProcess {
     const cwd = this.workspaceRoot ?? process.cwd();
-    // Own process group so `kill(-pid)` reaps the whole tree, not just the shell.
-    const child = nodeSpawn(command, { cwd, shell: true, detached: true });
+    const windows = process.platform === "win32";
+    const powershellCommand = [
+      "$utf8 = [System.Text.UTF8Encoding]::new($false)",
+      "[Console]::InputEncoding = $utf8",
+      "[Console]::OutputEncoding = $utf8",
+      "$OutputEncoding = $utf8",
+      "$global:LASTEXITCODE = $null",
+      command,
+      "$harnessSuccess = $?",
+      "if (-not $harnessSuccess) {",
+      "  if ($LASTEXITCODE) { exit $LASTEXITCODE }",
+      "  exit 1",
+      "}",
+    ].join("\n");
+    const child = windows
+      ? nodeSpawn(
+          "powershell.exe",
+          ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", powershellCommand],
+          { cwd, windowsHide: true },
+        )
+      : nodeSpawn("bash", ["-lc", command], { cwd, detached: true });
     let killed = false;
+    let settled = false;
+    child.once("exit", () => (settled = true));
+    child.once("error", () => (settled = true));
     const kill = (): void => {
-      if (killed || child.pid === undefined) return;
+      if (killed || settled || child.pid === undefined) return;
       killed = true;
+      if (windows) {
+        killWindowsProcessTree(child);
+        return;
+      }
       try {
         process.kill(-child.pid, "SIGTERM");
       } catch {
@@ -114,7 +143,7 @@ export class LocalExecutionContext implements ExecutionContext {
     const path = callPath(call);
     if (!root || path === undefined) return "out-of-workspace";
     const rel = relative(root, resolve(root, path));
-    const inside = rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+    const inside = rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
     return inside ? "in-workspace" : "out-of-workspace";
   }
 
@@ -125,7 +154,7 @@ export class LocalExecutionContext implements ExecutionContext {
 
 /**
  * Spills output to real files under `<root>/.harness/<conversationId>/outputs/<id>.log`, so the
- * model's `Read`/`Grep` reach them and the path is a durable breadcrumb in the log. The
+ * model's workspace file tools reach them and the path is a durable breadcrumb in the log. The
  * `.harness` dir is auto-gitignored on first use.
  */
 export class LocalOutputStore implements OutputStore {
@@ -139,7 +168,7 @@ export class LocalOutputStore implements OutputStore {
   }
 
   #rel(id: string): string {
-    return join(".harness", this.conversationId, "outputs", `${id}.log`);
+    return posix.join(".harness", this.conversationId, "outputs", `${id}.log`);
   }
 
   #ensureDir(): void {

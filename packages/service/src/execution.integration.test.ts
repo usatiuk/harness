@@ -45,6 +45,7 @@ function service(steps: ReturnType<typeof toolStep>[], onRequest?: (id: string) 
 }
 
 const overrides = { instructions: "go", model: { provider: "fake", model: "fake-1" } };
+const commandTool = process.platform === "win32" ? "powershell" : "bash";
 
 describe("execution + approval pipeline", () => {
   it("auto-runs an in-workspace write without prompting, and actually writes the file", async () => {
@@ -64,10 +65,10 @@ describe("execution + approval pipeline", () => {
     expect(completed && "status" in completed && completed.status).toBe("ok");
   });
 
-  it("prompts for an out-of-workspace bash call and errors the call on deny", async () => {
+  it("prompts for an out-of-workspace command and errors the call on deny", async () => {
     const root = await workspace();
     const { svc, events } = service(
-      [toolStep("c1", "bash", { command: "echo hi" }), textStep("done")],
+      [toolStep("c1", commandTool, { command: "echo hi" }), textStep("done")],
       () => ({ decision: "deny" }),
     );
     const conv = await svc.createConversation({ cwd: root, overrides });
@@ -80,10 +81,10 @@ describe("execution + approval pipeline", () => {
     expect(completed && "status" in completed && completed.status).toBe("error");
   });
 
-  it("runs an approved bash command as an activity and inlines its output", async () => {
+  it("runs an approved command as an activity and inlines its output", async () => {
     const root = await workspace();
     const { svc, events } = service(
-      [toolStep("c1", "bash", { command: "echo hi" }), textStep("done")],
+      [toolStep("c1", commandTool, { command: "echo hi" }), textStep("done")],
       () => ({}), // no `deny` ⇒ approval allows
     );
     const conv = await svc.createConversation({ cwd: root, overrides });

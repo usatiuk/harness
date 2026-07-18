@@ -64,23 +64,23 @@ describe("approval policy", () => {
     expect(denied.status).toBe("error");
   });
 
-  it("asks for bash by default (no in-workspace path ⇒ out-of-workspace)", async () => {
+  it("asks for a command tool by default (no in-workspace path ⇒ out-of-workspace)", async () => {
     const { ctx, asked } = contextFor();
-    await middlewareFor({}).wrap(call("bash", { command: "ls" }), ctx, next);
+    await middlewareFor({}).wrap(call("powershell", { command: "Get-ChildItem" }), ctx, next);
     expect(asked()).toBe(true);
   });
 
   it("denies by rule without asking, and honours a per-tool allow override", async () => {
-    const denied = await middlewareFor({ tools: { bash: "deny" } }).wrap(
-      call("bash", { command: "ls" }),
+    const denied = await middlewareFor({ tools: { powershell: "deny" } }).wrap(
+      call("powershell", { command: "Get-ChildItem" }),
       contextFor().ctx,
       next,
     );
     expect(denied.status).toBe("error");
 
     const allow = contextFor();
-    const allowed = await middlewareFor({ tools: { bash: "allow" } }).wrap(
-      call("bash", { command: "ls" }),
+    const allowed = await middlewareFor({ tools: { powershell: "allow" } }).wrap(
+      call("powershell", { command: "Get-ChildItem" }),
       allow.ctx,
       next,
     );

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { ModelCapabilities, Plugin, ToolMiddleware } from "@harness/protocol";
+import type {
+  ModelCapabilities,
+  Plugin,
+  ToolContributionContext,
+  ToolMiddleware,
+} from "@harness/protocol";
 import { EchoTool, fakeCompaction, FakeProvider } from "@harness/testkit";
 import { PluginHost } from "./plugin-host.ts";
 import { noCompaction } from "./policies.ts";
@@ -9,6 +14,9 @@ const caps: ModelCapabilities = {
   contentTypes: ["text"],
   toolCalling: true,
   fileTools: "string_replace",
+};
+const toolCtx: ToolContributionContext = {
+  service: () => undefined,
 };
 
 const passThrough = (id: string): ToolMiddleware => ({
@@ -25,11 +33,11 @@ describe("PluginHost", () => {
         providers: () => [new FakeProvider([])],
       },
     ]);
-    expect(host.toolsFor(caps).get("echo").name).toBe("echo");
+    expect(host.toolsFor(caps, toolCtx).get("echo").name).toBe("echo");
     expect(host.providers.get("fake").provider).toBe("fake");
     expect(
       host
-        .toolsFor(caps)
+        .toolsFor(caps, toolCtx)
         .schemas()
         .map((s) => s.name),
     ).toEqual(["echo"]);
@@ -75,15 +83,15 @@ describe("PluginHost", () => {
       id: "p",
       tools: () => [new EchoTool(), new EchoTool()],
     };
-    expect(() => new PluginHost([plugin]).toolsFor(caps)).toThrow(/duplicate tool/);
+    expect(() => new PluginHost([plugin]).toolsFor(caps, toolCtx)).toThrow(/duplicate tool/);
   });
 
   it("narrows the offered tools to a tools.allow scope when one is given", () => {
     const host = new PluginHost([{ id: "p", tools: () => [new EchoTool()] }]);
     // No allow-list: the full contributed surface is offered.
-    expect(host.toolsFor(caps).has("echo")).toBe(true);
+    expect(host.toolsFor(caps, toolCtx).has("echo")).toBe(true);
     // An allow-list withholds any tool not named in it.
-    expect(host.toolsFor(caps, ["read"]).has("echo")).toBe(false);
-    expect(host.toolsFor(caps, ["echo", "read"]).has("echo")).toBe(true);
+    expect(host.toolsFor(caps, toolCtx, ["read"]).has("echo")).toBe(false);
+    expect(host.toolsFor(caps, toolCtx, ["echo", "read"]).has("echo")).toBe(true);
   });
 });

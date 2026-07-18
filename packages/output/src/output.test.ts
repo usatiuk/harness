@@ -51,7 +51,7 @@ describe("outputBoundMiddleware", () => {
   it("spills oversized output to a file and shows a head view + pointer", async () => {
     const ctx = ctxWith({}, new LocalExecutionContext(await tmpRoot()));
     const result = await outputBoundMiddleware().wrap(
-      { callId: "g", name: "grep", args: {} },
+      { callId: "g", name: "command", args: {} },
       ctx,
       passthrough({ forModel: [{ type: "text", text: oversized }], status: "ok" }),
     );
@@ -85,7 +85,7 @@ describe("outputBoundMiddleware", () => {
     const withExec = ctxWith({}, new LocalExecutionContext(await tmpRoot()));
     expect(
       await outputBoundMiddleware().wrap(
-        { callId: "x", name: "grep", args: {} },
+        { callId: "x", name: "command", args: {} },
         withExec,
         passthrough(small),
       ),
@@ -95,7 +95,7 @@ describe("outputBoundMiddleware", () => {
     const noExec = ctxWith(); // execution undefined ⇒ defer to the core truncate floor
     expect(
       await outputBoundMiddleware().wrap(
-        { callId: "x", name: "grep", args: {} },
+        { callId: "x", name: "command", args: {} },
         noExec,
         passthrough(big),
       ),

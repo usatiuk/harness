@@ -1,5 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ZodType } from "zod";
 import type { ConversationConfig } from "@harness/protocol";
 import { deepMerge } from "./merge.ts";
@@ -161,9 +161,11 @@ async function readDoc(file: string): Promise<SettingsDoc | undefined> {
 async function walkUp(
   start: string,
   match: (dir: string) => Promise<boolean>,
+  boundary?: string,
 ): Promise<string | undefined> {
   let dir = resolve(start);
   for (;;) {
+    if (boundary && samePath(dir, boundary)) return undefined;
     if (await match(dir)) return dir;
     const parent = dirname(dir);
     if (parent === dir) return undefined;
@@ -179,11 +181,28 @@ async function walkUp(
  * the enclosing git repo, else the start dir. Always returns a dir when `start` is given.
  */
 export async function findProjectRoot(start: string, home = defaultHome()): Promise<string> {
-  const marked = await walkUp(start, async (d) => {
-    return (await isDirectory(join(d, ".harness"))) && join(d, ".harness") !== home;
-  });
+  const resolvedStart = resolve(start);
+  const resolvedHome = resolve(home);
+  const homes = [resolvedHome, resolve(defaultHome())];
+  // Only `<parent>/.harness` makes its parent ambiguous with a project marker. An arbitrary
+  // custom-named home inside a repository must not hide that repository from the upward walk.
+  const boundary = homes
+    .filter((candidate) => samePath(join(dirname(candidate), ".harness"), candidate))
+    .map(dirname)
+    .filter((candidate) => containsPath(candidate, resolvedStart))
+    .sort((a, b) => b.length - a.length)[0];
+  const marked = await walkUp(
+    resolvedStart,
+    async (d) =>
+      (await isDirectory(join(d, ".harness"))) &&
+      !homes.some((candidate) => samePath(join(d, ".harness"), candidate)),
+    boundary,
+  );
   if (marked) return marked;
-  return (await walkUp(start, async (d) => await exists(join(d, ".git")))) ?? resolve(start);
+  return (
+    (await walkUp(resolvedStart, async (d) => await exists(join(d, ".git")), boundary)) ??
+    resolvedStart
+  );
 }
 
 /**
@@ -195,7 +214,16 @@ export async function findProjectRoot(start: string, home = defaultHome()): Prom
  * not a project.
  */
 export function isHomeRoot(root: string, home = defaultHome()): boolean {
-  return join(root, ".harness") === home;
+  return samePath(join(root, ".harness"), home);
+}
+
+function samePath(a: string, b: string): boolean {
+  return relative(resolve(a), resolve(b)) === "";
+}
+
+function containsPath(parent: string, child: string): boolean {
+  const rel = relative(resolve(parent), resolve(child));
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 async function exists(path: string): Promise<boolean> {

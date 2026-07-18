@@ -25,12 +25,10 @@ export class KeyringSecretStore implements SecretStore {
 
   async delete(key: string): Promise<boolean> {
     const entry = await this.#entry(key);
-    // Deleting an absent credential throws on some platforms; treat that as "nothing removed".
-    try {
-      return entry.deleteCredential();
-    } catch {
-      return false;
-    }
+    // Probe absence explicitly so backend/access failures during deletion are never reported as
+    // "nothing removed" by logout.
+    if (entry.getPassword() === null) return false;
+    return entry.deleteCredential();
   }
 
   async #entry(key: string): Promise<KeyringEntry> {

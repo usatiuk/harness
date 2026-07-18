@@ -28,7 +28,7 @@ auth
   .command("login")
   .description("sign in to a model provider (interactive picker by default)")
   .option("--provider <id>", "provider to sign in to (skips the picker)")
-  .option("--store <backend>", 'where to keep the key: "keyring" or "file"')
+  .option("--store <backend>", 'where to keep the key: "keyring" or Unix-only "file"')
   .action(async (opts: { provider?: string; store?: string }) => {
     await runLogin({ provider: opts.provider, store: opts.store });
   });

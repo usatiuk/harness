@@ -217,6 +217,54 @@ describe("findProjectRoot", () => {
 
     expect(await findProjectRoot(sub, home)).toBe(proj);
   });
+
+  it("does not treat a git-tracked Harness-home parent as the project", async () => {
+    const parent = await tmp();
+    const home = join(parent, ".harness");
+    await mkdir(home, { recursive: true });
+    await mkdir(join(parent, ".git"), { recursive: true });
+    const proj = join(parent, "myproject");
+    await mkdir(proj, { recursive: true });
+
+    expect(await findProjectRoot(proj, home)).toBe(proj);
+  });
+
+  it("finds a repository outside the configured home tree", async () => {
+    const homeParent = await tmp();
+    const home = join(homeParent, ".harness");
+    await mkdir(home, { recursive: true });
+    const outside = await tmp();
+    const repo = join(outside, "repo");
+    const sub = join(repo, "packages", "cli");
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await mkdir(sub, { recursive: true });
+
+    expect(await findProjectRoot(sub, home)).toBe(repo);
+  });
+
+  it("finds a repository whose root also contains a custom-named Harness home", async () => {
+    const repo = await tmp();
+    const home = join(repo, ".harness-global");
+    const sub = join(repo, "packages", "cli");
+    await mkdir(home, { recursive: true });
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await mkdir(sub, { recursive: true });
+
+    expect(await findProjectRoot(sub, home)).toBe(repo);
+  });
+
+  it.runIf(process.platform === "win32")(
+    "compares the home boundary case-insensitively",
+    async () => {
+      const parent = await tmp();
+      const home = join(parent, ".harness");
+      await mkdir(home, { recursive: true });
+      const proj = join(parent, "myproject");
+      await mkdir(proj, { recursive: true });
+
+      expect(await findProjectRoot(proj, home.toUpperCase())).toBe(proj);
+    },
+  );
 });
 
 describe("resolveSettings home/project separation", () => {

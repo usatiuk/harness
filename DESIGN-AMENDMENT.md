@@ -356,7 +356,7 @@ conversation — not a plugin.
 `feat/openai-backend`): Responses, stateless, encrypted reasoning round-trips via
 self-contained payloads. No core change.
 
-**Phase 3 — side-effecting tools + approval.** `write`/`edit`/`bash` arrive with an
+**Phase 3 — side-effecting tools + approval.** `write`/`edit` and the substrate command tool arrive with an
 approval `ToolMiddleware` using `ctx.request` (the blocking ask path) and the
 `approval.requested` event/render.
 

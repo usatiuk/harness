@@ -27,11 +27,17 @@ const executionFor = (c: Conversation): unknown => {
 
 describe("sandboxPlugin execution provider", () => {
   it("returns a Docker substrate when sandbox is enabled", () => {
-    expect(executionFor(conv({ enabled: true }))).toBeInstanceOf(DockerExecutionContext);
+    const execution = executionFor(conv({ enabled: true }));
+    expect(execution).toBeInstanceOf(DockerExecutionContext);
+    expect((execution as DockerExecutionContext).shellKind).toBe("bash");
   });
 
   it("returns a Local substrate when sandbox is disabled or unset", () => {
-    expect(executionFor(conv({ enabled: false }))).toBeInstanceOf(LocalExecutionContext);
+    const local = executionFor(conv({ enabled: false }));
+    expect(local).toBeInstanceOf(LocalExecutionContext);
+    expect((local as LocalExecutionContext).shellKind).toBe(
+      process.platform === "win32" ? "powershell" : "bash",
+    );
     expect(executionFor(conv())).toBeInstanceOf(LocalExecutionContext);
   });
 });

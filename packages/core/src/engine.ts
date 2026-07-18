@@ -338,6 +338,9 @@ export class Engine {
     const provider = this.host.providers.get(conversation.config.model.provider);
     const toolSet = this.host.toolsFor(
       provider.capabilities(conversation.config.model.model),
+      {
+        service: (key) => this.#service(runtime, key),
+      },
       conversation.config.tools?.allow,
     );
     const toolSchemas = toolSet.schemas();

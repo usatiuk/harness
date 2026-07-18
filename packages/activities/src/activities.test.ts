@@ -122,6 +122,26 @@ describe("ActivityManager — surface a completion exactly once", () => {
     await tick();
     expect(mgr.runningCount()).toBe(1);
   });
+
+  it("never kills settled activities directly or during shutdown", async () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    let settledKills = 0;
+    let runningKills = 0;
+    const settled = fakeActivity("done");
+    const running = fakeActivity("live");
+    settled.activity.kill = () => settledKills++;
+    running.activity.kill = () => runningKills++;
+    mgr.track(settled.activity, { callId: "done-call", emit: () => {} });
+    mgr.track(running.activity, { callId: "live-call", emit: () => {} });
+    settled.settle({ status: "ok", summary: "done", view: [] });
+    await tick();
+
+    expect(mgr.kill("done")).toBe("settled");
+    expect(mgr.kill("missing")).toBe("unknown");
+    mgr.killAll();
+    expect(settledKills).toBe(0);
+    expect(runningKills).toBe(1);
+  });
 });
 
 describe("consume", () => {

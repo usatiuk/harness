@@ -360,7 +360,9 @@ describe("subagentsConfigSchema — built-in agents", () => {
     const defaults = subagentsConfigSchema.parse({});
     expect(defaults.agents.map((a) => a.name)).toEqual(["general", "explore"]);
     const explore = defaults.agents.find((a) => a.name === "explore")!;
-    expect(explore.tools).toEqual({ allow: ["read_file", "glob", "grep"] });
+    expect(explore.tools).toEqual({
+      allow: ["read_file", "glob", "bash", "powershell"],
+    });
     expect(defaults.agents.find((a) => a.name === "general")!.tools).toBeUndefined();
 
     // Setting `agents` replaces wholesale (no merge) — the built-ins are gone unless redeclared.

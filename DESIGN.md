@@ -217,13 +217,17 @@ for want of a concrete second use case; it can return behind the rule below.
 interface Plugin {
   id: string;
   providers?(): ModelProvider[];
-  tools?(): Tool[];
+  tools?(caps: ModelCapabilities, ctx: ToolContributionContext): Tool[];
   contextSources?(): ContextSource[];
   policies?(): Partial<{ context: ContextPolicy;
                          toolGate: ToolGate; output: OutputProjection }>;
   observers?(): Observer[];   // read-only
 }
 ```
+
+Tool rosters resolve once per turn. The contribution context exposes the active conversation's
+services, allowing workspace tools to advertise `powershell` for local Windows execution and
+`bash` for POSIX or dev-container execution without coupling workspace tools to sandbox config.
 
 **Hard rules** (the antidote to harness-old's convolution):
 - A plugin **never touches control flow** — it registers a capability or provides
@@ -340,7 +344,7 @@ interface ToolContext { execution: ExecutionContext; conversationId: string;
   long-running work.**
 
 Phase 1 ships a trivial truncate projection and read-only tools (`read_file`,
-`glob`/`grep`). Side-effecting tools (`write`/`edit`/`bash`) arrive *with* the
+`glob`). Side-effecting tools (`write`/`edit` plus the substrate's `bash` or `powershell`) arrive *with* the
 approval gate (§9). `peek`, redirect thresholds, and background processes are
 later plugins; the *shape* above accommodates them with zero rework.
 
@@ -526,7 +530,7 @@ an unchanged kernel.**
    tools; blob store; the typed event-stream service; cli. Provider-agnostic.
 2. **First real provider.** `model-openai` (Responses, stateless, encrypted
    reasoning) behind the unchanged contract; payloads round-trip.
-3. **Side-effecting tools + approval.** `write`/`edit`/`bash` arrive *with* a real
+3. **Side-effecting tools + approval.** `write`/`edit` and the substrate command tool arrive *with* a real
    `ToolGate` plugin and the `approval.requested` event/render path.
 4. **More plugins (no kernel change).** Tasks/todos (ContextSource + tool +
    plugin-state); MCP (a plugin registering remote tools); background processes

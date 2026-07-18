@@ -25,6 +25,12 @@ npm run format       # prettier --write
 npm run check        # typecheck + lint + format:check + test (also runs in CI)
 ```
 
+On Windows, local command execution is exposed to models as `powershell`; Linux,
+macOS, and Linux dev containers expose `bash`. Windows sign-in requires Credential
+Manager (file-backed credentials are intentionally unsupported). Tool allowlists
+that target both local Windows and dev-container sessions should include both
+`powershell` and `bash`.
+
 ### Layout
 
 Packages under `packages/*`, layered one-directionally:

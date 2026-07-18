@@ -16,8 +16,8 @@ const toolRule = z.union([
 /**
  * Approval as attribute-based policy: the substrate emits a `relationship`, config
  * maps `(tool, relationship) → effect`. The defaults give the v0 behaviour — act
- * freely inside the workspace, ask before reaching outside it (and `bash`, which has
- * no in-workspace path, is always "outside" → asks). A per-tool entry overrides the
+ * freely inside the workspace, ask before reaching outside it (command tools have no
+ * in-workspace path, so they are always "outside" → ask). A per-tool entry overrides the
  * relationship default; most-specific wins.
  */
 export const approvalConfigSchema = z.strictObject({

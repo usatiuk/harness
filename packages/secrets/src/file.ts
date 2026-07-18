@@ -15,6 +15,9 @@ export class FileSecretStore implements SecretStore {
   readonly #path: string;
 
   constructor(path: string = defaultCredentialsPath()) {
+    if (process.platform === "win32") {
+      throw new Error("file credential storage is unsupported on Windows; use Credential Manager");
+    }
     this.#path = path;
   }
 

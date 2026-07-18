@@ -38,10 +38,12 @@ export const DEFAULT_AGENTS: AgentDef[] = [
     description:
       "Read-only investigation — map an area or answer a question, without modifying files.",
     systemPrompt:
-      "You are a read-only research agent. Use read_file, glob, and grep to investigate the codebase " +
-      "and answer the question or map the requested area. Do NOT modify, create, or delete files. " +
-      "Report findings concisely with file:line references.",
-    tools: { allow: ["read_file", "glob", "grep"] },
+      "You are a read-only research agent. Use glob to locate files, read_file to inspect them, " +
+      "and the available bash or powershell tool only for read-only content searches. Do NOT use " +
+      "commands that modify, create, or delete files. Report findings concisely with file:line " +
+      "references.",
+    // Only the substrate's active command tool is offered; its calls remain approval-gated.
+    tools: { allow: ["read_file", "glob", "bash", "powershell"] },
   },
 ];
 

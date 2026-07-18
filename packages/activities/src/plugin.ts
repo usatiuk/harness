@@ -48,7 +48,7 @@ class ActivitiesPlugin implements Plugin {
     ];
   }
 
-  /** Shutdown sweep: SIGTERM every tracked activity across all conversations (CLI exit). */
+  /** Shutdown sweep: terminate every tracked activity across all conversations (CLI exit). */
   shutdownAll(): void {
     for (const manager of this.#managers.values()) manager.killAll();
   }

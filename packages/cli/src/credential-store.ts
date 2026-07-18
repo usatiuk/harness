@@ -15,7 +15,10 @@ async function probeKeyring(): Promise<AuthStoreKind> {
   try {
     await new KeyringSecretStore().get(PROBE_KEY);
     return "keyring";
-  } catch {
+  } catch (cause) {
+    if (process.platform === "win32") {
+      throw new Error("Windows Credential Manager is unavailable", { cause });
+    }
     return "file";
   }
 }

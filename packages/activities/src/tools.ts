@@ -78,9 +78,9 @@ export class ActivityKillTool implements Tool<z.infer<typeof killArgs>> {
   readonly description = "Terminate a running activity.";
   readonly input: ToolInput<z.infer<typeof killArgs>> = { kind: "function", schema: killArgs };
   async execute({ id }: z.infer<typeof killArgs>, ctx: ToolContext): Promise<ToolResult> {
-    const activity = activitiesOf(ctx).get(id);
-    if (!activity) return errorResult(`unknown activity: ${id}`);
-    activity.kill();
+    const outcome = activitiesOf(ctx).kill(id);
+    if (outcome === "unknown") return errorResult(`unknown activity: ${id}`);
+    if (outcome === "settled") return errorResult(`activity ${id} has already completed`);
     return okResult(`requested kill of activity ${id}`);
   }
 }

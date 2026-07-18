@@ -166,7 +166,7 @@ describe("buildMessages", () => {
     const params = buildMessages(
       baseRequest([
         { item: item({ type: "tool_call", callId: "a", name: "glob", args: {} }) },
-        { item: item({ type: "tool_call", callId: "b", name: "grep", args: {} }) },
+        { item: item({ type: "tool_call", callId: "b", name: "read_file", args: {} }) },
         {
           item: item({
             type: "tool_result",
@@ -192,7 +192,7 @@ describe("buildMessages", () => {
         role: "assistant",
         content: [
           { type: "tool_use", id: "a", name: "glob", input: {} },
-          { type: "tool_use", id: "b", name: "grep", input: {} },
+          { type: "tool_use", id: "b", name: "read_file", input: {} },
         ],
       },
       {

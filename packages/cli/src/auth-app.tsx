@@ -168,7 +168,7 @@ async function readStdin(): Promise<string> {
 
 export interface LoginCliOptions {
   provider?: string | undefined;
-  /** Force a credential backend: "keyring" or "file". Defaults to a one-time keyring probe. */
+  /** Force a credential backend. File storage is Unix-only; Windows requires Credential Manager. */
   store?: string | undefined;
 }
 

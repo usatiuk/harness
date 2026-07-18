@@ -28,7 +28,7 @@ export function outputBoundMiddleware(): ToolMiddleware {
           { type: "text", text: boundView(full, VIEW) },
           {
             type: "text",
-            text: `…[output truncated; full output preserved at ${path} — Read or Grep it]`,
+            text: `…[output truncated; full output preserved at ${path} — read it with an available file tool]`,
           },
         ],
       };

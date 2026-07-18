@@ -1,10 +1,10 @@
 import type { Plugin } from "@harness/protocol";
+import { executionServiceOf } from "@harness/execution";
 import {
   ApplyPatchTool,
-  BashTool,
+  CommandTool,
   EditTool,
   GlobTool,
-  GrepTool,
   ReadFileTool,
   WriteTool,
 } from "./tools.ts";
@@ -19,8 +19,9 @@ export * from "./apply-patch-parse.ts";
  */
 export const workspacePlugin: Plugin = {
   id: "workspace",
-  tools: (caps) => {
-    const base = [new GlobTool(), new GrepTool(), new BashTool()];
+  tools: (caps, ctx) => {
+    const execution = executionServiceOf(ctx);
+    const base = [new GlobTool(), new CommandTool(execution.shellKind)];
     switch (caps.fileTools) {
       case "apply_patch":
         return [...base, new ReadFileTool(), new WriteTool(), new ApplyPatchTool()];
