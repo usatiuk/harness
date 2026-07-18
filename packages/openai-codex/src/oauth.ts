@@ -246,9 +246,14 @@ function listenOnFirstFree(server: Server, ports: readonly number[]): Promise<nu
 /** Opens `url` in the platform browser, best-effort (failures are ignored; copy the URL). */
 export function openBrowser(url: string): void {
   const os = platform();
-  const command = os === "darwin" ? "open" : os === "win32" ? "cmd" : "xdg-open";
-  const args = os === "win32" ? ["/c", "start", "", url] : [url];
-  const child = spawn(command, args, { stdio: "ignore", detached: true });
+  const windows = os === "win32";
+  const command = os === "darwin" ? "open" : windows ? "cmd" : "xdg-open";
+  const args = windows ? ["/d", "/s", "/c", `start "" "${url}"`] : [url];
+  const child = spawn(command, args, {
+    stdio: "ignore",
+    detached: true,
+    ...(windows ? { windowsVerbatimArguments: true } : {}),
+  });
   child.on("error", () => {});
   child.unref();
 }

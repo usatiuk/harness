@@ -1,9 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import type { ChildProcess } from "node:child_process";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const browser: {
+  platform: NodeJS.Platform;
+  spawn: ReturnType<typeof vi.fn>;
+} = vi.hoisted(() => ({
+  platform: "linux",
+  spawn: vi.fn(),
+}));
+
+vi.mock("node:os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:os")>()),
+  platform: () => browser.platform,
+}));
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawn: browser.spawn,
+}));
+
 import {
   buildAuthorizeUrl,
   decodeAccountId,
   decodeEmail,
   exchangeCode,
+  openBrowser,
   refreshTokens,
 } from "./oauth.ts";
 
@@ -16,6 +38,14 @@ function jwt(payload: Record<string, unknown>): string {
 
 const accessToken = jwt({ "https://api.openai.com/auth": { chatgpt_account_id: "acc_123" } });
 const idToken = jwt({ email: "user@example.com" });
+
+beforeEach(() => {
+  browser.platform = "linux";
+  browser.spawn.mockReset();
+  const child = new EventEmitter() as ChildProcess;
+  Object.assign(child, { unref: vi.fn() });
+  browser.spawn.mockReturnValue(child);
+});
 
 function tokenResponse(): Response {
   return new Response(
@@ -44,6 +74,26 @@ describe("buildAuthorizeUrl", () => {
     expect(url.searchParams.get("codex_cli_simplified_flow")).toBe("true");
     expect(url.searchParams.get("state")).toBe("st");
     expect(url.searchParams.get("originator")).toBe("harness");
+  });
+});
+
+describe("openBrowser", () => {
+  it("quotes the complete OAuth URL in one Windows command string", () => {
+    browser.platform = "win32";
+    const url = buildAuthorizeUrl({
+      redirectUri: "http://localhost:1455/auth/callback",
+      state: "state",
+      challenge: "challenge",
+    });
+
+    openBrowser(url);
+
+    expect(url).toContain("&");
+    expect(browser.spawn).toHaveBeenCalledWith("cmd", ["/d", "/s", "/c", `start "" "${url}"`], {
+      stdio: "ignore",
+      detached: true,
+      windowsVerbatimArguments: true,
+    });
   });
 });
 
