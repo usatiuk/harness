@@ -4,8 +4,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// These tests exercise the real `docker exec` IO path; skipped where the daemon isn't reachable.
-const dockerOk = spawnSync("docker", ["info"], { stdio: "ignore" }).status === 0;
+// These tests require a Linux container: a reachable Windows Docker daemon cannot run Debian.
+const dockerInfo = spawnSync("docker", ["info", "--format", "{{.OSType}}"], {
+  encoding: "utf8",
+});
+const dockerOk = dockerInfo.status === 0 && dockerInfo.stdout?.trim() === "linux";
 
 // Stand in for `devcontainer up`: the CLI need not be installed — we point the context at a raw
 // container started in `beforeAll`, with a temp dir bind-mounted as the workspace.
@@ -32,13 +35,23 @@ describe.skipIf(!dockerOk)("DockerExecutionContext (real container)", () => {
 
   beforeAll(async () => {
     hostDir = await mkdtemp(join(tmpdir(), "hbox-"));
-    spawnSync("docker", ["pull", "debian:stable-slim"], { stdio: "ignore" });
+    const pull = spawnSync("docker", ["pull", "debian:stable-slim"], { encoding: "utf8" });
+    if (pull.status !== 0) {
+      throw new Error(
+        `docker pull failed: ${pull.stderr?.trim() || pull.error?.message || `exit ${pull.status ?? "unknown"}`}`,
+      );
+    }
     const run = spawnSync(
       "docker",
       ["run", "-d", "--rm", "-v", `${hostDir}:/work`, "debian:stable-slim", "sleep", "600"],
       { encoding: "utf8" },
     );
-    cid = run.stdout.trim();
+    cid = run.stdout?.trim() ?? "";
+    if (run.status !== 0 || !cid) {
+      throw new Error(
+        `docker run failed: ${run.stderr?.trim() || run.error?.message || (run.status === 0 ? "no container ID returned" : `exit ${run.status ?? "unknown"}`)}`,
+      );
+    }
     state.handle = { containerId: cid, remoteUser: "root", remoteWorkspaceFolder: "/work" };
   }, 120_000);
 
