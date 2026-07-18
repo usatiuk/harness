@@ -1,9 +1,0 @@
-dist
-node_modules
-coverage
-package-lock.json
-.claude
-e2e/test-results
-e2e/playwright-report
-test-results
-playwright-report
