@@ -22,6 +22,8 @@ import {
   resolveSettings,
   ResolvedConfigReader,
   updateGlobalModel,
+  updateGlobalPluginConfig,
+  deepMerge,
   type SettingsDoc,
 } from "@harness/config";
 import type { ZodType } from "zod";
@@ -181,6 +183,47 @@ export class HarnessService implements ConversationRunner {
   async setModel(conversationId: ConversationId, model: ModelConfig): Promise<void> {
     await this.#engine.setModel(conversationId, model);
     await updateGlobalModel(this.#home, model);
+  }
+
+  /**
+   * Deep-patches one plugin slice in this conversation's durable override layer.
+   * With `saveGlobal`, the same patch also becomes the default for other conversations.
+   */
+  async setPluginConfig(
+    conversationId: ConversationId,
+    pluginId: string,
+    patch: Record<string, unknown>,
+    options: { saveGlobal?: boolean } = {},
+  ): Promise<void> {
+    const schema = this.#schemas.get(pluginId);
+    if (!schema) throw new Error(`unknown plugin '${pluginId}'`);
+    const record = await this.#store.getConversation(conversationId);
+    if (!record) throw new Error(`unknown conversation: ${conversationId}`);
+    const current = await this.#resolve(record);
+    const effective = current.config.plugins?.[pluginId] ?? {};
+    const checked = schema.safeParse(deepMerge(effective, patch));
+    if (!checked.success) {
+      throw new Error(`invalid config for plugin '${pluginId}'`);
+    }
+
+    // Global first: the subsequent conversation re-resolution sees the newly saved defaults.
+    if (options.saveGlobal) {
+      await updateGlobalPluginConfig(this.#home, pluginId, patch);
+    }
+
+    const overridesPlugins =
+      record.overrides.plugins &&
+      typeof record.overrides.plugins === "object" &&
+      !Array.isArray(record.overrides.plugins)
+        ? (record.overrides.plugins as Record<string, unknown>)
+        : {};
+    const overrideSlice = overridesPlugins[pluginId] ?? {};
+    await this.#engine.updateOverrides(conversationId, {
+      plugins: {
+        ...overridesPlugins,
+        [pluginId]: deepMerge(overrideSlice, patch),
+      },
+    });
   }
 
   /**

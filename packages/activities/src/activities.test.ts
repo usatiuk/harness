@@ -47,6 +47,7 @@ function fakeMwCtx(over: Partial<ToolMiddlewareContext> = {}): ToolMiddlewareCon
   return {
     ...fakeCtx(over),
     toolMeta: () => undefined,
+    setResultAnnotation: () => {},
     putBlob: () => Promise.resolve({ id: "b", bytes: 0, contentType: "text/plain" }),
     request: () => Promise.resolve({}),
     active: () => Promise.resolve([]),

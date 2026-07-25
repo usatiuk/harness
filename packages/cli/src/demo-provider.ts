@@ -65,7 +65,7 @@ export class DemoProvider implements ModelProvider {
       await delay(DEMO_LATENCY_MS, signal);
       if (signal.aborted) return;
       yield { type: "text_delta", text };
-      yield { type: "completed", content: [{ type: "text", text }], usage: ZERO_USAGE };
+      yield { type: "completed", usage: ZERO_USAGE };
       return;
     }
 
@@ -95,6 +95,6 @@ export class DemoProvider implements ModelProvider {
             : `printf '%s\\n' ${bashQuote(youSaid)}`,
       },
     };
-    yield { type: "completed", content: [], usage: ZERO_USAGE };
+    yield { type: "completed", usage: ZERO_USAGE };
   }
 }

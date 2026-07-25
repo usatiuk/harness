@@ -145,8 +145,29 @@ export interface ModelRequest {
   modelConfig: ModelConfig;
 }
 
-// `*_delta` events are display-only; `reasoning`/`tool_call`/`completed` carry the
-// authoritative items. `payload` is the item's opaque provider fidelity (round-tripped).
+/** The completed, non-agentic result of exactly one provider invocation. */
+export interface ModelInvocationResult {
+  content: ContentBlock[];
+  toolCalls: { callId: string; name: string; args: unknown }[];
+  usage: Usage;
+  modelConfig: ModelConfig;
+}
+
+/**
+ * A narrow caller for model-backed plugin work (review, summarization, titles, …).
+ * Unlike the agent loop, this consumes one provider stream and never dispatches tools.
+ */
+export interface ModelInvoker {
+  invoke(
+    request: Omit<ModelRequest, "modelConfig"> & { modelConfig?: ModelConfig },
+    options?: { purpose?: string; signal?: AbortSignal },
+  ): Promise<ModelInvocationResult>;
+}
+
+// Output is carried before `completed`: text through `text_delta`, and structured
+// output through finalized `reasoning`/`tool_call` events. A provider whose
+// transport is non-streaming emits its complete text as one `text_delta`.
+// `payload` is the item's opaque provider fidelity (round-tripped).
 export type ModelStreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
@@ -160,7 +181,6 @@ export type ModelStreamEvent =
   | { type: "reasoning"; content: ContentBlock[]; payload?: ProviderPayloadDraft }
   | {
       type: "completed";
-      content: ContentBlock[];
       payload?: ProviderPayloadDraft; // binds to the step's final assistant message
       usage: Usage;
     };

@@ -18,7 +18,7 @@ export type InterleavedPart =
   | { callId: string; name: string; args: unknown; payload?: ProviderPayloadDraft }
   | { reasoning: string; payload?: ProviderPayloadDraft };
 
-/** A step that streams `text` and completes with it as the final message. */
+/** A step that emits `text`, then terminal usage. */
 export function textStep(
   text: string,
   payload?: ProviderPayloadDraft,
@@ -28,7 +28,6 @@ export function textStep(
     { type: "text_delta", text },
     {
       type: "completed",
-      content: [{ type: "text", text }],
       usage,
       ...(payload ? { payload } : {}),
     },
@@ -44,7 +43,7 @@ export function toolStep(
 ): FakeStep {
   return [
     { type: "tool_call", callId, name, args },
-    { type: "completed", content: [], usage },
+    { type: "completed", usage },
   ];
 }
 
@@ -78,7 +77,7 @@ export function interleavedStep(parts: InterleavedPart[]): FakeStep {
       },
     ];
   });
-  events.push({ type: "completed", content: [], usage: ZERO_USAGE });
+  events.push({ type: "completed", usage: ZERO_USAGE });
   return events;
 }
 
@@ -87,10 +86,7 @@ export function reasoningStep(
   summary: string,
   opts: { payload?: ProviderPayloadDraft } = {},
 ): FakeStep {
-  return [
-    ...reasoningEvents(summary, opts.payload),
-    { type: "completed", content: [], usage: ZERO_USAGE },
-  ];
+  return [...reasoningEvents(summary, opts.payload), { type: "completed", usage: ZERO_USAGE }];
 }
 
 /**
@@ -166,6 +162,6 @@ export class GateProvider implements ModelProvider {
     this.#markStarted();
     await awaitReleaseOrAbort(this.#gate, signal);
     if (signal.aborted) return;
-    yield { type: "completed", content: [{ type: "text", text: this.#text }], usage: ZERO_USAGE };
+    yield { type: "completed", usage: ZERO_USAGE };
   }
 }

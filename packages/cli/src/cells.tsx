@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactElement } from "react";
 import { Box, Text } from "ink";
-import { assertNever, type ToolStatus } from "@harness/protocol";
+import { assertNever, selectionId, type ToolStatus } from "@harness/protocol";
 import type { Cell } from "./transcript-reducer.ts";
 import { Markdown } from "./markdown.tsx";
 
@@ -159,6 +159,7 @@ function ToolCard({
         {cell.output ? (
           <Text dimColor>{indent(truncate(cell.output, TOOL_OUTPUT_CAP))}</Text>
         ) : null}
+        <ApprovalLine cell={cell} />
       </Box>
     );
   }
@@ -169,8 +170,50 @@ function ToolCard({
         <Text color={color}>{`${mark} ${cell.name}`}</Text>
         {summary ? <Text dimColor>{`  ${summary}`}</Text> : null}
       </Text>
+      <ApprovalLine cell={cell} />
       <ResultLine status={cell.status} output={cell.output} />
     </Box>
+  );
+}
+
+function ApprovalLine({ cell }: { cell: Extract<Cell, { kind: "tool" }> }): ReactElement | null {
+  const final = cell.approval;
+  if (final) {
+    const who =
+      final.responder === "auto"
+        ? `auto approver${final.model ? ` (${selectionId(final.model)})` : ""}`
+        : final.responder === "human"
+          ? "user"
+          : "policy";
+    const verb = final.decision === "allow" ? "approved" : "denied";
+    const label = `  ⎿ ${who} ${verb}${final.reason ? `: ${truncate(final.reason, RESULT_CAP)}` : ""}`;
+    return final.decision === "deny" ? (
+      <Text color="red">{label}</Text>
+    ) : (
+      <Text dimColor>{label}</Text>
+    );
+  }
+  const progress = cell.approvalProgress;
+  if (!progress) return null;
+  const who =
+    progress.responder === "auto"
+      ? `auto approver${progress.model ? ` (${selectionId(progress.model)})` : ""}`
+      : progress.responder === "human"
+        ? "user"
+        : "policy";
+  const action =
+    progress.status === "reviewing"
+      ? "reviewing…"
+      : progress.status === "allow"
+        ? "approved"
+        : `denied${progress.reason ? `: ${truncate(progress.reason, RESULT_CAP)}` : ""}`;
+  return (
+    <Text
+      color={progress.status === "deny" ? "red" : "yellow"}
+      dimColor={progress.status === "allow"}
+    >
+      {`  ⎿ ${who} ${action}`}
+    </Text>
   );
 }
 

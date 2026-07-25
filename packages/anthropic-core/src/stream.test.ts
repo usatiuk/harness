@@ -87,7 +87,6 @@ describe("toModelEvents", () => {
       { type: "tool_call", callId: "call_1", name: "echo", args: { x: 1 } },
       {
         type: "completed",
-        content: [],
         usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
       },
     ]);
@@ -108,7 +107,6 @@ describe("toModelEvents", () => {
     const out = await collect(toModelEvents(stream, "anthropic", "m", never));
     expect(out.at(-1)).toEqual({
       type: "completed",
-      content: [],
       usage: {
         inputTokens: 170,
         outputTokens: 7,

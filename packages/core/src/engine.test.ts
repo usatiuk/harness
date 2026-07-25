@@ -137,7 +137,6 @@ describe("Engine — turn cycle", () => {
       { type: "tool_call", callId: "c2", name: "echo", args: { b: 2 } },
       {
         type: "completed",
-        content: [],
         usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
       },
     ];
@@ -537,7 +536,6 @@ describe("Engine — interrupt", () => {
       { type: "tool_call", callId: "C", name: "echo", args: {} },
       {
         type: "completed",
-        content: [],
         usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
       },
     ];
@@ -1023,6 +1021,7 @@ describe("Engine — crash reconciliation on load", () => {
     expect(result?.callId).toBe("stuck");
     expect(result?.status).toBe("error");
     expect(textOf(result?.content ?? [])).toBe("interrupted: session ended");
+    expect(result?.annotations).toBeUndefined();
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
     expect(turnStatuses(events)).toContain("completed");
     expect(shapeOf(items)).toEqual([
@@ -1063,9 +1062,9 @@ class CatalogProvider implements ModelProvider {
   }
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
     this.seen.push(request.modelConfig.model);
+    yield { type: "text_delta", text: "ok" };
     yield {
       type: "completed",
-      content: [{ type: "text", text: "ok" }],
       usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
     };
   }
@@ -1244,7 +1243,15 @@ describe("Engine — model switching", () => {
       model: "m2",
     });
     expect(events.filter(isKernelEvent).filter((e) => e.type === "config.changed")).toEqual([
-      { type: "config.changed", conversationId: conv.id, model: { provider: "rec", model: "m2" } },
+      {
+        type: "config.changed",
+        conversationId: conv.id,
+        config: {
+          instructions: "",
+          model: { provider: "rec", model: "m2" },
+          plugins: {},
+        },
+      },
     ]);
   });
 

@@ -14,6 +14,14 @@ import {
 } from "@harness/protocol";
 import { isActivityEvent } from "@harness/activities";
 import { isSandboxStatus, type SandboxPhase } from "@harness/sandbox";
+import {
+  approvalAnnotationOf,
+  isApprovalDecidedEvent,
+  type ApprovalAnnotation,
+  type ApprovalResponder,
+} from "@harness/approval";
+import { isAutoApprovalEvent } from "@harness/auto-approval";
+import type { ModelConfig } from "@harness/protocol";
 
 /**
  * One rendered line of transcript. Derived purely from the event stream (live) or
@@ -31,6 +39,13 @@ export type Cell =
       args: unknown;
       status?: ToolStatus;
       output?: string;
+      approval?: ApprovalAnnotation;
+      approvalProgress?: {
+        status: "reviewing" | "allow" | "deny";
+        responder: ApprovalResponder;
+        model?: ModelConfig;
+        reason?: string;
+      };
     }
   | { kind: "compaction"; id: string }
   // Plugin-injected context (e.g. an AGENTS.md), shown as a distinct transcript line.
@@ -134,6 +149,36 @@ function clearPending(state: State): State {
 
 /** Fold one event into the transcript state. Pure; handles `activity.*` plugin events plus kernel events. */
 export function reduce(state: State, event: HarnessEvent): State {
+  if (isAutoApprovalEvent(event)) {
+    return {
+      ...state,
+      cells: state.cells.map((cell) => {
+        if (cell.kind !== "tool" || cell.callId !== event.callId) return cell;
+        return {
+          ...cell,
+          approvalProgress: { status: "reviewing", responder: "auto", model: event.model },
+        };
+      }),
+    };
+  }
+  if (isApprovalDecidedEvent(event)) {
+    return {
+      ...state,
+      cells: state.cells.map((cell) =>
+        cell.kind === "tool" && cell.callId === event.callId
+          ? {
+              ...cell,
+              approvalProgress: {
+                status: event.decision,
+                responder: event.responder,
+                ...(event.model ? { model: event.model } : {}),
+                ...(event.reason ? { reason: event.reason } : {}),
+              },
+            }
+          : cell,
+      ),
+    };
+  }
   if (isActivityEvent(event)) {
     if (event.type === "activity.started") {
       return {
@@ -223,11 +268,18 @@ export function reduce(state: State, event: HarnessEvent): State {
     case "tool_call.completed":
       return {
         ...state,
-        cells: state.cells.map((c) =>
-          c.kind === "tool" && c.callId === event.callId
-            ? { ...c, status: event.status, output: textOf(event.forModel) }
-            : c,
-        ),
+        cells: state.cells.map((c): Cell => {
+          if (c.kind !== "tool" || c.callId !== event.callId) return c;
+          const approval = approvalAnnotationOf(event.annotations);
+          const settled: Extract<Cell, { kind: "tool" }> = {
+            ...c,
+            status: event.status,
+            output: textOf(event.forModel),
+            ...(approval ? { approval } : {}),
+          };
+          delete settled.approvalProgress;
+          return settled;
+        }),
       };
     case "request.created": {
       const req = event.request as { kind?: string; call?: { name?: string } };
@@ -300,6 +352,8 @@ export function init(items: Item[], usageRows: ModelUsage[] = []): State {
         if (cell) {
           cell.status = item.status;
           cell.output = textOf(item.content);
+          const approval = approvalAnnotationOf(item.annotations);
+          if (approval) cell.approval = approval;
         }
         break;
       }

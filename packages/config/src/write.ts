@@ -10,6 +10,7 @@ import {
   type AuthStoreKind,
   type SettingsDoc,
 } from "./settings.ts";
+import { deepMerge } from "./merge.ts";
 
 /**
  * Sets the global default `model`, preserving every other key and profile. A missing file starts
@@ -18,6 +19,22 @@ import {
 export async function updateGlobalModel(home: string, model: ModelConfig): Promise<void> {
   const path = globalPath(home);
   await writeSettings(path, { ...(await readSettings(path)), model });
+}
+
+/** Deep-patches one global plugin slice without replacing sibling plugins or slice fields. */
+export async function updateGlobalPluginConfig(
+  home: string,
+  pluginId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const path = globalPath(home);
+  const existing = await readSettings(path);
+  const plugins = (existing.plugins as Record<string, unknown> | undefined) ?? {};
+  const current = plugins[pluginId] ?? {};
+  await writeSettings(path, {
+    ...existing,
+    plugins: { ...plugins, [pluginId]: deepMerge(current, patch) },
+  });
 }
 
 /** Records which credential backend this machine uses; read back by `getAuthStore`. */

@@ -39,8 +39,8 @@ function parseArgs(raw: string): unknown {
 
 /**
  * Translates the native Responses event stream into our provider-agnostic
- * `ModelStreamEvent`s. `*_delta` events drive live display; `output_item.done` and
- * `completed` carry the authoritative items. Terminal failures throw.
+ * `ModelStreamEvent`s. Output is emitted before `completed`; the terminal event
+ * carries usage and optional fidelity metadata only. Terminal failures throw.
  */
 export async function* toModelEvents(
   stream: AsyncIterable<StreamEvent>,
@@ -61,10 +61,8 @@ export async function* toModelEvents(
         yield* fromItem(event.item, provider, model);
         break;
       case "response.completed":
-        // Canonical text is reconstructed from the streamed deltas, so content is empty.
         yield {
           type: "completed",
-          content: [],
           usage: {
             inputTokens: event.response.usage?.input_tokens ?? 0,
             outputTokens: event.response.usage?.output_tokens ?? 0,

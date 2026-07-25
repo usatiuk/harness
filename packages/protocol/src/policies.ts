@@ -10,6 +10,8 @@ export interface ContextItem {
 
 export interface NewContextBuild {
   conversationId: ConversationId;
+  /** Stable caller label, e.g. `agent` or `auto-approval`. */
+  purpose?: string;
   instructions: ContentBlock[]; // cache-stable prefix
   tools: ToolSchema[];
   items: ContextItem[]; // selected items, in order

@@ -1,0 +1,199 @@
+import { describe, expect, it, vi } from "vitest";
+import type {
+  ConfigReader,
+  ContentBlock,
+  Conversation,
+  ConversationId,
+  Item,
+  ModelInvocationResult,
+  RequestMiddlewareContext,
+} from "@harness/protocol";
+import type { ApprovalRequest } from "@harness/approval";
+import {
+  createAutoApprovalPlugin,
+  defaultReviewContext,
+  isAutoApprovalEvent,
+} from "./auto-approval.ts";
+
+const text = (value: string): ContentBlock[] => [{ type: "text", text: value }];
+const conversation = {
+  id: "c" as ConversationId,
+  workspaceRoot: "/work",
+  overrides: {},
+  head: null,
+  createdAt: 0,
+  config: {
+    instructions: "",
+    model: { provider: "fake", model: "main" },
+    plugins: {},
+  },
+} satisfies Conversation;
+
+const item = (over: Partial<Item> & { type: Item["type"] }): Item =>
+  ({
+    id: `i-${String(over.type)}`,
+    conversationId: "c",
+    turnId: "t",
+    seq: 0,
+    parent: null,
+    createdAt: 0,
+    ...over,
+  }) as Item;
+
+const approvalRequest: ApprovalRequest = {
+  kind: "approval",
+  call: { callId: "call-1", name: "bash", args: { command: "echo hi" } },
+  relationship: "out-of-workspace",
+};
+
+const result = (answer: string): ModelInvocationResult => ({
+  content: text(answer),
+  toolCalls: [],
+  usage: { inputTokens: 1, outputTokens: 1, cachedReadTokens: 0 },
+  modelConfig: { provider: "fake", model: "main" },
+});
+
+function setup(config: unknown, invoke = vi.fn(async () => result("YES"))) {
+  const reader: ConfigReader = { get: <C>() => Promise.resolve(config as C) };
+  const middleware = createAutoApprovalPlugin().create(reader).requestMiddleware!()[0]!;
+  const events: unknown[] = [];
+  const ctx: RequestMiddlewareContext = {
+    conversation,
+    turnId: "t" as RequestMiddlewareContext["turnId"],
+    signal: new AbortController().signal,
+    active: async () => [
+      item({ type: "message", role: "user", content: text("please run it") }),
+      item({
+        type: "tool_call",
+        callId: "call-1",
+        name: "bash",
+        args: { command: "echo hi" },
+      }),
+    ],
+    service: () => undefined,
+    emit: (event) => events.push(event),
+    models: { invoke },
+  };
+  return { middleware, ctx, events, invoke };
+}
+
+describe("auto approval request middleware", () => {
+  it("passes through when disabled", async () => {
+    const { middleware, ctx, invoke } = setup({ enabled: false });
+    const next = vi.fn(async () => ({ decision: "allow" }));
+    await expect(middleware.wrap(approvalRequest, ctx, next)).resolves.toEqual({
+      decision: "allow",
+    });
+    expect(next).toHaveBeenCalledWith(approvalRequest);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits YES and emits reviewing progress", async () => {
+    const { middleware, ctx, events, invoke } = setup({ enabled: true });
+    const next = vi.fn();
+    await expect(middleware.wrap(approvalRequest, ctx, next)).resolves.toMatchObject({
+      decision: "allow",
+      responder: "auto",
+      model: { provider: "fake", model: "main" },
+    });
+    expect(next).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(events.filter((event) => isAutoApprovalEvent(event as never))).toMatchObject([
+      { type: "auto-approval.reviewing", callId: "call-1" },
+    ]);
+  });
+
+  it("uses an explicitly configured reviewer model", async () => {
+    const { middleware, ctx, invoke } = setup({
+      enabled: true,
+      model: { provider: "fake", model: "reviewer", effort: "low" },
+    });
+    await middleware.wrap(approvalRequest, ctx, vi.fn());
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelConfig: { provider: "fake", model: "reviewer", effort: "low" },
+      }),
+      expect.objectContaining({ purpose: "auto-approval" }),
+    );
+  });
+
+  it("returns a justified NO and never falls through", async () => {
+    const invoke = vi.fn(async () => result("NO\nCommand exceeds the requested scope."));
+    const { middleware, ctx } = setup({ enabled: true }, invoke);
+    await expect(middleware.wrap(approvalRequest, ctx, vi.fn())).resolves.toMatchObject({
+      decision: "deny",
+      responder: "auto",
+      reason: "Command exceeds the requested scope.",
+    });
+  });
+
+  it("denies malformed output and provider failures", async () => {
+    const malformed = setup(
+      { enabled: true },
+      vi.fn(async () => result("maybe")),
+    );
+    await expect(
+      malformed.middleware.wrap(approvalRequest, malformed.ctx, vi.fn()),
+    ).resolves.toMatchObject({
+      decision: "deny",
+      reason: "reviewer returned an invalid response",
+    });
+
+    const failed = setup(
+      { enabled: true },
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
+    await expect(
+      failed.middleware.wrap(approvalRequest, failed.ctx, vi.fn()),
+    ).resolves.toMatchObject({ decision: "deny", reason: "review failed: offline" });
+  });
+
+  it("denies an unexpected reviewer tool call", async () => {
+    const unexpected = result("YES");
+    unexpected.toolCalls.push({ callId: "review-call", name: "echo", args: {} });
+    const state = setup(
+      { enabled: true },
+      vi.fn(async () => unexpected),
+    );
+    await expect(state.middleware.wrap(approvalRequest, state.ctx, vi.fn())).resolves.toMatchObject(
+      {
+        decision: "deny",
+        reason: "reviewer returned an unexpected tool call",
+      },
+    );
+  });
+});
+
+describe("defaultReviewContext", () => {
+  it("keeps conversational items, omits reasoning/context, and bounds tool output", () => {
+    const long = `${"h".repeat(800)}${"t".repeat(800)}`;
+    const items = [
+      item({ type: "message", role: "user", content: text("do it") }),
+      item({ type: "reasoning", content: text("secret thought") }),
+      item({ type: "context", key: "agents", content: text("repo context") }),
+      item({ type: "tool_call", callId: "old", name: "read", args: { path: "x" } }),
+      item({ type: "tool_result", callId: "old", status: "ok", content: text(long) }),
+      item({
+        type: "tool_call",
+        callId: "call-1",
+        name: "bash",
+        args: { command: "echo hi" },
+      }),
+    ];
+    const selected = defaultReviewContext({ items, request: approvalRequest });
+    const rendered = selected
+      .map(({ item: selectedItem }) =>
+        "content" in selectedItem ? selectedItem.content.map((block) => block.text).join("") : "",
+      )
+      .join("\n");
+    expect(rendered).toContain("do it");
+    expect(rendered).toContain("[assistant tool call]");
+    expect(rendered).toContain("[proposed tool call to review]");
+    expect(rendered).toContain("…[truncated]…");
+    expect(rendered).not.toContain("secret thought");
+    expect(rendered).not.toContain("repo context");
+    expect(rendered.length).toBeLessThan(long.length + 800);
+  });
+});

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { updateGlobalModel } from "./write.ts";
+import { updateGlobalModel, updateGlobalPluginConfig } from "./write.ts";
 
 const newHome = () => mkdtemp(join(tmpdir(), "harness-cfg-"));
 const readDoc = async (home: string) =>
@@ -42,6 +42,33 @@ describe("updateGlobalModel", () => {
     expect(doc.instructions).toBe("be nice");
     expect(doc.profiles).toEqual({
       fast: { model: { provider: "openai", model: "gpt-5.1-codex" } },
+    });
+  });
+});
+
+describe("updateGlobalPluginConfig", () => {
+  it("deep-patches one plugin while preserving its model and sibling plugins", async () => {
+    const home = await newHome();
+    await writeFile(
+      join(home, "settings.json"),
+      JSON.stringify({
+        model: { provider: "demo", model: "demo-1" },
+        plugins: {
+          "auto-approval": {
+            enabled: false,
+            model: { provider: "openai", model: "reviewer" },
+          },
+          sandbox: { enabled: true },
+        },
+      }),
+    );
+    await updateGlobalPluginConfig(home, "auto-approval", { enabled: true });
+    expect((await readDoc(home)).plugins).toEqual({
+      "auto-approval": {
+        enabled: true,
+        model: { provider: "openai", model: "reviewer" },
+      },
+      sandbox: { enabled: true },
     });
   });
 });

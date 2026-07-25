@@ -8,15 +8,20 @@ import type {
   ToolResult,
 } from "@harness/protocol";
 import { LocalExecutionContext } from "@harness/execution";
-import { approvalPlugin } from "./approval.ts";
+import { approvalPlugin, isApprovalDecidedEvent } from "./approval.ts";
 
 function middlewareFor(config: unknown): ToolMiddleware {
   const reader: ConfigReader = { get: <C>() => Promise.resolve(config as C) };
   return approvalPlugin.create(reader).toolMiddleware!()[0]!;
 }
 
-function contextFor(decision?: string): { ctx: ToolMiddlewareContext; asked: () => boolean } {
+function contextFor(decision: "allow" | "deny" = "allow"): {
+  ctx: ToolMiddlewareContext;
+  asked: () => boolean;
+  annotation: () => unknown;
+} {
   let asked = false;
+  const annotations: Record<string, unknown> = {};
   const execution = new LocalExecutionContext("/work");
   const ctx: ToolMiddlewareContext = {
     conversationId: "c" as ConversationId,
@@ -24,6 +29,9 @@ function contextFor(decision?: string): { ctx: ToolMiddlewareContext; asked: () 
     signal: new AbortController().signal,
     service: (key) => (key === "execution" ? execution : undefined),
     toolMeta: () => undefined,
+    setResultAnnotation: (key, value) => {
+      annotations[key] = value;
+    },
     emit: () => {},
     deliver: () => {},
     putBlob: () => Promise.resolve({ id: "b", bytes: 0, contentType: "text/plain" }),
@@ -34,7 +42,7 @@ function contextFor(decision?: string): { ctx: ToolMiddlewareContext; asked: () 
     active: () => Promise.resolve([]),
     appendContext: () => Promise.resolve(),
   };
-  return { ctx, asked: () => asked };
+  return { ctx, asked: () => asked, annotation: () => annotations["approval"] };
 }
 
 const ran: ToolResult = { forModel: [{ type: "text", text: "ran" }], status: "ok" };
@@ -50,24 +58,52 @@ describe("approval policy", () => {
   });
 
   it("asks for an out-of-workspace call; allows on approve, errors on deny", async () => {
-    const approve = contextFor(); // no/undefined decision ⇒ allow
+    const approve = contextFor();
     const allowed = await middlewareFor({}).wrap(
       call("write", { path: "/etc/x" }),
       approve.ctx,
       next,
     );
     expect(allowed).toBe(ran);
+    expect(approve.annotation()).toMatchObject({
+      decision: "allow",
+      responder: "human",
+      relationship: "out-of-workspace",
+    });
     expect(approve.asked()).toBe(true);
 
     const deny = contextFor("deny");
     const denied = await middlewareFor({}).wrap(call("write", { path: "/etc/x" }), deny.ctx, next);
     expect(denied.status).toBe("error");
+    expect(deny.annotation()).toMatchObject({ decision: "deny", responder: "human" });
   });
 
   it("asks for a command tool by default (no in-workspace path ⇒ out-of-workspace)", async () => {
     const { ctx, asked } = contextFor();
     await middlewareFor({}).wrap(call("powershell", { command: "Get-ChildItem" }), ctx, next);
     expect(asked()).toBe(true);
+  });
+
+  it("captures the annotation before emitting the decided event", async () => {
+    const state = contextFor();
+    state.ctx.request = () =>
+      Promise.resolve({
+        decision: "allow",
+        responder: "auto",
+        model: { provider: "fake", model: "reviewer" },
+      });
+    let annotationAtEmit: unknown;
+    state.ctx.emit = (event) => {
+      if (isApprovalDecidedEvent(event)) annotationAtEmit = state.annotation();
+    };
+
+    await middlewareFor({}).wrap(call("write", { path: "/etc/x" }), state.ctx, next);
+
+    expect(annotationAtEmit).toMatchObject({
+      decision: "allow",
+      responder: "auto",
+      model: { provider: "fake", model: "reviewer" },
+    });
   });
 
   it("denies by rule without asking, and honours a per-tool allow override", async () => {

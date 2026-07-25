@@ -9,6 +9,7 @@ import type {
   Tool,
   ToolContributionContext,
   ToolMiddleware,
+  RequestMiddleware,
 } from "@harness/protocol";
 import { ProviderRegistry, ToolSet } from "./registry.ts";
 import { noCompaction, truncateMiddleware } from "./policies.ts";
@@ -44,6 +45,8 @@ export class PluginHost {
   readonly toolMiddleware: readonly ToolMiddleware[];
   /** Outer→inner (registration order); absence = direct provider stream. */
   readonly modelMiddleware: readonly ModelMiddleware[];
+  /** Outer→inner (registration order); the correlated host/UI request is terminal. */
+  readonly requestMiddleware: readonly RequestMiddleware[];
 
   constructor(plugins: readonly Plugin[]) {
     const contextSources: ContextSource[] = [];
@@ -54,6 +57,7 @@ export class PluginHost {
       [];
     const toolMiddleware: ToolMiddleware[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
+    const requestMiddleware: RequestMiddleware[] = [];
 
     for (const plugin of plugins) {
       for (const provider of plugin.providers?.() ?? []) {
@@ -62,6 +66,7 @@ export class PluginHost {
       if (plugin.tools) toolContributors.push(plugin.tools.bind(plugin));
       toolMiddleware.push(...(plugin.toolMiddleware?.() ?? []));
       modelMiddleware.push(...(plugin.modelMiddleware?.() ?? []));
+      requestMiddleware.push(...(plugin.requestMiddleware?.() ?? []));
       contextSources.push(...(plugin.contextSources?.() ?? []));
       observers.push(...(plugin.observers?.() ?? []));
 
@@ -85,6 +90,7 @@ export class PluginHost {
     this.services = services;
     this.toolMiddleware = [...toolMiddleware, truncateMiddleware()];
     this.modelMiddleware = modelMiddleware;
+    this.requestMiddleware = requestMiddleware;
   }
 
   /**

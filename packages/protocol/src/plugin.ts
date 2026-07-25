@@ -6,6 +6,7 @@ import type { Conversation } from "./conversation.ts";
 import type { ConversationId } from "./ids.ts";
 import type { HarnessEvent } from "./events.ts";
 import type { CompactionStrategy } from "./policies.ts";
+import type { RequestMiddleware } from "./requests.ts";
 
 /** Contributes prompt fragments / project context into the cache-stable prefix. */
 export interface ContextSource {
@@ -50,6 +51,8 @@ export interface Plugin {
   toolMiddleware?(): ToolMiddleware[];
   /** Wraps each model step, outermost first (retry / cache / model-fallback). */
   modelMiddleware?(): ModelMiddleware[];
+  /** Wraps blocking host interactions, outermost first; the UI request is terminal. */
+  requestMiddleware?(): RequestMiddleware[];
   contextSources?(): ContextSource[];
   /** Per-conversation services hung off `ctx.service(key)`; keys must be unique host-wide. */
   services?(): ServiceProvider[];

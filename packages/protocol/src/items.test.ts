@@ -18,6 +18,25 @@ describe("itemSchema", () => {
     expect(itemSchema.parse(value)).toEqual(value);
   });
 
+  it("round-trips namespaced tool-result annotations", () => {
+    const parsed = itemSchema.parse({
+      id: "i2",
+      conversationId: "c1",
+      turnId: "t1",
+      seq: 1,
+      parent: null,
+      createdAt: 0,
+      type: "tool_result",
+      callId: "call-1",
+      content: [{ type: "text", text: "ok" }],
+      status: "ok",
+      annotations: { approval: { decision: "allow", responder: "auto" } },
+    });
+    expect(parsed).toMatchObject({
+      annotations: { approval: { decision: "allow", responder: "auto" } },
+    });
+  });
+
   it("round-trips a compaction item", () => {
     const value = {
       id: "i1",

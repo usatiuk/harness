@@ -190,6 +190,28 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect(await store.listActiveItems(conv.id)).toEqual([item]);
     });
 
+    it("round-trips namespaced tool-result annotations", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation(sampleRecord());
+      const turn = await store.createTurn(conv.id);
+      const item = await store.appendItem({
+        conversationId: conv.id,
+        turnId: turn.id,
+        type: "tool_result",
+        callId: "call-1",
+        content: [{ type: "text", text: "ran" }],
+        status: "ok",
+        annotations: {
+          approval: {
+            decision: "allow",
+            responder: "auto",
+            relationship: "out-of-workspace",
+          },
+        },
+      });
+      expect((await store.listItems(conv.id))[0]).toEqual(item);
+    });
+
     it("tracks at most one running turn", async () => {
       const store = makeStore();
       const conv = await store.createConversation(sampleRecord());

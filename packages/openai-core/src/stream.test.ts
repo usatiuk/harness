@@ -56,7 +56,6 @@ describe("toModelEvents", () => {
       { type: "tool_call", callId: "call_1", name: "echo", args: { x: 1 } },
       {
         type: "completed",
-        content: [],
         usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
       },
     ]);
@@ -76,7 +75,6 @@ describe("toModelEvents", () => {
     const out = await collect(toModelEvents(stream, "openai", "m", never));
     expect(out[0]).toEqual({
       type: "completed",
-      content: [],
       usage: { inputTokens: 2000, outputTokens: 50, cachedReadTokens: 1536 },
     });
   });

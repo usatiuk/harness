@@ -4,6 +4,7 @@ import type { ConversationId } from "./ids.ts";
 import type { Item } from "./items.ts";
 import type { NativeToolId, ToolGrammar } from "./model.ts";
 import type { PluginEvent } from "./events.ts";
+import type { InteractionRequest } from "./requests.ts";
 
 export interface ToolCall {
   callId: string;
@@ -23,6 +24,8 @@ export interface OutputRef {
 export interface ToolResult {
   forModel: ContentBlock[];
   full?: OutputRef;
+  /** Namespaced, durable facts about how this result was produced. Never sent to a provider. */
+  annotations?: Record<string, unknown>;
   status: ToolStatus;
 }
 
@@ -98,6 +101,12 @@ export interface ToolMiddlewareContext extends ToolContext {
    * (e.g. skip bounding `addressableOutput` tools) without the `Tool` itself.
    */
   toolMeta(name: string): Record<string, unknown> | undefined;
+  /**
+   * Records call-scoped durable metadata that the engine merges into the final
+   * result, including synthetic failures and live interruption. Last writer wins
+   * for a key; scoped values override annotations returned directly by a tool.
+   */
+  setResultAnnotation(key: string, value: unknown): void;
   /** Spill bytes the model shouldn't see inline; the returned ref goes on `full`. */
   putBlob(bytes: Uint8Array): Promise<OutputRef>;
   /**
@@ -105,7 +114,7 @@ export interface ToolMiddlewareContext extends ToolContext {
    * ferries the opaque payload by id; the middleware owns the request/response shape
    * (e.g. `{kind:"approval", call}` → `{decision}`). Rejects if the turn is aborted.
    */
-  request(request: unknown): Promise<unknown>;
+  request(request: InteractionRequest): Promise<unknown>;
   /**
    * The compacted active window, re-derived from the log — the same source the model
    * build reads. Reflects `context` items appended earlier in this dispatch.

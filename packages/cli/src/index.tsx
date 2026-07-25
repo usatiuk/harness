@@ -17,6 +17,7 @@ import { activitiesPlugin, type ActivityManager } from "@harness/activities";
 import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
 import { approvalPlugin } from "@harness/approval";
+import { autoApprovalPlugin } from "@harness/auto-approval";
 import { subagentsDefinition } from "@harness/subagents";
 import { HarnessService } from "@harness/service";
 import { DemoProvider } from "./demo-provider.ts";
@@ -98,6 +99,7 @@ async function buildHarness(): Promise<Harness> {
     outputPlugin,
     workspacePlugin,
     approvalPlugin,
+    autoApprovalPlugin,
     subagentsDefinition,
   );
   const resolvedFallback: ModelConfig = fallbackModel ?? { provider: "demo", model: "demo-1" };

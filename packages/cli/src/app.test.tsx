@@ -62,7 +62,11 @@ describe("App", () => {
     emit({
       type: "config.changed",
       conversationId: "c1",
-      model: { provider: "openai", model: "gpt-5.1" },
+      config: {
+        instructions: "",
+        model: { provider: "openai", model: "gpt-5.1" },
+        plugins: {},
+      },
     });
     await vi.waitFor(() => expect(lastFrame()).toContain("gpt-5.1"));
   });
@@ -92,6 +96,42 @@ describe("App", () => {
     stdin.write("\x0f"); // Ctrl+O toggles verbose
     // Verbose: the full args blob renders for the still-live cell.
     await vi.waitFor(() => expect(lastFrame()).toContain('"command"'));
+  });
+
+  it("renders live auto-review progress and the final saved decision", async () => {
+    const { service, emit } = harness();
+    const { lastFrame } = mount(service);
+    emit({
+      type: "tool_call.started",
+      conversationId: "c1",
+      callId: "k1",
+      name: "bash",
+      args: { command: "echo hi" },
+    });
+    emit({
+      type: "auto-approval.reviewing",
+      conversationId: "c1",
+      callId: "k1",
+      name: "bash",
+      model: { provider: "demo", model: "demo-1" },
+    });
+    await vi.waitFor(() => expect(lastFrame()).toContain("auto approver (demo/demo-1) reviewing"));
+    emit({
+      type: "tool_call.completed",
+      conversationId: "c1",
+      callId: "k1",
+      status: "ok",
+      forModel: [{ type: "text", text: "done" }],
+      annotations: {
+        approval: {
+          decision: "allow",
+          responder: "auto",
+          relationship: "out-of-workspace",
+          model: { provider: "demo", model: "demo-1" },
+        },
+      },
+    });
+    await vi.waitFor(() => expect(lastFrame()).toContain("auto approver (demo/demo-1) approved"));
   });
 
   it("reprints a finalized tool's full output when verbose toggles", async () => {

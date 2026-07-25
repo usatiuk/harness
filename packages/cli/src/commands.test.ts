@@ -8,6 +8,11 @@ const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   conversationId: "c1" as ConversationId,
   cwd: "/work",
   model: { provider: "openai", model: "gpt-5.1" },
+  config: {
+    instructions: "",
+    model: { provider: "openai", model: "gpt-5.1" },
+    plugins: {},
+  },
   note: vi.fn(),
   clear: vi.fn(),
   resume: vi.fn(),
@@ -165,5 +170,58 @@ describe("runCommand", () => {
     runCommand("/effort", ctx);
     expect(ctx.pickEffort).not.toHaveBeenCalled();
     expect(ctx.note).toHaveBeenCalledWith("gpt-5.1 has no effort options");
+  });
+
+  it("/auto-approve reports status without changing config", () => {
+    const setPluginConfig = vi.fn();
+    const service = { setPluginConfig } as unknown as HarnessService;
+    const ctx = makeCtx({ service });
+    runCommand("/auto-approve", ctx);
+    expect(setPluginConfig).not.toHaveBeenCalled();
+    expect(ctx.note).toHaveBeenCalledWith(
+      "auto-approval off · reviewer openai/gpt-5.1 (turn model)",
+    );
+  });
+
+  it("/auto-approve labels a configured reviewer without claiming config provenance", () => {
+    const ctx = makeCtx({
+      config: {
+        instructions: "",
+        model: { provider: "openai", model: "gpt-5.1" },
+        plugins: {
+          "auto-approval": {
+            enabled: true,
+            model: { provider: "anthropic", model: "claude-reviewer" },
+          },
+        },
+      },
+    });
+    runCommand("/auto-approve", ctx);
+    expect(ctx.note).toHaveBeenCalledWith(
+      "auto-approval on · reviewer anthropic/claude-reviewer (configured reviewer)",
+    );
+  });
+
+  it("/auto-approve on persists the conversation override and global default", async () => {
+    const setPluginConfig = vi.fn().mockResolvedValue(undefined);
+    const service = { setPluginConfig } as unknown as HarnessService;
+    const ctx = makeCtx({ service });
+    runCommand("/auto-approve on", ctx);
+    expect(setPluginConfig).toHaveBeenCalledWith(
+      "c1",
+      "auto-approval",
+      { enabled: true },
+      { saveGlobal: true },
+    );
+    await Promise.resolve();
+    expect(ctx.note).toHaveBeenCalledWith("auto-approval → on");
+  });
+
+  it("/auto-approve rejects model-setting or unknown arguments", () => {
+    const setPluginConfig = vi.fn();
+    const ctx = makeCtx({ service: { setPluginConfig } as unknown as HarnessService });
+    runCommand("/auto-approve openai/reviewer", ctx);
+    expect(setPluginConfig).not.toHaveBeenCalled();
+    expect(ctx.note).toHaveBeenCalledWith("usage: /auto-approve [on|off]");
   });
 });

@@ -127,7 +127,8 @@ export function App({
   const [state, dispatch] = useReducer(appReduce, undefined, () =>
     init(initialItems, initialUsage),
   );
-  const [model, setModel] = useState(conversation.config.model);
+  const [config, setConfig] = useState(conversation.config);
+  const model = config.model;
   const [modelPicking, setModelPicking] = useState(false);
   const [effortPicking, setEffortPicking] = useState(false);
   const [showActivities, setShowActivities] = useState(false);
@@ -155,8 +156,7 @@ export function App({
   // Fixed for this session: config re-resolves on load, and `/sandbox on|off` applies to the next
   // conversation and on resume, not this one. Slice is opaque, so read defensively.
   const sandboxEnabled =
-    (conversation.config.plugins?.["sandbox"] as { enabled?: boolean } | undefined)?.enabled ===
-    true;
+    (config.plugins?.["sandbox"] as { enabled?: boolean } | undefined)?.enabled === true;
 
   // Stable identities so the memoized ctx (via note) and the composer's menu-open
   // effect (via setMenuOpen) don't rebuild/refire each render.
@@ -179,7 +179,7 @@ export function App({
       service.subscribe(conversation.id, (event) => {
         dispatch({ type: "event", event });
         if (isKernelEvent(event) && event.type === "config.changed") {
-          setModel(event.model);
+          setConfig(event.config);
         }
       }),
     [service, conversation.id],
@@ -289,6 +289,7 @@ export function App({
       conversationId: conversation.id,
       cwd,
       model,
+      config,
       note,
       clear: () => dispatch({ type: "clear" }),
       resume: onResume,
@@ -299,7 +300,7 @@ export function App({
       sandbox: sandboxView,
       exit,
     }),
-    [service, conversation.id, cwd, model, note, onResume, exit, sandboxView],
+    [service, conversation.id, cwd, model, config, note, onResume, exit, sandboxView],
   );
 
   const submit = (raw: string): void => {

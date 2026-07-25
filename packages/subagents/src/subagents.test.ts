@@ -171,6 +171,7 @@ function ctx(
     emit: () => {},
     deliver: () => {},
     toolMeta: () => undefined,
+    setResultAnnotation: () => {},
     putBlob: () => Promise.resolve({ id: "b", bytes: 0, contentType: "text/plain" }),
     request: () => Promise.resolve({}),
     active: () => Promise.resolve([]),

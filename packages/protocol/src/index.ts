@@ -12,3 +12,4 @@ export * from "./policies.ts";
 export * from "./plugin.ts";
 export * from "./runner.ts";
 export * from "./store.ts";
+export * from "./requests.ts";

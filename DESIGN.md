@@ -163,18 +163,20 @@ interface ModelRequest {
   modelConfig: ModelConfig;
 }
 type ModelStreamEvent =
-  | { type: "text_delta"; text: string }                                    // display
+  | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }                               // display
   | { type: "tool_call"; callId; name; args; payload?: ProviderPayloadDraft }
   | { type: "reasoning"; content: ContentBlock[]; payload?: ProviderPayloadDraft }
-  | { type: "completed"; content: ContentBlock[]; payload?: ProviderPayloadDraft; usage };
+  | { type: "completed"; payload?: ProviderPayloadDraft; usage };
 ```
 
-- **`*_delta` events are display-only**; `tool_call`/`reasoning`/`completed` carry the
-  authoritative items. **Payloads are per emitted item** (`completed.payload` binds the
-  step's final assistant message) — not one-per-step. Reasoning is a discrete item like
-  a tool call: it streams (`reasoning_delta`) for live display and commits as a
-  first-class `reasoning` item whose summary text is canonical content.
+- **Output is emitted before `completed`**: `text_delta` is authoritative text,
+  while finalized `tool_call`/`reasoning` events carry structured output.
+  `completed` carries terminal usage plus an optional payload for the step's final
+  assistant message. A non-streaming provider emits its complete text as one
+  `text_delta`. Reasoning is a discrete item like a tool call: it streams
+  (`reasoning_delta`) for live display and commits as a first-class `reasoning`
+  item whose summary text is canonical content.
 - **The kernel never branches on provider id.** Codex OAuth, encrypted reasoning,
   `thoughtSignature` ordering — all live in the adapter and round-trip through
   opaque **`ProviderPayload`** `{ itemId, provider, modelId, type, version,

@@ -59,6 +59,80 @@ describe("transcript reducer", () => {
     ]);
   });
 
+  it("shows live auto-review progress, then keeps the durable approval annotation", () => {
+    const running = fold([
+      { type: "tool_call.started", callId: "k1", name: "bash", args: {} },
+      {
+        type: "auto-approval.reviewing",
+        conversationId: "c",
+        callId: "k1",
+        name: "bash",
+        model: { provider: "fake", model: "reviewer" },
+      },
+      {
+        type: "approval.decided",
+        conversationId: "c",
+        callId: "k1",
+        decision: "allow",
+        responder: "auto",
+        model: { provider: "fake", model: "reviewer" },
+      },
+    ]);
+    expect(running.cells[0]).toMatchObject({
+      kind: "tool",
+      approvalProgress: {
+        status: "allow",
+        responder: "auto",
+        model: { provider: "fake", model: "reviewer" },
+      },
+    });
+
+    const completed = reduce(running, {
+      type: "tool_call.completed",
+      callId: "k1",
+      status: "ok",
+      forModel: text("done"),
+      annotations: {
+        approval: {
+          decision: "allow",
+          responder: "auto",
+          relationship: "out-of-workspace",
+          model: { provider: "fake", model: "reviewer" },
+        },
+      },
+    });
+    expect(completed.cells[0]).toMatchObject({
+      approval: {
+        decision: "allow",
+        responder: "auto",
+        model: { provider: "fake", model: "reviewer" },
+      },
+    });
+    expect(completed.cells[0]).not.toHaveProperty("approvalProgress");
+  });
+
+  it("clears reviewing progress when interruption completes without a decision", () => {
+    const reviewing = fold([
+      { type: "tool_call.started", callId: "k1", name: "bash", args: {} },
+      {
+        type: "auto-approval.reviewing",
+        conversationId: "c",
+        callId: "k1",
+        name: "bash",
+        model: { provider: "fake", model: "reviewer" },
+      },
+    ]);
+    const interrupted = reduce(reviewing, {
+      type: "tool_call.completed",
+      callId: "k1",
+      status: "error",
+      forModel: text("interrupted"),
+    });
+    expect(interrupted.cells[0]).toMatchObject({ status: "error", output: "interrupted" });
+    expect(interrupted.cells[0]).not.toHaveProperty("approvalProgress");
+    expect(interrupted.cells[0]).not.toHaveProperty("approval");
+  });
+
   it("sets a pending approval and clears it on resolution", () => {
     const created = reduce(emptyState, {
       type: "request.created",
@@ -136,6 +210,13 @@ describe("transcript reducer", () => {
         callId: "k1",
         status: "ok",
         content: text("files"),
+        annotations: {
+          approval: {
+            decision: "allow",
+            responder: "auto",
+            relationship: "out-of-workspace",
+          },
+        },
       }),
       item({ type: "message", role: "assistant", id: "a1", seq: 3, content: text("done") }),
     ];
@@ -144,7 +225,19 @@ describe("transcript reducer", () => {
     const replayed = fold([
       { type: "message", item: log[0]! },
       { type: "tool_call.started", callId: "k1", name: "bash", args: { cmd: "ls" } },
-      { type: "tool_call.completed", callId: "k1", status: "ok", forModel: text("files") },
+      {
+        type: "tool_call.completed",
+        callId: "k1",
+        status: "ok",
+        forModel: text("files"),
+        annotations: {
+          approval: {
+            decision: "allow",
+            responder: "auto",
+            relationship: "out-of-workspace",
+          },
+        },
+      },
       { type: "message", item: log[3]! },
     ]);
 
@@ -158,6 +251,11 @@ describe("transcript reducer", () => {
         args: { cmd: "ls" },
         status: "ok",
         output: "files",
+        approval: {
+          decision: "allow",
+          responder: "auto",
+          relationship: "out-of-workspace",
+        },
       },
       { kind: "assistant", turnId: "t1", text: "done", streaming: false, id: "a1" },
     ]);

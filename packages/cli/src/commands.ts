@@ -4,6 +4,7 @@ import {
   type ConversationId,
   type EffortInfo,
   type ModelConfig,
+  type ConversationConfig,
 } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import type { Suggestion } from "./completion.ts";
@@ -21,6 +22,8 @@ export interface CommandContext {
   cwd: string;
   /** The conversation's current selection (model + effort). */
   model: ModelConfig;
+  /** The conversation's current fully resolved settings. */
+  config: ConversationConfig;
   /** Append a local note line (command output / errors) to the transcript. */
   note: (text: string) => void;
   /** Clear the visible transcript. */
@@ -112,6 +115,38 @@ export const commands: Command[] = [
         () => ctx.note(`effort → ${selectionId(model)}`),
         (e: unknown) => ctx.note(`effort switch failed: ${String(e)}`),
       );
+    },
+  },
+  {
+    name: "auto-approve",
+    summary: "show or toggle model-based approval (/auto-approve [on|off])",
+    complete: () => [
+      { value: "on", label: "on" },
+      { value: "off", label: "off" },
+    ],
+    run: (ctx, args) => {
+      const current = (ctx.config.plugins?.["auto-approval"] as
+        | { enabled?: boolean; model?: ModelConfig }
+        | undefined) ?? { enabled: false };
+      const value = args[0];
+      if (!value) {
+        const reviewer = current.model
+          ? `${selectionId(current.model)} (configured reviewer)`
+          : `${selectionId(ctx.model)} (turn model)`;
+        ctx.note(`auto-approval ${current.enabled ? "on" : "off"} · reviewer ${reviewer}`);
+        return;
+      }
+      if (value !== "on" && value !== "off") {
+        ctx.note("usage: /auto-approve [on|off]");
+        return;
+      }
+      const enabled = value === "on";
+      void ctx.service
+        .setPluginConfig(ctx.conversationId, "auto-approval", { enabled }, { saveGlobal: true })
+        .then(
+          () => ctx.note(`auto-approval → ${value}`),
+          (e: unknown) => ctx.note(`auto-approval change failed: ${String(e)}`),
+        );
     },
   },
   { name: "activities", summary: "show running activities", run: (ctx) => ctx.showActivities() },

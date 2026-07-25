@@ -24,6 +24,7 @@ export type Item =
       callId: string;
       content: ContentBlock[];
       status: ToolStatus;
+      annotations?: Record<string, unknown>;
     })
   // A fold of everything before it (appended at head, so its position marks the
   // coverage). Renders to the provider as a plain message; the `compaction` type is
@@ -74,6 +75,7 @@ export const itemSchema = z.discriminatedUnion("type", [
     callId: z.string(),
     content: z.array(contentBlockSchema),
     status: z.enum(["ok", "error"]),
+    annotations: z.record(z.string(), z.unknown()).optional(),
   }),
   z.object({
     ...baseShape,

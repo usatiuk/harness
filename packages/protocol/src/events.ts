@@ -2,7 +2,8 @@ import type { ContentBlock } from "./content.ts";
 import type { DeliveryIntent } from "./delivery.ts";
 import type { ConversationId, TurnId } from "./ids.ts";
 import type { Item } from "./items.ts";
-import type { ModelConfig, Usage } from "./model.ts";
+import type { Usage } from "./model.ts";
+import type { ConversationConfig } from "./conversation.ts";
 import type { ToolStatus } from "./tools.ts";
 import type { TurnStatus } from "./conversation.ts";
 
@@ -28,10 +29,16 @@ export type KernelEvent = ConversationEvent &
     | { type: "text_delta"; turnId: TurnId; text: string }
     | { type: "reasoning_delta"; turnId: TurnId; text: string }
     | { type: "tool_call.started"; callId: string; name: string; args: unknown }
-    | { type: "tool_call.completed"; callId: string; status: ToolStatus; forModel: ContentBlock[] }
+    | {
+        type: "tool_call.completed";
+        callId: string;
+        status: ToolStatus;
+        forModel: ContentBlock[];
+        annotations?: Record<string, unknown>;
+      }
     | { type: "request.created"; requestId: string; request: unknown }
     | { type: "request.resolved"; requestId: string }
-    | { type: "config.changed"; model: ModelConfig }
+    | { type: "config.changed"; config: ConversationConfig }
     // `inbox`: snapshot of accepted-but-not-yet-injected input (queue/steer), re-emitted on
     // every inbox mutation; `pending: []` means it drained.
     | { type: "inbox"; pending: { intent: DeliveryIntent; text: string }[] }

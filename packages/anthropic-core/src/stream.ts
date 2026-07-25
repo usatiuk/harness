@@ -135,8 +135,7 @@ export async function* toModelEvents(
         break;
       }
       case "message_stop":
-        // Canonical text is reconstructed from the streamed deltas, so content is empty.
-        yield { type: "completed", content: [], usage };
+        yield { type: "completed", usage };
         break;
       default:
         break;
