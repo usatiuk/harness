@@ -22,6 +22,29 @@ function denied(operation: string, path: string): Error {
 }
 
 /**
+ * Keep `/run` and `/tmp` private without breaking a host `/etc/resolv.conf` symlink into either
+ * tree. Only the resolved config file is exposed; runtime sockets and the rest of the tree remain
+ * hidden. With network isolation enabled the resolver is intentionally left unavailable.
+ */
+function resolverMountArgs(): string[] {
+  let target: string;
+  try {
+    target = realpathSync("/etc/resolv.conf");
+  } catch {
+    return [];
+  }
+  const privateRoot = ["/run", "/tmp"].find((root) => within(root, target));
+  if (!privateRoot || target === privateRoot) return [];
+
+  const dirs: string[] = [];
+  for (let dir = dirname(target); dir !== privateRoot; dir = dirname(dir)) {
+    dirs.push(dir);
+  }
+  dirs.reverse();
+  return [...dirs.flatMap((dir) => ["--dir", dir]), "--ro-bind", target, target];
+}
+
+/**
  * Linux host execution constrained with Bubblewrap. Reads use the host implementation directly
  * because the configured boundary intentionally permits host-wide reads; writes enforce the same
  * workspace rule in-process that the Bubblewrap mount table enforces for commands.
@@ -110,6 +133,7 @@ export class NativeExecutionContext implements ExecutionContext {
       "/tmp",
       "--tmpfs",
       "/run",
+      ...(this.config.network ? resolverMountArgs() : []),
       "--setenv",
       "TMPDIR",
       "/tmp",

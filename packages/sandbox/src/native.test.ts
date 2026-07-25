@@ -8,8 +8,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   probeStatus: 0,
   probeStderr: "",
+  resolverTarget: "/run/systemd/resolve/stub-resolv.conf",
   spawnArgs: [] as string[],
 }));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...original,
+    realpathSync: (path: string) =>
+      path === "/etc/resolv.conf" ? state.resolverTarget : original.realpathSync(path),
+  };
+});
 
 vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:child_process")>()),
@@ -42,6 +52,7 @@ const makeRoot = async (): Promise<string> => {
 beforeEach(() => {
   state.probeStatus = 0;
   state.probeStderr = "";
+  state.resolverTarget = "/run/systemd/resolve/stub-resolv.conf";
   state.spawnArgs = [];
 });
 
@@ -103,6 +114,32 @@ describe.skipIf(process.platform !== "linux")("NativeExecutionContext", () => {
       "echo hi",
     ]);
     expect(state.spawnArgs).not.toContain("--share-net");
+  });
+
+  it("restores only a resolver config hidden by private /run when network is enabled", async () => {
+    const root = await makeRoot();
+    const ctx = new NativeExecutionContext(root, { workspaceWrite: true, network: true });
+    ctx.spawn("true");
+    expect(state.spawnArgs).toEqual(
+      expect.arrayContaining([
+        "--share-net",
+        "--dir",
+        "/run/systemd",
+        "--dir",
+        "/run/systemd/resolve",
+        "--ro-bind",
+        state.resolverTarget,
+        state.resolverTarget,
+      ]),
+    );
+  });
+
+  it("needs no resolver mount when resolv.conf remains visible outside private mounts", async () => {
+    state.resolverTarget = "/etc/resolv.conf";
+    const root = await makeRoot();
+    const ctx = new NativeExecutionContext(root, { workspaceWrite: true, network: true });
+    ctx.spawn("true");
+    expect(state.spawnArgs).not.toContain("--dir");
   });
 
   it("allows workspace writes but denies outside and symlink escapes", async () => {

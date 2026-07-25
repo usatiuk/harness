@@ -43,4 +43,10 @@ describe.skipIf(!bwrapOk)("NativeExecutionContext (real Bubblewrap)", () => {
     expect(result.code).not.toBe(0);
     await expect(stat(join(root, "readonly.txt"))).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it("keeps resolver configuration readable when network is enabled", async () => {
+    const ctx = new NativeExecutionContext(root, { workspaceWrite: true, network: true });
+    const result = await ctx.spawn("test -r /etc/resolv.conf").exit;
+    expect(result.code).toBe(0);
+  });
 });
