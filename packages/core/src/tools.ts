@@ -4,7 +4,12 @@ import { errorResult, type Tool, type ToolResult, type ToolSchema } from "@harne
 /** The wire schema a provider renders for a tool, derived from its `input`. */
 export function toToolSchema(tool: Tool): ToolSchema {
   if (tool.input.kind === "function") {
-    const parameters = z.toJSONSchema(tool.input.schema) as Record<string, unknown>;
+    // The model supplies the parser's input. For pipelines/defaults/transforms, the output schema
+    // describes the already-parsed value and can differ from the wire contract.
+    const parameters = z.toJSONSchema(tool.input.schema, { io: "input" }) as Record<
+      string,
+      unknown
+    >;
     delete parameters.$schema;
     return { kind: "function", name: tool.name, description: tool.description, parameters };
   }

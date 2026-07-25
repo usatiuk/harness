@@ -35,6 +35,42 @@ describe("toToolSchema", () => {
     expect(schema.parameters.type).toBe("object");
   });
 
+  it("describes a parser pipeline's model input rather than its validated output", () => {
+    const input = z.strictObject({
+      command: z.enum(["view", "create"]),
+      path: z.string(),
+      file_text: z.string().optional(),
+    });
+    const output = z.discriminatedUnion("command", [
+      z.strictObject({ command: z.literal("view"), path: z.string() }),
+      z.strictObject({
+        command: z.literal("create"),
+        path: z.string(),
+        file_text: z.string(),
+      }),
+    ]);
+    const tool: Tool<z.infer<typeof output>> = {
+      name: "editor",
+      description: "edit",
+      input: { kind: "function", schema: input.pipe(output) },
+      execute: () => Promise.resolve({ forModel: [], status: "ok" }),
+    };
+
+    const schema = toToolSchema(tool);
+    expect(schema.kind).toBe("function");
+    if (schema.kind !== "function") throw new Error("expected function");
+    expect(schema.parameters).toMatchObject({
+      type: "object",
+      properties: {
+        command: { type: "string", enum: ["view", "create"] },
+        path: { type: "string" },
+        file_text: { type: "string" },
+      },
+      required: ["command", "path"],
+    });
+    expect(schema.parameters).not.toHaveProperty("oneOf");
+  });
+
   it("derives a custom schema carrying its grammar", () => {
     expect(toToolSchema(customTool)).toEqual({
       kind: "custom",

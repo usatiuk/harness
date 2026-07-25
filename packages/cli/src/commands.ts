@@ -18,7 +18,7 @@ export const effortsFor = (service: HarnessService, model: ModelConfig): EffortI
 export interface CommandContext {
   service: HarnessService;
   conversationId: ConversationId;
-  /** This conversation's workspace root, for writing project-local settings. */
+  /** This conversation's workspace root. */
   cwd: string;
   /** The conversation's current selection (model + effort). */
   model: ModelConfig;
@@ -38,7 +38,7 @@ export interface CommandContext {
   showActivities: () => void;
   /** Open the sandbox overlay. */
   showSandbox: () => void;
-  /** Imperative sandbox actions (enable/disable, rebuild, stop). */
+  /** Imperative sandbox configuration and Docker lifecycle actions. */
   sandbox: SandboxView;
   /** Quit the app. */
   exit: () => void;
@@ -152,21 +152,32 @@ export const commands: Command[] = [
   { name: "activities", summary: "show running activities", run: (ctx) => ctx.showActivities() },
   {
     name: "sandbox",
-    summary: "manage the dev-container sandbox (/sandbox [on|off|rebuild|stop])",
+    summary:
+      "manage execution sandbox (/sandbox [local|native|docker|write on|off|network on|off|rebuild|stop])",
     run: (ctx, args) => {
       switch (args[0]) {
         case undefined:
           return ctx.showSandbox();
-        case "on":
-          return ctx.sandbox.setEnabled(true);
-        case "off":
-          return ctx.sandbox.setEnabled(false);
+        case "local":
+        case "native":
+        case "docker":
+          return ctx.sandbox.setBackend(args[0]);
+        case "write":
+          if (args[1] === "on" || args[1] === "off")
+            return ctx.sandbox.setWorkspaceWrite(args[1] === "on");
+          return ctx.note("usage: /sandbox write on|off");
+        case "network":
+          if (args[1] === "on" || args[1] === "off")
+            return ctx.sandbox.setNetwork(args[1] === "on");
+          return ctx.note("usage: /sandbox network on|off");
         case "rebuild":
           return ctx.sandbox.rebuild();
         case "stop":
           return ctx.sandbox.stop();
         default:
-          return ctx.note(`unknown sandbox action: ${args[0]} (on|off|rebuild|stop)`);
+          return ctx.note(
+            `unknown sandbox action: ${args[0]} (local|native|docker|write|network|rebuild|stop)`,
+          );
       }
     },
   },

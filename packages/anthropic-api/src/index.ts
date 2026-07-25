@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Plugin } from "@harness/protocol";
 import { AnthropicProvider, type AnthropicCredentials } from "@harness/anthropic-core";
-import { TextEditorTool } from "./text-editor.ts";
+import { executionServiceOf } from "@harness/execution";
+import { executionTextEditorTool } from "./text-editor.ts";
 
 export { TextEditorTool } from "./text-editor.ts";
 
@@ -21,14 +22,15 @@ export function apiKeyCredentials(opts: AnthropicPluginOptions): AnthropicCreden
 
 /**
  * Registers the API-key-authenticated Anthropic Messages provider and, for models on the
- * `text_editor` profile, Claude's native file editor. The editor lives here (not in workspace)
- * because it's a provider built-in declared via the `native` tool arm.
+ * `text_editor` profile, Harness's schema-compatible Claude-style editor. The editor lives here
+ * because its model-facing command contract is provider-specific even though Harness executes it.
  */
 export function createAnthropicPlugin(opts: AnthropicPluginOptions): Plugin {
   const credentials = apiKeyCredentials(opts);
   return {
     id: "anthropic-api",
     providers: () => [new AnthropicProvider({ credentials })],
-    tools: (caps) => (caps.fileTools === "text_editor" ? [new TextEditorTool()] : []),
+    tools: (caps, ctx) =>
+      caps.fileTools === "text_editor" ? [executionTextEditorTool(executionServiceOf(ctx))] : [],
   };
 }

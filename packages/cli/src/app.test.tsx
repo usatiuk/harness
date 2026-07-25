@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
 import type { Conversation, HarnessEvent } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
-import { App, appReduce } from "./app.tsx";
+import { LocalExecutionContext } from "@harness/execution";
+import { DockerExecutionContext, NativeExecutionContext } from "@harness/sandbox";
+import { App, appReduce, sandboxBackendOf } from "./app.tsx";
 import { emptyState, type Cell } from "./transcript-reducer.ts";
 
 const shellCells = (cells: Cell[]): Extract<Cell, { kind: "shell" }>[] =>
@@ -48,6 +50,13 @@ const mount = (service: HarnessService) =>
   );
 
 describe("App", () => {
+  it("identifies the backend from the actual cached execution instance", () => {
+    expect(sandboxBackendOf(new LocalExecutionContext("/work"))).toBe("local");
+    expect(sandboxBackendOf(Object.create(NativeExecutionContext.prototype))).toBe("native");
+    expect(sandboxBackendOf(Object.create(DockerExecutionContext.prototype))).toBe("docker");
+    expect(sandboxBackendOf(undefined)).toBeUndefined();
+  });
+
   it("shows the composer and the model on mount", () => {
     const { service } = harness();
     const { lastFrame } = mount(service);

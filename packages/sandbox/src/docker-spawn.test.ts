@@ -25,14 +25,14 @@ vi.mock("./devcontainer.ts", async (importOriginal) => ({
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
-const { sandboxConfigSchema } = await import("./plugin.ts");
+const { dockerSandboxConfigSchema } = await import("./plugin.ts");
 
 describe("DockerExecutionContext spawn", () => {
   it("ignores kill after the Docker client has exited but before stdio closes", async () => {
     state.children.length = 0;
     const ctx = new DockerExecutionContext(
       "/workspace",
-      sandboxConfigSchema.parse({ enabled: true, idleTimeoutMinutes: 0 }),
+      dockerSandboxConfigSchema.parse({ idleTimeoutMinutes: 0 }),
     );
     const proc = ctx.spawn("echo done");
     await vi.waitFor(() => expect(state.children).toHaveLength(1));

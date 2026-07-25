@@ -1,7 +1,7 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
-import type { ByteRange, PluginEvent } from "@harness/protocol";
+import type { ByteRange, PluginEvent, ToolCall } from "@harness/protocol";
 import type {
   ExecutionContext,
   OutputStore,
@@ -11,7 +11,7 @@ import type {
 import { LocalOutputStore, matchGlob, streamProcess } from "@harness/execution";
 import { capture, captureText } from "./docker-cli.ts";
 import { provisionDevcontainer, stopSandbox, type Provisioned } from "./devcontainer.ts";
-import type { SandboxConfig } from "./plugin.ts";
+import type { DockerSandboxConfig } from "./plugin.ts";
 
 /**
  * Runs the conversation's IO and commands inside the workspace's dev container. Every method goes
@@ -27,7 +27,7 @@ import type { SandboxConfig } from "./plugin.ts";
 export class DockerExecutionContext implements ExecutionContext {
   readonly workspaceRoot: string | null;
   readonly shellKind = "bash" as const;
-  readonly #config: SandboxConfig;
+  readonly #config: DockerSandboxConfig;
   #provision: Promise<Provisioned> | undefined;
   #abort: AbortController | undefined;
   #emit: ((event: PluginEvent) => void) | undefined;
@@ -35,8 +35,9 @@ export class DockerExecutionContext implements ExecutionContext {
   #idleTimer: ReturnType<typeof setTimeout> | undefined;
   /** In-flight `spawn`s; an idle reap is deferred while any command is still running. */
   #inflight = 0;
+  readonly #managedTools = new Set<string>();
 
-  constructor(hostRoot: string | null, config: SandboxConfig) {
+  constructor(hostRoot: string | null, config: DockerSandboxConfig) {
     this.workspaceRoot = hostRoot;
     this.#config = config;
   }
@@ -204,13 +205,13 @@ export class DockerExecutionContext implements ExecutionContext {
     return new LocalOutputStore(this.workspaceRoot, conversationId);
   }
 
-  /**
-   * The container is the trust boundary, so every call is "in-workspace": with the default approval
-   * policy (`inWorkspace: allow`) the agent acts prompt-free inside the sandbox. File IO routes
-   * through the container, so it cannot reach host paths outside the bind mount regardless.
-   */
-  classify(): Relationship {
-    return "in-workspace";
+  /** Only tools registered as execution-managed are known to run inside the container boundary. */
+  registerManagedTool(name: string): void {
+    this.#managedTools.add(name);
+  }
+
+  classify(call: ToolCall): Relationship {
+    return this.#managedTools.has(call.name) ? "in-workspace" : "unknown";
   }
 
   /**

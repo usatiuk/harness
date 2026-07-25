@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@harness/protocol": "*",
-    "minimatch": "^10.0.0"
+    "minimatch": "^10.0.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

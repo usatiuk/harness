@@ -23,11 +23,11 @@ vi.mock("./devcontainer.ts", async (importOriginal) => ({
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
-const { sandboxConfigSchema } = await import("./plugin.ts");
+const { dockerSandboxConfigSchema } = await import("./plugin.ts");
 
 const te = new TextEncoder();
 const td = new TextDecoder();
-const config = sandboxConfigSchema.parse({ enabled: true });
+const config = dockerSandboxConfigSchema.parse({});
 
 describe.skipIf(!dockerOk)("DockerExecutionContext (real container)", () => {
   let cid = "";
@@ -134,8 +134,11 @@ describe.skipIf(!dockerOk)("DockerExecutionContext (real container)", () => {
     expect(td.decode(await ctx().read("/etc/hostname"))).toContain(cid.slice(0, 12));
   });
 
-  it("classifies every call as in-workspace (container is the boundary)", () => {
-    expect(ctx().classify()).toBe("in-workspace");
+  it("classifies only registered execution-backed tools as in-workspace", () => {
+    const c = ctx();
+    c.registerManagedTool("bash");
+    expect(c.classify({ callId: "1", name: "bash", args: {} })).toBe("in-workspace");
+    expect(c.classify({ callId: "2", name: "remote_tool", args: {} })).toBe("unknown");
   });
 
   it("spawn streams output and completes", async () => {

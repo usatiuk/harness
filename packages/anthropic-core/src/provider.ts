@@ -95,7 +95,7 @@ export class AnthropicProvider implements ModelProvider {
   }
 
   capabilities(): ModelCapabilities {
-    // Every Claude model this class serves is trained on the native text_editor tool.
+    // Every Claude model this class serves is familiar with the text-editor command contract.
     return { contentTypes: ["text"], toolCalling: true, fileTools: "text_editor" };
   }
 

@@ -6,7 +6,7 @@ import { provisionDevcontainer, sandboxConfigSchema, stopSandbox } from "@harnes
 /** The sandbox `configPath` for `cwd`, read from the settings cascade (so a non-default path wins). */
 async function configPathFor(cwd: string): Promise<string> {
   const doc = await loadMergedSettings(defaultHome(), cwd);
-  return sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).configPath;
+  return sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).docker.configPath;
 }
 
 /**

@@ -32,10 +32,10 @@ vi.mock("node:child_process", async (importOriginal) => ({
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
-const { sandboxConfigSchema } = await import("./plugin.ts");
+const { dockerSandboxConfigSchema } = await import("./plugin.ts");
 
 const make = (over: Record<string, unknown> = {}) =>
-  new DockerExecutionContext("/work", sandboxConfigSchema.parse({ enabled: true, ...over }));
+  new DockerExecutionContext("/work", dockerSandboxConfigSchema.parse(over));
 
 /** The `docker stop <id>` calls the idle reaper made. */
 const stopCalls = () => captureText.mock.calls.filter((c) => c[1][0] === "stop");

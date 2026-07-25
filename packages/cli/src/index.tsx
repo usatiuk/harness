@@ -129,12 +129,15 @@ function notifyModel(service: HarnessService, model: ModelConfig): void {
   }
 }
 
-async function loadSession(service: HarnessService, id: string): Promise<Session> {
+export async function loadSession(service: HarnessService, id: string): Promise<Session> {
   const conversation = await service.getConversation(id as ConversationId);
   if (!conversation) throw new Error(`unknown conversation: ${id}`);
   const [items, usage] = await Promise.all([
     service.getItems(conversation.id),
     service.usage(conversation.id),
+    // Ensure the TUI can inspect and use the backend that is actually cached for this process.
+    // For a previously touched conversation this intentionally preserves that existing instance.
+    service.prepare(conversation.id),
   ]);
   return { conversation, items, usage };
 }

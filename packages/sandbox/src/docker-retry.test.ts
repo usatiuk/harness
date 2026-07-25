@@ -31,14 +31,11 @@ vi.mock("./docker-cli.ts", async (importOriginal) => ({
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
-const { sandboxConfigSchema } = await import("./plugin.ts");
+const { dockerSandboxConfigSchema } = await import("./plugin.ts");
 
 // Idle reaping off — these tests are about the exec retry path, not the timer.
 const make = () =>
-  new DockerExecutionContext(
-    "/work",
-    sandboxConfigSchema.parse({ enabled: true, idleTimeoutMinutes: 0 }),
-  );
+  new DockerExecutionContext("/work", dockerSandboxConfigSchema.parse({ idleTimeoutMinutes: 0 }));
 
 const gone = { stdout: "", stderr: "Error: No such container: cid", exitCode: 1 };
 const ok = { stdout: "", stderr: "", exitCode: 0 };

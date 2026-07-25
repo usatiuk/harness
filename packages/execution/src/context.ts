@@ -84,6 +84,17 @@ export interface ExecutionContext {
   /** The substrate's verdict on where a call acts — the approval policy's input. */
   classify(call: ToolCall): Relationship;
   /**
+   * Records a tool whose implementation is wholly mediated by this context. Sandboxed contexts
+   * use the roster to avoid claiming confinement for unrelated/provider-executed tools.
+   */
+  registerManagedTool?(name: string): void;
+  /**
+   * The execution context used after an explicit sandbox escape passes approval. Only a backend
+   * that actually offers such an escape exposes this; local is already unconfined and docker has
+   * no host escape.
+   */
+  readonly unconfined?: ExecutionContext;
+  /**
    * Optional: callers pass a scoped event-emit channel, letting a substrate that provisions lazily
    * (docker) stream build progress before/outside a turn. `executionOf` rebinds it on every access
    * with the live tool context's emit; `Engine.prepare` binds it once at startup with the engine's

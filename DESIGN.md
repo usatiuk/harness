@@ -229,7 +229,12 @@ interface Plugin {
 
 Tool rosters resolve once per turn. The contribution context exposes the active conversation's
 services, allowing workspace tools to advertise `powershell` for local Windows execution and
-`bash` for POSIX or dev-container execution without coupling workspace tools to sandbox config.
+`bash` for POSIX, Bubblewrap, or dev-container execution without coupling workspace tools to
+sandbox config. Execution-backed tools explicitly register with the selected context; sandbox
+backends therefore never claim provider-executed or unrelated plugin tools as confined. Native
+Linux tools may expose an execution-specific escape field in their own schema. The existing
+approval middleware sees the raw request first, and the tool receives host execution only after
+that request is allowed.
 
 **Hard rules** (the antidote to harness-old's convolution):
 - A plugin **never touches control flow** — it registers a capability or provides
@@ -515,7 +520,12 @@ interface Store {
 
 interface ContextPolicy { select(i): Promise<ContextBuild> }   // selection + cache-stable prefix
 interface OutputProjection { project(result: ToolResult, ctx: { putBlob; toolName }): Promise<ToolResult> }
-interface ExecutionContext { /* read / write / search / run — local host first */ }
+interface ExecutionContext {
+  /* read / write / search / run */
+  classify(call): "in-workspace" | "out-of-workspace" | "unknown";
+  registerManagedTool?(name): void;
+  readonly unconfined?: ExecutionContext; // Native only; selected after approval
+}
 ```
 
 ---

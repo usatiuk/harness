@@ -19,9 +19,14 @@ import {
   type Usage,
 } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
-import type { ExecutionContext } from "@harness/execution";
-import { DockerExecutionContext, type SandboxPhase } from "@harness/sandbox";
-import { updateLocalSettings } from "@harness/config";
+import { LocalExecutionContext, type ExecutionContext } from "@harness/execution";
+import {
+  DockerExecutionContext,
+  NativeExecutionContext,
+  sandboxConfigSchema,
+  type SandboxBackend,
+  type SandboxPhase,
+} from "@harness/sandbox";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
 import { effortsFor, runCommand, type CommandContext } from "./commands.ts";
 import { EffortPicker, ModelPicker } from "./model-picker.tsx";
@@ -44,6 +49,14 @@ export interface AppProps {
   onResume: (id?: string) => void;
   /** Live activity output/kill handles for this conversation (list/count come from events). */
   activities: ActivitiesView;
+}
+
+/** Identify the execution backend that is actually cached for this conversation. */
+export function sandboxBackendOf(execution: unknown): SandboxBackend | undefined {
+  if (execution instanceof NativeExecutionContext) return "native";
+  if (execution instanceof DockerExecutionContext) return "docker";
+  if (execution instanceof LocalExecutionContext) return "local";
+  return undefined;
 }
 
 type Action =
@@ -128,6 +141,11 @@ export function App({
     init(initialItems, initialUsage),
   );
   const [config, setConfig] = useState(conversation.config);
+  const [initialSandboxBackend] = useState<SandboxBackend>(
+    () => sandboxConfigSchema.parse(conversation.config.plugins?.["sandbox"] ?? {}).backend,
+  );
+  const activeSandboxBackend =
+    sandboxBackendOf(service.service(conversation.id, "execution")) ?? initialSandboxBackend;
   const model = config.model;
   const [modelPicking, setModelPicking] = useState(false);
   const [effortPicking, setEffortPicking] = useState(false);
@@ -153,10 +171,7 @@ export function App({
     () => findModel(service.availableModels(), model)?.contextWindow,
     [service, model],
   );
-  // Fixed for this session: config re-resolves on load, and `/sandbox on|off` applies to the next
-  // conversation and on resume, not this one. Slice is opaque, so read defensively.
-  const sandboxEnabled =
-    (config.plugins?.["sandbox"] as { enabled?: boolean } | undefined)?.enabled === true;
+  const sandboxConfig = sandboxConfigSchema.parse(config.plugins?.["sandbox"] ?? {});
 
   // Stable identities so the memoized ctx (via note) and the composer's menu-open
   // effect (via setMenuOpen) don't rebuild/refire each render.
@@ -236,32 +251,34 @@ export function App({
     report(proc.exit.then(({ code }) => dispatch({ type: "shell-end", id, exitCode: code ?? 0 })));
   };
 
-  // Memoized so the completion menu (keyed on `ctx`) doesn't recompute on every streaming re-render.
-  // `rebuild`/`stop` act on this conversation's live container via its execution context (a narrow
-  // downcast, like `runShell`); no-op when the sandbox is off (context is Local, nothing to act on).
+  // The live backend is fixed for this process. Configuration actions update both the global
+  // default and this conversation's durable override, taking effect after Harness restarts.
   const sandboxView: SandboxView = useMemo(() => {
     const dockerCtx = (): DockerExecutionContext | undefined => {
       const ex = service.service(conversation.id, "execution");
       return ex instanceof DockerExecutionContext ? ex : undefined;
     };
+    const save = (patch: Record<string, unknown>, label: string): void => {
+      void service.setPluginConfig(conversation.id, "sandbox", patch, { saveGlobal: true }).then(
+        () => note(`${label} saved — restart Harness to apply`),
+        (e: unknown) => note(`sandbox change failed: ${String(e)}`),
+      );
+    };
     return {
-      enabled: sandboxEnabled,
-      active: dockerCtx()?.isProvisioned() ?? false,
+      activeBackend: activeSandboxBackend,
+      configuredBackend: sandboxConfig.backend,
+      workspaceWrite: sandboxConfig.native.workspaceWrite,
+      network: sandboxConfig.native.network,
+      containerActive: dockerCtx()?.isProvisioned() ?? false,
       phase: state.sandbox?.phase,
-      setEnabled: (next) =>
-        void updateLocalSettings(cwd, (doc) => {
-          const prev = (doc.plugins?.["sandbox"] as Record<string, unknown> | undefined) ?? {};
-          return { ...doc, plugins: { ...doc.plugins, sandbox: { ...prev, enabled: next } } };
-        }).then(
-          (path) =>
-            note(
-              `sandbox ${next ? "enabled" : "disabled"} in ${path} — applies to new conversations and on resume`,
-            ),
-          (e: unknown) => note(`error: ${String(e)}`),
-        ),
+      setBackend: (backend) => save({ backend }, `sandbox backend → ${backend}`),
+      setWorkspaceWrite: (enabled) =>
+        save({ native: { workspaceWrite: enabled } }, `native workspace write → ${enabled}`),
+      setNetwork: (enabled) =>
+        save({ native: { network: enabled } }, `native network → ${enabled}`),
       rebuild: () => {
         const ctx = dockerCtx();
-        if (!ctx) return note("sandbox is disabled (enable it first)");
+        if (!ctx) return note("Docker is not active in this conversation");
         note("rebuilding the container…"); // progress streams via the sandbox status chip
         void ctx.rebuild().then(
           () => note("sandbox rebuilt"),
@@ -270,7 +287,7 @@ export function App({
       },
       stop: () => {
         const ctx = dockerCtx();
-        if (!ctx) return note("sandbox is disabled (enable it first)");
+        if (!ctx) return note("Docker is not active in this conversation");
         note("stopping sandbox…");
         void ctx.stop().then(
           () => note("sandbox stopped"),
@@ -278,7 +295,16 @@ export function App({
         );
       },
     };
-  }, [service, conversation.id, sandboxEnabled, state.sandbox?.phase, cwd, note]);
+  }, [
+    service,
+    conversation.id,
+    activeSandboxBackend,
+    sandboxConfig.backend,
+    sandboxConfig.native.workspaceWrite,
+    sandboxConfig.native.network,
+    state.sandbox?.phase,
+    note,
+  ]);
 
   // Memoized so the composer's completion menu, keyed on `ctx`, doesn't recompute on every
   // streaming re-render. The sandbox controls come from the memoized `sandboxView` above,
@@ -402,7 +428,7 @@ export function App({
               lastInputTokens={state.lastInputTokens}
               contextWindow={contextWindow}
               activeCount={activeCount}
-              sandboxEnabled={sandboxEnabled}
+              sandboxBackend={activeSandboxBackend}
               sandboxPhase={state.sandbox?.phase}
             />
           </>
@@ -447,7 +473,7 @@ function StatusBar({
   lastInputTokens,
   contextWindow,
   activeCount,
-  sandboxEnabled,
+  sandboxBackend,
   sandboxPhase,
 }: {
   busy: boolean;
@@ -459,7 +485,7 @@ function StatusBar({
   lastInputTokens: number | undefined;
   contextWindow: number | undefined;
   activeCount: number;
-  sandboxEnabled: boolean;
+  sandboxBackend: SandboxBackend;
   sandboxPhase: SandboxPhase | undefined;
 }): ReactElement {
   const label = effort ? `${model} (${effort})` : model;
@@ -470,7 +496,9 @@ function StatusBar({
     <Box>
       {busy ? <Spinner label="working" /> : <Text color="green">●</Text>}
       <Text dimColor>{`  ${label}${tokens ? ` · ${tokens}` : ""}${active} · ${cwd}`}</Text>
-      {sandboxEnabled ? <SandboxChip phase={sandboxPhase} /> : null}
+      {sandboxBackend !== "local" ? (
+        <SandboxChip backend={sandboxBackend} phase={sandboxPhase} />
+      ) : null}
     </Box>
   );
 }
@@ -483,8 +511,15 @@ const SANDBOX_CHIP_COLOR: Record<SandboxPhase, string> = {
   error: "red",
 };
 
-/** `🐳 <phase>` status chip, shown only when the sandbox is enabled; dim until the first status. */
-function SandboxChip({ phase }: { phase: SandboxPhase | undefined }): ReactElement {
+/** Compact status for the backend fixed to this loaded conversation. */
+function SandboxChip({
+  backend,
+  phase,
+}: {
+  backend: Exclude<SandboxBackend, "local">;
+  phase: SandboxPhase | undefined;
+}): ReactElement {
+  if (backend === "native") return <Text dimColor>{" · 🫧 native"}</Text>;
   if (phase === undefined) return <Text dimColor>{" · 🐳 idle"}</Text>;
   return <Text color={SANDBOX_CHIP_COLOR[phase]}>{` · 🐳 ${phase}`}</Text>;
 }

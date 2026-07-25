@@ -21,10 +21,15 @@ const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   showActivities: vi.fn(),
   showSandbox: vi.fn(),
   sandbox: {
-    enabled: false,
-    active: false,
+    activeBackend: "local",
+    configuredBackend: "local",
+    workspaceWrite: true,
+    network: true,
+    containerActive: false,
     phase: undefined,
-    setEnabled: vi.fn(),
+    setBackend: vi.fn(),
+    setWorkspaceWrite: vi.fn(),
+    setNetwork: vi.fn(),
     rebuild: vi.fn(),
     stop: vi.fn(),
   },
@@ -61,12 +66,14 @@ describe("runCommand", () => {
     expect(ctx.showSandbox).toHaveBeenCalledOnce();
   });
 
-  it("/sandbox on|off|rebuild|stop dispatch to the view", () => {
+  it("/sandbox backend, policy, and lifecycle actions dispatch to the view", () => {
     const ctx = makeCtx();
-    runCommand("/sandbox on", ctx);
-    expect(ctx.sandbox.setEnabled).toHaveBeenCalledWith(true);
-    runCommand("/sandbox off", ctx);
-    expect(ctx.sandbox.setEnabled).toHaveBeenCalledWith(false);
+    runCommand("/sandbox native", ctx);
+    expect(ctx.sandbox.setBackend).toHaveBeenCalledWith("native");
+    runCommand("/sandbox write off", ctx);
+    expect(ctx.sandbox.setWorkspaceWrite).toHaveBeenCalledWith(false);
+    runCommand("/sandbox network on", ctx);
+    expect(ctx.sandbox.setNetwork).toHaveBeenCalledWith(true);
     runCommand("/sandbox rebuild", ctx);
     expect(ctx.sandbox.rebuild).toHaveBeenCalledOnce();
     runCommand("/sandbox stop", ctx);
@@ -76,7 +83,9 @@ describe("runCommand", () => {
   it("/sandbox with an unknown action notes an error", () => {
     const ctx = makeCtx();
     runCommand("/sandbox bogus", ctx);
-    expect(ctx.note).toHaveBeenCalledWith("unknown sandbox action: bogus (on|off|rebuild|stop)");
+    expect(ctx.note).toHaveBeenCalledWith(
+      "unknown sandbox action: bogus (local|native|docker|write|network|rebuild|stop)",
+    );
   });
 
   it("/exit quits", () => {

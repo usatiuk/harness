@@ -65,8 +65,9 @@ export const selectionId = (m: ModelConfig): string =>
 /**
  * The file-editing tool profile a model is trained on — one indivisible choice that selects
  * the whole edit/read/write roster, so nonsense combinations can't be expressed.
- * `string_replace` is the neutral default; `apply_patch` is OpenAI's V4A; `text_editor` is
- * Claude's native editor (the provider plugin contributes the tool itself).
+ * `string_replace` is the neutral default; `apply_patch` is OpenAI's V4A; `text_editor` is the
+ * provider-specific editor profile, whose plugin may contribute a Harness-owned tool with the
+ * model's familiar schema.
  */
 export type FileToolsProfile = "string_replace" | "apply_patch" | "text_editor";
 

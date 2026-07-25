@@ -21,8 +21,8 @@ vi.mock("./devcontainer.ts", async (importOriginal) => ({
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
-const { sandboxConfigSchema } = await import("./plugin.ts");
-const config = sandboxConfigSchema.parse({ enabled: true });
+const { dockerSandboxConfigSchema } = await import("./plugin.ts");
+const config = dockerSandboxConfigSchema.parse({});
 
 beforeEach(() => {
   events.log = [];

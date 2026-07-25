@@ -29,6 +29,13 @@ eof_line: "*** End of File" LF
 
 %import common.LF`;
 
+/** Native-sandbox variant: the ordinary V4A payload may carry one explicit escape header. */
+export const ESCALATABLE_APPLY_PATCH_LARK = APPLY_PATCH_LARK.replace(
+  "start: begin_patch hunk+ end_patch",
+  `start: execution? begin_patch hunk+ end_patch
+execution: "sandbox_permissions=require_escalated" LF "justification=" /(.+)/ LF "---" LF`,
+);
+
 /** One file operation parsed from an envelope. `diff` is the headerless V4A body. */
 export type FileChange =
   | { type: "create_file"; path: string; diff: string }

@@ -9,10 +9,23 @@ import {
   type ToolInput,
   type ToolResult,
 } from "@harness/protocol";
-import { boundView, executionOf, type ShellKind } from "@harness/execution";
+import {
+  boundView,
+  contextWithExecution,
+  executionOf,
+  registerExecutionTool,
+  splitCustomEscalation,
+  type ExecutionContext,
+  type ShellKind,
+} from "@harness/execution";
 import { activitiesOf } from "@harness/activities";
 import { createProcessActivity } from "./process-activity.ts";
-import { APPLY_PATCH_LARK, parseEnvelope, type FileChange } from "./apply-patch-parse.ts";
+import {
+  APPLY_PATCH_LARK,
+  ESCALATABLE_APPLY_PATCH_LARK,
+  parseEnvelope,
+  type FileChange,
+} from "./apply-patch-parse.ts";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -128,6 +141,39 @@ export class ApplyPatchTool implements Tool<FileChange[]> {
     }
     return okResult(done.join("\n") || "no changes");
   }
+}
+
+interface ManagedPatch {
+  changes: FileChange[];
+  escalated: boolean;
+}
+
+/** Register apply_patch with an execution backend, adding its explicit freeform header for Native. */
+export function executionApplyPatchTool(execution: ExecutionContext): Tool {
+  const tool = new ApplyPatchTool();
+  registerExecutionTool(execution, tool.name);
+  if (!execution.unconfined) return tool;
+  return {
+    name: tool.name,
+    description:
+      `${tool.description} To run outside the sandbox after approval, prefix the patch with ` +
+      "`sandbox_permissions=require_escalated`, a nonempty `justification=...`, and `---`.",
+    input: {
+      kind: "custom",
+      grammar: { syntax: "lark", definition: ESCALATABLE_APPLY_PATCH_LARK },
+      parse(raw): ManagedPatch {
+        const split = splitCustomEscalation(raw);
+        if (split.escalation && !split.escalation.justification) {
+          throw new Error("escalated execution requires a justification");
+        }
+        return { changes: parseEnvelope(split.input), escalated: !!split.escalation };
+      },
+    },
+    execute(value: ManagedPatch, ctx: ToolContext): Promise<ToolResult> {
+      const selected = value.escalated ? execution.unconfined! : execution;
+      return tool.execute(value.changes, contextWithExecution(ctx, selected));
+    },
+  };
 }
 
 const editArgs = z.strictObject({

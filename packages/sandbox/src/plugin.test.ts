@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ConfigReader, Conversation } from "@harness/protocol";
 import { LocalExecutionContext } from "@harness/execution";
-import { sandboxPlugin } from "./plugin.ts";
+import { sandboxConfigSchema, sandboxPlugin } from "./plugin.ts";
 import { DockerExecutionContext } from "./docker.ts";
 
 const readerStub: ConfigReader = { get: <C>() => Promise.resolve({} as C) };
 
-const conv = (sandbox?: { enabled: boolean }): Conversation =>
+const conv = (sandbox?: Record<string, unknown>): Conversation =>
   ({
     id: "c1",
     workspaceRoot: "/w",
@@ -26,18 +26,29 @@ const executionFor = (c: Conversation): unknown => {
 };
 
 describe("sandboxPlugin execution provider", () => {
-  it("returns a Docker substrate when sandbox is enabled", () => {
-    const execution = executionFor(conv({ enabled: true }));
+  it("returns a Docker substrate when Docker is selected", () => {
+    const execution = executionFor(conv({ backend: "docker" }));
     expect(execution).toBeInstanceOf(DockerExecutionContext);
     expect((execution as DockerExecutionContext).shellKind).toBe("bash");
   });
 
-  it("returns a Local substrate when sandbox is disabled or unset", () => {
-    const local = executionFor(conv({ enabled: false }));
+  it("returns a Local substrate when local is selected or config is unset", () => {
+    const local = executionFor(conv({ backend: "local" }));
     expect(local).toBeInstanceOf(LocalExecutionContext);
     expect((local as LocalExecutionContext).shellKind).toBe(
       process.platform === "win32" ? "powershell" : "bash",
     );
     expect(executionFor(conv())).toBeInstanceOf(LocalExecutionContext);
+  });
+
+  it("fills stable defaults for all backends", () => {
+    expect(sandboxConfigSchema.parse({})).toEqual({
+      backend: "local",
+      native: { workspaceWrite: true, network: true },
+      docker: {
+        configPath: ".devcontainer/devcontainer.json",
+        idleTimeoutMinutes: 10,
+      },
+    });
   });
 });

@@ -3,7 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ConversationId, FileToolsProfile, ToolContext, ToolResult } from "@harness/protocol";
-import { LocalExecutionContext } from "@harness/execution";
+import {
+  LocalExecutionContext,
+  type ExecutionContext,
+  type Relationship,
+} from "@harness/execution";
 import { ActivityManager, activitiesOf, consume } from "@harness/activities";
 import {
   ApplyPatchTool,
@@ -12,6 +16,7 @@ import {
   GlobTool,
   ReadFileTool,
   WriteTool,
+  executionApplyPatchTool,
   scopedPattern,
 } from "./tools.ts";
 import { parseEnvelope } from "./apply-patch-parse.ts";
@@ -52,6 +57,22 @@ afterEach(async () => {
 
 function text(result: { forModel: { type: string; text?: string }[] }): string {
   return result.forModel.map((b) => b.text ?? "").join("");
+}
+
+class EscalatingTestExecution extends LocalExecutionContext {
+  readonly managed = new Set<string>();
+  constructor(
+    root: string,
+    readonly unconfined: ExecutionContext,
+  ) {
+    super(root);
+  }
+  registerManagedTool(name: string): void {
+    this.managed.add(name);
+  }
+  override classify(): Relationship {
+    return "in-workspace";
+  }
 }
 
 describe("workspace tools", () => {
@@ -108,6 +129,33 @@ describe("workspace tools", () => {
     expect(result.status).toBe("ok");
     expect(text(await new ReadFileTool().execute({ path: "new.txt" }, ctx))).toBe("fresh");
     expect(text(await new ReadFileTool().execute({ path: "keep.txt" }, ctx))).toBe("new\n");
+  });
+
+  it("parses apply_patch's explicit header and delegates only that call outside the sandbox", async () => {
+    const sandboxRoot = await mkdtemp(join(tmpdir(), "hws-sandbox-"));
+    const hostRoot = await mkdtemp(join(tmpdir(), "hws-host-"));
+    created.push(sandboxRoot, hostRoot);
+    const host = new LocalExecutionContext(hostRoot);
+    const sandbox = new EscalatingTestExecution(sandboxRoot, host);
+    const tool = executionApplyPatchTool(sandbox);
+    if (tool.input.kind !== "custom") throw new Error("expected custom apply_patch tool");
+    const args = tool.input.parse(
+      "sandbox_permissions=require_escalated\n" +
+        "justification=write through the host context\n---\n" +
+        "*** Begin Patch\n*** Add File: escaped.txt\n+host\n*** End Patch\n",
+    );
+    const ctx: ToolContext = {
+      conversationId: "conv" as ConversationId,
+      callId: "call",
+      signal: new AbortController().signal,
+      service: (key) => (key === "execution" ? sandbox : undefined),
+      emit: () => {},
+      deliver: () => {},
+    };
+    expect((await tool.execute(args, ctx)).status).toBe("ok");
+    expect(new TextDecoder().decode(await host.read("escaped.txt"))).toBe("host");
+    await expect(sandbox.read("escaped.txt")).rejects.toThrow();
+    expect(sandbox.managed).toContain("apply_patch");
   });
 
   it("edit replaces a unique occurrence and errors on absent/ambiguous matches", async () => {
@@ -199,7 +247,7 @@ describe("workspacePlugin file-tools roster by profile", () => {
     expect(names("string_replace")).not.toContain("apply_patch");
   });
 
-  it("gives no read/write/edit to a text_editor model (the native editor replaces them)", () => {
+  it("gives no read/write/edit to a text_editor model (the provider-shaped editor replaces them)", () => {
     const ns = names("text_editor");
     expect(ns).not.toContain("read_file");
     expect(ns).not.toContain("write");

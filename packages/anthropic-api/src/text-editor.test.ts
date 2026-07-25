@@ -3,8 +3,12 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ConversationId, ToolContext, ToolResult } from "@harness/protocol";
-import { LocalExecutionContext } from "@harness/execution";
-import { TextEditorTool } from "./text-editor.ts";
+import {
+  LocalExecutionContext,
+  type ExecutionContext,
+  type Relationship,
+} from "@harness/execution";
+import { executionTextEditorTool, TextEditorTool } from "./text-editor.ts";
 
 const created: string[] = [];
 async function workspace(): Promise<ToolContext> {
@@ -28,6 +32,19 @@ const text = (r: ToolResult): string =>
   r.forModel.map((b) => (b.type === "text" ? b.text : "")).join("");
 const read = (ctx: ToolContext, path: string) =>
   new TextEditorTool().execute({ command: "view", path }, ctx);
+
+class EscalatingTestExecution extends LocalExecutionContext {
+  constructor(
+    root: string,
+    readonly unconfined: ExecutionContext,
+  ) {
+    super(root);
+  }
+  registerManagedTool(): void {}
+  override classify(): Relationship {
+    return "in-workspace";
+  }
+}
 
 describe("TextEditorTool", () => {
   it("creates, views, str_replaces, and inserts", async () => {
@@ -120,5 +137,34 @@ describe("TextEditorTool", () => {
 
     const sub = await read(ctx, "src");
     expect(text(sub).split("\n")).toEqual(expect.arrayContaining(["src/a.ts", "src/nested"]));
+  });
+
+  it("owns its function schema and sends an explicitly escalated edit to host execution", async () => {
+    const sandboxRoot = await mkdtemp(join(tmpdir(), "hae-sandbox-"));
+    const hostRoot = await mkdtemp(join(tmpdir(), "hae-host-"));
+    created.push(sandboxRoot, hostRoot);
+    const host = new LocalExecutionContext(hostRoot);
+    const sandbox = new EscalatingTestExecution(sandboxRoot, host);
+    const tool = executionTextEditorTool(sandbox);
+    expect(tool.input.kind).toBe("function");
+    if (tool.input.kind !== "function") throw new Error("expected function editor");
+    const args = tool.input.schema.parse({
+      command: "create",
+      path: "escaped.txt",
+      file_text: "host",
+      sandbox_permissions: "require_escalated",
+      justification: "write through the host context",
+    });
+    const ctx: ToolContext = {
+      conversationId: "conv" as ConversationId,
+      callId: "call",
+      signal: new AbortController().signal,
+      service: (key) => (key === "execution" ? sandbox : undefined),
+      emit: () => {},
+      deliver: () => {},
+    };
+    expect((await tool.execute(args, ctx)).status).toBe("ok");
+    expect(new TextDecoder().decode(await host.read("escaped.txt"))).toBe("host");
+    await expect(sandbox.read("escaped.txt")).rejects.toThrow();
   });
 });

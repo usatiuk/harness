@@ -109,6 +109,36 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
   return messages;
 }
 
+/**
+ * Anthropic narrows JSON Schema for custom tools by requiring an explicit top-level object type.
+ * Validate that the provider-neutral schema fits that contract; schema generation remains Zod's
+ * responsibility rather than being repaired while rendering the request.
+ */
+function isInputSchema(
+  parameters: Record<string, unknown>,
+): parameters is Anthropic.Messages.Tool.InputSchema {
+  return parameters.type === "object";
+}
+
+function toInputSchema(
+  parameters: Record<string, unknown>,
+  toolName: string,
+): Anthropic.Messages.Tool.InputSchema {
+  if (!isInputSchema(parameters)) {
+    throw new Error(
+      `anthropic function tool '${toolName}' requires a top-level object input schema`,
+    );
+  }
+  for (const keyword of ["oneOf", "allOf", "anyOf"] as const) {
+    if (parameters[keyword] !== undefined) {
+      throw new Error(
+        `anthropic function tool '${toolName}' does not support top-level ${keyword}`,
+      );
+    }
+  }
+  return parameters;
+}
+
 /** A harness tool schema → an Anthropic tool. `native` resolves via the provider's id table. */
 function toTool(schema: ToolSchema): ToolUnion {
   if (schema.kind === "native") {
@@ -120,7 +150,7 @@ function toTool(schema: ToolSchema): ToolUnion {
     return {
       name: schema.name,
       description: schema.description,
-      input_schema: schema.parameters as Anthropic.Messages.Tool.InputSchema,
+      input_schema: toInputSchema(schema.parameters, schema.name),
     };
   }
   // Anthropic has no freeform/grammar tool, and the engine never routes a custom tool to a Claude

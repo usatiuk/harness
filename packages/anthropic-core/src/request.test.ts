@@ -35,6 +35,110 @@ const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
 });
 
 describe("buildMessages", () => {
+  it("renders a flat text-editor schema accepted by Anthropic", () => {
+    const properties = {
+      command: { type: "string", enum: ["view", "create", "str_replace", "insert"] },
+      path: { type: "string" },
+      file_text: { type: "string" },
+    };
+    const params = buildMessages(
+      {
+        ...baseRequest([]),
+        tools: [
+          {
+            kind: "function",
+            name: "str_replace_based_edit_tool",
+            description: "edit",
+            parameters: {
+              type: "object",
+              properties,
+              required: ["command", "path"],
+              additionalProperties: false,
+            },
+          },
+        ],
+      },
+      CONFIG,
+      PROVIDER,
+    );
+
+    expect(params.tools).toEqual([
+      {
+        name: "str_replace_based_edit_tool",
+        description: "edit",
+        input_schema: {
+          type: "object",
+          properties,
+          required: ["command", "path"],
+          additionalProperties: false,
+        },
+      },
+    ]);
+  });
+
+  it.each(["oneOf", "allOf", "anyOf"] as const)(
+    "rejects Anthropic's unsupported top-level %s",
+    (keyword) => {
+      expect(() =>
+        buildMessages(
+          {
+            ...baseRequest([]),
+            tools: [
+              {
+                kind: "function",
+                name: "bad",
+                description: "bad",
+                parameters: { type: "object", [keyword]: [] },
+              },
+            ],
+          },
+          CONFIG,
+          PROVIDER,
+        ),
+      ).toThrow(`anthropic function tool 'bad' does not support top-level ${keyword}`);
+    },
+  );
+
+  it("rejects an explicitly non-object Anthropic function schema", () => {
+    expect(() =>
+      buildMessages(
+        {
+          ...baseRequest([]),
+          tools: [
+            {
+              kind: "function",
+              name: "bad",
+              description: "bad",
+              parameters: { type: "string" },
+            },
+          ],
+        },
+        CONFIG,
+        PROVIDER,
+      ),
+    ).toThrow("anthropic function tool 'bad' requires a top-level object input schema");
+  });
+
+  it("rejects an Anthropic function schema with no explicit top-level type", () => {
+    expect(() =>
+      buildMessages(
+        {
+          ...baseRequest([]),
+          tools: [
+            {
+              kind: "function",
+              name: "bad",
+              description: "bad",
+              parameters: { properties: {} },
+            },
+          ],
+        },
+        CONFIG,
+        PROVIDER,
+      ),
+    ).toThrow("anthropic function tool 'bad' requires a top-level object input schema");
+  });
+
   it("groups an assistant turn as [thinking, text, tool_use] and renders system + tools", () => {
     const request = baseRequest([
       { item: item({ type: "message", role: "user", content: [{ type: "text", text: "hi" }] }) },
