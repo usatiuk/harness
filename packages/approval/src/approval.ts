@@ -17,8 +17,9 @@ const toolRule = z.union([
 /**
  * Approval as attribute-based policy: the substrate emits a `relationship`, config
  * maps `(tool, relationship) → effect`. The defaults give the v0 behaviour — act
- * freely inside the workspace, ask before reaching outside it (command tools have no
- * in-workspace path, so they are always "outside" → ask). A per-tool entry overrides the
+ * freely inside the workspace, ask before reaching outside it or when scope is unknown.
+ * `unknown` deliberately inherits the out-of-workspace rule, preserving one conservative
+ * configuration path for command and custom-shaped tools. A per-tool entry overrides the
  * relationship default; most-specific wins.
  */
 export const approvalConfigSchema = z.strictObject({
@@ -79,7 +80,7 @@ const approvalResponseSchema = z.object({
 const approvalAnnotationSchema = z.object({
   decision: z.enum(["allow", "deny"]),
   responder: z.enum(["auto", "human", "policy"]),
-  relationship: z.enum(["in-workspace", "out-of-workspace"]),
+  relationship: z.enum(["in-workspace", "out-of-workspace", "unknown"]),
   reason: z.string().optional(),
   model: z
     .object({ provider: z.string(), model: z.string(), effort: z.string().optional() })
@@ -94,7 +95,9 @@ export const isApprovalRequest = (request: unknown): request is ApprovalRequest 
     !!value.call &&
     typeof value.call.name === "string" &&
     typeof value.call.callId === "string" &&
-    (value.relationship === "in-workspace" || value.relationship === "out-of-workspace")
+    (value.relationship === "in-workspace" ||
+      value.relationship === "out-of-workspace" ||
+      value.relationship === "unknown")
   );
 };
 
@@ -137,7 +140,7 @@ function approvalMiddleware(reader: ConfigReader): ToolMiddleware {
       const config = approvalConfigSchema.parse(await reader.get("approval", ctx.conversationId));
       const relationship: Relationship = ctx.service("execution")
         ? executionOf(ctx).classify(call)
-        : "out-of-workspace";
+        : "unknown";
       const decision = effectFor(config, call.name, relationship);
       if (decision === "allow") return next(call);
       if (decision === "deny") {

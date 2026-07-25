@@ -103,10 +103,10 @@ describe("LocalExecutionContext", () => {
     expect(ctx.classify(call({ path: "..safe/x.ts" }))).toBe("in-workspace");
     expect(ctx.classify(call({ path: "../escape" }))).toBe("out-of-workspace");
     expect(ctx.classify(call({ path: "/etc/passwd" }))).toBe("out-of-workspace");
-    expect(ctx.classify(call({ command: "ls" }))).toBe("out-of-workspace"); // no path arg
+    expect(ctx.classify(call({ command: "ls" }))).toBe("unknown"); // no path arg
   });
 
-  it("treats everything as out-of-workspace when projectless", () => {
-    expect(new LocalExecutionContext(null).classify(call({ path: "a" }))).toBe("out-of-workspace");
+  it("cannot classify paths when projectless", () => {
+    expect(new LocalExecutionContext(null).classify(call({ path: "a" }))).toBe("unknown");
   });
 });

@@ -141,7 +141,7 @@ export class LocalExecutionContext implements ExecutionContext {
   classify(call: ToolCall): Relationship {
     const root = this.workspaceRoot;
     const path = callPath(call);
-    if (!root || path === undefined) return "out-of-workspace";
+    if (!root || path === undefined) return "unknown";
     const rel = relative(root, resolve(root, path));
     const inside = rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
     return inside ? "in-workspace" : "out-of-workspace";

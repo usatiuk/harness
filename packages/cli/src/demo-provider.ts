@@ -32,7 +32,7 @@ const powershellQuote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 
 /**
  * Demo-only provider. Each turn calls the offered command tool to echo the user's text, then replies —
- * exercising the full tool + approval pipeline (commands are out-of-workspace, so it
+ * exercising the full tool + approval pipeline (command scope is unknown, so it
  * prompts for approval). Artificial latency keeps turns long enough to steer/interrupt
  * by hand, and it honors the abort signal.
  */

@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-  ConfigReader,
-  ContentBlock,
-  Conversation,
-  ConversationId,
-  Item,
-  ModelInvocationResult,
-  RequestMiddlewareContext,
+import {
+  textOf,
+  type ConfigReader,
+  type ContentBlock,
+  type Conversation,
+  type ConversationId,
+  type Item,
+  type ModelInvocationResult,
+  type ModelRequest,
+  type RequestMiddlewareContext,
 } from "@harness/protocol";
 import type { ApprovalRequest } from "@harness/approval";
 import {
@@ -43,7 +45,7 @@ const item = (over: Partial<Item> & { type: Item["type"] }): Item =>
 const approvalRequest: ApprovalRequest = {
   kind: "approval",
   call: { callId: "call-1", name: "bash", args: { command: "echo hi" } },
-  relationship: "out-of-workspace",
+  relationship: "unknown",
 };
 
 const result = (answer: string): ModelInvocationResult => ({
@@ -98,6 +100,10 @@ describe("auto approval request middleware", () => {
     });
     expect(next).not.toHaveBeenCalled();
     expect(invoke).toHaveBeenCalledOnce();
+    const reviewerRequest = (invoke.mock.calls as unknown as Array<[ModelRequest]>)[0]?.[0];
+    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
+      "output exactly YES and nothing else",
+    );
     expect(events.filter((event) => isAutoApprovalEvent(event as never))).toMatchObject([
       { type: "auto-approval.reviewing", callId: "call-1" },
     ]);
@@ -127,6 +133,18 @@ describe("auto approval request middleware", () => {
     });
   });
 
+  it("only approves an exact YES response", async () => {
+    for (const answer of ["YES\nThis is safe.", "YES: safe", "yes", "YESTERDAY"]) {
+      const state = setup(
+        { enabled: true },
+        vi.fn(async () => result(answer)),
+      );
+      const response = await state.middleware.wrap(approvalRequest, state.ctx, vi.fn());
+      expect(response).toMatchObject({ decision: "deny" });
+      expect((response as { reason?: string }).reason).toContain("not exactly YES");
+    }
+  });
+
   it("denies malformed output and provider failures", async () => {
     const malformed = setup(
       { enabled: true },
@@ -136,7 +154,7 @@ describe("auto approval request middleware", () => {
       malformed.middleware.wrap(approvalRequest, malformed.ctx, vi.fn()),
     ).resolves.toMatchObject({
       decision: "deny",
-      reason: "reviewer returned an invalid response",
+      reason: "reviewer response was not exactly YES: maybe",
     });
 
     const failed = setup(
@@ -182,7 +200,7 @@ describe("defaultReviewContext", () => {
         args: { command: "echo hi" },
       }),
     ];
-    const selected = defaultReviewContext({ items, request: approvalRequest });
+    const selected = defaultReviewContext({ conversation, items, request: approvalRequest });
     const rendered = selected
       .map(({ item: selectedItem }) =>
         "content" in selectedItem ? selectedItem.content.map((block) => block.text).join("") : "",
@@ -191,9 +209,51 @@ describe("defaultReviewContext", () => {
     expect(rendered).toContain("do it");
     expect(rendered).toContain("[assistant tool call]");
     expect(rendered).toContain("[proposed tool call to review]");
+    expect(rendered).toContain("workspace root: /work");
+    expect(rendered).toContain("workspace relationship: unknown");
     expect(rendered).toContain("…[truncated]…");
     expect(rendered).not.toContain("secret thought");
     expect(rendered).not.toContain("repo context");
     expect(rendered.length).toBeLessThan(long.length + 800);
+  });
+
+  it("keeps prior denial context but labels it as a non-executed approval opinion", () => {
+    const items = [
+      item({
+        type: "tool_call",
+        callId: "old",
+        name: "bash",
+        args: { command: "ls" },
+      }),
+      item({
+        type: "tool_result",
+        callId: "old",
+        status: "error",
+        content: text("tool denied by auto-approval"),
+        annotations: {
+          approval: {
+            decision: "deny",
+            responder: "auto",
+            relationship: "unknown",
+            reason: "It looked risky.",
+          },
+        },
+      }),
+      item({
+        type: "tool_call",
+        callId: "call-1",
+        name: "bash",
+        args: { command: "ls" },
+      }),
+    ];
+    const selected = defaultReviewContext({ conversation, items, request: approvalRequest });
+    const rendered = selected
+      .map(({ item: selectedItem }) =>
+        "content" in selectedItem ? textOf(selectedItem.content) : "",
+      )
+      .join("\n");
+    expect(rendered).toContain("[prior approval denial; tool was not executed]");
+    expect(rendered).toContain("It looked risky.");
+    expect(rendered).not.toContain("[tool result: error]");
   });
 });

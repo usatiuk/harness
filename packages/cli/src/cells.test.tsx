@@ -63,6 +63,25 @@ describe("CellView: tool cards", () => {
     expect(f).toContain("boom");
   });
 
+  it("shows an approval denial once instead of repeating its tool error", async () => {
+    const denied: Cell = {
+      ...okTool,
+      status: "error",
+      output: "tool 'bash' denied by auto-approval: unsafe",
+      approval: {
+        decision: "deny",
+        responder: "auto",
+        relationship: "unknown",
+        reason: "unsafe",
+      },
+    };
+    for (const verbose of [false, true]) {
+      const f = (await frame(denied, verbose))!;
+      expect(f).toContain("auto approver denied: unsafe");
+      expect(f).not.toContain("tool 'bash' denied by auto-approval");
+    }
+  });
+
   it("a running tool (no status) shows no result line", async () => {
     const running: Cell = {
       kind: "tool",

@@ -140,6 +140,7 @@ describe("auto approval integration", () => {
     expect(approvalAnnotationOf(completed.annotations)).toMatchObject({
       decision: "allow",
       responder: "auto",
+      relationship: "unknown",
     });
     expect(events.filter(isAutoApprovalEvent).map((event) => event.type)).toEqual([
       "auto-approval.reviewing",
@@ -282,6 +283,26 @@ describe("auto approval integration", () => {
           item.type === "tool_result" && textOf(item.content).includes("did not authorize"),
       ),
     ).toBe(true);
+  });
+
+  it("denies an approval response containing text in addition to YES", async () => {
+    const { service } = makeService("YES\nThis call is safe.");
+    const conversation = await createEnabledConversation(service);
+    await service.send(conversation.id, "go");
+    await service.whenIdle(conversation.id);
+
+    const durable = (await service.getItems(conversation.id)).find(
+      (item) => item.type === "tool_result",
+    );
+    expect(durable?.type === "tool_result" && durable.status).toBe("error");
+    const approval =
+      durable?.type === "tool_result" ? approvalAnnotationOf(durable.annotations) : undefined;
+    expect(approval).toMatchObject({
+      decision: "deny",
+      responder: "auto",
+      relationship: "unknown",
+    });
+    expect(approval?.reason).toContain("not exactly YES");
   });
 
   it("saves enabled in both scopes without copying the global reviewer into overrides", async () => {

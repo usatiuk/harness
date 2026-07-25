@@ -78,10 +78,18 @@ describe("approval policy", () => {
     expect(deny.annotation()).toMatchObject({ decision: "deny", responder: "human" });
   });
 
-  it("asks for a command tool by default (no in-workspace path ⇒ out-of-workspace)", async () => {
-    const { ctx, asked } = contextFor();
+  it("asks for an unknown-scope command using the out-of-workspace rule", async () => {
+    const { ctx, asked, annotation } = contextFor();
     await middlewareFor({}).wrap(call("powershell", { command: "Get-ChildItem" }), ctx, next);
     expect(asked()).toBe(true);
+    expect(annotation()).toMatchObject({ relationship: "unknown" });
+
+    const allowed = contextFor();
+    await middlewareFor({
+      outOfWorkspace: "deny",
+      tools: { powershell: { outOfWorkspace: "allow" } },
+    }).wrap(call("powershell", { command: "Get-ChildItem" }), allowed.ctx, next);
+    expect(allowed.asked()).toBe(false);
   });
 
   it("captures the annotation before emitting the decided event", async () => {

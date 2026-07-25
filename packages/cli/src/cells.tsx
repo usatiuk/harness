@@ -151,12 +151,13 @@ function ToolCard({
 }): ReactElement {
   const color = cell.status === "error" ? "red" : cell.status === "ok" ? "green" : "yellow";
   const mark = cell.status === undefined ? "⠿" : cell.status === "ok" ? "✓" : "✗";
+  const approvalDenied = cell.approval?.decision === "deny";
   if (verbose) {
     const args = truncate(safeArgs(cell.args), ARGS_CAP);
     return (
       <Box flexDirection="column">
         <Text color={color}>{`${mark} ${cell.name}(${args})`}</Text>
-        {cell.output ? (
+        {cell.output && !approvalDenied ? (
           <Text dimColor>{indent(truncate(cell.output, TOOL_OUTPUT_CAP))}</Text>
         ) : null}
         <ApprovalLine cell={cell} />
@@ -171,7 +172,7 @@ function ToolCard({
         {summary ? <Text dimColor>{`  ${summary}`}</Text> : null}
       </Text>
       <ApprovalLine cell={cell} />
-      <ResultLine status={cell.status} output={cell.output} />
+      {approvalDenied ? null : <ResultLine status={cell.status} output={cell.output} />}
     </Box>
   );
 }

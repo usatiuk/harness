@@ -7,10 +7,11 @@ import type {
 } from "@harness/protocol";
 
 /**
- * Where a tool call acts relative to the workspace. Computed by the substrate (not
- * the tool), so it is trustworthy policy input. Binary in v0.
+ * What the execution substrate can establish about where a tool call acts.
+ * `unknown` is the conservative result when the call has no structured path or
+ * there is no workspace against which to resolve one.
  */
-export type Relationship = "in-workspace" | "out-of-workspace";
+export type Relationship = "in-workspace" | "out-of-workspace" | "unknown";
 export type ShellKind = "bash" | "powershell";
 
 export interface ProcessExit {
