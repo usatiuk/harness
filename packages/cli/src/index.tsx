@@ -41,6 +41,14 @@ const makeActivities = (service: HarnessService, convId: ConversationId): Activi
 
 const INSTRUCTIONS = "You are a helpful coding agent.";
 
+/** Activity controls only act on work already started by this conversation. */
+export const ACTIVITY_APPROVAL_DEFAULTS = {
+  activity_wait: "allow",
+  activity_peek: "allow",
+  activity_list: "allow",
+  activity_kill: "allow",
+} as const;
+
 export interface LaunchOptions {
   /** Resume mode (pick from a list when no `conversationId` is given). */
   resume?: boolean;
@@ -105,7 +113,16 @@ async function buildHarness(): Promise<Harness> {
   const resolvedFallback: ModelConfig = fallbackModel ?? { provider: "demo", model: "demo-1" };
   // Lowest cascade layer: every conversation has a model even on resume with no settings, and
   // resolution never fails "no model configured".
-  const service = new HarnessService({ store, plugins, defaults: { model: resolvedFallback } });
+  const service = new HarnessService({
+    store,
+    plugins,
+    defaults: {
+      model: resolvedFallback,
+      plugins: {
+        approval: { tools: ACTIVITY_APPROVAL_DEFAULTS },
+      },
+    },
+  });
   // Late-bind the runner so the subagents tool can spawn/observe/abort children. Mirrors the
   // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
   subagentsDefinition.bindRunner(service);

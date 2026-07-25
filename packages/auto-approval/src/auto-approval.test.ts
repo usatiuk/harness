@@ -104,6 +104,21 @@ describe("auto approval request middleware", () => {
     expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
       "output exactly YES and nothing else",
     );
+    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
+      "The user is the final authority over their environment and permission decisions",
+    );
+    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
+      "overrides all risk-based denial guidance",
+    );
+    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
+      "sandbox_permissions=require_escalated",
+    );
+    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
+      "testing sandbox or approval behavior",
+    );
+    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
+      "Downstream tool calls are reviewed separately",
+    );
     expect(events.filter((event) => isAutoApprovalEvent(event as never))).toMatchObject([
       { type: "auto-approval.reviewing", callId: "call-1" },
     ]);
