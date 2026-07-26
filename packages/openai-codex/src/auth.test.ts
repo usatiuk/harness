@@ -1,3 +1,4 @@
+import { createConnection, Socket } from "node:net";
 import { describe, expect, it } from "vitest";
 import { MemorySecretStore } from "@harness/secrets";
 import { CodexAuth } from "./auth.ts";
@@ -47,6 +48,72 @@ function refreshingFetch(): { fetch: typeof fetch; calls: () => number } {
   return { fetch: fetchImpl, calls: () => calls };
 }
 
+interface BrowserCallback {
+  socket: Socket;
+  blocker: Socket;
+  response: Promise<string>;
+  closed: Promise<boolean>;
+  blockerClosed: Promise<boolean>;
+}
+
+/** Sends the OAuth redirect over a browser-style persistent HTTP connection. */
+function openCallback(authorizeUrl: string): BrowserCallback {
+  const authorize = new URL(authorizeUrl);
+  const redirectValue = authorize.searchParams.get("redirect_uri");
+  const state = authorize.searchParams.get("state");
+  if (!redirectValue || !state) throw new Error("authorize URL is missing redirect state");
+
+  const redirect = new URL(redirectValue);
+  redirect.searchParams.set("state", state);
+  redirect.searchParams.set("code", "authorization-code");
+
+  const socket = new Socket();
+  socket.setTimeout(3_000, () => {
+    socket.destroy(new Error("OAuth callback server did not close the browser connection"));
+  });
+  const blocker = createConnection(Number(redirect.port), "127.0.0.1");
+  let blockerTimedOut = false;
+  blocker.setTimeout(3_000, () => {
+    blockerTimedOut = true;
+    blocker.destroy();
+  });
+  blocker.on("error", () => {});
+  const blockerClosed = new Promise<boolean>((resolve) => {
+    blocker.once("close", () => resolve(!blockerTimedOut));
+  });
+
+  const response = new Promise<string>((resolve, reject) => {
+    let raw = "";
+    socket.on("data", (chunk) => {
+      raw += chunk.toString();
+      if (raw.includes("Signed in to Codex")) resolve(raw);
+    });
+    socket.once("error", reject);
+  });
+  const closed = new Promise<boolean>((resolve) => {
+    socket.once("close", (hadError) => {
+      resolve(hadError);
+    });
+  });
+
+  blocker.once("connect", () => {
+    // Model a second browser connection that remains active without completing its request.
+    blocker.write(`GET /favicon.ico HTTP/1.1\r\nHost: ${redirect.host}\r\n`);
+    socket.connect(Number(redirect.port), "127.0.0.1", () => {
+      socket.write(
+        [
+          `GET ${redirect.pathname}${redirect.search} HTTP/1.1`,
+          `Host: ${redirect.host}`,
+          "Connection: keep-alive",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+    });
+  });
+  return { socket, blocker, response, closed, blockerClosed };
+}
+
 describe("CodexAuth", () => {
   it("reports not-authenticated with an empty store", async () => {
     const auth = new CodexAuth({ store: new MemorySecretStore() });
@@ -93,5 +160,36 @@ describe("CodexAuth", () => {
     expect(await auth.logout()).toBe(true);
     expect(await store.get(STORE_KEY)).toBeNull();
     expect((await auth.status()).authenticated).toBe(false);
+  });
+
+  it("completes browser login and closes a persistent callback connection", async () => {
+    const store = new MemorySecretStore();
+    const net = refreshingFetch();
+    const auth = new CodexAuth({
+      store,
+      fetch: net.fetch,
+      now: () => 0,
+      openBrowser: false,
+    });
+    let callback: BrowserCallback | undefined;
+
+    try {
+      const session = await auth.loginWithBrowser({
+        onUrl: (url) => {
+          callback = openCallback(url);
+        },
+      });
+      if (!callback) throw new Error("login did not publish an authorize URL");
+
+      const response = await callback.response;
+      expect(await callback.closed).toBe(false);
+      expect(await callback.blockerClosed).toBe(true);
+      expect(response).toMatch(/\r\nconnection: close\r\n/iu);
+      expect(session.accountId).toBe("acc_1");
+      expect((await store.get(STORE_KEY)) ?? "").toContain("refresh_2");
+    } finally {
+      callback?.socket.destroy();
+      callback?.blocker.destroy();
+    }
   });
 });
