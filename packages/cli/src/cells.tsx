@@ -88,7 +88,7 @@ const firstLine = (s: string | undefined): string | undefined => {
 };
 
 /** Turns one transcript cell into Ink nodes. Pure presentation — no service/state. */
-export function CellView({ cell, recent = false }: { cell: Cell; recent?: boolean }): ReactElement {
+export function CellView({ cell }: { cell: Cell }): ReactElement {
   const verbose = useContext(VerboseContext);
   switch (cell.kind) {
     case "user":
@@ -105,9 +105,8 @@ export function CellView({ cell, recent = false }: { cell: Cell; recent?: boolea
         </Box>
       );
     case "reasoning":
-      // Stream the live thought in full; keep the last few finalized blocks expanded
-      // (recent) for context, else collapse to a marker unless verbose.
-      return cell.streaming || verbose || recent ? (
+      // Stream the live thought in full; collapse finalized thoughts unless verbose.
+      return cell.streaming || verbose ? (
         <Box paddingLeft={GUTTER}>
           <Markdown text={cell.text} streaming={cell.streaming} dim />
         </Box>

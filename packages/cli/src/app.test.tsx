@@ -4,7 +4,7 @@ import type { Conversation, HarnessEvent } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import { LocalExecutionContext } from "@harness/execution";
 import { DockerExecutionContext, NativeExecutionContext } from "@harness/sandbox";
-import { App, appReduce, sandboxBackendOf } from "./app.tsx";
+import { App, appReduce, liveStartIndex, sandboxBackendOf } from "./app.tsx";
 import { emptyState, type Cell } from "./transcript-reducer.ts";
 
 const shellCells = (cells: Cell[]): Extract<Cell, { kind: "shell" }>[] =>
@@ -207,5 +207,34 @@ describe("appReduce: !cmd shell streaming", () => {
     s = appReduce(s, { type: "shell-end", id: "sh1", exitCode: 0 });
     s = appReduce(s, { type: "shell-delta", id: "sh1", text: "late" });
     expect(shellCells(s.cells)[0]!.text).toBe("");
+  });
+});
+
+describe("liveStartIndex", () => {
+  it("moves completed reasoning out of the mutable frame immediately", () => {
+    const cells: Cell[] = [
+      {
+        kind: "reasoning",
+        turnId: "t1",
+        text: "complete thought",
+        streaming: false,
+      },
+      {
+        kind: "assistant",
+        turnId: "t1",
+        text: "still streaming",
+        streaming: true,
+      },
+    ];
+    expect(liveStartIndex(cells)).toBe(1);
+  });
+
+  it("moves the whole transcript to Static after failure or interruption finalizes its cells", () => {
+    const cells: Cell[] = [
+      { kind: "assistant", turnId: "t1", text: "partial answer", streaming: false },
+      { kind: "reasoning", turnId: "t1", text: "partial thought", streaming: false },
+      { kind: "error", id: "error-t1", text: "interrupted" },
+    ];
+    expect(liveStartIndex(cells)).toBe(cells.length);
   });
 });

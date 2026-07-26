@@ -180,6 +180,19 @@ describe("transcript reducer", () => {
     expect(state.cells).toEqual([]);
   });
 
+  it("closes partial assistant and reasoning streams when a turn is aborted", () => {
+    const state = fold([
+      { type: "turn.status", turnId: "t1", status: "running" },
+      { type: "reasoning_delta", turnId: "t1", text: "partial thought" },
+      { type: "text_delta", turnId: "t1", text: "partial answer" },
+      { type: "turn.status", turnId: "t1", status: "aborted" },
+    ]);
+    expect(state.cells).toEqual([
+      { kind: "reasoning", turnId: "t1", text: "partial thought", streaming: false },
+      { kind: "assistant", turnId: "t1", text: "partial answer", streaming: false },
+    ]);
+  });
+
   it("closes a still-streaming cell when its turn fails mid-stream", () => {
     const state = fold([
       { type: "turn.status", turnId: "t1", status: "running" },
@@ -189,6 +202,25 @@ describe("transcript reducer", () => {
     expect(state.cells).toEqual([
       { kind: "assistant", turnId: "t1", text: "partial", streaming: false },
       { kind: "error", id: "t1:error", text: "boom" },
+    ]);
+  });
+
+  it("settles a tool when its turn fails before a completion event", () => {
+    const state = fold([
+      { type: "turn.status", turnId: "t1", status: "running" },
+      { type: "tool_call.started", callId: "k1", name: "bash", args: { command: "work" } },
+      { type: "turn.status", turnId: "t1", status: "failed", error: "provider disconnected" },
+    ]);
+    expect(state.cells).toEqual([
+      {
+        kind: "tool",
+        callId: "k1",
+        name: "bash",
+        args: { command: "work" },
+        status: "error",
+        output: "provider disconnected",
+      },
+      { kind: "error", id: "t1:error", text: "provider disconnected" },
     ]);
   });
 

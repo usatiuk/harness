@@ -5,8 +5,8 @@ import { CellView, toolSummary, VerboseContext } from "./cells.tsx";
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
-const frame = async (cell: Cell, verbose = false, recent = false): Promise<string | undefined> => {
-  const view = <CellView cell={cell} recent={recent} />;
+const frame = async (cell: Cell, verbose = false): Promise<string | undefined> => {
+  const view = <CellView cell={cell} />;
   const tree = verbose ? (
     <VerboseContext.Provider value={true}>{view}</VerboseContext.Provider>
   ) : (
@@ -117,11 +117,6 @@ describe("CellView: reasoning", () => {
   it("streaming reasoning shows the full text even when compact", async () => {
     const streaming: Cell = { ...finalized, streaming: true };
     const f = (await frame(streaming))!;
-    expect(f).toContain("deep inner monologue");
-  });
-
-  it("recent: a finalized block in the live tail renders expanded (last-few-thinking)", async () => {
-    const f = (await frame(finalized, false, true))!;
     expect(f).toContain("deep inner monologue");
   });
 });

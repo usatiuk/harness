@@ -35,6 +35,8 @@ export type Cell =
   | {
       kind: "tool";
       callId: string;
+      /** Captured from the active turn while live; removed once the tool settles. */
+      turnId?: string;
       name: string;
       args: unknown;
       status?: ToolStatus;
@@ -206,15 +208,35 @@ export function reduce(state: State, event: HarnessEvent): State {
       if (event.status === "running") return { ...state, turn };
       // A parked request can't outlive its turn.
       const ended = clearPending(state);
-      if (event.status !== "failed") return { ...ended, turn };
-      // A failed turn never reaches "completed", so its streaming cells need closing here.
-      const cells = ended.cells.map((c) =>
-        (c.kind === "assistant" || c.kind === "reasoning") &&
-        c.streaming &&
-        c.turnId === event.turnId
-          ? { ...c, streaming: false }
-          : c,
-      );
+      // A terminal status closes any partial stream that did not receive a final item
+      // (most commonly an interrupted/aborted provider stream).
+      const cells = ended.cells.map((c): Cell => {
+        if (
+          (c.kind === "assistant" || c.kind === "reasoning") &&
+          c.streaming &&
+          c.turnId === event.turnId
+        ) {
+          return { ...c, streaming: false };
+        }
+        if (c.kind === "tool" && c.status === undefined && c.turnId === event.turnId) {
+          const output =
+            event.status === "aborted"
+              ? "interrupted"
+              : event.status === "failed"
+                ? (event.error ?? "turn failed")
+                : "tool did not complete";
+          const settled: Extract<Cell, { kind: "tool" }> = {
+            ...c,
+            status: "error",
+            output,
+          };
+          delete settled.turnId;
+          delete settled.approvalProgress;
+          return settled;
+        }
+        return c;
+      });
+      if (event.status !== "failed") return { ...ended, turn, cells };
       return {
         ...ended,
         turn,
@@ -262,7 +284,13 @@ export function reduce(state: State, event: HarnessEvent): State {
         ...state,
         cells: [
           ...state.cells,
-          { kind: "tool", callId: event.callId, name: event.name, args: event.args },
+          {
+            kind: "tool",
+            callId: event.callId,
+            ...(state.turn.id ? { turnId: state.turn.id } : {}),
+            name: event.name,
+            args: event.args,
+          },
         ],
       };
     case "tool_call.completed":
@@ -277,6 +305,7 @@ export function reduce(state: State, event: HarnessEvent): State {
             output: textOf(event.forModel),
             ...(approval ? { approval } : {}),
           };
+          delete settled.turnId;
           delete settled.approvalProgress;
           return settled;
         }),

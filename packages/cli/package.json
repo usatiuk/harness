@@ -17,8 +17,8 @@
     "@harness/activities": "*",
     "@harness/anthropic-api": "*",
     "@harness/approval": "*",
-    "@harness/auto-approval": "*",
     "@harness/auth": "*",
+    "@harness/auto-approval": "*",
     "@harness/config": "*",
     "@harness/core": "*",
     "@harness/execution": "*",
@@ -34,13 +34,14 @@
     "@harness/workspace": "*",
     "@inkjs/ui": "^2.0.0",
     "commander": "^15.0.0",
-    "ink": "^7.0.5",
+    "ink": "^7.1.1",
     "marked": "^18.0.5",
     "react": "^19.2.0",
     "shiki": "^4.2.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",
+    "@xterm/headless": "^6.0.0",
     "ink-testing-library": "^4.0.0",
     "vitest": "^4.1.8"
   }

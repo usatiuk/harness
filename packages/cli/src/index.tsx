@@ -198,7 +198,10 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
   const { waitUntilExit } = render(
     <Root service={service} start={start} cwd={cwd} onActive={(id) => touched.add(id)} />,
     // Ctrl+C is handled in-app (clear prompt / cancel overlay); Ctrl+D quits when empty.
-    { exitOnCtrlC: false },
+    {
+      exitOnCtrlC: false,
+      incrementalRendering: true,
+    },
   );
   try {
     await waitUntilExit();
