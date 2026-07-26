@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { Box, Text, render } from "ink";
+import { Box, Text, render, useApp } from "ink";
 import { Alert, PasswordInput, Select, Spinner } from "@inkjs/ui";
 import type { ModelConfig } from "@harness/protocol";
 import {
@@ -137,24 +137,21 @@ function OAuthLogin({
   );
 }
 
-/** Renders an Ink element to completion, resolving with the message it produced. */
-function renderToCompletion(
-  build: (onResolve: (m: string) => void, onReject: (e: Error) => void) => ReactElement,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const { unmount } = render(
-      build(
-        (m) => {
-          unmount();
-          resolve(m);
-        },
-        (e) => {
-          unmount();
-          reject(e);
-        },
-      ),
-    );
-  });
+type CompletionBuilder = (
+  onResolve: (message: string) => void,
+  onReject: (error: Error) => void,
+) => ReactElement;
+
+function CompletionRoot({ build }: { build: CompletionBuilder }): ReactElement {
+  const { exit } = useApp();
+  return build(exit, exit);
+}
+
+/** Renders an Ink element until it exits with the message it produced. */
+async function renderToCompletion(build: CompletionBuilder): Promise<string> {
+  const result = await render(<CompletionRoot build={build} />).waitUntilExit();
+  if (typeof result !== "string") throw new Error("login UI exited without a result");
+  return result;
 }
 
 const unknownProvider = (registry: Map<string, AuthEntry>, id: string): Error =>

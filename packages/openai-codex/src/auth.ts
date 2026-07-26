@@ -89,7 +89,7 @@ export class CodexAuth {
       });
       return await this.#persist(tokens);
     } finally {
-      server.close();
+      await server.close();
     }
   }
 

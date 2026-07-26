@@ -162,7 +162,8 @@ export interface CallbackServer {
   redirectUri: string;
   /** Resolves with the authorization code, or rejects on a callback error/state mismatch. */
   waitForCode(): Promise<string>;
-  close(): void;
+  /** Stops accepting callbacks and resolves after the listening socket has closed. */
+  close(): Promise<void>;
 }
 
 /** Starts the loopback server that catches the OAuth redirect on an allow-listed port. */
@@ -176,41 +177,52 @@ export async function startCallbackServer(state: string): Promise<CallbackServer
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
-    const reply = (status: number, message: string): void => {
+    const reply = (status: number, message: string, onSent?: () => void): void => {
       res.statusCode = status;
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.end(`<!doctype html><meta charset="utf-8"><p>${message}</p>`);
+      // This is a one-shot callback server; keeping the browser connection alive would delay close.
+      res.setHeader("Connection", "close");
+      res.end(`<!doctype html><meta charset="utf-8"><p>${message}</p>`, onSent);
     };
     if (url.pathname !== "/auth/callback") {
       reply(404, "Not found.");
       return;
     }
     if (url.searchParams.get("state") !== state) {
-      reply(400, "State mismatch.");
-      rejectCode(new Error("OAuth state mismatch"));
+      reply(400, "State mismatch.", () => rejectCode(new Error("OAuth state mismatch")));
       return;
     }
     const error = url.searchParams.get("error");
     if (error) {
-      reply(400, "Sign-in could not be completed.");
-      rejectCode(new Error(`OAuth callback error: ${error}`));
+      reply(400, "Sign-in could not be completed.", () =>
+        rejectCode(new Error(`OAuth callback error: ${error}`)),
+      );
       return;
     }
     const code = url.searchParams.get("code");
     if (!code) {
-      reply(400, "Missing authorization code.");
-      rejectCode(new Error("OAuth callback missing authorization code"));
+      reply(400, "Missing authorization code.", () =>
+        rejectCode(new Error("OAuth callback missing authorization code")),
+      );
       return;
     }
-    reply(200, "Signed in to Codex. You can close this window.");
-    resolveCode(code);
+    reply(200, "Signed in to Codex. You can close this window.", () => resolveCode(code));
   });
 
   const port = await listenOnFirstFree(server, REDIRECT_PORTS);
   return {
     redirectUri: `http://localhost:${port}/auth/callback`,
     waitForCode: () => codePromise,
-    close: () => server.close(),
+    close: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+        // The terminal callback response has already flushed before waitForCode settles. Any
+        // remaining browser connections belong to this one-shot server and must not delay exit.
+        server.closeAllConnections();
+      }),
   };
 }
 
