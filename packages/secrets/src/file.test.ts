@@ -22,6 +22,6 @@ describe.skipIf(process.platform === "win32")("FileSecretStore permissions", () 
 
 describe.runIf(process.platform === "win32")("FileSecretStore on Windows", () => {
   it("rejects storage that cannot provide the promised owner-only permissions", () => {
-    expect(() => new FileSecretStore(freshPath())).toThrow(/Credential Manager/);
+    expect(() => new FileSecretStore(freshPath())).toThrow(/DPAPI/);
   });
 });

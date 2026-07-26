@@ -16,7 +16,7 @@ export class FileSecretStore implements SecretStore {
 
   constructor(path: string = defaultCredentialsPath()) {
     if (process.platform === "win32") {
-      throw new Error("file credential storage is unsupported on Windows; use Credential Manager");
+      throw new Error("plain file credential storage is unsupported on Windows; use DPAPI");
     }
     this.#path = path;
   }

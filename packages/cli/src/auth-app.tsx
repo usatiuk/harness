@@ -9,7 +9,7 @@ import {
   updateGlobalModel,
   type AuthStoreKind,
 } from "@harness/config";
-import { defaultCredentialsPath } from "@harness/secrets";
+import { defaultCredentialsPath, defaultDpapiCredentialsPath } from "@harness/secrets";
 import type { ApiKeyMethod, OAuthMethod } from "@harness/auth";
 import { authRegistry, type AuthEntry } from "./auth.ts";
 import { credentialStoreForLogin, credentialStoreForRead } from "./credential-store.ts";
@@ -168,7 +168,7 @@ async function readStdin(): Promise<string> {
 
 export interface LoginCliOptions {
   provider?: string | undefined;
-  /** Force a credential backend. File storage is Unix-only; Windows requires Credential Manager. */
+  /** Force a credential backend. Windows supports DPAPI; keyring and file are Unix-only. */
   store?: string | undefined;
 }
 
@@ -197,7 +197,9 @@ export async function runLogin(opts: LoginCliOptions = {}): Promise<void> {
   const storageNote =
     kind === "file"
       ? ` Stored at ${defaultCredentialsPath()} (mode 0600 — no OS keyring here).`
-      : "";
+      : kind === "dpapi"
+        ? ` Stored at ${defaultDpapiCredentialsPath()} (protected by Windows DPAPI).`
+        : "";
 
   // Read the key from a pipe only when stdin isn't a TTY (CI). A live TTY always gets the
   // interactive flow — even if stdout is redirected — so we never block waiting on stdin EOF.

@@ -601,7 +601,7 @@ Responses via `openai-core` (native SDK types, streaming-only) + `openai-api`
   (The request/response seam — `ctx.request` + correlated `respond` — that unifies
   approval / AskUserQuestion / elicitation is the next commit.)
 - **ChatGPT/codex OAuth** — `openai-codex` package behind the `credentials()` seam in
-  `openai-core`; API-key auth ships now, OAuth (PKCE + token refresh + keyring) later.
+  `openai-core`; API-key auth ships now, OAuth (PKCE + token refresh + secure persistence) later.
 - **Plugin-sourced delivery + conversation-scoped emit** (background activities):
   `DeliverySource.plugin` and `ctx.emit(PluginEvent)` exist; the activity machinery
   that uses them does not.

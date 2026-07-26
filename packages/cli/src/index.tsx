@@ -83,7 +83,7 @@ async function buildHarness(): Promise<Harness> {
   const plugins: PluginEntry[] = [];
   let fallbackModel: ModelConfig | undefined;
   // Resolve providers concurrently; a configured backend that can't be reached (e.g. a locked
-  // keyring) warns and is skipped — we never silently fall back to a different store.
+  // configured credential backend) warns and is skipped — we never silently fall back.
   const built = await Promise.all(
     [...registry.values()].map((entry) =>
       entry.buildPlugin().then(

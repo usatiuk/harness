@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SecretStore } from "./store.ts";
 
 /**
- * Behavioral spec every `SecretStore` must satisfy. Run against the memory fake in CI;
- * the keyring impl is exercised by live login.
+ * Behavioral spec every `SecretStore` must satisfy.
  */
 export function secretStoreContract(name: string, makeStore: () => SecretStore): void {
   describe(name, () => {

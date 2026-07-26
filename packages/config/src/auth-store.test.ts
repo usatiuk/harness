@@ -17,6 +17,8 @@ describe("auth store persistence", () => {
     expect(await getAuthStore(home)).toBe("file");
     await setAuthStore(home, "keyring");
     expect(await getAuthStore(home)).toBe("keyring");
+    await setAuthStore(home, "dpapi");
+    expect(await getAuthStore(home)).toBe("dpapi");
   });
 
   it("treats a malformed persisted value as no backend", async () => {

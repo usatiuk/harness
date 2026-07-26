@@ -4,14 +4,17 @@ import type { SecretStore } from "./store.ts";
 const DEFAULT_SERVICE = "Harness";
 
 /**
- * `SecretStore` backed by the OS keyring (macOS Keychain / libsecret / Windows Credential
- * Manager) via `@napi-rs/keyring`. The native addon is imported lazily, so it loads only when
- * a secret is actually accessed rather than at every process start.
+ * `SecretStore` backed by macOS Keychain or Linux Secret Service via `@napi-rs/keyring`.
+ * Windows deliberately uses DPAPI instead. The native addon is imported lazily, so it loads only
+ * when a secret is actually accessed rather than at every process start.
  */
 export class KeyringSecretStore implements SecretStore {
   readonly #service: string;
 
   constructor(service: string = DEFAULT_SERVICE) {
+    if (process.platform === "win32") {
+      throw new Error("keyring credential storage is unsupported on Windows; use DPAPI");
+    }
     this.#service = service;
   }
 

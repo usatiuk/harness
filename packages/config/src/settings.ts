@@ -13,7 +13,7 @@ const modelSchema = z.strictObject({
 const toolsSchema = z.strictObject({ allow: z.array(z.string()).optional() });
 
 /** Which credential backend `auth login` chose for this machine; resolved once and pinned. */
-export const AUTH_STORE_KINDS = ["keyring", "file"] as const;
+export const AUTH_STORE_KINDS = ["keyring", "file", "dpapi"] as const;
 const authSchema = z.strictObject({ store: z.enum(AUTH_STORE_KINDS) });
 export type AuthStoreKind = (typeof AUTH_STORE_KINDS)[number];
 

@@ -1,6 +1,6 @@
 /**
- * A namespace of string secrets keyed by an opaque string. The OS keyring backs it in
- * production; an in-memory map backs it in tests. `get` yields null when a key is absent.
+ * A namespace of string secrets keyed by an opaque string. A platform-secure persistent store
+ * backs it in production; an in-memory map backs it in tests. `get` yields null when absent.
  */
 export interface SecretStore {
   get(key: string): Promise<string | null>;
