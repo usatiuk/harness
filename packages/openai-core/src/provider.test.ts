@@ -52,6 +52,34 @@ describe("listModels", () => {
   });
 });
 
+describe("request parameters", () => {
+  it("omits max_output_tokens for a transport that does not support it", async () => {
+    let params: OpenAI.Responses.ResponseCreateParamsStreaming | undefined;
+    const provider = new OpenAIResponsesProvider({
+      credentials: {
+        client: async () =>
+          ({
+            responses: {
+              create: async (value: OpenAI.Responses.ResponseCreateParamsStreaming) => {
+                params = value;
+                return {
+                  async *[Symbol.asyncIterator]() {},
+                };
+              },
+            },
+          }) as unknown as OpenAI,
+      },
+      supportsMaxOutputTokens: false,
+    });
+
+    await consume(
+      provider.stream({ ...REQUEST, maxOutputTokens: 128_000 }, new AbortController().signal),
+    );
+
+    expect(params).not.toHaveProperty("max_output_tokens");
+  });
+});
+
 describe("context overflow normalization", () => {
   it("maps the SDK's typed context error to the protocol error", async () => {
     const error = Object.assign(new Error("maximum context length exceeded"), {

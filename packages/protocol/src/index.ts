@@ -1,4 +1,5 @@
 export * from "./assert.ts";
+export * from "./errors.ts";
 export * from "./ids.ts";
 export * from "./content.ts";
 export * from "./model.ts";

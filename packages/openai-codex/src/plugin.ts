@@ -13,6 +13,8 @@ export function codexPlugin(auth: CodexAuth): Plugin {
       new OpenAIResponsesProvider({
         provider: CODEX_PROVIDER,
         credentials: codexCredentials(auth),
+        contextWindowLimit: 400_000,
+        supportsMaxOutputTokens: false,
       }),
     ],
   };

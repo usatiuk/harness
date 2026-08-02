@@ -4,6 +4,7 @@ import {
   conversationOf,
   costOf,
   errorResult,
+  formatError,
   findModel,
   textOf,
   type ConfigResolver,
@@ -219,7 +220,7 @@ export class Engine {
           conversationId: conversation.id,
           turnId: turn.id,
           status: aborted ? "aborted" : "failed",
-          ...(!aborted ? { error: String(error) } : {}),
+          ...(!aborted ? { error: formatError(error) } : {}),
         });
         throw aborted && !(error instanceof TurnAborted) ? new TurnAborted() : error;
       }
@@ -405,7 +406,7 @@ export class Engine {
           conversationId: conversation.id,
           turnId: turn.id,
           status: "failed",
-          error: String(error),
+          error: formatError(error),
         });
       }
     } finally {
@@ -845,7 +846,7 @@ export class Engine {
     try {
       return await runToolChain(this.host.toolMiddleware, call, ctx, execute);
     } catch (error) {
-      return errorResult(`tool '${call.name}' failed: ${String(error)}`);
+      return errorResult(`tool '${call.name}' failed: ${formatError(error)}`);
     }
   }
 

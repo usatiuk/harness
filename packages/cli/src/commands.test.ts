@@ -62,6 +62,24 @@ describe("runCommand", () => {
     expect(ctx.note).toHaveBeenCalledWith("context compacted");
   });
 
+  it("/compact reports the underlying connection cause", async () => {
+    const socket = Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" });
+    const failure = Object.assign(new Error("Connection error.", { cause: socket }), {
+      name: "APIConnectionError",
+    });
+    const compact = vi.fn().mockRejectedValue(failure);
+    const ctx = makeCtx({ service: { compact } as unknown as HarnessService });
+
+    runCommand("/compact", ctx);
+
+    await vi.waitFor(() =>
+      expect(ctx.note).toHaveBeenCalledWith(
+        "compaction failed: APIConnectionError: Connection error.\n" +
+          "Caused by: Error: other side closed [UND_ERR_SOCKET]",
+      ),
+    );
+  });
+
   it("/activities opens the activities overlay", () => {
     const ctx = makeCtx();
     expect(runCommand("/activities", ctx)).toBe(true);

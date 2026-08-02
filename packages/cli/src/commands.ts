@@ -1,4 +1,5 @@
 import {
+  formatError,
   modelId,
   selectionId,
   type ConversationId,
@@ -63,7 +64,7 @@ export const commands: Command[] = [
     run: (ctx) => {
       void ctx.service.compact(ctx.conversationId).then(
         (result) => ctx.note(result === "compacted" ? "context compacted" : "nothing to compact"),
-        (e: unknown) => ctx.note(`compaction failed: ${String(e)}`),
+        (e: unknown) => ctx.note(`compaction failed: ${formatError(e)}`),
       );
     },
   },

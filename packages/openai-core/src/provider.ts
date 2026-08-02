@@ -81,6 +81,10 @@ export interface OpenAIProviderOptions {
   provider?: string;
   /** Reasoning effort/summary; defaults to medium effort with auto summaries. */
   reasoning?: OpenAI.Reasoning;
+  /** Transport-wide context ceiling when it is lower than the public API model limit. */
+  contextWindowLimit?: number;
+  /** Whether this transport accepts the Responses API `max_output_tokens` parameter. */
+  supportsMaxOutputTokens?: boolean;
 }
 
 /** A `ModelProvider` backed by the OpenAI Responses API, streaming only. */
@@ -88,11 +92,15 @@ export class OpenAIResponsesProvider implements ModelProvider {
   readonly provider: string;
   readonly #credentials: OpenAICredentials;
   readonly #reasoning: OpenAI.Reasoning;
+  readonly #contextWindowLimit: number | undefined;
+  readonly #supportsMaxOutputTokens: boolean;
 
   constructor(opts: OpenAIProviderOptions) {
     this.provider = opts.provider ?? "openai";
     this.#credentials = opts.credentials;
     this.#reasoning = opts.reasoning ?? { effort: "medium", summary: "auto" };
+    this.#contextWindowLimit = opts.contextWindowLimit;
+    this.#supportsMaxOutputTokens = opts.supportsMaxOutputTokens ?? true;
   }
 
   capabilities(): ModelCapabilities {
@@ -108,7 +116,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
       model: m.model,
       efforts: m.efforts,
       defaultEffort: m.defaultEffort,
-      contextWindow: m.contextWindow,
+      contextWindow: Math.min(m.contextWindow, this.#contextWindowLimit ?? m.contextWindow),
       maxOutputTokens: m.maxOutputTokens,
       pricing: m.pricing,
     }));
@@ -118,10 +126,9 @@ export class OpenAIResponsesProvider implements ModelProvider {
     try {
       const client = await this.#credentials.client();
       const reasoning = reasoningForSelection(request.modelConfig, this.#reasoning);
-      const stream = await client.responses.create(
-        buildResponseParams(request, reasoning, this.provider),
-        { signal },
-      );
+      const params = buildResponseParams(request, reasoning, this.provider);
+      if (!this.#supportsMaxOutputTokens) delete params.max_output_tokens;
+      const stream = await client.responses.create(params, { signal });
       yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
     } catch (error) {
       const e = error as { status?: number; code?: string; message?: string };
