@@ -419,8 +419,8 @@ export class Engine {
     signal: AbortSignal,
     runtime: Runtime,
   ): Promise<void> {
-    // Model config is fixed for the whole turn, so the provider, tool set, and tool schemas
-    // are resolved once here rather than per step.
+    // Model config is fixed for the whole turn, so its tool set and schemas are resolved once
+    // here rather than per step.
     const provider = this.host.providers.get(conversation.config.model.provider);
     const toolSet = this.host.toolsFor(
       provider.capabilities(conversation.config.model.model),
@@ -486,12 +486,7 @@ export class Engine {
       };
 
       // --- Consume phase: assistant content, in emission order. ---
-      const stream = runModelChain(
-        this.host.modelMiddleware,
-        request,
-        { conversationId: conversation.id, signal, toolMeta: (name) => toolSet.metaOf(name) },
-        (req) => provider.stream(req, signal),
-      );
+      const stream = this.#streamModel(conversation.id, request, signal, toolSet);
       try {
         for await (const event of stream) {
           if (signal.aborted) break;
@@ -854,6 +849,27 @@ export class Engine {
     });
   }
 
+  /** The single middleware-to-provider stream boundary for every model-backed operation. */
+  #streamModel(
+    conversationId: ConversationId,
+    request: ModelRequest,
+    signal: AbortSignal,
+    toolSet?: ToolSet,
+  ): AsyncIterable<ModelStreamEvent> {
+    const provider = this.host.providers.get(request.modelConfig.provider);
+    provider.validateConfig(request.modelConfig);
+    return runModelChain(
+      this.host.modelMiddleware,
+      request,
+      {
+        conversationId,
+        signal,
+        toolMeta: (name) => toolSet?.metaOf(name),
+      },
+      (nextRequest) => provider.stream(nextRequest, signal),
+    );
+  }
+
   /** Builds a one-provider-call model capability scoped to this turn. */
   #modelInvoker(
     conversation: Conversation,
@@ -864,8 +880,6 @@ export class Engine {
     return {
       invoke: async (draft, options = {}): Promise<ModelInvocationResult> => {
         const modelConfig = draft.modelConfig ?? conversation.config.model;
-        const provider = this.host.providers.get(modelConfig.provider);
-        provider.validateConfig(modelConfig);
         const signal = options.signal ? AbortSignal.any([turnSignal, options.signal]) : turnSignal;
         const request: ModelRequest = {
           instructions: draft.instructions,
@@ -893,18 +907,7 @@ export class Engine {
         const outputItems: ModelOutputItem[] = [];
         let text = "";
         let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
-        const stream = modelMiddlewareTools
-          ? runModelChain(
-              this.host.modelMiddleware,
-              request,
-              {
-                conversationId: conversation.id,
-                signal,
-                toolMeta: (name) => modelMiddlewareTools.metaOf(name),
-              },
-              (req) => provider.stream(req, signal),
-            )
-          : provider.stream(request, signal);
+        const stream = this.#streamModel(conversation.id, request, signal, modelMiddlewareTools);
         try {
           for await (const event of stream) {
             if (signal.aborted) break;

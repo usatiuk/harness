@@ -6,6 +6,7 @@ import {
   isKernelEvent,
   textOf,
   type HarnessEvent,
+  type ModelMiddleware,
   type ModelProvider,
   type ModelRequest,
   type ModelStreamEvent,
@@ -52,9 +53,15 @@ class AnnotatedEchoTool extends EchoTool {
 
 const makeService = (
   review: string | string[],
-  options: { tool?: Tool; blockReview?: boolean; omitReviewCompletion?: boolean } = {},
+  options: {
+    tool?: Tool;
+    blockReview?: boolean;
+    omitReviewCompletion?: boolean;
+    modelMiddleware?: ModelMiddleware;
+  } = {},
 ) => {
   const tool = options.tool ?? new EchoTool();
+  const modelMiddleware = options.modelMiddleware;
   const store = new InMemoryStore();
   const inner = new FakeProvider([
     toolStep("call-1", tool.name, { value: "hello" }),
@@ -103,6 +110,7 @@ const makeService = (
         id: "fake",
         providers: () => [provider],
         tools: () => [tool],
+        ...(modelMiddleware ? { modelMiddleware: () => [modelMiddleware] } : {}),
       },
       approvalPlugin,
       autoApprovalPlugin,
@@ -122,6 +130,27 @@ const createEnabledConversation = (service: HarnessService) =>
   });
 
 describe("auto approval integration", () => {
+  it("routes the tool-less reviewer invocation through model middleware", async () => {
+    const observed: { hasTools: boolean; missingMeta: unknown }[] = [];
+    const middleware: ModelMiddleware = {
+      id: "record-all-model-calls",
+      wrap(request, ctx, next) {
+        observed.push({
+          hasTools: request.tools !== undefined,
+          missingMeta: ctx.toolMeta("missing"),
+        });
+        return next(request);
+      },
+    };
+    const { service } = makeService("YES", { modelMiddleware: middleware });
+    const conversation = await createEnabledConversation(service);
+
+    await service.send(conversation.id, "go");
+    await service.whenIdle(conversation.id);
+
+    expect(observed).toContainEqual({ hasTools: false, missingMeta: undefined });
+  });
+
   it("auto-approves an asked tool, executes it, and durably annotates the result", async () => {
     const { service, events } = makeService(["Y", "ES"]);
     const conversation = await createEnabledConversation(service);
