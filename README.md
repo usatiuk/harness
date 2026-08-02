@@ -25,6 +25,10 @@ npm run format       # prettier --write
 npm run check        # typecheck + lint + format:check + test (also runs in CI)
 ```
 
+Repository guidance lives in `AGENTS.md`. See `docs/README.md` for the roles of
+the design documents, architecture decisions, research notes, execution plans,
+testing guidance, and deferred-work records.
+
 On Windows, local command execution is exposed to models as `powershell`; Linux,
 macOS, and Linux dev containers expose `bash`. Windows sign-in requires Credential
 Manager (file-backed credentials are intentionally unsupported). Tool allowlists
