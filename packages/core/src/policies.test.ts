@@ -6,7 +6,12 @@ import type {
   ToolCall,
   ToolMiddlewareContext,
 } from "@harness/protocol";
-import { compactedWindow, noCompaction, truncateMiddleware } from "./policies.ts";
+import {
+  compactedWindow,
+  estimateContextTokens,
+  noCompaction,
+  truncateMiddleware,
+} from "./policies.ts";
 
 const item = (id: string, seq: number): Item => ({
   id: id as ItemId,
@@ -71,8 +76,23 @@ describe("compactedWindow", () => {
 
 describe("noCompaction", () => {
   it("always skips", async () => {
-    expect(
-      await noCompaction.compact({ conversationId: "c1" as ConversationId, items: [] }),
-    ).toBeNull();
+    expect(await noCompaction.compact({} as never)).toBeNull();
+  });
+});
+
+describe("estimateContextTokens", () => {
+  const build = (text: string) => ({
+    conversationId: "c1" as ConversationId,
+    purpose: "estimate",
+    instructions: [],
+    tools: [],
+    items: [{ item: { ...item("m", 0), content: [{ type: "text" as const, text }] } }],
+  });
+
+  it("does not apply the sparse-English ratio to dense non-ASCII input", () => {
+    const empty = estimateContextTokens(build(""));
+    const ascii = estimateContextTokens(build("a".repeat(400))) - empty;
+    const cjk = estimateContextTokens(build("漢".repeat(400))) - empty;
+    expect(cjk).toBeGreaterThan(ascii * 3);
   });
 });

@@ -66,6 +66,7 @@ export interface Store {
   getActiveTurn(conversationId: ConversationId): Promise<Turn | undefined>;
 
   recordContextBuild(input: NewContextBuild): Promise<ContextBuild>;
+  getContextBuild(id: string): Promise<ContextBuild | undefined>;
 
   /** Append-only. Assigns `id`/`createdAt`. */
   recordModelUsage(input: NewModelUsage): Promise<ModelUsage>;

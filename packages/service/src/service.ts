@@ -165,6 +165,11 @@ export class HarnessService implements ConversationRunner {
     return this.#engine.rewind(conversationId, toItemId);
   }
 
+  /** Runs an explicit summary-only compaction while the conversation is idle. */
+  compact(conversationId: ConversationId): Promise<"compacted" | "noop"> {
+    return this.#engine.compact(conversationId);
+  }
+
   /** Resolves when the conversation has no running or queued work. */
   whenIdle(conversationId: ConversationId): Promise<void> {
     return this.#engine.whenIdle(conversationId);

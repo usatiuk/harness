@@ -58,6 +58,16 @@ export const commands: Command[] = [
   { name: "help", summary: "list commands", run: (ctx) => ctx.note(helpText()) },
   { name: "clear", summary: "clear the transcript", run: (ctx) => ctx.clear() },
   {
+    name: "compact",
+    summary: "compact conversation context",
+    run: (ctx) => {
+      void ctx.service.compact(ctx.conversationId).then(
+        (result) => ctx.note(result === "compacted" ? "context compacted" : "nothing to compact"),
+        (e: unknown) => ctx.note(`compaction failed: ${String(e)}`),
+      );
+    },
+  },
+  {
     name: "resume",
     summary: "switch conversation (/resume <id>, or /resume to pick)",
     run: (ctx, args) => ctx.resume(args[0]),

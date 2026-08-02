@@ -50,7 +50,7 @@ const approvalRequest: ApprovalRequest = {
 
 const result = (answer: string): ModelInvocationResult => ({
   content: text(answer),
-  toolCalls: [],
+  outputItems: [],
   usage: { inputTokens: 1, outputTokens: 1, cachedReadTokens: 0 },
   modelConfig: { provider: "fake", model: "main" },
 });
@@ -185,7 +185,12 @@ describe("auto approval request middleware", () => {
 
   it("denies an unexpected reviewer tool call", async () => {
     const unexpected = result("YES");
-    unexpected.toolCalls.push({ callId: "review-call", name: "echo", args: {} });
+    unexpected.outputItems.push({
+      type: "tool_call",
+      callId: "review-call",
+      name: "echo",
+      args: {},
+    });
     const state = setup(
       { enabled: true },
       vi.fn(async () => unexpected),

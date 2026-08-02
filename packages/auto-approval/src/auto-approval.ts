@@ -251,7 +251,10 @@ function autoApprovalMiddleware(
           },
           { purpose: "auto-approval", signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS) },
         );
-        decision = parseDecision(result.content, result.toolCalls.length > 0);
+        decision = parseDecision(
+          result.content,
+          result.outputItems.some((item) => item.type === "tool_call"),
+        );
       } catch (error) {
         if (ctx.signal.aborted) throw error;
         decision = {

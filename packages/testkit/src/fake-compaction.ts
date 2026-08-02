@@ -6,9 +6,12 @@ import type { CompactionStrategy } from "@harness/protocol";
  */
 export function fakeCompaction({ over }: { over: number }): CompactionStrategy {
   return {
-    async compact({ items }) {
+    async compact({ build }) {
+      const items = build.items.map((entry) => entry.item);
       if (items.length <= over) return null;
-      return [{ type: "text", text: `summary of ${items.length} items` }];
+      return {
+        content: [{ type: "text", text: `summary of ${items.length} items` }],
+      };
     },
   };
 }

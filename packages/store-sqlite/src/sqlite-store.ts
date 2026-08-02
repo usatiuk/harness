@@ -251,6 +251,20 @@ export class SqliteStore implements Store {
     return build;
   }
 
+  async getContextBuild(id: string): Promise<ContextBuild | undefined> {
+    const row = await this.#k
+      .selectFrom("context_builds")
+      .selectAll()
+      .where("id", "=", id)
+      .executeTakeFirst();
+    if (!row) return undefined;
+    return {
+      ...(JSON.parse(row.data) as NewContextBuild),
+      id: row.id,
+      createdAt: row.created_at,
+    };
+  }
+
   async recordModelUsage(input: NewModelUsage): Promise<ModelUsage> {
     const record: ModelUsage = { ...input, id: randomUUID(), createdAt: this.clock.now() };
     await this.#k

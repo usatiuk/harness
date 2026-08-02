@@ -1,5 +1,6 @@
 import {
   assertNever,
+  ContextWindowExceededError,
   conversationOf,
   costOf,
   errorResult,
@@ -10,7 +11,6 @@ import {
   type ConversationConfig,
   type ConversationId,
   type ContentBlock,
-  type ContextBuild,
   type DeliveryInput,
   type DeliveryIntent,
   type HarnessEvent,
@@ -20,6 +20,7 @@ import {
   type ModelInfo,
   type ModelInvocationResult,
   type ModelInvoker,
+  type ModelOutputItem,
   type ModelPricing,
   type ModelRequest,
   type ModelStreamEvent,
@@ -39,7 +40,7 @@ import {
 import type { PluginHost } from "./plugin-host.ts";
 import type { ToolSet } from "./registry.ts";
 import { parseToolArgs } from "./tools.ts";
-import { compactedWindow } from "./policies.ts";
+import { compactedWindow, estimateContextTokens, fallbackCompaction } from "./policies.ts";
 import { Runtime, type Delivery } from "./runtime.ts";
 import { applyDelivery } from "./delivery.ts";
 import { runModelChain, runToolChain } from "./compose.ts";
@@ -47,6 +48,8 @@ import { runRequestChain } from "./compose.ts";
 import { reconcileConversation } from "./reconcile.ts";
 
 const MAX_MODEL_STEPS = 100;
+const COMPACTION_HEADROOM_TOKENS = 8_192;
+const MIN_COMPACTION_HEADROOM_TOKENS = 64;
 
 /** Result for a call abandoned or never started because the turn was aborted. */
 const interruptedResult = (): ToolResult => errorResult("interrupted: turn aborted by new input");
@@ -148,6 +151,78 @@ export class Engine {
       throw new Error(`cannot rewind conversation ${conversationId} while a turn is running`);
     }
     await this.store.setHead(conversationId, toItemId);
+  }
+
+  /** Runs a standalone, summary-only compaction turn. Refuses to interrupt active work. */
+  async compact(conversationId: ConversationId): Promise<"compacted" | "noop"> {
+    const runtime = await this.#runtime(conversationId);
+    if (runtime.running) {
+      throw new Error(`cannot compact conversation ${conversationId} while a turn is running`);
+    }
+    // Reserve synchronously before the first await so delivery cannot start a competing turn.
+    runtime.running = true;
+    const conversation = runtime.conversation;
+    const controller = new AbortController();
+    runtime.controller = controller;
+    try {
+      if ((await this.store.listActiveItems(conversationId)).length === 0) return "noop";
+      if (controller.signal.aborted) throw new TurnAborted();
+      const turn = await this.store.createTurn(conversation.id);
+      runtime.currentTurnId = turn.id;
+      this.#emitKernel({
+        type: "turn.status",
+        conversationId: conversation.id,
+        turnId: turn.id,
+        status: "running",
+      });
+      try {
+        const provider = this.host.providers.get(conversation.config.model.provider);
+        const toolSet = this.host.toolsFor(
+          provider.capabilities(conversation.config.model.model),
+          { service: (key) => this.#service(runtime, key) },
+          conversation.config.tools?.allow,
+        );
+        const build = await this.#assembleContext(conversation, toolSet.schemas());
+        const folded = await this.#compact(
+          "manual",
+          conversation,
+          turn.id,
+          controller.signal,
+          runtime,
+          toolSet,
+          build,
+          (await this.#contextCapacity(conversation, build)).compactionOutputLimit,
+        );
+        await this.store.updateTurn(turn.id, "completed");
+        this.#emitKernel({
+          type: "turn.status",
+          conversationId: conversation.id,
+          turnId: turn.id,
+          status: "completed",
+        });
+        return folded ? "compacted" : "noop";
+      } catch (error) {
+        const aborted = error instanceof TurnAborted || controller.signal.aborted;
+        await this.store.updateTurn(turn.id, aborted ? "aborted" : "failed");
+        this.#emitKernel({
+          type: "turn.status",
+          conversationId: conversation.id,
+          turnId: turn.id,
+          status: aborted ? "aborted" : "failed",
+          ...(!aborted ? { error: String(error) } : {}),
+        });
+        throw aborted && !(error instanceof TurnAborted) ? new TurnAborted() : error;
+      }
+    } finally {
+      runtime.currentTurnId = undefined;
+      runtime.controller = undefined;
+      if (runtime.inbox.length > 0) {
+        void this.#drain(runtime);
+      } else {
+        runtime.running = false;
+        runtime.signalIdle();
+      }
+    }
   }
 
   /** Resolves when the conversation's loop is idle and its inbox is drained. */
@@ -344,7 +419,6 @@ export class Engine {
     signal: AbortSignal,
     runtime: Runtime,
   ): Promise<void> {
-    await this.#maybeCompact(conversation, turnId, signal);
     // Model config is fixed for the whole turn, so the provider, tool set, and tool schemas
     // are resolved once here rather than per step.
     const provider = this.host.providers.get(conversation.config.model.provider);
@@ -357,8 +431,28 @@ export class Engine {
     );
     const toolSchemas = toolSet.schemas();
     const pricing = this.#pricingFor(conversation.config.model);
+    let recoveredOverflow = false;
+    let compactedBeforeAttempt = false;
     for (let step = 0; step < MAX_MODEL_STEPS; step++) {
-      const build = await this.#buildContext(conversation, toolSchemas);
+      const draft = await this.#assembleContext(conversation, toolSchemas);
+      const capacity = await this.#contextCapacity(conversation, draft);
+      if (capacity.shouldCompact && !compactedBeforeAttempt) {
+        const folded = await this.#compact(
+          "threshold",
+          conversation,
+          turnId,
+          signal,
+          runtime,
+          toolSet,
+          draft,
+          capacity.compactionOutputLimit,
+        );
+        if (folded) {
+          compactedBeforeAttempt = true;
+          continue;
+        }
+      }
+      const build = await this.store.recordContextBuild(draft);
       const request: ModelRequest = {
         instructions: build.instructions,
         items: build.items,
@@ -369,6 +463,7 @@ export class Engine {
       const calls: ToolCall[] = [];
       let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
       let pendingText = "";
+      let sawOutput = false;
       // The step's final assistant message — the item `completed.payload` binds to.
       let lastMessageId: ItemId | undefined;
 
@@ -397,91 +492,87 @@ export class Engine {
         { conversationId: conversation.id, signal, toolMeta: (name) => toolSet.metaOf(name) },
         (req) => provider.stream(req, signal),
       );
-      for await (const event of stream) {
-        if (signal.aborted) break;
-        switch (event.type) {
-          case "text_delta":
-            pendingText += event.text;
-            this.#emitKernel({
-              type: "text_delta",
-              conversationId: conversation.id,
-              turnId,
-              text: event.text,
-            });
-            break;
-          case "reasoning_delta":
-            this.#emitKernel({
-              type: "reasoning_delta",
-              conversationId: conversation.id,
-              turnId,
-              text: event.text,
-            });
-            break;
-          case "reasoning": {
-            await flushText(); // preserve emission order against any preceding text
-            const item = await this.store.appendItem({
-              conversationId: conversation.id,
-              turnId,
-              type: "reasoning",
-              content: event.content,
-            });
-            await bindPayload(item.id, event.payload);
-            this.#emitKernel({ type: "reasoning", conversationId: conversation.id, item });
-            break;
+      try {
+        for await (const event of stream) {
+          if (signal.aborted) break;
+          switch (event.type) {
+            case "text_delta":
+              sawOutput = true;
+              pendingText += event.text;
+              this.#emitKernel({
+                type: "text_delta",
+                conversationId: conversation.id,
+                turnId,
+                text: event.text,
+              });
+              break;
+            case "reasoning_delta":
+              sawOutput = true;
+              this.#emitKernel({
+                type: "reasoning_delta",
+                conversationId: conversation.id,
+                turnId,
+                text: event.text,
+              });
+              break;
+            case "reasoning": {
+              sawOutput = true;
+              await flushText(); // preserve emission order against any preceding text
+              await this.#appendOutputItem(event, conversation, turnId);
+              break;
+            }
+            case "tool_call": {
+              sawOutput = true;
+              await flushText(); // any text before this call is its own message item
+              const call = await this.#appendOutputItem(event, conversation, turnId);
+              if (call) calls.push(call);
+              break;
+            }
+            case "completed":
+              completed = event;
+              break;
+            default:
+              assertNever(event);
           }
-          case "tool_call": {
-            await flushText(); // any text before this call is its own message item
-            const callItem = await this.store.appendItem({
-              conversationId: conversation.id,
-              turnId,
-              type: "tool_call",
-              callId: event.callId,
-              name: event.name,
-              args: event.args,
-            });
-            await bindPayload(callItem.id, event.payload);
-            calls.push({ callId: event.callId, name: event.name, args: event.args });
-            this.#emitKernel({
-              type: "tool_call.started",
-              conversationId: conversation.id,
-              callId: event.callId,
-              name: event.name,
-              args: event.args,
-            });
-            break;
-          }
-          case "completed":
-            completed = event;
-            break;
-          default:
-            assertNever(event);
         }
+      } catch (error) {
+        await flushText();
+        if (
+          error instanceof ContextWindowExceededError &&
+          !sawOutput &&
+          !recoveredOverflow &&
+          !compactedBeforeAttempt
+        ) {
+          recoveredOverflow = true;
+          const folded = await this.#compact(
+            "overflow",
+            conversation,
+            turnId,
+            signal,
+            runtime,
+            toolSet,
+            draft,
+            capacity.compactionOutputLimit,
+          );
+          if (folded) {
+            compactedBeforeAttempt = true;
+            continue;
+          }
+        }
+        if (error instanceof ContextWindowExceededError && compactedBeforeAttempt) {
+          throw new ContextWindowExceededError(
+            "context still exceeds the model window after compaction",
+            {
+              cause: error,
+            },
+          );
+        }
+        throw error;
       }
       await flushText(); // trailing text segment (saves partial output on abort)
 
       // --- Dispatch phase: one tool_result per recorded call, always. ---
-      for (const call of calls) {
-        const result = signal.aborted
-          ? interruptedResult()
-          : await this.#dispatchInterruptible(call, toolSet, conversation, turnId, signal, runtime);
-        await this.store.appendItem({
-          conversationId: conversation.id,
-          turnId,
-          type: "tool_result",
-          callId: call.callId,
-          content: result.forModel,
-          status: result.status,
-          ...(result.annotations ? { annotations: result.annotations } : {}),
-        });
-        this.#emitKernel({
-          type: "tool_call.completed",
-          conversationId: conversation.id,
-          callId: call.callId,
-          status: result.status,
-          forModel: result.forModel,
-          ...(result.annotations ? { annotations: result.annotations } : {}),
-        });
-      }
+      await this.#dispatchCalls(calls, toolSet, conversation, turnId, signal, runtime);
 
       // --- Finalize. ---
       if (lastMessageId) await bindPayload(lastMessageId, completed?.payload);
@@ -515,24 +606,100 @@ export class Engine {
       if (calls.length === 0) {
         return; // final, non-tool response: the turn is done
       }
+      compactedBeforeAttempt = false;
 
       // After-tool-result boundary: only steers flush into this turn; queued
       // entries wait for the next batch.
-      const steers = runtime.takeSteers();
-      if (steers.length > 0) this.#emitInbox(runtime);
-      for (const steer of steers) {
-        const message = await this.store.appendItem({
-          conversationId: conversation.id,
-          turnId,
-          type: "message",
-          role: "user",
-          content: steer.input.content,
-        });
-        this.#emitKernel({ type: "message", conversationId: conversation.id, item: message });
-      }
+      await this.#flushSteers(runtime, conversation, turnId);
     }
 
     throw new Error(`turn exceeded ${MAX_MODEL_STEPS} model steps`);
+  }
+
+  /** Persists one finalized structured model output and returns its executable call, if any. */
+  async #appendOutputItem(
+    output: ModelOutputItem,
+    conversation: Conversation,
+    turnId: TurnId,
+  ): Promise<ToolCall | undefined> {
+    if (output.type === "reasoning") {
+      const item = await this.store.appendItem({
+        conversationId: conversation.id,
+        turnId,
+        type: "reasoning",
+        content: output.content,
+      });
+      if (output.payload)
+        await this.store.putProviderPayload({ ...output.payload, itemId: item.id });
+      this.#emitKernel({ type: "reasoning", conversationId: conversation.id, item });
+      return undefined;
+    }
+    const item = await this.store.appendItem({
+      conversationId: conversation.id,
+      turnId,
+      type: "tool_call",
+      callId: output.callId,
+      name: output.name,
+      args: output.args,
+    });
+    if (output.payload) await this.store.putProviderPayload({ ...output.payload, itemId: item.id });
+    this.#emitKernel({
+      type: "tool_call.started",
+      conversationId: conversation.id,
+      callId: output.callId,
+      name: output.name,
+      args: output.args,
+    });
+    return { callId: output.callId, name: output.name, args: output.args };
+  }
+
+  /** Pairs every persisted call with exactly one result through the common dispatch path. */
+  async #dispatchCalls(
+    calls: ToolCall[],
+    toolSet: ToolSet,
+    conversation: Conversation,
+    turnId: TurnId,
+    signal: AbortSignal,
+    runtime: Runtime,
+  ): Promise<void> {
+    for (const call of calls) {
+      const result = signal.aborted
+        ? interruptedResult()
+        : await this.#dispatchInterruptible(call, toolSet, conversation, turnId, signal, runtime);
+      await this.store.appendItem({
+        conversationId: conversation.id,
+        turnId,
+        type: "tool_result",
+        callId: call.callId,
+        content: result.forModel,
+        status: result.status,
+        ...(result.annotations ? { annotations: result.annotations } : {}),
+      });
+      this.#emitKernel({
+        type: "tool_call.completed",
+        conversationId: conversation.id,
+        callId: call.callId,
+        status: result.status,
+        forModel: result.forModel,
+        ...(result.annotations ? { annotations: result.annotations } : {}),
+      });
+    }
+  }
+
+  /** Injects only steering deliveries at a tool-result boundary. */
+  async #flushSteers(runtime: Runtime, conversation: Conversation, turnId: TurnId): Promise<void> {
+    const steers = runtime.takeSteers();
+    if (steers.length > 0) this.#emitInbox(runtime);
+    for (const steer of steers) {
+      const message = await this.store.appendItem({
+        conversationId: conversation.id,
+        turnId,
+        type: "message",
+        role: "user",
+        content: steer.input.content,
+      });
+      this.#emitKernel({ type: "message", conversationId: conversation.id, item: message });
+    }
   }
 
   /**
@@ -688,7 +855,12 @@ export class Engine {
   }
 
   /** Builds a one-provider-call model capability scoped to this turn. */
-  #modelInvoker(conversation: Conversation, turnId: TurnId, turnSignal: AbortSignal): ModelInvoker {
+  #modelInvoker(
+    conversation: Conversation,
+    turnId: TurnId,
+    turnSignal: AbortSignal,
+    modelMiddlewareTools?: ToolSet,
+  ): ModelInvoker {
     return {
       invoke: async (draft, options = {}): Promise<ModelInvocationResult> => {
         const modelConfig = draft.modelConfig ?? conversation.config.model;
@@ -700,6 +872,11 @@ export class Engine {
           items: draft.items,
           modelConfig,
           ...(draft.tools ? { tools: draft.tools } : {}),
+          ...(draft.prompt ? { prompt: draft.prompt } : {}),
+          ...(draft.toolChoice ? { toolChoice: draft.toolChoice } : {}),
+          ...(draft.maxOutputTokens !== undefined
+            ? { maxOutputTokens: draft.maxOutputTokens }
+            : {}),
         };
         const build = await this.store.recordContextBuild({
           conversationId: conversation.id,
@@ -707,26 +884,57 @@ export class Engine {
           instructions: request.instructions,
           tools: request.tools ?? [],
           items: request.items,
+          ...(request.prompt ? { prompt: request.prompt } : {}),
+          ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
+          ...(request.maxOutputTokens !== undefined
+            ? { maxOutputTokens: request.maxOutputTokens }
+            : {}),
         });
-        const toolCalls: ModelInvocationResult["toolCalls"] = [];
+        const outputItems: ModelOutputItem[] = [];
         let text = "";
         let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
-        for await (const event of provider.stream(request, signal)) {
-          if (signal.aborted) break;
-          if (event.type === "text_delta") {
-            text += event.text;
-          } else if (event.type === "tool_call") {
-            toolCalls.push({ callId: event.callId, name: event.name, args: event.args });
-          } else if (event.type === "completed") {
-            completed = event;
+        const stream = modelMiddlewareTools
+          ? runModelChain(
+              this.host.modelMiddleware,
+              request,
+              {
+                conversationId: conversation.id,
+                signal,
+                toolMeta: (name) => modelMiddlewareTools.metaOf(name),
+              },
+              (req) => provider.stream(req, signal),
+            )
+          : provider.stream(request, signal);
+        try {
+          for await (const event of stream) {
+            if (signal.aborted) break;
+            if (event.type === "text_delta") {
+              text += event.text;
+            } else if (event.type === "tool_call") {
+              outputItems.push({
+                type: "tool_call",
+                callId: event.callId,
+                name: event.name,
+                args: event.args,
+                ...(event.payload ? { payload: event.payload } : {}),
+              });
+            } else if (event.type === "reasoning") {
+              outputItems.push({
+                type: "reasoning",
+                content: event.content,
+                ...(event.payload ? { payload: event.payload } : {}),
+              });
+            } else if (event.type === "completed") {
+              completed = event;
+            }
           }
+        } catch (error) {
+          if (signal.aborted) throw new TurnAborted();
+          throw error;
         }
         if (!completed) {
-          throw new Error(
-            signal.aborted
-              ? "model invocation aborted"
-              : "provider stream ended without a 'completed' event",
-          );
+          if (signal.aborted) throw new TurnAborted();
+          throw new Error("provider stream ended without a 'completed' event");
         }
         const pricing = this.#pricingFor(modelConfig);
         const recorded = await this.store.recordModelUsage({
@@ -747,9 +955,10 @@ export class Engine {
           usage: recorded.usage,
           cost: recorded.cost,
         });
+        if (signal.aborted) throw new TurnAborted();
         return {
           content: text ? [{ type: "text", text }] : [],
-          toolCalls,
+          outputItems,
           usage: completed.usage,
           modelConfig,
         };
@@ -757,29 +966,125 @@ export class Engine {
     };
   }
 
-  /**
-   * Appends a `compaction` item if the strategy folds the window; otherwise a no-op.
-   * Runs inside the turn's try so a strategy throw fails this turn, not the next.
-   */
-  async #maybeCompact(
+  /** Capacity policy derived from the best provider checkpoint plus appended local estimates. */
+  async #contextCapacity(
+    conversation: Conversation,
+    build: NewContextBuild,
+  ): Promise<{ shouldCompact: boolean; compactionOutputLimit?: number }> {
+    const info = findModel(this.host.providers.listModels(), conversation.config.model);
+    if (!info?.contextWindow || !info.maxOutputTokens) {
+      return { shouldCompact: false };
+    }
+
+    let estimate: number | undefined;
+    const usage = await this.store.listModelUsage(conversation.id);
+    for (let i = usage.length - 1; i >= 0; i--) {
+      const row = usage[i]!;
+      if (
+        row.provider !== conversation.config.model.provider ||
+        row.model !== conversation.config.model.model ||
+        !row.contextBuildId
+      ) {
+        continue;
+      }
+      const prior = await this.store.getContextBuild(row.contextBuildId);
+      if (!prior || prior.purpose !== "agent" || prior.items.length > build.items.length) continue;
+      const samePrefix = prior.items.every(
+        (entry, index) => entry.item.id === build.items[index]?.item.id,
+      );
+      const sameStableInput =
+        JSON.stringify(prior.instructions) === JSON.stringify(build.instructions) &&
+        JSON.stringify(prior.tools) === JSON.stringify(build.tools);
+      if (!samePrefix || !sameStableInput) continue;
+      estimate =
+        row.usage.inputTokens +
+        estimateContextTokens({
+          conversationId: build.conversationId,
+          purpose: "estimate",
+          instructions: [],
+          tools: [],
+          items: build.items.slice(prior.items.length),
+        });
+      break;
+    }
+    estimate ??= estimateContextTokens(build);
+    const headroom = Math.min(
+      COMPACTION_HEADROOM_TOKENS,
+      Math.max(MIN_COMPACTION_HEADROOM_TOKENS, Math.ceil(info.contextWindow * 0.02)),
+    );
+    const threshold = info.contextWindow - info.maxOutputTokens - headroom;
+    const available = info.contextWindow - estimate - headroom;
+    return {
+      shouldCompact: threshold > 0 && estimate >= threshold,
+      // Use all safely available capacity, capped only by the model's normal maximum.
+      compactionOutputLimit: Math.max(0, Math.min(info.maxOutputTokens, available)),
+    };
+  }
+
+  /** Materializes a strategy result, then continues any reasoning/tool calls through normal paths. */
+  async #compact(
+    reason: "threshold" | "overflow" | "manual",
     conversation: Conversation,
     turnId: TurnId,
     signal: AbortSignal,
-  ): Promise<void> {
-    if (signal.aborted) return;
-    const window = compactedWindow(await this.store.listActiveItems(conversation.id));
-    const content = await this.host.policies.compaction.compact({
-      conversationId: conversation.id,
-      items: window,
-    });
-    if (!content) return;
-    const item = await this.store.appendItem({
+    runtime: Runtime,
+    toolSet: ToolSet,
+    build: NewContextBuild,
+    outputTokenLimit?: number,
+  ): Promise<boolean> {
+    if (signal.aborted) throw new TurnAborted();
+    if (build.items.length === 0) return false;
+    let result;
+    try {
+      result = await this.host.policies.compaction.compact({
+        reason,
+        build,
+        models: this.#modelInvoker(conversation, turnId, signal, toolSet),
+        ...(outputTokenLimit !== undefined ? { outputTokenLimit } : {}),
+        signal,
+      });
+      if (signal.aborted) throw new TurnAborted();
+      if (!result) return false;
+      if (textOf(result.content).trim().length === 0) {
+        throw new Error("compaction strategy returned no summary");
+      }
+      if (
+        reason === "manual" &&
+        result.outputItems?.some((output) => output.type === "tool_call")
+      ) {
+        throw new Error("manual compaction cannot emit tool calls");
+      }
+    } catch (error) {
+      if (signal.aborted) throw new TurnAborted();
+      if (reason === "manual" || !(error instanceof ContextWindowExceededError)) throw error;
+      result = { content: fallbackCompaction(build) };
+    }
+
+    if (signal.aborted) throw new TurnAborted();
+
+    const fold = await this.store.appendItem({
       conversationId: conversation.id,
       turnId,
       type: "compaction",
-      content,
+      content: result.content,
     });
-    this.#emitKernel({ type: "compaction", conversationId: conversation.id, item });
+    this.#emitKernel({ type: "compaction", conversationId: conversation.id, item: fold });
+
+    // Reasoning generated only to produce a summary is not task continuation. Keep
+    // structured output only when the compactor actually asked to continue with a tool.
+    const outputs = result.outputItems ?? [];
+    const continuation = outputs.some((output) => output.type === "tool_call") ? outputs : [];
+    const calls: ToolCall[] = [];
+    for (const output of continuation) {
+      const call = await this.#appendOutputItem(output, conversation, turnId);
+      if (call) calls.push(call);
+    }
+    await this.#dispatchCalls(calls, toolSet, conversation, turnId, signal, runtime);
+    if (calls.length > 0) {
+      await this.#flushSteers(runtime, conversation, turnId);
+    }
+    if (signal.aborted) throw new TurnAborted();
+    return true;
   }
 
   /** The model's rate card from its provider's catalog; undefined = cost not computable. */
@@ -787,7 +1092,10 @@ export class Engine {
     return findModel(this.host.providers.listModels(), model)?.pricing;
   }
 
-  async #buildContext(conversation: Conversation, tools: ToolSchema[]): Promise<ContextBuild> {
+  async #assembleContext(
+    conversation: Conversation,
+    tools: ToolSchema[],
+  ): Promise<NewContextBuild> {
     // Use the active chain (not the raw log): after a rewind, abandoned-branch items
     // must stay out of context. Read `head` from the store, never off the cached
     // `Runtime.conversation` snapshot.
@@ -802,7 +1110,7 @@ export class Engine {
       ...sourceInstructions,
     ];
 
-    const built: NewContextBuild = {
+    return {
       conversationId: conversation.id,
       purpose: "agent",
       instructions,
@@ -812,7 +1120,6 @@ export class Engine {
         return payload ? { item, payload } : { item };
       }),
     };
-    return this.store.recordContextBuild(built);
   }
 
   /** The single scope-filtered fan-out behind the `#emit*` pair. */

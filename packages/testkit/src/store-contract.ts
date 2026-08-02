@@ -253,6 +253,8 @@ export function storeContract(name: string, makeStore: () => Store): void {
         tools: [],
         items: [],
       });
+      expect(await store.getContextBuild(build.id)).toEqual(build);
+      expect(await store.getContextBuild("missing")).toBeUndefined();
       const first = await store.recordModelUsage({
         conversationId: conv.id,
         turnId: turn.id,

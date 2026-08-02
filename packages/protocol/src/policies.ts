@@ -1,7 +1,7 @@
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
 import type { Item } from "./items.ts";
-import type { ProviderPayload, ToolSchema } from "./model.ts";
+import type { ModelInvoker, ModelOutputItem, ProviderPayload, ToolSchema } from "./model.ts";
 
 export interface ContextItem {
   item: Item;
@@ -15,6 +15,10 @@ export interface NewContextBuild {
   instructions: ContentBlock[]; // cache-stable prefix
   tools: ToolSchema[];
   items: ContextItem[]; // selected items, in order
+  /** Non-durable final user input included in this request. */
+  prompt?: string;
+  toolChoice?: "auto" | "none";
+  maxOutputTokens?: number;
 }
 
 /** Recorded selection: the only source of truth for "what the model saw". */
@@ -24,8 +28,19 @@ export interface ContextBuild extends NewContextBuild {
 }
 
 export interface CompactionInput {
-  conversationId: ConversationId;
-  items: Item[]; // the current (bounded) context window, in seq order
+  reason: "threshold" | "overflow" | "manual";
+  build: NewContextBuild;
+  models: ModelInvoker;
+  /** A bounded summary allowance when model capacity is known; absent uses the provider default. */
+  outputTokenLimit?: number;
+  signal: AbortSignal;
+}
+
+export interface CompactionResult {
+  /** Canonical replacement context. Empty content is invalid. */
+  content: ContentBlock[];
+  /** Reasoning and tool calls emitted while compacting, continued after the fold. */
+  outputItems?: ModelOutputItem[];
 }
 
 /**
@@ -33,6 +48,6 @@ export interface CompactionInput {
  * content is appended as one `compaction` item; everything before it leaves context.
  */
 export interface CompactionStrategy {
-  /** Summary content to fold the window into, or null to skip. */
-  compact(input: CompactionInput): Promise<ContentBlock[] | null>;
+  /** Replacement content plus continuation outputs, or null when there is nothing to fold. */
+  compact(input: CompactionInput): Promise<CompactionResult | null>;
 }

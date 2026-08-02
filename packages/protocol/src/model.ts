@@ -44,6 +44,8 @@ export interface ModelInfo {
   defaultEffort?: string;
   /** Max context size in tokens; absent = unknown. */
   contextWindow?: number;
+  /** Maximum output reservation used when deciding whether the next input still fits. */
+  maxOutputTokens?: number;
   /** Absent = cost not computable for this model. */
   pricing?: ModelPricing;
 }
@@ -143,20 +145,46 @@ export interface ModelRequest {
   instructions: ContentBlock[];
   items: { item: Item; payload?: ProviderPayload }[];
   tools?: ToolSchema[];
+  /** Non-durable final user prompt, recorded with the build but never appended to the item log. */
+  prompt?: string;
+  /** Provider-neutral tool selection; absent is equivalent to `auto`. */
+  toolChoice?: "auto" | "none";
+  /** Per-request output cap; absent lets the provider use its normal default. */
+  maxOutputTokens?: number;
   modelConfig: ModelConfig;
 }
+
+/** A finalized non-text model output that can be persisted and continued by the agent loop. */
+export type ModelOutputItem =
+  | { type: "reasoning"; content: ContentBlock[]; payload?: ProviderPayloadDraft }
+  | {
+      type: "tool_call";
+      callId: string;
+      name: string;
+      args: unknown;
+      payload?: ProviderPayloadDraft;
+    };
 
 /** The completed, non-agentic result of exactly one provider invocation. */
 export interface ModelInvocationResult {
   content: ContentBlock[];
-  toolCalls: { callId: string; name: string; args: unknown }[];
+  /** Ordered reasoning/tool-call outputs, including opaque provider fidelity. */
+  outputItems: ModelOutputItem[];
   usage: Usage;
   modelConfig: ModelConfig;
 }
 
+/** Provider-neutral signal used for the single safe compact-and-retry path. */
+export class ContextWindowExceededError extends Error {
+  constructor(message = "model context window exceeded", options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ContextWindowExceededError";
+  }
+}
+
 /**
- * A narrow caller for model-backed plugin work (review, summarization, titles, …).
- * Unlike the agent loop, this consumes one provider stream and never dispatches tools.
+ * A narrow caller for one model-backed operation (review, summarization, titles, …).
+ * It consumes one stream; the caller decides whether finalized outputs should continue.
  */
 export interface ModelInvoker {
   invoke(

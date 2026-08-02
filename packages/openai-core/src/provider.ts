@@ -9,6 +9,7 @@ import type {
   ModelStreamEvent,
   ModelCapabilities,
 } from "@harness/protocol";
+import { ContextWindowExceededError } from "@harness/protocol";
 import type { OpenAICredentials } from "./credentials.ts";
 import { buildResponseParams } from "./request.ts";
 import { toModelEvents } from "./stream.ts";
@@ -21,6 +22,7 @@ interface ModelSpec {
   defaultEffort: string;
   /** Max context tokens. */
   contextWindow: number;
+  maxOutputTokens: number;
   /** USD per MTok. No `cacheWrite`: OpenAI bills no cache-write premium. */
   pricing: ModelPricing;
 }
@@ -35,6 +37,7 @@ const MODELS: ModelSpec[] = [
     efforts: [effort("none"), effort("low"), effort("medium"), effort("high")],
     defaultEffort: "medium",
     contextWindow: 400_000,
+    maxOutputTokens: 128_000,
     pricing: { input: 1.25, output: 10, cachedRead: 0.125 },
   },
   {
@@ -42,6 +45,7 @@ const MODELS: ModelSpec[] = [
     efforts: [effort("none"), effort("low"), effort("medium"), effort("high")],
     defaultEffort: "medium",
     contextWindow: 1_050_000,
+    maxOutputTokens: 128_000,
     pricing: {
       input: 5,
       output: 30,
@@ -54,6 +58,7 @@ const MODELS: ModelSpec[] = [
     efforts: [effort("low"), effort("medium"), effort("high")],
     defaultEffort: "medium",
     contextWindow: 400_000,
+    maxOutputTokens: 128_000,
     pricing: { input: 1.25, output: 10, cachedRead: 0.125 },
   },
 ];
@@ -104,17 +109,31 @@ export class OpenAIResponsesProvider implements ModelProvider {
       efforts: m.efforts,
       defaultEffort: m.defaultEffort,
       contextWindow: m.contextWindow,
+      maxOutputTokens: m.maxOutputTokens,
       pricing: m.pricing,
     }));
   }
 
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
-    const client = await this.#credentials.client();
-    const reasoning = reasoningForSelection(request.modelConfig, this.#reasoning);
-    const stream = await client.responses.create(
-      buildResponseParams(request, reasoning, this.provider),
-      { signal },
-    );
-    yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
+    try {
+      const client = await this.#credentials.client();
+      const reasoning = reasoningForSelection(request.modelConfig, this.#reasoning);
+      const stream = await client.responses.create(
+        buildResponseParams(request, reasoning, this.provider),
+        { signal },
+      );
+      yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
+    } catch (error) {
+      const e = error as { status?: number; code?: string; message?: string };
+      const message = e.message ?? String(error);
+      if (
+        e.status === 400 &&
+        (e.code === "context_length_exceeded" ||
+          /context (window|length)|too many tokens/i.test(message))
+      ) {
+        throw new ContextWindowExceededError(message, { cause: error });
+      }
+      throw error;
+    }
   }
 }

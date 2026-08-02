@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type OpenAI from "openai";
+import { ContextWindowExceededError, type ModelRequest } from "@harness/protocol";
 import { OpenAIResponsesProvider, reasoningForSelection } from "./provider.ts";
 
 const BASE: OpenAI.Reasoning = { effort: "medium", summary: "auto" };
+const REQUEST: ModelRequest = {
+  instructions: [],
+  items: [],
+  modelConfig: { provider: "openai", model: "gpt-5.1" },
+};
+
+async function consume(stream: AsyncIterable<unknown>): Promise<void> {
+  for await (const event of stream) void event;
+}
 
 describe("reasoningForSelection", () => {
   it("uses the chosen effort when the model offers it, keeping other base fields", () => {
@@ -39,5 +49,38 @@ describe("listModels", () => {
     const gpt = models.find((m) => m.model === "gpt-5.1");
     expect(gpt?.defaultEffort).toBe("medium");
     expect(gpt?.efforts?.map((e) => e.value)).toEqual(["none", "low", "medium", "high"]);
+  });
+});
+
+describe("context overflow normalization", () => {
+  it("maps the SDK's typed context error to the protocol error", async () => {
+    const error = Object.assign(new Error("maximum context length exceeded"), {
+      status: 400,
+      code: "context_length_exceeded",
+    });
+    const provider = new OpenAIResponsesProvider({
+      credentials: {
+        client: async () =>
+          ({ responses: { create: async () => Promise.reject(error) } }) as unknown as OpenAI,
+      },
+    });
+
+    await expect(
+      consume(provider.stream(REQUEST, new AbortController().signal)),
+    ).rejects.toBeInstanceOf(ContextWindowExceededError);
+  });
+
+  it("does not normalize a non-400 failure merely because its message mentions context", async () => {
+    const error = Object.assign(new Error("context service unavailable"), { status: 500 });
+    const provider = new OpenAIResponsesProvider({
+      credentials: {
+        client: async () =>
+          ({ responses: { create: async () => Promise.reject(error) } }) as unknown as OpenAI,
+      },
+    });
+
+    await expect(consume(provider.stream(REQUEST, new AbortController().signal))).rejects.toBe(
+      error,
+    );
   });
 });

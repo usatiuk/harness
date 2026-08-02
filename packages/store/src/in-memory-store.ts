@@ -174,6 +174,10 @@ export class InMemoryStore implements Store {
     return build;
   }
 
+  async getContextBuild(id: string): Promise<ContextBuild | undefined> {
+    return this.#contextBuilds.find((build) => build.id === id);
+  }
+
   async recordModelUsage(input: NewModelUsage): Promise<ModelUsage> {
     const record: ModelUsage = {
       ...input,

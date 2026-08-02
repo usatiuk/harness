@@ -76,6 +76,23 @@ describe("buildResponseParams", () => {
     ]);
   });
 
+  it("appends a non-durable prompt and preserves tools while disabling calls", () => {
+    const params = buildResponseParams(
+      {
+        ...baseRequest([]),
+        prompt: "compact now",
+        toolChoice: "none",
+        maxOutputTokens: 4096,
+      },
+      REASONING,
+      "openai",
+    );
+    expect(params.input).toEqual([{ role: "user", content: "compact now" }]);
+    expect(params.tool_choice).toBe("none");
+    expect(params.tools).toHaveLength(1);
+    expect(params.max_output_tokens).toBe(4096);
+  });
+
   it("maps a compaction item to a plain user message", () => {
     const params = buildResponseParams(
       baseRequest([

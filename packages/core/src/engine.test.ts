@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { conversationOf, isKernelEvent } from "@harness/protocol";
+import { ContextWindowExceededError, conversationOf, isKernelEvent } from "@harness/protocol";
 import type {
   ContentBlock,
   DeliveryInput,
@@ -36,6 +36,7 @@ import {
 import { PluginHost } from "./plugin-host.ts";
 import { Engine } from "./engine.ts";
 import { reconcileConversation } from "./reconcile.ts";
+import { compactedWindow, modelCompaction } from "./policies.ts";
 
 const CONFIG = {
   instructions: "be helpful",
@@ -815,7 +816,10 @@ class RecordingProvider implements ModelProvider {
   readonly requests: ModelRequest[] = [];
   readonly #inner: FakeProvider;
 
-  constructor(steps: FakeStep[]) {
+  constructor(
+    steps: FakeStep[],
+    private readonly limits?: { contextWindow: number; maxOutputTokens: number },
+  ) {
     this.#inner = new FakeProvider(steps);
   }
 
@@ -826,12 +830,51 @@ class RecordingProvider implements ModelProvider {
   validateConfig(): void {}
 
   listModels() {
-    return this.#inner.listModels();
+    return this.limits
+      ? [{ provider: "fake", model: "fake-1", ...this.limits }]
+      : this.#inner.listModels();
   }
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
     this.requests.push(request);
     yield* this.#inner.stream();
+  }
+}
+
+/** Rejects requests that cannot fit their input and requested output in one response window. */
+class CapacityProvider implements ModelProvider {
+  readonly provider = "fake";
+  readonly requests: ModelRequest[] = [];
+  readonly budgets: Array<{ input: number; output: number }> = [];
+  #cursor = 0;
+
+  capabilities() {
+    return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" as const };
+  }
+
+  validateConfig(): void {}
+
+  listModels() {
+    return [{ provider: "fake", model: "fake-1", contextWindow: 10_000, maxOutputTokens: 2_000 }];
+  }
+
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
+    this.requests.push(request);
+    const input = this.#cursor === 0 ? 7_900 : request.prompt ? 8_000 : 100;
+    const output = request.maxOutputTokens ?? 2_000;
+    this.budgets.push({ input, output });
+    if (input + output > 10_000) throw new ContextWindowExceededError();
+    const step =
+      this.#cursor++ === 0
+        ? textStep("one", undefined, { inputTokens: input, outputTokens: 1, cachedReadTokens: 0 })
+        : this.#cursor === 2
+          ? textStep("capacity summary", undefined, {
+              inputTokens: input,
+              outputTokens: 1,
+              cachedReadTokens: 0,
+            })
+          : textStep("done");
+    for (const event of step) yield event;
   }
 }
 
@@ -885,12 +928,19 @@ const compactions = (items: Item[]) =>
 
 describe("Engine — compaction", () => {
   it("folds the context at the boundary and bounds later builds at the summary", async () => {
-    const provider = new RecordingProvider([
-      textStep("one"),
-      textStep("two"),
-      textStep("three"),
-      textStep("four"),
-    ]);
+    const provider = new RecordingProvider(
+      [
+        textStep("one"),
+        textStep("two", undefined, {
+          inputTokens: 950,
+          outputTokens: 1,
+          cachedReadTokens: 0,
+        }),
+        textStep("three"),
+        textStep("four"),
+      ],
+      { contextWindow: 1_100, maxOutputTokens: 100 },
+    );
     const { store, engine, events } = setup([], {
       providers: () => [provider],
       policies: () => ({ compaction: fakeCompaction({ over: 3 }) }),
@@ -928,12 +978,19 @@ describe("Engine — compaction", () => {
   });
 
   it("un-compacts on rewind past the summary, restoring full history in the build", async () => {
-    const provider = new RecordingProvider([
-      textStep("A"),
-      textStep("B"),
-      textStep("C"),
-      textStep("D"),
-    ]);
+    const provider = new RecordingProvider(
+      [
+        textStep("A"),
+        textStep("B", undefined, {
+          inputTokens: 950,
+          outputTokens: 1,
+          cachedReadTokens: 0,
+        }),
+        textStep("C"),
+        textStep("D"),
+      ],
+      { contextWindow: 1_100, maxOutputTokens: 100 },
+    );
     const { store, engine } = setup([], {
       providers: () => [provider],
       policies: () => ({ compaction: fakeCompaction({ over: 4 }) }),
@@ -962,6 +1019,573 @@ describe("Engine — compaction", () => {
     expect(userTexts(lastBuild)).toEqual(["a", "d"]);
     // The summary still lives in the raw log, on the abandoned branch.
     expect(compactions(await store.listItems(conv.id))).toHaveLength(1);
+  });
+
+  it("uses the same request prefix, dispatches compaction tool calls, and continues", async () => {
+    const priorPayload = {
+      provider: "fake",
+      model: "fake-1",
+      type: "reasoning",
+      version: 1,
+      payload: { encrypted: "prior" },
+    };
+    const compactPayload = {
+      provider: "fake",
+      model: "fake-1",
+      type: "reasoning",
+      version: 1,
+      payload: { encrypted: "compact" },
+    };
+    const provider = new RecordingProvider(
+      [
+        [
+          {
+            type: "reasoning",
+            content: [{ type: "text", text: "prior thought" }],
+            payload: priorPayload,
+          },
+          { type: "text_delta", text: "one" },
+          {
+            type: "completed",
+            usage: { inputTokens: 8_000, outputTokens: 10, cachedReadTokens: 0 },
+          },
+        ],
+        [
+          {
+            type: "reasoning",
+            content: [{ type: "text", text: "compact thought" }],
+            payload: compactPayload,
+          },
+          { type: "text_delta", text: "summary" },
+          { type: "tool_call", callId: "compact-call", name: "echo", args: { next: true } },
+          {
+            type: "completed",
+            usage: { inputTokens: 1_250, outputTokens: 20, cachedReadTokens: 0 },
+          },
+        ],
+        textStep("done"),
+      ],
+      { contextWindow: 10_000, maxOutputTokens: 2_000 },
+    );
+    const middlewarePrompts: Array<string | undefined> = [];
+    const { store, engine } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: modelCompaction }),
+      modelMiddleware: () => [
+        {
+          id: "record-compaction",
+          wrap(request, _ctx, next) {
+            middlewarePrompts.push(request.prompt);
+            return next(request);
+          },
+        },
+      ],
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+
+    await engine.deliver(conv.id, userInput("first"));
+    await engine.whenIdle(conv.id);
+    await engine.deliver(conv.id, userInput("second"));
+    await engine.whenIdle(conv.id);
+
+    expect(provider.requests).toHaveLength(3);
+    expect(middlewarePrompts).toEqual([undefined, expect.stringMatching(/compacting/i), undefined]);
+    const [normal, compact, continued] = provider.requests;
+    expect(compact!.instructions).toEqual(normal!.instructions);
+    expect(compact!.tools).toEqual(normal!.tools);
+    expect(compact!.prompt).toMatch(/compacting/i);
+    expect(compact!.items.find((entry) => entry.item.type === "reasoning")?.payload).toMatchObject(
+      priorPayload,
+    );
+    expect(shapeOf(continued!.items.map((entry) => entry.item))).toEqual([
+      "compaction:summary",
+      "reasoning:compact thought",
+      "call:compact-call",
+      "result:compact-call",
+    ]);
+    expect(shapeOf(await store.listActiveItems(conv.id)).slice(-5)).toEqual([
+      "compaction:summary",
+      "reasoning:compact thought",
+      "call:compact-call",
+      "result:compact-call",
+      "assistant:done",
+    ]);
+    const compactReasoning = (await store.listActiveItems(conv.id)).find(
+      (item) => item.type === "reasoning" && textOf(item.content) === "compact thought",
+    );
+    expect(
+      compactReasoning ? await store.getProviderPayloads([compactReasoning.id]) : [],
+    ).toHaveLength(1);
+  });
+
+  it("manual compaction disables tools, commits only the summary, and does not continue", async () => {
+    const provider = new RecordingProvider([
+      textStep("one"),
+      [
+        { type: "reasoning", content: [{ type: "text", text: "summary reasoning" }] },
+        ...textStep("manual summary"),
+      ],
+    ]);
+    const { store, engine } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: modelCompaction }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("first"));
+    await engine.whenIdle(conv.id);
+
+    await expect(engine.compact(conv.id)).resolves.toBe("compacted");
+
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[1]!.toolChoice).toBe("none");
+    expect(provider.requests[1]!.maxOutputTokens).toBeUndefined();
+    expect(provider.requests[1]!.tools).toEqual(provider.requests[0]!.tools);
+    expect(shapeOf(compactedWindow(await store.listActiveItems(conv.id)))).toEqual([
+      "compaction:manual summary",
+    ]);
+  });
+
+  it("manual compaction no-ops on an empty conversation", async () => {
+    const { store, engine } = setup([]);
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await expect(engine.compact(conv.id)).resolves.toBe("noop");
+  });
+
+  it("manual compaction rejects while a turn is running", async () => {
+    const gate = new GateProvider("working");
+    const { store, engine } = setup([], { providers: () => [gate] });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("first"));
+    await gate.started;
+
+    await expect(engine.compact(conv.id)).rejects.toThrow(/while a turn is running/);
+
+    gate.release();
+    await engine.whenIdle(conv.id);
+  });
+
+  it("reserves the runtime before manual compaction performs its first store read", async () => {
+    const provider = new RecordingProvider([
+      textStep("seeded"),
+      textStep("manual summary"),
+      textStep("after queued delivery"),
+    ]);
+    const { store, engine } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: modelCompaction }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("seed"));
+    await engine.whenIdle(conv.id);
+
+    const original = store.listActiveItems.bind(store);
+    let release!: () => void;
+    let entered!: () => void;
+    const blocked = new Promise<void>((resolve) => (entered = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let first = true;
+    store.listActiveItems = async (id) => {
+      if (first) {
+        first = false;
+        entered();
+        await gate;
+      }
+      return original(id);
+    };
+
+    const compacting = engine.compact(conv.id);
+    await blocked;
+    await engine.deliver(conv.id, userInput("queued while compacting"));
+    await expect(engine.compact(conv.id)).rejects.toThrow(/while a turn is running/);
+    release();
+
+    await expect(compacting).resolves.toBe("compacted");
+    await engine.whenIdle(conv.id);
+    expect(provider.requests).toHaveLength(3);
+    expect(shapeOf(compactedWindow(await store.listActiveItems(conv.id)))).toEqual([
+      "compaction:manual summary",
+      "user:queued while compacting",
+      "assistant:after queued delivery",
+    ]);
+  });
+
+  it("enforces summary-only manual compaction for custom strategies", async () => {
+    const { store, engine, events } = setup([textStep("seeded")], {
+      policies: () => ({
+        compaction: {
+          async compact() {
+            return {
+              content: [{ type: "text" as const, text: "summary" }],
+              outputItems: [
+                { type: "tool_call" as const, callId: "forbidden", name: "echo", args: {} },
+              ],
+            };
+          },
+        },
+      }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("seed"));
+    await engine.whenIdle(conv.id);
+
+    await expect(engine.compact(conv.id)).rejects.toThrow(/cannot emit tool calls/);
+    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+    expect(toolCalls(await store.listItems(conv.id))).toHaveLength(0);
+    expect(turnStatuses(events).at(-1)).toBe("failed");
+  });
+
+  it("marks cancellation during manual model compaction as aborted", async () => {
+    const gate = new GateProvider("partial summary");
+    const { store, engine, events } = setup([], {
+      providers: () => [gate],
+      policies: () => ({ compaction: modelCompaction }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    const seedTurn = await store.createTurn(conv.id);
+    await store.appendItem({
+      conversationId: conv.id,
+      turnId: seedTurn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "seed" }],
+    });
+    await store.updateTurn(seedTurn.id, "completed");
+
+    const compacting = engine.compact(conv.id);
+    await gate.started;
+    await engine.deliver(conv.id, noContent, "interrupt");
+
+    await expect(compacting).rejects.toThrow(/turn aborted/);
+    await engine.whenIdle(conv.id);
+    expect(turnStatuses(events)).toEqual(["running", "aborted"]);
+    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+  });
+
+  it("fails and closes a manual turn when post-creation context setup throws", async () => {
+    let contextReads = 0;
+    const { store, engine, events } = setup([textStep("recovered")], {
+      contextSources: () => [
+        {
+          id: "fails-once",
+          async instructions() {
+            if (contextReads++ === 0) throw new Error("context setup failed");
+            return [];
+          },
+        },
+      ],
+      policies: () => ({ compaction: modelCompaction }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    const seedTurn = await store.createTurn(conv.id);
+    await store.appendItem({
+      conversationId: conv.id,
+      turnId: seedTurn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "seed" }],
+    });
+    await store.updateTurn(seedTurn.id, "completed");
+
+    await expect(engine.compact(conv.id)).rejects.toThrow(/context setup failed/);
+    expect(await store.getActiveTurn(conv.id)).toBeUndefined();
+
+    await engine.deliver(conv.id, userInput("retry normally"));
+    await engine.whenIdle(conv.id);
+    expect(turnStatuses(events)).toEqual(["running", "failed", "running", "completed"]);
+  });
+
+  it("does not commit a fold returned by a signal-ignoring strategy after cancellation", async () => {
+    let started!: () => void;
+    let release!: () => void;
+    const strategyStarted = new Promise<void>((resolve) => (started = resolve));
+    const strategyGate = new Promise<void>((resolve) => (release = resolve));
+    const { store, engine, events } = setup([], {
+      policies: () => ({
+        compaction: {
+          async compact() {
+            started();
+            await strategyGate;
+            return { content: [{ type: "text" as const, text: "must not commit" }] };
+          },
+        },
+      }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    const seedTurn = await store.createTurn(conv.id);
+    await store.appendItem({
+      conversationId: conv.id,
+      turnId: seedTurn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "seed" }],
+    });
+    await store.updateTurn(seedTurn.id, "completed");
+
+    const compacting = engine.compact(conv.id);
+    await strategyStarted;
+    await engine.deliver(conv.id, noContent, "interrupt");
+    release();
+
+    await expect(compacting).rejects.toThrow(/turn aborted/);
+    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+    expect(turnStatuses(events)).toEqual(["running", "aborted"]);
+  });
+
+  it("reports cancellation during context assembly as aborted rather than completed noop", async () => {
+    let started!: () => void;
+    let release!: () => void;
+    const contextStarted = new Promise<void>((resolve) => (started = resolve));
+    const contextGate = new Promise<void>((resolve) => (release = resolve));
+    const { store, engine, events } = setup([], {
+      contextSources: () => [
+        {
+          id: "gated",
+          async instructions() {
+            started();
+            await contextGate;
+            return [];
+          },
+        },
+      ],
+      policies: () => ({ compaction: modelCompaction }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    const seedTurn = await store.createTurn(conv.id);
+    await store.appendItem({
+      conversationId: conv.id,
+      turnId: seedTurn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "seed" }],
+    });
+    await store.updateTurn(seedTurn.id, "completed");
+
+    const compacting = engine.compact(conv.id);
+    await contextStarted;
+    await engine.deliver(conv.id, noContent, "interrupt");
+    release();
+
+    await expect(compacting).rejects.toThrow(/turn aborted/);
+    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+    expect(turnStatuses(events)).toEqual(["running", "aborted"]);
+  });
+
+  it("uses a reduced compaction output allowance that fits the declared window", async () => {
+    const provider = new CapacityProvider();
+    const { store, engine } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: modelCompaction }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("first"));
+    await engine.whenIdle(conv.id);
+    await engine.deliver(conv.id, userInput("second"));
+    await engine.whenIdle(conv.id);
+
+    expect(provider.requests).toHaveLength(3);
+    expect(provider.requests[1]!.prompt).toMatch(/compacting/i);
+    expect(provider.requests[1]!.maxOutputTokens).toBeLessThan(2_000);
+    expect(provider.budgets.every(({ input, output }) => input + output <= 10_000)).toBe(true);
+  });
+
+  it("flushes a steer after a compaction-emitted tool before continuing", async () => {
+    const gate = new GateTool();
+    const provider = new RecordingProvider(
+      [
+        textStep("one", undefined, {
+          inputTokens: 8_000,
+          outputTokens: 1,
+          cachedReadTokens: 0,
+        }),
+        [
+          { type: "text_delta", text: "summary" },
+          { type: "tool_call", callId: "compact-gate", name: "gate", args: {} },
+          {
+            type: "completed",
+            usage: { inputTokens: 8_100, outputTokens: 1, cachedReadTokens: 0 },
+          },
+        ],
+        textStep("done"),
+      ],
+      { contextWindow: 10_000, maxOutputTokens: 2_000 },
+    );
+    const { store, engine } = setup([], {
+      providers: () => [provider],
+      tools: () => [gate],
+      policies: () => ({ compaction: modelCompaction }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("first"));
+    await engine.whenIdle(conv.id);
+
+    await engine.deliver(conv.id, userInput("second"));
+    await gate.started;
+    await engine.deliver(conv.id, userInput("steer now"), "steer");
+    gate.release();
+    await engine.whenIdle(conv.id);
+
+    expect(shapeOf(provider.requests[2]!.items.map(({ item }) => item))).toEqual([
+      "compaction:summary",
+      "call:compact-gate",
+      "result:compact-gate",
+      "user:steer now",
+    ]);
+  });
+
+  it("attempts at most one compaction before failing an irreducibly oversized request", async () => {
+    let compactionCalls = 0;
+    let providerCalls = 0;
+    const provider: ModelProvider = {
+      provider: "fake",
+      capabilities: () => ({
+        contentTypes: ["text"],
+        toolCalling: true,
+        fileTools: "string_replace",
+      }),
+      validateConfig: () => undefined,
+      listModels: () => [
+        { provider: "fake", model: "fake-1", contextWindow: 1_000, maxOutputTokens: 200 },
+      ],
+      async *stream() {
+        providerCalls++;
+        yield await Promise.reject(new ContextWindowExceededError());
+      },
+    };
+    const { store, engine, events } = setup([], {
+      providers: () => [provider],
+      contextSources: () => [
+        {
+          id: "irreducible",
+          async instructions() {
+            return [{ type: "text" as const, text: "x".repeat(4_000) }];
+          },
+        },
+      ],
+      policies: () => ({
+        compaction: {
+          async compact() {
+            compactionCalls++;
+            return { content: [{ type: "text" as const, text: "summary" }] };
+          },
+        },
+      }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    expect(compactionCalls).toBe(1);
+    expect(providerCalls).toBe(1);
+    expect(compactions(await store.listItems(conv.id))).toHaveLength(1);
+    expect(turnStatuses(events)).toEqual(["running", "failed"]);
+  });
+
+  it("does not fold active history for an unrelated automatic strategy failure", async () => {
+    const provider = new RecordingProvider(
+      [
+        textStep("one", undefined, {
+          inputTokens: 8_000,
+          outputTokens: 1,
+          cachedReadTokens: 0,
+        }),
+      ],
+      { contextWindow: 10_000, maxOutputTokens: 2_000 },
+    );
+    const { store, engine, events } = setup([], {
+      providers: () => [provider],
+      policies: () => ({
+        compaction: {
+          async compact() {
+            throw new Error("authentication failed");
+          },
+        },
+      }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("first"));
+    await engine.whenIdle(conv.id);
+    const before = await store.listActiveItems(conv.id);
+
+    await engine.deliver(conv.id, userInput("second"));
+    await engine.whenIdle(conv.id);
+
+    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+    expect((await store.listActiveItems(conv.id)).slice(0, before.length)).toEqual(before);
+    expect(turnStatuses(events).at(-1)).toBe("failed");
+  });
+
+  it("compacts and retries once after a typed context overflow", async () => {
+    const requests: ModelRequest[] = [];
+    let cursor = 0;
+    const provider: ModelProvider = {
+      provider: "fake",
+      capabilities: () => ({
+        contentTypes: ["text"],
+        toolCalling: true,
+        fileTools: "string_replace",
+      }),
+      validateConfig: () => undefined,
+      listModels: () => [],
+      async *stream(request) {
+        requests.push(request);
+        if (cursor++ === 0) throw new ContextWindowExceededError();
+        const step = cursor === 2 ? textStep("overflow summary") : textStep("recovered");
+        for (const event of step) yield event;
+      },
+    };
+    const { store, engine, events } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: modelCompaction }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+
+    await engine.deliver(conv.id, userInput("large"));
+    await engine.whenIdle(conv.id);
+
+    expect(requests).toHaveLength(3);
+    expect(requests[1]!.maxOutputTokens).toBeUndefined();
+    expect(shapeOf(compactedWindow(await store.listActiveItems(conv.id)))).toEqual([
+      "compaction:overflow summary",
+      "assistant:recovered",
+    ]);
+    expect(turnStatuses(events)).toEqual(["running", "completed"]);
+  });
+
+  it("materializes a deterministic fallback when the compaction call also overflows", async () => {
+    const requests: ModelRequest[] = [];
+    let cursor = 0;
+    const provider: ModelProvider = {
+      provider: "fake",
+      capabilities: () => ({
+        contentTypes: ["text"],
+        toolCalling: true,
+        fileTools: "string_replace",
+      }),
+      validateConfig: () => undefined,
+      listModels: () => [],
+      async *stream(request) {
+        requests.push(request);
+        if (cursor++ < 2) throw new ContextWindowExceededError();
+        for (const event of textStep("recovered")) yield event;
+      },
+    };
+    const { store, engine, events } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: modelCompaction }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+
+    await engine.deliver(conv.id, userInput("too large for either model call"));
+    await engine.whenIdle(conv.id);
+
+    expect(requests).toHaveLength(3);
+    const [fold] = compactions(await store.listItems(conv.id));
+    expect(fold && textOf(fold.content)).toMatch(/deterministic fallback/);
+    expect(shapeOf(compactedWindow(await store.listActiveItems(conv.id))).at(-1)).toBe(
+      "assistant:recovered",
+    );
+    expect(turnStatuses(events)).toEqual(["running", "completed"]);
   });
 });
 

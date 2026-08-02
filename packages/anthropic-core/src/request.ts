@@ -106,6 +106,9 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
   }
   flushAssistant();
   flushUser();
+  if (request.prompt) {
+    messages.push({ role: "user", content: [{ type: "text", text: request.prompt }] });
+  }
   return messages;
 }
 
@@ -193,11 +196,12 @@ export function buildMessages(
 
   return {
     model: request.modelConfig.model,
-    max_tokens: config.maxTokens,
+    max_tokens: request.maxOutputTokens ?? config.maxTokens,
     messages,
     stream: true,
     ...(system ? { system } : {}),
     ...(tools.length > 0 ? { tools } : {}),
+    ...(request.toolChoice ? { tool_choice: { type: request.toolChoice } } : {}),
     ...(config.thinking ? { thinking: config.thinking } : {}),
     ...(config.effort ? { output_config: { effort: config.effort } } : {}),
   };

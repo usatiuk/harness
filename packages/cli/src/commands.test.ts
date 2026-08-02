@@ -54,6 +54,14 @@ describe("runCommand", () => {
     expect(ctx.note).toHaveBeenCalledOnce();
   });
 
+  it("/compact runs a summary-only service operation", async () => {
+    const compact = vi.fn(async () => "compacted" as const);
+    const ctx = makeCtx({ service: { compact } as unknown as HarnessService });
+    expect(runCommand("/compact", ctx)).toBe(true);
+    await vi.waitFor(() => expect(compact).toHaveBeenCalledWith(ctx.conversationId));
+    expect(ctx.note).toHaveBeenCalledWith("context compacted");
+  });
+
   it("/activities opens the activities overlay", () => {
     const ctx = makeCtx();
     expect(runCommand("/activities", ctx)).toBe(true);

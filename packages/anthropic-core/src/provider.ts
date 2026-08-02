@@ -9,6 +9,7 @@ import type {
   ModelRequest,
   ModelStreamEvent,
 } from "@harness/protocol";
+import { ContextWindowExceededError } from "@harness/protocol";
 import type { AnthropicCredentials } from "./credentials.ts";
 import { buildMessages } from "./request.ts";
 import { toModelEvents } from "./stream.ts";
@@ -108,27 +109,37 @@ export class AnthropicProvider implements ModelProvider {
       efforts: m.efforts,
       ...(m.defaultEffort ? { defaultEffort: m.defaultEffort } : {}),
       contextWindow: m.contextWindow,
+      maxOutputTokens: m.maxTokens,
       pricing: m.pricing,
     }));
   }
 
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
-    const client = await this.#credentials.client();
-    const spec = MODELS.find((m) => m.model === request.modelConfig.model);
-    const effort = spec ? effortForSelection(spec, request.modelConfig) : undefined;
-    const params = buildMessages(
-      request,
-      {
-        maxTokens: spec?.maxTokens ?? MAX_TOKENS_FALLBACK,
-        // display must be explicit: Opus 4.7+ defaults to "omitted" (empty thinking text).
-        ...(spec?.adaptiveThinking
-          ? { thinking: { type: "adaptive", display: "summarized" } }
-          : {}),
-        ...(effort ? { effort } : {}),
-      },
-      this.provider,
-    );
-    const stream = await client.messages.create(params, { signal });
-    yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
+    try {
+      const client = await this.#credentials.client();
+      const spec = MODELS.find((m) => m.model === request.modelConfig.model);
+      const effort = spec ? effortForSelection(spec, request.modelConfig) : undefined;
+      const params = buildMessages(
+        request,
+        {
+          maxTokens: spec?.maxTokens ?? MAX_TOKENS_FALLBACK,
+          // display must be explicit: Opus 4.7+ defaults to "omitted" (empty thinking text).
+          ...(spec?.adaptiveThinking
+            ? { thinking: { type: "adaptive", display: "summarized" } }
+            : {}),
+          ...(effort ? { effort } : {}),
+        },
+        this.provider,
+      );
+      const stream = await client.messages.create(params, { signal });
+      yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
+    } catch (error) {
+      const e = error as { status?: number; message?: string };
+      const message = e.message ?? String(error);
+      if (e.status === 400 && /context window|prompt is too long|too many tokens/i.test(message)) {
+        throw new ContextWindowExceededError(message, { cause: error });
+      }
+      throw error;
+    }
   }
 }

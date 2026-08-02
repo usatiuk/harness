@@ -125,6 +125,9 @@ export function buildResponseParams(
     const mapped = toInputItem(item, provider, request.modelConfig.model, freeformCallIds, payload);
     if (mapped) input.push(mapped);
   }
+  if (request.prompt) {
+    input.push({ role: "user", content: request.prompt });
+  }
 
   // `native` tools are a provider's own built-ins; no OpenAI model offers one (they arrive only
   // under the `text_editor` profile), so encountering one is a wiring bug, not a runtime input.
@@ -143,6 +146,8 @@ export function buildResponseParams(
     store: false, // stateless: we own the log and round-trip reasoning via encrypted_content
     include: ["reasoning.encrypted_content"],
     reasoning,
+    ...(request.maxOutputTokens ? { max_output_tokens: request.maxOutputTokens } : {}),
+    ...(request.toolChoice ? { tool_choice: request.toolChoice } : {}),
     ...(tools.length > 0 ? { tools } : {}),
   };
 }

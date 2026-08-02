@@ -35,6 +35,28 @@ const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
 });
 
 describe("buildMessages", () => {
+  it("appends a non-durable prompt and preserves tools while disabling calls", () => {
+    const params = buildMessages(
+      {
+        ...baseRequest([]),
+        prompt: "compact now",
+        toolChoice: "none",
+        maxOutputTokens: 4096,
+      },
+      CONFIG,
+      PROVIDER,
+    );
+    expect(params.messages).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "compact now", cache_control: { type: "ephemeral" } }],
+      },
+    ]);
+    expect(params.tool_choice).toEqual({ type: "none" });
+    expect(params.tools).toHaveLength(2);
+    expect(params.max_tokens).toBe(4096);
+  });
+
   it("renders a flat text-editor schema accepted by Anthropic", () => {
     const properties = {
       command: { type: "string", enum: ["view", "create", "str_replace", "insert"] },

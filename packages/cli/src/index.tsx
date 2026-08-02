@@ -20,6 +20,7 @@ import { approvalPlugin } from "@harness/approval";
 import { autoApprovalPlugin } from "@harness/auto-approval";
 import { subagentsDefinition } from "@harness/subagents";
 import { HarnessService } from "@harness/service";
+import { modelCompaction } from "@harness/core";
 import { DemoProvider } from "./demo-provider.ts";
 import { authRegistry } from "./auth.ts";
 import { credentialStoreForRead } from "./credential-store.ts";
@@ -109,6 +110,7 @@ async function buildHarness(): Promise<Harness> {
     approvalPlugin,
     autoApprovalPlugin,
     subagentsDefinition,
+    { id: "compaction", policies: () => ({ compaction: modelCompaction }) },
   );
   const resolvedFallback: ModelConfig = fallbackModel ?? { provider: "demo", model: "demo-1" };
   // Lowest cascade layer: every conversation has a model even on resume with no settings, and

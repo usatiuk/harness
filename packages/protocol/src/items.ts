@@ -26,9 +26,8 @@ export type Item =
       status: ToolStatus;
       annotations?: Record<string, unknown>;
     })
-  // A fold of everything before it (appended at head, so its position marks the
-  // coverage). Renders to the provider as a plain message; the `compaction` type is
-  // a kernel marker so context-build can bound the window at it.
+  // A fold of the complete active history before it. Renders to the provider as a
+  // plain message; its position is the context boundary.
   | (ItemBase & { type: "compaction"; content: ContentBlock[] })
   // Plugin-injected durable context (e.g. a nested AGENTS.md), appended at exec time by a
   // tool middleware. `key` is an opaque dedup identity the kernel stores but never reads.
