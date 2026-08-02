@@ -1,11 +1,11 @@
 # Harness
 
-A local-first, model/provider-agnostic agent harness. Built incrementally:
-a simple, proven conversation core with clean, one-directional layering so
-tools, plugins, activities, subagents, and MCP slot in as additive layers
-rather than rewrites.
+A local-first, model/provider-agnostic coding-agent harness. It combines a
+durable conversation core with Harness-owned tools, sandboxed execution,
+approvals, project instructions, compaction, background activities, and
+subagents through a typed plugin surface.
 
-Design doc / PRD is being refined; implementation of Phase 1 follows.
+See `PLAN.md` for product direction and current subsystem status.
 
 Prior attempts (reference only, not tracked here) live under `old/`.
 
@@ -26,8 +26,8 @@ npm run check        # typecheck + lint + format:check + test (also runs in CI)
 ```
 
 Repository guidance lives in `AGENTS.md`. See `docs/README.md` for the roles of
-the design documents, architecture decisions, research notes, execution plans,
-testing guidance, and deferred-work records.
+subsystem architecture, roadmaps, decisions, research, delivery plans, testing
+guidance, and deferred-work records.
 
 On Windows, local command execution is exposed to models as `powershell`; Linux,
 macOS, and Linux dev containers expose `bash`. Windows sign-in requires Credential
@@ -73,7 +73,9 @@ opt into explicit host escape with `executionFunctionTool`; their schema then ex
 middleware classifies that call as outside the workspace before execution. After approval, only
 that tool invocation receives the host execution context. The Harness-owned Anthropic editor and
 the OpenAI-style freeform `apply_patch` tool implement the same behavior in their own wire formats.
-Provider-executed tools such as web search are not claimed as sandboxed.
+Provider-owned execution tools are intentionally outside the current product
+surface; all execution tools offered by the shipped composition are controlled
+by Harness.
 
 ### Project instructions
 

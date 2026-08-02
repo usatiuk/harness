@@ -1,7 +1,7 @@
 # Architecture decisions
 
 Decision records preserve significant accepted choices and why they were made.
-They complement current design documentation and tests:
+They complement current subsystem documentation and tests:
 
 - Current documentation describes accepted architecture and behavior.
 - A decision record preserves context, considered alternatives, and consequences.

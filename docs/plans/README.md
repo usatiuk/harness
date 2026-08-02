@@ -4,6 +4,9 @@ This directory contains durable plans for concrete substantial changes. Plans
 preserve the intended outcome, grounded design, acceptance criteria, and final
 evidence without replacing a product roadmap.
 
+Product direction lives in `PLAN.md`; durable subsystem architecture and active
+subsystem roadmaps live under `docs/subsystems/`.
+
 ## Placement
 
 Use:

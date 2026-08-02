@@ -6,8 +6,11 @@ comments or the root getting-started documentation.
 ## Sources of truth
 
 - `README.md`: setup, commands, supported environments, and user-facing behavior.
-- `DESIGN.md` and `DESIGN-AMENDMENT.md`: architectural intent and historical
-  rationale. Update or supersede them when accepted architecture changes.
+- `PLAN.md`: product goals, scope, subsystem index, current progress, and
+  high-level priorities.
+- `docs/subsystems/*/README.md`: accepted current architecture and behavior.
+- `docs/subsystems/*/PLAN.md`: selected subsystem milestones and acceptance; a
+  subsystem without active work does not need one.
 - Public types, implementation, and executable tests: current behavior.
 - `docs/decisions/`: accepted architectural choices and their consequences.
 - `docs/research/`: evidence, experiments, alternatives, and unresolved findings;
@@ -19,6 +22,15 @@ comments or the root getting-started documentation.
 
 When these sources drift materially, reconcile them as part of the change. Link
 to existing truth instead of copying it into multiple files.
+
+## Navigation
+
+- [Product plan and subsystem index](../PLAN.md)
+- [Testing](TESTING.md)
+- [Deferred work](DEFERRED.md)
+- [Architecture decisions](decisions/README.md)
+- [Research notes](research/README.md)
+- [Execution plans](plans/README.md)
 
 ## Proportional documentation
 

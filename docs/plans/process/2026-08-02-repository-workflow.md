@@ -1,6 +1,7 @@
 # Port durable repository workflow
 
-Status: Complete
+Status: Superseded by
+`docs/plans/process/2026-08-02-project-documentation-rebaseline.md`
 
 ## Goal
 

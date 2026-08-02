@@ -9,21 +9,23 @@ adherence to illustrative architecture notes.
 
 Before substantial work, read:
 
-1. `README.md` for development commands, supported execution environments, and
-   the package layout.
-2. `DESIGN.md` and `DESIGN-AMENDMENT.md` for architectural intent and rationale.
-3. Relevant durable material under `docs/`.
-4. The affected package's public types, implementation, and tests.
+1. `PLAN.md` for product direction, scope, subsystem status, and priorities.
+2. The relevant current architecture and, when present, active roadmap under
+   `docs/subsystems/`.
+3. Relevant decisions, research, delivery plans, testing guidance, and deferred
+   work under `docs/`.
+4. The affected packages' public types, implementation, and tests.
 
-The design documents contain rationale and intended architecture, but code,
-public types, and executable tests describe current behavior. Reconcile meaningful
-drift instead of silently choosing one source.
+Subsystem documentation describes accepted architecture and behavior. Public
+types, implementation, and executable tests remain the final authority; reconcile
+meaningful drift instead of silently choosing one source.
 
 ## Documentation discipline
 
-Keep durable project knowledge synchronized with implementation. Use the document
-roles in `docs/README.md`; do not leave important decisions, evidence, limitations,
-or delivery plans only in chat transcripts or commit messages.
+Keep `PLAN.md`, the owning subsystem documents, and other durable project
+knowledge synchronized with implementation. Use the document roles in
+`docs/README.md`; do not leave important decisions, evidence, limitations, or
+delivery plans only in chat transcripts or commit messages.
 
 Create documentation in proportion to its lasting value. Small local changes do
 not need an architecture decision, research note, or tracked plan merely to
