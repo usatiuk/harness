@@ -13,7 +13,9 @@ export function codexPlugin(auth: CodexAuth): Plugin {
       new OpenAIResponsesProvider({
         provider: CODEX_PROVIDER,
         credentials: codexCredentials(auth),
-        contextWindowLimit: 400_000,
+        modelLimits: {
+          "gpt-5.5": { contextWindow: 400_000, maxOutputTokens: 128_000 },
+        },
         supportsMaxOutputTokens: false,
       }),
     ],

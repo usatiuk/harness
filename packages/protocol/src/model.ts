@@ -139,7 +139,7 @@ export interface ModelRequest {
   prompt?: string;
   /** Provider-neutral tool selection; absent is equivalent to `auto`. */
   toolChoice?: "auto" | "none";
-  /** Per-request output cap; absent lets the provider use its normal default. */
+  /** Advisory per-request output cap; providers honor it when their transport supports one. */
   maxOutputTokens?: number;
   modelConfig: ModelConfig;
 }

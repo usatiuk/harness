@@ -172,6 +172,21 @@ describe("transcript reducer", () => {
     expect(state.turn.status).toBe("failed");
   });
 
+  it("keeps compaction content for the verbose transcript", () => {
+    const state = fold([
+      {
+        type: "compaction",
+        item: item({ type: "compaction", id: "fold-1", content: text("Earlier work") }),
+      },
+    ]);
+    expect(state.cells).toEqual([{ kind: "compaction", id: "fold-1", text: "Earlier work" }]);
+  });
+
+  it("restores compaction content for the verbose transcript", () => {
+    const state = init([item({ type: "compaction", id: "fold-1", content: text("Earlier work") })]);
+    expect(state.cells).toEqual([{ kind: "compaction", id: "fold-1", text: "Earlier work" }]);
+  });
+
   it("does not append an error cell for an aborted turn", () => {
     const state = fold([
       { type: "turn.status", turnId: "t1", status: "running" },

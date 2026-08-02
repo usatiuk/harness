@@ -116,7 +116,16 @@ export function CellView({ cell }: { cell: Cell }): ReactElement {
     case "tool":
       return <ToolCard cell={cell} verbose={verbose} />;
     case "compaction":
-      return <Text dimColor>✦ context compacted</Text>;
+      return verbose ? (
+        <Box flexDirection="column">
+          <Text dimColor>✦ context compacted</Text>
+          <Box paddingLeft={GUTTER}>
+            <Markdown text={cell.text} dim />
+          </Box>
+        </Box>
+      ) : (
+        <Text dimColor>✦ context compacted</Text>
+      );
     case "context":
       return <Text dimColor>{`✦ ${truncate(cell.text.split("\n")[0] ?? "", ARGS_CAP)}`}</Text>;
     case "error":

@@ -49,7 +49,7 @@ export type Cell =
         reason?: string;
       };
     }
-  | { kind: "compaction"; id: string }
+  | { kind: "compaction"; id: string; text: string }
   // Plugin-injected context (e.g. an AGENTS.md), shown as a distinct transcript line.
   | { kind: "context"; id: string; text: string }
   // A failed turn's error message. Immutable, so it migrates straight to scrollback.
@@ -265,8 +265,14 @@ export function reduce(state: State, event: HarnessEvent): State {
       if (item.type !== "reasoning") return state;
       return finalizeStream(state, "reasoning", item.turnId, item.id, textOf(item.content));
     }
-    case "compaction":
-      return { ...state, cells: [...state.cells, { kind: "compaction", id: event.item.id }] };
+    case "compaction": {
+      const item = event.item;
+      if (item.type !== "compaction") return state;
+      return {
+        ...state,
+        cells: [...state.cells, { kind: "compaction", id: item.id, text: textOf(item.content) }],
+      };
+    }
     case "context": {
       const item = event.item;
       if (item.type !== "context") return state;
@@ -387,7 +393,7 @@ export function init(items: Item[], usageRows: ModelUsage[] = []): State {
         break;
       }
       case "compaction":
-        cells.push({ kind: "compaction", id: item.id });
+        cells.push({ kind: "compaction", id: item.id, text: textOf(item.content) });
         break;
       case "context":
         cells.push({ kind: "context", id: item.id, text: textOf(item.content) });

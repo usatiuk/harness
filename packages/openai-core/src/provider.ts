@@ -14,15 +14,17 @@ import type { OpenAICredentials } from "./credentials.ts";
 import { buildResponseParams } from "./request.ts";
 import { toModelEvents } from "./stream.ts";
 
+export interface OpenAIModelLimits {
+  contextWindow: number;
+  maxOutputTokens: number;
+}
+
 /** One model in the provider catalog. */
-interface ModelSpec {
+interface ModelSpec extends OpenAIModelLimits {
   model: string;
   efforts: EffortInfo[];
   /** Effort used when the selection omits one; must appear in `efforts`. */
   defaultEffort: string;
-  /** Max context tokens. */
-  contextWindow: number;
-  maxOutputTokens: number;
   /** USD per MTok. No `cacheWrite`: OpenAI bills no cache-write premium. */
   pricing: ModelPricing;
 }
@@ -81,9 +83,9 @@ export interface OpenAIProviderOptions {
   provider?: string;
   /** Reasoning effort/summary; defaults to medium effort with auto summaries. */
   reasoning?: OpenAI.Reasoning;
-  /** Transport-wide context ceiling when it is lower than the public API model limit. */
-  contextWindowLimit?: number;
-  /** Whether this transport accepts the Responses API `max_output_tokens` parameter. */
+  /** Backend-specific capacity for models whose limits differ from the public API. */
+  modelLimits?: Readonly<Record<string, OpenAIModelLimits>>;
+  /** Whether this transport can send the advisory `max_output_tokens` request cap. */
   supportsMaxOutputTokens?: boolean;
 }
 
@@ -92,14 +94,14 @@ export class OpenAIResponsesProvider implements ModelProvider {
   readonly provider: string;
   readonly #credentials: OpenAICredentials;
   readonly #reasoning: OpenAI.Reasoning;
-  readonly #contextWindowLimit: number | undefined;
+  readonly #modelLimits: Readonly<Record<string, OpenAIModelLimits>>;
   readonly #supportsMaxOutputTokens: boolean;
 
   constructor(opts: OpenAIProviderOptions) {
     this.provider = opts.provider ?? "openai";
     this.#credentials = opts.credentials;
     this.#reasoning = opts.reasoning ?? { effort: "medium", summary: "auto" };
-    this.#contextWindowLimit = opts.contextWindowLimit;
+    this.#modelLimits = opts.modelLimits ?? {};
     this.#supportsMaxOutputTokens = opts.supportsMaxOutputTokens ?? true;
   }
 
@@ -111,15 +113,18 @@ export class OpenAIResponsesProvider implements ModelProvider {
   validateConfig(): void {}
 
   listModels(): ModelInfo[] {
-    return MODELS.map((m) => ({
-      provider: this.provider,
-      model: m.model,
-      efforts: m.efforts,
-      defaultEffort: m.defaultEffort,
-      contextWindow: Math.min(m.contextWindow, this.#contextWindowLimit ?? m.contextWindow),
-      maxOutputTokens: m.maxOutputTokens,
-      pricing: m.pricing,
-    }));
+    return MODELS.map((m) => {
+      const limits = this.#modelLimits[m.model] ?? m;
+      return {
+        provider: this.provider,
+        model: m.model,
+        efforts: m.efforts,
+        defaultEffort: m.defaultEffort,
+        contextWindow: limits.contextWindow,
+        maxOutputTokens: limits.maxOutputTokens,
+        pricing: m.pricing,
+      };
+    });
   }
 
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {

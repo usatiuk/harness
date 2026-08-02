@@ -120,3 +120,23 @@ describe("CellView: reasoning", () => {
     expect(f).toContain("deep inner monologue");
   });
 });
+
+describe("CellView: compaction", () => {
+  const compaction: Cell = {
+    kind: "compaction",
+    id: "fold-1",
+    text: "Summary of the work so far.",
+  };
+
+  it("compact: shows only the fold marker", async () => {
+    const f = (await frame(compaction))!;
+    expect(f).toContain("context compacted");
+    expect(f).not.toContain("Summary of the work so far.");
+  });
+
+  it("verbose: shows the folded summary", async () => {
+    const f = (await frame(compaction, true))!;
+    expect(f).toContain("context compacted");
+    expect(f).toContain("Summary of the work so far.");
+  });
+});

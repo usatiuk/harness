@@ -50,6 +50,25 @@ describe("listModels", () => {
     expect(gpt?.defaultEffort).toBe("medium");
     expect(gpt?.efforts?.map((e) => e.value)).toEqual(["none", "low", "medium", "high"]);
   });
+
+  it("overrides context and output limits for only the named model", () => {
+    const provider = new OpenAIResponsesProvider({
+      credentials: { client: async () => ({}) as never },
+      modelLimits: {
+        "gpt-5.1": { contextWindow: 200_000, maxOutputTokens: 64_000 },
+      },
+    });
+    const models = provider.listModels();
+
+    expect(models.find((m) => m.model === "gpt-5.1")).toMatchObject({
+      contextWindow: 200_000,
+      maxOutputTokens: 64_000,
+    });
+    expect(models.find((m) => m.model === "gpt-5.5")).toMatchObject({
+      contextWindow: 1_050_000,
+      maxOutputTokens: 128_000,
+    });
+  });
 });
 
 describe("request parameters", () => {
