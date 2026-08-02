@@ -31,6 +31,8 @@ export interface CommandContext {
   clear: () => void;
   /** Switch conversation: an id resumes it directly; omitting it opens the picker. */
   resume: (id?: string) => void;
+  /** Tear down and freshly activate this conversation. */
+  reload: () => void;
   /** Open the model switcher overlay. */
   pickModel: () => void;
   /** Open the effort switcher overlay (for the current model). */
@@ -73,6 +75,7 @@ export const commands: Command[] = [
     summary: "switch conversation (/resume <id>, or /resume to pick)",
     run: (ctx, args) => ctx.resume(args[0]),
   },
+  { name: "reload", summary: "reload the current conversation", run: (ctx) => ctx.reload() },
   {
     name: "model",
     summary: "switch model (/model <id>, or /model to pick)",

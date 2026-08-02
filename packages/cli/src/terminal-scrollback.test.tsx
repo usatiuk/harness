@@ -214,6 +214,7 @@ describe("terminal scrollback", () => {
         cwd="/tmp"
         launchCwd="/tmp"
         onResume={() => {}}
+        onReload={() => {}}
         activities={{ peek: () => [], kill: () => {} }}
       />,
       { columns: 50, rows: 10, incrementalRendering: true },
@@ -272,6 +273,7 @@ describe("terminal scrollback", () => {
         cwd="/tmp"
         launchCwd="/tmp"
         onResume={() => {}}
+        onReload={() => {}}
         activities={{ peek: () => [], kill: () => {} }}
       />,
       { columns: 50, rows: 10, incrementalRendering: true },
@@ -339,6 +341,7 @@ describe("terminal scrollback", () => {
         cwd="/tmp"
         launchCwd="/tmp"
         onResume={() => {}}
+        onReload={() => {}}
         activities={{ peek: () => [], kill: () => {} }}
       />,
       { columns: 100, rows: 10, incrementalRendering: true },

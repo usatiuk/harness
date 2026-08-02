@@ -51,4 +51,23 @@ describe("DockerExecutionContext.stop (mid-provision teardown)", () => {
     expect(events.aborted).toBe(false);
     expect(events.log).toEqual(["stopSandbox"]);
   });
+
+  it("cannot provision again after runtime disposal", async () => {
+    const ctx = new DockerExecutionContext("/workspace", config);
+    await ctx.dispose();
+
+    await expect(ctx.rebuild()).rejects.toThrow("disposed");
+    await expect(ctx.read("x")).rejects.toThrow("disposed");
+    expect(events.log).toEqual(["stopSandbox"]);
+  });
+
+  it("does not let a concurrent rebuild revive a disposed runtime", async () => {
+    const ctx = new DockerExecutionContext("/workspace", config);
+
+    const rebuild = ctx.rebuild();
+    await ctx.dispose();
+
+    await expect(rebuild).rejects.toThrow("disposed");
+    expect(ctx.isProvisioned()).toBe(false);
+  });
 });

@@ -69,9 +69,10 @@ status, reuses labeled containers, and stops them after a configurable idle
 period. Paths and output stay in the container workspace. There is no Docker-to-
 host escape path.
 
-Backends are cached for a loaded conversation. Configuration changes apply after
-Harness restarts/reloads that runtime; selection never silently falls back to a
-less confined backend.
+One backend is shared by the tools and TUI within a loaded activation. Switching,
+explicit reload, and sandbox configuration changes dispose that instance before
+building the next one; Docker disposal stops/removes its container. Selection
+never silently falls back to a less confined backend.
 
 ## Approval
 

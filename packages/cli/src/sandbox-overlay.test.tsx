@@ -3,8 +3,7 @@ import { render } from "ink-testing-library";
 import { SandboxOverlay, type SandboxView } from "./sandbox-overlay.tsx";
 
 const view = (): SandboxView => ({
-  activeBackend: "local",
-  configuredBackend: "native",
+  backend: "native",
   workspaceWrite: true,
   network: false,
   containerActive: false,
@@ -17,15 +16,14 @@ const view = (): SandboxView => ({
 });
 
 describe("SandboxOverlay", () => {
-  it("distinguishes the running backend from restart-pending configuration", () => {
+  it("shows the active conversation backend without restart-pending state", () => {
     const state = view();
     const { lastFrame } = render(<SandboxOverlay view={state} onClose={() => {}} />);
-    expect(lastFrame()).toContain("this conversation: local");
-    expect(lastFrame()).toContain("configured after restart: native");
-    expect(lastFrame()).toContain("configuration changes require restarting Harness");
+    expect(lastFrame()).toContain("this conversation: native");
+    expect(lastFrame()).not.toContain("restart");
   });
 
-  it("cycles the configured backend without claiming to switch the running backend", () => {
+  it("cycles the active backend choice", () => {
     const state = view();
     const { stdin } = render(<SandboxOverlay view={state} onClose={() => {}} />);
     stdin.write("b");

@@ -1,14 +1,15 @@
 import { join, resolve } from "node:path";
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Box, Text, render, useApp, useInput } from "ink";
-import { ConfirmInput } from "@inkjs/ui";
-import type {
-  Conversation,
-  ConversationId,
-  Item,
-  ModelConfig,
-  ModelUsage,
-  PluginEntry,
+import { ConfirmInput, Spinner } from "@inkjs/ui";
+import {
+  formatError,
+  type Conversation,
+  type ConversationId,
+  type Item,
+  type ModelConfig,
+  type ModelUsage,
+  type PluginEntry,
 } from "@harness/protocol";
 import { defaultHome, type SettingsDoc } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
@@ -25,7 +26,7 @@ import { modelCompaction } from "@harness/core";
 import { DemoProvider } from "./demo-provider.ts";
 import { authRegistry } from "./auth.ts";
 import { credentialStoreForRead } from "./credential-store.ts";
-import { App } from "./app.tsx";
+import { App, type SessionMutation } from "./app.tsx";
 import type { ActivitiesView } from "./activities-overlay.tsx";
 import { ResumePicker } from "./resume-picker.tsx";
 
@@ -40,6 +41,13 @@ const makeActivities = (service: HarnessService, convId: ConversationId): Activi
   peek: (id) => activityManager(service, convId)?.get(id)?.peek() ?? [],
   kill: (id) => activityManager(service, convId)?.get(id)?.kill(),
 });
+
+/** Live work anywhere in the active root's loaded subagent family. */
+const runningActivities = (service: HarnessService, root: ConversationId): number =>
+  [root, ...subagentsDefinition.registry.descendantsOf(root)].reduce(
+    (sum, id) => sum + (activityManager(service, id)?.runningCount() ?? 0),
+    0,
+  );
 
 const INSTRUCTIONS = "You are a helpful coding agent.";
 
@@ -59,13 +67,13 @@ export interface LaunchOptions {
   cwd?: string | undefined;
 }
 
-interface Session {
+export interface Session {
   conversation: Conversation;
   items: Item[];
   usage: ModelUsage[];
 }
 
-type Start = { kind: "session"; session: Session } | { kind: "picker" };
+export type Start = { kind: "session"; session: Session } | { kind: "picker" };
 
 interface Harness {
   service: HarnessService;
@@ -156,8 +164,7 @@ export async function loadSession(service: HarnessService, id: string): Promise<
   const [items, usage] = await Promise.all([
     service.getItems(conversation.id),
     service.usage(conversation.id),
-    // Ensure the TUI can inspect and use the backend that is actually cached for this process.
-    // For a previously touched conversation this intentionally preserves that existing instance.
+    // Activation happens only after the previous runtime family has been deactivated.
     service.prepare(conversation.id),
   ]);
   return { conversation, items, usage };
@@ -187,20 +194,17 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
     const conversation = await service.createConversation({ cwd, overrides });
     console.log(`conversation ${conversation.id}`);
     created.add(conversation.id);
+    await service.prepare(conversation.id);
     start = { kind: "session", session: { conversation, items: [], usage: [] } };
   }
 
   if (start.kind === "session") {
     notifyModel(service, start.session.conversation.config.model);
-    // Warm the runtime so the execution backend (and its emit channel) is live before the first
-    // turn: pre-turn `!cmd`/`/sandbox` reach a real backend and sandbox build progress streams.
-    await service.prepare(start.session.conversation.id);
   }
 
-  // Every conversation shown this run, so all in-flight turns drain before the WAL closes.
-  const touched = new Set<ConversationId>();
+  let activeId: ConversationId | undefined;
   const { waitUntilExit } = render(
-    <Root service={service} start={start} cwd={cwd} onActive={(id) => touched.add(id)} />,
+    <Root service={service} start={start} cwd={cwd} onActive={(id) => (activeId = id)} />,
     // Ctrl+C is handled in-app (clear prompt / cancel overlay); Ctrl+D quits when empty.
     {
       exitOnCtrlC: false,
@@ -209,13 +213,14 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
   );
   try {
     await waitUntilExit();
-    await Promise.all([...touched].map((id) => service.whenIdle(id)));
+    if (activeId) {
+      const result = await service.deactivateSession(activeId, { force: true });
+      if (result.status === "deactivated") {
+        subagentsDefinition.resetSession();
+      }
+    }
     await Promise.all([...created].map((id) => service.deleteConversationIfEmpty(id)));
   } finally {
-    // Reap any still-running background activities (dev servers, watchers) before exit.
-    activitiesPlugin.shutdownAll();
-    // Awaited: an aborted child's final `updateTurn` must land before the DB closes.
-    await subagentsDefinition.shutdownAll();
     store.close();
   }
 }
@@ -224,84 +229,156 @@ interface RootProps {
   service: HarnessService;
   start: Start;
   cwd: string;
-  onActive: (id: ConversationId) => void;
+  onActive: (id: ConversationId | undefined) => void;
+}
+
+interface TransitionRequest {
+  targetId: ConversationId;
+  mutation?: SessionMutation;
 }
 
 /** Two screens — picker and session — with `/resume` (and launch) toggling between them. */
-function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null {
+export function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null {
   const { exit } = useApp();
   const [session, setSession] = useState<Session | null>(
     start.kind === "session" ? start.session : null,
   );
   const [picking, setPicking] = useState(start.kind === "picker");
-  // A switch to a different conversation that the user must confirm because it will stop
-  // the leaving conversation's running activities.
+  const [generation, setGeneration] = useState(0);
+  const [transitioning, setTransitioning] = useState<string | undefined>();
+  const [notice, setNotice] = useState<{ id: number; text: string }>();
+  const [error, setError] = useState<string>();
+  const noticeId = useRef(0);
+  const transitionInFlight = useRef(false);
   const [pendingSwitch, setPendingSwitch] = useState<{
-    next: Session;
-    leavingId: ConversationId;
+    request: TransitionRequest;
     running: number;
   } | null>(null);
 
   useEffect(() => {
-    if (session) onActive(session.conversation.id);
+    onActive(session?.conversation.id);
   }, [session, onActive]);
 
-  const commit = (next: Session): void => {
-    setSession(next);
+  const publish = (text: string): void => {
+    setNotice({ id: ++noticeId.current, text });
+  };
+
+  const activate = async (request: TransitionRequest): Promise<void> => {
+    if (transitionInFlight.current) return;
+    transitionInFlight.current = true;
+    const leaving = session;
     setPicking(false);
     setPendingSwitch(null);
+    setError(undefined);
+    setTransitioning(
+      leaving?.conversation.id === request.targetId
+        ? "reloading conversation"
+        : "switching conversation",
+    );
+    try {
+      if (leaving) {
+        const result = await service.deactivateSession(leaving.conversation.id);
+        if (result.status === "busy") {
+          publish("wait for or interrupt the current turn before switching");
+          return;
+        }
+        subagentsDefinition.resetSession();
+      }
+
+      if (request.mutation) {
+        try {
+          await request.mutation.apply();
+        } catch (cause) {
+          if (!leaving) throw cause;
+          const restored = await loadSession(service, leaving.conversation.id);
+          setSession(restored);
+          setGeneration((value) => value + 1);
+          publish(`sandbox change failed: ${formatError(cause)}`);
+          return;
+        }
+      }
+
+      const next = await loadSession(service, request.targetId);
+      setSession(next);
+      setGeneration((value) => value + 1);
+      const message =
+        request.mutation?.success ??
+        (leaving?.conversation.id === request.targetId ? "conversation reloaded" : undefined);
+      if (message) publish(message);
+    } catch (cause) {
+      let failure = cause;
+      try {
+        const cleanup = await service.deactivateSession(request.targetId, { force: true });
+        if (cleanup.status === "deactivated") subagentsDefinition.resetSession();
+      } catch (cleanupCause) {
+        failure = new AggregateError(
+          [cause, cleanupCause],
+          `activation failed: ${formatError(cause)}; cleanup failed: ${formatError(cleanupCause)}`,
+        );
+      }
+      setSession(null);
+      setPicking(true);
+      setError(`could not activate conversation: ${formatError(failure)}`);
+    } finally {
+      transitionInFlight.current = false;
+      setTransitioning(undefined);
+    }
   };
-  // Leaving a conversation would strand its background activities (invisible and unkillable
-  // from the new view), so confirm-and-stop first. Durable turns keep running; only the
-  // ephemeral activities are reaped.
-  const open = (next: Session): void => {
-    if (session && session.conversation.id !== next.conversation.id) {
-      const running = activityManager(service, session.conversation.id)?.runningCount() ?? 0;
+
+  const requestActivation = (request: TransitionRequest): void => {
+    if (transitionInFlight.current) return;
+    if (session) {
+      const running = runningActivities(service, session.conversation.id);
       if (running > 0) {
-        setPendingSwitch({ next, leavingId: session.conversation.id, running });
+        setPendingSwitch({ request, running });
         return;
       }
     }
-    commit(next);
+    void activate(request);
   };
+
   const resume = (id?: string): void => {
-    if (id) void loadSession(service, id).then(open);
+    if (id) requestActivation({ targetId: id as ConversationId });
     else setPicking(true);
   };
 
-  if (pendingSwitch) {
-    const { next, leavingId, running } = pendingSwitch;
-    const noun = running === 1 ? "activity" : "activities";
+  if (!session && picking) {
     return (
-      <Box>
-        <Text color="yellow">{`stop ${running} running ${noun} and switch? `}</Text>
-        <ConfirmInput
-          onConfirm={() => {
-            activityManager(service, leavingId)?.killAll();
-            // Cascade-stop the subagent tree (children + grandchildren) so none strand invisibly.
-            subagentsDefinition.stopTree(service, leavingId);
-            commit(next);
-          }}
-          onCancel={() => setPendingSwitch(null)}
+      <Box flexDirection="column">
+        {error ? <Text color="red">{error}</Text> : null}
+        <PickerScreen
+          service={service}
+          cwd={cwd}
+          onSelect={(id) => requestActivation({ targetId: id as ConversationId })}
+          onCancel={() => (session ? setPicking(false) : exit())}
         />
       </Box>
     );
   }
-  if (picking) {
-    return (
-      <PickerScreen
-        service={service}
-        cwd={cwd}
-        onSelect={(id) => void loadSession(service, id).then(open)}
-        onCancel={() => (session ? setPicking(false) : exit())}
+  if (!session) return transitioning ? <Spinner label={transitioning} /> : null;
+
+  const sessionOverlay = pendingSwitch ? (
+    <Box>
+      <Text color="yellow">
+        {`stop ${pendingSwitch.running} running ${pendingSwitch.running === 1 ? "activity" : "activities"} and ${pendingSwitch.request.targetId === session.conversation.id ? "reload" : "switch"}? `}
+      </Text>
+      <ConfirmInput
+        onConfirm={() => void activate(pendingSwitch.request)}
+        onCancel={() => setPendingSwitch(null)}
       />
-    );
-  }
-  if (!session) return null;
+    </Box>
+  ) : picking ? (
+    <PickerScreen
+      service={service}
+      cwd={cwd}
+      onSelect={(id) => requestActivation({ targetId: id as ConversationId })}
+      onCancel={() => setPicking(false)}
+    />
+  ) : undefined;
 
   return (
     <App
-      key={session.conversation.id} // remount on switch so the reducer re-seeds
+      key={`${session.conversation.id}:${generation}`}
       service={service}
       conversation={session.conversation}
       initialItems={session.items}
@@ -309,6 +386,12 @@ function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null
       cwd={session.conversation.workspaceRoot ?? cwd}
       launchCwd={cwd}
       onResume={resume}
+      onReload={(mutation) =>
+        requestActivation({ targetId: session.conversation.id, ...(mutation ? { mutation } : {}) })
+      }
+      {...(transitioning ? { transitioning } : {})}
+      {...(sessionOverlay ? { sessionOverlay } : {})}
+      {...(notice ? { notice } : {})}
       activities={makeActivities(service, session.conversation.id)}
     />
   );

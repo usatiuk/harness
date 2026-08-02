@@ -62,6 +62,8 @@ interface DispatchOutcome {
   completed: boolean;
 }
 
+export type DeactivationResult = { status: "busy" } | { status: "deactivated" };
+
 /** Result for a call abandoned or never started because the turn was aborted. */
 const interruptedResult = (): ToolResult => errorResult("interrupted: turn aborted by new input");
 
@@ -74,7 +76,7 @@ class TurnAborted extends Error {
 }
 
 /**
- * The control loop: one Engine per process drives many per-conversation Runtimes.
+ * The control loop: one Engine per process drives loaded per-conversation runtimes.
  * It branches only on model/tool outcomes, never on delivery intent (that mapping
  * lives in `delivery.ts`). A throwing turn fails only that turn — the drain loop
  * continues, so one conversation never crashes the process.
@@ -84,6 +86,7 @@ export class Engine {
   readonly #observers: { observer: Observer; scope?: ConversationId }[];
   readonly #runtimes = new Map<ConversationId, Runtime>();
   readonly #loading = new Map<ConversationId, Promise<Runtime>>();
+  #deactivating = false;
   /** Monotonic source for ephemeral request ids (process-local; not durable). */
   #requestSeq = 0;
 
@@ -122,7 +125,17 @@ export class Engine {
     input: DeliveryInput,
     intent: DeliveryIntent = "send",
   ): Promise<void> {
+    // Plugin completion notices may race teardown. They belong to the closing activation and must
+    // not recreate it; direct callers still receive an honest rejection for unaccepted input.
+    if (this.#deactivating) {
+      if (input.source.kind === "plugin") return;
+      throw new Error("cannot deliver input during conversation deactivation");
+    }
     const runtime = await this.#runtime(conversationId);
+    if (this.#deactivating) {
+      if (input.source.kind === "plugin") return;
+      throw new Error("cannot deliver input during conversation deactivation");
+    }
     applyDelivery(runtime, { input, intent });
     this.#emitInbox(runtime);
     this.#ensureRunning(runtime);
@@ -242,6 +255,73 @@ export class Engine {
   }
 
   /**
+   * Tears down the complete loaded runtime family. The root guard is checked synchronously before
+   * teardown starts, so a refused switch changes nothing. Once accepted, late plugin completion
+   * notices are ignored and every loaded runtime is discarded together. The production TUI ensures
+   * that set is one top-level conversation plus its descendants.
+   */
+  async deactivate(
+    rootConversationId: ConversationId,
+    options: { force?: boolean } = {},
+  ): Promise<DeactivationResult> {
+    if (this.#deactivating) throw new Error("conversation deactivation already in progress");
+    const root = this.#runtimes.get(rootConversationId);
+    if (!options.force && root && (root.running || root.inbox.length > 0)) {
+      return { status: "busy" };
+    }
+
+    this.#deactivating = true;
+    const errors: Error[] = [];
+    try {
+      // A prepare/deliver already past its first lookup belongs to this activation too.
+      await Promise.allSettled(this.#loading.values());
+      const runtimes = [...this.#runtimes.values()];
+
+      for (const runtime of runtimes) {
+        runtime.inbox.splice(0);
+        this.#emitInbox(runtime);
+        runtime.controller?.abort();
+      }
+      await Promise.all(runtimes.map((runtime) => runtime.whenIdle()));
+
+      // Providers are registered outside-in; dispose in reverse so orchestration/resources (for
+      // example activities) settle before the execution substrate they use is removed.
+      for (const provider of [...this.host.services.values()].reverse()) {
+        if (!provider.dispose) continue;
+        const settled = await Promise.allSettled(
+          runtimes
+            .filter((runtime) => runtime.services.has(provider.key))
+            .map((runtime) =>
+              Promise.resolve().then(() => provider.dispose!(runtime.services.get(provider.key))),
+            ),
+        );
+        for (const result of settled) {
+          if (result.status === "rejected") {
+            errors.push(
+              new Error(`${provider.key}: ${formatError(result.reason)}`, {
+                cause: result.reason,
+              }),
+            );
+          }
+        }
+      }
+
+      for (const runtime of runtimes) runtime.services.clear();
+      this.#runtimes.clear();
+      this.#loading.clear();
+      if (errors.length > 0) {
+        throw new AggregateError(
+          errors,
+          `conversation cleanup failed: ${errors.map((error) => error.message).join("; ")}`,
+        );
+      }
+      return { status: "deactivated" };
+    } finally {
+      this.#deactivating = false;
+    }
+  }
+
+  /**
    * Resolve a per-conversation plugin service for a client read (e.g. the TUI reading the
    * activity manager) — the same instance tools see via `ctx.service`. `undefined` when the
    * conversation has no live runtime yet or no plugin owns `key`; never loads a runtime.
@@ -297,6 +377,9 @@ export class Engine {
 
   /** Loads (and caches) the runtime, guarding against concurrent first-touch. */
   #runtime(conversationId: ConversationId): Promise<Runtime> {
+    if (this.#deactivating) {
+      return Promise.reject(new Error("cannot load a conversation during deactivation"));
+    }
     const existing = this.#runtimes.get(conversationId);
     if (existing) return Promise.resolve(existing);
     let loading = this.#loading.get(conversationId);

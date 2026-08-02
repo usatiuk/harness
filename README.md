@@ -62,10 +62,12 @@ The global setting (also configurable with `/sandbox`) is:
 }
 ```
 
-Sandbox configuration changes are saved globally and in the current conversation override, but
-execution backends remain cached for the life of the Harness process. Restart Harness to apply any
-backend, workspace-write, or network change. Selecting `native` then fails normally if `bwrap` is
-missing or cannot create namespaces; it never silently falls back to host execution.
+Sandbox configuration changes are saved globally and in the current conversation override, then
+Harness reloads that conversation so backend, workspace-write, and network changes apply
+immediately. A running foreground turn must finish or be interrupted first; live background work is
+confirmed and stopped by the reload. Selecting `native` then fails normally if `bwrap` is missing or
+cannot create namespaces; it never silently falls back to host execution. `/reload` performs the
+same clean reactivation without changing settings.
 
 Routine Native calls run inside Bubblewrap without approval. Harness-executed function tools can
 opt into explicit host escape with `executionFunctionTool`; their schema then exposes

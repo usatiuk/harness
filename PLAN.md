@@ -77,6 +77,8 @@ As of 2026-08-02, Harness provides:
 - An Ink TUI with streaming Markdown, verbose transcript, resume/rewind,
   model/effort selection, sandbox controls, activities, usage, cost, and context
   fill.
+- One active top-level TUI conversation whose complete runtime/subagent family is
+  disposed and rebuilt on switch or reload, including immediate sandbox changes.
 
 ## Subsystems
 

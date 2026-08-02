@@ -35,6 +35,7 @@ export class DockerExecutionContext implements ExecutionContext {
   #idleTimer: ReturnType<typeof setTimeout> | undefined;
   /** In-flight `spawn`s; an idle reap is deferred while any command is still running. */
   #inflight = 0;
+  #disposed = false;
   readonly #managedTools = new Set<string>();
 
   constructor(hostRoot: string | null, config: DockerSandboxConfig) {
@@ -232,12 +233,19 @@ export class DockerExecutionContext implements ExecutionContext {
     if (this.workspaceRoot) await stopSandbox(this.workspaceRoot);
   }
 
+  /** Permanently close this runtime-owned context and prevent any concurrent work from reviving it. */
+  async dispose(): Promise<void> {
+    this.#disposed = true;
+    await this.stop();
+  }
+
   /**
    * Throw the container away and provision a fresh one, streaming build progress. Backs `/sandbox
    * rebuild` to recover from a wedged or stale container: full `rm -f` teardown (re-runs postCreate),
    * then re-provision via the lazy `#ready` gate.
    */
   async rebuild(): Promise<void> {
+    if (this.#disposed) throw new Error("Docker execution context is disposed");
     await this.stop();
     await this.#ready();
   }
@@ -310,6 +318,7 @@ export class DockerExecutionContext implements ExecutionContext {
   }
 
   #ready(): Promise<Provisioned> {
+    if (this.#disposed) return Promise.reject(new Error("Docker execution context is disposed"));
     this.#touch(); // the common IO gate: every read/write/spawn resets the idle clock
     if (this.#provision) return this.#provision;
     const root = this.workspaceRoot;

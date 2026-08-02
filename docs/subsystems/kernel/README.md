@@ -3,9 +3,11 @@
 ## Status
 
 The kernel is a provider- and tool-neutral conversation engine implemented by
-`@harness/protocol`, `@harness/core`, and `@harness/service`. One `Engine` drives
-many conversation runtimes; each conversation has at most one active turn and
-one ordered inbox. The production CLI reaches it only through `HarnessService`.
+`@harness/protocol`, `@harness/core`, and `@harness/service`. One `Engine` may
+drive several loaded conversation runtimes, while each conversation has at most
+one active turn and one ordered inbox. The production TUI limits that loaded set
+to one top-level conversation plus its concurrent descendants and reaches it only
+through `HarnessService`.
 
 The kernel does not import providers, workspace tools, sandboxes, approval,
 activities, agents, or subagents. Those capabilities enter through plugins.
@@ -77,16 +79,19 @@ host interactions such as approval and may short-circuit before the UI transport
 
 ## State and ownership
 
-Per-conversation `Runtime` state is intentionally process-local: inbox entries,
-turn liveness, abort controller, pending requests, and lazily built plugin
-services. Durable conversation truth belongs to the store. A running turn holds a
-configuration snapshot; model or plugin configuration changes apply at the next
-turn boundary.
+Per-conversation `Runtime` state is intentionally process-local and discardable:
+inbox entries, turn liveness, abort controller, pending requests, and lazily built
+plugin services. Durable conversation truth belongs to the store. Runtime
+services are shared while loaded and optionally disposed in reverse provider
+order when the loaded set is deactivated. The production TUI performs that
+deactivation on switch/reload, so none of its conversation-local service
+instances survive. A running turn holds a configuration snapshot; ordinary
+model/plugin changes apply at the next turn boundary.
 
 `HarnessService` owns configuration resolution and presents the client API for
-conversation creation/load, delivery, responses, rewind, compaction, models,
-usage, events, plugin state, and per-conversation services. It contains no agent
-control loop of its own.
+conversation creation/load, family deactivation, delivery, responses, rewind,
+compaction, models, usage, events, plugin state, and per-conversation services.
+It contains no agent control loop of its own.
 
 ## Accepted invariants
 

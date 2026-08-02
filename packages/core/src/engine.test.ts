@@ -103,6 +103,111 @@ function setup(steps: FakeStep[], plugin?: Partial<Plugin>, existingStore?: InMe
 }
 
 describe("Engine — turn cycle", () => {
+  it("refuses idle-required deactivation while the root turn is running", async () => {
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    const provider = new GateProvider("partial");
+    const engine = new Engine(
+      store,
+      new PluginHost([{ id: "fake", providers: () => [provider] }]),
+      testConfigResolver(),
+    );
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+
+    await engine.deliver(conv.id, userInput("hello"));
+    await provider.started;
+    await expect(engine.deactivate(conv.id)).resolves.toEqual({ status: "busy" });
+
+    provider.release();
+    await engine.whenIdle(conv.id);
+    expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:hello", "assistant:partial"]);
+  });
+
+  it("force-deactivates a running family and discards queued input", async () => {
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    const provider = new GateProvider("partial");
+    const engine = new Engine(
+      store,
+      new PluginHost([{ id: "fake", providers: () => [provider] }]),
+      testConfigResolver(),
+    );
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+
+    await engine.deliver(conv.id, userInput("first"));
+    await provider.started;
+    await engine.deliver(conv.id, userInput("queued"), "queue");
+    await expect(engine.deactivate(conv.id, { force: true })).resolves.toEqual({
+      status: "deactivated",
+    });
+
+    expect(userTexts(await store.listItems(conv.id))).toEqual(["first"]);
+    expect(await store.getActiveTurn(conv.id)).toBeUndefined();
+  });
+
+  it("deactivates running descendants when the top-level root is idle", async () => {
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    const provider = new GateProvider("child partial");
+    const engine = new Engine(
+      store,
+      new PluginHost([{ id: "fake", providers: () => [provider] }]),
+      testConfigResolver(),
+    );
+    const root = await store.createConversation(newConversationInput(CONFIG));
+    const child = await store.createConversation(newConversationInput(CONFIG));
+    await engine.prepare(root.id);
+    await engine.deliver(child.id, userInput("work"));
+    await provider.started;
+
+    await expect(engine.deactivate(root.id)).resolves.toEqual({
+      status: "deactivated",
+    });
+
+    expect(await store.getActiveTurn(child.id)).toBeUndefined();
+  });
+
+  it("rejects user input but drops stale plugin notices while teardown is in progress", async () => {
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    let release!: () => void;
+    let started!: () => void;
+    const disposing = new Promise<void>((resolve) => (release = resolve));
+    const disposalStarted = new Promise<void>((resolve) => (started = resolve));
+    const engine = new Engine(
+      store,
+      new PluginHost([
+        {
+          id: "fake",
+          providers: () => [new FakeProvider([])],
+          services: () => [
+            {
+              key: "execution",
+              for: () => ({}),
+              dispose: async () => {
+                started();
+                await disposing;
+              },
+            },
+          ],
+        },
+      ]),
+      testConfigResolver(),
+    );
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.prepare(conv.id);
+
+    const closing = engine.deactivate(conv.id);
+    await disposalStarted;
+    await expect(engine.deliver(conv.id, userInput("late"))).rejects.toThrow(
+      "cannot deliver input during conversation deactivation",
+    );
+    await expect(
+      engine.deliver(conv.id, {
+        source: { kind: "plugin", pluginId: "activity" },
+        content: [{ type: "text", text: "done" }],
+      }),
+    ).resolves.toBeUndefined();
+    release();
+    await expect(closing).resolves.toEqual({ status: "deactivated" });
+  });
+
   it("runs a tool-shaped turn end to end", async () => {
     const { store, engine, events } = setup([
       toolStep("call1", "echo", { x: 1 }),

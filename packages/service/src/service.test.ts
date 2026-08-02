@@ -70,6 +70,104 @@ describe("HarnessService", () => {
     expect(scoped.every((e) => conversationOf(e) === a.id)).toBe(true);
   });
 
+  it("disposes runtime services in reverse registration order and rebuilds them on reload", async () => {
+    const store = new InMemoryStore();
+    const disposed: string[] = [];
+    let builds = 0;
+    const service = new HarnessService({
+      store,
+      home: "/nonexistent-harness-home",
+      plugins: [
+        { id: "fake", providers: () => [new FakeProvider([])] },
+        {
+          id: "execution-owner",
+          services: () => [
+            {
+              key: "execution",
+              for: () => ({ id: ++builds }),
+              dispose: () => {
+                disposed.push("execution");
+              },
+            },
+          ],
+        },
+        {
+          id: "activity-owner",
+          services: () => [
+            {
+              key: "activities",
+              for: () => ({ id: ++builds }),
+              dispose: () => {
+                disposed.push("activities");
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const conv = await service.createConversation({
+      overrides: { instructions: "", model: { provider: "fake", model: "fake-1" } },
+    });
+
+    await service.prepare(conv.id);
+    const firstExecution = service.service(conv.id, "execution");
+    service.service(conv.id, "activities");
+    await expect(service.deactivateSession(conv.id)).resolves.toEqual({
+      status: "deactivated",
+    });
+    expect(disposed).toEqual(["activities", "execution"]);
+
+    await service.prepare(conv.id);
+    expect(service.service(conv.id, "execution")).not.toBe(firstExecution);
+  });
+
+  it("reports cleanup failures after disposing the remaining services", async () => {
+    const store = new InMemoryStore();
+    const disposed: string[] = [];
+    const service = new HarnessService({
+      store,
+      home: "/nonexistent-harness-home",
+      plugins: [
+        { id: "fake", providers: () => [new FakeProvider([])] },
+        {
+          id: "one",
+          services: () => [
+            {
+              key: "execution",
+              for: () => ({}),
+              dispose: () => {
+                disposed.push("execution");
+              },
+            },
+          ],
+        },
+        {
+          id: "two",
+          services: () => [
+            {
+              key: "activities",
+              for: () => ({}),
+              dispose: () => {
+                throw new Error("stuck");
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const conv = await service.createConversation({
+      overrides: { instructions: "", model: { provider: "fake", model: "fake-1" } },
+    });
+    await service.prepare(conv.id);
+    service.service(conv.id, "activities");
+
+    await expect(service.deactivateSession(conv.id)).rejects.toThrow(
+      "conversation cleanup failed: activities: Error: stuck",
+    );
+    expect(disposed).toEqual(["execution"]);
+    await expect(service.prepare(conv.id)).resolves.toBeUndefined();
+  });
+
   it("resumes a conversation from the store in a fresh service and continues it", async () => {
     const store = new InMemoryStore();
 

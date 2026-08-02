@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ConfigReader, Conversation } from "@harness/protocol";
 import { LocalExecutionContext } from "@harness/execution";
 import { sandboxConfigSchema, sandboxPlugin } from "./plugin.ts";
@@ -50,5 +50,15 @@ describe("sandboxPlugin execution provider", () => {
         idleTimeoutMinutes: 10,
       },
     });
+  });
+
+  it("removes a Docker substrate when its runtime is disposed", async () => {
+    const provider = sandboxPlugin.create(readerStub).services!()[0]!;
+    const execution = provider.for(conv({ backend: "docker" })) as DockerExecutionContext;
+    const dispose = vi.spyOn(execution, "dispose").mockResolvedValue();
+
+    await provider.dispose!(execution);
+
+    expect(dispose).toHaveBeenCalledOnce();
   });
 });

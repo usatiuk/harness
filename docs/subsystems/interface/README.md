@@ -32,8 +32,8 @@ opaque after central validation.
 
 Conversation records persist workspace root and overrides. Resolved configuration
 is derived again on load. Model and plugin changes update the conversation's top
-layer and may also update global defaults. A loaded execution backend remains
-cached until process restart even when its settings change.
+layer and may also update global defaults. Sandbox changes deactivate and reload
+the current conversation so its execution backend is rebuilt immediately.
 
 Named profiles exist in the resolver/schema, but the current CLI does not expose a
 profile-selection workflow.
@@ -52,19 +52,21 @@ back to plaintext.
 
 ## Session lifecycle
 
-The CLI can create a conversation, resume by id, or open the resume picker. A new
-conversation records its canonical workspace root and resolved overrides. Empty
-conversations created by the current process are removed on exit; non-empty
-history remains durable.
+The CLI can create a conversation, resume by id, reload the current id, or open
+the resume picker. It owns exactly one active top-level conversation plus that
+conversation's subagent runtimes. A new conversation records its canonical
+workspace root and resolved overrides. Empty conversations created by the current
+process are removed on exit; non-empty history remains durable.
 
-Switching sessions prompts when the current conversation has tracked background
-activities and stops its live subagent tree before leaving. An ordinary active
-turn is not counted by that prompt and may continue after the TUI switches away.
-Process shutdown terminates tracked activities and subagents but does not stop
-Docker containers; use the explicit sandbox stop command. Idle teardown applies
-only while the owning Harness process remains alive. Resuming rebuilds the
-transcript from the active item chain and usage rows, then prepares the
-conversation's execution service.
+A running or queued root turn blocks switching and reload without changing any
+state. When the root is idle but its runtime family has background work, the TUI
+confirms before proceeding. An accepted transition closes the whole family to
+new input, aborts descendants, discards queued work, awaits settlement, disposes
+activities and execution resources, clears ephemeral registries, and only then
+loads the target. Docker containers are stopped and removed. Same-id reload uses
+an activation generation to rebuild the transcript, resolved config,
+instructions, and services. Process exit uses the same cleanup with forced root
+cancellation.
 
 ## TUI model
 
@@ -93,7 +95,7 @@ content is coherent rather than layered over prior output.
 
 The composer provides multiline input, cross-session history, command completion,
 model/effort selection, delivery intents, approval prompts, and overlays for
-resume, activities, models, and sandbox configuration. `!command` uses the same
+resume/reload, activities, models, and sandbox configuration. `!command` uses the same
 prepared execution backend as model-issued commands.
 
 ## Client boundary
@@ -114,8 +116,8 @@ client.
 - The TUI renders canonical items/events and never decides agent control flow.
 - A configured provider/backend failure is visible; fallbacks are explicit
   product choices, not silent recovery.
-- Session switching stops live subagent descendants; process shutdown also stops
-  tracked activities.
+- Session switching/reload never overlaps two top-level runtime families and
+  disposes all ephemeral work/resources owned by the previous activation.
 - Terminal scrollback remains usable during long streaming output.
 
 ## Source map

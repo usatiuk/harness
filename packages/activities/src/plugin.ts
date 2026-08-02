@@ -1,6 +1,5 @@
 import type {
   Conversation,
-  ConversationId,
   ModelMiddleware,
   Plugin,
   ServiceProvider,
@@ -11,23 +10,17 @@ import { ActivityManager } from "./manager.ts";
 import { backgroundInjectMiddleware, consumeMiddleware } from "./consume.ts";
 import { ActivityKillTool, ActivityListTool, ActivityPeekTool, ActivityWaitTool } from "./tools.ts";
 
-/** Owns the per-conversation `ActivityManager`s, the consumption middleware pair, and the `activity_*` tools. */
+/** Contributes runtime-owned activity managers, consumption middleware, and `activity_*` tools. */
 class ActivitiesPlugin implements Plugin {
   readonly id = "activities";
-  readonly #managers = new Map<ConversationId, ActivityManager>();
-
-  #managerFor(id: ConversationId): ActivityManager {
-    let manager = this.#managers.get(id);
-    if (!manager) {
-      manager = new ActivityManager(id);
-      this.#managers.set(id, manager);
-    }
-    return manager;
-  }
 
   services(): ServiceProvider[] {
     return [
-      { key: "activities", for: (conversation: Conversation) => this.#managerFor(conversation.id) },
+      {
+        key: "activities",
+        for: (conversation: Conversation) => new ActivityManager(conversation.id),
+        dispose: (service) => (service as ActivityManager).dispose(),
+      },
     ];
   }
 
@@ -46,11 +39,6 @@ class ActivitiesPlugin implements Plugin {
       new ActivityListTool(),
       new ActivityKillTool(),
     ];
-  }
-
-  /** Shutdown sweep: terminate every tracked activity across all conversations (CLI exit). */
-  shutdownAll(): void {
-    for (const manager of this.#managers.values()) manager.killAll();
   }
 }
 

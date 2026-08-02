@@ -20,6 +20,7 @@ import {
   type Usage,
 } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
+import { ActivityManager, type ActivityResult } from "@harness/activities";
 import { LocalExecutionContext, type ExecutionContext } from "@harness/execution";
 import {
   DockerExecutionContext,
@@ -53,8 +54,21 @@ export interface AppProps {
   launchCwd: string;
   /** Switch conversation (id resumes directly; omitted opens the picker). */
   onResume: (id?: string) => void;
+  /** Reload this conversation, optionally applying a mutation between teardown and activation. */
+  onReload: (mutation?: SessionMutation) => void;
+  /** Disables input while the session owner tears down or activates a runtime family. */
+  transitioning?: string;
+  /** Resume/confirmation UI owned by the session root while this App stays subscribed. */
+  sessionOverlay?: ReactNode;
+  /** A session-owner message that must survive an App remount. */
+  notice?: { id: number; text: string };
   /** Live activity output/kill handles for this conversation (list/count come from events). */
   activities: ActivitiesView;
+}
+
+export interface SessionMutation {
+  apply(): Promise<void>;
+  success: string;
 }
 
 /** Identify the execution backend that is actually cached for this conversation. */
@@ -148,6 +162,10 @@ export function App({
   cwd,
   launchCwd,
   onResume,
+  onReload,
+  transitioning,
+  sessionOverlay,
+  notice,
   activities,
 }: AppProps): ReactElement {
   const { exit } = useApp();
@@ -215,6 +233,10 @@ export function App({
     [service, conversation.id],
   );
 
+  useEffect(() => {
+    if (notice) dispatch({ type: "note", id: `session-note-${notice.id}`, text: notice.text });
+  }, [notice]);
+
   // Resuming a conversation rooted elsewhere: commands run in its workspace, not your cwd.
   useEffect(() => {
     if (cwd !== launchCwd) {
@@ -228,6 +250,7 @@ export function App({
 
   // Esc closes an open picker, else interrupts a running turn (also cancels a parked request).
   useInput((input, key) => {
+    if (transitioning || sessionOverlay) return;
     if (key.ctrl && input === "o") {
       // Clear the frozen scrollback before reprinting — see `staticEpoch` for the why.
       stdout?.write(CLEAR_SCREEN_AND_SCROLLBACK);
@@ -262,26 +285,52 @@ export function App({
     const id = `shell-${++noteId.current}`;
     dispatch({ type: "shell-start", id, command });
     const proc = ex.spawn(command);
+    const done = proc.exit.then(
+      ({ code, signal, error }): ActivityResult => ({
+        status: error || signal || code === null || code !== 0 ? "error" : "ok",
+        summary: error
+          ? `local command failed to start: ${error.message}`
+          : signal
+            ? `local command killed (${signal})`
+            : `local command exited ${code ?? 0}`,
+        view: [],
+      }),
+    );
+    const manager = service.service(conversation.id, "activities");
+    if (manager instanceof ActivityManager) {
+      manager.track(
+        {
+          id,
+          kind: "shell",
+          title: command,
+          peek: () => [],
+          kill: () => proc.kill(),
+          done,
+        },
+        { callId: id, emit: () => {} },
+      );
+    }
     proc.onData((chunk) => dispatch({ type: "shell-delta", id, text: chunk }));
     report(proc.exit.then(({ code }) => dispatch({ type: "shell-end", id, exitCode: code ?? 0 })));
   };
 
-  // The live backend is fixed for this process. Configuration actions update both the global
-  // default and this conversation's durable override, taking effect after Harness restarts.
+  // Configuration changes go through the session owner so teardown happens before persistence and
+  // the same conversation is freshly activated with the new backend.
   const sandboxView: SandboxView = useMemo(() => {
     const dockerCtx = (): DockerExecutionContext | undefined => {
       const ex = service.service(conversation.id, "execution");
       return ex instanceof DockerExecutionContext ? ex : undefined;
     };
     const save = (patch: Record<string, unknown>, label: string): void => {
-      void service.setPluginConfig(conversation.id, "sandbox", patch, { saveGlobal: true }).then(
-        () => note(`${label} saved — restart Harness to apply`),
-        (e: unknown) => note(`sandbox change failed: ${String(e)}`),
-      );
+      if (busy) return note("wait for or interrupt the current turn before changing the sandbox");
+      onReload({
+        apply: () =>
+          service.setPluginConfig(conversation.id, "sandbox", patch, { saveGlobal: true }),
+        success: label,
+      });
     };
     return {
-      activeBackend: activeSandboxBackend,
-      configuredBackend: sandboxConfig.backend,
+      backend: activeSandboxBackend,
       workspaceWrite: sandboxConfig.native.workspaceWrite,
       network: sandboxConfig.native.network,
       containerActive: dockerCtx()?.isProvisioned() ?? false,
@@ -314,11 +363,12 @@ export function App({
     service,
     conversation.id,
     activeSandboxBackend,
-    sandboxConfig.backend,
     sandboxConfig.native.workspaceWrite,
     sandboxConfig.native.network,
     state.sandbox?.phase,
     note,
+    busy,
+    onReload,
   ]);
 
   // Memoized so the composer's completion menu, keyed on `ctx`, doesn't recompute on every
@@ -333,7 +383,10 @@ export function App({
       config,
       note,
       clear: () => dispatch({ type: "clear" }),
-      resume: onResume,
+      resume: (id) =>
+        busy ? note("wait for or interrupt the current turn before switching") : onResume(id),
+      reload: () =>
+        busy ? note("wait for or interrupt the current turn before reloading") : onReload(),
       pickModel: () => setModelPicking(true),
       pickEffort: () => setEffortPicking(true),
       showActivities: () => setShowActivities(true),
@@ -341,10 +394,23 @@ export function App({
       sandbox: sandboxView,
       exit,
     }),
-    [service, conversation.id, cwd, model, config, note, onResume, exit, sandboxView],
+    [
+      service,
+      conversation.id,
+      cwd,
+      model,
+      config,
+      note,
+      onResume,
+      onReload,
+      busy,
+      exit,
+      sandboxView,
+    ],
   );
 
   const submit = (raw: string): void => {
+    if (transitioning) return;
     const line = raw.trim();
     if (line === "") return;
     if (line.startsWith("/")) {
@@ -380,7 +446,11 @@ export function App({
         </Static>
         <LiveViewport>
           {live.map(renderEntry)}
-          {pending ? (
+          {sessionOverlay ? (
+            sessionOverlay
+          ) : transitioning ? (
+            <Spinner label={transitioning} />
+          ) : pending ? (
             <Box>
               <Text color="magenta">{`❓ ${pending.summary} `}</Text>
               <ConfirmInput

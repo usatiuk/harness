@@ -16,13 +16,13 @@ const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   note: vi.fn(),
   clear: vi.fn(),
   resume: vi.fn(),
+  reload: vi.fn(),
   pickModel: vi.fn(),
   pickEffort: vi.fn(),
   showActivities: vi.fn(),
   showSandbox: vi.fn(),
   sandbox: {
-    activeBackend: "local",
-    configuredBackend: "local",
+    backend: "local",
     workspaceWrite: true,
     network: true,
     containerActive: false,
@@ -46,6 +46,12 @@ describe("runCommand", () => {
 
   it("returns false for an unknown command", () => {
     expect(runCommand("/nope", makeCtx())).toBe(false);
+  });
+
+  it("/reload asks the session owner to reactivate the current conversation", () => {
+    const ctx = makeCtx();
+    expect(runCommand("/reload", ctx)).toBe(true);
+    expect(ctx.reload).toHaveBeenCalledOnce();
   });
 
   it("/help writes a note listing the commands", () => {

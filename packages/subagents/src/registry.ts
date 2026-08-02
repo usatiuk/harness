@@ -31,10 +31,8 @@ export async function depthOf(
 }
 
 /**
- * Live in-memory parent→children index for cascade-stop. Settled children are kept (interrupting an
- * idle conversation is a no-op) so the cascade never misses a descendant; nothing to rebuild on reload,
- * since only running conversations need interrupting and none are running yet. `plugin_state` parentage
- * remains the inspection source of truth, not this map.
+ * Activation-local parent→children index used to inspect the active family. Settled children remain
+ * until session teardown; durable `plugin_state` parentage is the long-term inspection source.
  */
 export class SubagentRegistry {
   readonly #children = new Map<ConversationId, Set<ConversationId>>();
@@ -47,6 +45,11 @@ export class SubagentRegistry {
       this.#children.set(parent, set);
     }
     set.add(child);
+  }
+
+  /** Forget the completed active session; durable spawn marks remain available for inspection. */
+  clear(): void {
+    this.#children.clear();
   }
 
   /** All live descendants of `root` (children, grandchildren, …), BFS order, excluding `root`. */
@@ -66,28 +69,5 @@ export class SubagentRegistry {
       }
     }
     return out;
-  }
-
-  /** Interrupt every live descendant of `root` (cascade-stop on switch). */
-  async stopTree(runner: ConversationRunner, root: ConversationId): Promise<void> {
-    await this.#drain(runner, this.descendantsOf(root));
-  }
-
-  /** Interrupt every live subagent across all parents (cascade-stop on exit). */
-  async stopAll(runner: ConversationRunner): Promise<void> {
-    const ids = new Set<ConversationId>();
-    for (const set of this.#children.values()) for (const id of set) ids.add(id);
-    await this.#drain(runner, [...ids]);
-  }
-
-  /**
-   * Deliver interrupts, then await settlement. `deliver` resolves once an interrupt is accepted,
-   * not once the turn unwinds — so the `updateTurn(…/"aborted")` write that ends the turn is still
-   * in flight when it returns. Awaiting `whenIdle` is what keeps that write ahead of `store.close()`
-   * (without it, Ctrl-C with running subagents crashes: "The database connection is not open").
-   */
-  async #drain(runner: ConversationRunner, ids: readonly ConversationId[]): Promise<void> {
-    await Promise.all(ids.map((id) => runner.deliver(id, "", "interrupt")));
-    await Promise.all(ids.map((id) => runner.whenIdle(id)));
   }
 }

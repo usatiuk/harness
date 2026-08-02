@@ -5,7 +5,6 @@ import type {
   ConversationId,
   ConversationOverrides,
   ConversationRunner,
-  DeliveryIntent,
   HarnessEvent,
   Item,
   ItemId,
@@ -41,12 +40,8 @@ const record = (cid: ConversationId, overrides: ConversationOverrides): Conversa
 interface FakeRunner extends ConversationRunner {
   /** Created child conversations, in creation order (last is the most recent spawn). */
   created: Conversation[];
-  /** Every deliver(id, text, intent), to assert cascade-stop interrupts. */
-  deliveries: { id: ConversationId; text: string; intent: DeliveryIntent }[];
   /** Settle a child's turn: emit an assistant message + completed (mirrors the real async turn end). */
   release(cid: ConversationId, response: string): void;
-  /** Each `whenIdle` call, to prove cascade-stop awaits settlement (not just deliver). */
-  whenIdleCalls: ConversationId[];
 }
 
 /**
@@ -57,8 +52,6 @@ interface FakeRunner extends ConversationRunner {
  */
 function fakeRunner(): FakeRunner {
   const created: Conversation[] = [];
-  const deliveries: FakeRunner["deliveries"] = [];
-  const whenIdleCalls: ConversationId[] = [];
   const listeners = new Map<ConversationId, Set<(e: HarnessEvent) => void>>();
   const state = new Map<string, unknown>();
   // A child's turn is "running" once `send` is accepted, until it settles (release=completed,
@@ -92,8 +85,6 @@ function fakeRunner(): FakeRunner {
   });
   return {
     created,
-    deliveries,
-    whenIdleCalls,
     release(cid, response) {
       emit(cid, { type: "message", conversationId: cid, item: msg(cid, response) });
       emit(cid, {
@@ -110,7 +101,6 @@ function fakeRunner(): FakeRunner {
       return child;
     },
     async deliver(cid, text, intent) {
-      deliveries.push({ id: cid, text, intent });
       if (intent === "interrupt") {
         emit(cid, {
           type: "turn.status",
@@ -131,7 +121,6 @@ function fakeRunner(): FakeRunner {
       return () => set.delete(listener);
     },
     whenIdle(cid) {
-      whenIdleCalls.push(cid);
       if (!running.has(cid)) return Promise.resolve();
       return new Promise((resolve) => {
         let waiters = idleWaiters.get(cid);
@@ -312,47 +301,6 @@ describe("depthOf", () => {
     });
     expect(await depthOf(runner, id("c"), 5)).toBe(2);
     expect(await depthOf(runner, id("a"), 5)).toBe(0); // top-level: no spawn mark
-  });
-});
-
-describe("SubagentRegistry — cascade-stop", () => {
-  it("interrupts every live descendant of a parent, not the parent itself", async () => {
-    const runner = fakeRunner();
-    const registry = new SubagentRegistry();
-    registry.track(id("a"), id("b"));
-    registry.track(id("b"), id("c")); // grandchild
-    registry.track(id("c"), id("d")); // great-grandchild
-
-    await registry.stopTree(runner, id("a"));
-
-    const interrupted = runner.deliveries;
-    expect(interrupted.map((d) => d.id).sort()).toEqual(["b", "c", "d"]);
-    expect(interrupted.every((d) => d.intent === "interrupt" && d.text === "")).toBe(true);
-  });
-
-  it("stopAll awaits each descendant's settlement, not just the interrupt (exit-race fix)", async () => {
-    const runner = fakeRunner();
-    const registry = new SubagentRegistry();
-    registry.track(id("a"), id("b"));
-    registry.track(id("a"), id("c"));
-    await registry.stopAll(runner);
-    expect(
-      runner.deliveries
-        .filter((d) => d.intent === "interrupt")
-        .map((d) => d.id)
-        .sort(),
-    ).toEqual(["b", "c"]);
-    // `whenIdle` was awaited for each — the settling `updateTurn` write must land before a close.
-    expect(runner.whenIdleCalls).toEqual(expect.arrayContaining([id("b"), id("c")]));
-  });
-
-  it("stopAll interrupts every live subagent across parents", async () => {
-    const runner = fakeRunner();
-    const registry = new SubagentRegistry();
-    registry.track(id("a"), id("b"));
-    registry.track(id("x"), id("y"));
-    await registry.stopAll(runner);
-    expect(runner.deliveries.map((d) => d.id).sort()).toEqual(["b", "y"]);
   });
 });
 

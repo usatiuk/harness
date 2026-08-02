@@ -98,7 +98,7 @@ streaming, resume, verbose mode, or terminal scrollback.
 
 ## Remaining gaps
 
-- Conversation switching still permits an ordinary active turn to continue, and
-  resume does not provide an atomic snapshot/event handoff. This existing
-  lifecycle policy is intentionally outside this transcript presentation change.
+- The conversation-switch lifecycle gap was resolved by the later
+  [single active conversation lifecycle](../cross-cutting/2026-08-02-single-active-conversation.md)
+  change.
 - The pre-existing `/clear`/Ink `Static` lifecycle issue remains outside scope.

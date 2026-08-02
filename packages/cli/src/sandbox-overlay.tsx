@@ -4,10 +4,8 @@ import type { SandboxBackend, SandboxPhase } from "@harness/sandbox";
 
 /** Imperative handles + state snapshot the overlay renders; actions report their result via notes. */
 export interface SandboxView {
-  /** Execution backend actually cached for this conversation in the current process. */
-  activeBackend: SandboxBackend;
-  /** Persisted choice that will take effect after Harness restarts. */
-  configuredBackend: SandboxBackend;
+  /** Execution backend active for this loaded conversation. */
+  backend: SandboxBackend;
   workspaceWrite: boolean;
   network: boolean;
   /** Whether a container is provisioned right now (vs. not yet started, or stopped). */
@@ -36,7 +34,7 @@ export function SandboxOverlay({
     if (key.escape || input === "q") return onClose();
     if (input === "b") {
       const backends: SandboxBackend[] = ["local", "native", "docker"];
-      const current = backends.indexOf(view.configuredBackend);
+      const current = backends.indexOf(view.backend);
       view.setBackend(backends[(current + 1) % backends.length]!);
     } else if (input === "w") view.setWorkspaceWrite(!view.workspaceWrite);
     else if (input === "n") view.setNetwork(!view.network);
@@ -47,8 +45,7 @@ export function SandboxOverlay({
   return (
     <Box flexDirection="column">
       <Text bold>Sandbox</Text>
-      <Text dimColor>{`this conversation: ${view.activeBackend}`}</Text>
-      <Text dimColor>{`configured after restart: ${view.configuredBackend}`}</Text>
+      <Text dimColor>{`this conversation: ${view.backend}`}</Text>
       <Text dimColor>{`native workspace write: ${yn(view.workspaceWrite)}`}</Text>
       <Text dimColor>{`native network: ${yn(view.network)}`}</Text>
       <Text dimColor>{`Docker container running: ${yn(view.containerActive)}`}</Text>
@@ -57,7 +54,6 @@ export function SandboxOverlay({
       <Text dimColor>
         b backend · w workspace write · n network · r rebuild · s stop · esc close
       </Text>
-      <Text dimColor>configuration changes require restarting Harness</Text>
     </Box>
   );
 }

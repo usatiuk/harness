@@ -16,7 +16,7 @@ import type {
   Store,
 } from "@harness/protocol";
 import { isPluginDefinition } from "@harness/protocol";
-import { Engine, PluginHost } from "@harness/core";
+import { Engine, PluginHost, type DeactivationResult } from "@harness/core";
 import {
   defaultHome,
   resolveSettings,
@@ -173,6 +173,17 @@ export class HarnessService implements ConversationRunner {
   /** Resolves when the conversation has no running or queued work. */
   whenIdle(conversationId: ConversationId): Promise<void> {
     return this.#engine.whenIdle(conversationId);
+  }
+
+  /**
+   * Releases the active top-level conversation and every loaded descendant runtime. By default an
+   * active/queued root is left untouched; process shutdown may force cancellation.
+   */
+  deactivateSession(
+    rootConversationId: ConversationId,
+    options: { force?: boolean } = {},
+  ): Promise<DeactivationResult> {
+    return this.#engine.deactivate(rootConversationId, options);
   }
 
   /** Aggregate model catalog across registered providers. */

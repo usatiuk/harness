@@ -19,7 +19,7 @@ export const dockerSandboxConfigSchema = z.strictObject({
 });
 export type DockerSandboxConfig = z.infer<typeof dockerSandboxConfigSchema>;
 
-/** Config under `plugins.sandbox`; backend changes take effect on new/load. */
+/** Config under `plugins.sandbox`; backend changes take effect on activation/reload. */
 export const sandboxConfigSchema = z.strictObject({
   backend: z.enum(["local", "native", "docker"]).default("local"),
   native: nativeSandboxConfigSchema.default({ workspaceWrite: true, network: true }),
@@ -34,7 +34,7 @@ export type SandboxBackend = SandboxConfig["backend"];
 
 /**
  * Owns the host-wide `"execution"` service key and chooses Local, native Bubblewrap, or Docker from
- * the conversation's resolved configuration. The service remains fixed for a loaded conversation.
+ * the conversation's resolved configuration. The service remains fixed within one activation.
  */
 export const sandboxPlugin: PluginDefinition = {
   id: "sandbox",
@@ -58,6 +58,8 @@ export const sandboxPlugin: PluginDefinition = {
                 return new DockerExecutionContext(conversation.workspaceRoot, config.docker);
             }
           },
+          dispose: (service) =>
+            service instanceof DockerExecutionContext ? service.dispose() : undefined,
         },
       ],
     };

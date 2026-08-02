@@ -1,7 +1,6 @@
 import type { ZodType } from "zod";
 import type {
   ConfigReader,
-  ConversationId,
   ConversationRunner,
   ModelMiddleware,
   Plugin,
@@ -121,14 +120,9 @@ export class SubagentsDefinition implements PluginDefinition {
     return this.#runner;
   }
 
-  /** Cascade-stop: interrupt every live subagent and await settlement (CLI exit). */
-  async shutdownAll(): Promise<void> {
-    if (this.#runner) await this.registry.stopAll(this.#runner);
-  }
-
-  /** Cascade-stop: interrupt a conversation's live descendants (switching away from a parent). */
-  stopTree(runner: ConversationRunner, parent: ConversationId): void {
-    void this.registry.stopTree(runner, parent);
+  /** Drop process-local parentage after the engine has deactivated the complete runtime family. */
+  resetSession(): void {
+    this.registry.clear();
   }
 }
 

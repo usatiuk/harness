@@ -22,12 +22,14 @@ export interface ContextSource {
 /**
  * Builds a per-conversation service a plugin hangs off `ctx.service(key)` — the single
  * mechanism for per-conversation plugin substrate (the execution backend is one, keyed
- * `"execution"`). The kernel calls `for`, caches the result per (conversation, key), and
- * never inspects it; tools narrow the opaque value with a typed accessor.
+ * `"execution"`). The kernel calls `for`, caches the result for the loaded runtime, and
+ * never inspects it; tools narrow the opaque value with a typed accessor. A provider that owns
+ * live resources may dispose its value when that runtime family is deactivated.
  */
 export interface ServiceProvider {
   readonly key: string;
   for(conversation: Conversation): unknown;
+  dispose?(service: unknown): void | Promise<void>;
 }
 
 /** Read-only event subscriber. The only fan-out; must never mutate state. */

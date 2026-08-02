@@ -8,8 +8,8 @@ export interface Delivery {
 
 /**
  * Per-conversation in-memory state — the authority on turn liveness while the
- * process is alive (the store's persisted status is not). The Engine owns the loop
- * logic; this is just data. One Engine drives many Runtimes.
+ * process is alive (the store's persisted status is not). The Engine owns the loop logic; this is
+ * just data. The production TUI limits loaded runtimes to one root and its descendants.
  */
 export class Runtime {
   #conversation: Conversation;
@@ -25,7 +25,7 @@ export class Runtime {
   currentTurnId: TurnId | undefined;
   /** The in-flight turn's abort handle; present only while a turn runs. */
   controller: AbortController | undefined;
-  /** Per-conversation plugin services hung off `ctx.service(key)`, built lazily per key. Never durable. */
+  /** Activation-local plugin services hung off `ctx.service(key)`, built lazily per key. */
   readonly services = new Map<string, unknown>();
   /**
    * In-flight `ctx.request` calls awaiting a `respond`, keyed by requestId.

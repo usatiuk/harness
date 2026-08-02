@@ -125,24 +125,38 @@ describe("ActivityManager — surface a completion exactly once", () => {
     expect(mgr.runningCount()).toBe(1);
   });
 
-  it("never kills settled activities directly or during shutdown", async () => {
+  it("never kills settled activities directly", async () => {
     const mgr = new ActivityManager("c" as ConversationId);
     let settledKills = 0;
-    let runningKills = 0;
     const settled = fakeActivity("done");
-    const running = fakeActivity("live");
     settled.activity.kill = () => settledKills++;
-    running.activity.kill = () => runningKills++;
     mgr.track(settled.activity, { callId: "done-call", emit: () => {} });
-    mgr.track(running.activity, { callId: "live-call", emit: () => {} });
     settled.settle({ status: "ok", summary: "done", view: [] });
     await tick();
 
     expect(mgr.kill("done")).toBe("settled");
     expect(mgr.kill("missing")).toBe("unknown");
-    mgr.killAll();
     expect(settledKills).toBe(0);
-    expect(runningKills).toBe(1);
+  });
+
+  it("disposes live activities, waits for settlement, and suppresses completion delivery", async () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    const live = fakeActivity("live");
+    let kills = 0;
+    live.activity.kill = () => {
+      kills++;
+      live.settle({ status: "error", summary: "killed", view: [] });
+    };
+    const notices: ContentBlock[][] = [];
+    mgr.track(live.activity, { callId: "live-call", emit: () => {} });
+    mgr.notifyOnExit(live.activity.id, (content) => notices.push(content));
+
+    await mgr.dispose();
+    await tick();
+
+    expect(kills).toBe(1);
+    expect(notices).toEqual([]);
+    await expect(mgr.dispose()).resolves.toBeUndefined();
   });
 });
 

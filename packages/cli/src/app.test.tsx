@@ -1,14 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
-import type { Conversation, HarnessEvent, Item } from "@harness/protocol";
+import type { Conversation, ConversationId, HarnessEvent, Item } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
-import { LocalExecutionContext } from "@harness/execution";
+import { LocalExecutionContext, type ProcessExit, type SpawnedProcess } from "@harness/execution";
+import { ActivityManager } from "@harness/activities";
 import { DockerExecutionContext, NativeExecutionContext } from "@harness/sandbox";
-import { App, appReduce, sandboxBackendOf } from "./app.tsx";
+import { App, appReduce, sandboxBackendOf, type AppProps } from "./app.tsx";
 import { emptyState, type Cell } from "./transcript-reducer.ts";
 
 const shellCells = (cells: Cell[]): Extract<Cell, { kind: "shell" }>[] =>
   cells.filter((c): c is Extract<Cell, { kind: "shell" }> => c.kind === "shell");
+const flush = async (): Promise<void> => {
+  for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
+};
 
 const conversation = {
   id: "c1",
@@ -17,8 +21,13 @@ const conversation = {
   createdAt: 0,
 } as unknown as Conversation;
 
-function harness(): { service: HarnessService; emit: (e: HarnessEvent) => void } {
+function harness(): {
+  service: HarnessService;
+  emit: (e: HarnessEvent) => void;
+  setPluginConfig: ReturnType<typeof vi.fn>;
+} {
   let listener: ((e: HarnessEvent) => void) | undefined;
+  const setPluginConfig = vi.fn(async () => {});
   const service = {
     // Mirrors the scoped overload the App uses: subscribe(conversationId, listener).
     subscribe: (_conversationId: unknown, l: (e: HarnessEvent) => void) => {
@@ -29,13 +38,18 @@ function harness(): { service: HarnessService; emit: (e: HarnessEvent) => void }
     respond: vi.fn(),
     availableModels: () => [],
     service: () => undefined,
+    setPluginConfig,
   } as unknown as HarnessService;
-  return { service, emit: (e) => listener?.(e) };
+  return { service, emit: (e) => listener?.(e), setPluginConfig };
 }
 
 // React commits emitted updates asynchronously (scheduler ticks), so frame assertions
 // after an emit poll with vi.waitFor instead of racing the commit with a timer.
-const mount = (service: HarnessService, initialItems: Item[] = []) =>
+const mount = (
+  service: HarnessService,
+  initialItems: Item[] = [],
+  onReload: AppProps["onReload"] = () => {},
+) =>
   render(
     <App
       service={service}
@@ -45,6 +59,7 @@ const mount = (service: HarnessService, initialItems: Item[] = []) =>
       cwd="/tmp"
       launchCwd="/tmp"
       onResume={() => {}}
+      onReload={onReload}
       activities={{ peek: () => [], kill: () => {} }}
     />,
   );
@@ -62,6 +77,75 @@ describe("App", () => {
     const { lastFrame } = mount(service);
     expect(lastFrame()).toContain("type a message");
     expect(lastFrame()).toContain("demo-1");
+  });
+
+  it("routes a sandbox setting through reload before persisting it", async () => {
+    const { service, setPluginConfig } = harness();
+    const onReload = vi.fn<AppProps["onReload"]>();
+    const { stdin } = mount(service, [], onReload);
+
+    stdin.write("/sandbox native");
+    await flush();
+    stdin.write("\r");
+    await flush();
+
+    await vi.waitFor(() => expect(onReload).toHaveBeenCalledOnce());
+    const mutation = onReload.mock.calls[0]![0]!;
+    expect(setPluginConfig).not.toHaveBeenCalled();
+    await mutation.apply();
+    expect(setPluginConfig).toHaveBeenCalledWith(
+      conversation.id,
+      "sandbox",
+      { backend: "native" },
+      { saveGlobal: true },
+    );
+  });
+
+  it("refuses reload while the foreground turn is active", async () => {
+    const { service, emit } = harness();
+    const onReload = vi.fn<AppProps["onReload"]>();
+    const { stdin, lastFrame } = mount(service, [], onReload);
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    await vi.waitFor(() => expect(lastFrame()).toContain("working"));
+
+    stdin.write("/reload");
+    await flush();
+    stdin.write("\r");
+    await flush();
+
+    await vi.waitFor(() => expect(lastFrame()).toContain("interrupt the current turn"));
+    expect(onReload).not.toHaveBeenCalled();
+  });
+
+  it("registers one-shot shell processes for session teardown", async () => {
+    const { service } = harness();
+    const manager = new ActivityManager(conversation.id);
+    let settle!: (result: ProcessExit) => void;
+    let kills = 0;
+    const proc: SpawnedProcess = {
+      pid: 1,
+      exit: new Promise((resolve) => (settle = resolve)),
+      onData: () => {},
+      kill: () => {
+        kills++;
+        settle({ code: null, signal: "SIGTERM" });
+      },
+    };
+    Object.assign(service, {
+      service: (_id: ConversationId, key: string) =>
+        key === "execution" ? { spawn: () => proc } : key === "activities" ? manager : undefined,
+    });
+    const { stdin } = mount(service);
+
+    stdin.write("!watch");
+    await flush();
+    stdin.write("\r");
+    await flush();
+    expect(manager.runningCount()).toBe(1);
+
+    await manager.dispose();
+    expect(kills).toBe(1);
+    expect(manager.runningCount()).toBe(0);
   });
 
   it("separates semantic transcript blocks and collapses resumed routine work", () => {

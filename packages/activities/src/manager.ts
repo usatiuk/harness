@@ -39,6 +39,7 @@ export class ActivityManager {
   readonly #settled = new Map<string, ActivityResult>();
   readonly #surfaced = new Set<string>(); // result already shown once
   readonly #waiting = new Set<string>(); // a foreground/explicit wait is in flight
+  #closed = false;
 
   constructor(private readonly conversationId: ConversationId) {}
 
@@ -130,17 +131,21 @@ export class ActivityManager {
     const activity = this.#byId.get(id);
     if (!activity) return;
     void activity.done.then((result) => {
-      if (this.#surfaced.has(id) || this.#waiting.has(id)) return;
+      if (this.#closed || this.#surfaced.has(id) || this.#waiting.has(id)) return;
       this.#surfaced.add(id);
       deliver(noticeContent(id, result));
     });
   }
 
-  /** Shutdown sweep: kill every tracked activity (CLI exit). */
-  killAll(): void {
-    for (const [id, activity] of this.#byId) {
-      if (!this.#settled.has(id)) activity.kill();
-    }
+  /** Stop accepting completion delivery, terminate live work, and await every requested stop. */
+  async dispose(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    const live = [...this.#byId.entries()]
+      .filter(([id]) => !this.#settled.has(id))
+      .map(([, activity]) => activity);
+    for (const activity of live) activity.kill();
+    await Promise.all(live.map((activity) => activity.done));
   }
 
   #gc(): void {
