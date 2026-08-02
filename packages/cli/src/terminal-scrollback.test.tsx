@@ -93,6 +93,14 @@ const bufferText = (terminal: Terminal): string => {
   ).join("\n");
 };
 
+const viewportText = (terminal: Terminal): string => {
+  const buffer = terminal.buffer.active;
+  return Array.from(
+    { length: terminal.rows },
+    (_, index) => buffer.getLine(buffer.viewportY + index)?.translateToString(true) ?? "",
+  ).join("\n");
+};
+
 const occurrences = (text: string, marker: string): number => text.split(marker).length - 1;
 
 function StreamingTranscript({
@@ -105,7 +113,7 @@ function StreamingTranscript({
   return (
     <Box flexDirection="column">
       <Static items={complete ? [text] : []}>{(item) => <Markdown text={item} />}</Static>
-      <LiveViewport>
+      <LiveViewport header={complete ? undefined : <Text>LIVE-HEADER</Text>}>
         {complete ? null : <Markdown text={text} streaming />}
         <Text>LIVE-FOOTER</Text>
       </LiveViewport>
@@ -163,8 +171,11 @@ describe("terminal scrollback", () => {
       rows: 8,
       incrementalRendering: true,
     });
-    await writeTerminal(terminal, view.takeWrites());
+    const initialWrites = view.takeWrites();
+    expect(initialWrites).toContain("LIVE-HEADER");
+    await writeTerminal(terminal, initialWrites);
     const liveScreen = bufferText(terminal);
+    expect(viewportText(terminal)).toContain("LIVE-HEADER");
     expect(liveScreen).toContain("END-MARKER");
     expect(liveScreen).not.toContain("BEGIN-MARKER");
 
@@ -324,7 +335,56 @@ describe("terminal scrollback", () => {
     terminal.dispose();
   });
 
-  it("publishes a settled work summary once and keeps collapsed routine calls out of scrollback", async () => {
+  it("keeps the active exploration header visible when its children overflow", async () => {
+    const { service, emit } = harness();
+    const terminal = new Terminal({
+      cols: 50,
+      rows: 10,
+      scrollback: 200,
+      allowProposedApi: true,
+    });
+    const view = await mount(
+      <App
+        service={service}
+        conversation={conversation}
+        initialItems={[]}
+        initialUsage={[]}
+        cwd="/tmp"
+        launchCwd="/tmp"
+        onResume={() => {}}
+        onReload={() => {}}
+        activities={{ peek: () => [], kill: () => {} }}
+      />,
+      { columns: 50, rows: 10, incrementalRendering: true },
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await writeTerminal(terminal, view.takeWrites());
+
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    for (let index = 0; index < 12; index++) {
+      emit({
+        type: "tool_call.started",
+        conversationId: "c1",
+        callId: `read-${index}`,
+        name: "read_file",
+        args: { path: `FILE-${index}` },
+      });
+    }
+    await vi.waitFor(() => expect(view.stdout.chunks.join("")).toContain("FILE-11"));
+    await view.waitUntilRenderFlush();
+    await writeTerminal(terminal, view.takeWrites());
+
+    const viewport = viewportText(terminal);
+    expect(viewport).toContain("Working");
+    expect(viewport).toContain("Read FILE-11");
+    expect(viewport).not.toContain("Read FILE-0");
+
+    view.unmount();
+    await view.waitUntilExit();
+    terminal.dispose();
+  });
+
+  it("publishes settled thought/exploration stages once without routine tool cards", async () => {
     const { service, emit } = harness();
     const terminal = new Terminal({
       cols: 100,
@@ -410,16 +470,16 @@ describe("terminal scrollback", () => {
       },
     });
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
-    await vi.waitFor(() => expect(view.stdout.chunks.join("")).toContain("Worked for"));
+    await vi.waitFor(() => expect(view.stdout.chunks.join("")).toContain("Explored"));
     await view.waitUntilRenderFlush();
     await writeTerminal(terminal, view.takeWrites());
     terminal.scrollToBottom();
 
     const finalBuffer = bufferText(terminal);
-    expect(occurrences(finalBuffer, "Worked for")).toBe(1);
-    expect(finalBuffer).toContain("read 1 file");
+    expect(occurrences(finalBuffer, "Thought")).toBe(1);
+    expect(occurrences(finalBuffer, "Explored")).toBe(1);
+    expect(finalBuffer).toContain("Read ROUTINE-FILE-MARKER");
     expect(finalBuffer).toContain("ANSWER-MARKER");
-    expect(finalBuffer).not.toContain("ROUTINE-FILE-MARKER");
     expect(finalBuffer).not.toContain("ROUTINE-OUTPUT-MARKER");
     expect(finalBuffer).not.toContain("private marker");
 

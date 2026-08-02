@@ -151,17 +151,36 @@ describe("transcript reducer", () => {
   });
 
   it("sets a pending approval and clears it on resolution", () => {
+    const started = reduce(
+      { ...emptyState, turn: { id: "t1", status: "running" } },
+      {
+        type: "tool_call.started",
+        conversationId: "c",
+        callId: "k1",
+        name: "read_file",
+        args: { path: "secret.txt" },
+      },
+      0,
+    );
     const created = reduce(
-      emptyState,
+      started,
       {
         type: "request.created",
         requestId: "q1",
         conversationId: "c",
-        request: { kind: "approval", call: { name: "bash" } },
+        request: {
+          kind: "approval",
+          call: { callId: "k1", name: "read_file", args: { path: "secret.txt" } },
+          relationship: "unknown",
+        },
       },
       0,
     );
-    expect(created.pending).toEqual({ requestId: "q1", summary: "approve bash?" });
+    expect(created.pending).toEqual({ requestId: "q1", summary: "approve read_file?" });
+    expect(created.cells[0]).toMatchObject({
+      kind: "tool",
+      approvalProgress: { status: "reviewing", responder: "human" },
+    });
     const resolved = reduce(
       created,
       {
@@ -181,7 +200,11 @@ describe("transcript reducer", () => {
         type: "request.created",
         requestId: "q1",
         conversationId: "c",
-        request: { kind: "approval", call: { name: "bash" } },
+        request: {
+          kind: "approval",
+          call: { callId: "k1", name: "bash", args: { command: "echo hi" } },
+          relationship: "unknown",
+        },
       },
       0,
     );
@@ -236,6 +259,7 @@ describe("transcript reducer", () => {
         streaming: false,
         startedAt: 0,
         completedAt: 0,
+        observedTiming: true,
       },
       { kind: "assistant", turnId: "t1", text: "partial answer", streaming: false },
     ]);

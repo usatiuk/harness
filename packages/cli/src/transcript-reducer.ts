@@ -16,6 +16,7 @@ import { isActivityEvent } from "@harness/activities";
 import { isSandboxStatus, type SandboxPhase } from "@harness/sandbox";
 import {
   approvalAnnotationOf,
+  isApprovalRequest,
   isApprovalDecidedEvent,
   type ApprovalAnnotation,
   type ApprovalResponder,
@@ -44,6 +45,8 @@ export type Cell =
       streaming: boolean;
       startedAt: number;
       completedAt?: number;
+      /** Present only when this TUI observed the beginning of a streamed reasoning block. */
+      observedTiming?: true;
       id?: string;
     }
   | {
@@ -137,7 +140,7 @@ function appendDelta(
         ...state.cells,
         kind === "assistant"
           ? { kind, turnId, text, streaming: true }
-          : { kind, turnId, text, streaming: true, startedAt: receivedAt },
+          : { kind, turnId, text, streaming: true, startedAt: receivedAt, observedTiming: true },
       ],
     };
   }
@@ -377,11 +380,19 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
         }),
       };
     case "request.created": {
-      const req = event.request as { kind?: string; call?: { name?: string } };
-      if (req.kind !== "approval") return state;
+      if (!isApprovalRequest(event.request)) return state;
+      const req = event.request;
       return {
         ...state,
-        pending: { requestId: event.requestId, summary: `approve ${req.call?.name ?? "tool"}?` },
+        cells: state.cells.map((cell) =>
+          cell.kind === "tool" && cell.callId === req.call.callId
+            ? {
+                ...cell,
+                approvalProgress: { status: "reviewing", responder: "human" },
+              }
+            : cell,
+        ),
+        pending: { requestId: event.requestId, summary: `approve ${req.call.name}?` },
       };
     }
     case "request.resolved":

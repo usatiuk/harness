@@ -73,9 +73,11 @@ cancellation.
 The TUI reduces typed events plus a durable resume seed into presentation cells.
 It renders:
 
-- Streaming/final assistant Markdown and a per-turn work summary. Compact mode
-  collapses reasoning and successful unapproved reads, searches, and commands;
-  verbose mode retains their underlying detail.
+- Streaming/final assistant Markdown and chronological semantic stages. Compact
+  mode groups consecutive unapproved reads/searches under a mutable `Working…`
+  tree that settles as `Explored`; narration or any other action starts a new
+  stage. Streamed reasoning settles as a timed `Thought` when timing was observed.
+  Verbose mode retains raw reasoning and tool detail.
 - Tool calls, arguments, result summaries, and approval progress. Failures,
   approved calls, edits, and unfamiliar/plugin tools remain visible in compact
   mode.
@@ -87,11 +89,13 @@ It renders:
 - Background activity state, pending input, sandbox progress, usage, cost, and
   context fill.
 
-Visible conversation blocks are separated by one blank line. The whole active
-turn stays in Ink's mutable frame so its work summary can settle; after terminal
-status the final layout moves into static scrollback once. Toggling verbose mode
-clears/reprints the static transcript so expanded reasoning/tool/compaction
-content is coherent rather than layered over prior output.
+Visible conversation blocks are separated by one blank line. The maximal
+finalized prefix advances into Ink static scrollback immediately; the suffix from
+the first mutable entry stays live. A leading overflowing exploration keeps its
+`Working…` header visible while children clip beneath it; a later stage stays
+inline to preserve chronology. Toggling verbose mode clears/reprints the static
+transcript so expanded reasoning/tool/compaction content is coherent rather than
+layered over prior output.
 
 The composer provides multiline input, cross-session history, command completion,
 model/effort selection, delivery intents, approval prompts, and overlays for

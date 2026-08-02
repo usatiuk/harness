@@ -106,7 +106,7 @@ describe("App", () => {
     const onReload = vi.fn<AppProps["onReload"]>();
     const { stdin, lastFrame } = mount(service, [], onReload);
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    await vi.waitFor(() => expect(lastFrame()).toContain("working"));
+    await vi.waitFor(() => expect(lastFrame()).toContain("Working"));
 
     stdin.write("/reload");
     await flush();
@@ -115,6 +115,121 @@ describe("App", () => {
 
     await vi.waitFor(() => expect(lastFrame()).toContain("interrupt the current turn"));
     expect(onReload).not.toHaveBeenCalled();
+  });
+
+  it("keeps exploration stable until narration closes it, then starts a new stage", async () => {
+    const { service, emit } = harness();
+    const { lastFrame } = mount(service);
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    emit({
+      type: "message",
+      conversationId: "c1",
+      item: {
+        type: "message",
+        role: "user",
+        id: "u1",
+        conversationId: "c1",
+        turnId: "t1",
+        seq: 0,
+        parent: null,
+        createdAt: 1,
+        content: [{ type: "text", text: "inspect" }],
+      },
+    });
+    emit({
+      type: "tool_call.started",
+      conversationId: "c1",
+      callId: "read-1",
+      name: "read_file",
+      args: { path: "README.md" },
+    });
+    await vi.waitFor(() => expect(lastFrame()).toContain("Working…\n  └ Read README.md"));
+    expect(lastFrame()!.match(/Read README\.md/gu)).toHaveLength(1);
+
+    emit({
+      type: "tool_call.completed",
+      conversationId: "c1",
+      callId: "read-1",
+      status: "ok",
+      forModel: [{ type: "text", text: "# Harness" }],
+    });
+    await vi.waitFor(() => expect(lastFrame()).toContain("Working…\n  └ Read README.md"));
+    expect(lastFrame()!.match(/Read README\.md/gu)).toHaveLength(1);
+
+    emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "I found the data" });
+    await vi.waitFor(() => expect(lastFrame()).toContain("• Explored"));
+    expect(lastFrame()).toContain("I found the data");
+    expect(lastFrame()).not.toContain("Working…");
+    emit({
+      type: "message",
+      conversationId: "c1",
+      item: {
+        type: "message",
+        role: "assistant",
+        id: "n1",
+        conversationId: "c1",
+        turnId: "t1",
+        seq: 1,
+        parent: null,
+        createdAt: 1,
+        content: [{ type: "text", text: "I found the data" }],
+      },
+    });
+    emit({
+      type: "tool_call.started",
+      conversationId: "c1",
+      callId: "search-1",
+      name: "glob",
+      args: { pattern: "text_delta" },
+    });
+    await vi.waitFor(() => expect(lastFrame()).toContain("Working…\n  └ Search text_delta"));
+    expect(lastFrame()!.match(/Explored/gu)).toHaveLength(1);
+
+    emit({
+      type: "tool_call.completed",
+      conversationId: "c1",
+      callId: "search-1",
+      status: "ok",
+      forModel: [{ type: "text", text: "packages/cli/src/app.tsx" }],
+    });
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
+    await vi.waitFor(() => expect(lastFrame()!.match(/Explored/gu)).toHaveLength(2));
+    expect(lastFrame()).not.toContain("Working…");
+  });
+
+  it("keeps pending stages in chronological order when narration starts another stage", async () => {
+    const { service, emit } = harness();
+    const { lastFrame } = mount(service);
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    emit({
+      type: "tool_call.started",
+      conversationId: "c1",
+      callId: "command-1",
+      name: "bash",
+      args: { command: "echo pending" },
+    });
+    emit({
+      type: "tool_call.started",
+      conversationId: "c1",
+      callId: "read-1",
+      name: "read_file",
+      args: { path: "README.md" },
+    });
+    emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "I found a lead" });
+    emit({
+      type: "tool_call.started",
+      conversationId: "c1",
+      callId: "read-2",
+      name: "read_file",
+      args: { path: "package.json" },
+    });
+
+    await vi.waitFor(() => expect(lastFrame()).toContain("Read package.json"));
+    const frame = lastFrame()!;
+    expect(frame.indexOf("echo pending")).toBeLessThan(frame.indexOf("Read README.md"));
+    expect(frame.indexOf("Read README.md")).toBeLessThan(frame.indexOf("I found a lead"));
+    expect(frame.indexOf("I found a lead")).toBeLessThan(frame.indexOf("Working…"));
+    expect(frame.indexOf("Working…")).toBeLessThan(frame.indexOf("Read package.json"));
   });
 
   it("registers one-shot shell processes for session teardown", async () => {
@@ -148,7 +263,7 @@ describe("App", () => {
     expect(manager.runningCount()).toBe(0);
   });
 
-  it("separates semantic transcript blocks and collapses resumed routine work", () => {
+  it("reconstructs thought and exploration stages from resumed items", () => {
     const { service } = harness();
     const base = {
       conversationId: "c1",
@@ -204,7 +319,9 @@ describe("App", () => {
       },
     ] as Item[];
     const { lastFrame } = mount(service, items);
-    expect(lastFrame()).toContain("› inspect\n\n• Worked for 3s · read 1 file\n\n  done");
+    expect(lastFrame()).toContain(
+      "› inspect\n\n• Thought\n\n• Explored\n  └ Read README.md\n\n  done",
+    );
     expect(lastFrame()).not.toContain("private reasoning");
     expect(lastFrame()).not.toContain("# Harness");
   });
@@ -231,6 +348,35 @@ describe("App", () => {
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
     emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "Hello there" });
     await vi.waitFor(() => expect(lastFrame()).toContain("Hello there"));
+  });
+
+  it("shows live reasoning and settles it as a timed thought", async () => {
+    const { service, emit } = harness();
+    const { lastFrame } = mount(service);
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    emit({
+      type: "reasoning_delta",
+      conversationId: "c1",
+      turnId: "t1",
+      text: "considering the boundary",
+    });
+    await vi.waitFor(() => expect(lastFrame()).toContain("considering the boundary"));
+    emit({
+      type: "reasoning",
+      conversationId: "c1",
+      item: {
+        type: "reasoning",
+        id: "reasoning-1",
+        conversationId: "c1",
+        turnId: "t1",
+        seq: 1,
+        parent: null,
+        createdAt: Date.now(),
+        content: [{ type: "text", text: "considering the boundary" }],
+      },
+    });
+    await vi.waitFor(() => expect(lastFrame()).toContain("• Thought for"));
+    expect(lastFrame()).not.toContain("considering the boundary");
   });
 
   it("collapses a running tool's args by default and expands them on Ctrl+O", async () => {
@@ -308,9 +454,8 @@ describe("App", () => {
       forModel: [{ type: "text", text: "all good\nsecond line" }],
     });
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
-    // Finalized → compact: the successful command collapses into the work summary.
-    await vi.waitFor(() => expect(lastFrame()).toContain("ran 1 command"));
-    expect(lastFrame()).not.toContain("all good");
+    // Commands stay explicit; compact mode keeps one result line and verbose restores the rest.
+    await vi.waitFor(() => expect(lastFrame()).toContain("all good"));
     expect(lastFrame()).not.toContain("second line");
     stdin.write("\x0f"); // Ctrl+O: wipe + reprint verbose
     await vi.waitFor(() => expect(lastFrame()).toContain("second line"));
@@ -321,12 +466,25 @@ describe("App", () => {
     const { lastFrame } = mount(service);
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
     emit({
+      type: "tool_call.started",
+      conversationId: "c1",
+      callId: "k1",
+      name: "read_file",
+      args: { path: "secret.txt" },
+    });
+    emit({
       type: "request.created",
       requestId: "q1",
       conversationId: "c1",
-      request: { kind: "approval", call: { name: "bash" } },
+      request: {
+        kind: "approval",
+        call: { callId: "k1", name: "read_file", args: { path: "secret.txt" } },
+        relationship: "unknown",
+      },
     });
-    await vi.waitFor(() => expect(lastFrame()).toContain("approve bash?"));
+    await vi.waitFor(() => expect(lastFrame()).toContain("approve read_file?"));
+    expect(lastFrame()).toContain("secret.txt");
+    expect(lastFrame()).not.toContain("Working…");
     expect(lastFrame()).not.toContain("type a message");
   });
 });

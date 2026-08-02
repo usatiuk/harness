@@ -34,7 +34,14 @@ import { effortsFor, runCommand, type CommandContext } from "./commands.ts";
 import { EffortPicker, ModelPicker } from "./model-picker.tsx";
 import { ActivitiesOverlay, type ActivitiesView } from "./activities-overlay.tsx";
 import { SandboxOverlay, type SandboxView } from "./sandbox-overlay.tsx";
-import { CellView, truncate, VerboseContext, WorkSummaryView } from "./cells.tsx";
+import {
+  CellView,
+  ExplorationChildren,
+  ExplorationView,
+  ThoughtView,
+  truncate,
+  VerboseContext,
+} from "./cells.tsx";
 import { Composer } from "./composer.tsx";
 import { useHistory } from "./use-history.ts";
 import {
@@ -146,10 +153,12 @@ interface PositionedEntry {
 
 const renderEntry = ({ entry, first }: PositionedEntry): ReactElement => (
   <Box key={entry.key} marginTop={first ? 0 : 1}>
-    {entry.kind === "work" ? (
-      <WorkSummaryView summary={entry.summary} />
-    ) : (
+    {entry.kind === "cell" ? (
       <CellView cell={entry.cell} />
+    ) : entry.kind === "exploration" ? (
+      <ExplorationView stage={entry.stage} />
+    ) : (
+      <ThoughtView thought={entry.thought} />
     )}
   </Box>
 );
@@ -429,14 +438,21 @@ export function App({
     report(service.deliver(conversation.id, line, busy ? "steer" : "send"));
   };
 
-  // Keep the whole active turn mutable: compact work summaries can change until
-  // terminal status, then their final layout is published to Static exactly once.
+  // Finalized semantic stages advance into Static immediately. Only the current mutable cell or
+  // trailing exploration stage stays live, so later output never rewrites frozen scrollback.
   const activeTurnId = state.turn.status === "running" ? state.turn.id : undefined;
   const entries = layoutTranscript(state.cells, activeTurnId, verbose);
   const positioned = entries.map((entry, index) => ({ entry, first: index === 0 }));
   const cut = liveEntryStartIndex(entries);
   const done = positioned.slice(0, cut);
   const live = positioned.slice(cut);
+  const firstLive = live[0];
+  const activeExploration =
+    firstLive?.entry.kind === "exploration" && firstLive.entry.stage.active ? firstLive : undefined;
+  const activeStage =
+    activeExploration?.entry.kind === "exploration" ? activeExploration.entry.stage : undefined;
+  const visibleLive = activeExploration ? live.slice(1) : live;
+  const hasMutablePresentation = visibleLive.some(({ entry }) => entry.live);
 
   return (
     <VerboseContext.Provider value={verbose}>
@@ -444,8 +460,15 @@ export function App({
         <Static key={staticEpoch} items={done}>
           {renderEntry}
         </Static>
-        <LiveViewport>
-          {live.map(renderEntry)}
+        <LiveViewport
+          header={
+            activeStage || (busy && !hasMutablePresentation) ? (
+              <Spinner label="Working…" />
+            ) : undefined
+          }
+        >
+          {activeStage ? <ExplorationChildren actions={activeStage.actions} /> : null}
+          {visibleLive.map(renderEntry)}
           {sessionOverlay ? (
             sessionOverlay
           ) : transitioning ? (
@@ -504,7 +527,6 @@ export function App({
               />
               <Rule />
               <StatusBar
-                busy={busy}
                 model={model.model}
                 effort={model.effort}
                 cwd={cwd}
@@ -529,20 +551,39 @@ export function App({
  * tree still lays out (including rich Markdown), but an oversized tree is
  * shifted upward and clipped so only its newest rows are painted.
  */
-export function LiveViewport({ children }: { children: ReactNode }): ReactElement {
+export function LiveViewport({
+  children,
+  header,
+}: {
+  children: ReactNode;
+  header?: ReactNode;
+}): ReactElement {
   const { stdout } = useStdout();
   const { rows } = useWindowSize();
   const maxHeight = stdout?.isTTY ? Math.max(0, rows - 1) : undefined;
+  // Ink leaves the cursor on the row after its frame. A sticky header therefore needs one more
+  // spare terminal row than the ordinary body so that final cursor movement cannot scroll it away.
+  const viewportHeight =
+    maxHeight === undefined ? undefined : Math.max(0, maxHeight - (header ? 1 : 0));
+  const bodyMaxHeight =
+    viewportHeight === undefined ? undefined : Math.max(0, viewportHeight - (header ? 1 : 0));
 
   return (
     <Box
       flexDirection="column"
-      maxHeight={maxHeight}
-      overflowY={maxHeight === undefined ? "visible" : "hidden"}
-      justifyContent="flex-end"
+      maxHeight={viewportHeight}
+      overflowY={viewportHeight === undefined ? "visible" : "hidden"}
     >
-      <Box flexDirection="column" flexShrink={0}>
-        {children}
+      {header ? <Box flexShrink={0}>{header}</Box> : null}
+      <Box
+        flexDirection="column"
+        maxHeight={bodyMaxHeight}
+        overflowY={bodyMaxHeight === undefined ? "visible" : "hidden"}
+        justifyContent="flex-end"
+      >
+        <Box flexDirection="column" flexShrink={0}>
+          {children}
+        </Box>
       </Box>
     </Box>
   );
@@ -574,7 +615,6 @@ export function usageLabel(
 }
 
 function StatusBar({
-  busy,
   model,
   effort,
   cwd,
@@ -586,7 +626,6 @@ function StatusBar({
   sandboxBackend,
   sandboxPhase,
 }: {
-  busy: boolean;
   model: string;
   effort: string | undefined;
   cwd: string;
@@ -604,7 +643,7 @@ function StatusBar({
     activeCount > 0 ? ` · ${activeCount} ${activeCount === 1 ? "activity" : "activities"}` : "";
   return (
     <Box>
-      {busy ? <Spinner label="working" /> : <Text color="green">●</Text>}
+      <Text color="green">●</Text>
       <Text dimColor>{`  ${label}${tokens ? ` · ${tokens}` : ""}${active} · ${cwd}`}</Text>
       {sandboxBackend !== "local" ? (
         <SandboxChip backend={sandboxBackend} phase={sandboxPhase} />

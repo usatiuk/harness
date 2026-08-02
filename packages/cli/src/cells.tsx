@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactElement } from "react";
 import { Box, Text } from "ink";
+import { Spinner } from "@inkjs/ui";
 import { assertNever, selectionId, type ToolStatus } from "@harness/protocol";
 import type { Cell } from "./transcript-reducer.ts";
 import { Markdown } from "./markdown.tsx";
@@ -9,7 +10,12 @@ import {
   type PatchFile,
   type PatchLine,
 } from "./edit-presentation.ts";
-import { formatWorkSummary, type WorkSummary } from "./transcript-layout.ts";
+import {
+  formatDuration,
+  type ExplorationAction,
+  type ExplorationStage,
+  type ThoughtStage,
+} from "./transcript-layout.ts";
 
 const TOOL_OUTPUT_CAP = 800;
 const ARGS_CAP = 120;
@@ -126,9 +132,35 @@ export function CellView({ cell }: { cell: Cell }): ReactElement {
   }
 }
 
-export function WorkSummaryView({ summary }: { summary: WorkSummary }): ReactElement {
-  const label = `• ${formatWorkSummary(summary)}`;
-  return summary.active ? <Text color="yellow">{label}</Text> : <Text dimColor>{label}</Text>;
+export function ExplorationChildren({ actions }: { actions: ExplorationAction[] }): ReactElement {
+  return (
+    <Box flexDirection="column" paddingLeft={2}>
+      {actions.map((action, index) => (
+        <Text key={action.callId} dimColor>
+          {`${index === actions.length - 1 ? "└" : "├"} ${action.kind === "read" ? "Read" : "Search"} ${truncate(action.target, ARGS_CAP)}`}
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
+export function ExplorationView({ stage }: { stage: ExplorationStage }): ReactElement {
+  return (
+    <Box flexDirection="column">
+      {stage.active ? <Spinner label="Working…" /> : <Text dimColor>• Explored</Text>}
+      <ExplorationChildren actions={stage.actions} />
+    </Box>
+  );
+}
+
+export function ThoughtView({ thought }: { thought: ThoughtStage }): ReactElement {
+  return (
+    <Text dimColor>
+      {thought.duration === undefined
+        ? "• Thought"
+        : `• Thought for ${formatDuration(thought.duration)}`}
+    </Text>
+  );
 }
 
 function ShellCard({ cell }: { cell: Extract<Cell, { kind: "shell" }> }): ReactElement {

@@ -4,101 +4,109 @@ Status: Complete
 
 ## Goal
 
-Make the compact TUI transcript readable as a conversation rather than a raw
-event log. Completion means routine model work collapses into one truthful
-per-turn summary, file mutations show a bounded colored patch, and visible
-conversation blocks have consistent breathing room without breaking live
-streaming, resume, verbose mode, or terminal scrollback.
+Make compact transcripts read as chronological work stages without transient
+tool-card flicker. Consecutive reads and searches remain one mutable `Working…`
+tree until another semantic block begins, then visually close as `Explored` and
+freeze once their calls settle. Reasoning streams while active and settles as a
+compact timed thought; narration, commands, edits, approvals, and failures remain
+explicit and ordered.
 
-## Current behavior
+## Baseline before this change
 
-- Final reasoning collapses to one `thought` marker per reasoning item.
-- Every tool call renders independently, so several reads and searches dominate
-  the answer they support.
-- Edit tools use the same generic call/result card as every other tool.
-- Finalized cells enter Ink `Static` as soon as they stop streaming, which means a
-  derived per-turn summary cannot safely change after an earlier cell freezes.
+- Granular reducer cells and the pure transcript layout already preserve provider
+  emission order, including assistant narration before and between tool calls.
+- Compact mode derives one turn-wide `WorkSummary`. A running read/search first
+  renders as a tool card, then disappears into that summary on success, causing a
+  visible flash.
+- Keeping the complete active turn mutable prevents early freezing, but also
+  prevents already final chronological blocks from entering scrollback.
 
 ## Chosen design
 
-- Keep granular cells as the reducer's presentation truth and derive semantic
-  display entries in a pure layout pass.
-- Keep every cell from the active turn mutable until the turn reaches a terminal
-  state; then publish its final layout to static scrollback once.
-- In compact mode, replace reasoning and successful unapproved reads, globs, and
-  commands with one work summary at the first hidden-work position. Keep running,
-  failed, approved, edit, and unfamiliar tools visible.
-- Label the summary `Working…` while active and `Worked for …` afterward. Count
-  unique read paths and successful search/command calls. Derive approximate
-  timing from local event receipt timestamps live and durable item timestamps on
-  resume; do not add timing to the kernel protocol or store.
-- Render `apply_patch`, `edit`, `write`, and mutating text-editor calls as edit
-  cards. Compact mode shows at most twelve colored patch lines; verbose mode shows
-  the complete available patch. Malformed inputs retain the generic tool card.
-- Insert one blank line between semantic display entries, not between lines within
-  a summary, tool card, patch, or Markdown response.
+- Derive consecutive exploration stages from canonical cells. `read_file` and
+  read-only editor views become `Read` children; glob/search tools become `Search`
+  children. Preserve duplicates and emission order.
+- The trailing exploration stage is `Working…` while its turn is active. Tool
+  completion updates the same child and does not close the stage. Narration,
+  reasoning, commands, edits, approvals, failures, plugin/context output, user
+  input, or terminal turn status visually closes it as `Explored`; later
+  exploration starts a new stage. A visually closed stage remains mutable until
+  every child settles, because a later approval or failure must restore that call
+  as an explicit card.
+- Failed or approval-bearing exploration calls remain explicit cards and split
+  surrounding exploration stages. Commands always remain separate explicit
+  cards.
+- Stream full dimmed reasoning while mutable. At its semantic boundary, compact
+  it to `Thought for …` when this TUI observed live timing, or honest `Thought`
+  when reconstructing a durable item. Verbose mode retains raw reasoning and raw
+  tool cards without duplicating compact stage entries.
+- Publish every finalized prefix to Ink `Static`. Only the mutable suffix remains
+  live. Reserve the leading active exploration header when its children overflow;
+  a later stage remains inline so its header stays chronologically attached to its
+  children. Show a generic `Working…` only when a running turn has emitted no other
+  live presentation.
+- Keep the model/status row stable; it no longer owns the busy spinner. Add no
+  timers, debounce state, persistence, or kernel/provider changes.
 
 ## Implementation
 
-1. Preserve turn ids and timestamps in transcript cells and stamp live event
-   actions at the CLI boundary.
-2. Add the pure display-layout selector, work metrics, duration formatting, and
-   active-turn mutability rule.
-3. Add edit-call recognition and patch rendering using the existing workspace
-   patch parser; add no diff dependency.
-4. Integrate semantic entries with compact/verbose rendering and static
-   scrollback.
-5. Update focused reducer, layout, cell, app, and terminal tests and synchronize
-   interface documentation.
+1. Replace the turn-wide accumulator and formatter with exploration/thought stage
+   entries and compact tree renderers.
+2. Mark entries live only while their presentation can still change, allowing
+   completed stages and narration to advance into static scrollback incrementally.
+3. Integrate the active exploration header with the bounded live viewport and
+   preserve existing composer, overlay, edit-card, and verbose behavior.
+4. Update layout, app, cell, resume, and real-terminal overflow regressions, then
+   synchronize interface documentation.
 
 ## Non-goals
 
-- Changing engine events, provider adapters, canonical items, or persistence.
-- Claiming private model-thinking duration.
-- Hiding failures, approvals, edits, or plugin tools.
-- Adding a general transcript theme or pluggable renderer.
-- Calculating filesystem diffs after execution; edit cards render the mutation
-  already present in tool arguments.
+- Changing model events, engine dispatch, provider adapters, canonical items, or
+  persistence.
+- Grouping commands, edits, failures, approvals, or unfamiliar plugin tools.
+- Delaying tool presentation with timers or retaining a redundant turn-wide
+  `Worked` aggregate.
+- Reworking the broader theme, composer, Markdown renderer, or `/clear` lifecycle.
 
 ## Acceptance
 
-- The normal transcript shows one work summary instead of repeated thought/read/
-  search/command rows.
-- Live and resumed transcripts produce equivalent grouping and counts.
-- Edit patches are legible, colored, bounded in compact mode, and complete in
-  verbose mode.
-- Active turns never freeze a summary early or duplicate output when finalized or
-  when verbose mode is toggled.
-- Existing approval, interruption, error, Markdown, footer, and output behavior
-  remains intact.
-- Focused tests and `npm run check` pass, followed by independent correctness,
-  terminal-lifecycle, and simplicity reviews.
+- A fast read/search appears once as a stable tree child and never flashes as a
+  temporary tool card.
+- Consecutive exploration extends one block; any semantic boundary closes it
+  visually and later exploration creates another block in chronological order.
+- Narration between calls remains visible between the corresponding stages;
+  commands remain separate cards.
+- Reasoning is visible while streaming and settles as `Thought for …` when timing
+  was observed, or `Thought` when resumed without timing data.
+- A leading `Working…` exploration header remains visible in a genuinely
+  overflowing terminal viewport while its body clips beneath it.
+- Live and resumed cells derive equivalent completed stages; focused tests and
+  `npm run check` pass, followed by correctness, evidence, and explicit
+  simplicity/anti-overengineering review.
 
-## Outcome
+## Prior delivery evidence
 
-- Compact transcripts now render one semantic work summary per turn, preserve
-  exceptional tools, and separate conversation blocks with one blank line.
-- Supported edit tools render status-aware, bounded colored patches; verbose mode
-  retains the complete available patch, and multi-file cards always retain every
-  file name.
-- Granular reducer cells remain the only presentation state. Layout and edit-card
-  data are derived by two pure CLI helpers; no kernel, provider, service, or
-  persistence contract changed.
-- Repository guidance incorporates the applicable simplicity and convergence
-  principles from Sunroom's desktop guidance, per explicit project direction.
+- The original transcript pass delivered semantic spacing, bounded colored edit
+  patches, verbose rendering, and the pure cell-to-layout boundary.
+- Its full validation passed 72 test files with 576 tests, plus independent
+  correctness, terminal, and simplicity review. This refinement preserves those
+  behaviors while replacing only the turn-wide work aggregation.
 
-## Validation
+## Delivery evidence
 
-- Focused CLI suite: 6 files, 64 tests passed.
-- Full `npm run check`: typecheck, ESLint, Prettier, and Vitest passed (72 files
-  passed, 5 skipped; 576 tests passed, 34 skipped).
-- Three independent review lenses covered correctness, terminal behavior, and
-  aggressive overengineering/scope discipline. All in-scope findings were fixed;
-  the explicitly requested `AGENTS.md` guidance was retained.
-
-## Remaining gaps
-
-- The conversation-switch lifecycle gap was resolved by the later
-  [single active conversation lifecycle](../cross-cutting/2026-08-02-single-active-conversation.md)
-  change.
-- The pre-existing `/clear`/Ink `Static` lifecycle issue remains outside scope.
+- Replaced the turn-wide aggregate with a pure chronological stage derivation;
+  persisted items remain unchanged. The reducer adds only a live reasoning-timing
+  marker and human approval progress needed by the presentation.
+- Added compact tree/thought rendering, incremental Static publication, a stable
+  status row, and bounded leading-stage overflow behavior without timers or new
+  persisted presentation state.
+- Focused transcript validation passes 5 files with 70 tests, including live and
+  resumed stages, narration and command ordering, approval splitting, reasoning
+  settlement, fast-read stability, and real xterm overflow/scrollback behavior.
+- `npm run check` passes typecheck, lint, formatting, and 72 test files with 596
+  tests (5 files and 34 tests skipped by their existing environment gates).
+- Independent correctness, terminal-evidence, and simplicity reviews found two
+  actionable cases: human approval correlation and chronology when older calls
+  remain mutable. Both were fixed and re-reviewed. The final simplicity pass also
+  rejected a global later-stage header because it detached the label from its
+  children; the implementation keeps that stage inline instead.

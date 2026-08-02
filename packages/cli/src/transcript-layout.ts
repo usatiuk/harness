@@ -1,30 +1,31 @@
 import type { Cell } from "./transcript-reducer.ts";
 
-export interface WorkSummary {
+export interface ExplorationAction {
+  callId: string;
+  kind: "read" | "search";
+  target: string;
+}
+
+export interface ExplorationStage {
   active: boolean;
-  startedAt: number;
-  completedAt: number;
-  filesRead: number;
-  searches: number;
-  commands: number;
+  actions: ExplorationAction[];
+}
+
+export interface ThoughtStage {
+  duration?: number;
 }
 
 export type TranscriptEntry =
   | { kind: "cell"; key: string; cell: Cell; live: boolean }
-  | { kind: "work"; key: string; summary: WorkSummary; live: boolean };
+  | { kind: "exploration"; key: string; stage: ExplorationStage; live: boolean }
+  | { kind: "thought"; key: string; thought: ThoughtStage; live: false };
 
-interface WorkAccumulator {
-  firstIndex?: number;
-  turnStartedAt?: number;
-  startedAt?: number;
-  completedAt?: number;
-  readPaths: Set<string>;
-  searches: number;
-  commands: number;
+interface PendingExploration {
+  key: string;
+  turnId: string;
+  actions: ExplorationAction[];
   mutable: boolean;
 }
-
-type RoutineKind = { kind: "read"; path?: string } | { kind: "search" } | { kind: "command" };
 
 const objectArgs = (args: unknown): Record<string, unknown> | undefined =>
   args !== null && typeof args === "object" && !Array.isArray(args)
@@ -36,26 +37,38 @@ const stringArg = (args: unknown, key: string): string | undefined => {
   return typeof value === "string" && value !== "" ? value : undefined;
 };
 
-function routineKind(cell: Extract<Cell, { kind: "tool" }>): RoutineKind | undefined {
+/** A compact exploration child, or undefined when this tool must remain an explicit card. */
+const explorationAction = (
+  cell: Extract<Cell, { kind: "tool" }>,
+): ExplorationAction | undefined => {
+  if (cell.status === "error" || cell.approval || cell.approvalProgress) return undefined;
   switch (cell.name) {
-    case "read_file": {
+    case "read_file":
+      return {
+        callId: cell.callId,
+        kind: "read",
+        target: stringArg(cell.args, "path") ?? "file",
+      };
+    case "glob": {
+      const pattern = stringArg(cell.args, "pattern") ?? "files";
       const path = stringArg(cell.args, "path");
-      return path ? { kind: "read", path } : { kind: "read" };
+      return {
+        callId: cell.callId,
+        kind: "search",
+        target: path && path !== "." ? `${pattern} in ${path}` : pattern,
+      };
     }
-    case "glob":
-      return { kind: "search" };
-    case "bash":
-    case "powershell":
-      return { kind: "command" };
-    case "str_replace_based_edit_tool": {
+    case "str_replace_based_edit_tool":
       if (objectArgs(cell.args)?.command !== "view") return undefined;
-      const path = stringArg(cell.args, "path");
-      return path ? { kind: "read", path } : { kind: "read" };
-    }
+      return {
+        callId: cell.callId,
+        kind: "read",
+        target: stringArg(cell.args, "path") ?? "file",
+      };
     default:
       return undefined;
   }
-}
+};
 
 const turnIdOf = (cell: Cell): string | undefined => {
   switch (cell.kind) {
@@ -99,109 +112,79 @@ const cellIdentity = (cell: Cell): string => {
   }
 };
 
-const accumulator = (map: Map<string, WorkAccumulator>, turnId: string): WorkAccumulator => {
-  let value = map.get(turnId);
-  if (!value) {
-    value = { readPaths: new Set(), searches: 0, commands: 0, mutable: false };
-    map.set(turnId, value);
-  }
-  return value;
-};
-
-const recordTime = (
-  work: WorkAccumulator,
-  cell: Extract<Cell, { kind: "reasoning" | "tool" }>,
-): void => {
-  work.startedAt = Math.min(work.startedAt ?? cell.startedAt, cell.startedAt);
-  const completedAt = cell.completedAt ?? cell.startedAt;
-  work.completedAt = Math.max(work.completedAt ?? completedAt, completedAt);
-};
-
 /**
- * Derives compact/verbose transcript entries without changing the canonical cell list.
- * A whole active turn remains mutable so its aggregate can settle before Ink publishes it.
+ * Derives chronological compact stages without changing the granular reducer cells. Finalized
+ * prefixes can enter Ink Static immediately; only a genuinely mutable cell or trailing exploration
+ * stage remains live.
  */
 export function layoutTranscript(
   cells: Cell[],
   activeTurnId: string | undefined,
   verbose: boolean,
 ): TranscriptEntry[] {
-  const workByTurn = new Map<string, WorkAccumulator>();
-
-  cells.forEach((cell, index) => {
-    const turnId = turnIdOf(cell);
-    if (turnId === undefined) return;
-    const work = accumulator(workByTurn, turnId);
-    if (cell.kind === "user") {
-      work.turnStartedAt = Math.min(work.turnStartedAt ?? cell.createdAt, cell.createdAt);
-      return;
-    }
-    if (cell.kind === "reasoning") {
-      work.firstIndex ??= index;
-      recordTime(work, cell);
-      work.mutable ||= cell.streaming;
-      return;
-    }
-    if (cell.kind === "tool") {
-      recordTime(work, cell);
-      work.mutable ||= cell.status === undefined;
-      const routine = routineKind(cell);
-      if (!routine) return;
-      if (cell.status === "error") return;
-      work.firstIndex ??= index;
-      if (cell.status === undefined) return;
-      if (routine.kind === "read") {
-        work.readPaths.add(routine.path ?? cell.callId);
-      } else if (routine.kind === "search") {
-        work.searches++;
-      } else {
-        work.commands++;
-      }
-    }
-  });
+  if (verbose) {
+    return cells.map((cell) => ({
+      kind: "cell",
+      key: cellIdentity(cell),
+      cell,
+      live: isMutableCell(cell),
+    }));
+  }
 
   const entries: TranscriptEntry[] = [];
-  cells.forEach((cell, index) => {
+  let exploration: PendingExploration | undefined;
+
+  const flushExploration = (trailing: boolean): void => {
+    if (!exploration) return;
+    const active = trailing && exploration.turnId === activeTurnId;
+    entries.push({
+      kind: "exploration",
+      key: exploration.key,
+      stage: { active, actions: exploration.actions },
+      // A stage followed by narration is visually complete, but cannot freeze until every call has
+      // settled: a late failure/approval must still turn its child back into an explicit card.
+      live: active || exploration.mutable,
+    });
+    exploration = undefined;
+  };
+
+  for (const cell of cells) {
+    const action = cell.kind === "tool" ? explorationAction(cell) : undefined;
+    const mutableAction = cell.kind === "tool" && cell.status === undefined;
     const turnId = turnIdOf(cell);
-    const work = turnId === undefined ? undefined : workByTurn.get(turnId);
-    const active = turnId !== undefined && turnId === activeTurnId;
-    if (
-      turnId !== undefined &&
-      work?.firstIndex === index &&
-      work.startedAt !== undefined &&
-      work.completedAt !== undefined
-    ) {
-      const live = active || work.mutable;
-      entries.push({
-        kind: "work",
-        key: `${turnId}:work`,
-        live,
-        summary: {
-          active: live,
-          startedAt: Math.min(work.turnStartedAt ?? work.startedAt, work.startedAt),
-          completedAt: work.completedAt,
-          filesRead: work.readPaths.size,
-          searches: work.searches,
-          commands: work.commands,
-        },
-      });
+    if (action && turnId) {
+      if (exploration && exploration.turnId !== turnId) flushExploration(false);
+      exploration ??= {
+        key: `${turnId}:exploration:${action.callId}`,
+        turnId,
+        actions: [],
+        mutable: false,
+      };
+      exploration.actions.push(action);
+      exploration.mutable ||= mutableAction;
+      continue;
     }
 
-    const routine = cell.kind === "tool" ? routineKind(cell) : undefined;
-    const collapsibleTool =
-      cell.kind === "tool" &&
-      routine !== undefined &&
-      cell.status === "ok" &&
-      cell.approval === undefined;
-    const hiddenInCompact = !verbose && (cell.kind === "reasoning" || collapsibleTool);
-    if (hiddenInCompact) return;
+    flushExploration(false);
+    if (cell.kind === "reasoning" && !cell.streaming) {
+      entries.push({
+        kind: "thought",
+        key: cellIdentity(cell),
+        thought: cell.observedTiming
+          ? { duration: Math.max(0, (cell.completedAt ?? cell.startedAt) - cell.startedAt) }
+          : {},
+        live: false,
+      });
+      continue;
+    }
     entries.push({
       kind: "cell",
       key: cellIdentity(cell),
       cell,
-      live: active || isMutableCell(cell),
+      live: isMutableCell(cell),
     });
-  });
+  }
+  flushExploration(true);
   return entries;
 }
 
@@ -209,23 +192,6 @@ export const liveEntryStartIndex = (entries: TranscriptEntry[]): number => {
   const first = entries.findIndex((entry) => entry.live);
   return first === -1 ? entries.length : first;
 };
-
-export function formatWorkSummary(summary: WorkSummary): string {
-  const parts: string[] = [];
-  if (summary.filesRead > 0) {
-    parts.push(`read ${summary.filesRead} ${summary.filesRead === 1 ? "file" : "files"}`);
-  }
-  if (summary.searches > 0) {
-    parts.push(`${summary.searches} ${summary.searches === 1 ? "search" : "searches"}`);
-  }
-  if (summary.commands > 0) {
-    parts.push(`ran ${summary.commands} ${summary.commands === 1 ? "command" : "commands"}`);
-  }
-  const lead = summary.active
-    ? "Working…"
-    : `Worked for ${formatDuration(summary.completedAt - summary.startedAt)}`;
-  return [lead, ...parts].join(" · ");
-}
 
 export function formatDuration(milliseconds: number): string {
   if (milliseconds < 1_000) return "<1s";
