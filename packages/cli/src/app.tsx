@@ -36,9 +36,9 @@ import { ActivitiesOverlay, type ActivitiesView } from "./activities-overlay.tsx
 import { SandboxOverlay, type SandboxView } from "./sandbox-overlay.tsx";
 import {
   CellView,
-  ExplorationChildren,
   ExplorationView,
   ThoughtView,
+  WorkFooterView,
   truncate,
   VerboseContext,
 } from "./cells.tsx";
@@ -152,7 +152,10 @@ interface PositionedEntry {
 }
 
 const renderEntry = ({ entry, first }: PositionedEntry): ReactElement => (
-  <Box key={entry.key} marginTop={first ? 0 : 1}>
+  <Box
+    key={entry.key}
+    marginTop={entry.kind === "cell" && entry.cell.kind === "worked" ? 1 : first ? 0 : 1}
+  >
     {entry.kind === "cell" ? (
       <CellView cell={entry.cell} />
     ) : entry.kind === "exploration" ? (
@@ -438,21 +441,13 @@ export function App({
     report(service.deliver(conversation.id, line, busy ? "steer" : "send"));
   };
 
-  // Finalized semantic stages advance into Static immediately. Only the current mutable cell or
-  // trailing exploration stage stays live, so later output never rewrites frozen scrollback.
-  const activeTurnId = state.turn.status === "running" ? state.turn.id : undefined;
-  const entries = layoutTranscript(state.cells, activeTurnId, verbose);
+  // Finalized semantic stages advance into Static immediately. Only genuinely mutable cells stay
+  // live, so later output never rewrites frozen scrollback.
+  const entries = layoutTranscript(state.cells, verbose);
   const positioned = entries.map((entry, index) => ({ entry, first: index === 0 }));
   const cut = liveEntryStartIndex(entries);
   const done = positioned.slice(0, cut);
   const live = positioned.slice(cut);
-  const firstLive = live[0];
-  const activeExploration =
-    firstLive?.entry.kind === "exploration" && firstLive.entry.stage.active ? firstLive : undefined;
-  const activeStage =
-    activeExploration?.entry.kind === "exploration" ? activeExploration.entry.stage : undefined;
-  const visibleLive = activeExploration ? live.slice(1) : live;
-  const hasMutablePresentation = visibleLive.some(({ entry }) => entry.live);
 
   return (
     <VerboseContext.Provider value={verbose}>
@@ -460,15 +455,14 @@ export function App({
         <Static key={staticEpoch} items={done}>
           {renderEntry}
         </Static>
-        <LiveViewport
-          header={
-            activeStage || (busy && !hasMutablePresentation) ? (
-              <Spinner label="Working…" />
-            ) : undefined
-          }
-        >
-          {activeStage ? <ExplorationChildren actions={activeStage.actions} /> : null}
-          {visibleLive.map(renderEntry)}
+        <LiveViewport>
+          {live.map(renderEntry)}
+          {busy ? (
+            <Box marginTop={1}>
+              <WorkFooterView />
+            </Box>
+          ) : null}
+          {entries.length > 0 || busy ? <Box height={1} /> : null}
           {sessionOverlay ? (
             sessionOverlay
           ) : transitioning ? (
@@ -551,39 +545,20 @@ export function App({
  * tree still lays out (including rich Markdown), but an oversized tree is
  * shifted upward and clipped so only its newest rows are painted.
  */
-export function LiveViewport({
-  children,
-  header,
-}: {
-  children: ReactNode;
-  header?: ReactNode;
-}): ReactElement {
+export function LiveViewport({ children }: { children: ReactNode }): ReactElement {
   const { stdout } = useStdout();
   const { rows } = useWindowSize();
   const maxHeight = stdout?.isTTY ? Math.max(0, rows - 1) : undefined;
-  // Ink leaves the cursor on the row after its frame. A sticky header therefore needs one more
-  // spare terminal row than the ordinary body so that final cursor movement cannot scroll it away.
-  const viewportHeight =
-    maxHeight === undefined ? undefined : Math.max(0, maxHeight - (header ? 1 : 0));
-  const bodyMaxHeight =
-    viewportHeight === undefined ? undefined : Math.max(0, viewportHeight - (header ? 1 : 0));
 
   return (
     <Box
       flexDirection="column"
-      maxHeight={viewportHeight}
-      overflowY={viewportHeight === undefined ? "visible" : "hidden"}
+      maxHeight={maxHeight}
+      overflowY={maxHeight === undefined ? "visible" : "hidden"}
+      justifyContent="flex-end"
     >
-      {header ? <Box flexShrink={0}>{header}</Box> : null}
-      <Box
-        flexDirection="column"
-        maxHeight={bodyMaxHeight}
-        overflowY={bodyMaxHeight === undefined ? "visible" : "hidden"}
-        justifyContent="flex-end"
-      >
-        <Box flexDirection="column" flexShrink={0}>
-          {children}
-        </Box>
+      <Box flexDirection="column" flexShrink={0}>
+        {children}
       </Box>
     </Box>
   );

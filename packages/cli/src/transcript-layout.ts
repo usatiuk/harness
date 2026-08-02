@@ -7,7 +7,6 @@ export interface ExplorationAction {
 }
 
 export interface ExplorationStage {
-  active: boolean;
   actions: ExplorationAction[];
 }
 
@@ -80,6 +79,7 @@ const turnIdOf = (cell: Cell): string | undefined => {
     case "compaction":
     case "context":
     case "error":
+    case "worked":
     case "note":
     case "shell":
       return undefined;
@@ -106,6 +106,7 @@ const cellIdentity = (cell: Cell): string => {
     case "compaction":
     case "context":
     case "error":
+    case "worked":
     case "note":
     case "shell":
       return cell.id;
@@ -114,14 +115,9 @@ const cellIdentity = (cell: Cell): string => {
 
 /**
  * Derives chronological compact stages without changing the granular reducer cells. Finalized
- * prefixes can enter Ink Static immediately; only a genuinely mutable cell or trailing exploration
- * stage remains live.
+ * prefixes can enter Ink Static immediately; only genuinely mutable cells or stages remain live.
  */
-export function layoutTranscript(
-  cells: Cell[],
-  activeTurnId: string | undefined,
-  verbose: boolean,
-): TranscriptEntry[] {
+export function layoutTranscript(cells: Cell[], verbose: boolean): TranscriptEntry[] {
   if (verbose) {
     return cells.map((cell) => ({
       kind: "cell",
@@ -134,16 +130,15 @@ export function layoutTranscript(
   const entries: TranscriptEntry[] = [];
   let exploration: PendingExploration | undefined;
 
-  const flushExploration = (trailing: boolean): void => {
+  const flushExploration = (): void => {
     if (!exploration) return;
-    const active = trailing && exploration.turnId === activeTurnId;
     entries.push({
       kind: "exploration",
       key: exploration.key,
-      stage: { active, actions: exploration.actions },
+      stage: { actions: exploration.actions },
       // A stage followed by narration is visually complete, but cannot freeze until every call has
       // settled: a late failure/approval must still turn its child back into an explicit card.
-      live: active || exploration.mutable,
+      live: exploration.mutable,
     });
     exploration = undefined;
   };
@@ -153,7 +148,7 @@ export function layoutTranscript(
     const mutableAction = cell.kind === "tool" && cell.status === undefined;
     const turnId = turnIdOf(cell);
     if (action && turnId) {
-      if (exploration && exploration.turnId !== turnId) flushExploration(false);
+      if (exploration && exploration.turnId !== turnId) flushExploration();
       exploration ??= {
         key: `${turnId}:exploration:${action.callId}`,
         turnId,
@@ -165,7 +160,7 @@ export function layoutTranscript(
       continue;
     }
 
-    flushExploration(false);
+    flushExploration();
     if (cell.kind === "reasoning" && !cell.streaming) {
       entries.push({
         kind: "thought",
@@ -184,7 +179,7 @@ export function layoutTranscript(
       live: isMutableCell(cell),
     });
   }
-  flushExploration(true);
+  flushExploration();
   return entries;
 }
 

@@ -58,7 +58,7 @@ describe("layoutTranscript", () => {
       assistant("a1", "done"),
     ];
 
-    const compact = layoutTranscript(cells, undefined, false);
+    const compact = layoutTranscript(cells, false);
     expect(compact.map((entry) => entry.kind)).toEqual([
       "cell",
       "thought",
@@ -73,7 +73,6 @@ describe("layoutTranscript", () => {
     expect(compact[2]).toMatchObject({
       kind: "exploration",
       stage: {
-        active: false,
         actions: [
           { callId: "r1", kind: "read", target: "README.md" },
           { callId: "r2", kind: "read", target: "README.md" },
@@ -95,38 +94,35 @@ describe("layoutTranscript", () => {
         .map((entry) => (entry.cell.kind === "tool" ? entry.cell.callId : undefined)),
     ).toEqual(["c1", "c2"]);
 
-    const verbose = layoutTranscript(cells, undefined, true);
+    const verbose = layoutTranscript(cells, true);
     expect(verbose).toHaveLength(cells.length);
     expect(verbose.every((entry) => entry.kind === "cell")).toBe(true);
   });
 
-  it("keeps a completed trailing exploration working until a semantic boundary", () => {
+  it("keeps only an unsettled trailing exploration live", () => {
     const runningRead = tool("r1", "read_file", { path: "README.md" });
     delete runningRead.status;
     delete runningRead.completedAt;
-    const running = layoutTranscript([user(), runningRead], "t1", false);
+    const running = layoutTranscript([user(), runningRead], false);
     const completed = layoutTranscript(
       [user(), tool("r1", "read_file", { path: "README.md" })],
-      "t1",
       false,
     );
 
     expect(running[1]).toMatchObject({
       kind: "exploration",
-      stage: { active: true, actions: [{ callId: "r1", target: "README.md" }] },
+      stage: { actions: [{ callId: "r1", target: "README.md" }] },
       live: true,
     });
-    expect(completed[1]).toEqual(running[1]);
-    expect(liveEntryStartIndex(completed)).toBe(1); // submitted prompt is already static
+    expect(completed[1]).toMatchObject({ kind: "exploration", live: false });
+    expect(liveEntryStartIndex(completed)).toBe(completed.length);
 
     const narrated = layoutTranscript(
       [user(), tool("r1", "read_file", { path: "README.md" }), assistant("a1", "found it")],
-      "t1",
       false,
     );
     expect(narrated[1]).toMatchObject({
       kind: "exploration",
-      stage: { active: false },
       live: false,
     });
   });
@@ -140,17 +136,15 @@ describe("layoutTranscript", () => {
       runningRead,
       { ...assistant("a1", "meanwhile"), streaming: true },
     ];
-    const pending = layoutTranscript(cells, "t1", false);
+    const pending = layoutTranscript(cells, false);
     expect(pending[1]).toMatchObject({
       kind: "exploration",
-      stage: { active: false },
       live: true,
     });
     expect(liveEntryStartIndex(pending)).toBe(1);
 
     const settled = layoutTranscript(
       [user(), tool("r1", "read_file", { path: "README.md" }), cells[2]!],
-      "t1",
       false,
     );
     expect(settled[1]).toMatchObject({ kind: "exploration", live: false });
@@ -174,7 +168,6 @@ describe("layoutTranscript", () => {
         tool("after", "glob", { pattern: "*.ts" }),
         approved,
       ],
-      undefined,
       false,
     );
     expect(entries.map((entry) => entry.kind)).toEqual([
@@ -196,12 +189,10 @@ describe("layoutTranscript", () => {
   it("settles a trailing exploration as Explored when the turn ends", () => {
     const entries = layoutTranscript(
       [user(), tool("r1", "read_file", { path: "README.md" })],
-      undefined,
       false,
     );
     expect(entries[1]).toMatchObject({
       kind: "exploration",
-      stage: { active: false },
       live: false,
     });
     expect(liveEntryStartIndex(entries)).toBe(entries.length);

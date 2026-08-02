@@ -143,7 +143,8 @@ describe("App", () => {
       name: "read_file",
       args: { path: "README.md" },
     });
-    await vi.waitFor(() => expect(lastFrame()).toContain("Working…\n  └ Read README.md"));
+    await vi.waitFor(() => expect(lastFrame()).toContain("• Explored\n  └ Read README.md"));
+    expect(lastFrame()).toContain("Working…");
     expect(lastFrame()!.match(/Read README\.md/gu)).toHaveLength(1);
 
     emit({
@@ -153,13 +154,14 @@ describe("App", () => {
       status: "ok",
       forModel: [{ type: "text", text: "# Harness" }],
     });
-    await vi.waitFor(() => expect(lastFrame()).toContain("Working…\n  └ Read README.md"));
+    await vi.waitFor(() => expect(lastFrame()).toContain("• Explored\n  └ Read README.md"));
     expect(lastFrame()!.match(/Read README\.md/gu)).toHaveLength(1);
 
     emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "I found the data" });
-    await vi.waitFor(() => expect(lastFrame()).toContain("• Explored"));
+    await vi.waitFor(() => expect(lastFrame()).toContain("I found the data"));
+    expect(lastFrame()).toContain("• Explored");
     expect(lastFrame()).toContain("I found the data");
-    expect(lastFrame()).not.toContain("Working…");
+    expect(lastFrame()).toContain("Working…");
     emit({
       type: "message",
       conversationId: "c1",
@@ -182,8 +184,8 @@ describe("App", () => {
       name: "glob",
       args: { pattern: "text_delta" },
     });
-    await vi.waitFor(() => expect(lastFrame()).toContain("Working…\n  └ Search text_delta"));
-    expect(lastFrame()!.match(/Explored/gu)).toHaveLength(1);
+    await vi.waitFor(() => expect(lastFrame()).toContain("• Explored\n  └ Search text_delta"));
+    expect(lastFrame()!.match(/Explored/gu)).toHaveLength(2);
 
     emit({
       type: "tool_call.completed",
@@ -193,8 +195,13 @@ describe("App", () => {
       forModel: [{ type: "text", text: "packages/cli/src/app.tsx" }],
     });
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
-    await vi.waitFor(() => expect(lastFrame()!.match(/Explored/gu)).toHaveLength(2));
+    await vi.waitFor(() => expect(lastFrame()).toContain("• Worked for"));
+    expect(lastFrame()!.match(/Explored/gu)).toHaveLength(2);
     expect(lastFrame()).not.toContain("Working…");
+    const lines = lastFrame()!.split("\n");
+    const workedLine = lines.findIndex((line) => line.includes("Worked for"));
+    expect(lines[workedLine - 1]).toBe("");
+    expect(lines[workedLine + 1]).toBe("");
   });
 
   it("keeps pending stages in chronological order when narration starts another stage", async () => {
@@ -228,8 +235,8 @@ describe("App", () => {
     const frame = lastFrame()!;
     expect(frame.indexOf("echo pending")).toBeLessThan(frame.indexOf("Read README.md"));
     expect(frame.indexOf("Read README.md")).toBeLessThan(frame.indexOf("I found a lead"));
-    expect(frame.indexOf("I found a lead")).toBeLessThan(frame.indexOf("Working…"));
-    expect(frame.indexOf("Working…")).toBeLessThan(frame.indexOf("Read package.json"));
+    expect(frame.indexOf("I found a lead")).toBeLessThan(frame.indexOf("Read package.json"));
+    expect(frame.indexOf("Read package.json")).toBeLessThan(frame.indexOf("Working…"));
   });
 
   it("registers one-shot shell processes for session teardown", async () => {
@@ -348,6 +355,7 @@ describe("App", () => {
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
     emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "Hello there" });
     await vi.waitFor(() => expect(lastFrame()).toContain("Hello there"));
+    expect(lastFrame()!.indexOf("Hello there")).toBeLessThan(lastFrame()!.indexOf("Working…"));
   });
 
   it("shows live reasoning and settles it as a timed thought", async () => {
@@ -361,6 +369,14 @@ describe("App", () => {
       text: "considering the boundary",
     });
     await vi.waitFor(() => expect(lastFrame()).toContain("considering the boundary"));
+    const liveFrame = lastFrame()!;
+    expect(liveFrame.indexOf("considering the boundary")).toBeLessThan(
+      liveFrame.indexOf("Working…"),
+    );
+    const liveLines = liveFrame.split("\n");
+    const workingLine = liveLines.findIndex((line) => line.includes("Working…"));
+    expect(liveLines[workingLine - 1]).toBe("");
+    expect(liveLines[workingLine + 1]).toBe("");
     emit({
       type: "reasoning",
       conversationId: "c1",
@@ -377,6 +393,7 @@ describe("App", () => {
     });
     await vi.waitFor(() => expect(lastFrame()).toContain("• Thought for"));
     expect(lastFrame()).not.toContain("considering the boundary");
+    expect(lastFrame()!.indexOf("Thought for")).toBeLessThan(lastFrame()!.indexOf("Working…"));
   });
 
   it("collapses a running tool's args by default and expands them on Ctrl+O", async () => {
@@ -392,6 +409,7 @@ describe("App", () => {
     });
     // Compact: the command is shown as a summary, the raw args JSON is not.
     await vi.waitFor(() => expect(lastFrame()).toContain("npm test"));
+    expect(lastFrame()).toContain("Working…");
     expect(lastFrame()).not.toContain('"command"');
     stdin.write("\x0f"); // Ctrl+O toggles verbose
     // Verbose: the full args blob renders for the still-live cell.
@@ -484,7 +502,7 @@ describe("App", () => {
     });
     await vi.waitFor(() => expect(lastFrame()).toContain("approve read_file?"));
     expect(lastFrame()).toContain("secret.txt");
-    expect(lastFrame()).not.toContain("Working…");
+    expect(lastFrame()).toContain("Working…");
     expect(lastFrame()).not.toContain("type a message");
   });
 });

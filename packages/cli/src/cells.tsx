@@ -123,6 +123,8 @@ export function CellView({ cell }: { cell: Cell }): ReactElement {
       return <Text dimColor>{`✦ ${truncate(cell.text.split("\n")[0] ?? "", ARGS_CAP)}`}</Text>;
     case "error":
       return <Text color="red">{`✗ ${cell.text}`}</Text>;
+    case "worked":
+      return <WorkFooterView duration={cell.duration} />;
     case "note":
       return <Text dimColor>{cell.text}</Text>;
     case "shell":
@@ -147,9 +149,17 @@ export function ExplorationChildren({ actions }: { actions: ExplorationAction[] 
 export function ExplorationView({ stage }: { stage: ExplorationStage }): ReactElement {
   return (
     <Box flexDirection="column">
-      {stage.active ? <Spinner label="Working…" /> : <Text dimColor>• Explored</Text>}
+      <Text dimColor>• Explored</Text>
       <ExplorationChildren actions={stage.actions} />
     </Box>
+  );
+}
+
+export function WorkFooterView({ duration }: { duration?: number }): ReactElement {
+  return duration === undefined ? (
+    <Spinner label="Working…" />
+  ) : (
+    <Text dimColor>{`• Worked for ${formatDuration(duration)}`}</Text>
   );
 }
 

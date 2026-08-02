@@ -113,7 +113,7 @@ function StreamingTranscript({
   return (
     <Box flexDirection="column">
       <Static items={complete ? [text] : []}>{(item) => <Markdown text={item} />}</Static>
-      <LiveViewport header={complete ? undefined : <Text>LIVE-HEADER</Text>}>
+      <LiveViewport>
         {complete ? null : <Markdown text={text} streaming />}
         <Text>LIVE-FOOTER</Text>
       </LiveViewport>
@@ -172,10 +172,10 @@ describe("terminal scrollback", () => {
       incrementalRendering: true,
     });
     const initialWrites = view.takeWrites();
-    expect(initialWrites).toContain("LIVE-HEADER");
+    expect(initialWrites).toContain("LIVE-FOOTER");
     await writeTerminal(terminal, initialWrites);
     const liveScreen = bufferText(terminal);
-    expect(viewportText(terminal)).toContain("LIVE-HEADER");
+    expect(viewportText(terminal)).toContain("LIVE-FOOTER");
     expect(liveScreen).toContain("END-MARKER");
     expect(liveScreen).not.toContain("BEGIN-MARKER");
 
@@ -335,7 +335,7 @@ describe("terminal scrollback", () => {
     terminal.dispose();
   });
 
-  it("keeps the active exploration header visible when its children overflow", async () => {
+  it("keeps the turn footer visible when active exploration children overflow", async () => {
     const { service, emit } = harness();
     const terminal = new Terminal({
       cols: 50,
@@ -377,6 +377,8 @@ describe("terminal scrollback", () => {
     const viewport = viewportText(terminal);
     expect(viewport).toContain("Working");
     expect(viewport).toContain("Read FILE-11");
+    expect(viewport).toContain("type a message");
+    expect(viewport).toContain("demo-1");
     expect(viewport).not.toContain("Read FILE-0");
 
     view.unmount();
@@ -478,10 +480,18 @@ describe("terminal scrollback", () => {
     const finalBuffer = bufferText(terminal);
     expect(occurrences(finalBuffer, "Thought")).toBe(1);
     expect(occurrences(finalBuffer, "Explored")).toBe(1);
+    expect(occurrences(finalBuffer, "Worked for")).toBe(1);
+    expect(finalBuffer).not.toContain("Working");
     expect(finalBuffer).toContain("Read ROUTINE-FILE-MARKER");
     expect(finalBuffer).toContain("ANSWER-MARKER");
     expect(finalBuffer).not.toContain("ROUTINE-OUTPUT-MARKER");
     expect(finalBuffer).not.toContain("private marker");
+    const lines = finalBuffer.split("\n");
+    const workedLine = lines.findIndex((line) => line.includes("Worked for"));
+    expect(lines[workedLine - 1]).toBe("");
+    expect(lines[workedLine + 1]).toBe("");
+    expect(lines[workedLine - 2]).not.toBe("");
+    expect(lines[workedLine + 2]).not.toBe("");
 
     view.unmount();
     await view.waitUntilExit();

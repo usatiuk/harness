@@ -74,10 +74,10 @@ The TUI reduces typed events plus a durable resume seed into presentation cells.
 It renders:
 
 - Streaming/final assistant Markdown and chronological semantic stages. Compact
-  mode groups consecutive unapproved reads/searches under a mutable `Working…`
-  tree that settles as `Explored`; narration or any other action starts a new
-  stage. Streamed reasoning settles as a timed `Thought` when timing was observed.
-  Verbose mode retains raw reasoning and tool detail.
+  mode groups consecutive unapproved reads/searches under a stable `Explored`
+  tree; narration or any other action starts a new stage. Streamed reasoning
+  settles as a timed `Thought` when timing was observed. Verbose mode retains raw
+  reasoning and tool detail.
 - Tool calls, arguments, result summaries, and approval progress. Failures,
   approved calls, edits, and unfamiliar/plugin tools remain visible in compact
   mode.
@@ -86,16 +86,18 @@ It renders:
 - Context markers and compaction markers; verbose mode renders the complete
   persisted fold summary.
 - Turn failures with nested provider error causes.
+- One bottom-of-transcript `Working…` footer for the running turn. A terminal
+  event replaces it with a session-local `Worked for …` row; reload/resume does
+  not reconstruct historical work footers.
 - Background activity state, pending input, sandbox progress, usage, cost, and
   context fill.
 
 Visible conversation blocks are separated by one blank line. The maximal
 finalized prefix advances into Ink static scrollback immediately; the suffix from
-the first mutable entry stays live. A leading overflowing exploration keeps its
-`Working…` header visible while children clip beneath it; a later stage stays
-inline to preserve chronology. Toggling verbose mode clears/reprints the static
-transcript so expanded reasoning/tool/compaction content is coherent rather than
-layered over prior output.
+the first mutable entry stays live. Oversized live output clips from the top so
+the work footer and input controls remain at the bottom. Toggling verbose mode
+clears/reprints the static transcript so expanded reasoning/tool/compaction
+content is coherent rather than layered over prior output.
 
 The composer provides multiline input, cross-session history, command completion,
 model/effort selection, delivery intents, approval prompts, and overlays for

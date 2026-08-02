@@ -18,6 +18,11 @@ const item = (over: { type: Item["type"] } & Record<string, unknown>): Item =>
 
 const fold = (events: HarnessEvent[], from: State = emptyState): State =>
   events.reduce((state, event) => reduce(state, event, 0), from);
+const worked = (duration = 0): Extract<State["cells"][number], { kind: "worked" }> => ({
+  kind: "worked",
+  id: "t1:worked",
+  duration,
+});
 
 describe("transcript reducer", () => {
   it("streams assistant deltas then finalizes on the message item", () => {
@@ -33,6 +38,7 @@ describe("transcript reducer", () => {
     ]);
     expect(state.cells).toEqual([
       { kind: "assistant", turnId: "t1", text: "Hello", streaming: false, id: "m1" },
+      worked(),
     ]);
     expect(state.turn.status).toBe("completed");
   });
@@ -152,7 +158,7 @@ describe("transcript reducer", () => {
 
   it("sets a pending approval and clears it on resolution", () => {
     const started = reduce(
-      { ...emptyState, turn: { id: "t1", status: "running" } },
+      { ...emptyState, turn: { id: "t1", status: "running", startedAt: 0 } },
       {
         type: "tool_call.started",
         conversationId: "c",
@@ -195,7 +201,7 @@ describe("transcript reducer", () => {
 
   it("clears a pending approval when the turn ends without an explicit resolve", () => {
     const created = reduce(
-      { ...emptyState, turn: { id: "t1", status: "running" } },
+      { ...emptyState, turn: { id: "t1", status: "running", startedAt: 0 } },
       {
         type: "request.created",
         requestId: "q1",
@@ -217,7 +223,10 @@ describe("transcript reducer", () => {
       { type: "turn.status", turnId: "t1", status: "running" },
       { type: "turn.status", turnId: "t1", status: "failed", error: "404 model unavailable" },
     ]);
-    expect(state.cells).toEqual([{ kind: "error", id: "t1:error", text: "404 model unavailable" }]);
+    expect(state.cells).toEqual([
+      { kind: "error", id: "t1:error", text: "404 model unavailable" },
+      worked(),
+    ]);
     expect(state.turn.status).toBe("failed");
   });
 
@@ -236,12 +245,12 @@ describe("transcript reducer", () => {
     expect(state.cells).toEqual([{ kind: "compaction", id: "fold-1", text: "Earlier work" }]);
   });
 
-  it("does not append an error cell for an aborted turn", () => {
+  it("records elapsed work without an error cell for an aborted turn", () => {
     const state = fold([
       { type: "turn.status", turnId: "t1", status: "running" },
       { type: "turn.status", turnId: "t1", status: "aborted" },
     ]);
-    expect(state.cells).toEqual([]);
+    expect(state.cells).toEqual([worked()]);
   });
 
   it("closes partial assistant and reasoning streams when a turn is aborted", () => {
@@ -262,6 +271,7 @@ describe("transcript reducer", () => {
         observedTiming: true,
       },
       { kind: "assistant", turnId: "t1", text: "partial answer", streaming: false },
+      worked(),
     ]);
   });
 
@@ -274,6 +284,7 @@ describe("transcript reducer", () => {
     expect(state.cells).toEqual([
       { kind: "assistant", turnId: "t1", text: "partial", streaming: false },
       { kind: "error", id: "t1:error", text: "boom" },
+      worked(),
     ]);
   });
 
@@ -301,7 +312,56 @@ describe("transcript reducer", () => {
         output: "provider disconnected",
       },
       { kind: "error", id: "t1:error", text: "provider disconnected" },
+      worked(),
     ]);
+  });
+
+  it("records observed turn duration once and does not reconstruct it from items", () => {
+    const running = reduce(
+      emptyState,
+      { type: "turn.status", conversationId: "c", turnId: "t1", status: "running" },
+      1_000,
+    );
+    const completed = reduce(
+      running,
+      { type: "turn.status", conversationId: "c", turnId: "t1", status: "completed" },
+      4_250,
+    );
+    const duplicate = reduce(
+      completed,
+      {
+        type: "turn.status",
+        conversationId: "c",
+        turnId: "t1",
+        status: "failed",
+        error: "late failure",
+      },
+      5_000,
+    );
+    const next = reduce(
+      duplicate,
+      { type: "turn.status", conversationId: "c", turnId: "t2", status: "running" },
+      6_000,
+    );
+    const stale = reduce(
+      next,
+      {
+        type: "turn.status",
+        conversationId: "c",
+        turnId: "t1",
+        status: "failed",
+        error: "stale failure",
+      },
+      7_000,
+    );
+
+    expect(completed.cells).toEqual([worked(3_250)]);
+    expect(duplicate).toBe(completed);
+    expect(stale).toBe(next);
+    expect(stale.turn).toEqual({ id: "t2", status: "running", startedAt: 6_000 });
+    expect(
+      init([item({ type: "message", role: "user", id: "u1", content: text("hello") })]).cells,
+    ).not.toContainEqual(expect.objectContaining({ kind: "worked" }));
   });
 
   it("init folds a committed log into the same cells a live replay yields", () => {

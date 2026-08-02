@@ -192,7 +192,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
       ? { instructions: INSTRUCTIONS, model: { ...fallbackModel, model: opts.model } }
       : { instructions: INSTRUCTIONS };
     const conversation = await service.createConversation({ cwd, overrides });
-    console.log(`conversation ${conversation.id}`);
+    console.log(`conversation ${conversation.id}\n`);
     created.add(conversation.id);
     await service.prepare(conversation.id);
     start = { kind: "session", session: { conversation, items: [], usage: [] } };

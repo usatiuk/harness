@@ -25,9 +25,10 @@ import { isAutoApprovalEvent } from "@harness/auto-approval";
 import type { ModelConfig } from "@harness/protocol";
 
 /**
- * One rendered line of transcript. Derived purely from the event stream (live) or
- * the committed item log (resume). Presentational components turn a `Cell` into Ink
- * nodes; this module never imports Ink, so it is unit-testable on its own.
+ * One rendered line of transcript. Durable content derives from the event stream
+ * or committed item log; explicitly local cells may exist only for this TUI
+ * session. Presentational components turn a `Cell` into Ink nodes; this module
+ * never imports Ink, so it is unit-testable on its own.
  */
 export type Cell =
   | { kind: "user"; id: string; turnId: string; text: string; createdAt: number }
@@ -72,6 +73,8 @@ export type Cell =
   | { kind: "context"; id: string; text: string }
   // A failed turn's error message. Immutable, so it migrates straight to scrollback.
   | { kind: "error"; id: string; text: string }
+  // Session-local terminal marker. Reconstructed item history deliberately omits it.
+  | { kind: "worked"; id: string; duration: number }
   // Local-only (command output / errors). The pure reducer never emits this; the app
   // wrapper does. Always immutable, so it migrates straight to scrollback.
   | { kind: "note"; id: string; text: string }
@@ -88,9 +91,14 @@ export interface ActivityLine {
   summary?: string;
 }
 
+type TurnState =
+  | { id?: never; status: "idle" }
+  | { id: string; status: "running"; startedAt: number }
+  | { id: string; status: Exclude<TurnStatus, "running"> };
+
 export interface State {
   cells: Cell[];
-  turn: { id?: string; status: TurnStatus | "idle" };
+  turn: TurnState;
   /** A middleware request (e.g. approval) awaiting a decision; cleared when its turn ends. */
   pending?: { requestId: string; summary: string };
   /** Accepted-but-not-yet-injected input (queue/steer), mirrored from the engine's `inbox` event. */
@@ -243,8 +251,16 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
     case "inbox":
       return { ...state, pendingInput: event.pending };
     case "turn.status": {
+      if (event.status === "running") {
+        return {
+          ...state,
+          turn: { id: event.turnId, status: event.status, startedAt: receivedAt },
+        };
+      }
+      // A terminal event owns state only when it closes the currently running turn. This makes
+      // duplicate and stale terminal delivery harmless by construction.
+      if (state.turn.status !== "running" || state.turn.id !== event.turnId) return state;
       const turn = { id: event.turnId, status: event.status };
-      if (event.status === "running") return { ...state, turn };
       // A parked request can't outlive its turn.
       const ended = clearPending(state);
       // A terminal status closes any partial stream that did not receive a final item
@@ -274,13 +290,19 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
         }
         return c;
       });
-      if (event.status !== "failed") return { ...ended, turn, cells };
+      const worked: Cell = {
+        kind: "worked",
+        id: `${event.turnId}:worked`,
+        duration: Math.max(0, receivedAt - state.turn.startedAt),
+      };
+      if (event.status !== "failed") return { ...ended, turn, cells: [...cells, worked] };
       return {
         ...ended,
         turn,
         cells: [
           ...cells,
           { kind: "error", id: `${event.turnId}:error`, text: event.error ?? "turn failed" },
+          worked,
         ],
       };
     }
@@ -412,9 +434,10 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
 }
 
 /**
- * Seed state from a committed item log (resume). Folds items into finalized cells,
- * pairing `tool_call`+`tool_result` by `callId` — the same cells a live replay yields.
- * `usageRows` seed the running totals so a resumed footer matches a live one.
+ * Seed state from a committed item log (resume). Folds items into finalized durable
+ * cells, pairing `tool_call`+`tool_result` by `callId`; session-local work footers
+ * are intentionally absent. `usageRows` seed the running totals so a resumed usage
+ * footer matches a live one.
  */
 export function init(items: Item[], usageRows: ModelUsage[] = []): State {
   const cells: Cell[] = [];

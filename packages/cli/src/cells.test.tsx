@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
 import type { Cell } from "./transcript-reducer.ts";
-import { CellView, ExplorationView, ThoughtView, toolSummary, VerboseContext } from "./cells.tsx";
+import {
+  CellView,
+  ExplorationView,
+  ThoughtView,
+  toolSummary,
+  VerboseContext,
+  WorkFooterView,
+} from "./cells.tsx";
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
@@ -129,27 +136,30 @@ describe("CellView: reasoning", () => {
 });
 
 describe("semantic stage views", () => {
-  it("renders active and completed exploration as one compact tree", async () => {
+  it("renders exploration as one compact tree with a stable heading", async () => {
     const stage = {
-      active: true,
       actions: [
         { callId: "r1", kind: "read" as const, target: "README.md" },
         { callId: "g1", kind: "search" as const, target: "text_delta" },
       ],
     };
-    const active = render(<ExplorationView stage={stage} />);
+    const view = render(<ExplorationView stage={stage} />);
     await flush();
-    expect(active.lastFrame()).toContain("Working…\n  ├ Read README.md\n  └ Search text_delta");
-
-    const complete = render(<ExplorationView stage={{ ...stage, active: false }} />);
-    await flush();
-    expect(complete.lastFrame()).toContain("• Explored\n  ├ Read README.md\n  └ Search text_delta");
+    expect(view.lastFrame()).toContain("• Explored\n  ├ Read README.md\n  └ Search text_delta");
   });
 
   it("renders a compact timed thought", async () => {
     const view = render(<ThoughtView thought={{ duration: 12_400 }} />);
     await flush();
     expect(view.lastFrame()).toContain("• Thought for 12s");
+  });
+
+  it("renders active and completed turn footers", async () => {
+    const active = render(<WorkFooterView />);
+    const complete = render(<WorkFooterView duration={12_400} />);
+    await flush();
+    expect(active.lastFrame()).toContain("Working…");
+    expect(complete.lastFrame()).toContain("• Worked for 12s");
   });
 });
 
