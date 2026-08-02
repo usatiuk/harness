@@ -33,9 +33,14 @@ import { effortsFor, runCommand, type CommandContext } from "./commands.ts";
 import { EffortPicker, ModelPicker } from "./model-picker.tsx";
 import { ActivitiesOverlay, type ActivitiesView } from "./activities-overlay.tsx";
 import { SandboxOverlay, type SandboxView } from "./sandbox-overlay.tsx";
-import { CellView, cellKey, truncate, VerboseContext } from "./cells.tsx";
+import { CellView, truncate, VerboseContext, WorkSummaryView } from "./cells.tsx";
 import { Composer } from "./composer.tsx";
 import { useHistory } from "./use-history.ts";
+import {
+  layoutTranscript,
+  liveEntryStartIndex,
+  type TranscriptEntry,
+} from "./transcript-layout.ts";
 
 export interface AppProps {
   service: HarnessService;
@@ -61,7 +66,7 @@ export function sandboxBackendOf(execution: unknown): SandboxBackend | undefined
 }
 
 type Action =
-  | { type: "event"; event: HarnessEvent }
+  | { type: "event"; event: HarnessEvent; receivedAt: number }
   | { type: "clear" }
   | { type: "note"; id: string; text: string }
   | { type: "shell-start"; id: string; command: string }
@@ -90,7 +95,7 @@ function updateShell(
 export function appReduce(state: State, action: Action): State {
   switch (action.type) {
     case "event":
-      return reduce(state, action.event);
+      return reduce(state, action.event, action.receivedAt);
     case "clear":
       return { ...state, cells: [] };
     case "note":
@@ -120,9 +125,18 @@ export function appReduce(state: State, action: Action): State {
   }
 }
 
-const renderCell = (cell: Cell): ReactElement => (
-  <Box key={cellKey(cell)}>
-    <CellView cell={cell} />
+interface PositionedEntry {
+  entry: TranscriptEntry;
+  first: boolean;
+}
+
+const renderEntry = ({ entry, first }: PositionedEntry): ReactElement => (
+  <Box key={entry.key} marginTop={first ? 0 : 1}>
+    {entry.kind === "work" ? (
+      <WorkSummaryView summary={entry.summary} />
+    ) : (
+      <CellView cell={entry.cell} />
+    )}
   </Box>
 );
 
@@ -193,7 +207,7 @@ export function App({
       // Scoped: the engine filters the stream, so another conversation's events can't
       // leak into this reducer.
       service.subscribe(conversation.id, (event) => {
-        dispatch({ type: "event", event });
+        dispatch({ type: "event", event, receivedAt: Date.now() });
         if (isKernelEvent(event) && event.type === "config.changed") {
           setConfig(event.config);
         }
@@ -349,23 +363,23 @@ export function App({
     report(service.deliver(conversation.id, line, busy ? "steer" : "send"));
   };
 
-  // Finalized cells print once to <Static>; only cells that may still change remain live.
-  const cut = liveStartIndex(state.cells);
-  const done = state.cells.slice(0, cut);
-  const live = state.cells.slice(cut);
+  // Keep the whole active turn mutable: compact work summaries can change until
+  // terminal status, then their final layout is published to Static exactly once.
+  const activeTurnId = state.turn.status === "running" ? state.turn.id : undefined;
+  const entries = layoutTranscript(state.cells, activeTurnId, verbose);
+  const positioned = entries.map((entry, index) => ({ entry, first: index === 0 }));
+  const cut = liveEntryStartIndex(entries);
+  const done = positioned.slice(0, cut);
+  const live = positioned.slice(cut);
 
   return (
     <VerboseContext.Provider value={verbose}>
       <Box flexDirection="column">
         <Static key={staticEpoch} items={done}>
-          {renderCell}
+          {renderEntry}
         </Static>
         <LiveViewport>
-          {live.map((cell) => (
-            <Box key={cellKey(cell)}>
-              <CellView cell={cell} />
-            </Box>
-          ))}
+          {live.map(renderEntry)}
           {pending ? (
             <Box>
               <Text color="magenta">{`❓ ${pending.summary} `}</Text>
@@ -590,16 +604,3 @@ function Rule(): ReactElement {
   const { columns: width } = useWindowSize();
   return <Text dimColor>{"─".repeat(Math.max(0, width))}</Text>;
 }
-
-const isLive = (c: Cell): boolean => {
-  if (c.kind === "assistant" || c.kind === "reasoning" || c.kind === "shell") return c.streaming;
-  if (c.kind === "tool") return c.status === undefined;
-  return false;
-};
-
-// Start of the live region. `done` is a prefix that only grows (cells migrate
-// live→done, never back), so <Static> stays duplicate-free.
-export const liveStartIndex = (cells: Cell[]): number => {
-  const firstStreaming = cells.findIndex(isLive);
-  return firstStreaming === -1 ? cells.length : firstStreaming;
-};

@@ -50,8 +50,18 @@ satisfy process.
 - Avoid duplicate state and speculative layers. Add an abstraction when it
   enforces a real boundary or simplifies behavior that exists now; do not add fake
   implementations for hypothetical platforms or providers.
+- Make designs as simple as possible, but not simpler than correctness,
+  lifecycle, recovery, provider behavior, and observability require.
+- Prefer designs that converge quickly to the correct user-visible state over
+  machinery that makes every transient observation or event interleaving
+  perfect. Compare the latest semantic value and reconcile it at a safe boundary
+  by default. Add coordination, identity, generation, or strict ordering only
+  when it protects resource lifetime, a protocol-required asynchronous lifetime,
+  or another demonstrated product invariant.
 - Prefer observable semantic outcomes over private call-sequence assertions and
   strict ordering machinery that protects no demonstrated invariant.
+- Do not derail scoped work to fix every incidental issue. Record consequential
+  deferred findings instead.
 - Comment non-obvious invariants and reasons; do not narrate obvious code.
 - Preserve unrelated worktree changes.
 

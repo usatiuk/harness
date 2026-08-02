@@ -321,4 +321,107 @@ describe("terminal scrollback", () => {
     await view.waitUntilExit();
     terminal.dispose();
   });
+
+  it("publishes a settled work summary once and keeps collapsed routine calls out of scrollback", async () => {
+    const { service, emit } = harness();
+    const terminal = new Terminal({
+      cols: 100,
+      rows: 10,
+      scrollback: 200,
+      allowProposedApi: true,
+    });
+    const view = await mount(
+      <App
+        service={service}
+        conversation={conversation}
+        initialItems={[]}
+        initialUsage={[]}
+        cwd="/tmp"
+        launchCwd="/tmp"
+        onResume={() => {}}
+        activities={{ peek: () => [], kill: () => {} }}
+      />,
+      { columns: 100, rows: 10, incrementalRendering: true },
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await writeTerminal(terminal, view.takeWrites());
+
+    const startedAt = Date.now();
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    emit({
+      type: "message",
+      conversationId: "c1",
+      item: {
+        type: "message",
+        role: "user",
+        id: "u1",
+        conversationId: "c1",
+        turnId: "t1",
+        seq: 0,
+        parent: null,
+        createdAt: startedAt,
+        content: [{ type: "text", text: "inspect" }],
+      },
+    });
+    emit({
+      type: "reasoning",
+      conversationId: "c1",
+      item: {
+        type: "reasoning",
+        id: "r1",
+        conversationId: "c1",
+        turnId: "t1",
+        seq: 1,
+        parent: "u1",
+        createdAt: startedAt,
+        content: [{ type: "text", text: "private marker" }],
+      },
+    });
+    emit({
+      type: "tool_call.started",
+      conversationId: "c1",
+      callId: "read-1",
+      name: "read_file",
+      args: { path: "ROUTINE-FILE-MARKER" },
+    });
+    emit({
+      type: "tool_call.completed",
+      conversationId: "c1",
+      callId: "read-1",
+      status: "ok",
+      forModel: [{ type: "text", text: "ROUTINE-OUTPUT-MARKER" }],
+    });
+    emit({
+      type: "message",
+      conversationId: "c1",
+      item: {
+        type: "message",
+        role: "assistant",
+        id: "a1",
+        conversationId: "c1",
+        turnId: "t1",
+        seq: 4,
+        parent: "r1",
+        createdAt: Date.now(),
+        content: [{ type: "text", text: "ANSWER-MARKER" }],
+      },
+    });
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
+    await vi.waitFor(() => expect(view.stdout.chunks.join("")).toContain("Worked for"));
+    await view.waitUntilRenderFlush();
+    await writeTerminal(terminal, view.takeWrites());
+    terminal.scrollToBottom();
+
+    const finalBuffer = bufferText(terminal);
+    expect(occurrences(finalBuffer, "Worked for")).toBe(1);
+    expect(finalBuffer).toContain("read 1 file");
+    expect(finalBuffer).toContain("ANSWER-MARKER");
+    expect(finalBuffer).not.toContain("ROUTINE-FILE-MARKER");
+    expect(finalBuffer).not.toContain("ROUTINE-OUTPUT-MARKER");
+    expect(finalBuffer).not.toContain("private marker");
+
+    view.unmount();
+    await view.waitUntilExit();
+    terminal.dispose();
+  });
 });

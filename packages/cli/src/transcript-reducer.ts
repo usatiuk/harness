@@ -29,16 +29,31 @@ import type { ModelConfig } from "@harness/protocol";
  * nodes; this module never imports Ink, so it is unit-testable on its own.
  */
 export type Cell =
-  | { kind: "user"; id: string; text: string }
-  | { kind: "assistant"; turnId: string; text: string; streaming: boolean; id?: string }
-  | { kind: "reasoning"; turnId: string; text: string; streaming: boolean; id?: string }
+  | { kind: "user"; id: string; turnId: string; text: string; createdAt: number }
+  | {
+      kind: "assistant";
+      turnId: string;
+      text: string;
+      streaming: boolean;
+      id?: string;
+    }
+  | {
+      kind: "reasoning";
+      turnId: string;
+      text: string;
+      streaming: boolean;
+      startedAt: number;
+      completedAt?: number;
+      id?: string;
+    }
   | {
       kind: "tool";
       callId: string;
-      /** Captured from the active turn while live; removed once the tool settles. */
       turnId?: string;
       name: string;
       args: unknown;
+      startedAt: number;
+      completedAt?: number;
       status?: ToolStatus;
       output?: string;
       approval?: ApprovalAnnotation;
@@ -112,10 +127,19 @@ function appendDelta(
   kind: "assistant" | "reasoning",
   turnId: string,
   text: string,
+  receivedAt: number,
 ): State {
   const idx = openIndex(state.cells, kind, turnId);
   if (idx === -1) {
-    return { ...state, cells: [...state.cells, { kind, turnId, text, streaming: true }] };
+    return {
+      ...state,
+      cells: [
+        ...state.cells,
+        kind === "assistant"
+          ? { kind, turnId, text, streaming: true }
+          : { kind, turnId, text, streaming: true, startedAt: receivedAt },
+      ],
+    };
   }
   const cells = state.cells.slice();
   const c = cells[idx] as Extract<Cell, { kind: "assistant" | "reasoning" }>;
@@ -130,14 +154,26 @@ function finalizeStream(
   turnId: string,
   id: string,
   text: string,
+  completedAt: number,
 ): State {
   const idx = openIndex(state.cells, kind, turnId);
   if (idx === -1) {
-    return { ...state, cells: [...state.cells, { kind, turnId, text, streaming: false, id }] };
+    return {
+      ...state,
+      cells: [
+        ...state.cells,
+        kind === "assistant"
+          ? { kind, turnId, text, streaming: false, id }
+          : { kind, turnId, text, streaming: false, id, startedAt: completedAt, completedAt },
+      ],
+    };
   }
   const cells = state.cells.slice();
   const c = cells[idx] as Extract<Cell, { kind: "assistant" | "reasoning" }>;
-  cells[idx] = { ...c, text, streaming: false, id };
+  cells[idx] =
+    c.kind === "assistant"
+      ? { ...c, text, streaming: false, id }
+      : { ...c, text, streaming: false, id, completedAt };
   return { ...state, cells };
 }
 
@@ -150,7 +186,7 @@ function clearPending(state: State): State {
 }
 
 /** Fold one event into the transcript state. Pure; handles `activity.*` plugin events plus kernel events. */
-export function reduce(state: State, event: HarnessEvent): State {
+export function reduce(state: State, event: HarnessEvent, receivedAt: number): State {
   if (isAutoApprovalEvent(event)) {
     return {
       ...state,
@@ -211,12 +247,11 @@ export function reduce(state: State, event: HarnessEvent): State {
       // A terminal status closes any partial stream that did not receive a final item
       // (most commonly an interrupted/aborted provider stream).
       const cells = ended.cells.map((c): Cell => {
-        if (
-          (c.kind === "assistant" || c.kind === "reasoning") &&
-          c.streaming &&
-          c.turnId === event.turnId
-        ) {
+        if (c.kind === "assistant" && c.streaming && c.turnId === event.turnId) {
           return { ...c, streaming: false };
+        }
+        if (c.kind === "reasoning" && c.streaming && c.turnId === event.turnId) {
+          return { ...c, streaming: false, completedAt: c.completedAt ?? receivedAt };
         }
         if (c.kind === "tool" && c.status === undefined && c.turnId === event.turnId) {
           const output =
@@ -229,8 +264,8 @@ export function reduce(state: State, event: HarnessEvent): State {
             ...c,
             status: "error",
             output,
+            completedAt: receivedAt,
           };
-          delete settled.turnId;
           delete settled.approvalProgress;
           return settled;
         }
@@ -252,18 +287,41 @@ export function reduce(state: State, event: HarnessEvent): State {
       if (item.role === "user") {
         return {
           ...state,
-          cells: [...state.cells, { kind: "user", id: item.id, text: textOf(item.content) }],
+          cells: [
+            ...state.cells,
+            {
+              kind: "user",
+              id: item.id,
+              turnId: item.turnId,
+              text: textOf(item.content),
+              createdAt: item.createdAt,
+            },
+          ],
         };
       }
       if (item.role === "assistant") {
-        return finalizeStream(state, "assistant", item.turnId, item.id, textOf(item.content));
+        return finalizeStream(
+          state,
+          "assistant",
+          item.turnId,
+          item.id,
+          textOf(item.content),
+          item.createdAt,
+        );
       }
       return state; // system messages aren't shown
     }
     case "reasoning": {
       const item = event.item;
       if (item.type !== "reasoning") return state;
-      return finalizeStream(state, "reasoning", item.turnId, item.id, textOf(item.content));
+      return finalizeStream(
+        state,
+        "reasoning",
+        item.turnId,
+        item.id,
+        textOf(item.content),
+        item.createdAt,
+      );
     }
     case "compaction": {
       const item = event.item;
@@ -282,10 +340,10 @@ export function reduce(state: State, event: HarnessEvent): State {
       };
     }
     case "text_delta":
-      return appendDelta(state, "assistant", event.turnId, event.text);
+      return appendDelta(state, "assistant", event.turnId, event.text, receivedAt);
     case "reasoning_delta":
-      return appendDelta(state, "reasoning", event.turnId, event.text);
-    case "tool_call.started":
+      return appendDelta(state, "reasoning", event.turnId, event.text, receivedAt);
+    case "tool_call.started": {
       return {
         ...state,
         cells: [
@@ -296,9 +354,11 @@ export function reduce(state: State, event: HarnessEvent): State {
             ...(state.turn.id ? { turnId: state.turn.id } : {}),
             name: event.name,
             args: event.args,
+            startedAt: receivedAt,
           },
         ],
       };
+    }
     case "tool_call.completed":
       return {
         ...state,
@@ -309,9 +369,9 @@ export function reduce(state: State, event: HarnessEvent): State {
             ...c,
             status: event.status,
             output: textOf(event.forModel),
+            completedAt: receivedAt,
             ...(approval ? { approval } : {}),
           };
-          delete settled.turnId;
           delete settled.approvalProgress;
           return settled;
         }),
@@ -352,7 +412,13 @@ export function init(items: Item[], usageRows: ModelUsage[] = []): State {
     switch (item.type) {
       case "message":
         if (item.role === "user")
-          cells.push({ kind: "user", id: item.id, text: textOf(item.content) });
+          cells.push({
+            kind: "user",
+            id: item.id,
+            turnId: item.turnId,
+            text: textOf(item.content),
+            createdAt: item.createdAt,
+          });
         else if (item.role === "assistant")
           cells.push({
             kind: "assistant",
@@ -368,6 +434,8 @@ export function init(items: Item[], usageRows: ModelUsage[] = []): State {
           turnId: item.turnId,
           text: textOf(item.content),
           streaming: false,
+          startedAt: item.createdAt,
+          completedAt: item.createdAt,
           id: item.id,
         });
         break;
@@ -375,8 +443,10 @@ export function init(items: Item[], usageRows: ModelUsage[] = []): State {
         const cell: Extract<Cell, { kind: "tool" }> = {
           kind: "tool",
           callId: item.callId,
+          turnId: item.turnId,
           name: item.name,
           args: item.args,
+          startedAt: item.createdAt,
         };
         cells.push(cell);
         toolByCall.set(item.callId, cell);
@@ -387,6 +457,7 @@ export function init(items: Item[], usageRows: ModelUsage[] = []): State {
         if (cell) {
           cell.status = item.status;
           cell.output = textOf(item.content);
+          cell.completedAt = item.createdAt;
           const approval = approvalAnnotationOf(item.annotations);
           if (approval) cell.approval = approval;
         }

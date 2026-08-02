@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
-import type { Conversation, HarnessEvent } from "@harness/protocol";
+import type { Conversation, HarnessEvent, Item } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import { LocalExecutionContext } from "@harness/execution";
 import { DockerExecutionContext, NativeExecutionContext } from "@harness/sandbox";
-import { App, appReduce, liveStartIndex, sandboxBackendOf } from "./app.tsx";
+import { App, appReduce, sandboxBackendOf } from "./app.tsx";
 import { emptyState, type Cell } from "./transcript-reducer.ts";
 
 const shellCells = (cells: Cell[]): Extract<Cell, { kind: "shell" }>[] =>
@@ -35,12 +35,12 @@ function harness(): { service: HarnessService; emit: (e: HarnessEvent) => void }
 
 // React commits emitted updates asynchronously (scheduler ticks), so frame assertions
 // after an emit poll with vi.waitFor instead of racing the commit with a timer.
-const mount = (service: HarnessService) =>
+const mount = (service: HarnessService, initialItems: Item[] = []) =>
   render(
     <App
       service={service}
       conversation={conversation}
-      initialItems={[]}
+      initialItems={initialItems}
       initialUsage={[]}
       cwd="/tmp"
       launchCwd="/tmp"
@@ -62,6 +62,67 @@ describe("App", () => {
     const { lastFrame } = mount(service);
     expect(lastFrame()).toContain("type a message");
     expect(lastFrame()).toContain("demo-1");
+  });
+
+  it("separates semantic transcript blocks and collapses resumed routine work", () => {
+    const { service } = harness();
+    const base = {
+      conversationId: "c1",
+      turnId: "t1",
+      parent: null,
+    };
+    const items = [
+      {
+        ...base,
+        type: "message",
+        role: "user",
+        id: "u1",
+        seq: 0,
+        createdAt: 0,
+        content: [{ type: "text", text: "inspect" }],
+      },
+      {
+        ...base,
+        type: "reasoning",
+        id: "r1",
+        seq: 1,
+        createdAt: 1_000,
+        content: [{ type: "text", text: "private reasoning" }],
+      },
+      {
+        ...base,
+        type: "tool_call",
+        id: "tc1",
+        seq: 2,
+        createdAt: 2_000,
+        callId: "read-1",
+        name: "read_file",
+        args: { path: "README.md" },
+      },
+      {
+        ...base,
+        type: "tool_result",
+        id: "tr1",
+        seq: 3,
+        createdAt: 3_000,
+        callId: "read-1",
+        status: "ok",
+        content: [{ type: "text", text: "# Harness" }],
+      },
+      {
+        ...base,
+        type: "message",
+        role: "assistant",
+        id: "a1",
+        seq: 4,
+        createdAt: 4_000,
+        content: [{ type: "text", text: "done" }],
+      },
+    ] as Item[];
+    const { lastFrame } = mount(service, items);
+    expect(lastFrame()).toContain("› inspect\n\n• Worked for 3s · read 1 file\n\n  done");
+    expect(lastFrame()).not.toContain("private reasoning");
+    expect(lastFrame()).not.toContain("# Harness");
   });
 
   it("updates the displayed model when a config.changed event arrives", async () => {
@@ -110,6 +171,7 @@ describe("App", () => {
   it("renders live auto-review progress and the final saved decision", async () => {
     const { service, emit } = harness();
     const { lastFrame } = mount(service);
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
     emit({
       type: "tool_call.started",
       conversationId: "c1",
@@ -162,8 +224,9 @@ describe("App", () => {
       forModel: [{ type: "text", text: "all good\nsecond line" }],
     });
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
-    // Finalized → compact: one-line result, the rest of the output hidden.
-    await vi.waitFor(() => expect(lastFrame()).toContain("all good"));
+    // Finalized → compact: the successful command collapses into the work summary.
+    await vi.waitFor(() => expect(lastFrame()).toContain("ran 1 command"));
+    expect(lastFrame()).not.toContain("all good");
     expect(lastFrame()).not.toContain("second line");
     stdin.write("\x0f"); // Ctrl+O: wipe + reprint verbose
     await vi.waitFor(() => expect(lastFrame()).toContain("second line"));
@@ -207,34 +270,5 @@ describe("appReduce: !cmd shell streaming", () => {
     s = appReduce(s, { type: "shell-end", id: "sh1", exitCode: 0 });
     s = appReduce(s, { type: "shell-delta", id: "sh1", text: "late" });
     expect(shellCells(s.cells)[0]!.text).toBe("");
-  });
-});
-
-describe("liveStartIndex", () => {
-  it("moves completed reasoning out of the mutable frame immediately", () => {
-    const cells: Cell[] = [
-      {
-        kind: "reasoning",
-        turnId: "t1",
-        text: "complete thought",
-        streaming: false,
-      },
-      {
-        kind: "assistant",
-        turnId: "t1",
-        text: "still streaming",
-        streaming: true,
-      },
-    ];
-    expect(liveStartIndex(cells)).toBe(1);
-  });
-
-  it("moves the whole transcript to Static after failure or interruption finalizes its cells", () => {
-    const cells: Cell[] = [
-      { kind: "assistant", turnId: "t1", text: "partial answer", streaming: false },
-      { kind: "reasoning", turnId: "t1", text: "partial thought", streaming: false },
-      { kind: "error", id: "error-t1", text: "interrupted" },
-    ];
-    expect(liveStartIndex(cells)).toBe(cells.length);
   });
 });

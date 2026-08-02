@@ -3,10 +3,19 @@ import { Box, Text } from "ink";
 import { assertNever, selectionId, type ToolStatus } from "@harness/protocol";
 import type { Cell } from "./transcript-reducer.ts";
 import { Markdown } from "./markdown.tsx";
+import {
+  editPresentation,
+  type EditPresentation,
+  type PatchFile,
+  type PatchLine,
+} from "./edit-presentation.ts";
+import { formatWorkSummary, type WorkSummary } from "./transcript-layout.ts";
 
 const TOOL_OUTPUT_CAP = 800;
 const ARGS_CAP = 120;
 const RESULT_CAP = 100;
+const PATCH_LINE_CAP = 12;
+const PATCH_COLUMN_CAP = 160;
 // Left gutter: markers/symbols sit at column 0, textual content indented here —
 // gives assistant markdown breathing room and a home for tool-call markers.
 const GUTTER = 2;
@@ -22,28 +31,6 @@ export const indent = (s: string): string =>
 
 /** Compact-by-default ⟺ false (Ctrl+O flips it in the app). */
 export const VerboseContext = createContext(false);
-
-/** A stable React/Static key for a cell (finalized cells all carry an id/callId). */
-export function cellKey(cell: Cell): string {
-  switch (cell.kind) {
-    case "user":
-      return cell.id;
-    case "assistant":
-      return cell.id ?? `${cell.turnId}:assistant`;
-    case "reasoning":
-      return cell.id ?? `${cell.turnId}:reasoning`;
-    case "tool":
-      return cell.callId;
-    case "compaction":
-    case "context":
-    case "error":
-    case "note":
-    case "shell":
-      return cell.id;
-    default:
-      return assertNever(cell);
-  }
-}
 
 const safeArgs = (args: unknown): string => {
   try {
@@ -139,6 +126,11 @@ export function CellView({ cell }: { cell: Cell }): ReactElement {
   }
 }
 
+export function WorkSummaryView({ summary }: { summary: WorkSummary }): ReactElement {
+  const label = `• ${formatWorkSummary(summary)}`;
+  return summary.active ? <Text color="yellow">{label}</Text> : <Text dimColor>{label}</Text>;
+}
+
 function ShellCard({ cell }: { cell: Extract<Cell, { kind: "shell" }> }): ReactElement {
   const failed = !cell.streaming && (cell.exitCode ?? 0) !== 0;
   return (
@@ -157,6 +149,8 @@ function ToolCard({
   cell: Extract<Cell, { kind: "tool" }>;
   verbose: boolean;
 }): ReactElement {
+  const edit = editPresentation(cell);
+  if (edit) return <EditCard cell={cell} edit={edit} verbose={verbose} />;
   const color = cell.status === "error" ? "red" : cell.status === "ok" ? "green" : "yellow";
   const mark = cell.status === undefined ? "⠿" : cell.status === "ok" ? "✓" : "✗";
   const approvalDenied = cell.approval?.decision === "deny";
@@ -183,6 +177,82 @@ function ToolCard({
       {approvalDenied ? null : <ResultLine status={cell.status} output={cell.output} />}
     </Box>
   );
+}
+
+function EditCard({
+  cell,
+  edit,
+  verbose,
+}: {
+  cell: Extract<Cell, { kind: "tool" }>;
+  edit: EditPresentation;
+  verbose: boolean;
+}): ReactElement {
+  const color = cell.status === "error" ? "red" : cell.status === "ok" ? "green" : "yellow";
+  const mark = cell.status === undefined ? "⠿" : cell.status === "ok" ? "✓" : "✗";
+  const approvalDenied = cell.approval?.decision === "deny";
+  const label =
+    cell.status === undefined
+      ? edit.labels.running
+      : cell.status === "ok"
+        ? edit.labels.succeeded
+        : edit.labels.failed;
+  return (
+    <Box flexDirection="column">
+      <Text color={color}>{`${mark} ${label}`}</Text>
+      {cell.status === "error" ? (
+        <Text dimColor>{approvalDenied ? " requested changes:" : " attempted changes:"}</Text>
+      ) : null}
+      <PatchView edit={edit} verbose={verbose} />
+      <ApprovalLine cell={cell} />
+      {cell.status === "error" && !approvalDenied ? (
+        <ResultLine status={cell.status} output={cell.output} />
+      ) : null}
+    </Box>
+  );
+}
+
+function compactPatchFiles(files: PatchFile[]): PatchFile[] {
+  let remaining = PATCH_LINE_CAP;
+  return files.map((file) => {
+    const lines = file.lines.slice(0, remaining);
+    remaining -= lines.length;
+    return { ...file, lines };
+  });
+}
+
+function PatchView({ edit, verbose }: { edit: EditPresentation; verbose: boolean }): ReactElement {
+  const totalLines = edit.files.reduce((sum, file) => sum + file.lines.length, 0);
+  const files = verbose ? edit.files : compactPatchFiles(edit.files);
+  const shown = files.reduce((sum, file) => sum + file.lines.length, 0);
+  const showFileHeaders = edit.files.length > 1;
+  return (
+    <Box flexDirection="column" paddingLeft={GUTTER}>
+      {files.map((file, fileIndex) => (
+        <Box key={`${fileIndex}:${file.path}`} flexDirection="column">
+          {showFileHeaders ? <Text color="cyan">{file.path}</Text> : null}
+          {file.lines.map((line, index) => (
+            <PatchLineView key={`${index}:${line.text}`} line={line} verbose={verbose} />
+          ))}
+        </Box>
+      ))}
+      {shown < totalLines ? <Text dimColor>{`… ${totalLines - shown} more lines`}</Text> : null}
+    </Box>
+  );
+}
+
+function PatchLineView({ line, verbose }: { line: PatchLine; verbose: boolean }): ReactElement {
+  const text = verbose ? line.text : truncate(line.text, PATCH_COLUMN_CAP);
+  switch (line.kind) {
+    case "add":
+      return <Text color="green">{text}</Text>;
+    case "remove":
+      return <Text color="red">{text}</Text>;
+    case "hunk":
+      return <Text color="cyan">{text}</Text>;
+    case "context":
+      return <Text dimColor>{text}</Text>;
+  }
 }
 
 function ApprovalLine({ cell }: { cell: Extract<Cell, { kind: "tool" }> }): ReactElement | null {

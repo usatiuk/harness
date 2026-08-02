@@ -71,19 +71,25 @@ conversation's execution service.
 The TUI reduces typed events plus a durable resume seed into presentation cells.
 It renders:
 
-- Streaming/final assistant Markdown and optional verbose reasoning.
-- Tool calls, arguments, result summaries, approval progress, and full verbose
-  output.
+- Streaming/final assistant Markdown and a per-turn work summary. Compact mode
+  collapses reasoning and successful unapproved reads, searches, and commands;
+  verbose mode retains their underlying detail.
+- Tool calls, arguments, result summaries, and approval progress. Failures,
+  approved calls, edits, and unfamiliar/plugin tools remain visible in compact
+  mode.
+- Dedicated edit cards for Harness file-mutation dialects, with bounded colored
+  patches in compact mode and the complete available patch in verbose mode.
 - Context markers and compaction markers; verbose mode renders the complete
   persisted fold summary.
 - Turn failures with nested provider error causes.
 - Background activity state, pending input, sandbox progress, usage, cost, and
   context fill.
 
-Finalized cells move into Ink static scrollback; the mutable frame holds only live
-work. Toggling verbose mode clears/reprints the static transcript so expanded
-reasoning/tool/compaction content is coherent rather than layered over prior
-output.
+Visible conversation blocks are separated by one blank line. The whole active
+turn stays in Ink's mutable frame so its work summary can settle; after terminal
+status the final layout moves into static scrollback once. Toggling verbose mode
+clears/reprints the static transcript so expanded reasoning/tool/compaction
+content is coherent rather than layered over prior output.
 
 The composer provides multiline input, cross-session history, command completion,
 model/effort selection, delivery intents, approval prompts, and overlays for
@@ -124,6 +130,6 @@ client.
 
 Tests cover settings precedence/validation/writes, auth registry and screens,
 credential backend selection, session creation/resume/switching, commands,
-composer/history/completion, transcript reduction/rendering, overlays, streaming
-scrollback, and CLI composition. Platform-specific credential tests run only on
-their supported systems.
+composer/history/completion, transcript reduction/grouping/rendering, compact and
+verbose edit patches, overlays, streaming/static scrollback, and CLI composition.
+Platform-specific credential tests run only on their supported systems.

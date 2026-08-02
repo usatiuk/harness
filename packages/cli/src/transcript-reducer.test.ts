@@ -17,7 +17,7 @@ const item = (over: { type: Item["type"] } & Record<string, unknown>): Item =>
   }) as Item;
 
 const fold = (events: HarnessEvent[], from: State = emptyState): State =>
-  events.reduce(reduce, from);
+  events.reduce((state, event) => reduce(state, event, 0), from);
 
 describe("transcript reducer", () => {
   it("streams assistant deltas then finalizes on the message item", () => {
@@ -55,7 +55,16 @@ describe("transcript reducer", () => {
       { type: "tool_call.completed", callId: "k1", status: "ok", forModel: text("done") },
     ]);
     expect(state.cells).toEqual([
-      { kind: "tool", callId: "k1", name: "bash", args: {}, status: "ok", output: "done" },
+      {
+        kind: "tool",
+        callId: "k1",
+        name: "bash",
+        args: {},
+        startedAt: 0,
+        completedAt: 0,
+        status: "ok",
+        output: "done",
+      },
     ]);
   });
 
@@ -87,20 +96,24 @@ describe("transcript reducer", () => {
       },
     });
 
-    const completed = reduce(running, {
-      type: "tool_call.completed",
-      callId: "k1",
-      status: "ok",
-      forModel: text("done"),
-      annotations: {
-        approval: {
-          decision: "allow",
-          responder: "auto",
-          relationship: "out-of-workspace",
-          model: { provider: "fake", model: "reviewer" },
+    const completed = reduce(
+      running,
+      {
+        type: "tool_call.completed",
+        callId: "k1",
+        status: "ok",
+        forModel: text("done"),
+        annotations: {
+          approval: {
+            decision: "allow",
+            responder: "auto",
+            relationship: "out-of-workspace",
+            model: { provider: "fake", model: "reviewer" },
+          },
         },
       },
-    });
+      0,
+    );
     expect(completed.cells[0]).toMatchObject({
       approval: {
         decision: "allow",
@@ -122,30 +135,42 @@ describe("transcript reducer", () => {
         model: { provider: "fake", model: "reviewer" },
       },
     ]);
-    const interrupted = reduce(reviewing, {
-      type: "tool_call.completed",
-      callId: "k1",
-      status: "error",
-      forModel: text("interrupted"),
-    });
+    const interrupted = reduce(
+      reviewing,
+      {
+        type: "tool_call.completed",
+        callId: "k1",
+        status: "error",
+        forModel: text("interrupted"),
+      },
+      0,
+    );
     expect(interrupted.cells[0]).toMatchObject({ status: "error", output: "interrupted" });
     expect(interrupted.cells[0]).not.toHaveProperty("approvalProgress");
     expect(interrupted.cells[0]).not.toHaveProperty("approval");
   });
 
   it("sets a pending approval and clears it on resolution", () => {
-    const created = reduce(emptyState, {
-      type: "request.created",
-      requestId: "q1",
-      conversationId: "c",
-      request: { kind: "approval", call: { name: "bash" } },
-    });
+    const created = reduce(
+      emptyState,
+      {
+        type: "request.created",
+        requestId: "q1",
+        conversationId: "c",
+        request: { kind: "approval", call: { name: "bash" } },
+      },
+      0,
+    );
     expect(created.pending).toEqual({ requestId: "q1", summary: "approve bash?" });
-    const resolved = reduce(created, {
-      type: "request.resolved",
-      requestId: "q1",
-      conversationId: "c",
-    });
+    const resolved = reduce(
+      created,
+      {
+        type: "request.resolved",
+        requestId: "q1",
+        conversationId: "c",
+      },
+      0,
+    );
     expect(resolved.pending).toBeUndefined();
   });
 
@@ -158,8 +183,9 @@ describe("transcript reducer", () => {
         conversationId: "c",
         request: { kind: "approval", call: { name: "bash" } },
       },
+      0,
     );
-    const ended = reduce(created, { type: "turn.status", turnId: "t1", status: "aborted" });
+    const ended = reduce(created, { type: "turn.status", turnId: "t1", status: "aborted" }, 0);
     expect(ended.pending).toBeUndefined();
   });
 
@@ -203,7 +229,14 @@ describe("transcript reducer", () => {
       { type: "turn.status", turnId: "t1", status: "aborted" },
     ]);
     expect(state.cells).toEqual([
-      { kind: "reasoning", turnId: "t1", text: "partial thought", streaming: false },
+      {
+        kind: "reasoning",
+        turnId: "t1",
+        text: "partial thought",
+        streaming: false,
+        startedAt: 0,
+        completedAt: 0,
+      },
       { kind: "assistant", turnId: "t1", text: "partial answer", streaming: false },
     ]);
   });
@@ -223,15 +256,23 @@ describe("transcript reducer", () => {
   it("settles a tool when its turn fails before a completion event", () => {
     const state = fold([
       { type: "turn.status", turnId: "t1", status: "running" },
-      { type: "tool_call.started", callId: "k1", name: "bash", args: { command: "work" } },
+      {
+        type: "tool_call.started",
+        callId: "k1",
+        name: "bash",
+        args: { command: "work" },
+      },
       { type: "turn.status", turnId: "t1", status: "failed", error: "provider disconnected" },
     ]);
     expect(state.cells).toEqual([
       {
         kind: "tool",
         callId: "k1",
+        turnId: "t1",
         name: "bash",
         args: { command: "work" },
+        startedAt: 0,
+        completedAt: 0,
         status: "error",
         output: "provider disconnected",
       },
@@ -270,6 +311,7 @@ describe("transcript reducer", () => {
     const seeded = init(log);
 
     const replayed = fold([
+      { type: "turn.status", turnId: "t1", status: "running" },
       { type: "message", item: log[0]! },
       { type: "tool_call.started", callId: "k1", name: "bash", args: { cmd: "ls" } },
       {
@@ -290,12 +332,15 @@ describe("transcript reducer", () => {
 
     expect(seeded.cells).toEqual(replayed.cells);
     expect(seeded.cells).toEqual([
-      { kind: "user", id: "u1", text: "hi" },
+      { kind: "user", id: "u1", turnId: "t1", text: "hi", createdAt: 0 },
       {
         kind: "tool",
         callId: "k1",
+        turnId: "t1",
         name: "bash",
         args: { cmd: "ls" },
+        startedAt: 0,
+        completedAt: 0,
         status: "ok",
         output: "files",
         approval: {
