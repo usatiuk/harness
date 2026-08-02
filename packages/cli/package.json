@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@harness/activities": "*",
+    "@harness/agents": "*",
     "@harness/anthropic-api": "*",
     "@harness/approval": "*",
     "@harness/auth": "*",

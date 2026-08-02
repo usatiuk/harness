@@ -6,7 +6,6 @@ import {
   type ToolSchema,
 } from "@harness/protocol";
 import { readThinkingPayload } from "./payload.ts";
-import { NATIVE_TOOLS } from "./native-tools.ts";
 
 type MessageParam = Anthropic.Messages.MessageParam;
 type ContentBlockParam = Anthropic.Messages.ContentBlockParam;
@@ -142,13 +141,8 @@ function toInputSchema(
   return parameters;
 }
 
-/** A harness tool schema → an Anthropic tool. `native` resolves via the provider's id table. */
+/** A Harness tool schema → an Anthropic tool. */
 function toTool(schema: ToolSchema): ToolUnion {
-  if (schema.kind === "native") {
-    const wire = NATIVE_TOOLS[schema.id];
-    if (!wire) throw new Error(`unknown native tool id: ${schema.id}`);
-    return wire;
-  }
   if (schema.kind === "function") {
     return {
       name: schema.name,

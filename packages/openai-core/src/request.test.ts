@@ -123,6 +123,37 @@ describe("buildResponseParams", () => {
     expect(params.input).toEqual([{ role: "developer", content: "project rules" }]);
   });
 
+  it("keeps a following context item after the function-call output", () => {
+    const params = buildResponseParams(
+      baseRequest([
+        { item: item({ type: "tool_call", callId: "c", name: "echo", args: {} }) },
+        {
+          item: item({
+            type: "tool_result",
+            callId: "c",
+            content: [{ type: "text", text: "ok" }],
+            status: "ok",
+          }),
+        },
+        {
+          item: item({
+            type: "context",
+            key: "agents",
+            content: [{ type: "text", text: "rules" }],
+          }),
+        },
+      ]),
+      REASONING,
+      "openai",
+    );
+
+    expect(params.input).toEqual([
+      { type: "function_call", call_id: "c", name: "echo", arguments: "{}" },
+      { type: "function_call_output", call_id: "c", output: "ok" },
+      { role: "developer", content: "rules" },
+    ]);
+  });
+
   it("skips a reasoning item whose payload is missing or from another provider", () => {
     const reasoning = item({ type: "reasoning", content: [{ type: "text", text: "s" }] });
     const foreign: ProviderPayload = { ...reasoningPayload("gpt-x"), provider: "openai-codex" };

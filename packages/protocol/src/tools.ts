@@ -2,14 +2,14 @@ import type { ZodType } from "zod";
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
 import type { Item } from "./items.ts";
-import type { NativeToolId, ToolGrammar } from "./model.ts";
+import type { ToolGrammar } from "./model.ts";
 import type { PluginEvent } from "./events.ts";
 import type { InteractionRequest } from "./requests.ts";
 
 export interface ToolCall {
-  callId: string;
-  name: string;
-  args: unknown;
+  readonly callId: string;
+  readonly name: string;
+  readonly args: unknown;
 }
 
 export type ToolStatus = "ok" | "error";
@@ -68,15 +68,12 @@ export interface ToolContext {
 
 /**
  * What a tool declares about its arguments. `function` is a zod schema; `custom` is a raw
- * string the model emits, `parse`d to `A`; `native` is a provider built-in whose wire schema
- * the provider owns — the zod `schema` here defensively validates the model's structured input.
- * The kernel derives the wire `ToolSchema` from this and validates raw args against it, so
- * `execute` only ever sees a validated `A`.
+ * string the model emits and `parse`d to `A`. The kernel derives the wire `ToolSchema` from this
+ * and validates raw args against it, so `execute` only ever sees a validated `A`.
  */
 export type ToolInput<A> =
   | { kind: "function"; schema: ZodType<A> }
-  | { kind: "custom"; grammar?: ToolGrammar; parse: (raw: string) => A }
-  | { kind: "native"; id: NativeToolId; schema: ZodType<A> };
+  | { kind: "custom"; grammar?: ToolGrammar; parse: (raw: string) => A };
 
 export interface Tool<A = unknown> {
   readonly name: string;
@@ -101,6 +98,8 @@ export interface ToolMiddlewareContext extends ToolContext {
    * (e.g. skip bounding `addressableOutput` tools) without the `Tool` itself.
    */
   toolMeta(name: string): Record<string, unknown> | undefined;
+  /** True only when the call names an offered tool and its raw arguments pass that tool's parser. */
+  acceptsToolCall(call: ToolCall): boolean;
   /**
    * Records call-scoped durable metadata that the engine merges into the final
    * result, including synthetic failures and live interruption. Last writer wins
@@ -116,14 +115,16 @@ export interface ToolMiddlewareContext extends ToolContext {
    */
   request(request: InteractionRequest): Promise<unknown>;
   /**
-   * The compacted active window, re-derived from the log — the same source the model
-   * build reads. Reflects `context` items appended earlier in this dispatch.
+   * The compacted active window, re-derived from the durable log — the same source the model
+   * build reads. Context staged by the current call is not visible until its result is persisted.
    */
   active(): Promise<readonly Item[]>;
   /**
-   * Append a durable, keyed `context` item to the log now (e.g. a nested AGENTS.md).
+   * Stage a durable, keyed `context` item after the current tool-call batch's results
+   * (e.g. AGENTS.md).
    * `key` is opaque to the kernel; dedup is the caller's job — scan `active()` first.
-   * Logged as a real item, so the injection is rewind-safe.
+   * Logged as a real item, so the injection is rewind-safe without splitting provider-required
+   * tool-call/result adjacency.
    */
   appendContext(key: string, content: ContentBlock[]): Promise<void>;
 }

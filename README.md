@@ -75,6 +75,22 @@ that tool invocation receives the host execution context. The Harness-owned Anth
 the OpenAI-style freeform `apply_patch` tool implement the same behavior in their own wire formats.
 Provider-executed tools such as web search are not claimed as sandboxed.
 
+### Project instructions
+
+The standalone `agents` plugin loads hierarchical `AGENTS.md` guidance for every conversation,
+including subagents. At session load it snapshots files from the host filesystem root through the
+conversation cwd into the cache-stable instruction prefix, ordered broadest to most specific.
+Because outside-workspace instruction reads share the approval boundary, compositions register
+`approval` before `agents`; the plugin host rejects the unsafe reverse order.
+
+When a Harness-owned structured file tool accesses a deeper or approved outside-cwd path, the
+plugin appends newly applicable `AGENTS.md` files as keyed context items after the tool-call batch's
+results.
+Those keys deduplicate within the active context and follow the conversation branch automatically:
+rewind restores the selected branch's loaded set, while compaction drops older nested markers so a
+later file access reloads current instructions. V1 does not parse shell commands, watch files for
+changes, or discover container-only instruction trees.
+
 Native v1 treats Harness's own `.harness` output persistence as trusted internal IO, so large or
 background command output may update `.harness` even when `workspaceWrite` is disabled. Built-in
 write/remove operations reject paths that resolve outside the workspace, but that check and the
@@ -86,5 +102,6 @@ protection against that race.
 
 Packages under `packages/*`, layered one-directionally:
 `protocol → store → core → service → cli`. Tools and model providers are not
-layers — they are plugin contributions, each shipping as its own `plugin-*`
-package and wired in at the `cli` composition root.
+layers — they are plugin contributions wired in at the `cli` composition root. Providers declare
+which file-tool dialect a model expects; `workspace` owns and executes every concrete file tool,
+while `agents` independently supplies hierarchical project instructions around those calls.

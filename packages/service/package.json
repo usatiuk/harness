@@ -16,6 +16,7 @@
     "@harness/config": "*"
   },
   "devDependencies": {
+    "@harness/agents": "*",
     "@harness/store": "*",
     "@harness/testkit": "*",
     "@harness/execution": "*",

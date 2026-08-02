@@ -12,14 +12,17 @@ import {
   WriteTool,
   executionApplyPatchTool,
 } from "./tools.ts";
+import { executionTextEditorTool } from "./text-editor.ts";
 
 export * from "./tools.ts";
 export * from "./apply-patch-parse.ts";
+export * from "./text-editor.ts";
+export * from "./targets.ts";
 
 /**
  * Workspace tools: search files and run commands via the execution service, plus a file-edit roster
- * chosen by the model's `fileTools` profile. `text_editor` contributes no read/write/edit here —
- * the Anthropic plugin supplies its Harness-executed editor, so the trio would only overlap it.
+ * chosen by the model's `fileTools` profile. Providers declare the dialect a model expects;
+ * workspace owns and executes every resulting filesystem tool.
  */
 export const workspacePlugin: Plugin = {
   id: "workspace",
@@ -41,7 +44,7 @@ export const workspacePlugin: Plugin = {
           executionApplyPatchTool(execution),
         ];
       case "text_editor":
-        return base;
+        return [...base, executionTextEditorTool(execution)];
       case "string_replace":
         return [
           ...base,

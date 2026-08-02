@@ -120,16 +120,24 @@ describe.skipIf(!apiKey)("AnthropicProvider (live)", () => {
     expect(second.some((e) => e.type === "text_delta")).toBe(true);
   }, 120_000);
 
-  it("emits a native text_editor call to create a file", async () => {
+  it("emits a text_editor-shaped function call to create a file", async () => {
     const events = await drain({
       instructions: [{ type: "text", text: "Use the text editor tool to edit files." }],
       modelConfig: { provider: PROVIDER, model },
       tools: [
         {
-          kind: "native",
+          kind: "function",
           name: "str_replace_based_edit_tool",
           description: "the file editor",
-          id: "anthropic.text_editor",
+          parameters: {
+            type: "object",
+            properties: {
+              command: { type: "string", enum: ["view", "create", "str_replace", "insert"] },
+              path: { type: "string" },
+              file_text: { type: "string" },
+            },
+            required: ["command", "path"],
+          },
         },
       ],
       items: [{ item: userItem("Create a file hello.txt containing exactly: hi") }],

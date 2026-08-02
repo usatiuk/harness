@@ -1,0 +1,21 @@
+{
+  "name": "@harness/agents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@harness/execution": "*",
+    "@harness/protocol": "*",
+    "@harness/workspace": "*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
+  }
+}

@@ -12,7 +12,7 @@ import { executionTextEditorTool, TextEditorTool } from "./text-editor.ts";
 
 const created: string[] = [];
 async function workspace(): Promise<ToolContext> {
-  const root = await mkdtemp(join(tmpdir(), "hae-"));
+  const root = await mkdtemp(join(tmpdir(), "hwe-"));
   created.push(root);
   const execution = new LocalExecutionContext(root);
   return {

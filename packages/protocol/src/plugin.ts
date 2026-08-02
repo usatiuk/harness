@@ -8,10 +8,15 @@ import type { HarnessEvent } from "./events.ts";
 import type { CompactionStrategy } from "./policies.ts";
 import type { RequestMiddleware } from "./requests.ts";
 
+/** Per-conversation context for cache-stable prompt/project instruction sources. */
+export interface ContextSourceContext {
+  service(key: string): unknown;
+}
+
 /** Contributes prompt fragments / project context into the cache-stable prefix. */
 export interface ContextSource {
   readonly id: string;
-  instructions(): Promise<ContentBlock[]>;
+  instructions(ctx: ContextSourceContext): Promise<ContentBlock[]>;
 }
 
 /**
@@ -45,6 +50,8 @@ export interface ToolContributionContext {
  */
 export interface Plugin {
   readonly id: string;
+  /** Plugin ids whose tool middleware must already be registered outside this plugin's chain. */
+  readonly toolMiddlewareAfter?: readonly string[];
   providers?(): ModelProvider[];
   tools?(caps: ModelCapabilities, ctx: ToolContributionContext): Tool[];
   /** Wraps tool execution, outermost first. Absence of any gate = allow. */

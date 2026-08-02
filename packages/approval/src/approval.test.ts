@@ -29,6 +29,7 @@ function contextFor(decision: "allow" | "deny" = "allow"): {
     signal: new AbortController().signal,
     service: (key) => (key === "execution" ? execution : undefined),
     toolMeta: () => undefined,
+    acceptsToolCall: () => true,
     setResultAnnotation: (key, value) => {
       annotations[key] = value;
     },

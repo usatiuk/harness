@@ -14,7 +14,7 @@ import {
   type ToolInput,
   type ToolResult,
 } from "@harness/protocol";
-import { uniqueReplace } from "@harness/workspace";
+import { uniqueReplace } from "./tools.ts";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();

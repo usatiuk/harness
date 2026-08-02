@@ -29,8 +29,8 @@ export type Item =
   // A fold of the complete active history before it. Renders to the provider as a
   // plain message; its position is the context boundary.
   | (ItemBase & { type: "compaction"; content: ContentBlock[] })
-  // Plugin-injected durable context (e.g. a nested AGENTS.md), appended at exec time by a
-  // tool middleware. `key` is an opaque dedup identity the kernel stores but never reads.
+  // Plugin-injected durable context (e.g. a nested AGENTS.md), staged by tool middleware and
+  // appended after the paired result. `key` is an opaque dedup identity the kernel never reads.
   // Renders to the provider as a plain message.
   | (ItemBase & { type: "context"; content: ContentBlock[]; key: string });
 

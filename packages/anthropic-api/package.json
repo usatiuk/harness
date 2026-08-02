@@ -13,10 +13,7 @@
   "dependencies": {
     "@harness/protocol": "*",
     "@harness/anthropic-core": "*",
-    "@harness/execution": "*",
-    "@harness/workspace": "*",
-    "@anthropic-ai/sdk": "^0.104.1",
-    "zod": "^4.4.3"
+    "@anthropic-ai/sdk": "^0.104.1"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

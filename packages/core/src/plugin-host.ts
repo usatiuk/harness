@@ -58,13 +58,26 @@ export class PluginHost {
     const toolMiddleware: ToolMiddleware[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
     const requestMiddleware: RequestMiddleware[] = [];
+    const registered = new Set<string>();
+    const middlewareContributors = new Set<string>();
 
     for (const plugin of plugins) {
+      if (registered.has(plugin.id)) throw new Error(`duplicate plugin id: ${plugin.id}`);
+      for (const dependency of plugin.toolMiddlewareAfter ?? []) {
+        if (!middlewareContributors.has(dependency)) {
+          throw new Error(
+            `plugin '${plugin.id}' tool middleware must be registered after '${dependency}'`,
+          );
+        }
+      }
+      registered.add(plugin.id);
+      const contributedToolMiddleware = plugin.toolMiddleware?.() ?? [];
+      if (contributedToolMiddleware.length > 0) middlewareContributors.add(plugin.id);
       for (const provider of plugin.providers?.() ?? []) {
         this.providers.register(provider);
       }
       if (plugin.tools) toolContributors.push(plugin.tools.bind(plugin));
-      toolMiddleware.push(...(plugin.toolMiddleware?.() ?? []));
+      toolMiddleware.push(...contributedToolMiddleware);
       modelMiddleware.push(...(plugin.modelMiddleware?.() ?? []));
       requestMiddleware.push(...(plugin.requestMiddleware?.() ?? []));
       contextSources.push(...(plugin.contextSources?.() ?? []));

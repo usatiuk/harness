@@ -13,10 +13,6 @@ export function toToolSchema(tool: Tool): ToolSchema {
     delete parameters.$schema;
     return { kind: "function", name: tool.name, description: tool.description, parameters };
   }
-  if (tool.input.kind === "native") {
-    // No JSON Schema: the provider renders the built-in from `id` onto its wire type.
-    return { kind: "native", name: tool.name, description: tool.description, id: tool.input.id };
-  }
   return {
     kind: "custom",
     name: tool.name,
@@ -30,8 +26,7 @@ export function parseToolArgs(
   tool: Tool,
   rawArgs: unknown,
 ): { ok: true; data: unknown } | { ok: false; result: ToolResult } {
-  // `function` and `native` both carry a zod schema over the model's structured object.
-  if (tool.input.kind === "function" || tool.input.kind === "native") {
+  if (tool.input.kind === "function") {
     const result = tool.input.schema.safeParse(rawArgs);
     if (result.success) return { ok: true, data: result.data };
     const message = result.error.issues[0]?.message ?? "invalid arguments";

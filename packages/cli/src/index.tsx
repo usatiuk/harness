@@ -14,6 +14,7 @@ import { defaultHome, type SettingsDoc } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
 import { reapStoppedSandboxes, sandboxPlugin } from "@harness/sandbox";
 import { activitiesPlugin, type ActivityManager } from "@harness/activities";
+import { agentsPlugin } from "@harness/agents";
 import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
 import { approvalPlugin } from "@harness/approval";
@@ -108,6 +109,7 @@ async function buildHarness(): Promise<Harness> {
     outputPlugin,
     workspacePlugin,
     approvalPlugin,
+    agentsPlugin,
     autoApprovalPlugin,
     subagentsDefinition,
     { id: "compaction", policies: () => ({ compaction: modelCompaction }) },

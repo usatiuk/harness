@@ -24,12 +24,6 @@ const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
   modelConfig: { provider: PROVIDER, model: MODEL },
   tools: [
     { kind: "function", name: "echo", description: "echoes", parameters: { type: "object" } },
-    {
-      kind: "native",
-      name: "str_replace_based_edit_tool",
-      description: "edit",
-      id: "anthropic.text_editor",
-    },
   ],
   items,
 });
@@ -53,7 +47,7 @@ describe("buildMessages", () => {
       },
     ]);
     expect(params.tool_choice).toEqual({ type: "none" });
-    expect(params.tools).toHaveLength(2);
+    expect(params.tools).toHaveLength(1);
     expect(params.max_tokens).toBe(4096);
   });
 
@@ -196,7 +190,6 @@ describe("buildMessages", () => {
     ]);
     expect(params.tools).toEqual([
       { name: "echo", description: "echoes", input_schema: { type: "object" } },
-      { type: "text_editor_20250728", name: "str_replace_based_edit_tool" },
     ]);
     expect(params.messages).toEqual([
       { role: "user", content: [{ type: "text", text: "hi" }] },
@@ -249,6 +242,36 @@ describe("buildMessages", () => {
         },
       ],
     });
+  });
+
+  it("keeps a following context block after the required tool_result", () => {
+    const params = buildMessages(
+      baseRequest([
+        { item: item({ type: "tool_call", callId: "c", name: "echo", args: {} }) },
+        {
+          item: item({
+            type: "tool_result",
+            callId: "c",
+            content: [{ type: "text", text: "ok" }],
+            status: "ok",
+          }),
+        },
+        {
+          item: item({
+            type: "context",
+            key: "agents",
+            content: [{ type: "text", text: "rules" }],
+          }),
+        },
+      ]),
+      CONFIG,
+      PROVIDER,
+    );
+
+    expect(params.messages[1]?.content).toEqual([
+      { type: "tool_result", tool_use_id: "c", content: "ok" },
+      { type: "text", text: "rules", cache_control: { type: "ephemeral" } },
+    ]);
   });
 
   it("drops a thinking block whose payload is missing or from another model", () => {
@@ -357,14 +380,6 @@ describe("buildMessages", () => {
         content: [{ type: "text", text: "next", cache_control: { type: "ephemeral" } }],
       },
     ]);
-  });
-
-  it("throws on an unknown native tool id", () => {
-    const request: ModelRequest = {
-      ...baseRequest([]),
-      tools: [{ kind: "native", name: "mystery", description: "?", id: "anthropic.unknown" }],
-    };
-    expect(() => buildMessages(request, CONFIG, PROVIDER)).toThrow(/unknown native tool/);
   });
 
   it("renders thinking config and effort when supplied", () => {

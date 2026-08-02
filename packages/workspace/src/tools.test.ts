@@ -247,16 +247,15 @@ describe("workspacePlugin file-tools roster by profile", () => {
     expect(names("string_replace")).not.toContain("apply_patch");
   });
 
-  it("gives no read/write/edit to a text_editor model (the provider-shaped editor replaces them)", () => {
+  it("gives the workspace-owned text editor to a text_editor model", () => {
     const ns = names("text_editor");
     expect(ns).not.toContain("read_file");
     expect(ns).not.toContain("write");
     expect(ns).not.toContain("edit");
     expect(ns).not.toContain("apply_patch");
-    // glob + the active command tool remain.
-    expect(ns).toEqual(expect.arrayContaining(["glob", "bash"]));
+    expect(ns).toEqual(expect.arrayContaining(["glob", "bash", "str_replace_based_edit_tool"]));
     expect(names("text_editor", "powershell")).toEqual(
-      expect.arrayContaining(["glob", "powershell"]),
+      expect.arrayContaining(["glob", "powershell", "str_replace_based_edit_tool"]),
     );
     expect(ns).not.toContain("grep");
   });

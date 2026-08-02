@@ -51,6 +51,16 @@ const MAX_MODEL_STEPS = 100;
 const COMPACTION_HEADROOM_TOKENS = 8_192;
 const MIN_COMPACTION_HEADROOM_TOKENS = 64;
 
+interface PendingContext {
+  key: string;
+  content: ContentBlock[];
+}
+
+interface DispatchOutcome {
+  result: ToolResult;
+  completed: boolean;
+}
+
 /** Result for a call abandoned or never started because the turn was aborted. */
 const interruptedResult = (): ToolResult => errorResult("interrupted: turn aborted by new input");
 
@@ -182,7 +192,7 @@ export class Engine {
           { service: (key) => this.#service(runtime, key) },
           conversation.config.tools?.allow,
         );
-        const build = await this.#assembleContext(conversation, toolSet.schemas());
+        const build = await this.#assembleContext(conversation, toolSet.schemas(), runtime);
         const folded = await this.#compact(
           "manual",
           conversation,
@@ -434,7 +444,7 @@ export class Engine {
     let recoveredOverflow = false;
     let compactedBeforeAttempt = false;
     for (let step = 0; step < MAX_MODEL_STEPS; step++) {
-      const draft = await this.#assembleContext(conversation, toolSchemas);
+      const draft = await this.#assembleContext(conversation, toolSchemas, runtime);
       const capacity = await this.#contextCapacity(conversation, draft);
       if (capacity.shouldCompact && !compactedBeforeAttempt) {
         const folded = await this.#compact(
@@ -657,10 +667,21 @@ export class Engine {
     signal: AbortSignal,
     runtime: Runtime,
   ): Promise<void> {
+    const batchContexts: PendingContext[] = [];
     for (const call of calls) {
-      const result = signal.aborted
-        ? interruptedResult()
-        : await this.#dispatchInterruptible(call, toolSet, conversation, turnId, signal, runtime);
+      const callContexts: PendingContext[] = [];
+      const outcome = signal.aborted
+        ? { result: interruptedResult(), completed: false }
+        : await this.#dispatchInterruptible(
+            call,
+            toolSet,
+            conversation,
+            turnId,
+            signal,
+            runtime,
+            callContexts,
+          );
+      const { result } = outcome;
       await this.store.appendItem({
         conversationId: conversation.id,
         turnId,
@@ -670,6 +691,11 @@ export class Engine {
         status: result.status,
         ...(result.annotations ? { annotations: result.annotations } : {}),
       });
+      if (outcome.completed) {
+        for (const pending of callContexts) {
+          if (!batchContexts.some(({ key }) => key === pending.key)) batchContexts.push(pending);
+        }
+      }
       this.#emitKernel({
         type: "tool_call.completed",
         conversationId: conversation.id,
@@ -678,6 +704,16 @@ export class Engine {
         forModel: result.forModel,
         ...(result.annotations ? { annotations: result.annotations } : {}),
       });
+    }
+    for (const pending of batchContexts) {
+      const item = await this.store.appendItem({
+        conversationId: conversation.id,
+        turnId,
+        type: "context",
+        key: pending.key,
+        content: pending.content,
+      });
+      this.#emitKernel({ type: "context", conversationId: conversation.id, item });
     }
   }
 
@@ -709,7 +745,8 @@ export class Engine {
     turnId: TurnId,
     signal: AbortSignal,
     runtime: Runtime,
-  ): Promise<ToolResult> {
+    pendingContexts: PendingContext[],
+  ): Promise<DispatchOutcome> {
     const annotations: Record<string, unknown> = {};
     const finalize = (result: ToolResult): ToolResult =>
       Object.keys(annotations).length === 0
@@ -718,14 +755,29 @@ export class Engine {
             ...result,
             annotations: { ...result.annotations, ...annotations },
           };
-    if (signal.aborted) return Promise.resolve(finalize(interruptedResult()));
-    const aborted = new Promise<ToolResult>((resolve) => {
-      signal.addEventListener("abort", () => resolve(interruptedResult()), { once: true });
+    if (signal.aborted) {
+      return Promise.resolve({ result: finalize(interruptedResult()), completed: false });
+    }
+    const aborted = new Promise<DispatchOutcome>((resolve) => {
+      signal.addEventListener(
+        "abort",
+        () => resolve({ result: finalize(interruptedResult()), completed: false }),
+        { once: true },
+      );
     });
     return Promise.race([
-      this.#dispatch(call, toolSet, conversation, turnId, signal, runtime, annotations),
+      this.#dispatch(
+        call,
+        toolSet,
+        conversation,
+        turnId,
+        signal,
+        runtime,
+        annotations,
+        pendingContexts,
+      ).then((result) => ({ result: finalize(result), completed: true })),
       aborted,
-    ]).then(finalize);
+    ]);
   }
 
   /**
@@ -742,12 +794,24 @@ export class Engine {
     signal: AbortSignal,
     runtime: Runtime,
     resultAnnotations: Record<string, unknown>,
+    pendingContexts: PendingContext[],
   ): Promise<ToolResult> {
+    type ParsedCall = ReturnType<typeof parseToolArgs> | undefined;
+    const parsedCalls = new Map<ToolCall, ParsedCall>();
+    const parseCall = (candidate: ToolCall): ParsedCall => {
+      if (parsedCalls.has(candidate)) return parsedCalls.get(candidate);
+      const parsed = toolSet.has(candidate.name)
+        ? parseToolArgs(toolSet.get(candidate.name), candidate.args)
+        : undefined;
+      parsedCalls.set(candidate, parsed);
+      return parsed;
+    };
     const ctx: ToolMiddlewareContext = {
       conversationId: conversation.id,
       callId: call.callId,
       signal,
       toolMeta: (name) => toolSet.metaOf(name),
+      acceptsToolCall: (candidate) => parseCall(candidate)?.ok === true,
       setResultAnnotation: (key, value) => {
         resultAnnotations[key] = value;
       },
@@ -766,20 +830,15 @@ export class Engine {
       request: (request) => this.#request(request, conversation, turnId, signal, runtime),
       active: async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
       appendContext: async (key, content) => {
-        const item = await this.store.appendItem({
-          conversationId: conversation.id,
-          turnId,
-          type: "context",
-          key,
-          content,
-        });
-        this.#emitKernel({ type: "context", conversationId: conversation.id, item });
+        if (signal.aborted) throw new Error("interrupted: turn aborted");
+        if (pendingContexts.some((pending) => pending.key === key)) return;
+        pendingContexts.push({ key, content });
       },
     };
     const execute: ToolHandler = (c) => {
-      if (!toolSet.has(c.name)) return Promise.resolve(errorResult(`unknown tool: ${c.name}`));
+      const parsed = parseCall(c);
+      if (!parsed) return Promise.resolve(errorResult(`unknown tool: ${c.name}`));
       const tool = toolSet.get(c.name);
-      const parsed = parseToolArgs(tool, c.args);
       if (!parsed.ok) return Promise.resolve(parsed.result);
       return tool.execute(parsed.data, ctx);
     };
@@ -1098,6 +1157,7 @@ export class Engine {
   async #assembleContext(
     conversation: Conversation,
     tools: ToolSchema[],
+    runtime: Runtime,
   ): Promise<NewContextBuild> {
     // Use the active chain (not the raw log): after a rewind, abandoned-branch items
     // must stay out of context. Read `head` from the store, never off the cached
@@ -1105,8 +1165,11 @@ export class Engine {
     const items = compactedWindow(await this.store.listActiveItems(conversation.id));
     const payloadList = await this.store.getProviderPayloads(items.map((i) => i.id));
     const payloads = new Map(payloadList.map((p) => [p.itemId, p]));
+    const sourceContext = { service: (key: string) => this.#service(runtime, key) };
     const sourceInstructions = (
-      await Promise.all(this.host.contextSources.map((s) => s.instructions()))
+      await Promise.all(
+        this.host.contextSources.map((source) => source.instructions(sourceContext)),
+      )
     ).flat();
     const instructions: ContentBlock[] = [
       { type: "text", text: conversation.config.instructions },

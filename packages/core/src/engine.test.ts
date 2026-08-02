@@ -1733,16 +1733,69 @@ describe("Engine — context injection", () => {
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
-    // One context item, appended after its triggering tool_call and before that result.
+    // One context item, without splitting the provider-required call/result pair.
     expect(shapeOf(await store.listActiveItems(conv.id))).toEqual([
       "user:go",
       "call:c1",
-      "context:ctx",
       "result:c1",
+      "context:ctx",
       "call:c2",
       "result:c2",
       "assistant:done",
     ]);
+  });
+
+  it("appends deduplicated context only after every result in a parallel tool turn", async () => {
+    const parallel: FakeStep = [
+      { type: "tool_call", callId: "a", name: "echo", args: {} },
+      { type: "tool_call", callId: "b", name: "echo", args: {} },
+      { type: "completed", usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 } },
+    ];
+    const { store, engine } = setup([parallel, textStep("done")], {
+      toolMiddleware: () => [injectorMw("ctx", "RULES")],
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    expect(shapeOf(await store.listActiveItems(conv.id))).toEqual([
+      "user:go",
+      "call:a",
+      "call:b",
+      "result:a",
+      "result:b",
+      "context:ctx",
+      "assistant:done",
+    ]);
+  });
+
+  it("keeps context earned before an interrupt triggered by tool completion", async () => {
+    const { store, engine } = setup([toolStep("c1", "echo", {}), textStep("continued")], {
+      toolMiddleware: () => [injectorMw("ctx", "RULES")],
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    let interrupt: Promise<void> | undefined;
+    engine.subscribe(
+      {
+        onEvent(event) {
+          if (isKernelEvent(event) && event.type === "tool_call.completed") {
+            interrupt = engine.deliver(conv.id, userInput("redo"), "interrupt");
+          }
+        },
+      },
+      conv.id,
+    );
+
+    await engine.deliver(conv.id, userInput("go"));
+    await interrupt;
+    await engine.whenIdle(conv.id);
+
+    const items = await store.listItems(conv.id);
+    expect(items.filter((item) => item.type === "context")).toHaveLength(1);
+    expect(items.findIndex((item) => item.type === "context")).toBeGreaterThan(
+      items.findIndex((item) => item.type === "tool_result" && item.callId === "c1"),
+    );
   });
 
   it("re-injects context after a rewind drops it from the active chain", async () => {
