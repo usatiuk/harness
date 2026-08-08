@@ -69,12 +69,12 @@ describe("resolveSettings cascade", () => {
     expect(config.plugins?.demo).toEqual({ level: "high", rules: {} });
   });
 
-  // `/model` persists `overrides.model = {provider, model}` with no effort; the cascade deep-merges,
-  // so a settings-level effort rides along. Accepted — effort is orthogonal to the model id.
-  it("a model override without effort inherits a settings-level effort (deep-merge)", async () => {
+  // `/model` persists `overrides.model = {provider, model}` with no preset; the cascade deep-merges,
+  // so a settings-level preset rides along. Accepted — preset is orthogonal to the model id.
+  it("a model override without preset inherits a settings-level preset (deep-merge)", async () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
-      model: { provider: "p", model: "m1", effort: "high" },
+      model: { provider: "p", model: "m1", preset: "high" },
     });
 
     const config = await resolveSettings({
@@ -83,7 +83,7 @@ describe("resolveSettings cascade", () => {
       overrides: { model: { provider: "p", model: "m2" } },
     });
 
-    expect(config.model).toEqual({ provider: "p", model: "m2", effort: "high" });
+    expect(config.model).toEqual({ provider: "p", model: "m2", preset: "high" });
   });
 
   it("roots the workspace at cwd, not at an ancestor that holds a .harness/ dir", async () => {
@@ -155,6 +155,55 @@ describe("resolveSettings validation", () => {
     await expect(resolveSettings({ home, profile: "nope", schemas })).rejects.toThrow(
       /unknown profile: nope/,
     );
+  });
+
+  it("accepts customProviders only in global settings (fail-fast elsewhere)", async () => {
+    const provider = {
+      type: "openai-compatible",
+      endpoint: "http://localhost:8000/v1",
+      apiKey: "k",
+      model: "m",
+    };
+
+    // Global settings: accepted (read by the CLI composition root).
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), { model, customProviders: { mine: provider } });
+    await expect(resolveSettings({ home, schemas })).resolves.toBeTruthy();
+
+    // Project layer: rejected loudly rather than silently ignored.
+    const root = await tmp();
+    const projHome = await tmp();
+    await writeJson(join(projHome, "settings.json"), { model });
+    await writeJson(join(root, ".harness", "settings.json"), {
+      customProviders: { mine: provider },
+    });
+    await expect(resolveSettings({ home: projHome, cwd: root, schemas })).rejects.toThrow(
+      /invalid settings in .*settings\.json.*customProviders/s,
+    );
+
+    // Profile layer: rejected loudly rather than silently ignored.
+    const profHome = await tmp();
+    await writeJson(join(profHome, "settings.json"), {
+      model,
+      profiles: { x: { customProviders: { mine: provider } } },
+    });
+    await expect(resolveSettings({ home: profHome, profile: "x", schemas })).rejects.toThrow(
+      /invalid settings in .*settings\.json.*customProviders/s,
+    );
+  });
+
+  it("rejects auth and customProviders in project-local settings (not just project-shared)", async () => {
+    const home = await tmp();
+    const root = await tmp();
+    await writeJson(join(home, "settings.json"), { model });
+    for (const key of ["auth", "customProviders"]) {
+      const file = join(root, ".harness", "settings.local.json");
+      await writeJson(file, { [key]: { store: "keyring" } });
+      await expect(resolveSettings({ home, cwd: root, schemas })).rejects.toThrow(
+        new RegExp(`${key}`),
+      );
+      await rm(file, { force: true });
+    }
   });
 
   it("fails fast when no model is configured", async () => {

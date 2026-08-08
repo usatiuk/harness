@@ -8,7 +8,7 @@ const models = [
   {
     provider: "anthropic",
     model: "claude-opus-4-8",
-    efforts: [{ value: "low" }, { value: "high" }],
+    presets: [{ value: "low" }, { value: "high" }],
   },
 ];
 
@@ -61,8 +61,8 @@ describe("slashCompletion — argument stage", () => {
     expect(c.range).toEqual([7, 10]);
   });
 
-  it("offers effort values for /effort", () => {
-    expect(values("/effort ")).toEqual(["low", "high"]);
+  it("offers preset values for /preset", () => {
+    expect(values("/preset ")).toEqual(["low", "high"]);
   });
 
   it("returns null for a command without a complete hook", () => {

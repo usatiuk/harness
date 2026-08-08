@@ -11,7 +11,7 @@ import {
   type ModelUsage,
   type PluginEntry,
 } from "@harness/protocol";
-import { defaultHome, type SettingsDoc } from "@harness/config";
+import { defaultHome, readGlobalSettings, type SettingsDoc } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
 import { reapStoppedSandboxes, sandboxPlugin } from "@harness/sandbox";
 import { activitiesPlugin, type ActivityManager } from "@harness/activities";
@@ -23,6 +23,7 @@ import { autoApprovalPlugin } from "@harness/auto-approval";
 import { subagentsDefinition } from "@harness/subagents";
 import { HarnessService } from "@harness/service";
 import { modelCompaction } from "@harness/core";
+import { createCustomProviderPlugins } from "@harness/custom-providers";
 import { DemoProvider } from "./demo-provider.ts";
 import { authRegistry } from "./auth.ts";
 import { credentialStoreForRead } from "./credential-store.ts";
@@ -110,6 +111,10 @@ async function buildHarness(): Promise<Harness> {
     plugins.push(plugin);
     fallbackModel ??= entry.defaultModel;
   }
+  // Config-defined providers (`customProviders` in global settings) join the same registry as
+  // signed-in built-ins; their plugin id doubles as the model provider id.
+  const customProviders = (await readGlobalSettings(defaultHome())).customProviders;
+  plugins.push(...createCustomProviderPlugins(customProviders ?? {}));
   plugins.push(
     { id: "demo", providers: () => [new DemoProvider()] },
     sandboxPlugin,

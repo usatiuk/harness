@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type {
-  EffortInfo,
+  PresetInfo,
   ModelCapabilities,
   ModelConfig,
   ModelInfo,
@@ -11,7 +11,7 @@ import type {
 } from "@harness/protocol";
 import { ContextWindowExceededError } from "@harness/protocol";
 import type { AnthropicCredentials } from "./credentials.ts";
-import { buildMessages } from "./request.ts";
+import { buildMessages, type AnthropicRequestConfig } from "./request.ts";
 import { toModelEvents } from "./stream.ts";
 
 type Effort = NonNullable<Anthropic.Messages.OutputConfig["effort"]>;
@@ -19,9 +19,9 @@ type Effort = NonNullable<Anthropic.Messages.OutputConfig["effort"]>;
 /** One model in the provider catalog. */
 interface ModelSpec {
   model: string;
-  efforts: EffortInfo[];
-  /** Effort used when the selection omits one; must appear in `efforts`. Absent = no effort axis. */
-  defaultEffort?: Effort;
+  presets: PresetInfo[];
+  /** Preset used when the selection omits one; must appear in `presets`. Absent = no preset axis. */
+  defaultPreset?: Effort;
   contextWindow: number;
   /**
    * The required per-request `max_tokens`, set to each model's documented max output on the
@@ -38,14 +38,14 @@ interface ModelSpec {
   pricing: ModelPricing;
 }
 
-const efforts = (...values: Effort[]): EffortInfo[] => values.map((value) => ({ value }));
+const presets = (...values: Effort[]): PresetInfo[] => values.map((value) => ({ value }));
 
 // Rates per the Anthropic pricing page as of 2026-06; cache writes at 5m/1h.
 const MODELS: ModelSpec[] = [
   {
     model: "claude-opus-4-8",
-    efforts: efforts("low", "medium", "high", "xhigh", "max"),
-    defaultEffort: "high",
+    presets: presets("low", "medium", "high", "xhigh", "max"),
+    defaultPreset: "high",
     contextWindow: 1_000_000,
     maxTokens: 128_000,
     adaptiveThinking: true,
@@ -53,8 +53,8 @@ const MODELS: ModelSpec[] = [
   },
   {
     model: "claude-sonnet-4-6",
-    efforts: efforts("low", "medium", "high", "max"),
-    defaultEffort: "high",
+    presets: presets("low", "medium", "high", "max"),
+    defaultPreset: "high",
     contextWindow: 1_000_000,
     maxTokens: 64_000,
     adaptiveThinking: true,
@@ -62,7 +62,7 @@ const MODELS: ModelSpec[] = [
   },
   {
     model: "claude-haiku-4-5",
-    efforts: [],
+    presets: [],
     contextWindow: 200_000,
     maxTokens: 64_000,
     adaptiveThinking: false,
@@ -72,11 +72,11 @@ const MODELS: ModelSpec[] = [
 
 const MAX_TOKENS_FALLBACK = 8192;
 
-/** Chosen effort if the model offers it, else its default; no effort axis → `undefined`. */
-function effortForSelection(spec: ModelSpec, config: ModelConfig): Effort | undefined {
-  if (spec.efforts.length === 0) return undefined;
-  const offered = spec.efforts.some((e) => e.value === config.effort);
-  return offered ? (config.effort as Effort) : spec.defaultEffort;
+/** Chosen preset if the model offers it, else its default; no preset axis → `undefined`. */
+function presetForSelection(spec: ModelSpec, config: ModelConfig): Effort | undefined {
+  if (spec.presets.length === 0) return undefined;
+  const offered = spec.presets.some((e) => e.value === config.preset);
+  return offered ? (config.preset as Effort) : spec.defaultPreset;
 }
 
 export interface AnthropicProviderOptions {
@@ -100,37 +100,49 @@ export class AnthropicProvider implements ModelProvider {
     return { contentTypes: ["text"], toolCalling: true, fileTools: "text_editor" };
   }
 
-  validateConfig(): void {}
+  /** Fails fast on a preset the model doesn't offer; other configs are accepted unchallenged. */
+  validateConfig(config: ModelConfig): void {
+    const spec = MODELS.find((m) => m.model === config.model);
+    /* c8 ignore next -- no preset guard on an uncataloged model is deliberate (let the SDK say it) */
+    if (!config.preset || !spec) return;
+    if (!spec.presets.some((p) => p.value === config.preset)) {
+      throw new Error(
+        `unknown preset "${config.preset}" for ${this.provider}/${config.model} (try: ${spec.presets.map((p) => p.value).join(", ")})`,
+      );
+    }
+  }
 
   listModels(): ModelInfo[] {
     return MODELS.map((m) => ({
       provider: this.provider,
       model: m.model,
-      efforts: m.efforts,
-      ...(m.defaultEffort ? { defaultEffort: m.defaultEffort } : {}),
+      presets: m.presets,
+      ...(m.defaultPreset ? { defaultPreset: m.defaultPreset } : {}),
       contextWindow: m.contextWindow,
       maxOutputTokens: m.maxTokens,
       pricing: m.pricing,
     }));
   }
 
+  /**
+   * The per-request knob set for one model step. Overridable so config-defined providers can
+   * reshape it (drop thinking/effort, apply generation presets) without forking the stream glue.
+   */
+  protected buildConfig(request: ModelRequest): AnthropicRequestConfig {
+    const spec = MODELS.find((m) => m.model === request.modelConfig.model);
+    const preset = spec ? presetForSelection(spec, request.modelConfig) : undefined;
+    return {
+      maxTokens: spec?.maxTokens ?? MAX_TOKENS_FALLBACK,
+      // display must be explicit: Opus 4.7+ defaults to "omitted" (empty thinking text).
+      ...(spec?.adaptiveThinking ? { thinking: { type: "adaptive", display: "summarized" } } : {}),
+      ...(preset ? { effort: preset } : {}),
+    };
+  }
+
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
     try {
       const client = await this.#credentials.client();
-      const spec = MODELS.find((m) => m.model === request.modelConfig.model);
-      const effort = spec ? effortForSelection(spec, request.modelConfig) : undefined;
-      const params = buildMessages(
-        request,
-        {
-          maxTokens: spec?.maxTokens ?? MAX_TOKENS_FALLBACK,
-          // display must be explicit: Opus 4.7+ defaults to "omitted" (empty thinking text).
-          ...(spec?.adaptiveThinking
-            ? { thinking: { type: "adaptive", display: "summarized" } }
-            : {}),
-          ...(effort ? { effort } : {}),
-        },
-        this.provider,
-      );
+      const params = buildMessages(request, this.buildConfig(request), this.provider);
       const stream = await client.messages.create(params, { signal });
       yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
     } catch (error) {

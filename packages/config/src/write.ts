@@ -6,6 +6,7 @@ import { findProjectRoot, isHomeRoot } from "./resolve.ts";
 import {
   AUTH_STORE_KINDS,
   formatIssue,
+  projectDocSchema,
   settingsDocSchema,
   type AuthStoreKind,
   type SettingsDoc,
@@ -80,12 +81,12 @@ export async function updateLocalSettings(
   home = defaultHome(),
 ): Promise<string> {
   const root = await findProjectRoot(cwd, home);
-  const path = isHomeRoot(root, home)
-    ? globalPath(home)
-    : join(root, ".harness", "settings.local.json");
+  const isGlobal = isHomeRoot(root, home);
+  const path = isGlobal ? globalPath(home) : join(root, ".harness", "settings.local.json");
+  const schema = isGlobal ? settingsDocSchema : projectDocSchema;
   const existing = (await readSettings(path)) as SettingsDoc;
   const merged = mutate(existing);
-  const parsed = settingsDocSchema.safeParse(merged);
+  const parsed = schema.safeParse(merged);
   if (!parsed.success) {
     throw new Error(`invalid settings at ${path}: ${formatIssue(parsed.error)}`);
   }
@@ -103,4 +104,14 @@ async function readSettings(path: string): Promise<Record<string, unknown>> {
     throw e;
   }
   return JSON.parse(raw) as Record<string, unknown>;
+}
+
+/** The validated global settings doc, or `{}` when no global settings file exists. */
+export async function readGlobalSettings(home: string): Promise<SettingsDoc> {
+  const raw = await readSettings(globalPath(home));
+  const parsed = settingsDocSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`invalid settings at ${globalPath(home)}: ${formatIssue(parsed.error)}`);
+  }
+  return parsed.data;
 }

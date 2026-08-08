@@ -100,7 +100,7 @@ clears/reprints the static transcript so expanded reasoning/tool/compaction
 content is coherent rather than layered over prior output.
 
 The composer provides multiline input, cross-session history, command completion,
-model/effort selection, delivery intents, approval prompts, and overlays for
+model/preset selection, delivery intents, approval prompts, and overlays for
 resume/reload, activities, models, and sandbox configuration. `!command` uses the same
 prepared execution backend as model-issued commands.
 

@@ -428,7 +428,7 @@ export class SqliteStore implements Store {
   // Atomic shallow-merge of the overrides layer. The read-merge-write runs in one IMMEDIATE txn, so
   // two concurrent patches of different keys can't lose a write the way a deferred SELECT-then-UPDATE
   // could. Kept in JS rather than SQLite's json_patch() — that's a *deep* RFC-7396 merge, which would
-  // change the documented overrides.model effort-inheritance (top-level keys must be replaced whole).
+  // change the documented overrides.model preset-inheritance (top-level keys must be replaced whole).
   #buildUpdateOverridesTxn(): (id: string, patch: ConversationOverrides) => void {
     const read = this.#db.prepare<[string], { overrides: string }>(
       "SELECT overrides FROM conversations WHERE id = ?",

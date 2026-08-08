@@ -6,12 +6,14 @@ import type { Item } from "./items.ts";
 export interface ModelConfig {
   provider: string;
   model: string;
-  /** Provider-opaque effort token (e.g. reasoning level); absent = the model's default. */
-  effort?: string;
+  /** Provider-opaque preset token (e.g. reasoning effort, a sampling preset); absent = the model's default. */
+  preset?: string;
 }
 
-/** One effort level a model offers. The `value` is opaque to everything but the provider. */
-export interface EffortInfo {
+/** One preset a model offers. The `value` is opaque to everything but the provider, which maps it
+ * to its own generation parameters (reasoning effort for built-ins; temperature/topP/etc. for
+ * config-defined custom providers). */
+export interface PresetInfo {
   value: string;
   /** Display name; falls back to `value` when absent. */
   label?: string;
@@ -38,10 +40,10 @@ export interface ModelInfo {
   model: string;
   /** Display name; falls back to `model` when absent. */
   label?: string;
-  /** Effort levels this model offers, in display order. Absent/empty = no effort axis. */
-  efforts?: EffortInfo[];
-  /** Effort used when none is chosen; must be one of `efforts` when present. */
-  defaultEffort?: string;
+  /** Presets this model offers, in display order. Absent/empty = no preset axis. */
+  presets?: PresetInfo[];
+  /** Preset used when none is chosen; must be one of `presets` when present. */
+  defaultPreset?: string;
   /** Max context size in tokens; absent = unknown. */
   contextWindow?: number;
   /** Maximum output reservation used when deciding whether the next input still fits. */
@@ -50,19 +52,19 @@ export interface ModelInfo {
   pricing?: ModelPricing;
 }
 
-/** Canonical id for a model (ignores effort): `provider/model`. */
+/** Canonical id for a model (ignores preset): `provider/model`. */
 export const modelId = (m: { provider: string; model: string }): string =>
   `${m.provider}/${m.model}`;
 
-/** Catalog lookup by provider + model (ignores effort). */
+/** Catalog lookup by provider + model (ignores preset). */
 export const findModel = (
   models: ModelInfo[],
   m: { provider: string; model: string },
 ): ModelInfo | undefined => models.find((x) => x.provider === m.provider && x.model === m.model);
 
-/** Full selection id including effort when set: `provider/model[/effort]`. */
+/** Full selection id including preset when set: `provider/model[/preset]`. */
 export const selectionId = (m: ModelConfig): string =>
-  m.effort ? `${modelId(m)}/${m.effort}` : modelId(m);
+  m.preset ? `${modelId(m)}/${m.preset}` : modelId(m);
 
 /**
  * The file-editing tool profile a model is trained on — one indivisible choice that selects
@@ -70,7 +72,8 @@ export const selectionId = (m: ModelConfig): string =>
  * `string_replace` is the neutral default; `apply_patch` is OpenAI's V4A; `text_editor` is the
  * Claude-style editor profile. The workspace plugin owns every profile's concrete tools.
  */
-export type FileToolsProfile = "string_replace" | "apply_patch" | "text_editor";
+export const FILE_TOOLS = ["string_replace", "apply_patch", "text_editor"] as const;
+export type FileToolsProfile = (typeof FILE_TOOLS)[number];
 
 export interface ModelCapabilities {
   contentTypes: readonly string[];

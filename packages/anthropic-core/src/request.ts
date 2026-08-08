@@ -19,6 +19,11 @@ export interface AnthropicRequestConfig {
   maxTokens: number;
   thinking?: Anthropic.Messages.ThinkingConfigParam;
   effort?: Anthropic.Messages.OutputConfig["effort"];
+  /** Sampling knobs config-defined providers map from their presets. */
+  temperature?: number;
+  topP?: number;
+  /** Freeform fields merged into the request body for backends that accept them. */
+  extraBody?: Record<string, unknown>;
 }
 
 /** A reasoning item's payload → a thinking/redacted block, or `undefined` when it can't replay. */
@@ -198,5 +203,8 @@ export function buildMessages(
     ...(request.toolChoice ? { tool_choice: { type: request.toolChoice } } : {}),
     ...(config.thinking ? { thinking: config.thinking } : {}),
     ...(config.effort ? { output_config: { effort: config.effort } } : {}),
+    ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
+    ...(config.topP !== undefined ? { top_p: config.topP } : {}),
+    ...(config.extraBody ? config.extraBody : {}),
   };
 }

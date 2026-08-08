@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-const modelConfigSchema = z.object({
+const modelConfigSchema = z.strictObject({
   provider: z.string(),
   model: z.string(),
-  effort: z.string().optional(),
+  preset: z.string().optional(),
 });
 
 /** One delegatable agent in the catalog. */

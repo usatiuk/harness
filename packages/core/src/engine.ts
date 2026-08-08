@@ -347,7 +347,7 @@ export class Engine {
   /**
    * Persists the model into the conversation's durable `overrides` (so it survives resume),
    * re-resolves its config, and swaps it onto the live runtime for the next turn. Emits the
-   * *resolved* model (which may differ from the requested one — e.g. a settings-level `effort` rides
+   * *resolved* model (which may differ from the requested one — e.g. a settings-level `preset` rides
    * along), keeping clients in sync with what the next turn will actually use.
    */
   async setModel(conversationId: ConversationId, model: ModelConfig): Promise<void> {

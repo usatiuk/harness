@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { Box, Text } from "ink";
 import { Select } from "@inkjs/ui";
-import { modelId, type EffortInfo, type ModelConfig, type ModelInfo } from "@harness/protocol";
+import { modelId, type ModelConfig, type ModelInfo, type PresetInfo } from "@harness/protocol";
 
 /** A list to pick a model. Assumes a non-empty catalog; `current` is marked. */
 export function ModelPicker({
@@ -40,24 +40,24 @@ export function ModelPicker({
   );
 }
 
-/** A list to pick a reasoning effort for the current model. `current` is marked. */
-export function EffortPicker({
-  efforts,
+/** A list to pick a generation preset for the current model. `current` is marked. */
+export function PresetPicker({
+  presets,
   current,
   onSelect,
 }: {
-  efforts: EffortInfo[];
+  presets: PresetInfo[];
   current: string | undefined;
   onSelect: (value: string) => void;
 }): ReactElement {
-  const options = efforts.map((e) => ({
+  const options = presets.map((e) => ({
     label: `${e.label ?? e.value}${e.value === current ? " ✓" : ""}`,
     value: e.value,
   }));
   return (
     <Box flexDirection="column">
       <Text bold>
-        Set effort <Text dimColor>(esc to cancel)</Text>
+        Set preset <Text dimColor>(esc to cancel)</Text>
       </Text>
       <Select options={options} onChange={onSelect} />
     </Box>

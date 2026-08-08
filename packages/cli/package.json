@@ -22,6 +22,7 @@
     "@harness/auto-approval": "*",
     "@harness/config": "*",
     "@harness/core": "*",
+    "@harness/custom-providers": "*",
     "@harness/execution": "*",
     "@harness/openai-api": "*",
     "@harness/openai-codex": "*",

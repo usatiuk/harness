@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FILE_TOOLS } from "@harness/protocol";
 
 /**
  * The on-disk settings document — kernel keys plus an opaque per-plugin namespace
@@ -8,9 +9,82 @@ import { z } from "zod";
 const modelSchema = z.strictObject({
   provider: z.string(),
   model: z.string(),
-  effort: z.string().optional(),
+  preset: z.string().optional(),
 });
 const toolsSchema = z.strictObject({ allow: z.array(z.string()).optional() });
+
+/** Generation parameters an OpenAI-compatible preset maps to an SDK call. */
+const openaiPresetSchema = z.strictObject({
+  temperature: z.number().min(0).max(2).optional(),
+  topP: z.number().min(0).max(1).optional(),
+  maxTokens: z.number().int().positive().optional(),
+  frequencyPenalty: z.number().optional(),
+  presencePenalty: z.number().optional(),
+  /** Freeform fields merged into the request body (e.g. `seed`, `top_k`). */
+  extraBody: z.record(z.string(), z.unknown()).optional(),
+});
+
+/** Generation parameters an Anthropic-compatible preset maps to an SDK call. */
+const anthropicPresetSchema = z.strictObject({
+  temperature: z.number().min(0).max(2).optional(),
+  topP: z.number().min(0).max(1).optional(),
+  maxTokens: z.number().int().positive().optional(),
+  /** Not native to the Messages API; forwarded via extra_body for backends that accept them. */
+  topK: z.number().int().positive().optional(),
+  /** Forwarded via extra_body for backends that accept them. */
+  minP: z.number().min(0).max(1).optional(),
+  presencePenalty: z.number().optional(),
+  /** Forwarded via extra_body for backends that accept them. */
+  repetitionPenalty: z.number().optional(),
+  /** Freeform fields merged into the request body (e.g. `chat_template_kwargs`, `seed`). */
+  extraBody: z.record(z.string(), z.unknown()).optional(),
+});
+
+/** Fields shared by every custom provider entry. */
+const customProviderBase = z.object({
+  /** Custom endpoint. OpenAI-compatible: include the API root (e.g. `http://host:8000/v1`).
+   * Anthropic-compatible: the server root (the SDK appends the Messages path). */
+  endpoint: z.string().url(),
+  /** API key the endpoint expects; required so the SDK never guesses, even for keyless local servers. */
+  apiKey: z.string(),
+  /** Model name on the endpoint. */
+  model: z.string(),
+  /** Model context window in tokens; capacity math (auto-compaction) applies when set. */
+  contextWindow: z.number().int().positive().optional(),
+  /** Model max output in tokens; reserved when estimating whether the next input fits. */
+  maxOutputTokens: z.number().int().positive().optional(),
+  /**
+   * The file-editing dialect the model is trained on; the workspace plugin selects its tool roster
+   * from it. Absent defaults to `string_replace` for openai-compatible and `text_editor` for
+   * anthropic-compatible.
+   */
+  fileTools: z.enum(FILE_TOOLS).optional(),
+});
+
+const customProviderSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    ...customProviderBase.shape,
+    type: z.literal("openai-compatible"),
+    presets: z.record(z.string(), openaiPresetSchema).optional(),
+    /**
+     * Some OpenAI-compatible backends (e.g. OVMS) accept the Responses request shape but silently
+     * drop the top-level `instructions` field. When set, the provider renders `ModelRequest.instructions`
+     * as a leading `system` input message instead, so those backends still receive the system context.
+     */
+    sendInstructionsAsSystem: z.boolean().optional(),
+  }),
+  z.strictObject({
+    ...customProviderBase.shape,
+    type: z.literal("anthropic-compatible"),
+    presets: z.record(z.string(), anthropicPresetSchema).optional(),
+  }),
+]);
+
+export type CustomProviderConfig = z.infer<typeof customProviderSchema>;
+/** Sampling knobs an OpenAI-compatible preset maps onto the Responses request. */
+export type OpenAIPreset = z.infer<typeof openaiPresetSchema>;
+/** Sampling knobs an Anthropic-compatible preset maps onto the Messages request. */
+export type AnthropicPreset = z.infer<typeof anthropicPresetSchema>;
 
 /** Which credential backend `auth login` chose for this machine; resolved once and pinned. */
 export const AUTH_STORE_KINDS = ["keyring", "file", "dpapi"] as const;
@@ -27,10 +101,22 @@ const baseFields = {
 /** A profile is a settings fragment without nested profiles. */
 export const profileDocSchema = z.strictObject(baseFields);
 
-export const settingsDocSchema = z.strictObject({
+/**
+ * The project- and local-layer settings doc (`.harness/settings.json` and
+ * `.harness/settings.local.json`): the kernel keys plus named profiles, but NOT the
+ * machine-global `auth` and `customProviders` keys, which only the global settings file accepts.
+ * Rejecting them here makes a stray project-local occurrence a loud error instead of a silently
+ * dropped one — the CLI reads those keys only from the global file.
+ */
+export const projectDocSchema = z.strictObject({
   ...baseFields,
   profiles: z.record(z.string(), profileDocSchema).optional(),
+});
+
+export const settingsDocSchema = z.strictObject({
+  ...projectDocSchema.shape,
   auth: authSchema.optional(),
+  customProviders: z.record(z.string(), customProviderSchema).optional(),
 });
 
 export type SettingsDoc = z.infer<typeof settingsDocSchema>;

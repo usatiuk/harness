@@ -51,8 +51,8 @@ export class DemoProvider implements ModelProvider {
       {
         provider: this.provider,
         model: "demo-1",
-        efforts: [{ value: "low" }, { value: "medium" }, { value: "high" }],
-        defaultEffort: "medium",
+        presets: [{ value: "low" }, { value: "medium" }, { value: "high" }],
+        defaultPreset: "medium",
       },
     ];
   }

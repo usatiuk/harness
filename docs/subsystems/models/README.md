@@ -61,6 +61,15 @@ Responses are sent with `store: false`; Harness's item log and provider payloads
 remain conversation truth. The OpenAI custom-tool path is used for the
 Harness-owned freeform `apply_patch` dialect, not provider-executed tools.
 
+Config-defined OpenAI-compatible providers carry an opt-in
+`sendInstructionsAsSystem` flag. Some backends (e.g. OVMS) accept the Responses
+request shape but silently drop the top-level `instructions` field, so system
+context — the agent's AGENTS.md/settings instructions and contracts like the
+auto-approval reviewer's "output exactly YES" rule — never reaches the model. When
+set, the custom provider renders `ModelRequest.instructions` as a leading
+`system` input message instead, which those backends honor. It defaults to off
+so backends that implement `instructions` natively are unchanged.
+
 ## Anthropic family
 
 `@harness/anthropic-core` owns Messages mapping, prompt-cache placement,

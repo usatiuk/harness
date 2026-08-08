@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type {
-  EffortInfo,
+  PresetInfo,
   ModelConfig,
   ModelInfo,
   ModelPricing,
@@ -22,30 +22,30 @@ export interface OpenAIModelLimits {
 /** One model in the provider catalog. */
 interface ModelSpec extends OpenAIModelLimits {
   model: string;
-  efforts: EffortInfo[];
-  /** Effort used when the selection omits one; must appear in `efforts`. */
-  defaultEffort: string;
+  presets: PresetInfo[];
+  /** Preset used when the selection omits one; must appear in `presets`. */
+  defaultPreset: string;
   /** USD per MTok. No `cacheWrite`: OpenAI bills no cache-write premium. */
   pricing: ModelPricing;
 }
 
-const effort = (value: OpenAI.ReasoningEffort & string): EffortInfo => ({ value });
+const preset = (value: OpenAI.ReasoningEffort & string): PresetInfo => ({ value });
 
 // Default medium preserves prior behavior (a fixed medium effort). See openai `ReasoningEffort`.
 // Rates: developers.openai.com/api/docs/pricing, as of 2026-06.
 const MODELS: ModelSpec[] = [
   {
     model: "gpt-5.1",
-    efforts: [effort("none"), effort("low"), effort("medium"), effort("high")],
-    defaultEffort: "medium",
+    presets: [preset("none"), preset("low"), preset("medium"), preset("high")],
+    defaultPreset: "medium",
     contextWindow: 400_000,
     maxOutputTokens: 128_000,
     pricing: { input: 1.25, output: 10, cachedRead: 0.125 },
   },
   {
     model: "gpt-5.5",
-    efforts: [effort("none"), effort("low"), effort("medium"), effort("high")],
-    defaultEffort: "medium",
+    presets: [preset("none"), preset("low"), preset("medium"), preset("high")],
+    defaultPreset: "medium",
     contextWindow: 1_050_000,
     maxOutputTokens: 128_000,
     pricing: {
@@ -57,23 +57,23 @@ const MODELS: ModelSpec[] = [
   },
   {
     model: "gpt-5.1-codex",
-    efforts: [effort("low"), effort("medium"), effort("high")],
-    defaultEffort: "medium",
+    presets: [preset("low"), preset("medium"), preset("high")],
+    defaultPreset: "medium",
     contextWindow: 400_000,
     maxOutputTokens: 128_000,
     pricing: { input: 1.25, output: 10, cachedRead: 0.125 },
   },
 ];
 
-/** Chosen effort if the model offers it, else its default; unknown model → `base` unchanged. */
+/** Chosen preset if the model offers it, else its default; unknown model → `base` unchanged. */
 export function reasoningForSelection(
   config: ModelConfig,
   base: OpenAI.Reasoning,
 ): OpenAI.Reasoning {
   const spec = MODELS.find((m) => m.model === config.model);
   if (!spec) return base;
-  const offered = spec.efforts.some((e) => e.value === config.effort);
-  const value = (offered ? config.effort : spec.defaultEffort) as OpenAI.ReasoningEffort;
+  const offered = spec.presets.some((e) => e.value === config.preset);
+  const value = (offered ? config.preset : spec.defaultPreset) as OpenAI.ReasoningEffort;
   return { ...base, effort: value };
 }
 
@@ -110,7 +110,17 @@ export class OpenAIResponsesProvider implements ModelProvider {
     return { contentTypes: ["text"], toolCalling: true, fileTools: "apply_patch" };
   }
 
-  validateConfig(): void {}
+  /** Fails fast on a preset the model doesn't offer; other configs are accepted unchallenged. */
+  validateConfig(config: ModelConfig): void {
+    const spec = MODELS.find((m) => m.model === config.model);
+    /* c8 ignore next -- no preset guard on an uncataloged model is deliberate (let the SDK say it) */
+    if (!config.preset || !spec) return;
+    if (!spec.presets.some((p) => p.value === config.preset)) {
+      throw new Error(
+        `unknown preset "${config.preset}" for ${this.provider}/${config.model} (try: ${spec.presets.map((p) => p.value).join(", ")})`,
+      );
+    }
+  }
 
   listModels(): ModelInfo[] {
     return MODELS.map((m) => {
@@ -118,8 +128,8 @@ export class OpenAIResponsesProvider implements ModelProvider {
       return {
         provider: this.provider,
         model: m.model,
-        efforts: m.efforts,
-        defaultEffort: m.defaultEffort,
+        presets: m.presets,
+        defaultPreset: m.defaultPreset,
         contextWindow: limits.contextWindow,
         maxOutputTokens: limits.maxOutputTokens,
         pricing: m.pricing,
@@ -127,11 +137,19 @@ export class OpenAIResponsesProvider implements ModelProvider {
     });
   }
 
+  /**
+   * The native request for one model step. Overridable so config-defined providers can reshape the
+   * request (drop the reasoning field, apply generation presets) without forking the stream glue.
+   */
+  protected buildParams(request: ModelRequest): OpenAI.Responses.ResponseCreateParamsStreaming {
+    const reasoning = reasoningForSelection(request.modelConfig, this.#reasoning);
+    return buildResponseParams(request, reasoning, this.provider);
+  }
+
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
     try {
       const client = await this.#credentials.client();
-      const reasoning = reasoningForSelection(request.modelConfig, this.#reasoning);
-      const params = buildResponseParams(request, reasoning, this.provider);
+      const params = this.buildParams(request);
       if (!this.#supportsMaxOutputTokens) delete params.max_output_tokens;
       const stream = await client.responses.create(params, { signal });
       yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);

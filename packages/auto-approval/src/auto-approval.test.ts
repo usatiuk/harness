@@ -127,12 +127,12 @@ describe("auto approval request middleware", () => {
   it("uses an explicitly configured reviewer model", async () => {
     const { middleware, ctx, invoke } = setup({
       enabled: true,
-      model: { provider: "fake", model: "reviewer", effort: "low" },
+      model: { provider: "fake", model: "reviewer", preset: "low" },
     });
     await middleware.wrap(approvalRequest, ctx, vi.fn());
     expect(invoke).toHaveBeenCalledWith(
       expect.objectContaining({
-        modelConfig: { provider: "fake", model: "reviewer", effort: "low" },
+        modelConfig: { provider: "fake", model: "reviewer", preset: "low" },
       }),
       expect.objectContaining({ purpose: "auto-approval" }),
     );

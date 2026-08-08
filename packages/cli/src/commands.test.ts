@@ -18,7 +18,7 @@ const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   resume: vi.fn(),
   reload: vi.fn(),
   pickModel: vi.fn(),
-  pickEffort: vi.fn(),
+  pickPreset: vi.fn(),
   showActivities: vi.fn(),
   showSandbox: vi.fn(),
   sandbox: {
@@ -167,50 +167,50 @@ describe("runCommand", () => {
     expect(ctx.note).toHaveBeenCalledWith("unknown model: bogus");
   });
 
-  const withEfforts = (setModel = vi.fn().mockResolvedValue(undefined)): HarnessService =>
+  const withPresets = (setModel = vi.fn().mockResolvedValue(undefined)): HarnessService =>
     ({
       availableModels: () => [
-        { provider: "openai", model: "gpt-5.1", efforts: [{ value: "low" }, { value: "high" }] },
+        { provider: "openai", model: "gpt-5.1", presets: [{ value: "low" }, { value: "high" }] },
       ],
       setModel,
     }) as unknown as HarnessService;
 
-  it("/effort with no args opens the picker", () => {
-    const ctx = makeCtx({ service: withEfforts() });
-    runCommand("/effort", ctx);
-    expect(ctx.pickEffort).toHaveBeenCalledOnce();
+  it("/preset with no args opens the picker", () => {
+    const ctx = makeCtx({ service: withPresets() });
+    runCommand("/preset", ctx);
+    expect(ctx.pickPreset).toHaveBeenCalledOnce();
   });
 
-  it("/effort <value> switches when the current model offers it", async () => {
+  it("/preset <value> switches when the current model offers it", async () => {
     const setModel = vi.fn().mockResolvedValue(undefined);
-    const ctx = makeCtx({ service: withEfforts(setModel) });
-    runCommand("/effort high", ctx);
+    const ctx = makeCtx({ service: withPresets(setModel) });
+    runCommand("/preset high", ctx);
     expect(setModel).toHaveBeenCalledWith("c1", {
       provider: "openai",
       model: "gpt-5.1",
-      effort: "high",
+      preset: "high",
     });
     await Promise.resolve();
-    expect(ctx.note).toHaveBeenCalledWith("effort → openai/gpt-5.1/high");
+    expect(ctx.note).toHaveBeenCalledWith("preset → openai/gpt-5.1/high");
   });
 
-  it("/effort <value> notes an error for an unoffered effort and never switches", () => {
+  it("/preset <value> notes an error for an unoffered preset and never switches", () => {
     const setModel = vi.fn();
-    const ctx = makeCtx({ service: withEfforts(setModel) });
-    runCommand("/effort bogus", ctx);
+    const ctx = makeCtx({ service: withPresets(setModel) });
+    runCommand("/preset bogus", ctx);
     expect(setModel).not.toHaveBeenCalled();
-    expect(ctx.note).toHaveBeenCalledWith("unknown effort: bogus (try: low, high)");
+    expect(ctx.note).toHaveBeenCalledWith("unknown preset: bogus (try: low, high)");
   });
 
-  it("/effort notes when the current model has no effort axis", () => {
+  it("/preset notes when the current model has no preset axis", () => {
     const service = {
       availableModels: () => [{ provider: "openai", model: "gpt-5.1" }],
       setModel: vi.fn(),
     } as unknown as HarnessService;
     const ctx = makeCtx({ service });
-    runCommand("/effort", ctx);
-    expect(ctx.pickEffort).not.toHaveBeenCalled();
-    expect(ctx.note).toHaveBeenCalledWith("gpt-5.1 has no effort options");
+    runCommand("/preset", ctx);
+    expect(ctx.pickPreset).not.toHaveBeenCalled();
+    expect(ctx.note).toHaveBeenCalledWith("gpt-5.1 has no preset options");
   });
 
   it("/auto-approve reports status without changing config", () => {

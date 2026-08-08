@@ -15,13 +15,13 @@ describe("updateGlobalModel", () => {
     expect((await readDoc(home)).model).toEqual({ provider: "openai", model: "gpt-5.1" });
   });
 
-  it("persists the effort when present and validates against the schema", async () => {
+  it("persists the preset when present and validates against the schema", async () => {
     const home = await newHome();
-    await updateGlobalModel(home, { provider: "openai", model: "gpt-5.1", effort: "high" });
+    await updateGlobalModel(home, { provider: "openai", model: "gpt-5.1", preset: "high" });
     expect((await readDoc(home)).model).toEqual({
       provider: "openai",
       model: "gpt-5.1",
-      effort: "high",
+      preset: "high",
     });
   });
 

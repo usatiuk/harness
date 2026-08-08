@@ -30,8 +30,8 @@ import {
   type SandboxPhase,
 } from "@harness/sandbox";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
-import { effortsFor, runCommand, type CommandContext } from "./commands.ts";
-import { EffortPicker, ModelPicker } from "./model-picker.tsx";
+import { presetsFor, runCommand, type CommandContext } from "./commands.ts";
+import { ModelPicker, PresetPicker } from "./model-picker.tsx";
 import { ActivitiesOverlay, type ActivitiesView } from "./activities-overlay.tsx";
 import { SandboxOverlay, type SandboxView } from "./sandbox-overlay.tsx";
 import {
@@ -193,7 +193,7 @@ export function App({
     sandboxBackendOf(service.service(conversation.id, "execution")) ?? initialSandboxBackend;
   const model = config.model;
   const [modelPicking, setModelPicking] = useState(false);
-  const [effortPicking, setEffortPicking] = useState(false);
+  const [presetPicking, setPresetPicking] = useState(false);
   const [showActivities, setShowActivities] = useState(false);
   const [showSandbox, setShowSandbox] = useState(false);
   const [verbose, setVerbose] = useState(false);
@@ -275,14 +275,14 @@ export function App({
       if (showActivities) return setShowActivities(false);
       if (showSandbox) return setShowSandbox(false);
       if (modelPicking) return setModelPicking(false);
-      if (effortPicking) return setEffortPicking(false);
+      if (presetPicking) return setPresetPicking(false);
       return;
     }
     if (!key.escape) return;
     if (showActivities) setShowActivities(false);
     else if (showSandbox) setShowSandbox(false);
     else if (modelPicking) setModelPicking(false);
-    else if (effortPicking) setEffortPicking(false);
+    else if (presetPicking) setPresetPicking(false);
     else if (menuOpen.current)
       return; // the composer closes its own menu
     else if (busy) report(service.deliver(conversation.id, "", "interrupt"));
@@ -400,7 +400,7 @@ export function App({
       reload: () =>
         busy ? note("wait for or interrupt the current turn before reloading") : onReload(),
       pickModel: () => setModelPicking(true),
-      pickEffort: () => setEffortPicking(true),
+      pickPreset: () => setPresetPicking(true),
       showActivities: () => setShowActivities(true),
       showSandbox: () => setShowSandbox(true),
       sandbox: sandboxView,
@@ -488,13 +488,13 @@ export function App({
                 report(service.setModel(conversation.id, next));
               }}
             />
-          ) : effortPicking ? (
-            <EffortPicker
-              efforts={effortsFor(service, model)}
-              current={model.effort}
+          ) : presetPicking ? (
+            <PresetPicker
+              presets={presetsFor(service, model)}
+              current={model.preset}
               onSelect={(value) => {
-                setEffortPicking(false);
-                report(service.setModel(conversation.id, { ...model, effort: value }));
+                setPresetPicking(false);
+                report(service.setModel(conversation.id, { ...model, preset: value }));
               }}
             />
           ) : showActivities ? (
@@ -522,7 +522,7 @@ export function App({
               <Rule />
               <StatusBar
                 model={model.model}
-                effort={model.effort}
+                preset={model.preset}
                 cwd={cwd}
                 usage={state.usage}
                 cost={state.cost}
@@ -591,7 +591,7 @@ export function usageLabel(
 
 function StatusBar({
   model,
-  effort,
+  preset,
   cwd,
   usage,
   cost,
@@ -602,7 +602,7 @@ function StatusBar({
   sandboxPhase,
 }: {
   model: string;
-  effort: string | undefined;
+  preset: string | undefined;
   cwd: string;
   usage: Usage;
   cost: number;
@@ -612,7 +612,7 @@ function StatusBar({
   sandboxBackend: SandboxBackend;
   sandboxPhase: SandboxPhase | undefined;
 }): ReactElement {
-  const label = effort ? `${model} (${effort})` : model;
+  const label = preset ? `${model} (${preset})` : model;
   const tokens = usageLabel(usage, cost, lastInputTokens, contextWindow);
   const active =
     activeCount > 0 ? ` · ${activeCount} ${activeCount === 1 ? "activity" : "activities"}` : "";

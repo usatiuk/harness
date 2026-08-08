@@ -3,7 +3,7 @@ import {
   modelId,
   selectionId,
   type ConversationId,
-  type EffortInfo,
+  type PresetInfo,
   type ModelConfig,
   type ConversationConfig,
 } from "@harness/protocol";
@@ -11,9 +11,9 @@ import type { HarnessService } from "@harness/service";
 import type { Suggestion } from "./completion.ts";
 import type { SandboxView } from "./sandbox-overlay.tsx";
 
-/** The effort levels the given selection's model offers; empty when it has no effort axis. */
-export const effortsFor = (service: HarnessService, model: ModelConfig): EffortInfo[] =>
-  service.availableModels().find((m) => modelId(m) === modelId(model))?.efforts ?? [];
+/** The presets the given selection's model offers; empty when it has no preset axis. */
+export const presetsFor = (service: HarnessService, model: ModelConfig): PresetInfo[] =>
+  service.availableModels().find((m) => modelId(m) === modelId(model))?.presets ?? [];
 
 /** What a slash command can act on. Kept narrow on purpose. */
 export interface CommandContext {
@@ -21,7 +21,7 @@ export interface CommandContext {
   conversationId: ConversationId;
   /** This conversation's workspace root. */
   cwd: string;
-  /** The conversation's current selection (model + effort). */
+  /** The conversation's current selection (model + preset). */
   model: ModelConfig;
   /** The conversation's current fully resolved settings. */
   config: ConversationConfig;
@@ -35,8 +35,8 @@ export interface CommandContext {
   reload: () => void;
   /** Open the model switcher overlay. */
   pickModel: () => void;
-  /** Open the effort switcher overlay (for the current model). */
-  pickEffort: () => void;
+  /** Open the preset switcher overlay (for the current model). */
+  pickPreset: () => void;
   /** Open the activities overlay. */
   showActivities: () => void;
   /** Open the sandbox overlay. */
@@ -102,32 +102,32 @@ export const commands: Command[] = [
     },
   },
   {
-    name: "effort",
-    summary: "set reasoning effort (/effort <value>, or /effort to pick)",
+    name: "preset",
+    summary: "set generation preset (/preset <value>, or /preset to pick)",
     complete: (ctx) =>
-      effortsFor(ctx.service, ctx.model).map((e) => ({
+      presetsFor(ctx.service, ctx.model).map((e) => ({
         value: e.value,
         label: e.label ?? e.value,
       })),
     run: (ctx, args) => {
-      const efforts = effortsFor(ctx.service, ctx.model);
-      if (efforts.length === 0) {
-        ctx.note(`${ctx.model.model} has no effort options`);
+      const saved = presetsFor(ctx.service, ctx.model);
+      if (saved.length === 0) {
+        ctx.note(`${ctx.model.model} has no preset options`);
         return;
       }
       const value = args[0];
       if (!value) {
-        ctx.pickEffort();
+        ctx.pickPreset();
         return;
       }
-      if (!efforts.some((e) => e.value === value)) {
-        ctx.note(`unknown effort: ${value} (try: ${efforts.map((e) => e.value).join(", ")})`);
+      if (!saved.some((e) => e.value === value)) {
+        ctx.note(`unknown preset: ${value} (try: ${saved.map((e) => e.value).join(", ")})`);
         return;
       }
-      const model = { ...ctx.model, effort: value };
+      const model = { ...ctx.model, preset: value };
       void ctx.service.setModel(ctx.conversationId, model).then(
-        () => ctx.note(`effort → ${selectionId(model)}`),
-        (e: unknown) => ctx.note(`effort switch failed: ${String(e)}`),
+        () => ctx.note(`preset → ${selectionId(model)}`),
+        (e: unknown) => ctx.note(`preset switch failed: ${String(e)}`),
       );
     },
   },

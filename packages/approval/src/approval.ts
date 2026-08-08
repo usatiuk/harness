@@ -73,7 +73,7 @@ const approvalResponseSchema = z.object({
   responder: z.enum(["auto", "human"]).optional(),
   reason: z.string().optional(),
   model: z
-    .object({ provider: z.string(), model: z.string(), effort: z.string().optional() })
+    .object({ provider: z.string(), model: z.string(), preset: z.string().optional() })
     .optional(),
 });
 
@@ -83,7 +83,7 @@ const approvalAnnotationSchema = z.object({
   relationship: z.enum(["in-workspace", "out-of-workspace", "unknown"]),
   reason: z.string().optional(),
   model: z
-    .object({ provider: z.string(), model: z.string(), effort: z.string().optional() })
+    .object({ provider: z.string(), model: z.string(), preset: z.string().optional() })
     .optional(),
 });
 
@@ -117,7 +117,7 @@ export const approvalAnnotationOf = (
           model: {
             provider: parsed.data.model.provider,
             model: parsed.data.model.model,
-            ...(parsed.data.model.effort ? { effort: parsed.data.model.effort } : {}),
+            ...(parsed.data.model.preset ? { preset: parsed.data.model.preset } : {}),
           },
         }
       : {}),

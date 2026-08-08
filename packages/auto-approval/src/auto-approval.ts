@@ -25,7 +25,7 @@ const TOOL_RESULT_HEAD = 700;
 const modelSchema = z.strictObject({
   provider: z.string(),
   model: z.string(),
-  effort: z.string().optional(),
+  preset: z.string().optional(),
 });
 
 export const autoApprovalConfigSchema = z.strictObject({
@@ -227,7 +227,7 @@ function autoApprovalMiddleware(
         ? {
             provider: config.model.provider,
             model: config.model.model,
-            ...(config.model.effort ? { effort: config.model.effort } : {}),
+            ...(config.model.preset ? { preset: config.model.preset } : {}),
           }
         : ctx.conversation.config.model;
       ctx.emit({

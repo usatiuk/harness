@@ -11,7 +11,7 @@ const PLACEHOLDER = "type a message… · /help · Esc abort";
 const PROVIDERS: CompletionProvider[] = [slashCompletion];
 
 export interface ComposerProps {
-  /** Slash completion reads candidates (models, efforts) through this. */
+  /** Slash completion reads candidates (models, presets) through this. */
   ctx: CommandContext;
   history: History;
   onSubmit: (value: string) => void;

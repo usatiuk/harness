@@ -4,7 +4,7 @@ import type { ZodType } from "zod";
 import type { ConversationConfig } from "@harness/protocol";
 import { deepMerge } from "./merge.ts";
 import { defaultHome } from "./home.ts";
-import { formatIssue, settingsDocSchema, type SettingsDoc } from "./settings.ts";
+import { formatIssue, projectDocSchema, settingsDocSchema, type SettingsDoc } from "./settings.ts";
 
 export interface ResolveOptions {
   /** Harness home directory; the global layer is `<home>/settings.json`. */
@@ -42,10 +42,25 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
 
   const layers: Layer[] = [];
   if (opts.defaults !== undefined) layers.push({ label: "defaults", doc: opts.defaults });
-  await pushFileLayer(layers, "global settings", join(opts.home, "settings.json"));
+  await pushFileLayer(
+    layers,
+    "global settings",
+    join(opts.home, "settings.json"),
+    settingsDocSchema,
+  );
   if (root && !isHomeRoot(root, opts.home)) {
-    await pushFileLayer(layers, "project settings", join(root, ".harness", "settings.json"));
-    await pushFileLayer(layers, "local settings", join(root, ".harness", "settings.local.json"));
+    await pushFileLayer(
+      layers,
+      "project settings",
+      join(root, ".harness", "settings.json"),
+      projectDocSchema,
+    );
+    await pushFileLayer(
+      layers,
+      "local settings",
+      join(root, ".harness", "settings.local.json"),
+      projectDocSchema,
+    );
   }
 
   if (opts.profile !== undefined) {
@@ -71,7 +86,7 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
     model: {
       provider: doc.model.provider,
       model: doc.model.model,
-      ...(doc.model.effort ? { effort: doc.model.effort } : {}),
+      ...(doc.model.preset ? { preset: doc.model.preset } : {}),
     },
     ...(doc.tools?.allow ? { tools: { allow: doc.tools.allow } } : {}),
     plugins: resolvePlugins(doc.plugins ?? {}, opts.schemas, sources),
@@ -87,10 +102,20 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
 export async function loadMergedSettings(home: string, cwd?: string): Promise<SettingsDoc> {
   const root = cwd ? await findProjectRoot(cwd, home) : undefined;
   const layers: Layer[] = [];
-  await pushFileLayer(layers, "global settings", join(home, "settings.json"));
+  await pushFileLayer(layers, "global settings", join(home, "settings.json"), settingsDocSchema);
   if (root && !isHomeRoot(root, home)) {
-    await pushFileLayer(layers, "project settings", join(root, ".harness", "settings.json"));
-    await pushFileLayer(layers, "local settings", join(root, ".harness", "settings.local.json"));
+    await pushFileLayer(
+      layers,
+      "project settings",
+      join(root, ".harness", "settings.json"),
+      projectDocSchema,
+    );
+    await pushFileLayer(
+      layers,
+      "local settings",
+      join(root, ".harness", "settings.local.json"),
+      projectDocSchema,
+    );
   }
   return mergeDocs(layers);
 }
@@ -133,12 +158,20 @@ function pluginSources(layers: Layer[]): Map<string, string> {
   return sources;
 }
 
-async function pushFileLayer(layers: Layer[], label: string, file: string): Promise<void> {
-  const doc = await readDoc(file);
+async function pushFileLayer(
+  layers: Layer[],
+  label: string,
+  file: string,
+  schema: ZodType<SettingsDoc>,
+): Promise<void> {
+  const doc = await readDoc(file, schema);
   if (doc) layers.push({ label: `${label} (${file})`, doc });
 }
 
-async function readDoc(file: string): Promise<SettingsDoc | undefined> {
+async function readDoc(
+  file: string,
+  schema: ZodType<SettingsDoc>,
+): Promise<SettingsDoc | undefined> {
   let text: string;
   try {
     text = await readFile(file, "utf8");
@@ -152,7 +185,7 @@ async function readDoc(file: string): Promise<SettingsDoc | undefined> {
   } catch (error) {
     throw new Error(`invalid JSON in ${file}: ${(error as Error).message}`, { cause: error });
   }
-  const parsed = settingsDocSchema.safeParse(raw);
+  const parsed = schema.safeParse(raw);
   if (!parsed.success) throw new Error(`invalid settings in ${file}: ${formatIssue(parsed.error)}`);
   return parsed.data;
 }
