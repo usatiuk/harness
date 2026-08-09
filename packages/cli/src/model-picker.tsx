@@ -1,7 +1,13 @@
 import type { ReactElement } from "react";
 import { Box, Text } from "ink";
 import { Select } from "@inkjs/ui";
-import { modelId, type ModelConfig, type ModelInfo, type PresetInfo } from "@harness/protocol";
+import {
+  modelId,
+  type ModelConfig,
+  type ModelIdentityChange,
+  type ModelInfo,
+  type PresetInfo,
+} from "@harness/protocol";
 
 /** A list to pick a model. Assumes a non-empty catalog; `current` is marked. */
 export function ModelPicker({
@@ -11,7 +17,7 @@ export function ModelPicker({
 }: {
   models: ModelInfo[];
   current: ModelConfig;
-  onSelect: (model: ModelConfig) => void;
+  onSelect: (model: ModelIdentityChange) => void;
 }): ReactElement {
   const currentId = modelId(current);
   // Cluster by provider and qualify each label with it; the same model name can appear under
@@ -48,18 +54,22 @@ export function PresetPicker({
 }: {
   presets: PresetInfo[];
   current: string | undefined;
-  onSelect: (value: string) => void;
+  onSelect: (value: string | undefined) => void;
 }): ReactElement {
-  const options = presets.map((e) => ({
-    label: `${e.label ?? e.value}${e.value === current ? " ✓" : ""}`,
-    value: e.value,
-  }));
+  const choices: { label: string; preset: string | undefined }[] = [
+    { label: `provider default${current === undefined ? " ✓" : ""}`, preset: undefined },
+    ...presets.map((entry) => ({
+      label: `${entry.label ?? entry.value}${entry.value === current ? " ✓" : ""}`,
+      preset: entry.value,
+    })),
+  ];
+  const options = choices.map((choice, index) => ({ label: choice.label, value: String(index) }));
   return (
     <Box flexDirection="column">
       <Text bold>
         Set preset <Text dimColor>(esc to cancel)</Text>
       </Text>
-      <Select options={options} onChange={onSelect} />
+      <Select options={options} onChange={(index) => onSelect(choices[Number(index)]?.preset)} />
     </Box>
   );
 }

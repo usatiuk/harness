@@ -494,7 +494,7 @@ export function App({
               current={model.preset}
               onSelect={(value) => {
                 setPresetPicking(false);
-                report(service.setModel(conversation.id, { ...model, preset: value }));
+                report(service.setPreset(conversation.id, model, value));
               }}
             />
           ) : showActivities ? (

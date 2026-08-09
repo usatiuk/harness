@@ -8,7 +8,8 @@ import type {
   HarnessEvent,
   Item,
   ItemId,
-  ModelConfig,
+  ModelIdentityChange,
+  ModelIdentity,
   ModelInfo,
   ModelUsage,
   Plugin,
@@ -65,6 +66,7 @@ export class HarnessService implements ConversationRunner {
   readonly #engine: Engine;
   readonly #home: string;
   readonly #schemas = new Map<string, ZodType>();
+  #selectionMutation: Promise<void> = Promise.resolve();
   readonly #resolveConfig: ConfigResolver;
 
   constructor(options: HarnessServiceOptions) {
@@ -196,9 +198,32 @@ export class HarnessService implements ConversationRunner {
    * conversations. The conversation switch goes first so its `config.changed` is emitted
    * before the global write can fail.
    */
-  async setModel(conversationId: ConversationId, model: ModelConfig): Promise<void> {
-    await this.#engine.setModel(conversationId, model);
-    await updateGlobalModel(this.#home, model);
+  async setModel(conversationId: ConversationId, identity: ModelIdentityChange): Promise<void> {
+    await this.#serializeSelectionMutation(async () => {
+      const model = await this.#engine.setModel(conversationId, identity);
+      await updateGlobalModel(this.#home, model);
+    });
+  }
+
+  /** Changes the current model's preset without allowing model identity to change. */
+  async setPreset(
+    conversationId: ConversationId,
+    expected: ModelIdentity,
+    preset: string | undefined,
+  ): Promise<void> {
+    await this.#serializeSelectionMutation(async () => {
+      const model = await this.#engine.setPreset(conversationId, expected, preset);
+      await updateGlobalModel(this.#home, model);
+    });
+  }
+
+  #serializeSelectionMutation(mutate: () => Promise<void>): Promise<void> {
+    const result = this.#selectionMutation.then(mutate, mutate);
+    this.#selectionMutation = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   /**
@@ -234,11 +259,9 @@ export class HarnessService implements ConversationRunner {
         ? (record.overrides.plugins as Record<string, unknown>)
         : {};
     const overrideSlice = overridesPlugins[pluginId] ?? {};
-    await this.#engine.updateOverrides(conversationId, {
-      plugins: {
-        ...overridesPlugins,
-        [pluginId]: deepMerge(overrideSlice, patch),
-      },
+    await this.#engine.updatePluginOverrides(conversationId, {
+      ...overridesPlugins,
+      [pluginId]: deepMerge(overrideSlice, patch),
     });
   }
 

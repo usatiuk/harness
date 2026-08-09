@@ -6,6 +6,8 @@ import type {
   DeliveryInput,
   HarnessEvent,
   Item,
+  ModelConfig,
+  ModelIdentityChange,
   ModelMiddleware,
   ModelProvider,
   ModelRequest,
@@ -1898,11 +1900,14 @@ class CatalogProvider implements ModelProvider {
   capabilities() {
     return { contentTypes: ["text"], toolCalling: false, fileTools: "string_replace" as const };
   }
-  validateConfig(): void {}
+  validateConfig(config: ModelConfig): void {
+    if (config.model !== "m1" && config.model !== "m2") throw new Error("unknown recording model");
+    if (config.preset && config.preset !== "high") throw new Error("unknown recording preset");
+  }
   listModels() {
     return [
-      { provider: "rec", model: "m1" },
-      { provider: "rec", model: "m2" },
+      { provider: "rec", model: "m1", presets: [{ value: "high" }] },
+      { provider: "rec", model: "m2", presets: [{ value: "high" }] },
     ];
   }
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
@@ -2156,9 +2161,49 @@ describe("Engine — model switching", () => {
   it("availableModels aggregates the registered providers' catalogs", () => {
     const { engine } = recordingSetup();
     expect(engine.availableModels()).toEqual([
-      { provider: "rec", model: "m1" },
-      { provider: "rec", model: "m2" },
+      { provider: "rec", model: "m1", presets: [{ value: "high" }] },
+      { provider: "rec", model: "m2", presets: [{ value: "high" }] },
     ]);
+  });
+
+  it("changes presets separately and clears them on every model identity change", async () => {
+    const { store, engine } = recordingSetup();
+    const conv = await store.createConversation(newConversationInput(recConfig));
+
+    await engine.setPreset(conv.id, { provider: "rec", model: "m1" }, "high");
+    expect((await store.getConversation(conv.id))?.overrides.model).toEqual({
+      provider: "rec",
+      model: "m1",
+      preset: "high",
+    });
+
+    // Both models deliberately offer the same token. Identity switching must not carry it.
+    await engine.setModel(conv.id, { provider: "rec", model: "m2" });
+    expect((await store.getConversation(conv.id))?.overrides.model).toEqual({
+      provider: "rec",
+      model: "m2",
+    });
+  });
+
+  it("validates model and preset changes before mutating durable overrides", async () => {
+    const { store, engine } = recordingSetup();
+    const conv = await store.createConversation(newConversationInput(recConfig));
+    const before = (await store.getConversation(conv.id))?.overrides;
+
+    await expect(
+      engine.setPreset(conv.id, { provider: "rec", model: "m1" }, "bogus"),
+    ).rejects.toThrow(/unknown recording preset/);
+    await expect(engine.setModel(conv.id, { provider: "rec", model: "missing" })).rejects.toThrow(
+      /unknown recording model/,
+    );
+    await expect(
+      engine.setModel(conv.id, {
+        provider: "rec",
+        model: "m2",
+        preset: "high",
+      } as unknown as ModelIdentityChange),
+    ).rejects.toThrow(/setPreset/);
+    expect((await store.getConversation(conv.id))?.overrides).toEqual(before);
   });
 
   it("reads the model fresh per turn, so a switch between turns lands on the next turn", async () => {

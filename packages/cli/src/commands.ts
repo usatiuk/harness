@@ -111,11 +111,11 @@ export const commands: Command[] = [
       })),
     run: (ctx, args) => {
       const saved = presetsFor(ctx.service, ctx.model);
+      const value = args[0];
       if (saved.length === 0) {
         ctx.note(`${ctx.model.model} has no preset options`);
         return;
       }
-      const value = args[0];
       if (!value) {
         ctx.pickPreset();
         return;
@@ -124,8 +124,19 @@ export const commands: Command[] = [
         ctx.note(`unknown preset: ${value} (try: ${saved.map((e) => e.value).join(", ")})`);
         return;
       }
-      const model = { ...ctx.model, preset: value };
-      void ctx.service.setModel(ctx.conversationId, model).then(
+      const model = { provider: ctx.model.provider, model: ctx.model.model, preset: value };
+      void ctx.service.setPreset(ctx.conversationId, ctx.model, value).then(
+        () => ctx.note(`preset → ${selectionId(model)}`),
+        (e: unknown) => ctx.note(`preset switch failed: ${String(e)}`),
+      );
+    },
+  },
+  {
+    name: "preset-default",
+    summary: "restore the current model's provider-defined default preset",
+    run: (ctx) => {
+      const model = { provider: ctx.model.provider, model: ctx.model.model };
+      void ctx.service.setPreset(ctx.conversationId, ctx.model, undefined).then(
         () => ctx.note(`preset → ${selectionId(model)}`),
         (e: unknown) => ctx.note(`preset switch failed: ${String(e)}`),
       );

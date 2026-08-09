@@ -11,6 +11,9 @@ const schemas = new Map<string, z.ZodType>([
     z.strictObject({
       level: z.enum(["low", "high"]).default("low"),
       rules: z.record(z.string(), z.string()).default({}),
+      model: z
+        .strictObject({ provider: z.string(), model: z.string(), preset: z.string().optional() })
+        .optional(),
     }),
   ],
 ]);
@@ -82,6 +85,40 @@ describe("resolveSettings cascade", () => {
     });
 
     expect(config.model).toEqual({ provider: "p", model: "m2" });
+  });
+
+  it("replaces model selections atomically inside profiles and plugin config", async () => {
+    const home = await tmp();
+    const root = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      profiles: {
+        review: {
+          model: { provider: "p", model: "m1", preset: "high" },
+          plugins: { demo: { model: { provider: "p", model: "reviewer-1", preset: "high" } } },
+        },
+      },
+    });
+    await writeJson(join(root, ".harness", "settings.json"), {
+      profiles: {
+        review: {
+          model: { provider: "p", model: "m2" },
+          plugins: { demo: { model: { provider: "p", model: "reviewer-2" } } },
+        },
+      },
+    });
+
+    const config = await resolveSettings({
+      home,
+      cwd: root,
+      schemas,
+      profile: "review",
+    });
+
+    expect(config.model).toEqual({ provider: "p", model: "m2" });
+    expect(config.plugins?.demo).toMatchObject({
+      model: { provider: "p", model: "reviewer-2" },
+    });
   });
 
   it("roots the workspace at cwd, not at an ancestor that holds a .harness/ dir", async () => {

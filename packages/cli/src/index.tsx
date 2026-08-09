@@ -68,6 +68,16 @@ export interface LaunchOptions {
   cwd?: string | undefined;
 }
 
+/** Builds the new-conversation top layer; a model-id override always drops the fallback preset. */
+export function launchOverrides(fallback: ModelConfig, requestedModel?: string): SettingsDoc {
+  return requestedModel
+    ? {
+        instructions: INSTRUCTIONS,
+        model: { provider: fallback.provider, model: requestedModel },
+      }
+    : { instructions: INSTRUCTIONS };
+}
+
 export interface Session {
   conversation: Conversation;
   items: Item[];
@@ -193,9 +203,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
   } else {
     // `--model` overrides the model id on the fallback provider (a dev convenience); otherwise
     // the settings cascade picks the model, falling back to `fallbackModel` only when none is set.
-    const overrides: SettingsDoc = opts.model
-      ? { instructions: INSTRUCTIONS, model: { ...fallbackModel, model: opts.model } }
-      : { instructions: INSTRUCTIONS };
+    const overrides = launchOverrides(fallbackModel, opts.model);
     const conversation = await service.createConversation({ cwd, overrides });
     console.log(`conversation ${conversation.id}\n`);
     created.add(conversation.id);

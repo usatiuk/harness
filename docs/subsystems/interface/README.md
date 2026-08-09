@@ -34,8 +34,10 @@ Conversation records persist workspace root and overrides. Resolved configuratio
 is derived again on load. Model and plugin changes update the conversation's top
 layer and may also update global defaults. Sandbox changes deactivate and reload
 the current conversation so its execution backend is rebuilt immediately.
-Each higher-precedence model selection replaces the lower selection atomically,
-so a model switch cannot inherit another model's preset.
+Every complete `{provider, model, preset?}` selection is atomic wherever it
+appears in the configuration tree, including named profiles and plugin-owned
+reviewer models. Identity changes use a model-only API that clears the old
+preset; preset changes use a separate API scoped to the current identity.
 
 Named profiles exist in the resolver/schema, but the current CLI does not expose a
 profile-selection workflow.

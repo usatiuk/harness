@@ -3,9 +3,16 @@ import type { ContentBlock } from "./content.ts";
 import type { ConversationId, ItemId } from "./ids.ts";
 import type { Item } from "./items.ts";
 
-export interface ModelConfig {
+export interface ModelIdentity {
   provider: string;
   model: string;
+}
+
+/** Input for an identity change. Presets are changed only through the preset-specific API. */
+export type ModelIdentityChange = ModelIdentity & { preset?: never };
+
+/** One atomic model selection. A preset is meaningful only for this exact identity. */
+export interface ModelConfig extends ModelIdentity {
   /** Provider-opaque preset token (e.g. reasoning effort, a sampling preset); absent = the model's default. */
   preset?: string;
 }

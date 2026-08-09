@@ -58,3 +58,6 @@ or generated content are involved.
 - Store contracts and CLI reducer tests cover durable nullable usage, incomplete
   totals, and context-checkpoint clearing. Engine tests cover record-before-fail
   terminal errors and validation before capability-dependent work.
+- Config, engine/service, and CLI regressions cover atomic model selection across
+  file/profile/plugin layers, global and conversation persistence, `--model`, and
+  explicit preset selection/reset. Same-named presets never cross identities.

@@ -18,6 +18,8 @@ import {
   type ItemId,
   type KernelEvent,
   type ModelConfig,
+  type ModelIdentity,
+  type ModelIdentityChange,
   type ModelInfo,
   type ModelInvocationResult,
   type ModelInvoker,
@@ -346,27 +348,62 @@ export class Engine {
     return this.host.providers.listModels();
   }
 
-  /**
-   * Persists the model into the conversation's durable `overrides` (so it survives resume),
-   * re-resolves its config, and swaps it onto the live runtime for the next turn. Emits the
-   * *resolved* model (which may differ from the requested one — e.g. a settings-level `preset` rides
-   * along), keeping clients in sync with what the next turn will actually use.
-   */
-  async setModel(conversationId: ConversationId, model: ModelConfig): Promise<void> {
-    await this.updateOverrides(conversationId, { model });
+  /** Changes model identity atomically. The previous model's preset is never inherited. */
+  async setModel(
+    conversationId: ConversationId,
+    identity: ModelIdentityChange,
+  ): Promise<ModelConfig> {
+    if (Object.hasOwn(identity, "preset")) {
+      throw new Error("setModel changes identity only; use setPreset to change a preset");
+    }
+    const model: ModelConfig = { provider: identity.provider, model: identity.model };
+    this.host.providers.get(model.provider).validateConfig(model);
+    return (await this.#updateOverrides(conversationId, { model })).model;
+  }
+
+  /** Changes only the current model's preset; `undefined` restores its provider-defined default. */
+  async setPreset(
+    conversationId: ConversationId,
+    expected: ModelIdentity,
+    preset: string | undefined,
+  ): Promise<ModelConfig> {
+    const record = await this.store.getConversation(conversationId);
+    if (!record) throw new Error(`unknown conversation: ${conversationId}`);
+    const current = await this.resolveConfig(record);
+    if (current.model.provider !== expected.provider || current.model.model !== expected.model) {
+      throw new Error(
+        `model changed before preset update (expected ${expected.provider}/${expected.model}, current ${current.model.provider}/${current.model.model})`,
+      );
+    }
+    const model: ModelConfig = {
+      provider: current.model.provider,
+      model: current.model.model,
+      ...(preset !== undefined ? { preset } : {}),
+    };
+    this.host.providers.get(model.provider).validateConfig(model);
+    return (await this.#updateOverrides(conversationId, { model })).model;
+  }
+
+  /** Applies the already-validated durable plugin override layer. */
+  async updatePluginOverrides(
+    conversationId: ConversationId,
+    plugins: Record<string, unknown>,
+  ): Promise<void> {
+    await this.#updateOverrides(conversationId, { plugins });
   }
 
   /** Applies a durable top-layer settings patch, re-resolves, and refreshes the live runtime. */
-  async updateOverrides(
+  async #updateOverrides(
     conversationId: ConversationId,
     patch: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<ConversationConfig> {
     await this.store.updateConversationOverrides(conversationId, patch);
     const record = await this.store.getConversation(conversationId);
     if (!record) throw new Error(`unknown conversation: ${conversationId}`);
     const config = await this.resolveConfig(record);
     this.#runtimes.get(conversationId)?.setConversation({ ...record, config });
     this.#emitKernel({ type: "config.changed", conversationId, config });
+    return config;
   }
 
   /**

@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { conversationOf } from "@harness/protocol";
 import type { HarnessEvent, Store } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
@@ -15,6 +18,52 @@ const serviceOn = (store: Store, steps: ConstructorParameters<typeof FakeProvide
   });
 
 describe("HarnessService", () => {
+  it("persists model identities without inherited presets and changes presets separately", async () => {
+    const home = await mkdtemp(join(tmpdir(), "harness-service-model-"));
+    try {
+      const store = new InMemoryStore();
+      const service = new HarnessService({
+        store,
+        home,
+        plugins: [{ id: "fake", providers: () => [new FakeProvider([])] }],
+      });
+      const conv = await service.createConversation({
+        overrides: {
+          model: { provider: "fake", model: "old", preset: "high" },
+        },
+      });
+
+      await service.setModel(conv.id, { provider: "fake", model: "next" });
+      expect((await service.getConversation(conv.id))?.config.model).toEqual({
+        provider: "fake",
+        model: "next",
+      });
+      await service.setPreset(conv.id, { provider: "fake", model: "next" }, "high");
+      expect((await service.getConversation(conv.id))?.config.model).toEqual({
+        provider: "fake",
+        model: "next",
+        preset: "high",
+      });
+      await service.setModel(conv.id, { provider: "fake", model: "final" });
+
+      const switching = service.setModel(conv.id, { provider: "fake", model: "race-winner" });
+      const stalePreset = service.setPreset(conv.id, { provider: "fake", model: "final" }, "high");
+      await switching;
+      await expect(stalePreset).rejects.toThrow(/model changed before preset update/);
+
+      const global = JSON.parse(await readFile(join(home, "settings.json"), "utf8")) as {
+        model?: unknown;
+      };
+      expect((await service.getConversation(conv.id))?.config.model).toEqual({
+        provider: "fake",
+        model: "race-winner",
+      });
+      expect(global.model).toEqual({ provider: "fake", model: "race-winner" });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("drives a turn and streams the event sequence", async () => {
     const store = new InMemoryStore();
     const service = new HarnessService({

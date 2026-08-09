@@ -167,12 +167,21 @@ describe("runCommand", () => {
     expect(ctx.note).toHaveBeenCalledWith("unknown model: bogus");
   });
 
-  const withPresets = (setModel = vi.fn().mockResolvedValue(undefined)): HarnessService =>
+  const withPresets = (setPreset = vi.fn().mockResolvedValue(undefined)): HarnessService =>
     ({
       availableModels: () => [
-        { provider: "openai", model: "gpt-5.1", presets: [{ value: "low" }, { value: "high" }] },
+        {
+          provider: "openai",
+          model: "gpt-5.1",
+          presets: [
+            { value: "low" },
+            { value: "high" },
+            { value: "default" },
+            { value: "--default" },
+          ],
+        },
       ],
-      setModel,
+      setPreset,
     }) as unknown as HarnessService;
 
   it("/preset with no args opens the picker", () => {
@@ -182,30 +191,45 @@ describe("runCommand", () => {
   });
 
   it("/preset <value> switches when the current model offers it", async () => {
-    const setModel = vi.fn().mockResolvedValue(undefined);
-    const ctx = makeCtx({ service: withPresets(setModel) });
+    const setPreset = vi.fn().mockResolvedValue(undefined);
+    const ctx = makeCtx({ service: withPresets(setPreset) });
     runCommand("/preset high", ctx);
-    expect(setModel).toHaveBeenCalledWith("c1", {
-      provider: "openai",
-      model: "gpt-5.1",
-      preset: "high",
-    });
+    expect(setPreset).toHaveBeenCalledWith("c1", ctx.model, "high");
     await Promise.resolve();
     expect(ctx.note).toHaveBeenCalledWith("preset → openai/gpt-5.1/high");
   });
 
+  it("keeps provider-opaque default-like preset names selectable", async () => {
+    const setPreset = vi.fn().mockResolvedValue(undefined);
+    const ctx = makeCtx({ service: withPresets(setPreset) });
+
+    runCommand("/preset default", ctx);
+    expect(setPreset).toHaveBeenLastCalledWith("c1", ctx.model, "default");
+    runCommand("/preset --default", ctx);
+    expect(setPreset).toHaveBeenLastCalledWith("c1", ctx.model, "--default");
+  });
+
+  it("/preset-default clears the preset for the identity the user acted on", async () => {
+    const setPreset = vi.fn().mockResolvedValue(undefined);
+    const ctx = makeCtx({ service: withPresets(setPreset) });
+    runCommand("/preset-default", ctx);
+    expect(setPreset).toHaveBeenCalledWith("c1", ctx.model, undefined);
+  });
+
   it("/preset <value> notes an error for an unoffered preset and never switches", () => {
-    const setModel = vi.fn();
-    const ctx = makeCtx({ service: withPresets(setModel) });
+    const setPreset = vi.fn();
+    const ctx = makeCtx({ service: withPresets(setPreset) });
     runCommand("/preset bogus", ctx);
-    expect(setModel).not.toHaveBeenCalled();
-    expect(ctx.note).toHaveBeenCalledWith("unknown preset: bogus (try: low, high)");
+    expect(setPreset).not.toHaveBeenCalled();
+    expect(ctx.note).toHaveBeenCalledWith(
+      "unknown preset: bogus (try: low, high, default, --default)",
+    );
   });
 
   it("/preset notes when the current model has no preset axis", () => {
     const service = {
       availableModels: () => [{ provider: "openai", model: "gpt-5.1" }],
-      setModel: vi.fn(),
+      setPreset: vi.fn(),
     } as unknown as HarnessService;
     const ctx = makeCtx({ service });
     runCommand("/preset", ctx);

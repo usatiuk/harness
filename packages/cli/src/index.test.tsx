@@ -3,7 +3,13 @@ import { render } from "ink-testing-library";
 import type { Conversation, ConversationId } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import { ActivityManager, type Activity, type ActivityResult } from "@harness/activities";
-import { ACTIVITY_APPROVAL_DEFAULTS, loadSession, Root, type Session } from "./index.tsx";
+import {
+  ACTIVITY_APPROVAL_DEFAULTS,
+  launchOverrides,
+  loadSession,
+  Root,
+  type Session,
+} from "./index.tsx";
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
@@ -70,6 +76,17 @@ describe("CLI approval defaults", () => {
       activity_list: "allow",
       activity_kill: "allow",
     });
+  });
+});
+
+describe("launchOverrides", () => {
+  it("does not carry the fallback model's preset into --model", () => {
+    expect(
+      launchOverrides({ provider: "openai", model: "old", preset: "high" }, "new"),
+    ).toMatchObject({ model: { provider: "openai", model: "new" } });
+    expect(
+      launchOverrides({ provider: "openai", model: "old", preset: "high" }, "new").model,
+    ).not.toHaveProperty("preset");
   });
 });
 

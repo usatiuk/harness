@@ -21,6 +21,12 @@ A provider declares:
 - Configuration validation.
 - A cancellable stream from `ModelRequest` to provider-neutral events.
 
+`ModelConfig` is one atomic `{provider, model, preset?}` selection. A model
+identity change never carries a preset, even when the destination exposes the
+same preset token; preset selection is a separate, current-model operation.
+Configuration merging applies this replacement rule recursively to top-level,
+profile, and plugin-owned model selections.
+
 `ModelInfo.contextWindow` and `ModelInfo.maxOutputTokens` describe the hard
 capacity of one provider/model pair. The engine reserves the hard output maximum
 when estimating whether the next input fits. `ModelRequest.maxOutputTokens` is a
