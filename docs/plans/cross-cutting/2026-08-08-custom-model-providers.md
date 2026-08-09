@@ -1,8 +1,8 @@
 # Custom model providers via configuration
 
-**Status:** In progress — schema, factory (`packages/custom-providers`), CLI wiring, presets, and `fileTools` all landed; built-in auth seeding is the open thread.
+**Status:** In progress — schema, factory (`packages/custom-providers`), CLI wiring, presets, and `fileTools` all landed; built-in auth seeding is the open thread. The config schema was refactored to per-model scope on 2026-08-09 — see the deviation note and `2026-08-09-custom-provider-model-scope.md`.
 **Created:** 2026-08-08
-**Updated:** 2026-08-08
+**Updated:** 2026-08-09
 **Area:** cross-cutting (config, cli, protocol, custom-providers)
 
 ## Goal
@@ -25,6 +25,14 @@ Allow users to register custom model providers (local LLMs, self-hosted endpoint
 Extend the config system with a structured `customProviders` section. Each entry declares its API compatibility shape and named presets. A factory layer in the CLI reads these entries at composition time and produces `Plugin` objects, which are wired into `HarnessService` alongside built-in providers.
 
 ### Config schema
+
+> **Superseded:** the example and Slice 1 below describe the original _fused_
+> shape (one entry = one endpoint = one model). On 2026-08-09 this was refactored
+> to per-model scope: an entry owns only `endpoint`/`apiKey`/`type`
+> (`sendInstructionsAsSystem` on responses) and serves `models.<id>`, each entry
+> with its own `fileTools`, `contextWindow`, `maxOutputTokens`, and `presets`. The
+> old shape is no longer accepted (see the deviation note above and
+> `2026-08-09-custom-provider-model-scope.md`).
 
 ```jsonc
 {
@@ -59,7 +67,7 @@ A preset is a named collection of generation parameters. The preset name is prov
 | ------------------------------------------------ | ---------------------------------------------------------------- |
 | `{ low, medium, high }` maps to reasoning effort | `{ fast, creative, precise }` maps to temperature/topP/maxTokens |
 | Provider factory maps string → single SDK param  | Provider factory maps string → multiple SDK params               |
-| `ModelSpec.efforts` lists available values       | `CustomProviderSpec.presets` defines presets with params         |
+| `ModelSpec.efforts` lists available values       | `models.<id>.presets` defines per-model presets with params      |
 
 Unknown preset names fail fast (no silent fallback). The core protocol never exposes generation parameters — they live exclusively in the custom provider config.
 
@@ -86,6 +94,7 @@ The core types (`ModelConfig`, `ModelRequest`, `ModelProvider`) are **unchanged*
 - The provider's registry id is the config key (`customProviders.<id>`).
 - Core's `modelSchema` renamed the reasoning axis from `effort` to `preset`; custom providers additionally expose `fileTools` (see above).
 - OpenAI-compatible entries accept an opt-in `sendInstructionsAsSystem` flag: some backends (e.g. OVMS) accept the Responses request shape but silently drop the top-level `instructions` field, so the flag renders `ModelRequest.instructions` as a leading `system` input message instead. Off by default; backends honoring `instructions` natively are unchanged. (`customProviderSchema`, `CustomOpenAIProvider`, `packages/custom-providers/src/factory.ts`.)
+- On 2026-08-09 the fused single-model entry was split into provider vs per-model scope: an entry now owns only `endpoint`/`apiKey`/`type` (plus responses-only `sendInstructionsAsSystem`), and each served model lives under `models.<id>` with its own `fileTools`, `contextWindow`, `maxOutputTokens`, and `presets`. `capabilities(model)` and preset/limit resolution are per model. The old single-model shape (provider-level `model`/`contextWindow`/`maxOutputTokens`/`fileTools`/`presets`) is no longer accepted; local config is migrated manually. Full design in `2026-08-09-custom-provider-model-scope.md`.
 
 ## Invariants
 
@@ -111,8 +120,8 @@ The core types (`ModelConfig`, `ModelRequest`, `ModelProvider`) are **unchanged*
 **Packages:** `@harness/config`
 
 - Extend `settingsDocSchema` with `customProviders: z.record(z.string(), customProviderSchema).optional()`.
-- Define `customProviderSchema`: `{ type, endpoint, apiKey, model, contextWindow?, maxOutputTokens?, fileTools?, sendInstructionsAsSystem?, presets? }` where `type` is `"openai-responses-compatible"`, `"openai-completions-compatible"`, or `"anthropic-compatible"`, and `presets` is a record of `{ name, temperature?, topP?, maxTokens? }`.
-- The schema validates at settings parse time. Unknown types or malformed presets are rejected.
+- Define `customProviderSchema`: `{ type, endpoint, apiKey, models.<id>: { fileTools?, contextWindow?, maxOutputTokens?, presets? } }` where `type` is `"openai-responses-compatible"`, `"openai-completions-compatible"`, or `"anthropic-compatible"`, and each `presets` is a record of named generation-parameter sets. (The pre-refactor descriptions below predate the 2026-08-09 per-model scope; `model`/`contextWindow`/`maxOutputTokens`/`fileTools`/`presets` live under each model id now.)
+- The schema validates at settings parse time. Unknown types, malformed presets, empty model maps, and (on completions/anthropic) `fileTools: "apply_patch"` are rejected.
 
 ### Slice 2: Factory layer
 

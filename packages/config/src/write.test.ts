@@ -85,7 +85,7 @@ describe("readGlobalSettings custom providers", () => {
             type: "openai-completions-compatible",
             endpoint: "http://localhost:8000/v1",
             apiKey: "k",
-            model: "qwen3.6",
+            models: { "qwen3.6": {} },
           },
         },
       }),

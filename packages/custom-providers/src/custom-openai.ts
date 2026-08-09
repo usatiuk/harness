@@ -1,28 +1,9 @@
 import { OpenAIResponsesProvider } from "@harness/openai-core";
 import { apiKeyCredentials } from "@harness/openai-api";
-import type {
-  ContentBlock,
-  FileToolsProfile,
-  ModelCapabilities,
-  ModelConfig,
-  ModelInfo,
-  ModelRequest,
-} from "@harness/protocol";
-import type { OpenAIPreset } from "@harness/config";
-
-/** Loose view of the SDK request so presets can touch freeform extra fields. */
-type RequestParams = Record<string, unknown>;
-
-/** Merges one configured preset's sampling knobs onto the built Responses request. */
-function applyOpenAIPreset(params: RequestParams, preset?: OpenAIPreset): void {
-  if (!preset) return;
-  if (preset.temperature !== undefined) params.temperature = preset.temperature;
-  if (preset.topP !== undefined) params.top_p = preset.topP;
-  if (preset.maxTokens !== undefined) params.max_output_tokens = preset.maxTokens;
-  if (preset.frequencyPenalty !== undefined) params.frequency_penalty = preset.frequencyPenalty;
-  if (preset.presencePenalty !== undefined) params.presence_penalty = preset.presencePenalty;
-  Object.assign(params, preset.extraBody);
-}
+import type { ContentBlock, ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
+import type { CustomOpenAIModelConfig } from "@harness/config";
+import { applyOpenAIPreset, type RequestParams } from "./openai-presets.ts";
+import { listScopedModels, validateScopedConfig } from "./model-scope.ts";
 
 /** Joins the textual blocks of an instructions list, mirroring the core mapping. */
 const textOf = (content: ContentBlock[]): string =>
@@ -36,12 +17,8 @@ export interface CustomOpenAIProviderOptions {
   id: string;
   endpoint: string;
   apiKey: string;
-  model: string;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  presets?: Record<string, OpenAIPreset>;
-  /** File-editing dialect; defaults to `string_replace` (function-only tools, safe for all OpenAI endpoints). */
-  fileTools?: FileToolsProfile;
+  /** Every model this endpoint serves, keyed by model id. Each carries its own capacity and presets. */
+  models: Record<string, CustomOpenAIModelConfig>;
   /**
    * Backends that silently drop Responses `instructions` (e.g. OVMS) get the system context as a
    * leading `system` input message instead. Off by default; only backends known to ignore the field
@@ -52,11 +29,7 @@ export interface CustomOpenAIProviderOptions {
 
 /** An OpenAI Responses-compatible provider defined by settings rather than a compiled catalog. */
 export class CustomOpenAIProvider extends OpenAIResponsesProvider {
-  readonly #model: string;
-  readonly #contextWindow: number | undefined;
-  readonly #maxOutputTokens: number | undefined;
-  readonly #presets: Record<string, OpenAIPreset>;
-  readonly #fileTools: FileToolsProfile;
+  readonly #models: ReadonlyMap<string, CustomOpenAIModelConfig>;
   readonly #sendInstructionsAsSystem: boolean;
 
   constructor(opts: CustomOpenAIProviderOptions) {
@@ -64,37 +37,25 @@ export class CustomOpenAIProvider extends OpenAIResponsesProvider {
       provider: opts.id,
       credentials: apiKeyCredentials({ apiKey: opts.apiKey, baseURL: opts.endpoint }),
     });
-    this.#model = opts.model;
-    this.#contextWindow = opts.contextWindow;
-    this.#maxOutputTokens = opts.maxOutputTokens;
-    this.#presets = opts.presets ?? {};
-    this.#fileTools = opts.fileTools ?? "string_replace";
+    this.#models = new Map(Object.entries(opts.models));
     this.#sendInstructionsAsSystem = opts.sendInstructionsAsSystem ?? false;
   }
 
-  override capabilities(): ModelCapabilities {
-    return { contentTypes: ["text"], toolCalling: true, fileTools: this.#fileTools };
+  override capabilities(model?: string): ModelCapabilities {
+    return {
+      contentTypes: ["text"],
+      toolCalling: true,
+      // Defaults to string_replace: the safe function-only dialect for every OpenAI endpoint.
+      fileTools: this.#models.get(model ?? "")?.fileTools ?? "string_replace",
+    };
   }
 
-  override listModels(): ModelInfo[] {
-    return [
-      {
-        provider: this.provider,
-        model: this.#model,
-        presets: Object.keys(this.#presets).map((value) => ({ value })),
-        ...(this.#contextWindow !== undefined ? { contextWindow: this.#contextWindow } : {}),
-        ...(this.#maxOutputTokens !== undefined ? { maxOutputTokens: this.#maxOutputTokens } : {}),
-      },
-    ];
+  override listModels() {
+    return listScopedModels(this.provider, this.#models);
   }
 
-  /** Fails fast on a preset the provider doesn't define; absent preset = the endpoint's default. */
   override validateConfig(config: ModelConfig): void {
-    if (config.preset && !(config.preset in this.#presets)) {
-      throw new Error(
-        `unknown preset "${config.preset}" for ${this.provider}/${config.model} (try: ${Object.keys(this.#presets).join(", ")})`,
-      );
-    }
+    validateScopedConfig(this.provider, this.#models, config);
   }
 
   /**
@@ -114,7 +75,8 @@ export class CustomOpenAIProvider extends OpenAIResponsesProvider {
     }
     applyOpenAIPreset(
       params as unknown as RequestParams,
-      this.#presets[request.modelConfig.preset ?? ""],
+      "max_output_tokens",
+      this.#models.get(request.modelConfig.model)?.presets?.[request.modelConfig.preset ?? ""],
     );
     return params;
   }

@@ -162,7 +162,7 @@ describe("resolveSettings validation", () => {
       type: "openai-responses-compatible",
       endpoint: "http://localhost:8000/v1",
       apiKey: "k",
-      model: "m",
+      models: { m: {} },
     };
 
     // Global settings: accepted (read by the CLI composition root).
@@ -228,17 +228,20 @@ describe("resolveSettings validation", () => {
           type: "openai-completions-compatible",
           endpoint: "http://localhost:8000/v1",
           apiKey: "k",
-          model: "qwen3.6",
-          contextWindow: 200_000,
-          maxOutputTokens: 4096,
-          presets: { fast: { temperature: 0.2 } },
+          models: {
+            "qwen3.6": {
+              contextWindow: 200_000,
+              maxOutputTokens: 4096,
+              presets: { fast: { temperature: 0.2 } },
+            },
+          },
         },
       },
     });
     await expect(resolveSettings({ home, schemas })).resolves.toBeTruthy();
   });
 
-  it("rejects fileTools apply_patch on the completions type", async () => {
+  it("rejects fileTools apply_patch on a completions-typed model", async () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
@@ -247,13 +250,65 @@ describe("resolveSettings validation", () => {
           type: "openai-completions-compatible",
           endpoint: "http://localhost:8000/v1",
           apiKey: "k",
-          model: "qwen3.6",
-          fileTools: "apply_patch",
+          models: { "qwen3.6": { fileTools: "apply_patch" } },
         },
       },
     });
     await expect(resolveSettings({ home, schemas })).rejects.toThrow(
       /only function tools \(not 'apply_patch'\)/,
+    );
+  });
+
+  it("rejects fileTools apply_patch on an anthropic-typed model (function-only transport)", async () => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      customProviders: {
+        local: {
+          type: "anthropic-compatible",
+          endpoint: "http://localhost:1234",
+          apiKey: "k",
+          models: { claude: { fileTools: "apply_patch" } },
+        },
+      },
+    });
+    await expect(resolveSettings({ home, schemas })).rejects.toThrow(
+      /only function tools \(not 'apply_patch'\)/,
+    );
+  });
+
+  it("rejects a custom provider with no models (empty catalog)", async () => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      customProviders: {
+        dead: {
+          type: "openai-responses-compatible",
+          endpoint: "http://a",
+          apiKey: "k",
+          models: {},
+        },
+      },
+    });
+    await expect(resolveSettings({ home, schemas })).rejects.toThrow(/at least one model/);
+  });
+
+  it("rejects the pre-refactor provider-level model shape", async () => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      customProviders: {
+        old: {
+          type: "openai-responses-compatible",
+          endpoint: "http://a",
+          apiKey: "k",
+          model: "m",
+          presets: { fast: { temperature: 0.2 } },
+        },
+      },
+    });
+    await expect(resolveSettings({ home, schemas })).rejects.toThrow(
+      /invalid settings in .*settings\.json/s,
     );
   });
 
@@ -266,7 +321,7 @@ describe("resolveSettings validation", () => {
           type: "openai-completions-compatible",
           endpoint: "http://localhost:8000/v1",
           apiKey: "k",
-          model: "qwen3.6",
+          models: { "qwen3.6": {} },
           sendInstructionsAsSystem: true,
         },
       },

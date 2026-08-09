@@ -41,8 +41,9 @@ const anthropicPresetSchema = z.strictObject({
 });
 
 /**
- * Fields shared by every custom provider entry. `fileTools` defaults are applied
- * per type: `string_replace` for the OpenAI families, `text_editor` for Anthropic.
+ * Fields every custom provider entry shares. Credentials and the transport dialect are
+ * provider-scoped; capacity, `fileTools`, and presets are per model (each model can be
+ * trained on a different dialect and offer different sampling).
  */
 const customProviderBase = z.object({
   /** Custom endpoint. OpenAI-compatible: include the API root (e.g. `http://host:8000/v1`).
@@ -50,8 +51,10 @@ const customProviderBase = z.object({
   endpoint: z.string().url(),
   /** API key the endpoint expects; required so the SDK never guesses, even for keyless local servers. */
   apiKey: z.string(),
-  /** Model name on the endpoint. */
-  model: z.string(),
+});
+
+/** Model-scoped fields shared by every transport's model entries. */
+const customModelBase = z.object({
   /** Model context window in tokens; capacity math (auto-compaction) applies when set. */
   contextWindow: z.number().int().positive().optional(),
   /** Model max output in tokens; reserved when estimating whether the next input fits. */
@@ -62,11 +65,48 @@ const customProviderBase = z.object({
   fileTools: z.enum(FILE_TOOLS).optional(),
 });
 
+/** An OpenAI Responses-family model entry: sampling presets keyed by preset name. */
+const openaiModelSchema = z.object({
+  ...customModelBase.shape,
+  presets: z.record(z.string(), openaiPresetSchema).optional(),
+});
+
+// Chat/completions and the Anthropic Messages transport are both function-only: neither can render
+// the freeform `apply_patch` custom tool, so no model of either family may offer that dialect —
+// rejected at parse time rather than failing somewhere mid-turn.
+const completionsModelSchema = z
+  .object({
+    ...customModelBase.shape,
+    presets: z.record(z.string(), openaiPresetSchema).optional(),
+  })
+  .refine((scope) => scope.fileTools !== "apply_patch", {
+    message: "openai-completions-compatible supports only function tools (not 'apply_patch')",
+    path: ["fileTools"],
+  });
+
+/** An anthropic-compatible model entry: richer preset knobs forwarded via extra_body. */
+const anthropicModelSchema = z
+  .object({
+    ...customModelBase.shape,
+    presets: z.record(z.string(), anthropicPresetSchema).optional(),
+  })
+  .refine((scope) => scope.fileTools !== "apply_patch", {
+    message: "anthropic-compatible supports only function tools (not 'apply_patch')",
+    path: ["fileTools"],
+  });
+
+/** A companion provider must serve at least one non-empty model name; an empty catalog would
+ * parse cleanly but silently contribute nothing to the model registry. */
+const modelsOf = <S extends z.ZodTypeAny>(modelSchema: S) =>
+  z.record(z.string().min(1), modelSchema).refine((models) => Object.keys(models).length > 0, {
+    message: "requires at least one model",
+  });
+
 const customProviderSchema = z.discriminatedUnion("type", [
   z.strictObject({
     ...customProviderBase.shape,
     type: z.literal("openai-responses-compatible"),
-    presets: z.record(z.string(), openaiPresetSchema).optional(),
+    models: modelsOf(openaiModelSchema),
     /**
      * Some OpenAI Responses-compatible backends (e.g. OVMS) accept the Responses request shape but
      * silently drop the top-level `instructions` field. When set, the provider renders
@@ -75,26 +115,25 @@ const customProviderSchema = z.discriminatedUnion("type", [
      */
     sendInstructionsAsSystem: z.boolean().optional(),
   }),
-  // Chat/completions is function-only: `apply_patch` (a freeform custom tool) cannot be represented,
-  // so that dialect is rejected here rather than failing mid-turn.
-  z
-    .strictObject({
-      ...customProviderBase.shape,
-      type: z.literal("openai-completions-compatible"),
-      presets: z.record(z.string(), openaiPresetSchema).optional(),
-    })
-    .refine((entry) => entry.fileTools !== "apply_patch", {
-      message: "openai-completions-compatible supports only function tools (not 'apply_patch')",
-      path: ["fileTools"],
-    }),
+  z.strictObject({
+    ...customProviderBase.shape,
+    type: z.literal("openai-completions-compatible"),
+    models: modelsOf(completionsModelSchema),
+  }),
   z.strictObject({
     ...customProviderBase.shape,
     type: z.literal("anthropic-compatible"),
-    presets: z.record(z.string(), anthropicPresetSchema).optional(),
+    models: modelsOf(anthropicModelSchema),
   }),
 ]);
 
 export type CustomProviderConfig = z.infer<typeof customProviderSchema>;
+/** One model entry in an OpenAI-family custom provider. */
+export type CustomOpenAIModelConfig = z.infer<typeof openaiModelSchema>;
+/** One model entry in a completions-compatible custom provider (rejects `apply_patch`). */
+export type CustomCompletionsModelConfig = z.infer<typeof completionsModelSchema>;
+/** One model entry in an anthropic-compatible custom provider. */
+export type CustomAnthropicModelConfig = z.infer<typeof anthropicModelSchema>;
 /** Sampling knobs an OpenAI-compatible preset maps onto the Responses request. */
 export type OpenAIPreset = z.infer<typeof openaiPresetSchema>;
 /** Sampling knobs an Anthropic-compatible preset maps onto the Messages request. */

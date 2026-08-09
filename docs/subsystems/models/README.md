@@ -81,12 +81,20 @@ thinking mode requires ("must be passed back to the API"). A generation that onl
 reasoned renders as a standalone assistant reasoning message. Instructions and
 context are hoisted into a single leading system message. If a backend streams
 `reasoning_content` after the finalized reasoning item, the transport fails fast
-rather than silently dropping it. Config-defined providers
-choose the transport explicitly: `"openai-responses-compatible"` for the
+rather than silently dropping it. Config-defined providers choose the transport
+explicitly: `"openai-responses-compatible"` for the
 Responses shape (with the `sendInstructionsAsSystem` opt-in above) and
 `"openai-completions-compatible"` for chat/completions (function-only; rejects
-`fileTools: "apply_patch"`). The pre-rename `"openai-compatible"` literal is no
-longer accepted; the validation message lists the supported type names.
+`fileTools: "apply_patch"` on every model). Each entry scopes only what an
+endpoint owns — `endpoint`, `apiKey`, `type`, and the responses-only
+`sendInstructionsAsSystem` opt-in — while each served model carries its own
+`fileTools`, `contextWindow`, `maxOutputTokens`, and `presets` under
+`models.<id>`. One entry can therefore serve several models on a shared server
+across different trained dialects and sampling knobs (e.g. an OVMS endpoint
+running both a completion-tuned and a responses-tuned model).
+`capabilities(model)` resolves the chosen model's `fileTools`. The pre-rename
+`"openai-compatible"` literal is no longer accepted; the validation message
+lists the supported type names.
 
 The chat backend always sends `stream_options.include_usage` (and `tool_choice`
 only when a tool turn requests it), which some strict servers reject. Usage

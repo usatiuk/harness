@@ -17,15 +17,14 @@ const REQUEST: ModelRequest = {
 };
 
 describe("CustomOpenAIProvider catalog", () => {
-  it("declares one sized model with a preset axis", () => {
+  it("declares one sized model with a preset axis per model entry", () => {
     const provider = new CustomOpenAIProvider({
       id: "local",
       endpoint: "http://localhost:8787/v1",
       apiKey: "test-key",
-      model: "my-model",
-      contextWindow: 32_768,
-      maxOutputTokens: 4096,
-      presets: { fast: { temperature: 0.2 } },
+      models: {
+        "my-model": { contextWindow: 32_768, maxOutputTokens: 4096, presets: { fast: {} } },
+      },
     });
 
     expect(provider.listModels()).toEqual([
@@ -39,49 +38,74 @@ describe("CustomOpenAIProvider catalog", () => {
     ]);
   });
 
+  it("lists every model served by one endpoint with its own limits and presets", () => {
+    const provider = new CustomOpenAIProvider({
+      id: "local",
+      endpoint: "http://localhost:8787/v1",
+      apiKey: "test-key",
+      models: {
+        big: { contextWindow: 131_072, maxOutputTokens: 8192, presets: { high: {} } },
+        small: {},
+      },
+    });
+
+    expect(provider.listModels()).toEqual([
+      {
+        provider: "local",
+        model: "big",
+        presets: [{ value: "high" }],
+        contextWindow: 131_072,
+        maxOutputTokens: 8192,
+      },
+      { provider: "local", model: "small", presets: [] },
+    ]);
+  });
+
   it("leaves limits and presets off the catalog when unset", () => {
     const provider = new CustomOpenAIProvider({
       id: "local",
       endpoint: "http://localhost:8787/v1",
       apiKey: "test-key",
-      model: "my-model",
+      models: { "my-model": {} },
     });
 
     expect(provider.listModels()).toEqual([{ provider: "local", model: "my-model", presets: [] }]);
   });
 
-  it("selects the fileTools dialect, defaulting to function-only string_replace", () => {
-    const defaulted = new CustomOpenAIProvider({
-      id: "a",
-      endpoint: "http://a",
-      apiKey: "k",
-      model: "m",
-    });
-    const patched = new CustomOpenAIProvider({
-      id: "b",
-      endpoint: "http://b",
-      apiKey: "k",
-      model: "m",
-      fileTools: "apply_patch",
-    });
-
-    expect(defaulted.capabilities()).toEqual({
-      contentTypes: ["text"],
-      toolCalling: true,
-      fileTools: "string_replace",
-    });
-    expect(patched.capabilities().fileTools).toBe("apply_patch");
-  });
-});
-
-describe("CustomOpenAIProvider.validateConfig", () => {
-  it("rejects a preset the provider does not define", () => {
+  it("selects the per-model fileTools dialect, defaulting to function-only string_replace", () => {
     const provider = new CustomOpenAIProvider({
       id: "local",
       endpoint: "http://localhost:8787/v1",
       apiKey: "test-key",
-      model: "my-model",
-      presets: { fast: {} },
+      models: { patched: { fileTools: "apply_patch" }, plain: {} },
+    });
+
+    expect(provider.capabilities("patched").fileTools).toBe("apply_patch");
+    expect(provider.capabilities("plain").fileTools).toBe("string_replace");
+    expect(provider.capabilities("unknown").fileTools).toBe("string_replace");
+  });
+});
+
+describe("CustomOpenAIProvider.validateConfig", () => {
+  it("rejects a model the provider does not serve", () => {
+    const provider = new CustomOpenAIProvider({
+      id: "local",
+      endpoint: "http://localhost:8787/v1",
+      apiKey: "test-key",
+      models: { "my-model": {} },
+    });
+
+    expect(() => provider.validateConfig({ provider: "local", model: "other-model" })).toThrow(
+      /unknown model "other-model" for provider local/,
+    );
+  });
+
+  it("rejects a preset the chosen model does not define", () => {
+    const provider = new CustomOpenAIProvider({
+      id: "local",
+      endpoint: "http://localhost:8787/v1",
+      apiKey: "test-key",
+      models: { "my-model": { presets: { fast: {} } } },
     });
 
     expect(() =>
@@ -89,30 +113,40 @@ describe("CustomOpenAIProvider.validateConfig", () => {
     ).toThrow(/unknown preset "nope"/);
   });
 
-  it("accepts an absent preset or one the provider defines", () => {
+  it("scopes preset validation to the chosen model", () => {
     const provider = new CustomOpenAIProvider({
       id: "local",
       endpoint: "http://localhost:8787/v1",
       apiKey: "test-key",
-      model: "my-model",
-      presets: { fast: {} },
+      models: {
+        withPresets: { presets: { fast: {} } },
+        bare: {},
+      },
     });
 
-    expect(() => provider.validateConfig({ provider: "local", model: "my-model" })).not.toThrow();
     expect(() =>
-      provider.validateConfig({ provider: "local", model: "my-model", preset: "fast" }),
+      provider.validateConfig({ provider: "local", model: "withPresets", preset: "fast" }),
     ).not.toThrow();
+    expect(() =>
+      provider.validateConfig({ provider: "local", model: "bare", preset: "fast" }),
+    ).toThrow(/unknown preset "fast"/);
+    expect(() => provider.validateConfig({ provider: "local", model: "bare" })).not.toThrow();
   });
 });
 
 describe("CustomOpenAIProvider request shaping", () => {
-  it("drops the reasoning field and applies the selected preset", () => {
+  it("drops the reasoning field and applies the chosen model's selected preset", () => {
     const provider = new CustomOpenAIProvider({
       id: "local",
       endpoint: "http://localhost:8787/v1",
       apiKey: "test-key",
-      model: "my-model",
-      presets: { fast: { temperature: 0.2, topP: 0.9, maxTokens: 2048, extraBody: { seed: 42 } } },
+      models: {
+        "my-model": {
+          presets: {
+            fast: { temperature: 0.2, topP: 0.9, maxTokens: 2048, extraBody: { seed: 42 } },
+          },
+        },
+      },
     });
 
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- widen the protected method
@@ -135,7 +169,7 @@ describe("CustomOpenAIProvider request shaping", () => {
       id: "local",
       endpoint: "http://localhost:8787/v1",
       apiKey: "test-key",
-      model: "my-model",
+      models: { "my-model": {} },
     });
 
     const params = (provider as unknown as OpenAIExposed).buildParams({
@@ -151,7 +185,7 @@ describe("CustomOpenAIProvider request shaping", () => {
       id: "local",
       endpoint: "http://localhost:8787/v1",
       apiKey: "test-key",
-      model: "my-model",
+      models: { "my-model": {} },
       sendInstructionsAsSystem: true,
     });
 
@@ -169,7 +203,7 @@ describe("CustomOpenAIProvider request shaping", () => {
       id: "local",
       endpoint: "http://localhost:8787/v1",
       apiKey: "test-key",
-      model: "my-model",
+      models: { "my-model": {} },
     });
 
     const params = (provider as unknown as OpenAIExposed).buildParams(REQUEST);
@@ -177,6 +211,25 @@ describe("CustomOpenAIProvider request shaping", () => {
     expect(params).not.toHaveProperty("reasoning");
     expect(params.temperature).toBeUndefined();
     expect(params.top_p).toBeUndefined();
+  });
+
+  it("applies a preset keyed to the chosen model only", () => {
+    const provider = new CustomOpenAIProvider({
+      id: "local",
+      endpoint: "http://localhost:8787/v1",
+      apiKey: "test-key",
+      models: {
+        "my-model": { presets: { fast: { temperature: 0.1 } } },
+        "other-model": {},
+      },
+    });
+
+    const shaped = (provider as unknown as OpenAIExposed).buildParams({
+      ...REQUEST,
+      modelConfig: { provider: "local", model: "other-model", preset: "fast" },
+    });
+
+    expect(shaped.temperature).toBeUndefined();
   });
 });
 
@@ -186,10 +239,9 @@ describe("CustomAnthropicProvider", () => {
       id: "local",
       endpoint: "http://localhost:8787",
       apiKey: "test-key",
-      model: "my-model",
-      contextWindow: 64_000,
-      maxOutputTokens: 4096,
-      presets: { long: { maxTokens: 8192 } },
+      models: {
+        "my-model": { contextWindow: 64_000, maxOutputTokens: 4096, presets: { long: {} } },
+      },
     });
 
     expect(provider.listModels()).toEqual([
@@ -203,14 +255,17 @@ describe("CustomAnthropicProvider", () => {
     ]);
   });
 
-  it("drops thinking/effort and applies the selected preset, tunneling extras through extra_body", () => {
+  it("drops thinking/effort and applies the chosen model's preset, tunneling extras through extra_body", () => {
     const provider = new CustomAnthropicProvider({
       id: "local",
       endpoint: "http://localhost:8787",
       apiKey: "test-key",
-      model: "my-model",
-      presets: {
-        creative: { temperature: 1.1, maxTokens: 4096, topK: 40, extraBody: { seed: 7 } },
+      models: {
+        "my-model": {
+          presets: {
+            creative: { temperature: 1.1, maxTokens: 4096, topK: 40, extraBody: { seed: 7 } },
+          },
+        },
       },
     });
 
@@ -226,13 +281,12 @@ describe("CustomAnthropicProvider", () => {
     expect(config.extraBody).toMatchObject({ top_k: 40, seed: 7 });
   });
 
-  it("defaults the request cap from the configured maxOutputTokens, not the built-in fallback", () => {
+  it("defaults the request cap from the chosen model's maxOutputTokens, not the built-in fallback", () => {
     const provider = new CustomAnthropicProvider({
       id: "local",
       endpoint: "http://localhost:8787",
       apiKey: "test-key",
-      model: "my-model",
-      maxOutputTokens: 65_536,
+      models: { "my-model": { maxOutputTokens: 65_536 } },
     });
 
     const config = (provider as unknown as AnthropicExposed).buildConfig(REQUEST);
@@ -245,9 +299,9 @@ describe("CustomAnthropicProvider", () => {
       id: "local",
       endpoint: "http://localhost:8787",
       apiKey: "test-key",
-      model: "my-model",
-      maxOutputTokens: 65_536,
-      presets: { short: { maxTokens: 8192 } },
+      models: {
+        "my-model": { maxOutputTokens: 65_536, presets: { short: { maxTokens: 8192 } } },
+      },
     });
 
     const config = (provider as unknown as AnthropicExposed).buildConfig({
@@ -258,34 +312,52 @@ describe("CustomAnthropicProvider", () => {
     expect(config.maxTokens).toBe(8192);
   });
 
-  it("selects the fileTools dialect, defaulting to the Messages-native text_editor", () => {
-    const defaulted = new CustomAnthropicProvider({
-      id: "a",
-      endpoint: "http://a",
-      apiKey: "k",
-      model: "m",
-    });
-    const patched = new CustomAnthropicProvider({
-      id: "b",
-      endpoint: "http://b",
-      apiKey: "k",
-      model: "m",
-      fileTools: "string_replace",
-    });
-
-    expect(defaulted.capabilities().fileTools).toBe("text_editor");
-    expect(patched.capabilities().fileTools).toBe("string_replace");
-  });
-
-  it("rejects an unknown preset", () => {
+  it("applies a preset only to the model that defines it", () => {
     const provider = new CustomAnthropicProvider({
       id: "local",
       endpoint: "http://localhost:8787",
       apiKey: "test-key",
-      model: "my-model",
-      presets: { long: {} },
+      models: {
+        "my-model": { presets: { creative: { temperature: 1.1 } } },
+        "other-model": {},
+      },
     });
 
+    const config = (provider as unknown as AnthropicExposed).buildConfig({
+      ...REQUEST,
+      modelConfig: { provider: "local", model: "other-model", preset: "creative" },
+    });
+
+    expect(config.temperature).toBeUndefined();
+  });
+
+  it("selects the per-model fileTools dialect, defaulting to the Messages-native text_editor", () => {
+    const provider = new CustomAnthropicProvider({
+      id: "local",
+      endpoint: "http://localhost:8787",
+      apiKey: "test-key",
+      models: {
+        patched: { fileTools: "string_replace" },
+        plain: {},
+      },
+    });
+
+    expect(provider.capabilities("patched").fileTools).toBe("string_replace");
+    expect(provider.capabilities("plain").fileTools).toBe("text_editor");
+    expect(provider.capabilities("unknown").fileTools).toBe("text_editor");
+  });
+
+  it("rejects an unknown model and an unknown preset for a known one", () => {
+    const provider = new CustomAnthropicProvider({
+      id: "local",
+      endpoint: "http://localhost:8787",
+      apiKey: "test-key",
+      models: { "my-model": { presets: { long: {} } } },
+    });
+
+    expect(() => provider.validateConfig({ provider: "local", model: "other" })).toThrow(
+      /unknown model "other"/,
+    );
     expect(() =>
       provider.validateConfig({ provider: "local", model: "my-model", preset: "unset" }),
     ).toThrow(/unknown preset "unset"/);
@@ -298,8 +370,7 @@ describe("factory wiring", () => {
       type: "openai-responses-compatible",
       endpoint: "http://localhost:11434/v1",
       apiKey: "ollama",
-      model: "llama3.2",
-      presets: { default: { temperature: 0.7 } },
+      models: { "llama3.2": { presets: { default: { temperature: 0.7 } } } },
     });
 
     expect(plugin.id).toBe("ollama");
@@ -314,7 +385,7 @@ describe("factory wiring", () => {
       type: "anthropic-compatible",
       endpoint: "http://localhost:1234",
       apiKey: "lm-studio",
-      model: "neural-chat",
+      models: { "neural-chat": {} },
     });
 
     expect(plugin.id).toBe("lmstudio");
@@ -322,24 +393,37 @@ describe("factory wiring", () => {
     expect(models).toEqual([{ provider: "lmstudio", model: "neural-chat", presets: [] }]);
   });
 
-  it("creates an openai-completions-compatible plugin (chat)", () => {
+  it("creates an openai-completions-compatible plugin whose endpoint serves several models", () => {
     const plugin = createCustomProviderPlugin("ovms", {
       type: "openai-completions-compatible",
       endpoint: "http://localhost:8000/v1",
       apiKey: "ovms",
-      model: "qwen3.6",
+      models: { "qwen3.6": {}, "gpt-oss-20b": { presets: { high: {} } } },
     });
 
     expect(plugin.id).toBe("ovms");
     const models = plugin.providers?.().flatMap((p) => p.listModels()) ?? [];
-    expect(models).toEqual([{ provider: "ovms", model: "qwen3.6", presets: [] }]);
+    expect(models).toEqual([
+      { provider: "ovms", model: "qwen3.6", presets: [] },
+      { provider: "ovms", model: "gpt-oss-20b", presets: [{ value: "high" }] },
+    ]);
   });
 
   it("builds the full plugin set from a parsed settings section", () => {
     const plugins = createCustomProviderPlugins({
-      a: { type: "openai-responses-compatible", endpoint: "http://a", apiKey: "k", model: "m1" },
-      b: { type: "anthropic-compatible", endpoint: "http://b", apiKey: "k", model: "m2" },
-      c: { type: "openai-completions-compatible", endpoint: "http://c", apiKey: "k", model: "m3" },
+      a: {
+        type: "openai-responses-compatible",
+        endpoint: "http://a",
+        apiKey: "k",
+        models: { m1: {} },
+      },
+      b: { type: "anthropic-compatible", endpoint: "http://b", apiKey: "k", models: { m2: {} } },
+      c: {
+        type: "openai-completions-compatible",
+        endpoint: "http://c",
+        apiKey: "k",
+        models: { m3: {} },
+      },
     });
 
     expect(plugins.map((p) => p.id)).toEqual(["a", "b", "c"]);
@@ -352,10 +436,9 @@ describe("CustomOpenAICompletionsProvider", () => {
       id: "ovms",
       endpoint: "http://localhost:8000/v1",
       apiKey: "test-key",
-      model: "qwen3.6",
-      contextWindow: 200_000,
-      maxOutputTokens: 4096,
-      presets: { fast: { temperature: 0.2 } },
+      models: {
+        "qwen3.6": { contextWindow: 200_000, maxOutputTokens: 4096, presets: { fast: {} } },
+      },
     });
 
     expect(provider.listModels()).toEqual([
@@ -367,7 +450,27 @@ describe("CustomOpenAICompletionsProvider", () => {
         maxOutputTokens: 4096,
       },
     ]);
-    expect(provider.capabilities().fileTools).toBe("string_replace");
+    expect(provider.capabilities("qwen3.6").fileTools).toBe("string_replace");
+    expect(provider.capabilities("unknown").fileTools).toBe("string_replace");
+  });
+
+  it("applies a preset only to the model that defines it", () => {
+    const provider = new CustomOpenAICompletionsProvider({
+      id: "ovms",
+      endpoint: "http://localhost:8000/v1",
+      apiKey: "test-key",
+      models: {
+        "qwen3.6": { presets: { fast: { temperature: 0.2 } } },
+        "gpt-oss-20b": {},
+      },
+    });
+
+    const params = (provider as unknown as OpenAIExposed).buildParams({
+      ...REQUEST,
+      modelConfig: { provider: "ovms", model: "gpt-oss-20b", preset: "fast" },
+    });
+
+    expect(params.temperature).toBeUndefined();
   });
 
   it("maps preset sampling knobs onto the chat request, maxTokens -> max_tokens", () => {
@@ -375,8 +478,13 @@ describe("CustomOpenAICompletionsProvider", () => {
       id: "ovms",
       endpoint: "http://localhost:8000/v1",
       apiKey: "test-key",
-      model: "qwen3.6",
-      presets: { fast: { temperature: 0.2, topP: 0.9, maxTokens: 2048, extraBody: { seed: 42 } } },
+      models: {
+        "qwen3.6": {
+          presets: {
+            fast: { temperature: 0.2, topP: 0.9, maxTokens: 2048, extraBody: { seed: 42 } },
+          },
+        },
+      },
     });
 
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- widen the protected method
@@ -394,13 +502,12 @@ describe("CustomOpenAICompletionsProvider", () => {
     expect(params).not.toHaveProperty("max_output_tokens");
   });
 
-  it("rejects an unknown preset", () => {
+  it("rejects an unknown preset for the chosen model", () => {
     const provider = new CustomOpenAICompletionsProvider({
       id: "ovms",
       endpoint: "http://localhost:8000/v1",
       apiKey: "test-key",
-      model: "qwen3.6",
-      presets: { fast: {} },
+      models: { "qwen3.6": { presets: { fast: {} } } },
     });
 
     expect(() =>
