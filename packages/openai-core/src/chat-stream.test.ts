@@ -50,6 +50,7 @@ describe("toChatEvents", () => {
 
   it("surfaces cached prompt tokens as a subset of inputTokens", async () => {
     const stream = emit(
+      chunk({}, "stop"),
       usageChunk({
         prompt_tokens: 2000,
         completion_tokens: 50,
@@ -149,7 +150,7 @@ describe("toChatEvents", () => {
     expect(out).toContainEqual({ type: "tool_call", callId: "c", name: "f", args: "not json" });
   });
 
-  it("drops all tool calls on a length finish and completes with partial text", async () => {
+  it("drops tool calls and reports a terminal error on a length finish", async () => {
     const stream = emit(
       chunk({ content: "partial" }),
       chunk({
@@ -167,16 +168,17 @@ describe("toChatEvents", () => {
       {
         type: "completed",
         usage: { inputTokens: 3, outputTokens: 9, cachedReadTokens: 0 },
+        error: "chat output truncated at the model limit for opencode-go/m",
       },
     ]);
   });
 
-  it("still completes with zeroed usage when the backend omits the usage tail", async () => {
+  it("completes with explicitly unknown usage when the backend omits the usage tail", async () => {
     const stream = emit(chunk({ content: "hi" }), chunk({}, "stop"));
     const out = await collect(toChatEvents(stream, "opencode-go", "m", never));
     expect(out[out.length - 1]).toEqual({
       type: "completed",
-      usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+      usage: null,
     });
   });
 
@@ -186,7 +188,7 @@ describe("toChatEvents", () => {
     expect(out).toEqual([
       { type: "reasoning_delta", text: "only thinking" },
       { type: "reasoning", content: [{ type: "text", text: "only thinking" }] },
-      { type: "completed", usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 } },
+      { type: "completed", usage: null },
     ]);
   });
 
@@ -220,7 +222,7 @@ describe("toChatEvents", () => {
       { type: "reasoning_delta", text: "mid" },
       { type: "reasoning", content: [{ type: "text", text: "mid" }] },
       { type: "text_delta", text: "b" },
-      { type: "completed", usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 } },
+      { type: "completed", usage: null },
     ]);
   });
 
@@ -242,4 +244,97 @@ describe("toChatEvents", () => {
     const out = await collect(toChatEvents(stream, "opencode-go", "m", never));
     expect(out).toEqual([{ type: "text_delta", text: "partial" }]);
   });
+
+  it("reports content filtering as a terminal error while preserving usage", async () => {
+    const stream = emit(
+      chunk({ content: "partial" }),
+      chunk({}, "content_filter"),
+      usageChunk({ prompt_tokens: 4, completion_tokens: 1, prompt_tokens_details: {} }),
+    );
+    expect(await collect(toChatEvents(stream, "local", "m", never))).toEqual([
+      { type: "text_delta", text: "partial" },
+      {
+        type: "completed",
+        usage: { inputTokens: 4, outputTokens: 1, cachedReadTokens: 0 },
+        error: "chat output blocked by the content filter for local/m",
+      },
+    ]);
+  });
+
+  it.each([
+    ["id", { index: 0, function: { name: "f", arguments: "{}" } }],
+    ["name", { index: 0, id: "c", function: { arguments: "{}" } }],
+  ])("reports a tool call missing its %s instead of silently dropping it", async (_field, part) => {
+    const stream = emit(
+      chunk({ tool_calls: [part] }),
+      chunk({}, "tool_calls"),
+      usageChunk({ prompt_tokens: 2, completion_tokens: 2, prompt_tokens_details: {} }),
+    );
+    const out = await collect(toChatEvents(stream, "local", "m", never));
+    expect(out).not.toContainEqual(expect.objectContaining({ type: "tool_call" }));
+    expect(out.at(-1)).toEqual({
+      type: "completed",
+      usage: { inputTokens: 2, outputTokens: 2, cachedReadTokens: 0 },
+      error: "chat stream finished with malformed tool call at index 0 for local/m",
+    });
+  });
+
+  it("emits complete tool calls in numeric index order", async () => {
+    const stream = emit(
+      chunk({
+        tool_calls: [
+          { index: 10, id: "later", type: "function", function: { name: "b", arguments: "{}" } },
+          { index: 2, id: "earlier", type: "function", function: { name: "a", arguments: "{}" } },
+        ],
+      }),
+      chunk({}, "tool_calls"),
+    );
+    const out = await collect(toChatEvents(stream, "local", "m", never));
+    expect(out.filter((event) => event.type === "tool_call")).toEqual([
+      { type: "tool_call", callId: "earlier", name: "a", args: {} },
+      { type: "tool_call", callId: "later", name: "b", args: {} },
+    ]);
+  });
+
+  it("rejects duplicate tool call ids before emitting any call", async () => {
+    const duplicate = { type: "function" as const, function: { name: "f", arguments: "{}" } };
+    const stream = emit(
+      chunk({
+        tool_calls: [
+          { index: 0, id: "same", ...duplicate },
+          { index: 1, id: "same", ...duplicate },
+        ],
+      }),
+      chunk({}, "tool_calls"),
+    );
+    const out = await collect(toChatEvents(stream, "local", "m", never));
+    expect(out).not.toContainEqual(expect.objectContaining({ type: "tool_call" }));
+    expect(out.at(-1)).toEqual({
+      type: "completed",
+      usage: null,
+      error: "chat stream finished with duplicate tool call id 'same' at index 1 for local/m",
+    });
+  });
+
+  it.each([
+    ["tool_calls", [], "chat stream finished with malformed tool call for local/m"],
+    [
+      "stop",
+      [{ index: 0, id: "c", type: "function", function: { name: "f", arguments: "{}" } }],
+      "chat stream ended with unfinished tool calls for local/m",
+    ],
+    [
+      "function_call",
+      [],
+      "chat stream ended with unsupported finish reason 'function_call' for local/m",
+    ],
+  ] as const)(
+    "fails the terminal %s branch without dispatchable calls",
+    async (finishReason, parts, error) => {
+      const stream = emit(chunk({ tool_calls: [...parts] }), chunk({}, finishReason));
+      const out = await collect(toChatEvents(stream, "local", "m", never));
+      expect(out).not.toContainEqual(expect.objectContaining({ type: "tool_call" }));
+      expect(out.at(-1)).toEqual({ type: "completed", usage: null, error });
+    },
+  );
 });

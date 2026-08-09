@@ -79,6 +79,30 @@ describe("toModelEvents", () => {
     });
   });
 
+  it("records explicitly unknown usage when Responses omits accounting", async () => {
+    const stream = emit({ type: "response.completed", response: {} });
+    expect(await collect(toModelEvents(stream, "openai", "m", never))).toEqual([
+      { type: "completed", usage: null },
+    ]);
+  });
+
+  it("carries incomplete Responses usage through the terminal error", async () => {
+    const stream = emit({
+      type: "response.incomplete",
+      response: {
+        incomplete_details: { reason: "max_output_tokens" },
+        usage: { input_tokens: 7, output_tokens: 3, input_tokens_details: { cached_tokens: 2 } },
+      },
+    });
+    expect(await collect(toModelEvents(stream, "openai", "m", never))).toEqual([
+      {
+        type: "completed",
+        usage: { inputTokens: 7, outputTokens: 3, cachedReadTokens: 2 },
+        error: "openai response incomplete: max_output_tokens",
+      },
+    ]);
+  });
+
   it("tags the reasoning payload with the live provider id", async () => {
     const stream = emit(
       {

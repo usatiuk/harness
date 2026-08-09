@@ -106,7 +106,8 @@ export class OpenAIResponsesProvider implements ModelProvider {
     this.#supportsMaxOutputTokens = opts.supportsMaxOutputTokens ?? true;
   }
 
-  capabilities(): ModelCapabilities {
+  capabilities(model: string): ModelCapabilities {
+    void model;
     // Every GPT model this class serves is trained on the V4A apply_patch dialect.
     return { contentTypes: ["text"], toolCalling: true, fileTools: "apply_patch" };
   }
@@ -189,7 +190,8 @@ export class OpenAIChatProvider implements ModelProvider {
     this.#credentials = opts.credentials;
   }
 
-  capabilities(): ModelCapabilities {
+  capabilities(model: string): ModelCapabilities {
+    void model;
     // Function-only: the chat transport cannot carry freeform custom tools, so
     // the file-editing dialect must never be apply_patch.
     return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" };

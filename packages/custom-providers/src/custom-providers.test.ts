@@ -82,7 +82,7 @@ describe("CustomOpenAIProvider catalog", () => {
 
     expect(provider.capabilities("patched").fileTools).toBe("apply_patch");
     expect(provider.capabilities("plain").fileTools).toBe("string_replace");
-    expect(provider.capabilities("unknown").fileTools).toBe("string_replace");
+    expect(() => provider.capabilities("unknown")).toThrow(/unknown model/);
   });
 });
 
@@ -111,6 +111,18 @@ describe("CustomOpenAIProvider.validateConfig", () => {
     expect(() =>
       provider.validateConfig({ provider: "local", model: "my-model", preset: "nope" }),
     ).toThrow(/unknown preset "nope"/);
+  });
+
+  it("does not accept prototype properties as configured preset names", () => {
+    const provider = new CustomOpenAIProvider({
+      id: "local",
+      endpoint: "http://localhost:8787/v1",
+      apiKey: "test-key",
+      models: { "my-model": {} },
+    });
+    expect(() =>
+      provider.validateConfig({ provider: "local", model: "my-model", preset: "constructor" }),
+    ).toThrow(/unknown preset/);
   });
 
   it("scopes preset validation to the chosen model", () => {
@@ -211,6 +223,22 @@ describe("CustomOpenAIProvider request shaping", () => {
     expect(params).not.toHaveProperty("reasoning");
     expect(params.temperature).toBeUndefined();
     expect(params.top_p).toBeUndefined();
+  });
+
+  it("keeps an invocation output cap more specific than the selected preset", () => {
+    const provider = new CustomOpenAIProvider({
+      id: "local",
+      endpoint: "http://localhost:8787/v1",
+      apiKey: "test-key",
+      models: { "my-model": { presets: { long: { maxTokens: 8192, temperature: 0.2 } } } },
+    });
+    const params = (provider as unknown as OpenAIExposed).buildParams({
+      ...REQUEST,
+      maxOutputTokens: 1000,
+      modelConfig: { provider: "local", model: "my-model", preset: "long" },
+    });
+    expect(params.max_output_tokens).toBe(1000);
+    expect(params.temperature).toBe(0.2);
   });
 
   it("applies a preset keyed to the chosen model only", () => {
@@ -344,7 +372,7 @@ describe("CustomAnthropicProvider", () => {
 
     expect(provider.capabilities("patched").fileTools).toBe("string_replace");
     expect(provider.capabilities("plain").fileTools).toBe("text_editor");
-    expect(provider.capabilities("unknown").fileTools).toBe("text_editor");
+    expect(() => provider.capabilities("unknown")).toThrow(/unknown model/);
   });
 
   it("rejects an unknown model and an unknown preset for a known one", () => {
@@ -451,7 +479,7 @@ describe("CustomOpenAICompletionsProvider", () => {
       },
     ]);
     expect(provider.capabilities("qwen3.6").fileTools).toBe("string_replace");
-    expect(provider.capabilities("unknown").fileTools).toBe("string_replace");
+    expect(() => provider.capabilities("unknown")).toThrow(/unknown model/);
   });
 
   it("applies a preset only to the model that defines it", () => {
@@ -500,6 +528,21 @@ describe("CustomOpenAICompletionsProvider", () => {
       seed: 42,
     });
     expect(params).not.toHaveProperty("max_output_tokens");
+  });
+
+  it("keeps an invocation output cap more specific than the chat preset", () => {
+    const provider = new CustomOpenAICompletionsProvider({
+      id: "ovms",
+      endpoint: "http://localhost:8000/v1",
+      apiKey: "test-key",
+      models: { m: { presets: { long: { maxTokens: 8192 } } } },
+    });
+    const params = (provider as unknown as OpenAIExposed).buildParams({
+      ...REQUEST,
+      maxOutputTokens: 1000,
+      modelConfig: { provider: "ovms", model: "m", preset: "long" },
+    });
+    expect(params.max_tokens).toBe(1000);
   });
 
   it("rejects an unknown preset for the chosen model", () => {

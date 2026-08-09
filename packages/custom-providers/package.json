@@ -19,6 +19,9 @@
     "@harness/anthropic-api": "*"
   },
   "devDependencies": {
+    "@harness/service": "*",
+    "@harness/store": "*",
+    "@harness/testkit": "*",
     "vitest": "^4.1.8"
   }
 }

@@ -10,6 +10,7 @@ import type {
   ModelProvider,
   ModelRequest,
   ModelStreamEvent,
+  NewContextBuild,
   Plugin,
   Tool,
   ToolMiddleware,
@@ -103,6 +104,37 @@ function setup(steps: FakeStep[], plugin?: Partial<Plugin>, existingStore?: InMe
 }
 
 describe("Engine — turn cycle", () => {
+  it("validates model config before capability-dependent tool construction", async () => {
+    let capabilitiesCalled = false;
+    const provider: ModelProvider = {
+      provider: "fake",
+      validateConfig: () => {
+        throw new Error("invalid model selection");
+      },
+      capabilities: () => {
+        capabilitiesCalled = true;
+        return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" };
+      },
+      listModels: () => [],
+      stream() {
+        throw new Error("unreachable");
+      },
+    };
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    const engine = new Engine(
+      store,
+      new PluginHost([{ id: "fake", providers: () => [provider] }]),
+      testConfigResolver(),
+    );
+    const events: HarnessEvent[] = [];
+    engine.subscribe({ onEvent: (event) => events.push(event) });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+    expect(capabilitiesCalled).toBe(false);
+    expect(turnStatuses(events)).toContain("failed");
+  });
+
   it("refuses idle-required deactivation while the root turn is running", async () => {
     const store = new InMemoryStore(counterIdGenerator(), fixedClock());
     const provider = new GateProvider("partial");
@@ -1366,6 +1398,90 @@ describe("Engine — compaction", () => {
     expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
   });
 
+  it("records unknown usage before a model-backed compaction terminal error", async () => {
+    const { store, engine, events } = setup(
+      [[{ type: "completed", usage: null, error: "summary truncated" }]],
+      { policies: () => ({ compaction: modelCompaction }) },
+    );
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    const seedTurn = await store.createTurn(conv.id);
+    await store.appendItem({
+      conversationId: conv.id,
+      turnId: seedTurn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "seed" }],
+    });
+    await store.updateTurn(seedTurn.id, "completed");
+
+    await expect(engine.compact(conv.id)).rejects.toThrow(/summary truncated/);
+    expect((await store.listModelUsage(conv.id)).map((row) => row.usage)).toEqual([null]);
+    expect(events.filter(isKernelEvent).find((event) => event.type === "usage")).toMatchObject({
+      type: "usage",
+      usage: null,
+      cost: null,
+    });
+    expect(turnStatuses(events).at(-1)).toBe("failed");
+  });
+
+  it("validates an invoker model override before recording its context build", async () => {
+    class CountingStore extends InMemoryStore {
+      builds = 0;
+      override async recordContextBuild(input: NewContextBuild) {
+        this.builds += 1;
+        return super.recordContextBuild(input);
+      }
+    }
+    const provider: ModelProvider = {
+      provider: "fake",
+      validateConfig(config) {
+        if (config.model !== "fake-1") throw new Error("invalid invoker model");
+      },
+      capabilities: () => ({
+        contentTypes: ["text"],
+        toolCalling: true,
+        fileTools: "string_replace",
+      }),
+      listModels: () => [],
+      stream() {
+        throw new Error("unreachable");
+      },
+    };
+    const store = new CountingStore(counterIdGenerator(), fixedClock());
+    const { engine } = setup(
+      [],
+      {
+        providers: () => [provider],
+        policies: () => ({
+          compaction: {
+            async compact(input) {
+              await input.models.invoke({
+                instructions: [],
+                items: [],
+                modelConfig: { provider: "fake", model: "missing" },
+              });
+              return null;
+            },
+          },
+        }),
+      },
+      store,
+    );
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    const seedTurn = await store.createTurn(conv.id);
+    await store.appendItem({
+      conversationId: conv.id,
+      turnId: seedTurn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "seed" }],
+    });
+    await store.updateTurn(seedTurn.id, "completed");
+
+    await expect(engine.compact(conv.id)).rejects.toThrow(/invalid invoker model/);
+    expect(store.builds).toBe(0);
+  });
+
   it("fails and closes a manual turn when post-creation context setup throws", async () => {
     let contextReads = 0;
     const { store, engine, events } = setup([textStep("recovered")], {
@@ -2147,6 +2263,81 @@ describe("Engine — usage recording", () => {
     await engine.whenIdle(conv.id);
 
     expect(await store.listModelUsage(conv.id)).toEqual([]);
+  });
+
+  it("records a completed invocation whose backend omitted usage", async () => {
+    const { store, engine, events } = setup([
+      [
+        { type: "text_delta", text: "done" },
+        { type: "completed", usage: null },
+      ],
+    ]);
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    expect((await store.listModelUsage(conv.id)).map((row) => row.usage)).toEqual([null]);
+    const usageEvent = events.filter(isKernelEvent).find((event) => event.type === "usage");
+    expect(usageEvent).toMatchObject({ type: "usage", usage: null, cost: null });
+    expect(turnStatuses(events)).toContain("completed");
+  });
+
+  it("records terminal usage and preserves partial text before failing the turn", async () => {
+    const usage: Usage = { inputTokens: 10, outputTokens: 4, cachedReadTokens: 0 };
+    const { store, engine, events } = setup([
+      [
+        { type: "text_delta", text: "partial" },
+        { type: "completed", usage, error: "chat output truncated" },
+      ],
+    ]);
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:go", "assistant:partial"]);
+    expect((await store.listModelUsage(conv.id)).map((row) => row.usage)).toEqual([usage]);
+    expect(turnStatuses(events)).toContain("failed");
+    expect(
+      events
+        .filter(isKernelEvent)
+        .find((event) => event.type === "turn.status" && event.status === "failed"),
+    ).toMatchObject({ error: "Error: chat output truncated" });
+  });
+
+  it("pairs terminal-error tool calls without executing them", async () => {
+    let executions = 0;
+    const tool: Tool = {
+      name: "probe",
+      description: "must not execute",
+      input: { kind: "function", schema: z.unknown() },
+      async execute() {
+        executions += 1;
+        return { forModel: [{ type: "text", text: "executed" }], status: "ok" };
+      },
+    };
+    const { store, engine, events } = setup(
+      [
+        [
+          { type: "tool_call", callId: "call-1", name: "probe", args: {} },
+          { type: "completed", usage: null, error: "invalid terminal tool call" },
+        ],
+      ],
+      { tools: () => [tool] },
+    );
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+
+    expect(executions).toBe(0);
+    expect(shapeOf(await store.listItems(conv.id))).toEqual([
+      "user:go",
+      "call:call-1",
+      "result:call-1",
+    ]);
+    expect(toolResults(await store.listItems(conv.id))).toMatchObject([
+      { callId: "call-1", status: "error" },
+    ]);
+    expect(turnStatuses(events)).toContain("failed");
   });
 
   it("prices the row at record time when the provider catalog has a rate card", async () => {

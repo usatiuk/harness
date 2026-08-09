@@ -43,7 +43,8 @@ into:
 
 - Text and reasoning deltas for live display.
 - Final reasoning and tool-call items, with provider payloads where required.
-- One terminal `completed` event containing normalized usage.
+- One terminal `completed` event containing normalized usage or explicit `null`
+  when a compatible backend completed without reporting accounting.
 
 A stream failure before completion records no completed usage row. Cancellation
 aborts the provider stream and is normalized by the engine into an aborted turn.
@@ -85,24 +86,29 @@ rather than silently dropping it. Config-defined providers choose the transport
 explicitly: `"openai-responses-compatible"` for the
 Responses shape (with the `sendInstructionsAsSystem` opt-in above) and
 `"openai-completions-compatible"` for chat/completions (function-only; rejects
-`fileTools: "apply_patch"` on every model). Each entry scopes only what an
+`fileTools: "apply_patch"` on every model). Each entry strictly scopes only what an
 endpoint owns — `endpoint`, `apiKey`, `type`, and the responses-only
 `sendInstructionsAsSystem` opt-in — while each served model carries its own
 `fileTools`, `contextWindow`, `maxOutputTokens`, and `presets` under
 `models.<id>`. One entry can therefore serve several models on a shared server
 across different trained dialects and sampling knobs (e.g. an OVMS endpoint
 running both a completion-tuned and a responses-tuned model).
-`capabilities(model)` resolves the chosen model's `fileTools`. The pre-rename
+Configured hard output limits cannot exceed the context window, and preset caps
+cannot exceed the model's declared output capacity.
+Model/preset validation runs before capability-dependent tool/context work, and
+`capabilities(model)` resolves the chosen model's `fileTools` or throws for an
+unknown id. The pre-rename
 `"openai-compatible"` literal is no longer accepted; the validation message
 lists the supported type names.
 
 The chat backend always sends `stream_options.include_usage` (and `tool_choice`
 only when a tool turn requests it), which some strict servers reject. Usage
-arrives on a final `include_usage` tail chunk when the server honors it; many
-backends omit it, so the stream emits `completed` with zeroed usage — the row is
-recorded at `null` cost rather than dropped. A stream that dies without a
-`finish_reason` and without usage ends without `completed`, surfacing as an
-error with no spend recorded.
+arrives on a final `include_usage` tail chunk when the server honors it; omission
+is recorded explicitly as `usage: null`, never fabricated zero tokens. `length`,
+`content_filter`, malformed/unfinished calls, and unsupported finish reasons
+preserve partial text and accounting but fail the logical turn before tools run.
+A stream that ends without any `finish_reason` has no terminal event and records
+no usage row.
 
 ## Anthropic family
 
@@ -119,20 +125,27 @@ by the Harness workspace plugin.
 transports under `https://opencode.ai/zen/go/v1`. A static compiled roster maps
 each model to its transport family (chat/completions | responses | messages); the
 gateway's `GET /v1/models` returns bare ids only, so no runtime catalog fetch is
-used and unknown ids dispatch on the default chat family. `OpenCodeGoProvider`
+used and unknown ids fail validation. `OpenCodeGoProvider`
 delegates to three inner provider instances — the chat `OpenAIChatProvider`, a
-Responses subclass, and an Anthropic Messages subclass (whose `buildConfig`
+stateless Responses subclass that retains encrypted reasoning replay, and an
+Anthropic Messages subclass (whose `buildConfig`
 overrides `max_tokens` from the roster) — reusing each transport's overflow
 mapping, cancellation, and usage normalization. Go is a subscription plan, so the
 catalog ships no per-token pricing and usage rows record `null` cost.
 
 ## Authentication and secrets
 
-The CLI auth registry exposes provider login methods. API keys come from their
-environment variables or secure stores. Codex uses PKCE OAuth, refreshes sessions,
-and persists credentials through `@harness/secrets`. Windows uses DPAPI; other
-supported environments may use the OS keyring or an explicitly selected file
-store. Credential backends fail explicitly rather than silently downgrade.
+The CLI auth registry exposes built-in provider login methods. Their API keys
+come from environment variables or secure stores. Codex uses PKCE OAuth,
+refreshes sessions, and persists credentials through `@harness/secrets`. Windows
+uses DPAPI; other supported environments may use the OS keyring or an explicitly
+selected file store. Credential backends fail explicitly rather than silently
+downgrade.
+
+Config-defined providers intentionally use an inline `apiKey` literal in global
+settings in this pre-release implementation; keyless servers require a dummy
+value. This accepted simplification is not a secure-store path, so settings and
+backups must be protected accordingly.
 
 ## Errors and observability
 
@@ -153,6 +166,8 @@ middleware. Deterministic request/configuration failures must never be retried.
   fidelity but never replace canonical content.
 - Model-call middleware applies consistently to agentic and non-agentic calls.
 - Usage belongs to a completed provider invocation and its recorded context build.
+- Missing provider accounting is durable `null`; it is never presented or priced
+  as zero usage.
 - Hard catalog capacity and advisory request output caps remain distinct.
 - Shipped providers do not contribute provider-owned execution tools.
 

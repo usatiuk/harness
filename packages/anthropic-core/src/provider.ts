@@ -95,7 +95,8 @@ export class AnthropicProvider implements ModelProvider {
     this.#credentials = opts.credentials;
   }
 
-  capabilities(): ModelCapabilities {
+  capabilities(model: string): ModelCapabilities {
+    void model;
     // Every Claude model this class serves is familiar with the text-editor command contract.
     return { contentTypes: ["text"], toolCalling: true, fileTools: "text_editor" };
   }

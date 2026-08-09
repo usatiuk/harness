@@ -32,22 +32,29 @@ or generated content are involved.
 
 ## Coverage notes
 
-- The `opencode-go` provider's roster is static and unit-tested against the live
-  gateway model list; live smoke (one request per transport family, tool loop,
-  prior-reasoning round-trip) is opt-in behind `OPENCODE_API_KEY` and is not run
-  in CI.
+- The `opencode-go` provider's roster is static and unit-tested against the
+  2026-08-08 gateway-list snapshot and documented family assignments (including
+  Grok chat and GPT Luna Responses). Live smoke (one request per transport family and a
+  preconstructed tool-call continuation shape with prior reasoning) is opt-in
+  behind `OPENCODE_API_KEY` and is not run in CI. A credential-gated two-request
+  encrypted-reasoning replay remains uncovered.
 - The chat/completions transport's reasoning round-trip (plaintext
   `reasoning_content` folded into one native assistant message per generation, so
   a tool-calling turn's reasoning rides the message that carries its tool calls),
   same-chunk reasoning+boundary handling, the interleaved-reasoning fail-fast
   guard (reasoning after the finalized item throws rather than being silently
-  dropped), `finish_reason: "length"` recovery, and the missing-terminal-failure
-  path (no `completed` emitted, zero spend) are unit-tested via fixture streams;
+  dropped), malformed tool calls, truncation/filter terminal errors, nullable
+  usage, and the missing-terminal-failure path are unit-tested via fixture streams;
   the live OVMS/chat-completions path is a documented smoke boundary.
 - Chat reasoning is folded onto its generation's assistant message; a reasoning
   item with no following assistant output is flushed as a standalone assistant
   reasoning message instead — covered by the request-mapping tests.
-- There is no engine-loop regression for the chat transport yet: the engine is
-  exercised at the `ModelStreamEvent` boundary via the testkit fake provider, and
-  the live smoke covers the true wire boundary. Add one when a chat-family
-  conversation needs regression coverage.
+- Custom providers have a public-boundary regression from a real settings file
+  through factory composition, `HarnessService`, a controlled chat SDK stream,
+  tool dispatch, durable usage, and SDK-signal cancellation. Protected request
+  builder tests remain for exact transport-shape assertions. The test reproduces
+  the production settings-to-plugin bridge; the private interactive CLI bootstrap
+  itself is not invoked.
+- Store contracts and CLI reducer tests cover durable nullable usage, incomplete
+  totals, and context-checkpoint clearing. Engine tests cover record-before-fail
+  terminal errors and validation before capability-dependent work.

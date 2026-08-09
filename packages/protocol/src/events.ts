@@ -47,8 +47,8 @@ export type KernelEvent = ConversationEvent &
         turnId: TurnId;
         provider: string;
         model: string;
-        usage: Usage;
-        cost: number | null; // stored fact, priced at record time; null = no rate card
+        usage: Usage | null;
+        cost: number | null; // stored fact; null = unknown usage or no rate card
       }
   );
 

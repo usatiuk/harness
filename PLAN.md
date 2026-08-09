@@ -57,7 +57,7 @@ packages.
 
 ## Current implementation status
 
-As of 2026-08-08, Harness provides:
+As of 2026-08-09, Harness provides:
 
 - An append-only conversation/item graph with one durable head, linear rewind,
   branch-preserving continuation, turn reconciliation, and resumable transcripts.

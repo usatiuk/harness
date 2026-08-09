@@ -69,20 +69,31 @@ export async function* toModelEvents(
       case "response.completed":
         yield {
           type: "completed",
-          usage: {
-            inputTokens: event.response.usage?.input_tokens ?? 0,
-            outputTokens: event.response.usage?.output_tokens ?? 0,
-            // Already a subset of input_tokens — matches the Usage normalization.
-            cachedReadTokens: event.response.usage?.input_tokens_details?.cached_tokens ?? 0,
-          },
+          usage: event.response.usage
+            ? {
+                inputTokens: event.response.usage.input_tokens,
+                outputTokens: event.response.usage.output_tokens,
+                // Already a subset of input_tokens — matches the Usage normalization.
+                cachedReadTokens: event.response.usage.input_tokens_details?.cached_tokens ?? 0,
+              }
+            : null,
         };
         break;
       case "response.failed":
         throw new Error(`openai response failed: ${event.response.error?.message ?? "unknown"}`);
       case "response.incomplete":
-        throw new Error(
-          `openai response incomplete: ${event.response.incomplete_details?.reason ?? "unknown"}`,
-        );
+        yield {
+          type: "completed",
+          usage: event.response.usage
+            ? {
+                inputTokens: event.response.usage.input_tokens,
+                outputTokens: event.response.usage.output_tokens,
+                cachedReadTokens: event.response.usage.input_tokens_details?.cached_tokens ?? 0,
+              }
+            : null,
+          error: `openai response incomplete: ${event.response.incomplete_details?.reason ?? "unknown"}`,
+        };
+        break;
       case "error":
         throw new Error(`openai stream error: ${event.message}`);
       default:
@@ -110,9 +121,10 @@ interface PendingToolCall {
  * Reasoning streamed AFTER the item was finalized cannot be folded into it, so the
  * transport fails fast rather than silently dropping the trailing text.
  *
- * Usage arrives on a final `include_usage` tail chunk; if the backend finishes
- * without one, `completed` is still emitted (zeroed usage) so the engine never
- * sees a stream that ends without a terminal event.
+ * Usage arrives on a final `include_usage` tail chunk. A backend that terminates
+ * without it completes with explicitly unknown usage. Truncation, filtering, and
+ * malformed calls are terminal errors carried through completion so accounting
+ * can be recorded before the engine fails the turn.
  */
 export async function* toChatEvents(
   stream: AsyncIterable<ChatChunk>,
@@ -129,6 +141,7 @@ export async function* toChatEvents(
   // Set when the choice announces a terminal state (`stop`/`length`/`tool_calls`),
   // distinguishing a backend that just omitted the usage tail from one that died.
   let sawTerminalFinish = false;
+  let terminalError: string | undefined;
 
   for await (const chunk of stream) {
     if (signal.aborted) return;
@@ -181,18 +194,39 @@ export async function* toChatEvents(
         yield { type: "reasoning", content: [{ type: "text", text: reasoningText }] };
         reasoningEmitted = true;
       }
-      // Tool calls are only usable when the model stopped to call them; a
-      // length-truncated turn produced no complete call.
       if (choice.finish_reason === "tool_calls") {
-        for (const call of toolCalls.values()) {
-          if (!call.id) continue;
-          yield {
-            type: "tool_call",
-            callId: call.id,
-            name: call.name,
-            args: parseArgs(call.arguments),
-          };
+        const ordered = [...toolCalls.entries()].sort(([a], [b]) => a - b);
+        const malformed = ordered.find(([, call]) => !call.id || !call.name);
+        const seenIds = new Set<string>();
+        const duplicate = ordered.find(([, call]) => {
+          if (!call.id) return false;
+          if (seenIds.has(call.id)) return true;
+          seenIds.add(call.id);
+          return false;
+        });
+        if (duplicate) {
+          terminalError = `chat stream finished with duplicate tool call id '${duplicate[1].id}' at index ${duplicate[0]} for ${provider}/${model}`;
+        } else if (ordered.length === 0 || malformed) {
+          const detail = malformed ? ` at index ${malformed[0]}` : "";
+          terminalError = `chat stream finished with malformed tool call${detail} for ${provider}/${model}`;
+        } else {
+          for (const [, call] of ordered) {
+            yield {
+              type: "tool_call",
+              callId: call.id!,
+              name: call.name,
+              args: parseArgs(call.arguments),
+            };
+          }
         }
+      } else if (choice.finish_reason === "length") {
+        terminalError = `chat output truncated at the model limit for ${provider}/${model}`;
+      } else if (choice.finish_reason === "content_filter") {
+        terminalError = `chat output blocked by the content filter for ${provider}/${model}`;
+      } else if (choice.finish_reason !== "stop") {
+        terminalError = `chat stream ended with unsupported finish reason '${choice.finish_reason}' for ${provider}/${model}`;
+      } else if (toolCalls.size > 0) {
+        terminalError = `chat stream ended with unfinished tool calls for ${provider}/${model}`;
       }
       toolCalls.clear();
     }
@@ -205,25 +239,21 @@ export async function* toChatEvents(
   }
 
   // A usage tail only arrives with `include_usage`; many backends omit it. A
-  // terminal `finish_reason` was still observed, so the turn legitimately
-  // completed — emit zeroed usage so the engine records the step instead of
-  // throwing on a missing `completed` event. A stream that ended without a
-  // finish reason at all died mid-flight: emit nothing, and the engine's
+  // terminal `finish_reason` still completes with explicit unknown accounting.
+  // A stream that ended without a finish reason died mid-flight: emit nothing, and the engine's
   // "provider stream ended without a 'completed' event" error surfaces it while
   // recording no spend.
-  if (usage) {
+  if (sawTerminalFinish) {
     yield {
       type: "completed",
-      usage: {
-        inputTokens: usage.prompt_tokens,
-        outputTokens: usage.completion_tokens,
-        cachedReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
-      },
-    };
-  } else if (sawTerminalFinish) {
-    yield {
-      type: "completed",
-      usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+      usage: usage
+        ? {
+            inputTokens: usage.prompt_tokens,
+            outputTokens: usage.completion_tokens,
+            cachedReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+          }
+        : null,
+      ...(terminalError ? { error: terminalError } : {}),
     };
   }
 }

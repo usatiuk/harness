@@ -163,7 +163,8 @@ export interface ModelInvocationResult {
   content: ContentBlock[];
   /** Ordered reasoning/tool-call outputs, including opaque provider fidelity. */
   outputItems: ModelOutputItem[];
-  usage: Usage;
+  /** `null` when a compatible backend completed without reporting token accounting. */
+  usage: Usage | null;
   modelConfig: ModelConfig;
 }
 
@@ -204,7 +205,10 @@ export type ModelStreamEvent =
   | {
       type: "completed";
       payload?: ProviderPayloadDraft; // binds to the step's final assistant message
-      usage: Usage;
+      /** Explicitly unknown when a compatible backend omits accounting. */
+      usage: Usage | null;
+      /** Terminal provider outcome that must be recorded, then fail the logical invocation. */
+      error?: string;
     };
 
 export interface ModelProvider {

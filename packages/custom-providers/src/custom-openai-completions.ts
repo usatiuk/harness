@@ -3,7 +3,7 @@ import { apiKeyCredentials } from "@harness/openai-api";
 import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
 import type { CustomCompletionsModelConfig } from "@harness/config";
 import { applyOpenAIPreset, type RequestParams } from "./openai-presets.ts";
-import { listScopedModels, validateScopedConfig } from "./model-scope.ts";
+import { listScopedModels, scopedModel, validateScopedConfig } from "./model-scope.ts";
 
 export interface CustomOpenAICompletionsProviderOptions {
   /** Registry name; the config key that defined this provider. */
@@ -26,12 +26,12 @@ export class CustomOpenAICompletionsProvider extends OpenAIChatProvider {
     this.#models = new Map(Object.entries(opts.models));
   }
 
-  override capabilities(model?: string): ModelCapabilities {
+  override capabilities(model: string): ModelCapabilities {
     return {
       contentTypes: ["text"],
       toolCalling: true,
       // Function-only transport: the schema already rejects apply_patch for every model here.
-      fileTools: this.#models.get(model ?? "")?.fileTools ?? "string_replace",
+      fileTools: scopedModel(this.provider, this.#models, model).fileTools ?? "string_replace",
     };
   }
 
@@ -51,6 +51,7 @@ export class CustomOpenAICompletionsProvider extends OpenAIChatProvider {
       "max_tokens",
       this.#models.get(request.modelConfig.model)?.presets?.[request.modelConfig.preset ?? ""],
     );
+    if (request.maxOutputTokens !== undefined) params.max_tokens = request.maxOutputTokens;
     return params;
   }
 }

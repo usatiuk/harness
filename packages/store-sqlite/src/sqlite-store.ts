@@ -465,7 +465,7 @@ function rowToModelUsage(row: Database["model_usage"]): ModelUsage {
     contextBuildId: row.context_build_id,
     provider: row.provider,
     model: row.model,
-    usage: usageSchema.parse(JSON.parse(row.usage)) as Usage,
+    usage: usageSchema.nullable().parse(JSON.parse(row.usage)) as Usage | null,
     cost: row.cost,
     createdAt: row.created_at,
   };

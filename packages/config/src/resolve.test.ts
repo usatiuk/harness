@@ -69,9 +69,7 @@ describe("resolveSettings cascade", () => {
     expect(config.plugins?.demo).toEqual({ level: "high", rules: {} });
   });
 
-  // `/model` persists `overrides.model = {provider, model}` with no preset; the cascade deep-merges,
-  // so a settings-level preset rides along. Accepted — preset is orthogonal to the model id.
-  it("a model override without preset inherits a settings-level preset (deep-merge)", async () => {
+  it("a model override replaces the selection and does not inherit its preset", async () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model: { provider: "p", model: "m1", preset: "high" },
@@ -83,7 +81,7 @@ describe("resolveSettings cascade", () => {
       overrides: { model: { provider: "p", model: "m2" } },
     });
 
-    expect(config.model).toEqual({ provider: "p", model: "m2", preset: "high" });
+    expect(config.model).toEqual({ provider: "p", model: "m2" });
   });
 
   it("roots the workspace at cwd, not at an ancestor that holds a .harness/ dir", async () => {
@@ -239,6 +237,75 @@ describe("resolveSettings validation", () => {
       },
     });
     await expect(resolveSettings({ home, schemas })).resolves.toBeTruthy();
+  });
+
+  it("rejects unknown custom model fields instead of silently stripping typos", async () => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      customProviders: {
+        local: {
+          type: "openai-responses-compatible",
+          endpoint: "http://localhost:8000/v1",
+          apiKey: "k",
+          models: { m: { maxOutputToken: 4096 } },
+        },
+      },
+    });
+    await expect(resolveSettings({ home, schemas })).rejects.toThrow(/maxOutputToken/);
+  });
+
+  it.each([
+    [{ contextWindow: 1024, maxOutputTokens: 2048 }, /maxOutputTokens cannot exceed contextWindow/],
+    [
+      { maxOutputTokens: 1024, presets: { unsafe: { maxTokens: 2048 } } },
+      /preset maxTokens cannot exceed the model's output capacity/,
+    ],
+    [
+      { contextWindow: 1024, presets: { unsafe: { maxTokens: 2048 } } },
+      /preset maxTokens cannot exceed the model's output capacity/,
+    ],
+  ])("rejects incoherent custom-model capacity %#", async (entry, expected) => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      customProviders: {
+        local: {
+          type: "openai-responses-compatible",
+          endpoint: "http://localhost:8000/v1",
+          apiKey: "k",
+          models: { m: entry },
+        },
+      },
+    });
+    await expect(resolveSettings({ home, schemas })).rejects.toThrow(expected);
+  });
+
+  it.each([
+    "model",
+    "tools",
+    "stream",
+    "store",
+    "max_tokens",
+    "previous_response_id",
+    "truncation",
+    "background",
+  ])("rejects OpenAI extraBody overriding Harness-owned field %s", async (field) => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      customProviders: {
+        local: {
+          type: "openai-responses-compatible",
+          endpoint: "http://localhost:8000/v1",
+          apiKey: "k",
+          models: { m: { presets: { unsafe: { extraBody: { [field]: "override" } } } } },
+        },
+      },
+    });
+    await expect(resolveSettings({ home, schemas })).rejects.toThrow(
+      new RegExp(`cannot override Harness-owned field '${field}'`),
+    );
   });
 
   it("rejects fileTools apply_patch on a completions-typed model", async () => {

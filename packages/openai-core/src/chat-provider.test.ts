@@ -18,7 +18,7 @@ describe("OpenAIChatProvider", () => {
     const provider = new OpenAIChatProvider({
       credentials: { client: async () => ({}) as never },
     });
-    expect(provider.capabilities()).toEqual({
+    expect(provider.capabilities("m")).toEqual({
       contentTypes: ["text"],
       toolCalling: true,
       fileTools: "string_replace",

@@ -2,7 +2,7 @@ import { AnthropicProvider, type AnthropicRequestConfig } from "@harness/anthrop
 import { apiKeyCredentials } from "@harness/anthropic-api";
 import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
 import type { CustomAnthropicModelConfig, AnthropicPreset } from "@harness/config";
-import { listScopedModels, validateScopedConfig } from "./model-scope.ts";
+import { listScopedModels, scopedModel, validateScopedConfig } from "./model-scope.ts";
 
 /** Merges one configured preset's sampling knobs onto the built Messages config. */
 function applyAnthropicPreset(config: AnthropicRequestConfig, preset?: AnthropicPreset): void {
@@ -41,12 +41,12 @@ export class CustomAnthropicProvider extends AnthropicProvider {
     this.#models = new Map(Object.entries(opts.models));
   }
 
-  override capabilities(model?: string): ModelCapabilities {
+  override capabilities(model: string): ModelCapabilities {
     return {
       contentTypes: ["text"],
       toolCalling: true,
       // Defaults to text_editor: the Messages API's native editor profile.
-      fileTools: this.#models.get(model ?? "")?.fileTools ?? "text_editor",
+      fileTools: scopedModel(this.provider, this.#models, model).fileTools ?? "text_editor",
     };
   }
 
@@ -63,7 +63,7 @@ export class CustomAnthropicProvider extends AnthropicProvider {
    * the chosen model. The built-in base falls back to a hardcoded `MAX_TOKENS_FALLBACK` when the
    * model isn't in its catalog; fix that by defaulting from the chosen model's configured cap so the
    * wire cap matches the advertised `ModelInfo.maxOutputTokens` (otherwise generation is silently
-   * truncated). Preset wins above all.
+   * truncated). An explicit per-invocation cap remains more specific than the preset.
    */
   protected override buildConfig(request: ModelRequest) {
     const config = super.buildConfig(request);

@@ -5,7 +5,7 @@ import type { HarnessService } from "@harness/service";
 import { LocalExecutionContext, type ProcessExit, type SpawnedProcess } from "@harness/execution";
 import { ActivityManager } from "@harness/activities";
 import { DockerExecutionContext, NativeExecutionContext } from "@harness/sandbox";
-import { App, appReduce, sandboxBackendOf, type AppProps } from "./app.tsx";
+import { App, appReduce, sandboxBackendOf, usageLabel, type AppProps } from "./app.tsx";
 import { emptyState, type Cell } from "./transcript-reducer.ts";
 
 const shellCells = (cells: Cell[]): Extract<Cell, { kind: "shell" }>[] =>
@@ -65,6 +65,27 @@ const mount = (
   );
 
 describe("App", () => {
+  it("labels totals as incomplete when a provider omitted usage", () => {
+    expect(
+      usageLabel(
+        { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+        true,
+        0,
+        undefined,
+        1000,
+      ),
+    ).toBe("usage incomplete");
+    expect(
+      usageLabel(
+        { inputTokens: 10, outputTokens: 2, cachedReadTokens: 0 },
+        true,
+        0,
+        undefined,
+        1000,
+      ),
+    ).toContain("usage incomplete");
+  });
+
   it("identifies the backend from the actual cached execution instance", () => {
     expect(sandboxBackendOf(new LocalExecutionContext("/work"))).toBe("local");
     expect(sandboxBackendOf(Object.create(NativeExecutionContext.prototype))).toBe("native");

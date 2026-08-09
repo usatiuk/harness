@@ -10,8 +10,8 @@ interaction but no agent-loop or durable conversation semantics.
 
 The settings document contains kernel model/instruction/tool fields, opaque
 plugin slices, optional named profiles, and credential-store selection. Top-level
-and plugin keys are validated strictly; typos and unknown configured plugins fail
-with their source layer.
+plugin keys, and custom provider/model entries are validated strictly; typos and
+unknown configured plugins fail with their source layer.
 
 The resolution order is:
 
@@ -34,6 +34,8 @@ Conversation records persist workspace root and overrides. Resolved configuratio
 is derived again on load. Model and plugin changes update the conversation's top
 layer and may also update global defaults. Sandbox changes deactivate and reload
 the current conversation so its execution backend is rebuilt immediately.
+Each higher-precedence model selection replaces the lower selection atomically,
+so a model switch cannot inherit another model's preset.
 
 Named profiles exist in the resolver/schema, but the current CLI does not expose a
 profile-selection workflow.
@@ -49,6 +51,10 @@ uses a deterministic demo provider and explains how to sign in.
 Credential-store selection is pinned in global settings. Unsupported Windows
 file/keyring combinations fail and direct the user to DPAPI rather than falling
 back to plaintext.
+
+Config-defined providers are the explicit exception: their pre-release schema
+requires an inline key literal in global settings (or a dummy value for a keyless
+server). That path does not use the auth registry or secure store.
 
 ## Session lifecycle
 
@@ -90,7 +96,8 @@ It renders:
   event replaces it with a session-local `Worked for …` row; reload/resume does
   not reconstruct historical work footers.
 - Background activity state, pending input, sandbox progress, usage, cost, and
-  context fill.
+  context fill. If any completed invocation omitted accounting, totals are marked
+  incomplete and no stale request is shown as the latest context checkpoint.
 
 Visible conversation blocks are separated by one blank line. The maximal
 finalized prefix advances into Ink static scrollback immediately; the suffix from

@@ -525,6 +525,7 @@ export function App({
                 preset={model.preset}
                 cwd={cwd}
                 usage={state.usage}
+                usageIncomplete={state.usageIncomplete ?? false}
                 cost={state.cost}
                 lastInputTokens={state.lastInputTokens}
                 contextWindow={contextWindow}
@@ -573,11 +574,14 @@ const fmtTokens = (n: number): string => {
 /** `↑124k 38% cached ↓8.2k · $0.41 · ctx 31%`; empty until any tokens flow. */
 export function usageLabel(
   usage: Usage,
+  usageIncomplete: boolean,
   cost: number,
   lastInputTokens: number | undefined,
   contextWindow: number | undefined,
 ): string {
-  if (usage.inputTokens === 0 && usage.outputTokens === 0) return "";
+  if (usage.inputTokens === 0 && usage.outputTokens === 0) {
+    return usageIncomplete ? "usage incomplete" : "";
+  }
   const cachedPct = Math.round((usage.cachedReadTokens / Math.max(usage.inputTokens, 1)) * 100);
   let label = `↑${fmtTokens(usage.inputTokens)}`;
   if (cachedPct > 0) label += ` ${cachedPct}% cached`;
@@ -586,6 +590,7 @@ export function usageLabel(
   if (lastInputTokens !== undefined && contextWindow) {
     label += ` · ctx ${Math.round((lastInputTokens / contextWindow) * 100)}%`;
   }
+  if (usageIncomplete) label += " · usage incomplete";
   return label;
 }
 
@@ -594,6 +599,7 @@ function StatusBar({
   preset,
   cwd,
   usage,
+  usageIncomplete,
   cost,
   lastInputTokens,
   contextWindow,
@@ -605,6 +611,7 @@ function StatusBar({
   preset: string | undefined;
   cwd: string;
   usage: Usage;
+  usageIncomplete: boolean;
   cost: number;
   lastInputTokens: number | undefined;
   contextWindow: number | undefined;
@@ -613,7 +620,7 @@ function StatusBar({
   sandboxPhase: SandboxPhase | undefined;
 }): ReactElement {
   const label = preset ? `${model} (${preset})` : model;
-  const tokens = usageLabel(usage, cost, lastInputTokens, contextWindow);
+  const tokens = usageLabel(usage, usageIncomplete, cost, lastInputTokens, contextWindow);
   const active =
     activeCount > 0 ? ` · ${activeCount} ${activeCount === 1 ? "activity" : "activities"}` : "";
   return (

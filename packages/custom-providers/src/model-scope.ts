@@ -35,9 +35,20 @@ export function validateScopedConfig(
     );
   }
   const presets = scope.presets ?? {};
-  if (config.preset && !(config.preset in presets)) {
+  if (config.preset && !Object.hasOwn(presets, config.preset)) {
     throw new Error(
       `unknown preset "${config.preset}" for ${provider}/${config.model} (try: ${Object.keys(presets).join(", ")})`,
     );
   }
+}
+
+/** Resolves one configured model for capability/request shaping; unknown ids are configuration bugs. */
+export function scopedModel(
+  provider: string,
+  models: ReadonlyMap<string, ModelScope>,
+  model: string,
+): ModelScope {
+  const scope = models.get(model);
+  if (!scope) throw new Error(`unknown model "${model}" for provider ${provider}`);
+  return scope;
 }

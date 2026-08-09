@@ -19,9 +19,8 @@ import { familyOf, listModels, maxOutputOf } from "./roster.ts";
 
 /**
  * Responses-family subclass for the Go gateway: same wire shape as the OpenAI
- * Responses provider, with opencode-go's roster supplying `max_output_tokens`
- * and a reasoning default. If the gateway rejects encrypted-content replay, the
- * include is dropped here (flagged in the plan's Unresolved).
+ * Responses provider, retaining encrypted reasoning for stateless continuation
+ * and applying a gateway-specific reasoning default.
  */
 class GoResponsesProvider extends OpenAIResponsesProvider {
   constructor(credentials: OpenAICredentials, provider: string) {
@@ -31,15 +30,6 @@ class GoResponsesProvider extends OpenAIResponsesProvider {
       reasoning: { effort: "medium", summary: "auto" },
       supportsMaxOutputTokens: true,
     });
-  }
-
-  /** The Go gateway is a custom endpoint; drop provider payload fidelity by default. */
-  protected override buildParams(request: ModelRequest) {
-    const params = super.buildParams(request);
-    // Go responses do not round-trip encrypted reasoning; sending the include is
-    // harmless but the field is never consumed, so keep the request minimal.
-    delete params.include;
-    return params;
   }
 }
 
@@ -68,8 +58,7 @@ export interface OpenCodeGoProviderOptions {
 
 /**
  * A `ModelProvider` for the OpenCode Go gateway: one registry id, one key, three
- * transports. Each model streams on its compiled family's transport; unknown ids
- * default to the chat family.
+ * transports. Each rostered model streams on its compiled family's transport.
  */
 export class OpenCodeGoProvider implements ModelProvider {
   readonly provider: string;
@@ -93,10 +82,15 @@ export class OpenCodeGoProvider implements ModelProvider {
       case "chat":
         // Function-only: the chat transport cannot carry freeform custom tools.
         return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" };
+      case undefined:
+        throw new Error(`unknown model "${model}" for provider ${this.provider}`);
     }
   }
 
   validateConfig(config: ModelConfig): void {
+    if (!familyOf(config.model)) {
+      throw new Error(`unknown model "${config.model}" for provider ${this.provider}`);
+    }
     // No preset axis on this subscription provider in v1; reject rather than ignore.
     if (config.preset) {
       throw new Error(
@@ -120,6 +114,10 @@ export class OpenCodeGoProvider implements ModelProvider {
       case "chat":
         yield* this.#chat.stream(request, signal);
         break;
+      case undefined:
+        throw new Error(
+          `unknown model "${request.modelConfig.model}" for provider ${this.provider}`,
+        );
     }
   }
 }

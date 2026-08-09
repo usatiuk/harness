@@ -42,7 +42,9 @@ Each turn then:
 4. Pair every accepted tool call with exactly one result, including interrupted
    calls, then append any middleware-staged context after the whole result batch.
 5. Pull `steer` input at the after-tool-result boundary and continue.
-6. Record completed model usage, finish the turn, and drain queued work.
+6. Record the terminal invocation and its reported or explicitly unknown usage;
+   dispatch valid calls or fail a terminal-error outcome, then finish the turn and
+   drain queued work.
 
 `interrupt` aborts the active provider stream and tools. Partial model output is
 kept, every persisted call remains paired, and non-empty interrupt content seeds
@@ -54,7 +56,9 @@ inbox work. It is not merely a promise for the turn that happened to be active
 when the caller started waiting.
 
 The loop bounds one turn to 100 model steps. A provider stream must terminate
-with a `completed` event before its usage can be recorded.
+with a `completed` event. Its usage is normalized tokens or `null`; a terminal
+error is recorded before the turn fails and never dispatches provider-invalid
+calls.
 
 ## Plugin surface
 

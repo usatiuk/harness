@@ -23,6 +23,7 @@ import {
   type ModelInvoker,
   type ModelOutputItem,
   type ModelPricing,
+  type ModelProvider,
   type ModelRequest,
   type ModelStreamEvent,
   type NewContextBuild,
@@ -201,6 +202,7 @@ export class Engine {
       });
       try {
         const provider = this.host.providers.get(conversation.config.model.provider);
+        provider.validateConfig(conversation.config.model);
         const toolSet = this.host.toolsFor(
           provider.capabilities(conversation.config.model.model),
           { service: (key) => this.#service(runtime, key) },
@@ -516,6 +518,7 @@ export class Engine {
     // Model config is fixed for the whole turn, so its tool set and schemas are resolved once
     // here rather than per step.
     const provider = this.host.providers.get(conversation.config.model.provider);
+    provider.validateConfig(conversation.config.model);
     const toolSet = this.host.toolsFor(
       provider.capabilities(conversation.config.model.model),
       {
@@ -580,7 +583,7 @@ export class Engine {
       };
 
       // --- Consume phase: assistant content, in emission order. ---
-      const stream = this.#streamModel(conversation.id, request, signal, toolSet);
+      const stream = this.#streamModel(conversation.id, request, signal, provider, toolSet);
       try {
         for await (const event of stream) {
           if (signal.aborted) break;
@@ -660,15 +663,12 @@ export class Engine {
       }
       await flushText(); // trailing text segment (saves partial output on abort)
 
-      // --- Dispatch phase: one tool_result per recorded call, always. ---
-      await this.#dispatchCalls(calls, toolSet, conversation, turnId, signal, runtime);
-
-      // --- Finalize. ---
-      if (lastMessageId) await bindPayload(lastMessageId, completed?.payload);
-      // Before the abort throw: a completed-then-aborted step still records its spend.
-      // Aborted mid-stream ⇒ no `completed` ⇒ no row.
-      if (completed) {
-        const { provider: providerName, model } = conversation.config.model;
+      if (!completed) {
+        if (signal.aborted) throw new TurnAborted();
+        throw new Error("provider stream ended without a 'completed' event");
+      }
+      const { provider: providerName, model } = conversation.config.model;
+      const recordUsage = async (): Promise<void> => {
         const recorded = await this.store.recordModelUsage({
           conversationId: conversation.id,
           turnId,
@@ -676,7 +676,7 @@ export class Engine {
           provider: providerName,
           model,
           usage: completed.usage,
-          cost: pricing ? costOf(completed.usage, pricing) : null,
+          cost: pricing && completed.usage ? costOf(completed.usage, pricing) : null,
         });
         this.#emitKernel({
           type: "usage",
@@ -687,11 +687,30 @@ export class Engine {
           usage: recorded.usage,
           cost: recorded.cost,
         });
+      };
+      if (completed.error) {
+        await this.#dispatchCalls(
+          calls,
+          toolSet,
+          conversation,
+          turnId,
+          signal,
+          runtime,
+          completed.error,
+        );
+        if (lastMessageId) await bindPayload(lastMessageId, completed.payload);
+        await recordUsage();
+        if (signal.aborted) throw new TurnAborted();
+        throw new Error(completed.error);
       }
+
+      // --- Dispatch phase: one tool_result per recorded call, always. ---
+      await this.#dispatchCalls(calls, toolSet, conversation, turnId, signal, runtime);
+
+      // --- Finalize. ---
+      if (lastMessageId) await bindPayload(lastMessageId, completed.payload);
+      await recordUsage();
       if (signal.aborted) throw new TurnAborted();
-      if (!completed) {
-        throw new Error("provider stream ended without a 'completed' event");
-      }
       if (calls.length === 0) {
         return; // final, non-tool response: the turn is done
       }
@@ -750,21 +769,24 @@ export class Engine {
     turnId: TurnId,
     signal: AbortSignal,
     runtime: Runtime,
+    terminalError?: string,
   ): Promise<void> {
     const batchContexts: PendingContext[] = [];
     for (const call of calls) {
       const callContexts: PendingContext[] = [];
-      const outcome = signal.aborted
-        ? { result: interruptedResult(), completed: false }
-        : await this.#dispatchInterruptible(
-            call,
-            toolSet,
-            conversation,
-            turnId,
-            signal,
-            runtime,
-            callContexts,
-          );
+      const outcome = terminalError
+        ? { result: errorResult(terminalError), completed: false }
+        : signal.aborted
+          ? { result: interruptedResult(), completed: false }
+          : await this.#dispatchInterruptible(
+              call,
+              toolSet,
+              conversation,
+              turnId,
+              signal,
+              runtime,
+              callContexts,
+            );
       const { result } = outcome;
       await this.store.appendItem({
         conversationId: conversation.id,
@@ -997,10 +1019,9 @@ export class Engine {
     conversationId: ConversationId,
     request: ModelRequest,
     signal: AbortSignal,
+    provider: ModelProvider,
     toolSet?: ToolSet,
   ): AsyncIterable<ModelStreamEvent> {
-    const provider = this.host.providers.get(request.modelConfig.provider);
-    provider.validateConfig(request.modelConfig);
     return runModelChain(
       this.host.modelMiddleware,
       request,
@@ -1023,6 +1044,8 @@ export class Engine {
     return {
       invoke: async (draft, options = {}): Promise<ModelInvocationResult> => {
         const modelConfig = draft.modelConfig ?? conversation.config.model;
+        const provider = this.host.providers.get(modelConfig.provider);
+        provider.validateConfig(modelConfig);
         const signal = options.signal ? AbortSignal.any([turnSignal, options.signal]) : turnSignal;
         const request: ModelRequest = {
           instructions: draft.instructions,
@@ -1050,7 +1073,13 @@ export class Engine {
         const outputItems: ModelOutputItem[] = [];
         let text = "";
         let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
-        const stream = this.#streamModel(conversation.id, request, signal, modelMiddlewareTools);
+        const stream = this.#streamModel(
+          conversation.id,
+          request,
+          signal,
+          provider,
+          modelMiddlewareTools,
+        );
         try {
           for await (const event of stream) {
             if (signal.aborted) break;
@@ -1090,7 +1119,7 @@ export class Engine {
           provider: modelConfig.provider,
           model: modelConfig.model,
           usage: completed.usage,
-          cost: pricing ? costOf(completed.usage, pricing) : null,
+          cost: pricing && completed.usage ? costOf(completed.usage, pricing) : null,
         });
         this.#emitKernel({
           type: "usage",
@@ -1102,6 +1131,7 @@ export class Engine {
           cost: recorded.cost,
         });
         if (signal.aborted) throw new TurnAborted();
+        if (completed.error) throw new Error(completed.error);
         return {
           content: text ? [{ type: "text", text }] : [],
           outputItems,
@@ -1126,6 +1156,7 @@ export class Engine {
     const usage = await this.store.listModelUsage(conversation.id);
     for (let i = usage.length - 1; i >= 0; i--) {
       const row = usage[i]!;
+      if (!row.usage) continue;
       if (
         row.provider !== conversation.config.model.provider ||
         row.model !== conversation.config.model.model ||

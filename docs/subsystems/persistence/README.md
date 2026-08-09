@@ -35,7 +35,9 @@ append.
 - **Context builds** record the exact stable instructions, selected items, tool
   roster, prompt, tool choice, output request, and purpose for model invocations.
 - **Model usage** records provider/model token usage, optional context-build link,
-  calculated cost, and turn ownership.
+  calculated cost, and turn ownership. A durable `null` usage value distinguishes
+  a completed invocation whose compatible backend omitted accounting from a real
+  zero-token report.
 - **Plugin state** gives plugins durable namespaced metadata without widening
   conversation or item schemas.
 - **Blobs** preserve complete tool output or binary data behind range-readable

@@ -109,6 +109,8 @@ export interface State {
   sandbox?: { phase: SandboxPhase; message?: string };
   /** Running token totals across the conversation (live events + resume seed). */
   usage: Usage;
+  /** At least one completed invocation omitted accounting, so totals are lower bounds. */
+  usageIncomplete?: true;
   /** Σ of stored per-row costs in USD; rows with no rate card contribute nothing. */
   cost: number;
   /** The latest request's total prompt size — the context-fill numerator. */
@@ -422,6 +424,15 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
     case "config.changed":
       return state; // not a transcript line
     case "usage":
+      if (!event.usage) {
+        const withoutCheckpoint: State = { ...state };
+        delete withoutCheckpoint.lastInputTokens;
+        return {
+          ...withoutCheckpoint,
+          usageIncomplete: true,
+          cost: state.cost + (event.cost ?? 0),
+        };
+      }
       return {
         ...state,
         usage: addUsage(state.usage, event.usage),
@@ -507,15 +518,19 @@ export function init(items: Item[], usageRows: ModelUsage[] = []): State {
         assertNever(item);
     }
   }
-  const usage = usageRows.reduce((sum, row) => addUsage(sum, row.usage), zeroUsage());
+  const knownUsageRows = usageRows.filter(
+    (row): row is ModelUsage & { usage: Usage } => row.usage !== null,
+  );
+  const usage = knownUsageRows.reduce((sum, row) => addUsage(sum, row.usage), zeroUsage());
   const cost = usageRows.reduce((sum, row) => sum + (row.cost ?? 0), 0);
-  const last = usageRows.at(-1)?.usage.inputTokens;
+  const last = usageRows.at(-1)?.usage?.inputTokens;
   return {
     cells,
     turn: { status: "idle" },
     pendingInput: [],
     activities: [],
     usage,
+    ...(usageRows.some((row) => row.usage === null) ? { usageIncomplete: true as const } : {}),
     cost,
     ...(last !== undefined ? { lastInputTokens: last } : {}),
   };

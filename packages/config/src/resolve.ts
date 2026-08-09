@@ -153,7 +153,13 @@ function resolvePlugins(
 }
 
 function mergeDocs(layers: Layer[]): SettingsDoc {
-  return layers.reduce<SettingsDoc>((acc, layer) => deepMerge(acc, layer.doc) as SettingsDoc, {});
+  return layers.reduce<SettingsDoc>((acc, layer) => {
+    const merged = deepMerge(acc, layer.doc) as SettingsDoc;
+    // A preset is meaningful only for its exact provider/model. Every model layer is a complete
+    // selection, so replace it atomically rather than inheriting a preset from a lower layer.
+    if (layer.doc.model) merged.model = layer.doc.model;
+    return merged;
+  }, {});
 }
 
 /** The most-recent (highest-precedence) layer that set each plugin's slice. */

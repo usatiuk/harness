@@ -3,7 +3,7 @@ import { apiKeyCredentials } from "@harness/openai-api";
 import type { ContentBlock, ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
 import type { CustomOpenAIModelConfig } from "@harness/config";
 import { applyOpenAIPreset, type RequestParams } from "./openai-presets.ts";
-import { listScopedModels, validateScopedConfig } from "./model-scope.ts";
+import { listScopedModels, scopedModel, validateScopedConfig } from "./model-scope.ts";
 
 /** Joins the textual blocks of an instructions list, mirroring the core mapping. */
 const textOf = (content: ContentBlock[]): string =>
@@ -41,12 +41,12 @@ export class CustomOpenAIProvider extends OpenAIResponsesProvider {
     this.#sendInstructionsAsSystem = opts.sendInstructionsAsSystem ?? false;
   }
 
-  override capabilities(model?: string): ModelCapabilities {
+  override capabilities(model: string): ModelCapabilities {
     return {
       contentTypes: ["text"],
       toolCalling: true,
       // Defaults to string_replace: the safe function-only dialect for every OpenAI endpoint.
-      fileTools: this.#models.get(model ?? "")?.fileTools ?? "string_replace",
+      fileTools: scopedModel(this.provider, this.#models, model).fileTools ?? "string_replace",
     };
   }
 
@@ -78,6 +78,7 @@ export class CustomOpenAIProvider extends OpenAIResponsesProvider {
       "max_output_tokens",
       this.#models.get(request.modelConfig.model)?.presets?.[request.modelConfig.preset ?? ""],
     );
+    if (request.maxOutputTokens !== undefined) params.max_output_tokens = request.maxOutputTokens;
     return params;
   }
 }

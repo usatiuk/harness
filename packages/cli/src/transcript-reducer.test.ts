@@ -456,6 +456,23 @@ describe("transcript reducer", () => {
     expect(state.lastInputTokens).toBe(1500); // latest step, not the sum — the ctx-fill numerator
   });
 
+  it("marks totals incomplete and clears the latest checkpoint when usage is unknown", () => {
+    const known: HarnessEvent = {
+      type: "usage",
+      conversationId: "c",
+      turnId: "t1",
+      provider: "fake",
+      model: "fake-1",
+      usage: { inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 },
+      cost: 0.01,
+    };
+    const unknown: HarnessEvent = { ...known, turnId: "t2", usage: null, cost: null };
+    const state = fold([known, unknown]);
+    expect(state.usage).toEqual({ inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 });
+    expect(state.usageIncomplete).toBe(true);
+    expect(state.lastInputTokens).toBeUndefined();
+  });
+
   it("seeds totals from stored usage rows on resume", () => {
     const row = (id: string, usage: Usage, cost: number | null): ModelUsage => ({
       id,
@@ -479,6 +496,22 @@ describe("transcript reducer", () => {
     expect(seeded.cost).toBeCloseTo(0.03, 10);
     expect(seeded.lastInputTokens).toBe(300);
     expect(init([]).lastInputTokens).toBeUndefined(); // no rows → no ctx-fill yet
+  });
+
+  it("restores incomplete usage state from a durable null row", () => {
+    const row: ModelUsage = {
+      id: "u",
+      conversationId: "c" as ModelUsage["conversationId"],
+      turnId: "t" as ModelUsage["turnId"],
+      contextBuildId: null,
+      provider: "local",
+      model: "m",
+      usage: null,
+      cost: null,
+      createdAt: 0,
+    };
+    expect(init([], [row])).toMatchObject({ usageIncomplete: true });
+    expect(init([], [row]).lastInputTokens).toBeUndefined();
   });
 
   it("mirrors the inbox snapshot into pendingInput", () => {

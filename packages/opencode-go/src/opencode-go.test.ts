@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelRequest } from "@harness/protocol";
-import { ROSTER, DEFAULT_FAMILY, familyOf, maxOutputOf, listModels } from "./roster.ts";
+import { ROSTER, familyOf, maxOutputOf, listModels } from "./roster.ts";
 import { OpenCodeGoProvider } from "./provider.ts";
 
 const REQUEST: ModelRequest = {
@@ -19,9 +19,9 @@ function provider() {
 }
 
 describe("roster", () => {
-  it("covers every live gateway model", () => {
-    // The gateway's live /v1/models (verified 2026-08-08) lists 25 ids.
-    const live = [
+  it("matches the verified gateway model snapshot", () => {
+    // The gateway's /v1/models snapshot verified 2026-08-08 lists 25 ids.
+    const snapshot = [
       "minimax-m3",
       "minimax-m2.7",
       "minimax-m2.5",
@@ -48,12 +48,12 @@ describe("roster", () => {
       "gpt-5.6-luna",
       "grok-4.5",
     ];
-    expect(new Set(ROSTER.map((m) => m.model))).toEqual(new Set(live));
+    expect(new Set(ROSTER.map((m) => m.model))).toEqual(new Set(snapshot));
   });
 
   it("assigns each model its gateway family", () => {
     expect(familyOf("gpt-5.6-luna")).toBe("responses");
-    expect(familyOf("grok-4.5")).toBe("responses");
+    expect(familyOf("grok-4.5")).toBe("chat");
     expect(familyOf("minimax-m3")).toBe("messages");
     expect(familyOf("qwen3.7-max")).toBe("messages");
     expect(familyOf("deepseek-v4-pro")).toBe("chat");
@@ -61,8 +61,8 @@ describe("roster", () => {
     expect(familyOf("hy3-preview")).toBe("chat");
   });
 
-  it("defaults unknown ids to the chat family with no limits", () => {
-    expect(familyOf("brand-new-model")).toBe(DEFAULT_FAMILY);
+  it("leaves unknown ids unclassified with no limits", () => {
+    expect(familyOf("brand-new-model")).toBeUndefined();
     expect(maxOutputOf("brand-new-model")).toBeUndefined();
   });
 
@@ -89,9 +89,10 @@ describe("OpenCodeGoProvider", () => {
   it("selects the fileTools profile per family", () => {
     const p = provider();
     expect(p.capabilities("gpt-5.6-luna").fileTools).toBe("apply_patch");
+    expect(p.capabilities("grok-4.5").fileTools).toBe("string_replace");
     expect(p.capabilities("minimax-m3").fileTools).toBe("text_editor");
     expect(p.capabilities("deepseek-v4-pro").fileTools).toBe("string_replace");
-    expect(p.capabilities("unknown-model").fileTools).toBe("string_replace");
+    expect(() => p.capabilities("unknown-model")).toThrow(/unknown model/);
   });
 
   it("rejects a preset rather than ignoring it", () => {
@@ -100,6 +101,9 @@ describe("OpenCodeGoProvider", () => {
       p.validateConfig({ provider: "opencode-go", model: "hy3", preset: "high" }),
     ).toThrow(/no presets/);
     expect(() => p.validateConfig({ provider: "opencode-go", model: "hy3" })).not.toThrow();
+    expect(() => p.validateConfig({ provider: "opencode-go", model: "unknown-model" })).toThrow(
+      /unknown model/,
+    );
   });
 
   it("streams a chat-family model through the chat transport", async () => {
@@ -134,6 +138,7 @@ describe("OpenCodeGoProvider", () => {
 
   it("streams a responses-family model through the responses transport", async () => {
     let called = "";
+    let params: { include?: string[]; store?: boolean } | undefined;
     const p = new OpenCodeGoProvider({
       openai: {
         client: async () =>
@@ -142,8 +147,9 @@ describe("OpenCodeGoProvider", () => {
               completions: { create: async () => Promise.reject(new Error("wrong transport")) },
             },
             responses: {
-              create: async () => {
+              create: async (value: { include?: string[]; store?: boolean }) => {
                 called = "responses";
+                params = value;
                 return {
                   async *[Symbol.asyncIterator]() {
                     yield {
@@ -166,6 +172,7 @@ describe("OpenCodeGoProvider", () => {
       void _;
     }
     expect(called).toBe("responses");
+    expect(params).toMatchObject({ include: ["reasoning.encrypted_content"], store: false });
   });
 
   it("streams a messages-family model through the messages transport with roster maxTokens", async () => {

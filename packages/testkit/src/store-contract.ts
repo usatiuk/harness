@@ -278,7 +278,16 @@ export function storeContract(name: string, makeStore: () => Store): void {
         usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
         cost: null,
       });
-      expect(await store.listModelUsage(conv.id)).toEqual([first, second]);
+      const unknown = await store.recordModelUsage({
+        conversationId: conv.id,
+        turnId: turn.id,
+        contextBuildId: build.id,
+        provider: "compatible",
+        model: "usage-omitted",
+        usage: null,
+        cost: null,
+      });
+      expect(await store.listModelUsage(conv.id)).toEqual([first, second, unknown]);
       expect(await store.listModelUsage("missing" as ConversationId)).toEqual([]);
     });
 

@@ -13,6 +13,58 @@ const modelSchema = z.strictObject({
 });
 const toolsSchema = z.strictObject({ allow: z.array(z.string()).optional() });
 
+const extraBodyExcluding = (reserved: ReadonlySet<string>, transport: string) =>
+  z.record(z.string(), z.unknown()).superRefine((body, ctx) => {
+    for (const key of Object.keys(body)) {
+      if (reserved.has(key)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: `${transport} extraBody cannot override Harness-owned field '${key}'`,
+        });
+      }
+    }
+  });
+
+const OPENAI_RESERVED_BODY_FIELDS = new Set([
+  "model",
+  "input",
+  "messages",
+  "instructions",
+  "tools",
+  "tool_choice",
+  "stream",
+  "stream_options",
+  "store",
+  "include",
+  "conversation",
+  "previous_response_id",
+  "prompt",
+  "truncation",
+  "background",
+  "reasoning",
+  "parallel_tool_calls",
+  "max_output_tokens",
+  "max_tokens",
+  "temperature",
+  "top_p",
+  "frequency_penalty",
+  "presence_penalty",
+]);
+const ANTHROPIC_RESERVED_BODY_FIELDS = new Set([
+  "model",
+  "messages",
+  "system",
+  "tools",
+  "tool_choice",
+  "stream",
+  "max_tokens",
+  "thinking",
+  "output_config",
+  "temperature",
+  "top_p",
+]);
+
 /** Generation parameters an OpenAI-compatible preset maps to an SDK call. */
 const openaiPresetSchema = z.strictObject({
   temperature: z.number().min(0).max(2).optional(),
@@ -21,7 +73,7 @@ const openaiPresetSchema = z.strictObject({
   frequencyPenalty: z.number().optional(),
   presencePenalty: z.number().optional(),
   /** Freeform fields merged into the request body (e.g. `seed`, `top_k`). */
-  extraBody: z.record(z.string(), z.unknown()).optional(),
+  extraBody: extraBodyExcluding(OPENAI_RESERVED_BODY_FIELDS, "OpenAI").optional(),
 });
 
 /** Generation parameters an Anthropic-compatible preset maps to an SDK call. */
@@ -37,7 +89,7 @@ const anthropicPresetSchema = z.strictObject({
   /** Forwarded via extra_body for backends that accept them. */
   repetitionPenalty: z.number().optional(),
   /** Freeform fields merged into the request body (e.g. `chat_template_kwargs`, `seed`). */
-  extraBody: z.record(z.string(), z.unknown()).optional(),
+  extraBody: extraBodyExcluding(ANTHROPIC_RESERVED_BODY_FIELDS, "Anthropic").optional(),
 });
 
 /**
@@ -45,16 +97,16 @@ const anthropicPresetSchema = z.strictObject({
  * provider-scoped; capacity, `fileTools`, and presets are per model (each model can be
  * trained on a different dialect and offer different sampling).
  */
-const customProviderBase = z.object({
+const customProviderBase = z.strictObject({
   /** Custom endpoint. OpenAI-compatible: include the API root (e.g. `http://host:8000/v1`).
    * Anthropic-compatible: the server root (the SDK appends the Messages path). */
   endpoint: z.string().url(),
-  /** API key the endpoint expects; required so the SDK never guesses, even for keyless local servers. */
+  /** Inline API key literal passed to the SDK; keyless local servers require an explicit dummy value. */
   apiKey: z.string(),
 });
 
 /** Model-scoped fields shared by every transport's model entries. */
-const customModelBase = z.object({
+const customModelBase = z.strictObject({
   /** Model context window in tokens; capacity math (auto-compaction) applies when set. */
   contextWindow: z.number().int().positive().optional(),
   /** Model max output in tokens; reserved when estimating whether the next input fits. */
@@ -65,20 +117,60 @@ const customModelBase = z.object({
   fileTools: z.enum(FILE_TOOLS).optional(),
 });
 
+const capacityIssues = (model: {
+  contextWindow?: number | undefined;
+  maxOutputTokens?: number | undefined;
+  presets?: Record<string, { maxTokens?: number | undefined }> | undefined;
+}): { path: (string | number)[]; message: string }[] => {
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  if (
+    model.contextWindow !== undefined &&
+    model.maxOutputTokens !== undefined &&
+    model.maxOutputTokens > model.contextWindow
+  ) {
+    issues.push({
+      path: ["maxOutputTokens"],
+      message: "maxOutputTokens cannot exceed contextWindow",
+    });
+  }
+  const presetLimit = model.maxOutputTokens ?? model.contextWindow;
+  if (presetLimit !== undefined) {
+    for (const [preset, config] of Object.entries(model.presets ?? {})) {
+      if (config.maxTokens !== undefined && config.maxTokens > presetLimit) {
+        issues.push({
+          path: ["presets", preset, "maxTokens"],
+          message: "preset maxTokens cannot exceed the model's output capacity",
+        });
+      }
+    }
+  }
+  return issues;
+};
+
+const addCapacityIssues = (
+  model: Parameters<typeof capacityIssues>[0],
+  addIssue: (issue: { code: "custom"; path: (string | number)[]; message: string }) => void,
+): void => {
+  for (const issue of capacityIssues(model)) addIssue({ code: "custom", ...issue });
+};
+
 /** An OpenAI Responses-family model entry: sampling presets keyed by preset name. */
-const openaiModelSchema = z.object({
-  ...customModelBase.shape,
-  presets: z.record(z.string(), openaiPresetSchema).optional(),
-});
+const openaiModelSchema = z
+  .strictObject({
+    ...customModelBase.shape,
+    presets: z.record(z.string(), openaiPresetSchema).optional(),
+  })
+  .superRefine((model, ctx) => addCapacityIssues(model, (issue) => ctx.addIssue(issue)));
 
 // Chat/completions and the Anthropic Messages transport are both function-only: neither can render
 // the freeform `apply_patch` custom tool, so no model of either family may offer that dialect —
 // rejected at parse time rather than failing somewhere mid-turn.
 const completionsModelSchema = z
-  .object({
+  .strictObject({
     ...customModelBase.shape,
     presets: z.record(z.string(), openaiPresetSchema).optional(),
   })
+  .superRefine((model, ctx) => addCapacityIssues(model, (issue) => ctx.addIssue(issue)))
   .refine((scope) => scope.fileTools !== "apply_patch", {
     message: "openai-completions-compatible supports only function tools (not 'apply_patch')",
     path: ["fileTools"],
@@ -86,10 +178,11 @@ const completionsModelSchema = z
 
 /** An anthropic-compatible model entry: richer preset knobs forwarded via extra_body. */
 const anthropicModelSchema = z
-  .object({
+  .strictObject({
     ...customModelBase.shape,
     presets: z.record(z.string(), anthropicPresetSchema).optional(),
   })
+  .superRefine((model, ctx) => addCapacityIssues(model, (issue) => ctx.addIssue(issue)))
   .refine((scope) => scope.fileTools !== "apply_patch", {
     message: "anthropic-compatible supports only function tools (not 'apply_patch')",
     path: ["fileTools"],

@@ -11,8 +11,9 @@ export interface ModelUsage {
   provider: string;
   /** Snapshotted — conversations can switch models mid-life. */
   model: string;
-  usage: Usage;
-  /** USD, priced once at record time under the then-current rate card; null = no rate card. */
+  /** `null` records a completed provider invocation whose backend omitted accounting. */
+  usage: Usage | null;
+  /** USD, priced once at record time; null = unknown usage or no rate card. */
   cost: number | null;
   createdAt: number;
 }
