@@ -13,6 +13,7 @@ describe("authRegistry", () => {
   beforeEach(() => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENCODE_API_KEY;
   });
   afterEach(() => {
     process.env = { ...saved };
@@ -22,6 +23,7 @@ describe("authRegistry", () => {
     expect([...authRegistry(new MemorySecretStore()).keys()]).toEqual([
       "openai",
       "anthropic",
+      "opencode-go",
       "openai-codex",
     ]);
   });
@@ -40,5 +42,11 @@ describe("authRegistry", () => {
     const reg = authRegistry(new MemorySecretStore());
     process.env.OPENAI_API_KEY = "sk-env";
     expect((await entryOf(reg, "openai").buildPlugin())?.id).toBe("openai-api");
+  });
+
+  it("registers an opencode-go plugin from its key", async () => {
+    const reg = authRegistry(new MemorySecretStore());
+    process.env.OPENCODE_API_KEY = "oc-test";
+    expect((await entryOf(reg, "opencode-go").buildPlugin())?.id).toBe("opencode-go");
   });
 });

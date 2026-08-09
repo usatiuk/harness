@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { updateGlobalModel, updateGlobalPluginConfig } from "./write.ts";
+import { readGlobalSettings, updateGlobalModel, updateGlobalPluginConfig } from "./write.ts";
 
 const newHome = () => mkdtemp(join(tmpdir(), "harness-cfg-"));
 const readDoc = async (home: string) =>
@@ -70,5 +70,27 @@ describe("updateGlobalPluginConfig", () => {
       },
       sandbox: { enabled: true },
     });
+  });
+});
+
+describe("readGlobalSettings custom providers", () => {
+  it("reads settings carrying a completions-typed custom provider", async () => {
+    const home = await newHome();
+    await writeFile(
+      join(home, "settings.json"),
+      JSON.stringify({
+        model: { provider: "demo", model: "demo-1" },
+        customProviders: {
+          ovms: {
+            type: "openai-completions-compatible",
+            endpoint: "http://localhost:8000/v1",
+            apiKey: "k",
+            model: "qwen3.6",
+          },
+        },
+      }),
+    );
+    const doc = await readGlobalSettings(home);
+    expect(doc.customProviders?.ovms).toMatchObject({ type: "openai-completions-compatible" });
   });
 });

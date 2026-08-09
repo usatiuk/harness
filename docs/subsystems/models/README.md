@@ -2,10 +2,12 @@
 
 ## Status
 
-Harness supports OpenAI Responses through API-key and ChatGPT/Codex OAuth
-transports, Anthropic Messages through API keys, and a deterministic demo
-provider. Adapters implement one streaming `ModelProvider` contract and own all
-provider-specific request, event, payload, catalog, and error behavior.
+Harness supports OpenAI Responses and chat/completions through API keys,
+ChatGPT/Codex OAuth, Anthropic Messages through API keys, OpenCode Go through an
+API key across all three gateway transports, config-defined
+OpenAI/Anthropic-compatible endpoints, and a deterministic demo provider. Adapters
+implement one streaming `ModelProvider` contract and own all provider-specific
+request, event, payload, catalog, and error behavior.
 
 Every model-backed operation passes through the same model-middleware boundary:
 ordinary agent steps, compaction, subagents, and model-backed auto-approval.
@@ -50,12 +52,12 @@ provider, model, type, and version match.
 
 ## OpenAI family
 
-`@harness/openai-core` owns stateless Responses mapping, encrypted reasoning
-round-trip, function/custom tool translation, stream normalization, catalogs, and
-context-overflow normalization. `@harness/openai-api` supplies API-key
-credentials. `@harness/openai-codex` supplies OAuth refresh/session persistence,
-the Codex endpoint and headers, backend error surfacing, per-model limit
-differences, and unsupported-request-field handling.
+`@harness/openai-core` owns stateless Responses and chat/completions mapping,
+encrypted reasoning round-trip, function/custom tool translation, stream
+normalization, catalogs, and context-overflow normalization. `@harness/openai-api`
+supplies API-key credentials. `@harness/openai-codex` supplies OAuth
+refresh/session persistence, the Codex endpoint and headers, backend error
+surfacing, per-model limit differences, and unsupported-request-field handling.
 
 Responses are sent with `store: false`; Harness's item log and provider payloads
 remain conversation truth. The OpenAI custom-tool path is used for the
@@ -70,6 +72,25 @@ set, the custom provider renders `ModelRequest.instructions` as a leading
 `system` input message instead, which those backends honor. It defaults to off
 so backends that implement `instructions` natively are unchanged.
 
+The chat/completions transport is the primary path for local and open backends
+(vLLM, Ollama, OVMS). It is function-only (freeform custom tools throw) and
+round-trips prior reasoning as plaintext `reasoning_content` on the assistant
+message that follows it (no encrypted/thinking payload), with instructions and
+context hoisted into a single leading system message. Config-defined providers
+choose the transport explicitly: `"openai-responses-compatible"` for the
+Responses shape (with the `sendInstructionsAsSystem` opt-in above) and
+`"openai-completions-compatible"` for chat/completions (function-only; rejects
+`fileTools: "apply_patch"`). The pre-rename `"openai-compatible"` literal is no
+longer accepted; the validation message lists the supported type names.
+
+The chat backend always sends `stream_options.include_usage` (and `tool_choice`
+only when a tool turn requests it), which some strict servers reject. Usage
+arrives on a final `include_usage` tail chunk when the server honors it; many
+backends omit it, so the stream emits `completed` with zeroed usage — the row is
+recorded at `null` cost rather than dropped. A stream that dies without a
+`finish_reason` and without usage ends without `completed`, surfacing as an
+error with no spend recorded.
+
 ## Anthropic family
 
 `@harness/anthropic-core` owns Messages mapping, prompt-cache placement,
@@ -77,6 +98,20 @@ reasoning/thinking payload fidelity, generic function-tool rendering, model
 catalogs, and stream normalization. `@harness/anthropic-api` supplies API-key
 credentials. The Anthropic-shaped editor schema and implementation remain owned
 by the Harness workspace plugin.
+
+## OpenCode Go family
+
+`@harness/opencode-go` supplies a first-class OpenCode Go provider: one API key
+(`OPENCODE_API_KEY`) and one registry id (`opencode-go`) spanning three gateway
+transports under `https://opencode.ai/zen/go/v1`. A static compiled roster maps
+each model to its transport family (chat/completions | responses | messages); the
+gateway's `GET /v1/models` returns bare ids only, so no runtime catalog fetch is
+used and unknown ids dispatch on the default chat family. `OpenCodeGoProvider`
+delegates to three inner provider instances — the chat `OpenAIChatProvider`, a
+Responses subclass, and an Anthropic Messages subclass (whose `buildConfig`
+overrides `max_tokens` from the roster) — reusing each transport's overflow
+mapping, cancellation, and usage normalization. Go is a subscription plan, so the
+catalog ships no per-token pricing and usage rows record `null` cost.
 
 ## Authentication and secrets
 
@@ -113,6 +148,8 @@ middleware. Deterministic request/configuration failures must never be retried.
 - `packages/protocol/src/model.ts`: model contracts and normalized events.
 - `packages/openai-core`, `openai-api`, `openai-codex`: OpenAI adapters/auth.
 - `packages/anthropic-core`, `anthropic-api`: Anthropic adapter/auth.
+- `packages/opencode-go`: OpenCode Go provider and static roster.
+- `packages/custom-providers`: config-defined Responses/chat/Messages providers.
 - `packages/auth`, `packages/secrets`: login and credential persistence.
 
 ## Verification

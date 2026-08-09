@@ -4,7 +4,14 @@ import type { ZodType } from "zod";
 import type { ConversationConfig } from "@harness/protocol";
 import { deepMerge } from "./merge.ts";
 import { defaultHome } from "./home.ts";
-import { formatIssue, projectDocSchema, settingsDocSchema, type SettingsDoc } from "./settings.ts";
+import {
+  formatIssue,
+  parseProjectDoc,
+  parseSettingsDoc,
+  projectDocSchema,
+  settingsDocSchema,
+  type SettingsDoc,
+} from "./settings.ts";
 
 export interface ResolveOptions {
   /** Harness home directory; the global layer is `<home>/settings.json`. */
@@ -185,9 +192,10 @@ async function readDoc(
   } catch (error) {
     throw new Error(`invalid JSON in ${file}: ${(error as Error).message}`, { cause: error });
   }
-  const parsed = schema.safeParse(raw);
-  if (!parsed.success) throw new Error(`invalid settings in ${file}: ${formatIssue(parsed.error)}`);
-  return parsed.data;
+  // The global layer can carry `customProviders`, so it parses as a settings
+  // doc; project layers reject customProviders and parse as project docs.
+  if (schema === settingsDocSchema) return parseSettingsDoc(raw, file);
+  return parseProjectDoc(raw, file);
 }
 
 /** Walks up from `start`, returning the first dir where `match` holds, else `undefined`. */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ModelRequest } from "@harness/protocol";
 import { CustomOpenAIProvider } from "./custom-openai.ts";
+import { CustomOpenAICompletionsProvider } from "./custom-openai-completions.ts";
 import { CustomAnthropicProvider } from "./custom-anthropic.ts";
 import { createCustomProviderPlugin, createCustomProviderPlugins } from "./factory.ts";
 
@@ -292,9 +293,9 @@ describe("CustomAnthropicProvider", () => {
 });
 
 describe("factory wiring", () => {
-  it("creates an openai-compatible plugin keyed by its config id", () => {
+  it("creates an openai-responses-compatible plugin keyed by its config id", () => {
     const plugin = createCustomProviderPlugin("ollama", {
-      type: "openai-compatible",
+      type: "openai-responses-compatible",
       endpoint: "http://localhost:11434/v1",
       apiKey: "ollama",
       model: "llama3.2",
@@ -321,12 +322,89 @@ describe("factory wiring", () => {
     expect(models).toEqual([{ provider: "lmstudio", model: "neural-chat", presets: [] }]);
   });
 
-  it("builds the full plugin set from a parsed settings section", () => {
-    const plugins = createCustomProviderPlugins({
-      a: { type: "openai-compatible", endpoint: "http://a", apiKey: "k", model: "m1" },
-      b: { type: "anthropic-compatible", endpoint: "http://b", apiKey: "k", model: "m2" },
+  it("creates an openai-completions-compatible plugin (chat)", () => {
+    const plugin = createCustomProviderPlugin("ovms", {
+      type: "openai-completions-compatible",
+      endpoint: "http://localhost:8000/v1",
+      apiKey: "ovms",
+      model: "qwen3.6",
     });
 
-    expect(plugins.map((p) => p.id)).toEqual(["a", "b"]);
+    expect(plugin.id).toBe("ovms");
+    const models = plugin.providers?.().flatMap((p) => p.listModels()) ?? [];
+    expect(models).toEqual([{ provider: "ovms", model: "qwen3.6", presets: [] }]);
+  });
+
+  it("builds the full plugin set from a parsed settings section", () => {
+    const plugins = createCustomProviderPlugins({
+      a: { type: "openai-responses-compatible", endpoint: "http://a", apiKey: "k", model: "m1" },
+      b: { type: "anthropic-compatible", endpoint: "http://b", apiKey: "k", model: "m2" },
+      c: { type: "openai-completions-compatible", endpoint: "http://c", apiKey: "k", model: "m3" },
+    });
+
+    expect(plugins.map((p) => p.id)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("CustomOpenAICompletionsProvider", () => {
+  it("lists a sized model with a preset axis and function-only capabilities", () => {
+    const provider = new CustomOpenAICompletionsProvider({
+      id: "ovms",
+      endpoint: "http://localhost:8000/v1",
+      apiKey: "test-key",
+      model: "qwen3.6",
+      contextWindow: 200_000,
+      maxOutputTokens: 4096,
+      presets: { fast: { temperature: 0.2 } },
+    });
+
+    expect(provider.listModels()).toEqual([
+      {
+        provider: "ovms",
+        model: "qwen3.6",
+        presets: [{ value: "fast" }],
+        contextWindow: 200_000,
+        maxOutputTokens: 4096,
+      },
+    ]);
+    expect(provider.capabilities().fileTools).toBe("string_replace");
+  });
+
+  it("maps preset sampling knobs onto the chat request, maxTokens -> max_tokens", () => {
+    const provider = new CustomOpenAICompletionsProvider({
+      id: "ovms",
+      endpoint: "http://localhost:8000/v1",
+      apiKey: "test-key",
+      model: "qwen3.6",
+      presets: { fast: { temperature: 0.2, topP: 0.9, maxTokens: 2048, extraBody: { seed: 42 } } },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- widen the protected method
+    const params = (provider as unknown as OpenAIExposed).buildParams({
+      ...REQUEST,
+      modelConfig: { provider: "ovms", model: "qwen3.6", preset: "fast" },
+    }) as Record<string, unknown>;
+
+    expect(params).toMatchObject({
+      temperature: 0.2,
+      top_p: 0.9,
+      max_tokens: 2048,
+      seed: 42,
+    });
+    expect(params).not.toHaveProperty("max_output_tokens");
+  });
+
+  it("rejects an unknown preset", () => {
+    const provider = new CustomOpenAICompletionsProvider({
+      id: "ovms",
+      endpoint: "http://localhost:8000/v1",
+      apiKey: "test-key",
+      model: "qwen3.6",
+      presets: { fast: {} },
+    });
+
+    expect(() =>
+      provider.validateConfig({ provider: "ovms", model: "qwen3.6", preset: "nope" }),
+    ).toThrow(/unknown preset "nope"/);
   });
 });

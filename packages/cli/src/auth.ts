@@ -3,6 +3,7 @@ import type { SecretStore } from "@harness/secrets";
 import { ApiKeyAuth, type AuthMethod, type OAuthMethod } from "@harness/auth";
 import { createAnthropicPlugin } from "@harness/anthropic-api";
 import { createOpenAIPlugin } from "@harness/openai-api";
+import { createOpenCodeGoPlugin } from "@harness/opencode-go";
 import { CodexAuth, codexPlugin } from "@harness/openai-codex";
 
 /** A provider's sign-in method plus how an authenticated session becomes a runnable plugin. */
@@ -94,6 +95,18 @@ export function authRegistry(store: SecretStore): Map<string, AuthEntry> {
       },
       validate: (k) => (k.startsWith("sk-ant-") ? null : "Anthropic keys start with 'sk-ant-'"),
       createPlugin: ({ apiKey }) => createAnthropicPlugin({ apiKey }),
+    }),
+    apiKeyEntry({
+      id: "opencode-go",
+      label: "OpenCode Go (API key)",
+      envVar: "OPENCODE_API_KEY",
+      store,
+      defaultModel: {
+        provider: "opencode-go",
+        model: process.env.OPENCODE_MODEL ?? "gpt-5.6-luna",
+      },
+      validate: (k) => (k.trim().length > 0 ? null : "OpenCode Go keys must not be empty"),
+      createPlugin: ({ apiKey }) => createOpenCodeGoPlugin({ apiKey }),
     }),
     [
       "openai-codex",

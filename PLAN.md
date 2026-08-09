@@ -57,7 +57,7 @@ packages.
 
 ## Current implementation status
 
-As of 2026-08-02, Harness provides:
+As of 2026-08-08, Harness provides:
 
 - An append-only conversation/item graph with one durable head, linear rewind,
   branch-preserving continuation, turn reconciliation, and resumable transcripts.
@@ -66,8 +66,10 @@ As of 2026-08-02, Harness provides:
   dispatch, correlated host requests, and typed events.
 - Tool, model, and request middleware plus plugin-owned context sources,
   per-conversation services, policies, observers, and configuration schemas.
-- OpenAI API-key, OpenAI Codex OAuth, Anthropic API-key, and deterministic demo
-  providers with model catalogs, reasoning payload fidelity, usage, and cost.
+- OpenAI API-key (Responses + chat/completions), OpenAI Codex OAuth, Anthropic
+  API-key, OpenCode Go API-key, config-defined OpenAI/Anthropic-compatible
+  providers, and a deterministic demo provider with model catalogs, reasoning
+  payload fidelity, usage, and cost.
 - Harness-owned read/write/edit/patch/glob/command tools selected by the active
   model's trained file-tool dialect.
 - Local, Linux Bubblewrap, and dev-container execution; bounded output files;

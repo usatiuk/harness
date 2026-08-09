@@ -29,3 +29,23 @@ Run focused tests while iterating and `npm run check` before handing off code
 changes. For documentation-only changes, at minimum run Prettier on the affected
 files and `git diff --check`; expand validation when configuration, scripts, links,
 or generated content are involved.
+
+## Coverage notes
+
+- The `opencode-go` provider's roster is static and unit-tested against the live
+  gateway model list; live smoke (one request per transport family, tool loop,
+  prior-reasoning round-trip) is opt-in behind `OPENCODE_API_KEY` and is not run
+  in CI.
+- The chat/completions transport's reasoning round-trip (plaintext
+  `reasoning_content`, merge into the following assistant output), same-chunk
+  reasoning+boundary handling, `finish_reason: "length"` recovery, and the
+  missing-terminal-failure path (no `completed` emitted, zero spend) are
+  unit-tested via fixture streams; the live OVMS/chat-completions path is a
+  documented smoke boundary.
+- Chat reasoning is only merged onto assistant-role messages; a non-assistant
+  message after a reasoning item receives a standalone assistant reasoning
+  message instead — covered by the request-mapping tests.
+- There is no engine-loop regression for the chat transport yet: the engine is
+  exercised at the `ModelStreamEvent` boundary via the testkit fake provider, and
+  the live smoke covers the true wire boundary. Add one when a chat-family
+  conversation needs regression coverage.

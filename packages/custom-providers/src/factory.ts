@@ -1,6 +1,7 @@
 import type { FileToolsProfile, Plugin } from "@harness/protocol";
 import type { CustomProviderConfig } from "@harness/config";
 import { CustomOpenAIProvider } from "./custom-openai.ts";
+import { CustomOpenAICompletionsProvider } from "./custom-openai-completions.ts";
 import { CustomAnthropicProvider } from "./custom-anthropic.ts";
 
 /** The shared fields every custom provider option set carries, minus the type-specific presets. */
@@ -30,29 +31,41 @@ function optionsFor(id: string, config: CustomProviderConfig): CustomOptions {
 
 /** Wires one `customProviderConfig` entry into a runnable plugin. The config key is the registry id. */
 export function createCustomProviderPlugin(id: string, config: CustomProviderConfig): Plugin {
-  if (config.type === "openai-compatible") {
-    return {
-      id,
-      providers: () => [
-        new CustomOpenAIProvider({
-          ...optionsFor(id, config),
-          ...(config.presets !== undefined ? { presets: config.presets } : {}),
-          ...(config.sendInstructionsAsSystem !== undefined
-            ? { sendInstructionsAsSystem: config.sendInstructionsAsSystem }
-            : {}),
-        }),
-      ],
-    };
+  switch (config.type) {
+    case "openai-responses-compatible":
+      return {
+        id,
+        providers: () => [
+          new CustomOpenAIProvider({
+            ...optionsFor(id, config),
+            ...(config.presets !== undefined ? { presets: config.presets } : {}),
+            ...(config.sendInstructionsAsSystem !== undefined
+              ? { sendInstructionsAsSystem: config.sendInstructionsAsSystem }
+              : {}),
+          }),
+        ],
+      };
+    case "openai-completions-compatible":
+      return {
+        id,
+        providers: () => [
+          new CustomOpenAICompletionsProvider({
+            ...optionsFor(id, config),
+            ...(config.presets !== undefined ? { presets: config.presets } : {}),
+          }),
+        ],
+      };
+    case "anthropic-compatible":
+      return {
+        id,
+        providers: () => [
+          new CustomAnthropicProvider({
+            ...optionsFor(id, config),
+            ...(config.presets !== undefined ? { presets: config.presets } : {}),
+          }),
+        ],
+      };
   }
-  return {
-    id,
-    providers: () => [
-      new CustomAnthropicProvider({
-        ...optionsFor(id, config),
-        ...(config.presets !== undefined ? { presets: config.presets } : {}),
-      }),
-    ],
-  };
 }
 
 /** Builds the full custom-provider plugin set from the parsed `customProviders` settings section. */

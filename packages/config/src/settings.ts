@@ -40,7 +40,10 @@ const anthropicPresetSchema = z.strictObject({
   extraBody: z.record(z.string(), z.unknown()).optional(),
 });
 
-/** Fields shared by every custom provider entry. */
+/**
+ * Fields shared by every custom provider entry. `fileTools` defaults are applied
+ * per type: `string_replace` for the OpenAI families, `text_editor` for Anthropic.
+ */
 const customProviderBase = z.object({
   /** Custom endpoint. OpenAI-compatible: include the API root (e.g. `http://host:8000/v1`).
    * Anthropic-compatible: the server root (the SDK appends the Messages path). */
@@ -53,26 +56,37 @@ const customProviderBase = z.object({
   contextWindow: z.number().int().positive().optional(),
   /** Model max output in tokens; reserved when estimating whether the next input fits. */
   maxOutputTokens: z.number().int().positive().optional(),
-  /**
-   * The file-editing dialect the model is trained on; the workspace plugin selects its tool roster
-   * from it. Absent defaults to `string_replace` for openai-compatible and `text_editor` for
-   * anthropic-compatible.
-   */
+  /** The file-editing dialect the model is trained on; the workspace plugin selects its tool roster
+   * from it. Absent defaults to `string_replace` for the OpenAI-compatible families and
+   * `text_editor` for anthropic-compatible. */
   fileTools: z.enum(FILE_TOOLS).optional(),
 });
 
 const customProviderSchema = z.discriminatedUnion("type", [
   z.strictObject({
     ...customProviderBase.shape,
-    type: z.literal("openai-compatible"),
+    type: z.literal("openai-responses-compatible"),
     presets: z.record(z.string(), openaiPresetSchema).optional(),
     /**
-     * Some OpenAI-compatible backends (e.g. OVMS) accept the Responses request shape but silently
-     * drop the top-level `instructions` field. When set, the provider renders `ModelRequest.instructions`
-     * as a leading `system` input message instead, so those backends still receive the system context.
+     * Some OpenAI Responses-compatible backends (e.g. OVMS) accept the Responses request shape but
+     * silently drop the top-level `instructions` field. When set, the provider renders
+     * `ModelRequest.instructions` as a leading `system` input message instead, so those backends still
+     * receive the system context.
      */
     sendInstructionsAsSystem: z.boolean().optional(),
   }),
+  // Chat/completions is function-only: `apply_patch` (a freeform custom tool) cannot be represented,
+  // so that dialect is rejected here rather than failing mid-turn.
+  z
+    .strictObject({
+      ...customProviderBase.shape,
+      type: z.literal("openai-completions-compatible"),
+      presets: z.record(z.string(), openaiPresetSchema).optional(),
+    })
+    .refine((entry) => entry.fileTools !== "apply_patch", {
+      message: "openai-completions-compatible supports only function tools (not 'apply_patch')",
+      path: ["fileTools"],
+    }),
   z.strictObject({
     ...customProviderBase.shape,
     type: z.literal("anthropic-compatible"),
@@ -127,4 +141,27 @@ export function formatIssue(error: z.ZodError): string {
   if (!issue) return "invalid";
   const path = issue.path.join(".");
   return path ? `${path}: ${issue.message}` : issue.message;
+}
+
+/**
+ * Parses a global settings document, throwing a human-readable error citing the
+ * source file on failure. Centralized so the settings resolver and the CLI's
+ * global read/write paths share the same message format.
+ */
+export function parseSettingsDoc(raw: unknown, path: string): SettingsDoc {
+  const parsed = settingsDocSchema.safeParse(raw);
+  if (!parsed.success) throw new Error(`invalid settings in ${path}: ${formatIssue(parsed.error)}`);
+  return parsed.data;
+}
+
+/**
+ * Parses one project-layer settings document (`.harness/settings.json` and
+ * `settings.local.json`), which rejects the global-only `auth`/`customProviders`
+ * keys. Shares the error format with `parseSettingsDoc` so all layers read the
+ * same way.
+ */
+export function parseProjectDoc(raw: unknown, path: string): SettingsDoc {
+  const parsed = projectDocSchema.safeParse(raw);
+  if (!parsed.success) throw new Error(`invalid settings in ${path}: ${formatIssue(parsed.error)}`);
+  return parsed.data;
 }

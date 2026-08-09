@@ -30,7 +30,7 @@ Extend the config system with a structured `customProviders` section. Each entry
 {
   "customProviders": {
     "my-llm": {
-      "type": "openai-compatible",
+      "type": "openai-responses-compatible",
       "endpoint": "http://localhost:8080/v1",
       "apiKey": "sk-custom-key",
       "model": "llama-3.1-8b",
@@ -49,7 +49,7 @@ Extend the config system with a structured `customProviders` section. Each entry
 }
 ```
 
-`fileTools` is the file-editing dialect the workspace plugin's roster is selected from. Its default is `string_replace` for `openai-compatible` and `text_editor` for `anthropic-compatible`, because freeform "custom" tools (only emitted by the `apply_patch` profile) are rejected by function-only local backends (e.g. MediaPipe/OVMS returns `400: Only function tools are supported`).
+`fileTools` is the file-editing dialect the workspace plugin's roster is selected from. Its default is `string_replace` for `openai-responses-compatible` (and the later `openai-completions-compatible`) and `text_editor` for `anthropic-compatible`, because freeform "custom" tools (only emitted by the `apply_patch` profile) are rejected by function-only local backends (e.g. MediaPipe/OVMS returns `400: Only function tools are supported`).
 
 ### Preset semantics
 
@@ -111,7 +111,7 @@ The core types (`ModelConfig`, `ModelRequest`, `ModelProvider`) are **unchanged*
 **Packages:** `@harness/config`
 
 - Extend `settingsDocSchema` with `customProviders: z.record(z.string(), customProviderSchema).optional()`.
-- Define `customProviderSchema`: `{ type, endpoint, apiKey, model, contextWindow?, maxOutputTokens?, fileTools?, sendInstructionsAsSystem?, presets? }` where `type` is `"openai-compatible"` or `"anthropic-compatible"`, and `presets` is a record of `{ name, temperature?, topP?, maxTokens? }`.
+- Define `customProviderSchema`: `{ type, endpoint, apiKey, model, contextWindow?, maxOutputTokens?, fileTools?, sendInstructionsAsSystem?, presets? }` where `type` is `"openai-responses-compatible"`, `"openai-completions-compatible"`, or `"anthropic-compatible"`, and `presets` is a record of `{ name, temperature?, topP?, maxTokens? }`.
 - The schema validates at settings parse time. Unknown types or malformed presets are rejected.
 
 ### Slice 2: Factory layer
@@ -120,7 +120,7 @@ The core types (`ModelConfig`, `ModelRequest`, `ModelProvider`) are **unchanged*
 
 - Read `customProviders` from resolved settings during `buildHarness()`.
 - Map each entry through a factory that produces `Plugin` objects.
-- `type: "openai-compatible"` → subclass `CustomOpenAIProvider` (OpenAI Responses) with custom `baseURL`.
+- `type: "openai-responses-compatible"` → subclass `CustomOpenAIProvider` (OpenAI Responses) with custom `baseURL`.
 - `type: "anthropic-compatible"` → subclass `CustomAnthropicProvider` (Messages API) with custom `baseUrl`.
 - Resolve preset names into generation parameters during request construction.
 - Provide `capabilities()` honoring the configured `fileTools`, so the workspace plugin picks a compatible editor roster for function-only backends.

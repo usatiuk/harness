@@ -159,7 +159,7 @@ describe("resolveSettings validation", () => {
 
   it("accepts customProviders only in global settings (fail-fast elsewhere)", async () => {
     const provider = {
-      type: "openai-compatible",
+      type: "openai-responses-compatible",
       endpoint: "http://localhost:8000/v1",
       apiKey: "k",
       model: "m",
@@ -204,6 +204,74 @@ describe("resolveSettings validation", () => {
       );
       await rm(file, { force: true });
     }
+  });
+
+  it("rejects a custom provider type outside the discriminated union", async () => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      customProviders: {
+        mine: { type: "openai-compatible", endpoint: "http://a", apiKey: "k", model: "m" },
+      },
+    });
+    await expect(resolveSettings({ home, schemas })).rejects.toThrow(
+      /invalid settings in .*settings\.json/,
+    );
+  });
+
+  it("parses a valid openai-completions-compatible provider", async () => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      customProviders: {
+        ovms: {
+          type: "openai-completions-compatible",
+          endpoint: "http://localhost:8000/v1",
+          apiKey: "k",
+          model: "qwen3.6",
+          contextWindow: 200_000,
+          maxOutputTokens: 4096,
+          presets: { fast: { temperature: 0.2 } },
+        },
+      },
+    });
+    await expect(resolveSettings({ home, schemas })).resolves.toBeTruthy();
+  });
+
+  it("rejects fileTools apply_patch on the completions type", async () => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      customProviders: {
+        ovms: {
+          type: "openai-completions-compatible",
+          endpoint: "http://localhost:8000/v1",
+          apiKey: "k",
+          model: "qwen3.6",
+          fileTools: "apply_patch",
+        },
+      },
+    });
+    await expect(resolveSettings({ home, schemas })).rejects.toThrow(
+      /only function tools \(not 'apply_patch'\)/,
+    );
+  });
+
+  it("rejects sendInstructionsAsSystem on the completions type (not a field there)", async () => {
+    const home = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      customProviders: {
+        ovms: {
+          type: "openai-completions-compatible",
+          endpoint: "http://localhost:8000/v1",
+          apiKey: "k",
+          model: "qwen3.6",
+          sendInstructionsAsSystem: true,
+        },
+      },
+    });
+    await expect(resolveSettings({ home, schemas })).rejects.toThrow(/sendInstructionsAsSystem/);
   });
 
   it("fails fast when no model is configured", async () => {

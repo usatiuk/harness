@@ -40,7 +40,10 @@ of SDK-specific error, tool, and payload behavior.
   and live-boundary evidence.
 - Splitting a shared provider catalog before backend divergence outgrows a
   small, complete per-model override map.
-- Automatic model discovery and pricing fetches.
+- Automatic model discovery and pricing fetches. (Scoped exception: the
+  `opencode-go` provider ships a static compiled roster — its gateway `/v1/models`
+  returns bare ids only, so a runtime fetch would add nothing dispatchable. Any
+  general discovery mechanism stays deferred.)
 - Guaranteed enforcement of advisory output caps on transports without a native
   parameter.
 - Provider-native/server-side compaction until one adapter implements it through

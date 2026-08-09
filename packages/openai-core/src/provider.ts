@@ -12,7 +12,8 @@ import type {
 import { ContextWindowExceededError } from "@harness/protocol";
 import type { OpenAICredentials } from "./credentials.ts";
 import { buildResponseParams } from "./request.ts";
-import { toModelEvents } from "./stream.ts";
+import { buildChatParams } from "./request.ts";
+import { toModelEvents, toChatEvents } from "./stream.ts";
 
 export interface OpenAIModelLimits {
   contextWindow: number;
@@ -153,6 +154,72 @@ export class OpenAIResponsesProvider implements ModelProvider {
       if (!this.#supportsMaxOutputTokens) delete params.max_output_tokens;
       const stream = await client.responses.create(params, { signal });
       yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
+    } catch (error) {
+      const e = error as { status?: number; code?: string; message?: string };
+      const message = e.message ?? String(error);
+      if (
+        e.status === 400 &&
+        (e.code === "context_length_exceeded" ||
+          /context (window|length)|too many tokens/i.test(message))
+      ) {
+        throw new ContextWindowExceededError(message, { cause: error });
+      }
+      throw error;
+    }
+  }
+}
+
+export interface OpenAIChatProviderOptions {
+  credentials: OpenAICredentials;
+  /** Registry name; defaults to `"openai-chat"`. */
+  provider?: string;
+}
+
+/**
+ * A `ModelProvider` backed by the OpenAI chat/completions API, streaming only.
+ * Thin shell: no built-in catalog (config-defined providers supply their own via
+ * `listModels`); chat always honors the advisory `max_tokens` output cap.
+ */
+export class OpenAIChatProvider implements ModelProvider {
+  readonly provider: string;
+  readonly #credentials: OpenAICredentials;
+
+  constructor(opts: OpenAIChatProviderOptions) {
+    this.provider = opts.provider ?? "openai-chat";
+    this.#credentials = opts.credentials;
+  }
+
+  capabilities(): ModelCapabilities {
+    // Function-only: the chat transport cannot carry freeform custom tools, so
+    // the file-editing dialect must never be apply_patch.
+    return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" };
+  }
+
+  /** No catalog to guard presets against; unknown configs pass to the SDK. */
+  validateConfig(_config: ModelConfig): void {
+    void _config;
+  }
+
+  listModels(): ModelInfo[] {
+    return [];
+  }
+
+  /**
+   * The native request for one model step. Overridable so config-defined providers
+   * can reshape it (apply generation presets) without forking the stream glue.
+   */
+  protected buildParams(
+    request: ModelRequest,
+  ): OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming {
+    return buildChatParams(request);
+  }
+
+  async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
+    try {
+      const client = await this.#credentials.client();
+      const params = this.buildParams(request);
+      const stream = await client.chat.completions.create(params, { signal });
+      yield* toChatEvents(stream, this.provider, request.modelConfig.model, signal);
     } catch (error) {
       const e = error as { status?: number; code?: string; message?: string };
       const message = e.message ?? String(error);

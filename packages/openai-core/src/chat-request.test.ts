@@ -1,0 +1,192 @@
+import { describe, expect, it } from "vitest";
+import type { Item, ModelRequest } from "@harness/protocol";
+import { buildChatParams } from "./request.ts";
+
+// Items only need their structural fields here; ids/seq/createdAt are irrelevant to mapping.
+const item = (partial: Partial<Item> & { type: Item["type"] }): Item =>
+  ({ id: "i", conversationId: "c", turnId: "t", seq: 0, createdAt: 0, ...partial }) as Item;
+
+const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
+  instructions: [{ type: "text", text: "be nice" }],
+  modelConfig: { provider: "opencode-go", model: "deepseek-v4-pro" },
+  tools: [
+    { kind: "function", name: "echo", description: "echoes", parameters: { type: "object" } },
+  ],
+  items,
+});
+
+describe("buildChatParams", () => {
+  it("maps instructions to a single leading system message and items to native messages", () => {
+    const params = buildChatParams(
+      baseRequest([
+        { item: item({ type: "message", role: "user", content: [{ type: "text", text: "hi" }] }) },
+        { item: item({ type: "tool_call", callId: "call_1", name: "echo", args: { x: 1 } }) },
+        {
+          item: item({
+            type: "tool_result",
+            callId: "call_1",
+            content: [{ type: "text", text: "ok" }],
+            status: "ok",
+          }),
+        },
+      ]),
+    );
+
+    expect(params.model).toBe("deepseek-v4-pro");
+    expect(params.stream).toBe(true);
+    expect(params.stream_options).toEqual({ include_usage: true });
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "echo", arguments: '{"x":1}' } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "ok" },
+    ]);
+    expect(params.tools).toEqual([
+      {
+        type: "function",
+        function: { name: "echo", description: "echoes", parameters: { type: "object" } },
+      },
+    ]);
+  });
+
+  it("appends a non-durable prompt and honors toolChoice and maxOutputTokens", () => {
+    const params = buildChatParams({
+      ...baseRequest([]),
+      prompt: "compact now",
+      toolChoice: "none",
+      maxOutputTokens: 4096,
+    });
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      { role: "user", content: "compact now" },
+    ]);
+    expect(params.tool_choice).toBe("none");
+    expect(params.max_tokens).toBe(4096);
+  });
+
+  it("merges a reasoning item into the assistant message that follows it", () => {
+    const params = buildChatParams(
+      baseRequest([
+        {
+          item: item({
+            type: "reasoning",
+            content: [{ type: "text", text: "thought it through" }],
+          }),
+        },
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+          }),
+        },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      {
+        role: "assistant",
+        content: "done",
+        reasoning_content: "thought it through",
+      },
+    ]);
+  });
+
+  it("merges a reasoning item into the following tool_call assistant message", () => {
+    const params = buildChatParams(
+      baseRequest([
+        {
+          item: item({ type: "reasoning", content: [{ type: "text", text: "plan" }] }),
+        },
+        { item: item({ type: "tool_call", callId: "c", name: "echo", args: {} }) },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      {
+        role: "assistant",
+        content: null,
+        reasoning_content: "plan",
+        tool_calls: [{ id: "c", type: "function", function: { name: "echo", arguments: "{}" } }],
+      },
+    ]);
+  });
+
+  it("emits a standalone reasoning message when nothing follows", () => {
+    const params = buildChatParams(
+      baseRequest([
+        {
+          item: item({ type: "reasoning", content: [{ type: "text", text: "thinking only" }] }),
+        },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      { role: "assistant", content: null, reasoning_content: "thinking only" },
+    ]);
+  });
+
+  it("hoists context items into the leading system message joined by blank lines", () => {
+    const params = buildChatParams(
+      baseRequest([
+        {
+          item: item({
+            type: "context",
+            key: "agents",
+            content: [{ type: "text", text: "project rules" }],
+          }),
+        },
+      ]),
+    );
+    expect(params.messages).toEqual([{ role: "system", content: "be nice\n\nproject rules" }]);
+  });
+
+  it("maps a compaction item to a plain user message", () => {
+    const params = buildChatParams(
+      baseRequest([
+        {
+          item: item({ type: "compaction", content: [{ type: "text", text: "the story so far" }] }),
+        },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      { role: "user", content: "the story so far" },
+    ]);
+  });
+
+  it("throws on a custom (freeform) tool", () => {
+    const request: ModelRequest = {
+      ...baseRequest([]),
+      tools: [{ kind: "custom", name: "apply_patch", description: "patch" }],
+    };
+    expect(() => buildChatParams(request)).toThrow(/function-only/);
+  });
+
+  it("throws on a system-role message item", () => {
+    const request = baseRequest([
+      { item: item({ type: "message", role: "system", content: [{ type: "text", text: "x" }] }) },
+    ]);
+    expect(() => buildChatParams(request)).toThrow(/at most one system message/);
+  });
+
+  it("does not merge reasoning into a non-assistant message (standalone instead)", () => {
+    const params = buildChatParams(
+      baseRequest([
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "plan" }] }) },
+        { item: item({ type: "message", role: "user", content: [{ type: "text", text: "hi" }] }) },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      { role: "assistant", content: null, reasoning_content: "plan" },
+      { role: "user", content: "hi" },
+    ]);
+  });
+});
