@@ -33,11 +33,13 @@ or generated content are involved.
 ## Coverage notes
 
 - The `opencode-go` provider's roster is static and unit-tested against the
-  2026-08-08 gateway-list snapshot and documented family assignments (including
-  Grok chat and GPT Luna Responses). Live smoke (one request per transport family and a
-  preconstructed tool-call continuation shape with prior reasoning) is opt-in
-  behind `OPENCODE_API_KEY` and is not run in CI. A credential-gated two-request
-  encrypted-reasoning replay remains uncovered.
+  2026-08-09 gateway-list and Models.dev metadata snapshots: documented family
+  assignments (including Grok chat and GPT Luna Responses), exact model-scoped
+  preset catalogs, validation, and Chat/Responses/Messages request mappings. Live
+  smoke (one preset request per transport family and a preconstructed tool-call
+  continuation shape with prior reasoning) is opt-in behind `OPENCODE_API_KEY`
+  and is not run in CI. A credential-gated two-request encrypted-reasoning replay
+  remains uncovered.
 - The chat/completions transport's reasoning round-trip (plaintext
   `reasoning_content` folded into one native assistant message per generation, so
   a tool-calling turn's reasoning rides the message that carries its tool calls),

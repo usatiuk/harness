@@ -139,6 +139,15 @@ overrides `max_tokens` from the roster) — reusing each transport's overflow
 mapping, cancellation, and usage normalization. Go is a subscription plan, so the
 catalog ships no per-token pricing and usage rows record `null` cost.
 
+The compiled roster also exposes only the model-scoped reasoning controls
+advertised by the verified Models.dev `opencode-go` catalog. Chat models map
+effort presets to `reasoning_effort`; Luna maps `none` through `max` to Responses
+reasoning effort and retains `medium` as its default; MiniMax M3 offers explicit
+thinking off/on; and Qwen's `high`/`max` presets use the same bounded thinking
+budgets as OpenCode. Omitting a preset leaves every other model on the gateway's
+native behavior. Preset names never transfer between models, and models without
+an advertised control reject presets rather than ignoring them.
+
 ## Authentication and secrets
 
 The CLI auth registry exposes built-in provider login methods. Their API keys

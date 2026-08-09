@@ -73,8 +73,40 @@ describe("roster", () => {
     expect(models.find((m) => m.model === "gpt-5.6-luna")).toEqual({
       provider: "opencode-go",
       model: "gpt-5.6-luna",
+      presets: [
+        { value: "none" },
+        { value: "low" },
+        { value: "medium" },
+        { value: "high" },
+        { value: "xhigh" },
+        { value: "max" },
+      ],
+      defaultPreset: "medium",
       contextWindow: 1_050_000,
       maxOutputTokens: 128_000,
+    });
+  });
+
+  it("exposes only the model-scoped presets advertised by the verified catalog", () => {
+    const offered = Object.fromEntries(
+      listModels("opencode-go")
+        .filter((model) => model.presets?.length)
+        .map((model) => [model.model, model.presets?.map((preset) => preset.value)]),
+    );
+    expect(offered).toEqual({
+      "grok-4.5": ["low", "medium", "high"],
+      "glm-5.2": ["high", "max"],
+      "kimi-k3": ["max"],
+      "deepseek-v4-pro": ["high", "max"],
+      "deepseek-v4-flash": ["low", "high", "max"],
+      hy3: ["none", "low", "high"],
+      "gpt-5.6-luna": ["none", "low", "medium", "high", "xhigh", "max"],
+      "minimax-m3": ["none", "thinking"],
+      "qwen3.8-max": ["high", "max"],
+      "qwen3.7-max": ["high", "max"],
+      "qwen3.7-plus": ["high", "max"],
+      "qwen3.6-plus": ["high", "max"],
+      "qwen3.5-plus": ["high", "max"],
     });
   });
 });
@@ -95,11 +127,17 @@ describe("OpenCodeGoProvider", () => {
     expect(() => p.capabilities("unknown-model")).toThrow(/unknown model/);
   });
 
-  it("rejects a preset rather than ignoring it", () => {
+  it("accepts only presets offered by the exact model", () => {
     const p = provider();
     expect(() =>
       p.validateConfig({ provider: "opencode-go", model: "hy3", preset: "high" }),
-    ).toThrow(/no presets/);
+    ).not.toThrow();
+    expect(() =>
+      p.validateConfig({ provider: "opencode-go", model: "hy3", preset: "max" }),
+    ).toThrow(/unknown preset.*try: none, low, high/);
+    expect(() =>
+      p.validateConfig({ provider: "opencode-go", model: "glm-5.1", preset: "high" }),
+    ).toThrow(/has no presets/);
     expect(() => p.validateConfig({ provider: "opencode-go", model: "hy3" })).not.toThrow();
     expect(() => p.validateConfig({ provider: "opencode-go", model: "unknown-model" })).toThrow(
       /unknown model/,
@@ -108,14 +146,16 @@ describe("OpenCodeGoProvider", () => {
 
   it("streams a chat-family model through the chat transport", async () => {
     let called = "";
+    let params: { reasoning_effort?: string } | undefined;
     const p = new OpenCodeGoProvider({
       openai: {
         client: async () =>
           ({
             chat: {
               completions: {
-                create: async () => {
+                create: async (value: { reasoning_effort?: string }) => {
                   called = "chat";
+                  params = value;
                   return {
                     async *[Symbol.asyncIterator]() {
                       yield { choices: [{ delta: { content: "hi" }, finish_reason: "stop" }] };
@@ -133,12 +173,50 @@ describe("OpenCodeGoProvider", () => {
     const events: string[] = [];
     for await (const e of p.stream(REQUEST, new AbortController().signal)) events.push(e.type);
     expect(called).toBe("chat");
+    expect(params?.reasoning_effort).toBeUndefined();
     expect(events).toEqual(["text_delta", "completed"]);
+  });
+
+  it("maps a selected chat preset to reasoning_effort", async () => {
+    let params: { reasoning_effort?: string } | undefined;
+    const p = new OpenCodeGoProvider({
+      openai: {
+        client: async () =>
+          ({
+            chat: {
+              completions: {
+                create: async (value: { reasoning_effort?: string }) => {
+                  params = value;
+                  return {
+                    async *[Symbol.asyncIterator]() {
+                      yield { choices: [{ delta: {}, finish_reason: "stop" }] };
+                    },
+                  };
+                },
+              },
+            },
+          }) as never,
+      },
+      anthropic: { client: neverCredentials() },
+    });
+
+    for await (const _ of p.stream(
+      {
+        ...REQUEST,
+        modelConfig: { provider: "opencode-go", model: "deepseek-v4-flash", preset: "max" },
+      },
+      new AbortController().signal,
+    )) {
+      void _;
+    }
+    expect(params?.reasoning_effort).toBe("max");
   });
 
   it("streams a responses-family model through the responses transport", async () => {
     let called = "";
-    let params: { include?: string[]; store?: boolean } | undefined;
+    let params:
+      | { include?: string[]; store?: boolean; reasoning?: { effort?: string; summary?: string } }
+      | undefined;
     const p = new OpenCodeGoProvider({
       openai: {
         client: async () =>
@@ -147,7 +225,11 @@ describe("OpenCodeGoProvider", () => {
               completions: { create: async () => Promise.reject(new Error("wrong transport")) },
             },
             responses: {
-              create: async (value: { include?: string[]; store?: boolean }) => {
+              create: async (value: {
+                include?: string[];
+                store?: boolean;
+                reasoning?: { effort?: string; summary?: string };
+              }) => {
                 called = "responses";
                 params = value;
                 return {
@@ -172,7 +254,44 @@ describe("OpenCodeGoProvider", () => {
       void _;
     }
     expect(called).toBe("responses");
-    expect(params).toMatchObject({ include: ["reasoning.encrypted_content"], store: false });
+    expect(params).toMatchObject({
+      include: ["reasoning.encrypted_content"],
+      store: false,
+      reasoning: { effort: "medium", summary: "auto" },
+    });
+  });
+
+  it("maps a selected Luna preset while retaining reasoning summaries", async () => {
+    let params: { reasoning?: { effort?: string; summary?: string } } | undefined;
+    const p = new OpenCodeGoProvider({
+      openai: {
+        client: async () =>
+          ({
+            responses: {
+              create: async (value: { reasoning?: { effort?: string; summary?: string } }) => {
+                params = value;
+                return {
+                  async *[Symbol.asyncIterator]() {
+                    yield { type: "response.completed", response: {} };
+                  },
+                };
+              },
+            },
+          }) as never,
+      },
+      anthropic: { client: neverCredentials() },
+    });
+
+    for await (const _ of p.stream(
+      {
+        ...REQUEST,
+        modelConfig: { provider: "opencode-go", model: "gpt-5.6-luna", preset: "max" },
+      },
+      new AbortController().signal,
+    )) {
+      void _;
+    }
+    expect(params?.reasoning).toEqual({ effort: "max", summary: "auto" });
   });
 
   it("streams a messages-family model through the messages transport with roster maxTokens", async () => {
@@ -214,7 +333,7 @@ describe("OpenCodeGoProvider", () => {
     }
     // minimax-m3 maxOut is 131072; the Messages subclass must not fall back to 8192.
     expect(params?.max_tokens).toBe(131_072);
-    // And it must not add thinking/effort machinery Go's messages models don't serve.
+    // The provider-default/no-preset selection must not add thinking machinery.
     expect(params).toEqual({
       model: "minimax-m3",
       max_tokens: 131_072,
@@ -223,4 +342,81 @@ describe("OpenCodeGoProvider", () => {
     });
     expect(events).toEqual(["completed"]);
   });
+
+  it.each([
+    {
+      model: "minimax-m3",
+      preset: "none",
+      cap: undefined,
+      expected: { type: "disabled" },
+    },
+    {
+      model: "minimax-m3",
+      preset: "thinking",
+      cap: undefined,
+      expected: { type: "adaptive" },
+    },
+    {
+      model: "qwen3.8-max",
+      preset: "high",
+      cap: undefined,
+      expected: { type: "enabled", budget_tokens: 16_000 },
+    },
+    {
+      model: "qwen3.8-max",
+      preset: "max",
+      cap: undefined,
+      expected: { type: "enabled", budget_tokens: 31_999 },
+    },
+    {
+      model: "qwen3.8-max",
+      preset: "max",
+      cap: 4096,
+      expected: { type: "enabled", budget_tokens: 4095 },
+    },
+  ])(
+    "maps $model/$preset to the compiled Messages thinking control",
+    async ({ model, preset, cap, expected }) => {
+      let params: { thinking?: unknown } | undefined;
+      const p = new OpenCodeGoProvider({
+        openai: { client: neverCredentials() },
+        anthropic: {
+          client: async () =>
+            ({
+              messages: {
+                create: async (value: { thinking?: unknown }) => {
+                  params = value;
+                  return {
+                    async *[Symbol.asyncIterator]() {
+                      yield {
+                        type: "message_start",
+                        message: { usage: { input_tokens: 1, output_tokens: 0 } },
+                      };
+                      yield {
+                        type: "message_delta",
+                        delta: { stop_reason: "end_turn" },
+                        usage: { output_tokens: 1 },
+                      };
+                      yield { type: "message_stop" };
+                    },
+                  };
+                },
+              },
+            }) as never,
+        },
+      });
+
+      for await (const _ of p.stream(
+        {
+          ...REQUEST,
+          modelConfig: { provider: "opencode-go", model, preset },
+          ...(cap ? { maxOutputTokens: cap } : {}),
+        },
+        new AbortController().signal,
+      )) {
+        void _;
+      }
+      expect(params?.thinking).toEqual(expected);
+    },
+  );
 });

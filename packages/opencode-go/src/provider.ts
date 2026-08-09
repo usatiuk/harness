@@ -15,7 +15,32 @@ import {
   type AnthropicCredentials,
   type AnthropicRequestConfig,
 } from "@harness/anthropic-core";
-import { familyOf, listModels, maxOutputOf } from "./roster.ts";
+import { familyOf, listModels, maxOutputOf, modelSpec, presetFor } from "./roster.ts";
+
+/** Effort control selected for a Chat or Responses request. */
+function effortFor(request: ModelRequest): string | undefined {
+  const preset = presetFor(request.modelConfig.model, request.modelConfig.preset);
+  if (!preset) return undefined;
+  if (preset.control.kind !== "effort") {
+    throw new Error(
+      `preset "${preset.value}" for ${request.modelConfig.model} is not an effort control`,
+    );
+  }
+  return preset.control.effort;
+}
+
+/** Chat-family subclass that maps the rostered preset to the compatible wire field. */
+class GoChatProvider extends OpenAIChatProvider {
+  protected override buildParams(request: ModelRequest) {
+    const params = super.buildParams(request);
+    const effort = effortFor(request);
+    if (effort) {
+      // The pinned SDK predates the gateway's `max` value but serializes it unchanged.
+      (params as unknown as Record<string, unknown>).reasoning_effort = effort;
+    }
+    return params;
+  }
+}
 
 /**
  * Responses-family subclass for the Go gateway: same wire shape as the OpenAI
@@ -27,9 +52,22 @@ class GoResponsesProvider extends OpenAIResponsesProvider {
     super({
       provider,
       credentials,
-      reasoning: { effort: "medium", summary: "auto" },
+      reasoning: { summary: "auto" },
       supportsMaxOutputTokens: true,
     });
+  }
+
+  protected override buildParams(request: ModelRequest) {
+    const params = super.buildParams(request);
+    const effort = effortFor(request);
+    if (effort) {
+      (params as unknown as Record<string, unknown>).reasoning = {
+        ...params.reasoning,
+        // The pinned SDK predates GPT-5.6's `max` value but sends it unchanged.
+        effort,
+      };
+    }
+    return params;
   }
 }
 
@@ -37,7 +75,8 @@ class GoResponsesProvider extends OpenAIResponsesProvider {
  * Messages-family subclass for the Go gateway: overrides the per-request config so
  * `max_tokens` comes from the opencode-go roster (the stock Anthropic provider
  * falls back to a hardcoded 8192 for uncataloged models, which would silently
- * truncate MiniMax/Qwen generation). No thinking/effort for Go's models.
+ * truncate MiniMax/Qwen generation). Model-scoped presets additionally select
+ * MiniMax's thinking toggle or Qwen's compiled thinking budget.
  */
 class GoMessagesProvider extends AnthropicProvider {
   constructor(credentials: AnthropicCredentials, provider: string) {
@@ -45,7 +84,34 @@ class GoMessagesProvider extends AnthropicProvider {
   }
 
   protected override buildConfig(request: ModelRequest): AnthropicRequestConfig {
-    return { maxTokens: maxOutputOf(request.modelConfig.model) ?? 8192 };
+    const config: AnthropicRequestConfig = {
+      maxTokens: maxOutputOf(request.modelConfig.model) ?? 8192,
+    };
+    const preset = presetFor(request.modelConfig.model, request.modelConfig.preset);
+    if (!preset) return config;
+    switch (preset.control.kind) {
+      case "thinking":
+        config.thinking = { type: preset.control.thinking };
+        break;
+      case "thinking-budget": {
+        // Messages requires the thinking budget to stay below the effective output cap. An
+        // invocation-specific cap is more specific than the compiled preset budget.
+        const outputCap = request.maxOutputTokens ?? config.maxTokens;
+        const budgetTokens = Math.min(preset.control.budgetTokens, outputCap - 1);
+        if (budgetTokens < 1024) {
+          throw new Error(
+            `preset "${preset.value}" for ${request.modelConfig.model} requires an output cap above 1024 tokens`,
+          );
+        }
+        config.thinking = { type: "enabled", budget_tokens: budgetTokens };
+        break;
+      }
+      case "effort":
+        throw new Error(
+          `preset "${preset.value}" for ${request.modelConfig.model} is not a thinking control`,
+        );
+    }
+    return config;
   }
 }
 
@@ -68,7 +134,7 @@ export class OpenCodeGoProvider implements ModelProvider {
 
   constructor(opts: OpenCodeGoProviderOptions) {
     this.provider = opts.provider ?? "opencode-go";
-    this.#chat = new OpenAIChatProvider({ provider: this.provider, credentials: opts.openai });
+    this.#chat = new GoChatProvider({ provider: this.provider, credentials: opts.openai });
     this.#responses = new GoResponsesProvider(opts.openai, this.provider);
     this.#messages = new GoMessagesProvider(opts.anthropic, this.provider);
   }
@@ -88,13 +154,16 @@ export class OpenCodeGoProvider implements ModelProvider {
   }
 
   validateConfig(config: ModelConfig): void {
-    if (!familyOf(config.model)) {
+    const spec = modelSpec(config.model);
+    if (!spec) {
       throw new Error(`unknown model "${config.model}" for provider ${this.provider}`);
     }
-    // No preset axis on this subscription provider in v1; reject rather than ignore.
-    if (config.preset) {
+    if (config.preset && !spec.presets?.some((preset) => preset.value === config.preset)) {
+      const offered = spec.presets?.map((preset) => preset.value).join(", ");
       throw new Error(
-        `opencode-go has no presets; preset "${config.preset}" is not supported (try removing it)`,
+        offered
+          ? `unknown preset "${config.preset}" for ${this.provider}/${config.model} (try: ${offered})`
+          : `${this.provider}/${config.model} has no presets; preset "${config.preset}" is not supported`,
       );
     }
   }

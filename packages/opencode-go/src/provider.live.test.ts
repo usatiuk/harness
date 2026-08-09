@@ -29,37 +29,37 @@ function provider(): OpenCodeGoProvider {
   });
 }
 
-function request(model: string): ModelRequest {
+function request(model: string, preset?: string): ModelRequest {
   return {
     instructions: [{ type: "text", text: "You are terse." }],
-    modelConfig: { provider: "opencode-go", model },
+    modelConfig: { provider: "opencode-go", model, ...(preset ? { preset } : {}) },
     items: [{ item: userMessage }],
   };
 }
 
-async function run(model: string): Promise<ModelStreamEvent[]> {
+async function run(model: string, preset?: string): Promise<ModelStreamEvent[]> {
   const events: ModelStreamEvent[] = [];
-  for await (const e of provider().stream(request(model), new AbortController().signal)) {
+  for await (const e of provider().stream(request(model, preset), new AbortController().signal)) {
     events.push(e);
   }
   return events;
 }
 
 describe.skipIf(!apiKey)("OpenCodeGoProvider (live)", () => {
-  it("streams a chat-family turn (deepseek-v4-flash) to completion", async () => {
-    const events = await run("deepseek-v4-flash");
+  it("streams a chat-family preset turn (deepseek-v4-flash/low) to completion", async () => {
+    const events = await run("deepseek-v4-flash", "low");
     expect(events.some((e) => e.type === "text_delta")).toBe(true);
     expect(events.at(-1)?.type).toBe("completed");
   }, 60_000);
 
-  it("streams a responses-family turn (gpt-5.6-luna) to completion", async () => {
-    const events = await run("gpt-5.6-luna");
+  it("streams a responses-family preset turn (gpt-5.6-luna/low) to completion", async () => {
+    const events = await run("gpt-5.6-luna", "low");
     expect(events.some((e) => e.type === "text_delta")).toBe(true);
     expect(events.at(-1)?.type).toBe("completed");
   }, 60_000);
 
-  it("streams a messages-family turn (minimax-m2.7) to completion", async () => {
-    const events = await run("minimax-m2.7");
+  it("streams a messages-family preset turn (minimax-m3/thinking) to completion", async () => {
+    const events = await run("minimax-m3", "thinking");
     expect(events.some((e) => e.type === "text_delta")).toBe(true);
     expect(events.at(-1)?.type).toBe("completed");
   }, 60_000);

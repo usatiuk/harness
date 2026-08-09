@@ -23,8 +23,12 @@ or third-party backends.
   the package keeps a compiled roster. Inert deprecation metadata is not modeled.
 - Go Responses requests remain stateless (`store: false`) and request encrypted
   reasoning content so multi-step continuation can replay provider fidelity.
+- Model-scoped presets are compiled from verified Models.dev reasoning metadata:
+  Chat and Responses map effort, MiniMax M3 maps its thinking toggle, and Qwen
+  maps bounded thinking budgets. Models without advertised controls expose none.
 - Go Messages requests obtain `max_tokens` from the compiled roster and omit
-  unsupported built-in Claude thinking/effort configuration.
+  built-in Claude thinking/effort configuration unless the selected Go preset
+  supplies the model's own native thinking control.
 
 ## Chat semantics
 
@@ -49,12 +53,13 @@ path documented in the custom-provider plan.
 
 ## Evidence and remaining live boundary
 
-Unit tests cover roster/family selection, all transport delegates, request/event
-mapping, tool-call fragmentation and malformed terminals, nullable usage,
-reasoning reconstruction, cancellation-facing errors, and context overflow.
-Opt-in `OPENCODE_API_KEY` tests exercise one request per family and DeepSeek's
-reasoning/tool-call continuation shape. They remain outside normal CI; a
-two-request live Responses reasoning replay is still credential-gated evidence.
+Unit tests cover roster/family/preset selection, all transport delegates, exact
+preset request mapping, request/event mapping, tool-call fragmentation and
+malformed terminals, nullable usage, reasoning reconstruction,
+cancellation-facing errors, and context overflow. Opt-in `OPENCODE_API_KEY` tests
+exercise one preset request per family and DeepSeek's reasoning/tool-call
+continuation shape. They remain outside normal CI; a two-request live Responses
+reasoning replay is still credential-gated evidence.
 
 See [chat reasoning round-trip](2026-08-09-chat-reasoning-round-trip.md) and
 [provider follow-up hardening](2026-08-09-provider-follow-up-hardening.md).
