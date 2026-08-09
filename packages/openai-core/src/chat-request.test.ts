@@ -189,4 +189,304 @@ describe("buildChatParams", () => {
       { role: "user", content: "hi" },
     ]);
   });
+
+  it("reconstructs a reasoning + text + multi-call generation as one native assistant message", () => {
+    const params = buildChatParams(
+      baseRequest([
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "plan" }] }) },
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "let me check" }],
+          }),
+        },
+        { item: item({ type: "tool_call", callId: "c1", name: "echo", args: { x: 1 } }) },
+        { item: item({ type: "tool_call", callId: "c2", name: "echo", args: { x: 2 } }) },
+        {
+          item: item({
+            type: "tool_result",
+            callId: "c1",
+            content: [{ type: "text", text: "ok1" }],
+            status: "ok",
+          }),
+        },
+        {
+          item: item({
+            type: "tool_result",
+            callId: "c2",
+            content: [{ type: "text", text: "ok2" }],
+            status: "ok",
+          }),
+        },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      {
+        role: "assistant",
+        content: "let me check",
+        reasoning_content: "plan",
+        tool_calls: [
+          { id: "c1", type: "function", function: { name: "echo", arguments: '{"x":1}' } },
+          { id: "c2", type: "function", function: { name: "echo", arguments: '{"x":2}' } },
+        ],
+      },
+      { role: "tool", tool_call_id: "c1", content: "ok1" },
+      { role: "tool", tool_call_id: "c2", content: "ok2" },
+    ]);
+  });
+
+  it("merges reasoning into a single multi-call assistant message with no text", () => {
+    const params = buildChatParams(
+      baseRequest([
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "plan" }] }) },
+        { item: item({ type: "tool_call", callId: "c1", name: "echo", args: {} }) },
+        { item: item({ type: "tool_call", callId: "c2", name: "echo", args: {} }) },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      {
+        role: "assistant",
+        content: null,
+        reasoning_content: "plan",
+        tool_calls: [
+          { id: "c1", type: "function", function: { name: "echo", arguments: "{}" } },
+          { id: "c2", type: "function", function: { name: "echo", arguments: "{}" } },
+        ],
+      },
+    ]);
+  });
+
+  it("does not merge reasoning or tool calls across a tool_result boundary", () => {
+    const params = buildChatParams(
+      baseRequest([
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "plan" }] }) },
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "call now" }],
+          }),
+        },
+        { item: item({ type: "tool_call", callId: "c1", name: "echo", args: {} }) },
+        {
+          item: item({
+            type: "tool_result",
+            callId: "c1",
+            content: [{ type: "text", text: "ok" }],
+            status: "ok",
+          }),
+        },
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "result" }],
+          }),
+        },
+        { item: item({ type: "tool_call", callId: "c2", name: "echo", args: {} }) },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      {
+        role: "assistant",
+        content: "call now",
+        reasoning_content: "plan",
+        tool_calls: [{ id: "c1", type: "function", function: { name: "echo", arguments: "{}" } }],
+      },
+      { role: "tool", tool_call_id: "c1", content: "ok" },
+      {
+        role: "assistant",
+        content: "result",
+        tool_calls: [{ id: "c2", type: "function", function: { name: "echo", arguments: "{}" } }],
+      },
+    ]);
+  });
+
+  it("folds a reasoning item seen after the text into the same native message", () => {
+    const params = buildChatParams(
+      baseRequest([
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+          }),
+        },
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "plan" }] }) },
+        { item: item({ type: "tool_call", callId: "c", name: "echo", args: {} }) },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      {
+        role: "assistant",
+        content: "done",
+        reasoning_content: "plan",
+        tool_calls: [{ id: "c", type: "function", function: { name: "echo", arguments: "{}" } }],
+      },
+    ]);
+  });
+
+  it("concatenates text across an interleaved reasoning item into one message", () => {
+    const params = buildChatParams(
+      baseRequest([
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "first" }],
+          }),
+        },
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "plan" }] }) },
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: " second" }],
+          }),
+        },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      {
+        role: "assistant",
+        content: "first second",
+        reasoning_content: "plan",
+      },
+    ]);
+  });
+
+  it("flushes reasoning as a standalone message before a compaction boundary", () => {
+    const params = buildChatParams(
+      baseRequest([
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "plan" }] }) },
+        { item: item({ type: "compaction", content: [{ type: "text", text: "summary" }] }) },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      { role: "assistant", content: null, reasoning_content: "plan" },
+      { role: "user", content: "summary" },
+    ]);
+  });
+
+  it("keeps reasoning within its own generation across a compaction boundary", () => {
+    const params = buildChatParams(
+      baseRequest([
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "gen1" }] }) },
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "call" }],
+          }),
+        },
+        { item: item({ type: "tool_call", callId: "c1", name: "echo", args: {} }) },
+        {
+          item: item({
+            type: "tool_result",
+            callId: "c1",
+            content: [{ type: "text", text: "ok" }],
+            status: "ok",
+          }),
+        },
+        { item: item({ type: "compaction", content: [{ type: "text", text: "sum" }] }) },
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "gen2" }] }) },
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "answer" }],
+          }),
+        },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      {
+        role: "assistant",
+        content: "call",
+        reasoning_content: "gen1",
+        tool_calls: [{ id: "c1", type: "function", function: { name: "echo", arguments: "{}" } }],
+      },
+      { role: "tool", tool_call_id: "c1", content: "ok" },
+      { role: "user", content: "sum" },
+      { role: "assistant", content: "answer", reasoning_content: "gen2" },
+    ]);
+  });
+
+  it("flushes the open generation before a context boundary", () => {
+    const params = buildChatParams(
+      baseRequest([
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "plan" }] }) },
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "call" }],
+          }),
+        },
+        { item: item({ type: "tool_call", callId: "c1", name: "echo", args: {} }) },
+        {
+          item: item({
+            type: "tool_result",
+            callId: "c1",
+            content: [{ type: "text", text: "ok" }],
+            status: "ok",
+          }),
+        },
+        {
+          item: item({
+            type: "context",
+            key: "agents",
+            content: [{ type: "text", text: "project rules" }],
+          }),
+        },
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "gen2" }] }) },
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "answer" }],
+          }),
+        },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice\n\nproject rules" },
+      {
+        role: "assistant",
+        content: "call",
+        reasoning_content: "plan",
+        tool_calls: [{ id: "c1", type: "function", function: { name: "echo", arguments: "{}" } }],
+      },
+      { role: "tool", tool_call_id: "c1", content: "ok" },
+      { role: "assistant", content: "answer", reasoning_content: "gen2" },
+    ]);
+  });
+
+  it("concatenates multiple reasoning items of one generation", () => {
+    const params = buildChatParams(
+      baseRequest([
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "first" }] }) },
+        { item: item({ type: "reasoning", content: [{ type: "text", text: " second" }] }) },
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+          }),
+        },
+      ]),
+    );
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      { role: "assistant", content: "done", reasoning_content: "first second" },
+    ]);
+  });
 });

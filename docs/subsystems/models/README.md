@@ -74,9 +74,14 @@ so backends that implement `instructions` natively are unchanged.
 
 The chat/completions transport is the primary path for local and open backends
 (vLLM, Ollama, OVMS). It is function-only (freeform custom tools throw) and
-round-trips prior reasoning as plaintext `reasoning_content` on the assistant
-message that follows it (no encrypted/thinking payload), with instructions and
-context hoisted into a single leading system message. Config-defined providers
+round-trips prior reasoning as plaintext `reasoning_content` (no
+encrypted/thinking payload) folded into one native assistant message per model
+generation — content, reasoning, and tool calls together — which DeepSeek's
+thinking mode requires ("must be passed back to the API"). A generation that only
+reasoned renders as a standalone assistant reasoning message. Instructions and
+context are hoisted into a single leading system message. If a backend streams
+`reasoning_content` after the finalized reasoning item, the transport fails fast
+rather than silently dropping it. Config-defined providers
 choose the transport explicitly: `"openai-responses-compatible"` for the
 Responses shape (with the `sendInstructionsAsSystem` opt-in above) and
 `"openai-completions-compatible"` for chat/completions (function-only; rejects

@@ -107,6 +107,8 @@ interface PendingToolCall {
  * `content` delta or a `tool_calls` finish) so the log stays `[reasoning, …]` and
  * the outbound merge can round-trip it. A reasoning-only choice emits it at the
  * terminal finish. Reasoning carries no replayable payload — chat is plaintext.
+ * Reasoning streamed AFTER the item was finalized cannot be folded into it, so the
+ * transport fails fast rather than silently dropping the trailing text.
  *
  * Usage arrives on a final `include_usage` tail chunk; if the backend finishes
  * without one, `completed` is still emitted (zeroed usage) so the engine never
@@ -114,10 +116,10 @@ interface PendingToolCall {
  */
 export async function* toChatEvents(
   stream: AsyncIterable<ChatChunk>,
-  // Kept for signature parity with toModelEvents; chat encodes no provider/model
-  // payload fields, so neither is used.
-  _provider: string,
-  _model: string,
+  // Chat encodes no provider/model payload fields, but both name the failing
+  // backend in the interleaved-reasoning error.
+  provider: string,
+  model: string,
   signal: AbortSignal,
 ): AsyncIterable<ModelStreamEvent> {
   let reasoningText = "";
@@ -142,6 +144,14 @@ export async function* toChatEvents(
     // delta, so accumulate first and fall through rather than `continue` (which
     // would silently drop that boundary output).
     if (delta.reasoning_content) {
+      // Reasoning after the item was finalized can't be folded into it. Fail fast
+      // rather than silently dropping the trailing text — DeepSeek requires the
+      // full reasoning of a tool-calling turn to be passed back.
+      if (reasoningEmitted) {
+        throw new Error(
+          `chat stream interleaved reasoning after output for ${provider}/${model}; trailing reasoning cannot round-trip`,
+        );
+      }
       reasoningText += delta.reasoning_content;
       yield { type: "reasoning_delta", text: delta.reasoning_content };
     }

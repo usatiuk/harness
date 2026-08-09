@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
-import type { Item, ModelRequest, ModelStreamEvent } from "@harness/protocol";
+import type { Item, ModelRequest, ModelStreamEvent, ToolSchema } from "@harness/protocol";
 import { OpenCodeGoProvider } from "./provider.ts";
 
 // Real network smoke tests: opt in by exporting OPENCODE_API_KEY (skipped in CI).
@@ -78,6 +78,70 @@ describe.skipIf(!apiKey)("OpenCodeGoProvider (live)", () => {
       instructions: [{ type: "text", text: "You are terse." }],
       modelConfig: { provider: "opencode-go", model: "deepseek-v4-flash" },
       items: [{ item: priorReasoning }, { item: userMessage }],
+    };
+    const events: ModelStreamEvent[] = [];
+    for await (const e of provider().stream(request, new AbortController().signal)) {
+      events.push(e);
+    }
+    expect(events.some((e) => e.type === "text_delta")).toBe(true);
+    expect(events.at(-1)?.type).toBe("completed");
+  }, 60_000);
+
+  it("round-trips a reasoning + text + tool-call generation on the chat family (the 400 shape)", async () => {
+    // The exact reconstruction that produced DeepSeek's "reasoning_content must be
+    // passed back" 400: one generation with reasoning, text, and a tool call must
+    // render as ONE assistant message carrying all three. The request must carry
+    // `tools` (the 400 only fires for tool-carrying requests) and declare the
+    // function the fabricated tool_call references.
+    const echo: ToolSchema = {
+      kind: "function",
+      name: "echo",
+      description: "echoes the input back",
+      parameters: { type: "object", properties: { text: { type: "string" } } },
+    };
+    const prior = (
+      id: string,
+      seq: number,
+      partial: Partial<Item> & { type: Item["type"] },
+    ): Item => ({ id, conversationId: "c", turnId: "t", seq, createdAt: 0, ...partial }) as Item;
+    const items: ModelRequest["items"] = [
+      {
+        item: prior("r", 0, {
+          type: "reasoning",
+          content: [{ type: "text", text: "my plan is to echo the greeting back" }],
+        }),
+      },
+      {
+        item: prior("m", 1, {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: "Let me echo that." }],
+        }),
+      },
+      {
+        item: prior("tc", 2, {
+          type: "tool_call",
+          callId: "call_echo_1",
+          name: "echo",
+          args: { text: "hello" },
+        }),
+      },
+      {
+        item: prior("tr", 3, {
+          type: "tool_result",
+          callId: "call_echo_1",
+          content: [{ type: "text", text: "hello" }],
+          status: "ok",
+        }),
+      },
+    ];
+    const request: ModelRequest = {
+      instructions: [{ type: "text", text: "You are terse." }],
+      modelConfig: { provider: "opencode-go", model: "deepseek-v4-flash" },
+      tools: [echo],
+      items,
+      // The trailing steer mirrors the follow-up request that 400'd.
+      prompt: "Now reply with the single word: done",
     };
     const events: ModelStreamEvent[] = [];
     for await (const e of provider().stream(request, new AbortController().signal)) {

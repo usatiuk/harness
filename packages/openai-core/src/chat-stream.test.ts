@@ -190,6 +190,40 @@ describe("toChatEvents", () => {
     ]);
   });
 
+  it("fails fast when reasoning arrives after the finalized item", async () => {
+    // Reasoning after the item was finalized at the content boundary cannot be
+    // folded into it; throwing is preferable to silently dropping the text.
+    const stream = emit(
+      chunk({ role: "assistant", reasoning_content: "think" }),
+      chunk({ content: "answer" }),
+      chunk({ reasoning_content: "more thinking" }),
+      chunk({}, "stop"),
+    );
+    await expect(collect(toChatEvents(stream, "opencode-go", "m", never))).rejects.toThrow(
+      /interleaved reasoning/,
+    );
+  });
+
+  it("captures reasoning between content deltas and only fails after finalization", async () => {
+    // The guard keys off the finalized item (`reasoningEmitted`), not "content
+    // seen": reasoning between two content deltas is fully captured, and the
+    // store order stays `[message, reasoning, message]` for the outbound merge.
+    const stream = emit(
+      chunk({ content: "a" }),
+      chunk({ reasoning_content: "mid" }),
+      chunk({ content: "b" }),
+      chunk({}, "stop"),
+    );
+    const out = await collect(toChatEvents(stream, "opencode-go", "m", never));
+    expect(out).toEqual([
+      { type: "text_delta", text: "a" },
+      { type: "reasoning_delta", text: "mid" },
+      { type: "reasoning", content: [{ type: "text", text: "mid" }] },
+      { type: "text_delta", text: "b" },
+      { type: "completed", usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 } },
+    ]);
+  });
+
   it("stops immediately when the signal is already aborted", async () => {
     const ctrl = new AbortController();
     ctrl.abort();

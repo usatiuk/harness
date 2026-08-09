@@ -12,10 +12,17 @@ type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ChatTool = OpenAI.Chat.Completions.ChatCompletionTool;
 
 /**
- * Loose view of an assistant message carrying the untyped `reasoning_content`
- * field that chat backends use for plaintext chain-of-thought round-trip.
+ * The native assistant message the chat transport assembles per generation. The
+ * SDK's assistant `content` is a wide union; the transport always emits plaintext
+ * (`string | null`), carrying the untyped `reasoning_content` chat backends use for
+ * plaintext chain-of-thought round-trip.
  */
-type ChatMessageWithReasoning = ChatMessage & { reasoning_content?: string };
+interface AssistantMessageWithReasoning {
+  role: "assistant";
+  content: string | null;
+  reasoning_content?: string;
+  tool_calls?: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[];
+}
 
 type InputItem = OpenAI.Responses.ResponseInputItem;
 
@@ -180,8 +187,17 @@ function chatSystemContent(instructions: ContentBlock[], contextTexts: string[])
 /**
  * Maps a harness `ModelRequest` onto native streaming chat/completions params.
  * Chat is function-only (freeform `custom` tools throw), reasoning round-trips as
- * plaintext `reasoning_content` on the assistant message that follows it, and
- * instructions + context render as a single leading system message.
+ * plaintext `reasoning_content`, and instructions + context render as a single
+ * leading system message.
+ *
+ * One model generation is a SINGLE assistant message on the wire, so the log's
+ * split items (`reasoning` / `message` / `tool_call`) re-combine per generation
+ * into that native shape: `{ role: "assistant", content, reasoning_content,
+ * tool_calls }`. The reasoning of a tool-calling turn must ride the same message
+ * that carries its tool calls — DeepSeek's thinking mode rejects requests that
+ * drop it ("must be passed back to the API"). A reasoning item with no assistant
+ * output before a user-side boundary still round-trips as a standalone
+ * `{ role: "assistant", content: null, reasoning_content }`.
  */
 export function buildChatParams(
   request: ModelRequest,
@@ -200,12 +216,35 @@ export function buildChatParams(
   // Context items are hoisted into the leading system message (not rendered at
   // their position), so collect their text while mapping the rest of the log.
   const contextTexts: string[] = [];
-  // A preceding `reasoning` item merges into the assistant output that follows
-  // it; `undefined` once merged or when no reasoning is pending.
-  let pendingReasoning: string | undefined;
+  // The current generation's native assistant message, assembled from its split
+  // log items. Every assistant-side item between two user-side boundaries belongs
+  // to the same model response and folds into this one message — content,
+  // reasoning_content, and tool_calls together.
+  let assistant: AssistantMessageWithReasoning | undefined;
+
+  // Close the generation's assistant message (including the reasoning-only
+  // degenerate case it opened) and emit it.
+  const flushAssistant = (): void => {
+    if (assistant) {
+      messages.push(assistant);
+      assistant = undefined;
+    }
+  };
+
+  // Open the generation's assistant message on its first assistant-side item.
+  const ensureAssistant = (): AssistantMessageWithReasoning =>
+    (assistant ??= { role: "assistant", content: null });
 
   for (const { item } of request.items) {
     switch (item.type) {
+      case "reasoning": {
+        // Plaintext round-trip: no encrypted_content, no signature. The fold is
+        // position-independent — the item normally precedes the text, but a
+        // reasoning item seen after the message is open folds into it too.
+        const msg = ensureAssistant();
+        msg.reasoning_content = (msg.reasoning_content ?? "") + textOf(item.content);
+        break;
+      }
       case "message":
         // A plugin-appended system message would create a second system message,
         // which chat backends reject; fail fast rather than emit it.
@@ -214,82 +253,41 @@ export function buildChatParams(
             "chat transport emits at most one system message; a system-role message item is not allowed",
           );
         }
-        {
-          // `reasoning_content` is an assistant-only field. A non-assistant
-          // message after a pending reasoning item (e.g. the user's next steer
-          // after a reasoning-only turn) must not absorb it — flush the reasoning
-          // as a standalone assistant message instead.
-          if (item.role !== "assistant" && pendingReasoning !== undefined) {
-            const standalone: ChatMessageWithReasoning = {
-              role: "assistant",
-              content: null,
-              reasoning_content: pendingReasoning,
-            };
-            messages.push(standalone);
-            pendingReasoning = undefined;
-          }
-          const message: ChatMessageWithReasoning = {
-            role: item.role,
-            content: textOf(item.content),
-          };
-          if (pendingReasoning !== undefined) {
-            message.reasoning_content = pendingReasoning;
-            pendingReasoning = undefined;
-          }
-          messages.push(message);
+        if (item.role === "assistant") {
+          const text = textOf(item.content);
+          const msg = ensureAssistant();
+          msg.content = msg.content === null ? text : msg.content + text;
+        } else {
+          flushAssistant();
+          messages.push({ role: item.role, content: textOf(item.content) });
         }
-        break;
-      case "reasoning":
-        // Plaintext round-trip: no encrypted_content, no signature. The text rides
-        // the assistant message that follows, or a standalone message at turn end.
-        pendingReasoning = textOf(item.content);
         break;
       case "tool_call":
         {
-          const message: ChatMessageWithReasoning = {
-            role: "assistant",
-            content: null,
-            tool_calls: [
-              {
-                id: item.callId,
-                type: "function",
-                function: {
-                  name: item.name,
-                  arguments: JSON.stringify(item.args),
-                },
-              },
-            ],
-          };
-          if (pendingReasoning !== undefined) {
-            message.reasoning_content = pendingReasoning;
-            pendingReasoning = undefined;
-          }
-          messages.push(message);
+          const msg = ensureAssistant();
+          (msg.tool_calls ??= []).push({
+            id: item.callId,
+            type: "function" as const,
+            function: { name: item.name, arguments: JSON.stringify(item.args) },
+          });
         }
         break;
       case "tool_result":
         // tool_result.status is not transmitted — same as the Responses transport.
+        flushAssistant();
         messages.push({ role: "tool", tool_call_id: item.callId, content: textOf(item.content) });
         break;
       case "compaction":
+        flushAssistant();
         messages.push({ role: "user", content: textOf(item.content) });
         break;
       case "context":
+        flushAssistant();
         contextTexts.push(textOf(item.content));
         break;
     }
   }
-
-  // A reasoning item with no following assistant output still round-trips as a
-  // standalone assistant message carrying the plaintext reasoning.
-  if (pendingReasoning !== undefined) {
-    const standalone: ChatMessageWithReasoning = {
-      role: "assistant",
-      content: null,
-      reasoning_content: pendingReasoning,
-    };
-    messages.push(standalone);
-  }
+  flushAssistant();
 
   const system = chatSystemContent(request.instructions, contextTexts);
   if (system.length > 0) messages.unshift({ role: "system", content: system });

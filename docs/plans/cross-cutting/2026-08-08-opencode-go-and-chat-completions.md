@@ -1,11 +1,21 @@
 # OpenCode Go provider and the chat/completions transport
 
+> **Superseded in part by**
+> `docs/plans/cross-cutting/2026-08-09-chat-reasoning-round-trip.md`: the
+> "Thinking round-trip (chat)" merge rule ("merged into an immediately-following
+> assistant message"), the `buildChatParams` mapping description, and the
+> review-loop notes that call interleaved reasoning a tolerated display boundary
+> are superseded. Reasoning now reconstructs as one native assistant message per
+> generation, and interleaved reasoning after the finalized item fails fast. This
+> plan's status stays `Complete`; the rest of its body (transport, opencode-go
+> package, schema) remains current.
+
 **Status:** Complete — implemented and validated on 2026-08-08; `npm run check`
 (typecheck, lint, format, 675 tests) passes. Live smoke is opt-in behind
 `OPENCODE_API_KEY`. Review loop (2026-08-08) closed three transport findings with
 regression tests; see the "Review loop" section.
 **Created:** 2026-08-08
-**Updated:** 2026-08-08
+**Updated:** 2026-08-09
 **Area:** cross-cutting (protocol, openai-core, openai-api, anthropic-core, config, custom-providers, cli, new `opencode-go` package)
 
 See also the sibling plan
@@ -622,6 +632,8 @@ actioned):
   `engine.ts:607-619`, and compactions fold before a retained reasoning
   item), so no extra flush point is added today. If a future item ordering
   makes that reachable, flush must be added to those branches.
+  **Superseded:** the `buildChatParams` rewrite (2026-08-09) now flushes the
+  open generation on `tool_result`, `compaction`, and `context`.
 - Interleaved streams that emit `reasoning_content` again after the first
   output boundary show those later segments live but do not persist them
   into the already-finalized `reasoning` item (`stream.ts:149-155`). Same-
