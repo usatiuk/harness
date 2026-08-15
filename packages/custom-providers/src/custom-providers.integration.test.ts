@@ -141,7 +141,7 @@ describe("custom provider public boundary", () => {
       { inputTokens: 20, outputTokens: 1, cachedReadTokens: 0 },
     ]);
     expect(events.map((event) => event.type)).toEqual(
-      expect.arrayContaining(["tool_call.started", "tool_call.completed", "usage"]),
+      expect.arrayContaining(["item.appended", "usage.changed"]),
     );
   });
 

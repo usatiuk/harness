@@ -45,6 +45,9 @@ export class ActivityManager {
 
   track(activity: Activity, { callId, emit }: { callId: string; emit: Emit }): void {
     this.#gc();
+    if (this.#byId.has(activity.id))
+      throw new Error(`activity '${activity.id}' is already tracked`);
+    if (this.#byCall.has(callId)) throw new Error(`activity call '${callId}' is already tracked`);
     this.#byId.set(activity.id, activity);
     this.#byCall.set(callId, activity.id);
     emit({

@@ -56,24 +56,28 @@ describe("LocalExecutionContext", () => {
     expect((await ctx.spawn("exit 3").exit).code).toBe(3);
   }, 15_000);
 
-  it.runIf(process.platform === "win32")("preserves native Windows exit codes", async () => {
-    const ctx = new LocalExecutionContext(await tmp());
-    const proc = ctx.spawn(`& "${process.execPath}" -e "process.exit(7)"`);
-    expect((await proc.exit).code).toBe(7);
+  it.runIf(process.platform === "win32")(
+    "preserves native Windows exit codes",
+    async () => {
+      const ctx = new LocalExecutionContext(await tmp());
+      const proc = ctx.spawn(`& "${process.execPath}" -e "process.exit(7)"`);
+      expect((await proc.exit).code).toBe(7);
 
-    const recovered = ctx.spawn(
-      `& "${process.execPath}" -e "process.exit(7)"; Write-Output recovered`,
-    );
-    let output = "";
-    recovered.onData((chunk) => (output += chunk));
-    expect((await recovered.exit).code).toBe(0);
-    expect(output.trim()).toBe("recovered");
+      const recovered = ctx.spawn(
+        `& "${process.execPath}" -e "process.exit(7)"; Write-Output recovered`,
+      );
+      let output = "";
+      recovered.onData((chunk) => (output += chunk));
+      expect((await recovered.exit).code).toBe(0);
+      expect(output.trim()).toBe("recovered");
 
-    const cmdletFailure = ctx.spawn(
-      `& "${process.execPath}" -e "process.exit(0)"; Get-Item -LiteralPath '__missing__'`,
-    );
-    expect((await cmdletFailure.exit).code).toBe(1);
-  });
+      const cmdletFailure = ctx.spawn(
+        `& "${process.execPath}" -e "process.exit(0)"; Get-Item -LiteralPath '__missing__'`,
+      );
+      expect((await cmdletFailure.exit).code).toBe(1);
+    },
+    15_000,
+  );
 
   it("advertises the host shell and preserves UTF-8 command output", async () => {
     const ctx = new LocalExecutionContext(await tmp());

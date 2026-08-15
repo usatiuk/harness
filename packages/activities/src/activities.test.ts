@@ -125,6 +125,18 @@ describe("ActivityManager — surface a completion exactly once", () => {
     expect(mgr.runningCount()).toBe(1);
   });
 
+  it("rejects duplicate activity and active call ids instead of overwriting ownership", () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    mgr.track(fakeActivity("a1").activity, { callId: "call-1", emit: () => {} });
+
+    expect(() =>
+      mgr.track(fakeActivity("a1").activity, { callId: "call-2", emit: () => {} }),
+    ).toThrow("already tracked");
+    expect(() =>
+      mgr.track(fakeActivity("a2").activity, { callId: "call-1", emit: () => {} }),
+    ).toThrow("already tracked");
+  });
+
   it("never kills settled activities directly", async () => {
     const mgr = new ActivityManager("c" as ConversationId);
     let settledKills = 0;

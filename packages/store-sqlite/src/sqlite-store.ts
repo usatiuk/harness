@@ -6,6 +6,7 @@ import { Kysely, SqliteDialect, sql } from "kysely";
 import type {
   ByteRange,
   Clock,
+  ConversationPageCursor,
   ConversationId,
   ConversationOverrides,
   ConversationRecord,
@@ -14,6 +15,7 @@ import type {
   Item,
   ItemId,
   ModelUsage,
+  ModelUsageSummary,
   NewContextBuild,
   NewConversationRecord,
   NewItem,
@@ -27,7 +29,7 @@ import type {
   TurnStatus,
   Usage,
 } from "@harness/protocol";
-import { itemSchema, usageSchema } from "@harness/protocol";
+import { addUsage, itemSchema, usageSchema, zeroUsage } from "@harness/protocol";
 import { systemClock, uuidIdGenerator } from "@harness/store";
 import { migrate, type Database } from "./schema.ts";
 
@@ -125,6 +127,29 @@ export class SqliteStore implements Store {
       .selectFrom("conversations")
       .selectAll()
       .orderBy("created_at", "desc")
+      .orderBy("id", "desc")
+      .execute();
+    return rows.map(rowToRecord);
+  }
+
+  async listConversationPage(
+    limit: number,
+    before?: ConversationPageCursor,
+  ): Promise<ConversationRecord[]> {
+    if (!Number.isInteger(limit) || limit <= 0) throw new Error("limit must be a positive integer");
+    let query = this.#k.selectFrom("conversations").selectAll();
+    if (before !== undefined) {
+      query = query.where((eb) =>
+        eb.or([
+          eb("created_at", "<", before.createdAt),
+          eb.and([eb("created_at", "=", before.createdAt), eb("id", "<", before.id)]),
+        ]),
+      );
+    }
+    const rows = await query
+      .orderBy("created_at", "desc")
+      .orderBy("id", "desc")
+      .limit(limit)
       .execute();
     return rows.map(rowToRecord);
   }
@@ -185,6 +210,37 @@ export class SqliteStore implements Store {
         WHERE items.parent IS NOT NULL
       )
       SELECT i.* FROM items i JOIN chain ON i.id = chain.id ORDER BY i.seq ASC
+    `.execute(this.#k);
+    return rows.rows.map(rowToItem);
+  }
+
+  async getItem(conversationId: ConversationId, itemId: ItemId): Promise<Item | undefined> {
+    const row = await this.#k
+      .selectFrom("items")
+      .selectAll()
+      .where("conversation_id", "=", conversationId)
+      .where("id", "=", itemId)
+      .executeTakeFirst();
+    return row ? rowToItem(row) : undefined;
+  }
+
+  async listItemAncestors(
+    conversationId: ConversationId,
+    start: ItemId | null,
+    limit: number,
+  ): Promise<Item[]> {
+    if (!Number.isInteger(limit) || limit <= 0) throw new Error("limit must be a positive integer");
+    if (start === null) return [];
+    const rows = await sql<ItemRow>`
+      WITH RECURSIVE chain(id, depth) AS (
+        SELECT id, 0 FROM items
+        WHERE id = ${start} AND conversation_id = ${conversationId}
+        UNION ALL
+        SELECT items.parent, chain.depth + 1
+        FROM items JOIN chain ON items.id = chain.id
+        WHERE items.parent IS NOT NULL AND chain.depth + 1 < ${limit}
+      )
+      SELECT i.* FROM items i JOIN chain ON i.id = chain.id ORDER BY chain.depth ASC
     `.execute(this.#k);
     return rows.rows.map(rowToItem);
   }
@@ -294,6 +350,35 @@ export class SqliteStore implements Store {
       .orderBy(sql`rowid`, "asc")
       .execute();
     return rows.map(rowToModelUsage);
+  }
+
+  async summarizeModelUsage(conversationId: ConversationId): Promise<ModelUsageSummary> {
+    const rows = this.#db
+      .prepare<[string], { usage: string; cost: number | null }>(
+        `SELECT usage, cost FROM model_usage
+         WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC`,
+      )
+      .iterate(conversationId);
+    let usage = zeroUsage();
+    let incomplete = false;
+    let cost = 0;
+    let lastInputTokens: number | undefined;
+    for (const row of rows) {
+      cost += row.cost ?? 0;
+      const parsed = usageSchema.nullable().parse(JSON.parse(row.usage)) as Usage | null;
+      if (parsed === null) {
+        incomplete = true;
+      } else {
+        usage = addUsage(usage, parsed);
+        lastInputTokens = parsed.inputTokens;
+      }
+    }
+    return {
+      usage,
+      incomplete,
+      cost,
+      ...(lastInputTokens === undefined ? {} : { lastInputTokens }),
+    };
   }
 
   async putProviderPayload(payload: ProviderPayload): Promise<void> {

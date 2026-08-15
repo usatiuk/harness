@@ -8,6 +8,7 @@ import {
   type HarnessEvent,
   type Item,
   type ModelUsage,
+  type ModelUsageSummary,
   type ToolStatus,
   type TurnStatus,
   type Usage,
@@ -100,7 +101,9 @@ export interface State {
   cells: Cell[];
   turn: TurnState;
   /** A middleware request (e.g. approval) awaiting a decision; cleared when its turn ends. */
-  pending?: { requestId: string; summary: string };
+  pending: { requestId: string; summary: string }[];
+  /** Durable facts already folded from history or the live suffix. */
+  itemIds: ReadonlySet<string>;
   /** Accepted-but-not-yet-injected input (queue/steer), mirrored from the engine's `inbox` event. */
   pendingInput: { intent: DeliveryIntent; text: string }[];
   /** Tracked activities this session, newest last; folded from `activity.*` plugin events. */
@@ -120,6 +123,8 @@ export interface State {
 export const emptyState: State = {
   cells: [],
   turn: { status: "idle" },
+  pending: [],
+  itemIds: new Set(),
   pendingInput: [],
   activities: [],
   usage: zeroUsage(),
@@ -190,12 +195,116 @@ function finalizeStream(
   return { ...state, cells };
 }
 
-/** Drop `pending` from a state (exactOptionalPropertyTypes forbids assigning `undefined`). */
 function clearPending(state: State): State {
-  if (state.pending === undefined) return state;
-  const next = { ...state };
-  delete next.pending;
-  return next;
+  return state.pending.length === 0 ? state : { ...state, pending: [] };
+}
+
+function reduceItem(state: State, item: Item): State {
+  if (state.itemIds.has(item.id)) {
+    const streamKind =
+      item.type === "message" && item.role === "assistant"
+        ? "assistant"
+        : item.type === "reasoning"
+          ? "reasoning"
+          : undefined;
+    if (streamKind === undefined) return state;
+    const index = openIndex(state.cells, streamKind, item.turnId);
+    if (index === -1) return state;
+    // History may already contain the durable item while its attach suffix still contains the
+    // preceding deltas. The repeated canonical item closes that overlap by removing its draft.
+    return { ...state, cells: state.cells.filter((_, cellIndex) => cellIndex !== index) };
+  }
+  const itemIds = new Set(state.itemIds).add(item.id);
+  let next: State;
+  switch (item.type) {
+    case "message":
+      if (item.role === "user") {
+        next = {
+          ...state,
+          cells: [
+            ...state.cells,
+            {
+              kind: "user",
+              id: item.id,
+              turnId: item.turnId,
+              text: textOf(item.content),
+              createdAt: item.createdAt,
+            },
+          ],
+        };
+      } else if (item.role === "assistant") {
+        next = finalizeStream(
+          state,
+          "assistant",
+          item.turnId,
+          item.id,
+          textOf(item.content),
+          item.createdAt,
+        );
+      } else {
+        next = state;
+      }
+      break;
+    case "reasoning":
+      next = finalizeStream(
+        state,
+        "reasoning",
+        item.turnId,
+        item.id,
+        textOf(item.content),
+        item.createdAt,
+      );
+      break;
+    case "compaction":
+      next = {
+        ...state,
+        cells: [...state.cells, { kind: "compaction", id: item.id, text: textOf(item.content) }],
+      };
+      break;
+    case "context":
+      next = {
+        ...state,
+        cells: [...state.cells, { kind: "context", id: item.id, text: textOf(item.content) }],
+      };
+      break;
+    case "tool_call":
+      next = {
+        ...state,
+        cells: [
+          ...state.cells,
+          {
+            kind: "tool",
+            callId: item.callId,
+            turnId: item.turnId,
+            name: item.name,
+            args: item.args,
+            startedAt: item.createdAt,
+          },
+        ],
+      };
+      break;
+    case "tool_result":
+      next = {
+        ...state,
+        cells: state.cells.map((cell): Cell => {
+          if (cell.kind !== "tool" || cell.callId !== item.callId) return cell;
+          const approval = approvalAnnotationOf(item.annotations);
+          const settled: Extract<Cell, { kind: "tool" }> = {
+            ...cell,
+            status: item.status,
+            output: textOf(item.content),
+            completedAt: item.createdAt,
+            ...(approval ? { approval } : {}),
+          };
+          delete settled.approvalProgress;
+          return settled;
+        }),
+      };
+      break;
+    default:
+      return assertNever(item);
+  }
+  return { ...next, itemIds };
 }
 
 /** Fold one event into the transcript state. Pure; handles `activity.*` plugin events plus kernel events. */
@@ -308,101 +417,12 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
         ],
       };
     }
-    case "message": {
-      const item = event.item;
-      if (item.type !== "message") return state;
-      if (item.role === "user") {
-        return {
-          ...state,
-          cells: [
-            ...state.cells,
-            {
-              kind: "user",
-              id: item.id,
-              turnId: item.turnId,
-              text: textOf(item.content),
-              createdAt: item.createdAt,
-            },
-          ],
-        };
-      }
-      if (item.role === "assistant") {
-        return finalizeStream(
-          state,
-          "assistant",
-          item.turnId,
-          item.id,
-          textOf(item.content),
-          item.createdAt,
-        );
-      }
-      return state; // system messages aren't shown
-    }
-    case "reasoning": {
-      const item = event.item;
-      if (item.type !== "reasoning") return state;
-      return finalizeStream(
-        state,
-        "reasoning",
-        item.turnId,
-        item.id,
-        textOf(item.content),
-        item.createdAt,
-      );
-    }
-    case "compaction": {
-      const item = event.item;
-      if (item.type !== "compaction") return state;
-      return {
-        ...state,
-        cells: [...state.cells, { kind: "compaction", id: item.id, text: textOf(item.content) }],
-      };
-    }
-    case "context": {
-      const item = event.item;
-      if (item.type !== "context") return state;
-      return {
-        ...state,
-        cells: [...state.cells, { kind: "context", id: item.id, text: textOf(item.content) }],
-      };
-    }
+    case "item.appended":
+      return reduceItem(state, event.item);
     case "text_delta":
       return appendDelta(state, "assistant", event.turnId, event.text, receivedAt);
     case "reasoning_delta":
       return appendDelta(state, "reasoning", event.turnId, event.text, receivedAt);
-    case "tool_call.started": {
-      return {
-        ...state,
-        cells: [
-          ...state.cells,
-          {
-            kind: "tool",
-            callId: event.callId,
-            ...(state.turn.id ? { turnId: state.turn.id } : {}),
-            name: event.name,
-            args: event.args,
-            startedAt: receivedAt,
-          },
-        ],
-      };
-    }
-    case "tool_call.completed":
-      return {
-        ...state,
-        cells: state.cells.map((c): Cell => {
-          if (c.kind !== "tool" || c.callId !== event.callId) return c;
-          const approval = approvalAnnotationOf(event.annotations);
-          const settled: Extract<Cell, { kind: "tool" }> = {
-            ...c,
-            status: event.status,
-            output: textOf(event.forModel),
-            completedAt: receivedAt,
-            ...(approval ? { approval } : {}),
-          };
-          delete settled.approvalProgress;
-          return settled;
-        }),
-      };
     case "request.created": {
       if (!isApprovalRequest(event.request)) return state;
       const req = event.request;
@@ -416,29 +436,37 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
               }
             : cell,
         ),
-        pending: { requestId: event.requestId, summary: `approve ${req.call.name}?` },
+        pending: state.pending.some(({ requestId }) => requestId === event.requestId)
+          ? state.pending
+          : [
+              ...state.pending,
+              { requestId: event.requestId, summary: `approve ${req.call.name}?` },
+            ],
       };
     }
     case "request.resolved":
-      return state.pending?.requestId === event.requestId ? clearPending(state) : state;
-    case "config.changed":
-      return state; // not a transcript line
-    case "usage":
-      if (!event.usage) {
-        const withoutCheckpoint: State = { ...state };
-        delete withoutCheckpoint.lastInputTokens;
-        return {
-          ...withoutCheckpoint,
-          usageIncomplete: true,
-          cost: state.cost + (event.cost ?? 0),
-        };
-      }
       return {
         ...state,
-        usage: addUsage(state.usage, event.usage),
-        cost: state.cost + (event.cost ?? 0),
-        lastInputTokens: event.usage.inputTokens,
+        pending: state.pending.filter(({ requestId }) => requestId !== event.requestId),
       };
+    case "config.changed":
+      return state; // not a transcript line
+    case "head.changed":
+      return state;
+    case "usage.changed": {
+      const next: State = {
+        ...state,
+        usage: event.summary.usage,
+        cost: event.summary.cost,
+        ...(event.summary.incomplete ? { usageIncomplete: true } : {}),
+        ...(event.summary.lastInputTokens === undefined
+          ? {}
+          : { lastInputTokens: event.summary.lastInputTokens }),
+      };
+      if (!event.summary.incomplete) delete next.usageIncomplete;
+      if (event.summary.lastInputTokens === undefined) delete next.lastInputTokens;
+      return next;
+    }
     default:
       return assertNever(event);
   }
@@ -450,87 +478,30 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
  * are intentionally absent. `usageRows` seed the running totals so a resumed usage
  * footer matches a live one.
  */
-export function init(items: Item[], usageRows: ModelUsage[] = []): State {
-  const cells: Cell[] = [];
-  const toolByCall = new Map<string, Extract<Cell, { kind: "tool" }>>();
-  for (const item of items) {
-    switch (item.type) {
-      case "message":
-        if (item.role === "user")
-          cells.push({
-            kind: "user",
-            id: item.id,
-            turnId: item.turnId,
-            text: textOf(item.content),
-            createdAt: item.createdAt,
-          });
-        else if (item.role === "assistant")
-          cells.push({
-            kind: "assistant",
-            turnId: item.turnId,
-            text: textOf(item.content),
-            streaming: false,
-            id: item.id,
-          });
-        break; // system messages aren't shown
-      case "reasoning":
-        cells.push({
-          kind: "reasoning",
-          turnId: item.turnId,
-          text: textOf(item.content),
-          streaming: false,
-          startedAt: item.createdAt,
-          completedAt: item.createdAt,
-          id: item.id,
-        });
-        break;
-      case "tool_call": {
-        const cell: Extract<Cell, { kind: "tool" }> = {
-          kind: "tool",
-          callId: item.callId,
-          turnId: item.turnId,
-          name: item.name,
-          args: item.args,
-          startedAt: item.createdAt,
-        };
-        cells.push(cell);
-        toolByCall.set(item.callId, cell);
-        break;
-      }
-      case "tool_result": {
-        const cell = toolByCall.get(item.callId);
-        if (cell) {
-          cell.status = item.status;
-          cell.output = textOf(item.content);
-          cell.completedAt = item.createdAt;
-          const approval = approvalAnnotationOf(item.annotations);
-          if (approval) cell.approval = approval;
-        }
-        break;
-      }
-      case "compaction":
-        cells.push({ kind: "compaction", id: item.id, text: textOf(item.content) });
-        break;
-      case "context":
-        cells.push({ kind: "context", id: item.id, text: textOf(item.content) });
-        break;
-      default:
-        assertNever(item);
-    }
+export function init(items: Item[], usageSeed: ModelUsage[] | ModelUsageSummary = []): State {
+  let state: State = { ...emptyState, itemIds: new Set() };
+  for (const item of items) state = reduceItem(state, item);
+  if (!Array.isArray(usageSeed)) {
+    return {
+      ...state,
+      usage: usageSeed.usage,
+      ...(usageSeed.incomplete ? { usageIncomplete: true as const } : {}),
+      cost: usageSeed.cost,
+      ...(usageSeed.lastInputTokens === undefined
+        ? {}
+        : { lastInputTokens: usageSeed.lastInputTokens }),
+    };
   }
-  const knownUsageRows = usageRows.filter(
+  const knownUsageRows = usageSeed.filter(
     (row): row is ModelUsage & { usage: Usage } => row.usage !== null,
   );
   const usage = knownUsageRows.reduce((sum, row) => addUsage(sum, row.usage), zeroUsage());
-  const cost = usageRows.reduce((sum, row) => sum + (row.cost ?? 0), 0);
-  const last = usageRows.at(-1)?.usage?.inputTokens;
+  const cost = usageSeed.reduce((sum, row) => sum + (row.cost ?? 0), 0);
+  const last = usageSeed.at(-1)?.usage?.inputTokens;
   return {
-    cells,
-    turn: { status: "idle" },
-    pendingInput: [],
-    activities: [],
+    ...state,
     usage,
-    ...(usageRows.some((row) => row.usage === null) ? { usageIncomplete: true as const } : {}),
+    ...(usageSeed.some((row) => row.usage === null) ? { usageIncomplete: true as const } : {}),
     cost,
     ...(last !== undefined ? { lastInputTokens: last } : {}),
   };

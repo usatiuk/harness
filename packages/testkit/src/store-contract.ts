@@ -42,6 +42,20 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect((await store.listConversations()).map((x) => x.id)).toEqual([c.id, b.id, a.id]);
     });
 
+    it("paginates conversations with an exclusive stable cursor", async () => {
+      const store = makeStore();
+      const a = await store.createConversation(sampleRecord());
+      const b = await store.createConversation(sampleRecord());
+      const c = await store.createConversation(sampleRecord());
+      const first = await store.listConversationPage(2);
+      expect(first.map((record) => record.id)).toEqual([c.id, b.id]);
+      const second = await store.listConversationPage(2, {
+        createdAt: b.createdAt,
+        id: b.id,
+      });
+      expect(second.map((record) => record.id)).toEqual([a.id]);
+    });
+
     it("updateConversationOverrides shallow-merges the patch and preserves the rest", async () => {
       const store = makeStore();
       const conv = await store.createConversation(sampleRecord());
@@ -142,6 +156,26 @@ export function storeContract(name: string, makeStore: () => Store): void {
         abandoned.id,
         branched.id,
       ]);
+    });
+
+    it("reads an anchored lineage newest-first in bounded pages", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation(sampleRecord());
+      const other = await store.createConversation(sampleRecord());
+      const turn = await store.createTurn(conv.id);
+      const a = await store.appendItem(message(conv.id, turn.id, "a"));
+      const b = await store.appendItem(message(conv.id, turn.id, "b"));
+      const c = await store.appendItem(message(conv.id, turn.id, "c"));
+
+      expect((await store.listItemAncestors(conv.id, c.id, 2)).map((item) => item.id)).toEqual([
+        c.id,
+        b.id,
+      ]);
+      expect((await store.listItemAncestors(conv.id, b.parent, 2)).map((item) => item.id)).toEqual([
+        a.id,
+      ]);
+      expect(await store.getItem(conv.id, b.id)).toEqual(b);
+      expect(await store.getItem(other.id, b.id)).toBeUndefined();
     });
 
     it("listItems honors a seq range", async () => {
@@ -289,6 +323,17 @@ export function storeContract(name: string, makeStore: () => Store): void {
       });
       expect(await store.listModelUsage(conv.id)).toEqual([first, second, unknown]);
       expect(await store.listModelUsage("missing" as ConversationId)).toEqual([]);
+      expect(await store.summarizeModelUsage(conv.id)).toEqual({
+        usage: {
+          inputTokens: 1210,
+          outputTokens: 85,
+          cachedReadTokens: 1000,
+          cacheWriteTokens: { 300: 100 },
+        },
+        incomplete: true,
+        cost: 0.0123,
+        lastInputTokens: 10,
+      });
     });
 
     it("namespaces plugin state by plugin + conversation + key", async () => {

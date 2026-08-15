@@ -13,6 +13,8 @@ export interface ConversationRunner {
   createConversation(opts: {
     cwd?: string;
     overrides?: ConversationOverrides;
+    /** Internal tree ownership for a child spawned by this conversation. */
+    parentId?: ConversationId;
   }): Promise<Conversation>;
   /** Deliver text with an intent — `send` to seed a turn, `interrupt` (empty text) to abort one. */
   deliver(id: ConversationId, text: string, intent: DeliveryIntent): Promise<void>;

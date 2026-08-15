@@ -59,20 +59,18 @@ export class SubagentActivity implements Activity {
   onEvent(event: HarnessEvent): void {
     if (!isKernelEvent(event)) return;
     switch (event.type) {
-      case "message": {
+      case "item.appended": {
         const item = event.item;
         if (item.type === "message" && item.role === "assistant") {
           this.#finalText = textOf(item.content);
           this.#push(`assistant: ${this.#finalText}`);
+        } else if (item.type === "tool_call") {
+          this.#push(`→ ${item.name}`);
+        } else if (item.type === "tool_result") {
+          this.#push(`  ${item.status}`);
         }
         break;
       }
-      case "tool_call.started":
-        this.#push(`→ ${event.name}`);
-        break;
-      case "tool_call.completed":
-        this.#push(`  ${event.status}`);
-        break;
       case "turn.status":
         if (event.status !== "running") this.#settle(event.status);
         break;
@@ -121,8 +119,8 @@ export interface SpawnInit {
 export async function spawnSubagent(init: SpawnInit): Promise<SubagentActivity> {
   const child = await init.runner.createConversation(
     init.cwd !== undefined
-      ? { cwd: init.cwd, overrides: init.overrides }
-      : { overrides: init.overrides },
+      ? { cwd: init.cwd, overrides: init.overrides, parentId: init.parent }
+      : { overrides: init.overrides, parentId: init.parent },
   );
   await init.runner.putPluginState("subagents", child.id, "spawn", {
     parent: { conversationId: init.parent, callId: init.callId },

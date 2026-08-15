@@ -11,6 +11,7 @@ import type { ProviderPayload } from "./model.ts";
 import type { ContextBuild, NewContextBuild } from "./policies.ts";
 import type { OutputRef } from "./tools.ts";
 import type { ModelUsage, NewModelUsage } from "./usage.ts";
+import type { ModelUsageSummary } from "./usage.ts";
 
 export interface SeqRange {
   fromSeq?: number; // inclusive
@@ -20,6 +21,11 @@ export interface SeqRange {
 export interface ByteRange {
   offset: number;
   length: number;
+}
+
+export interface ConversationPageCursor {
+  createdAt: number;
+  id: ConversationId;
 }
 
 /**
@@ -43,6 +49,11 @@ export interface Store {
   updateConversationOverrides(id: ConversationId, patch: ConversationOverrides): Promise<void>;
   /** All conversations, most-recent-first (by `createdAt`). The resume/listing source. */
   listConversations(): Promise<ConversationRecord[]>;
+  /** Stable recent-first page; `before` is exclusive. */
+  listConversationPage(
+    limit: number,
+    before?: ConversationPageCursor,
+  ): Promise<ConversationRecord[]>;
 
   /**
    * Append-only. Assigns `seq`/`createdAt`, links `parent` to the current `head`,
@@ -56,6 +67,14 @@ export interface Store {
   setHead(conversationId: ConversationId, itemId: ItemId): Promise<void>;
   /** Items on `head`'s ancestor chain, in `seq` order. The context-build source. */
   listActiveItems(conversationId: ConversationId): Promise<Item[]>;
+  /** One immutable item, scoped to its owning conversation. */
+  getItem(conversationId: ConversationId, itemId: ItemId): Promise<Item | undefined>;
+  /** Newest-first parent walk beginning at `start`, bounded by item count. */
+  listItemAncestors(
+    conversationId: ConversationId,
+    start: ItemId | null,
+    limit: number,
+  ): Promise<Item[]>;
 
   createTurn(conversationId: ConversationId): Promise<Turn>;
   updateTurn(id: TurnId, status: TurnStatus): Promise<Turn>;
@@ -72,6 +91,8 @@ export interface Store {
   recordModelUsage(input: NewModelUsage): Promise<ModelUsage>;
   /** All usage rows for a conversation, in record order. */
   listModelUsage(conversationId: ConversationId): Promise<ModelUsage[]>;
+  /** Constant-size aggregate computed without returning every usage row. */
+  summarizeModelUsage(conversationId: ConversationId): Promise<ModelUsageSummary>;
 
   putProviderPayload(payload: ProviderPayload): Promise<void>;
   getProviderPayloads(itemIds: ItemId[]): Promise<ProviderPayload[]>;

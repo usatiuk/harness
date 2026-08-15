@@ -1,10 +1,8 @@
-import type { ContentBlock } from "./content.ts";
 import type { DeliveryIntent } from "./delivery.ts";
 import type { ConversationId, TurnId } from "./ids.ts";
 import type { Item } from "./items.ts";
-import type { Usage } from "./model.ts";
+import type { ModelUsageSummary } from "./usage.ts";
 import type { ConversationConfig } from "./conversation.ts";
-import type { ToolStatus } from "./tools.ts";
 import type { TurnStatus } from "./conversation.ts";
 
 /**
@@ -22,34 +20,17 @@ export interface ConversationEvent {
 export type KernelEvent = ConversationEvent &
   (
     | { type: "turn.status"; turnId: TurnId; status: TurnStatus; error?: string }
-    | { type: "message"; item: Item }
-    | { type: "reasoning"; item: Item }
-    | { type: "compaction"; item: Item }
-    | { type: "context"; item: Item }
+    | { type: "item.appended"; item: Item }
+    | { type: "head.changed"; head: Item["parent"] }
     | { type: "text_delta"; turnId: TurnId; text: string }
     | { type: "reasoning_delta"; turnId: TurnId; text: string }
-    | { type: "tool_call.started"; callId: string; name: string; args: unknown }
-    | {
-        type: "tool_call.completed";
-        callId: string;
-        status: ToolStatus;
-        forModel: ContentBlock[];
-        annotations?: Record<string, unknown>;
-      }
     | { type: "request.created"; requestId: string; request: unknown }
     | { type: "request.resolved"; requestId: string }
     | { type: "config.changed"; config: ConversationConfig }
     // `inbox`: snapshot of accepted-but-not-yet-injected input (queue/steer), re-emitted on
     // every inbox mutation; `pending: []` means it drained.
     | { type: "inbox"; pending: { intent: DeliveryIntent; text: string }[] }
-    | {
-        type: "usage";
-        turnId: TurnId;
-        provider: string;
-        model: string;
-        usage: Usage | null;
-        cost: number | null; // stored fact; null = unknown usage or no rate card
-      }
+    | { type: "usage.changed"; summary: ModelUsageSummary }
   );
 
 /**
@@ -66,19 +47,15 @@ export type HarnessEvent = KernelEvent | PluginEvent;
 
 const KERNEL_EVENT_TYPES = new Set<KernelEvent["type"]>([
   "turn.status",
-  "message",
-  "reasoning",
-  "compaction",
-  "context",
+  "item.appended",
+  "head.changed",
   "text_delta",
   "reasoning_delta",
-  "tool_call.started",
-  "tool_call.completed",
   "request.created",
   "request.resolved",
   "config.changed",
   "inbox",
-  "usage",
+  "usage.changed",
 ]);
 
 /**

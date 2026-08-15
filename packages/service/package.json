@@ -11,6 +11,7 @@
     }
   },
   "dependencies": {
+    "@harness/client": "*",
     "@harness/protocol": "*",
     "@harness/core": "*",
     "@harness/config": "*"
@@ -22,6 +23,7 @@
     "@harness/execution": "*",
     "@harness/workspace": "*",
     "@harness/approval": "*",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "zod": "^4.4.3"
   }
 }

@@ -67,6 +67,13 @@ interface DispatchOutcome {
 
 export type DeactivationResult = { status: "busy" } | { status: "deactivated" };
 
+export interface ConversationTreeMemberState {
+  conversation: Conversation;
+  status: "idle" | "running";
+  turnId: TurnId | null;
+  pendingInput: { intent: "queue" | "steer"; text: string }[];
+}
+
 /** Result for a call abandoned or never started because the turn was aborted. */
 const interruptedResult = (): ToolResult => errorResult("interrupted: turn aborted by new input");
 
@@ -89,7 +96,11 @@ export class Engine {
   readonly #observers: { observer: Observer; scope?: ConversationId }[];
   readonly #runtimes = new Map<ConversationId, Runtime>();
   readonly #loading = new Map<ConversationId, Promise<Runtime>>();
-  #deactivating = false;
+  /** Ephemeral ownership for loaded roots and children created during this process. */
+  readonly #roots = new Map<ConversationId, ConversationId>();
+  readonly #closingRoots = new Set<ConversationId>();
+  /** Prevents stale plugin callbacks from reviving a closed root scope; `prepare(root)` reopens it. */
+  readonly #closedRoots = new Set<ConversationId>();
   /** Monotonic source for ephemeral request ids (process-local; not durable). */
   #requestSeq = 0;
 
@@ -130,12 +141,12 @@ export class Engine {
   ): Promise<void> {
     // Plugin completion notices may race teardown. They belong to the closing activation and must
     // not recreate it; direct callers still receive an honest rejection for unaccepted input.
-    if (this.#deactivating) {
+    if (this.#rootScopeUnavailable(conversationId)) {
       if (input.source.kind === "plugin") return;
       throw new Error("cannot deliver input during conversation deactivation");
     }
     const runtime = await this.#runtime(conversationId);
-    if (this.#deactivating) {
+    if (this.#rootScopeUnavailable(conversationId)) {
       if (input.source.kind === "plugin") return;
       throw new Error("cannot deliver input during conversation deactivation");
     }
@@ -151,7 +162,12 @@ export class Engine {
    * `#runtime`/`#service` are cached and `bind` is cheap. Unlike `deliver`, it starts no turn.
    */
   async prepare(conversationId: ConversationId): Promise<void> {
+    const root = this.#rootOf(conversationId);
+    if (conversationId === root) this.#closedRoots.delete(root);
     const runtime = await this.#runtime(conversationId);
+    if (this.#rootScopeUnavailable(conversationId)) {
+      throw new Error("cannot prepare a conversation during deactivation");
+    }
     const execution = this.#service(runtime, "execution") as
       | { bind?: (emit: (event: PluginEvent) => void) => void }
       | undefined;
@@ -164,7 +180,7 @@ export class Engine {
    * A no-op if the request is unknown (already resolved, or cancelled by abort).
    */
   respond(conversationId: ConversationId, requestId: string, response: unknown): void {
-    this.#runtimes.get(conversationId)?.pendingRequests.get(requestId)?.resolve(response);
+    this.#runtimes.get(conversationId)?.pendingRequests.get(requestId)?.(response);
   }
 
   /**
@@ -178,10 +194,14 @@ export class Engine {
       throw new Error(`cannot rewind conversation ${conversationId} while a turn is running`);
     }
     await this.store.setHead(conversationId, toItemId);
+    this.#emitKernel({ type: "head.changed", conversationId, head: toItemId });
   }
 
   /** Runs a standalone, summary-only compaction turn. Refuses to interrupt active work. */
-  async compact(conversationId: ConversationId): Promise<"compacted" | "noop"> {
+  async compact(
+    conversationId: ConversationId,
+    signal?: AbortSignal,
+  ): Promise<"compacted" | "noop"> {
     const runtime = await this.#runtime(conversationId);
     if (runtime.running) {
       throw new Error(`cannot compact conversation ${conversationId} while a turn is running`);
@@ -190,8 +210,12 @@ export class Engine {
     runtime.running = true;
     const conversation = runtime.conversation;
     const controller = new AbortController();
+    const cancel = () => controller.abort();
+    if (signal?.aborted) controller.abort();
+    signal?.addEventListener("abort", cancel, { once: true });
     runtime.controller = controller;
     try {
+      if (controller.signal.aborted) throw new TurnAborted();
       if ((await this.store.listActiveItems(conversationId)).length === 0) return "noop";
       if (controller.signal.aborted) throw new TurnAborted();
       const turn = await this.store.createTurn(conversation.id);
@@ -242,6 +266,7 @@ export class Engine {
         throw aborted && !(error instanceof TurnAborted) ? new TurnAborted() : error;
       }
     } finally {
+      signal?.removeEventListener("abort", cancel);
       runtime.currentTurnId = undefined;
       runtime.controller = undefined;
       if (runtime.inbox.length > 0) {
@@ -253,13 +278,61 @@ export class Engine {
     }
   }
 
+  /** Requests cancellation without disposing root-owned services. Teardown waits separately. */
+  cancel(rootConversationId: ConversationId): void {
+    const rootId = this.#rootOf(rootConversationId);
+    for (const runtime of this.#treeRuntimes(rootId)) {
+      runtime.inbox.splice(0);
+      this.#emitInbox(runtime);
+      runtime.controller?.abort();
+    }
+  }
+
   /** Resolves when the conversation's loop is idle and its inbox is drained. */
   whenIdle(conversationId: ConversationId): Promise<void> {
     return this.#runtimes.get(conversationId)?.whenIdle() ?? Promise.resolve();
   }
 
+  /** Bounded synchronous projection of already-loaded authority for attachment. */
+  conversationTreeState(rootConversationId: ConversationId): ConversationTreeMemberState[] {
+    const root = this.#rootOf(rootConversationId);
+    return this.#treeRuntimes(root).map((runtime) => ({
+      conversation: runtime.conversation,
+      status: runtime.running ? "running" : "idle",
+      turnId: runtime.currentTurnId ?? null,
+      pendingInput: runtime.inbox
+        .filter(
+          (delivery): delivery is Delivery & { intent: "queue" | "steer" } =>
+            delivery.intent === "queue" || delivery.intent === "steer",
+        )
+        .map((delivery) => ({
+          intent: delivery.intent,
+          text: textOf(delivery.input.content),
+        })),
+    }));
+  }
+
+  rootConversationOf(conversationId: ConversationId): ConversationId {
+    return this.#rootOf(conversationId);
+  }
+
+  /** Registers a freshly created child before it can be loaded or receive input. */
+  registerChild(parentId: ConversationId, childId: ConversationId): void {
+    if (this.#roots.has(childId)) {
+      throw new Error(`conversation ${childId} already belongs to a conversation tree`);
+    }
+    const root = this.#rootOf(parentId);
+    if (this.#closingRoots.has(root) || this.#closedRoots.has(root)) {
+      throw new Error(`cannot create a child while root scope ${root} is closing`);
+    }
+    if (!this.#runtimes.has(parentId) && !this.#roots.has(parentId)) {
+      throw new Error(`cannot create a child for inactive parent ${parentId}`);
+    }
+    this.#roots.set(childId, root);
+  }
+
   /**
-   * Tears down the complete loaded runtime family. The root guard is checked synchronously before
+   * Tears down the complete loaded conversation tree. The root guard is checked synchronously before
    * teardown starts, so a refused switch changes nothing. Once accepted, late plugin completion
    * notices are ignored and every loaded runtime is discarded together. The production TUI ensures
    * that set is one top-level conversation plus its descendants.
@@ -268,24 +341,29 @@ export class Engine {
     rootConversationId: ConversationId,
     options: { force?: boolean } = {},
   ): Promise<DeactivationResult> {
-    if (this.#deactivating) throw new Error("conversation deactivation already in progress");
-    const root = this.#runtimes.get(rootConversationId);
-    if (!options.force && root && (root.running || root.inbox.length > 0)) {
+    const rootId = this.#rootOf(rootConversationId);
+    if (this.#closingRoots.has(rootId)) {
+      throw new Error("conversation deactivation already in progress");
+    }
+    if (
+      !options.force &&
+      (this.#treeRuntimes(rootId).some((runtime) => runtime.running || runtime.inbox.length > 0) ||
+        this.#treeHasDeactivationBlocker(rootId))
+    ) {
       return { status: "busy" };
     }
 
-    this.#deactivating = true;
+    this.#closingRoots.add(rootId);
     const errors: Error[] = [];
     try {
       // A prepare/deliver already past its first lookup belongs to this activation too.
-      await Promise.allSettled(this.#loading.values());
-      const runtimes = [...this.#runtimes.values()];
+      const loading = [...this.#loading.entries()]
+        .filter(([id]) => this.#rootOf(id) === rootId)
+        .map(([, promise]) => promise);
+      await Promise.allSettled(loading);
+      const runtimes = this.#treeRuntimes(rootId);
 
-      for (const runtime of runtimes) {
-        runtime.inbox.splice(0);
-        this.#emitInbox(runtime);
-        runtime.controller?.abort();
-      }
+      this.cancel(rootId);
       await Promise.all(runtimes.map((runtime) => runtime.whenIdle()));
 
       // Providers are registered outside-in; dispose in reverse so orchestration/resources (for
@@ -310,9 +388,11 @@ export class Engine {
         }
       }
 
-      for (const runtime of runtimes) runtime.services.clear();
-      this.#runtimes.clear();
-      this.#loading.clear();
+      for (const runtime of runtimes) {
+        runtime.services.clear();
+        this.#runtimes.delete(runtime.conversation.id);
+      }
+      this.#closedRoots.add(rootId);
       if (errors.length > 0) {
         throw new AggregateError(
           errors,
@@ -321,7 +401,7 @@ export class Engine {
       }
       return { status: "deactivated" };
     } finally {
-      this.#deactivating = false;
+      this.#closingRoots.delete(rootId);
     }
   }
 
@@ -333,6 +413,11 @@ export class Engine {
   serviceFor(conversationId: ConversationId, key: string): unknown {
     const runtime = this.#runtimes.get(conversationId);
     return runtime ? this.#service(runtime, key) : undefined;
+  }
+
+  /** Read an already-created service without constructing it; used by bounded attach snapshots. */
+  existingServiceFor(conversationId: ConversationId, key: string): unknown {
+    return this.#runtimes.get(conversationId)?.services.get(key);
   }
 
   /** Resolve-and-cache a service for a runtime, building it from its provider on first use. */
@@ -416,9 +501,10 @@ export class Engine {
 
   /** Loads (and caches) the runtime, guarding against concurrent first-touch. */
   #runtime(conversationId: ConversationId): Promise<Runtime> {
-    if (this.#deactivating) {
+    if (this.#rootScopeUnavailable(conversationId)) {
       return Promise.reject(new Error("cannot load a conversation during deactivation"));
     }
+    if (!this.#roots.has(conversationId)) this.#roots.set(conversationId, conversationId);
     const existing = this.#runtimes.get(conversationId);
     if (existing) return Promise.resolve(existing);
     let loading = this.#loading.get(conversationId);
@@ -447,6 +533,31 @@ export class Engine {
     } finally {
       this.#loading.delete(conversationId);
     }
+  }
+
+  #rootOf(conversationId: ConversationId): ConversationId {
+    return this.#roots.get(conversationId) ?? conversationId;
+  }
+
+  #rootScopeUnavailable(conversationId: ConversationId): boolean {
+    const root = this.#rootOf(conversationId);
+    return this.#closingRoots.has(root) || this.#closedRoots.has(root);
+  }
+
+  #treeRuntimes(root: ConversationId): Runtime[] {
+    return [...this.#runtimes.values()].filter(
+      (runtime) => this.#rootOf(runtime.conversation.id) === root,
+    );
+  }
+
+  #treeHasDeactivationBlocker(root: ConversationId): boolean {
+    for (const runtime of this.#treeRuntimes(root)) {
+      for (const provider of this.host.services.values()) {
+        if (!provider.blocksDeactivation || !runtime.services.has(provider.key)) continue;
+        if (provider.blocksDeactivation(runtime.services.get(provider.key))) return true;
+      }
+    }
+    return false;
   }
 
   /** Starts the detached drain loop if it isn't already running. */
@@ -500,7 +611,7 @@ export class Engine {
         role: "user",
         content: delivery.input.content,
       });
-      this.#emitKernel({ type: "message", conversationId: conversation.id, item: message });
+      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
     }
 
     try {
@@ -615,7 +726,7 @@ export class Engine {
           content: [{ type: "text", text: pendingText }],
         });
         lastMessageId = message.id;
-        this.#emitKernel({ type: "message", conversationId: conversation.id, item: message });
+        this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
         pendingText = "";
       };
 
@@ -706,7 +817,7 @@ export class Engine {
       }
       const { provider: providerName, model } = conversation.config.model;
       const recordUsage = async (): Promise<void> => {
-        const recorded = await this.store.recordModelUsage({
+        await this.store.recordModelUsage({
           conversationId: conversation.id,
           turnId,
           contextBuildId: build.id,
@@ -716,13 +827,9 @@ export class Engine {
           cost: pricing && completed.usage ? costOf(completed.usage, pricing) : null,
         });
         this.#emitKernel({
-          type: "usage",
+          type: "usage.changed",
           conversationId: conversation.id,
-          turnId,
-          provider: providerName,
-          model,
-          usage: recorded.usage,
-          cost: recorded.cost,
+          summary: await this.store.summarizeModelUsage(conversation.id),
         });
       };
       if (completed.error) {
@@ -776,7 +883,7 @@ export class Engine {
       });
       if (output.payload)
         await this.store.putProviderPayload({ ...output.payload, itemId: item.id });
-      this.#emitKernel({ type: "reasoning", conversationId: conversation.id, item });
+      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
       return undefined;
     }
     const item = await this.store.appendItem({
@@ -788,13 +895,7 @@ export class Engine {
       args: output.args,
     });
     if (output.payload) await this.store.putProviderPayload({ ...output.payload, itemId: item.id });
-    this.#emitKernel({
-      type: "tool_call.started",
-      conversationId: conversation.id,
-      callId: output.callId,
-      name: output.name,
-      args: output.args,
-    });
+    this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
     return { callId: output.callId, name: output.name, args: output.args };
   }
 
@@ -825,7 +926,7 @@ export class Engine {
               callContexts,
             );
       const { result } = outcome;
-      await this.store.appendItem({
+      const item = await this.store.appendItem({
         conversationId: conversation.id,
         turnId,
         type: "tool_result",
@@ -834,19 +935,12 @@ export class Engine {
         status: result.status,
         ...(result.annotations ? { annotations: result.annotations } : {}),
       });
+      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
       if (outcome.completed) {
         for (const pending of callContexts) {
           if (!batchContexts.some(({ key }) => key === pending.key)) batchContexts.push(pending);
         }
       }
-      this.#emitKernel({
-        type: "tool_call.completed",
-        conversationId: conversation.id,
-        callId: call.callId,
-        status: result.status,
-        forModel: result.forModel,
-        ...(result.annotations ? { annotations: result.annotations } : {}),
-      });
     }
     for (const pending of batchContexts) {
       const item = await this.store.appendItem({
@@ -856,7 +950,7 @@ export class Engine {
         key: pending.key,
         content: pending.content,
       });
-      this.#emitKernel({ type: "context", conversationId: conversation.id, item });
+      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
     }
   }
 
@@ -872,7 +966,7 @@ export class Engine {
         role: "user",
         content: steer.input.content,
       });
-      this.#emitKernel({ type: "message", conversationId: conversation.id, item: message });
+      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
     }
   }
 
@@ -1037,15 +1131,14 @@ export class Engine {
       };
       const onAbort = (): void => {
         cleanup();
+        this.#emitKernel({ type: "request.resolved", requestId, conversationId });
         reject(aborted());
       };
       signal.addEventListener("abort", onAbort, { once: true });
-      runtime.pendingRequests.set(requestId, {
-        resolve: (response) => {
-          cleanup();
-          this.#emitKernel({ type: "request.resolved", requestId, conversationId });
-          resolve(response);
-        },
+      runtime.pendingRequests.set(requestId, (response) => {
+        cleanup();
+        this.#emitKernel({ type: "request.resolved", requestId, conversationId });
+        resolve(response);
       });
       this.#emitKernel({ type: "request.created", requestId, conversationId, request });
     });
@@ -1149,7 +1242,7 @@ export class Engine {
           throw new Error("provider stream ended without a 'completed' event");
         }
         const pricing = this.#pricingFor(modelConfig);
-        const recorded = await this.store.recordModelUsage({
+        await this.store.recordModelUsage({
           conversationId: conversation.id,
           turnId,
           contextBuildId: build.id,
@@ -1159,13 +1252,9 @@ export class Engine {
           cost: pricing && completed.usage ? costOf(completed.usage, pricing) : null,
         });
         this.#emitKernel({
-          type: "usage",
+          type: "usage.changed",
           conversationId: conversation.id,
-          turnId,
-          provider: modelConfig.provider,
-          model: modelConfig.model,
-          usage: recorded.usage,
-          cost: recorded.cost,
+          summary: await this.store.summarizeModelUsage(conversation.id),
         });
         if (signal.aborted) throw new TurnAborted();
         if (completed.error) throw new Error(completed.error);
@@ -1282,7 +1371,7 @@ export class Engine {
       type: "compaction",
       content: result.content,
     });
-    this.#emitKernel({ type: "compaction", conversationId: conversation.id, item: fold });
+    this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: fold });
 
     // Reasoning generated only to produce a summary is not task continuation. Keep
     // structured output only when the compactor actually asked to continue with a tool.

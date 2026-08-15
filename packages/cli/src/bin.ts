@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { launch } from "./index.tsx";
+import { launch, runStdioServer } from "./index.tsx";
 import { runLogin, runLogout, runStatus } from "./auth-app.tsx";
 import { runSandboxShell, runSandboxStop } from "./sandbox-cli.ts";
 
@@ -11,17 +11,42 @@ program
   .version("0.0.0")
   .option("--model <id>", "model id override")
   .option("--cwd <dir>", "working directory for the session")
-  .action(async (opts: { model?: string; cwd?: string }) => {
-    await launch({ model: opts.model, cwd: opts.cwd });
+  .option("--connect-stdio", "run the server as a local stdio child process")
+  .option("--ssh <destination>", "run the server through SSH (user@host)")
+  .action(async (opts: { model?: string; cwd?: string; connectStdio?: boolean; ssh?: string }) => {
+    await launch({
+      model: opts.model,
+      cwd: opts.cwd,
+      connectStdio: opts.connectStdio,
+      ssh: opts.ssh,
+    });
   });
 
 program
   .command("resume [id]")
   .description("resume a conversation (omit the id to pick from a list)")
   .action(async (id: string | undefined, _opts: unknown, cmd: Command) => {
-    const globals: { model?: string; cwd?: string } = cmd.optsWithGlobals();
-    await launch({ resume: true, conversationId: id, model: globals.model, cwd: globals.cwd });
+    const globals: {
+      model?: string;
+      cwd?: string;
+      connectStdio?: boolean;
+      ssh?: string;
+    } = cmd.optsWithGlobals();
+    await launch({
+      resume: true,
+      conversationId: id,
+      model: globals.model,
+      cwd: globals.cwd,
+      connectStdio: globals.connectStdio,
+      ssh: globals.ssh,
+    });
   });
+
+program
+  .command("server")
+  .description("run the headless Harness server")
+  .requiredOption("--stdio", "serve newline-delimited JSON-RPC over stdin/stdout")
+  .action(runStdioServer);
 
 const auth = program.command("auth").description("manage model-provider sign-in");
 auth

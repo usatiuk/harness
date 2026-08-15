@@ -93,7 +93,7 @@ instances survive. A running turn holds a configuration snapshot; ordinary
 model/plugin changes apply at the next turn boundary.
 
 `HarnessService` owns configuration resolution and presents the client API for
-conversation creation/load, family deactivation, delivery, responses, rewind,
+conversation creation/load, conversation-tree deactivation, delivery, responses, rewind,
 compaction, models, usage, events, plugin state, and per-conversation services.
 It contains no agent control loop of its own.
 

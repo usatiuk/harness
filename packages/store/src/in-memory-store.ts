@@ -1,5 +1,6 @@
 import type {
   Clock,
+  ConversationPageCursor,
   ContextBuild,
   ConversationId,
   ConversationOverrides,
@@ -8,6 +9,7 @@ import type {
   Item,
   ItemId,
   ModelUsage,
+  ModelUsageSummary,
   NewContextBuild,
   NewConversationRecord,
   NewItem,
@@ -21,6 +23,7 @@ import type {
   TurnId,
   TurnStatus,
 } from "@harness/protocol";
+import { addUsage, zeroUsage } from "@harness/protocol";
 import { systemClock, uuidIdGenerator } from "./defaults.ts";
 
 const pluginStateKey = (plugin: string, conversationId: ConversationId, key: string): string =>
@@ -82,7 +85,22 @@ export class InMemoryStore implements Store {
   }
 
   async listConversations(): Promise<ConversationRecord[]> {
-    return [...this.#conversations.values()].sort((a, b) => b.createdAt - a.createdAt);
+    return this.#sortedConversations();
+  }
+
+  async listConversationPage(
+    limit: number,
+    before?: ConversationPageCursor,
+  ): Promise<ConversationRecord[]> {
+    if (!Number.isInteger(limit) || limit <= 0) throw new Error("limit must be a positive integer");
+    return this.#sortedConversations()
+      .filter(
+        (record) =>
+          before === undefined ||
+          record.createdAt < before.createdAt ||
+          (record.createdAt === before.createdAt && record.id < before.id),
+      )
+      .slice(0, limit);
   }
 
   async appendItem(input: NewItem): Promise<Item> {
@@ -134,6 +152,28 @@ export class InMemoryStore implements Store {
       id = item.parent;
     }
     return chain.reverse();
+  }
+
+  async getItem(conversationId: ConversationId, itemId: ItemId): Promise<Item | undefined> {
+    return this.#items.get(conversationId)?.find((item) => item.id === itemId);
+  }
+
+  async listItemAncestors(
+    conversationId: ConversationId,
+    start: ItemId | null,
+    limit: number,
+  ): Promise<Item[]> {
+    if (!Number.isInteger(limit) || limit <= 0) throw new Error("limit must be a positive integer");
+    const log = this.#items.get(conversationId) ?? [];
+    const byId = new Map(log.map((item) => [item.id, item]));
+    const page: Item[] = [];
+    for (let id = start; id !== null && page.length < limit; ) {
+      const item = byId.get(id);
+      if (!item) break;
+      page.push(item);
+      id = item.parent;
+    }
+    return page;
   }
 
   async createTurn(conversationId: ConversationId): Promise<Turn> {
@@ -192,6 +232,29 @@ export class InMemoryStore implements Store {
     return this.#modelUsage.filter((u) => u.conversationId === conversationId);
   }
 
+  async summarizeModelUsage(conversationId: ConversationId): Promise<ModelUsageSummary> {
+    let usage = zeroUsage();
+    let incomplete = false;
+    let cost = 0;
+    let lastInputTokens: number | undefined;
+    for (const row of this.#modelUsage) {
+      if (row.conversationId !== conversationId) continue;
+      cost += row.cost ?? 0;
+      if (row.usage === null) {
+        incomplete = true;
+      } else {
+        usage = addUsage(usage, row.usage);
+        lastInputTokens = row.usage.inputTokens;
+      }
+    }
+    return {
+      usage,
+      incomplete,
+      cost,
+      ...(lastInputTokens === undefined ? {} : { lastInputTokens }),
+    };
+  }
+
   async putProviderPayload(payload: ProviderPayload): Promise<void> {
     this.#payloads.set(payload.itemId, payload);
   }
@@ -248,5 +311,11 @@ export class InMemoryStore implements Store {
       }
     }
     return undefined;
+  }
+
+  #sortedConversations(): ConversationRecord[] {
+    return [...this.#conversations.values()].sort(
+      (a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id),
+    );
   }
 }

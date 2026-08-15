@@ -2,10 +2,11 @@ import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { Box, Static, Text, render } from "ink";
 import { Terminal } from "@xterm/headless";
-import type { Conversation, HarnessEvent } from "@harness/protocol";
+import type { Conversation, HarnessEvent, Item } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import { App, LiveViewport } from "./app.tsx";
 import { Markdown } from "./markdown.tsx";
+import { testPlugins } from "./test-plugins.ts";
 
 class TestOutput extends Writable {
   columns: number;
@@ -45,6 +46,40 @@ class TestInput extends PassThrough {
 const asStdout = (stream: TestOutput): NodeJS.WriteStream =>
   stream as unknown as NodeJS.WriteStream;
 const asStdin = (stream: TestInput): NodeJS.ReadStream => stream as unknown as NodeJS.ReadStream;
+
+const toolCall = (callId: string, name: string, args: unknown): HarnessEvent => ({
+  type: "item.appended",
+  conversationId: "c1",
+  item: {
+    type: "tool_call",
+    id: `tool-call:${callId}` as Item["id"],
+    conversationId: "c1" as Item["conversationId"],
+    turnId: "t1" as Item["turnId"],
+    seq: 0,
+    parent: null,
+    createdAt: 0,
+    callId,
+    name,
+    args,
+  },
+});
+
+const toolResult = (callId: string, content: string): HarnessEvent => ({
+  type: "item.appended",
+  conversationId: "c1",
+  item: {
+    type: "tool_result",
+    id: `tool-result:${callId}` as Item["id"],
+    conversationId: "c1" as Item["conversationId"],
+    turnId: "t1" as Item["turnId"],
+    seq: 1,
+    parent: null,
+    createdAt: 0,
+    callId,
+    status: "ok",
+    content: [{ type: "text", text: content }],
+  },
+});
 
 async function mount(
   node: React.ReactNode,
@@ -219,6 +254,7 @@ describe("terminal scrollback", () => {
     const view = await mount(
       <App
         service={service}
+        plugins={testPlugins()}
         conversation={conversation}
         initialItems={[]}
         initialUsage={[]}
@@ -226,7 +262,6 @@ describe("terminal scrollback", () => {
         launchCwd="/tmp"
         onResume={() => {}}
         onReload={() => {}}
-        activities={{ peek: () => [], kill: () => {} }}
       />,
       { columns: 50, rows: 10, incrementalRendering: true },
     );
@@ -278,6 +313,7 @@ describe("terminal scrollback", () => {
     const view = await mount(
       <App
         service={service}
+        plugins={testPlugins()}
         conversation={conversation}
         initialItems={[]}
         initialUsage={[]}
@@ -285,7 +321,6 @@ describe("terminal scrollback", () => {
         launchCwd="/tmp"
         onResume={() => {}}
         onReload={() => {}}
-        activities={{ peek: () => [], kill: () => {} }}
       />,
       { columns: 50, rows: 10, incrementalRendering: true },
     );
@@ -293,13 +328,7 @@ describe("terminal scrollback", () => {
     await writeTerminal(terminal, view.takeWrites());
 
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "k1",
-      name: "bash",
-      args: { command: "TOOL-PIN-MARKER" },
-    });
+    emit(toolCall("k1", "bash", { command: "TOOL-PIN-MARKER" }));
     await vi.waitFor(() => expect(view.stdout.chunks.join("")).toContain("TOOL-PIN-MARKER"));
     await view.waitUntilRenderFlush();
     await writeTerminal(terminal, view.takeWrites());
@@ -346,6 +375,7 @@ describe("terminal scrollback", () => {
     const view = await mount(
       <App
         service={service}
+        plugins={testPlugins()}
         conversation={conversation}
         initialItems={[]}
         initialUsage={[]}
@@ -353,7 +383,6 @@ describe("terminal scrollback", () => {
         launchCwd="/tmp"
         onResume={() => {}}
         onReload={() => {}}
-        activities={{ peek: () => [], kill: () => {} }}
       />,
       { columns: 50, rows: 10, incrementalRendering: true },
     );
@@ -362,13 +391,7 @@ describe("terminal scrollback", () => {
 
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
     for (let index = 0; index < 12; index++) {
-      emit({
-        type: "tool_call.started",
-        conversationId: "c1",
-        callId: `read-${index}`,
-        name: "read_file",
-        args: { path: `FILE-${index}` },
-      });
+      emit(toolCall(`read-${index}`, "read_file", { path: `FILE-${index}` }));
     }
     await vi.waitFor(() => expect(view.stdout.chunks.join("")).toContain("FILE-11"));
     await view.waitUntilRenderFlush();
@@ -397,6 +420,7 @@ describe("terminal scrollback", () => {
     const view = await mount(
       <App
         service={service}
+        plugins={testPlugins()}
         conversation={conversation}
         initialItems={[]}
         initialUsage={[]}
@@ -404,7 +428,6 @@ describe("terminal scrollback", () => {
         launchCwd="/tmp"
         onResume={() => {}}
         onReload={() => {}}
-        activities={{ peek: () => [], kill: () => {} }}
       />,
       { columns: 100, rows: 10, incrementalRendering: true },
     );
@@ -414,7 +437,7 @@ describe("terminal scrollback", () => {
     const startedAt = Date.now();
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
     emit({
-      type: "message",
+      type: "item.appended",
       conversationId: "c1",
       item: {
         type: "message",
@@ -429,7 +452,7 @@ describe("terminal scrollback", () => {
       },
     });
     emit({
-      type: "reasoning",
+      type: "item.appended",
       conversationId: "c1",
       item: {
         type: "reasoning",
@@ -442,22 +465,10 @@ describe("terminal scrollback", () => {
         content: [{ type: "text", text: "private marker" }],
       },
     });
+    emit(toolCall("read-1", "read_file", { path: "ROUTINE-FILE-MARKER" }));
+    emit(toolResult("read-1", "ROUTINE-OUTPUT-MARKER"));
     emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "read-1",
-      name: "read_file",
-      args: { path: "ROUTINE-FILE-MARKER" },
-    });
-    emit({
-      type: "tool_call.completed",
-      conversationId: "c1",
-      callId: "read-1",
-      status: "ok",
-      forModel: [{ type: "text", text: "ROUTINE-OUTPUT-MARKER" }],
-    });
-    emit({
-      type: "message",
+      type: "item.appended",
       conversationId: "c1",
       item: {
         type: "message",

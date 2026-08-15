@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ContextWindowExceededError, conversationOf, isKernelEvent } from "@harness/protocol";
+import {
+  addUsage,
+  ContextWindowExceededError,
+  conversationOf,
+  isKernelEvent,
+} from "@harness/protocol";
 import type {
   ContentBlock,
   DeliveryInput,
@@ -156,7 +161,7 @@ describe("Engine — turn cycle", () => {
     expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:hello", "assistant:partial"]);
   });
 
-  it("force-deactivates a running family and discards queued input", async () => {
+  it("force-deactivates a running conversation tree and discards queued input", async () => {
     const store = new InMemoryStore(counterIdGenerator(), fixedClock());
     const provider = new GateProvider("partial");
     const engine = new Engine(
@@ -177,7 +182,7 @@ describe("Engine — turn cycle", () => {
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
   });
 
-  it("deactivates running descendants when the top-level root is idle", async () => {
+  it("requires force to deactivate a conversation tree with a running descendant", async () => {
     const store = new InMemoryStore(counterIdGenerator(), fixedClock());
     const provider = new GateProvider("child partial");
     const engine = new Engine(
@@ -188,14 +193,51 @@ describe("Engine — turn cycle", () => {
     const root = await store.createConversation(newConversationInput(CONFIG));
     const child = await store.createConversation(newConversationInput(CONFIG));
     await engine.prepare(root.id);
+    engine.registerChild(root.id, child.id);
     await engine.deliver(child.id, userInput("work"));
     await provider.started;
 
-    await expect(engine.deactivate(root.id)).resolves.toEqual({
+    await expect(engine.deactivate(root.id)).resolves.toEqual({ status: "busy" });
+    await expect(engine.deactivate(root.id, { force: true })).resolves.toEqual({
       status: "deactivated",
     });
 
     expect(await store.getActiveTurn(child.id)).toBeUndefined();
+  });
+
+  it("uses plugin blockers only for graceful refusal and leaves cleanup to dispose", async () => {
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    const state = { blocked: true, disposed: false };
+    const engine = new Engine(
+      store,
+      new PluginHost([
+        {
+          id: "lifecycle",
+          providers: () => [new FakeProvider([])],
+          services: () => [
+            {
+              key: "owned",
+              for: () => state,
+              blocksDeactivation: (service) => (service as typeof state).blocked,
+              dispose: (service) => {
+                (service as typeof state).disposed = true;
+              },
+            },
+          ],
+        },
+      ]),
+      testConfigResolver(),
+    );
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    await engine.prepare(conversation.id);
+    expect(engine.serviceFor(conversation.id, "owned")).toBe(state);
+
+    await expect(engine.deactivate(conversation.id)).resolves.toEqual({ status: "busy" });
+    expect(state.disposed).toBe(false);
+
+    state.blocked = false;
+    await expect(engine.deactivate(conversation.id)).resolves.toEqual({ status: "deactivated" });
+    expect(state.disposed).toBe(true);
   });
 
   it("rejects user input but drops stale plugin notices while teardown is in progress", async () => {
@@ -242,6 +284,49 @@ describe("Engine — turn cycle", () => {
     await expect(closing).resolves.toEqual({ status: "deactivated" });
   });
 
+  it("deactivates one root without disturbing another loaded root", async () => {
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    const disposed: string[] = [];
+    const engine = new Engine(
+      store,
+      new PluginHost([
+        {
+          id: "fake",
+          providers: () => [new FakeProvider([textStep("still running")])],
+          services: () => [
+            {
+              key: "owned",
+              for: (conversation) => ({ conversationId: conversation.id }),
+              dispose: (service) => {
+                disposed.push((service as { conversationId: string }).conversationId);
+              },
+            },
+          ],
+        },
+      ]),
+      testConfigResolver(),
+    );
+    const first = await store.createConversation(newConversationInput(CONFIG));
+    const second = await store.createConversation(newConversationInput(CONFIG));
+    await engine.prepare(first.id);
+    await engine.prepare(second.id);
+    const firstService = engine.serviceFor(first.id, "owned");
+    const secondService = engine.serviceFor(second.id, "owned");
+
+    await expect(engine.deactivate(first.id)).resolves.toEqual({ status: "deactivated" });
+    expect(disposed).toEqual([first.id]);
+    expect(engine.serviceFor(first.id, "owned")).toBeUndefined();
+    expect(engine.serviceFor(second.id, "owned")).toBe(secondService);
+    expect(secondService).not.toBe(firstService);
+
+    await engine.deliver(second.id, userInput("continue"));
+    await engine.whenIdle(second.id);
+    expect(shapeOf(await store.listActiveItems(second.id))).toEqual([
+      "user:continue",
+      "assistant:still running",
+    ]);
+  });
+
   it("runs a tool-shaped turn end to end", async () => {
     const { store, engine, events } = setup([
       toolStep("call1", "echo", { x: 1 }),
@@ -260,13 +345,13 @@ describe("Engine — turn cycle", () => {
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
     expect(events.map((e) => e.type).filter((t) => t !== "inbox")).toEqual([
       "turn.status",
-      "message",
-      "tool_call.started",
-      "tool_call.completed",
-      "usage",
+      "item.appended",
+      "item.appended",
+      "item.appended",
+      "usage.changed",
       "text_delta",
-      "message",
-      "usage",
+      "item.appended",
+      "usage.changed",
       "turn.status",
     ]);
   });
@@ -368,7 +453,12 @@ describe("Engine — turn cycle", () => {
 
     // Reasoning streams (delta) and commits (item) like ordinary output.
     expect(events.filter(isKernelEvent).map((e) => e.type)).toContain("reasoning_delta");
-    expect(events.filter(isKernelEvent).map((e) => e.type)).toContain("reasoning");
+    expect(
+      events.some(
+        (event) =>
+          isKernelEvent(event) && event.type === "item.appended" && event.item.type === "reasoning",
+      ),
+    ).toBe(true);
   });
 
   it("preserves emission order: reasoning → text → call", async () => {
@@ -941,8 +1031,7 @@ describe("Engine — request/respond", () => {
     const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
     expect(result?.status).toBe("error");
     expect(turnStatuses(events)).toContain("aborted");
-    // Abort cancels via rejection, so the request never "resolves".
-    expect(events.filter(isKernelEvent).map((e) => e.type)).not.toContain("request.resolved");
+    expect(events.filter(isKernelEvent).map((e) => e.type)).toContain("request.resolved");
 
     // A late respond for the cancelled request is a harmless no-op.
     expect(() => engine.respond(conv.id, "req_1", { decision: "allow" })).not.toThrow();
@@ -1094,7 +1183,14 @@ describe("Engine — compaction", () => {
     // Exactly one fold (the window first exceeded 3 on turn 3), and an event for it.
     const folds = compactions(await store.listItems(conv.id));
     expect(folds.map((f) => textOf(f.content))).toEqual(["summary of 5 items"]);
-    expect(events.filter((e) => e.type === "compaction")).toHaveLength(1);
+    expect(
+      events.filter(
+        (event) =>
+          isKernelEvent(event) &&
+          event.type === "item.appended" &&
+          event.item.type === "compaction",
+      ),
+    ).toHaveLength(1);
 
     // The build right after the fold starts at the summary alone.
     expect(shapeOf(provider.requests[2]!.items.map((i) => i.item))).toEqual([
@@ -1418,10 +1514,11 @@ describe("Engine — compaction", () => {
 
     await expect(engine.compact(conv.id)).rejects.toThrow(/summary truncated/);
     expect((await store.listModelUsage(conv.id)).map((row) => row.usage)).toEqual([null]);
-    expect(events.filter(isKernelEvent).find((event) => event.type === "usage")).toMatchObject({
-      type: "usage",
-      usage: null,
-      cost: null,
+    expect(
+      events.filter(isKernelEvent).find((event) => event.type === "usage.changed"),
+    ).toMatchObject({
+      type: "usage.changed",
+      summary: { incomplete: true, cost: 0 },
     });
     expect(turnStatuses(events).at(-1)).toBe("failed");
   });
@@ -2005,7 +2102,11 @@ describe("Engine — context injection", () => {
     engine.subscribe(
       {
         onEvent(event) {
-          if (isKernelEvent(event) && event.type === "tool_call.completed") {
+          if (
+            isKernelEvent(event) &&
+            event.type === "item.appended" &&
+            event.item.type === "tool_result"
+          ) {
             interrupt = engine.deliver(conv.id, userInput("redo"), "interrupt");
           }
         },
@@ -2294,8 +2395,8 @@ describe("Engine — usage recording", () => {
       expect(row.contextBuildId).not.toBeNull();
       expect(row.cost).toBeNull(); // FakeProvider publishes no rate card
     }
-    const usageEvents = events.filter(isKernelEvent).filter((e) => e.type === "usage");
-    expect(usageEvents.map((e) => (e.type === "usage" ? e.usage : null))).toEqual([u1, u2]);
+    const usageEvents = events.filter(isKernelEvent).filter((e) => e.type === "usage.changed");
+    expect(usageEvents.map((e) => e.summary.usage)).toEqual([u1, addUsage(u1, u2)]);
   });
 
   it("records no usage for a step aborted mid-stream (no completed event)", async () => {
@@ -2322,8 +2423,11 @@ describe("Engine — usage recording", () => {
     await engine.whenIdle(conv.id);
 
     expect((await store.listModelUsage(conv.id)).map((row) => row.usage)).toEqual([null]);
-    const usageEvent = events.filter(isKernelEvent).find((event) => event.type === "usage");
-    expect(usageEvent).toMatchObject({ type: "usage", usage: null, cost: null });
+    const usageEvent = events.filter(isKernelEvent).find((event) => event.type === "usage.changed");
+    expect(usageEvent).toMatchObject({
+      type: "usage.changed",
+      summary: { incomplete: true, cost: 0 },
+    });
     expect(turnStatuses(events)).toContain("completed");
   });
 
@@ -2412,10 +2516,7 @@ describe("Engine — usage recording", () => {
     const expected = 0.5 * 2 + 0.5 * 0.2 + 0.1 * 10;
     const [row] = await store.listModelUsage(conv.id);
     expect(row?.cost).toBeCloseTo(expected, 10);
-    const usageEvent = events.filter(isKernelEvent).find((e) => e.type === "usage");
-    expect(usageEvent && usageEvent.type === "usage" ? usageEvent.cost : null).toBeCloseTo(
-      expected,
-      10,
-    );
+    const usageEvent = events.filter(isKernelEvent).find((e) => e.type === "usage.changed");
+    expect(usageEvent?.summary.cost ?? null).toBeCloseTo(expected, 10);
   });
 });

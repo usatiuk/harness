@@ -244,10 +244,19 @@ export class DockerExecutionContext implements ExecutionContext {
    * rebuild` to recover from a wedged or stale container: full `rm -f` teardown (re-runs postCreate),
    * then re-provision via the lazy `#ready` gate.
    */
-  async rebuild(): Promise<void> {
+  async rebuild(signal?: AbortSignal): Promise<void> {
     if (this.#disposed) throw new Error("Docker execution context is disposed");
     await this.stop();
-    await this.#ready();
+    const cancel = () => this.#abort?.abort();
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      if (signal?.aborted) throw new Error("sandbox rebuild cancelled");
+      await this.#ready();
+      if (signal?.aborted) throw new Error("sandbox rebuild cancelled");
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      if (signal?.aborted) await this.stop();
+    }
   }
 
   /**

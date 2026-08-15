@@ -161,12 +161,18 @@ describe("auto approval integration", () => {
       false,
     );
     const completed = events.find(
-      (event) => isKernelEvent(event) && event.type === "tool_call.completed",
+      (event) =>
+        isKernelEvent(event) && event.type === "item.appended" && event.item.type === "tool_result",
     );
-    expect(completed && "annotations" in completed).toBeTruthy();
-    if (!completed || !isKernelEvent(completed) || completed.type !== "tool_call.completed") return;
-    expect(completed.status).toBe("ok");
-    expect(approvalAnnotationOf(completed.annotations)).toMatchObject({
+    if (
+      !completed ||
+      !isKernelEvent(completed) ||
+      completed.type !== "item.appended" ||
+      completed.item.type !== "tool_result"
+    )
+      throw new Error("missing tool result event");
+    expect(completed.item.status).toBe("ok");
+    expect(approvalAnnotationOf(completed.item.annotations)).toMatchObject({
       decision: "allow",
       responder: "auto",
       relationship: "unknown",

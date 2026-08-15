@@ -89,13 +89,13 @@ describe("HarnessService", () => {
 
     expect(events.map((e) => e.type).filter((t) => t !== "inbox")).toEqual([
       "turn.status",
-      "message",
-      "tool_call.started",
-      "tool_call.completed",
-      "usage",
+      "item.appended",
+      "item.appended",
+      "item.appended",
+      "usage.changed",
       "text_delta",
-      "message",
-      "usage",
+      "item.appended",
+      "usage.changed",
       "turn.status",
     ]);
   });

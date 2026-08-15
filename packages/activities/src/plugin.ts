@@ -19,6 +19,7 @@ class ActivitiesPlugin implements Plugin {
       {
         key: "activities",
         for: (conversation: Conversation) => new ActivityManager(conversation.id),
+        blocksDeactivation: (service) => (service as ActivityManager).runningCount() > 0,
         dispose: (service) => (service as ActivityManager).dispose(),
       },
     ];

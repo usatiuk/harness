@@ -120,7 +120,7 @@ export class SubagentsDefinition implements PluginDefinition {
     return this.#runner;
   }
 
-  /** Drop process-local parentage after the engine has deactivated the complete runtime family. */
+  /** Drop process-local parentage after the engine has deactivated the complete conversation tree. */
   resetSession(): void {
     this.registry.clear();
   }

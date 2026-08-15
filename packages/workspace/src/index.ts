@@ -18,6 +18,8 @@ export * from "./tools.ts";
 export * from "./apply-patch-parse.ts";
 export * from "./text-editor.ts";
 export * from "./targets.ts";
+export * from "./client-protocol.ts";
+export * from "./process-activity.ts";
 
 /**
  * Workspace tools: search files and run commands via the execution service, plus a file-edit roster

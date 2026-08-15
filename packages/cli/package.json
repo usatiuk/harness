@@ -20,6 +20,7 @@
     "@harness/approval": "*",
     "@harness/auth": "*",
     "@harness/auto-approval": "*",
+    "@harness/client": "*",
     "@harness/config": "*",
     "@harness/core": "*",
     "@harness/custom-providers": "*",

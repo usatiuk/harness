@@ -18,6 +18,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "protocol:schema": "tsx --conditions=development scripts/generate-protocol-schema.ts",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test",
     "prepare": "husky"
   },

@@ -28,7 +28,7 @@ after-tool-result boundary or a new turn starts when idle.
 Activity ids are the originating tool call ids. Output can be inspected while
 running, regex-filtered by line, waited on with a bounded timeout, or killed as a
 complete process tree. The manager belongs to one loaded runtime and suppresses
-completion delivery, kills, and awaits live work when that runtime family is
+completion delivery, kills, and awaits live work when that root scope is
 deactivated. Runtime handles are not durable across switch, reload, or process
 exit.
 
@@ -56,7 +56,7 @@ The subagent is itself backgroundable. Foreground completion returns the child's
 final result. Background execution is tracked through the same activity tools and
 completion delivery as commands. Parent/child metadata is stored in namespaced
 plugin state; live handles and cascade-stop ownership remain activation-local.
-Switching, reloading, or shutting down deactivates the complete loaded family and
+Switching, reloading, or shutting down deactivates the complete loaded conversation tree and
 clears its ephemeral parent/child index.
 
 ## Ownership and isolation

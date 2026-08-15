@@ -6,8 +6,8 @@ import { indent } from "./cells.tsx";
 
 /** The live handles the overlay needs that the event stream can't carry: output and kill. */
 export interface ActivitiesView {
-  peek(id: string): ContentBlock[];
-  kill(id: string): void;
+  peek(id: string): ContentBlock[] | Promise<ContentBlock[]>;
+  kill(id: string): void | Promise<void>;
 }
 
 const PREVIEW_LINES = 12;
@@ -35,7 +35,7 @@ export function ActivitiesOverlay({
   onClose: () => void;
 }): ReactElement {
   const [selected, setSelected] = useState(0);
-  const [, setTick] = useState(0);
+  const [preview, setPreview] = useState("");
   const index = Math.max(0, Math.min(selected, activities.length - 1));
   const current = activities[index];
 
@@ -44,17 +44,31 @@ export function ActivitiesOverlay({
     if (key.escape || input === "q") return onClose();
     if (key.upArrow) setSelected(Math.max(0, index - 1));
     else if (key.downArrow) setSelected(Math.min(activities.length - 1, index + 1));
-    else if (input === "x" && current) view.kill(current.id);
+    else if (input === "x" && current) void view.kill(current.id);
   });
 
-  // Running output isn't evented, so re-render on a timer to repoll it; settled output is final.
-  const running = current?.status === undefined ? current?.id : undefined;
+  // Peek is a bounded request. Poll only while the selected activity is running.
   useEffect(() => {
-    if (running === undefined) return;
-    const timer = setInterval(() => setTick((t) => t + 1), POLL_MS);
-    return () => clearInterval(timer);
-  }, [running]);
-  const preview = current ? textOf(view.peek(current.id)) : "";
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = async (): Promise<void> => {
+      try {
+        const content = current ? await view.peek(current.id) : [];
+        if (active) setPreview(textOf(content));
+      } catch (error) {
+        if (active) setPreview(`error: ${String(error)}`);
+      } finally {
+        if (active && current?.status === undefined) {
+          timer = setTimeout(() => void refresh(), POLL_MS);
+        }
+      }
+    };
+    void refresh();
+    return () => {
+      active = false;
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [current, view]);
 
   if (activities.length === 0) {
     return (

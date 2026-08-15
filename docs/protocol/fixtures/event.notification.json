@@ -1,0 +1,14 @@
+{
+  "jsonrpc": "2.0",
+  "method": "conversation.event",
+  "params": {
+    "rootConversationId": "conversation-123",
+    "conversationId": "conversation-123",
+    "event": {
+      "type": "turn.changed",
+      "turnId": "turn-456",
+      "status": "running",
+      "error": null
+    }
+  }
+}

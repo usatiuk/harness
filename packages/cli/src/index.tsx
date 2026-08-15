@@ -1,54 +1,59 @@
 import { join, resolve } from "node:path";
+import { spawn, type ChildProcess } from "node:child_process";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Box, Text, render, useApp, useInput } from "ink";
 import { ConfirmInput, Spinner } from "@inkjs/ui";
 import {
   formatError,
+  isKernelEvent,
+  jsonValueSchema,
   type Conversation,
   type ConversationId,
   type Item,
   type ModelConfig,
-  type ModelUsage,
+  type ModelUsageSummary,
   type PluginEntry,
+  type PluginContract,
 } from "@harness/protocol";
 import { defaultHome, readGlobalSettings, type SettingsDoc } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
 import { reapStoppedSandboxes, sandboxPlugin } from "@harness/sandbox";
-import { activitiesPlugin, type ActivityManager } from "@harness/activities";
+import { activitiesPlugin } from "@harness/activities";
 import { agentsPlugin } from "@harness/agents";
 import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
-import { approvalPlugin } from "@harness/approval";
+import {
+  APPROVAL_CLIENT_CONTRACT_VERSION,
+  ApprovalClient,
+  approvalDecideRequest,
+  approvalPlugin,
+  isApprovalRequest,
+} from "@harness/approval";
 import { autoApprovalPlugin } from "@harness/auto-approval";
 import { subagentsDefinition } from "@harness/subagents";
 import { HarnessService } from "@harness/service";
+import { HarnessRpcSession } from "@harness/service";
+import {
+  HarnessClient,
+  type HarnessClientService,
+  HarnessDomainClient,
+  createInProcessMessageConnectionPair,
+  type RpcConnection,
+} from "@harness/client";
+import { createNdjsonMessageConnection } from "@harness/client/node";
 import { modelCompaction } from "@harness/core";
 import { createCustomProviderPlugins } from "@harness/custom-providers";
 import { DemoProvider } from "./demo-provider.ts";
 import { authRegistry } from "./auth.ts";
 import { credentialStoreForRead } from "./credential-store.ts";
 import { App, type SessionMutation } from "./app.tsx";
-import type { ActivitiesView } from "./activities-overlay.tsx";
+import {
+  CLI_PLUGIN_CONTRACTS,
+  CliPluginClient,
+  registerCliPluginServer,
+  type CliPlugins,
+} from "./client-plugins.ts";
 import { ResumePicker } from "./resume-picker.tsx";
-
-/** The activity manager for a conversation, resolved off the engine — the same instance tools use. */
-const activityManager = (
-  service: HarnessService,
-  id: ConversationId,
-): ActivityManager | undefined => service.service(id, "activities") as ActivityManager | undefined;
-
-/** Live activity output/kill handles for a conversation; list/count come from the event stream. */
-const makeActivities = (service: HarnessService, convId: ConversationId): ActivitiesView => ({
-  peek: (id) => activityManager(service, convId)?.get(id)?.peek() ?? [],
-  kill: (id) => activityManager(service, convId)?.get(id)?.kill(),
-});
-
-/** Live work anywhere in the active root's loaded subagent family. */
-const runningActivities = (service: HarnessService, root: ConversationId): number =>
-  [root, ...subagentsDefinition.registry.descendantsOf(root)].reduce(
-    (sum, id) => sum + (activityManager(service, id)?.runningCount() ?? 0),
-    0,
-  );
 
 const INSTRUCTIONS = "You are a helpful coding agent.";
 
@@ -66,6 +71,8 @@ export interface LaunchOptions {
   conversationId?: string | undefined;
   model?: string | undefined;
   cwd?: string | undefined;
+  connectStdio?: boolean | undefined;
+  ssh?: string | undefined;
 }
 
 /** Builds the new-conversation top layer; a model-id override always drops the fallback preset. */
@@ -81,83 +88,304 @@ export function launchOverrides(fallback: ModelConfig, requestedModel?: string):
 export interface Session {
   conversation: Conversation;
   items: Item[];
-  usage: ModelUsage[];
+  usage: ModelUsageSummary;
+}
+
+export interface CliService extends HarnessClientService {
+  createConversation(options?: {
+    cwd?: string;
+    overrides?: Record<string, unknown>;
+  }): Promise<Conversation>;
+  getConversation(id: ConversationId): Promise<Conversation | undefined>;
+  listConversations(): Promise<Conversation[]>;
+  getItems(id: ConversationId): Promise<Item[]>;
+  prepare(id: ConversationId): Promise<void>;
+  deleteConversationIfEmpty(id: ConversationId): Promise<void>;
+  deactivateSession(
+    id: ConversationId,
+    options?: { force?: boolean },
+  ): Promise<{ status: "busy" | "deactivated" }>;
+  attachedConversation(id: ConversationId): Promise<Conversation>;
+  usageSummary(id: ConversationId): Promise<ModelUsageSummary>;
+  closeConnection?(): void;
 }
 
 export type Start = { kind: "session"; session: Session } | { kind: "picker" };
 
 interface Harness {
-  service: HarnessService;
-  store: SqliteStore;
+  service: CliService;
+  plugins: CliPluginClient;
   /** Model used only when no settings layer configures one (no `auth login`, no project config). */
   fallbackModel: ModelConfig;
+  close(): Promise<void>;
 }
+
+interface ServerHarness {
+  service: HarnessService;
+  rpcSession: HarnessRpcSession;
+  store: SqliteStore;
+  close(closePeer?: boolean): Promise<void>;
+}
+
+const CLIENT_CONTRACTS: PluginContract[] = [
+  { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
+  ...CLI_PLUGIN_CONTRACTS,
+];
 
 /**
  * Composition root. Each registry provider contributes a plugin when it has credentials (a stored
  * key, its env var, or an OAuth session); the first such provider seeds the fallback model.
  */
-async function buildHarness(): Promise<Harness> {
+async function buildServerHarness(connection: RpcConnection): Promise<ServerHarness> {
   const store = new SqliteStore(join(defaultHome(), "store.db"));
-  const { store: secrets } = await credentialStoreForRead(defaultHome());
-  const registry = authRegistry(secrets);
-  const plugins: PluginEntry[] = [];
-  let fallbackModel: ModelConfig | undefined;
-  // Resolve providers concurrently; a configured backend that can't be reached (e.g. a locked
-  // configured credential backend) warns and is skipped — we never silently fall back.
-  const built = await Promise.all(
-    [...registry.values()].map((entry) =>
-      entry.buildPlugin().then(
-        (plugin) => ({ entry, plugin }),
-        (reason: unknown) => {
-          console.error(`Could not load ${entry.method.label}: ${String(reason)}`);
-          return { entry, plugin: null };
-        },
+  let startedSession: HarnessRpcSession | undefined;
+  try {
+    const { store: secrets } = await credentialStoreForRead(defaultHome());
+    const registry = authRegistry(secrets);
+    const plugins: PluginEntry[] = [];
+    let fallbackModel: ModelConfig | undefined;
+    // Resolve providers concurrently; a configured backend that can't be reached (e.g. a locked
+    // configured credential backend) warns and is skipped — we never silently fall back.
+    const built = await Promise.all(
+      [...registry.values()].map((entry) =>
+        entry.buildPlugin().then(
+          (plugin) => ({ entry, plugin }),
+          (reason: unknown) => {
+            console.error(`Could not load ${entry.method.label}: ${String(reason)}`);
+            return { entry, plugin: null };
+          },
+        ),
       ),
-    ),
-  );
-  for (const { entry, plugin } of built) {
-    if (!plugin) continue;
-    plugins.push(plugin);
-    fallbackModel ??= entry.defaultModel;
-  }
-  // Config-defined providers (`customProviders` in global settings) join the same registry as
-  // signed-in built-ins; their plugin id doubles as the model provider id.
-  const customProviders = (await readGlobalSettings(defaultHome())).customProviders;
-  plugins.push(...createCustomProviderPlugins(customProviders ?? {}));
-  plugins.push(
-    { id: "demo", providers: () => [new DemoProvider()] },
-    sandboxPlugin,
-    activitiesPlugin,
-    outputPlugin,
-    workspacePlugin,
-    approvalPlugin,
-    agentsPlugin,
-    autoApprovalPlugin,
-    subagentsDefinition,
-    { id: "compaction", policies: () => ({ compaction: modelCompaction }) },
-  );
-  const resolvedFallback: ModelConfig = fallbackModel ?? { provider: "demo", model: "demo-1" };
-  // Lowest cascade layer: every conversation has a model even on resume with no settings, and
-  // resolution never fails "no model configured".
-  const service = new HarnessService({
-    store,
-    plugins,
-    defaults: {
-      model: resolvedFallback,
-      plugins: {
-        approval: { tools: ACTIVITY_APPROVAL_DEFAULTS },
+    );
+    for (const { entry, plugin } of built) {
+      if (!plugin) continue;
+      plugins.push(plugin);
+      fallbackModel ??= entry.defaultModel;
+    }
+    // Config-defined providers (`customProviders` in global settings) join the same registry as
+    // signed-in built-ins; their plugin id doubles as the model provider id.
+    const customProviders = (await readGlobalSettings(defaultHome())).customProviders;
+    plugins.push(...createCustomProviderPlugins(customProviders ?? {}));
+    plugins.push(
+      { id: "demo", providers: () => [new DemoProvider()] },
+      sandboxPlugin,
+      activitiesPlugin,
+      outputPlugin,
+      workspacePlugin,
+      approvalPlugin,
+      agentsPlugin,
+      autoApprovalPlugin,
+      subagentsDefinition,
+      { id: "compaction", policies: () => ({ compaction: modelCompaction }) },
+    );
+    const resolvedFallback: ModelConfig = fallbackModel ?? { provider: "demo", model: "demo-1" };
+    // Lowest cascade layer: every conversation has a model even on resume with no settings, and
+    // resolution never fails "no model configured".
+    const service = new HarnessService({
+      store,
+      plugins,
+      defaults: {
+        model: resolvedFallback,
+        plugins: {
+          approval: { tools: ACTIVITY_APPROVAL_DEFAULTS },
+        },
       },
-    },
+    });
+    void reapStoppedSandboxes();
+    // Late-bind the runner so the subagents tool can spawn/observe/abort children. Mirrors the
+    // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
+    subagentsDefinition.bindRunner(service);
+    const rpcSession = new HarnessRpcSession({
+      connection,
+      service,
+      server: { name: "harness", version: "0.0.0" },
+      plugins: CLIENT_CONTRACTS,
+      defaultModel: resolvedFallback,
+    });
+    startedSession = rpcSession;
+    registerCliPluginServer(rpcSession, service);
+    const approvalRequests = new Map<string, AbortController>();
+    rpcSession.observeEvents((event, rootId) => {
+      if (!isKernelEvent(event)) return;
+      if (event.type === "request.resolved") {
+        approvalRequests.get(event.requestId)?.abort();
+        approvalRequests.delete(event.requestId);
+        return;
+      }
+      if (event.type !== "request.created" || !isApprovalRequest(event.request)) return;
+      if (approvalRequests.has(event.requestId)) return;
+      if (!rpcSession.supportsClientPlugin("approval", APPROVAL_CLIENT_CONTRACT_VERSION)) {
+        service.respond(event.conversationId, event.requestId, { decision: "deny" });
+        return;
+      }
+      const controller = new AbortController();
+      approvalRequests.set(event.requestId, controller);
+      void rpcSession
+        .request(
+          approvalDecideRequest,
+          {
+            requestId: event.requestId,
+            rootConversationId: rootId,
+            conversationId: event.conversationId,
+            call: {
+              callId: event.request.call.callId,
+              name: event.request.call.name,
+              args: jsonValueSchema.parse(event.request.call.args),
+            },
+            relationship: event.request.relationship,
+          },
+          { signal: controller.signal },
+        )
+        .then(
+          (response) => service.respond(event.conversationId, event.requestId, response),
+          () => service.respond(event.conversationId, event.requestId, { decision: "deny" }),
+        )
+        .finally(() => approvalRequests.delete(event.requestId));
+    });
+    rpcSession.start();
+    let closed = false;
+    return {
+      service,
+      rpcSession,
+      store,
+      close: async (closePeer = true) => {
+        if (closed) return;
+        closed = true;
+        await rpcSession.shutdown(closePeer);
+        subagentsDefinition.resetSession();
+        store.close();
+      },
+    };
+  } catch (error) {
+    const cleanupErrors: unknown[] = [];
+    try {
+      await startedSession?.shutdown();
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    try {
+      subagentsDefinition.resetSession();
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    try {
+      store.close();
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError([error, ...cleanupErrors], "server startup and cleanup failed", {
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
+
+async function buildClientHarness(
+  connection: RpcConnection,
+  closeTransport: () => Promise<void>,
+): Promise<Harness> {
+  const wireClient = new HarnessClient({
+    connection,
+    client: { name: "harness-tui", version: "0.0.0" },
+    plugins: CLIENT_CONTRACTS,
   });
-  // Late-bind the runner so the subagents tool can spawn/observe/abort children. Mirrors the
-  // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
-  subagentsDefinition.bindRunner(service);
-  return { service, store, fallbackModel: resolvedFallback };
+  const approvals = new ApprovalClient(wireClient.peer);
+  const plugins = new CliPluginClient(wireClient, approvals);
+  const service = new HarnessDomainClient(wireClient);
+  await service.start();
+  return {
+    service,
+    plugins,
+    fallbackModel: service.defaultModel(),
+    close: async () => {
+      service.closeConnection();
+      await closeTransport();
+    },
+  };
+}
+
+async function buildHarness(): Promise<Harness> {
+  const connections = createInProcessMessageConnectionPair();
+  const server = await buildServerHarness(connections.right);
+  try {
+    return await buildClientHarness(connections.left, () => server.close(false));
+  } catch (error) {
+    await server.close();
+    throw error;
+  }
+}
+
+const waitForChild = (child: ChildProcess): Promise<void> =>
+  child.exitCode !== null
+    ? Promise.resolve()
+    : new Promise((resolvePromise) => child.once("close", () => resolvePromise()));
+
+async function buildSpawnedHarness(child: ChildProcess): Promise<Harness> {
+  if (child.stdout === null || child.stdin === null) {
+    child.kill();
+    throw new Error("server process did not expose protocol pipes");
+  }
+  const connection = createNdjsonMessageConnection(child.stdout, child.stdin);
+  try {
+    return await buildClientHarness(connection, () => waitForChild(child));
+  } catch (error) {
+    child.kill();
+    await waitForChild(child);
+    throw error;
+  }
+}
+
+async function buildStdioHarness(): Promise<Harness> {
+  const entry = process.argv[1];
+  if (entry === undefined) throw new Error("cannot locate the harness CLI entry point");
+  return buildSpawnedHarness(
+    spawn(process.execPath, [...process.execArgv, entry, "server", "--stdio"], {
+      stdio: ["pipe", "pipe", "inherit"],
+      windowsHide: true,
+    }),
+  );
+}
+
+async function buildSshHarness(destination: string): Promise<Harness> {
+  const args = sshServerArgs(destination);
+  return buildSpawnedHarness(
+    spawn("ssh", args, {
+      stdio: ["pipe", "pipe", "inherit"],
+      windowsHide: true,
+    }),
+  );
+}
+
+/** Fixed SSH invocation: only the validated destination is variable. */
+export function sshServerArgs(destination: string): string[] {
+  if (destination.startsWith("-") || !/^[A-Za-z0-9_.@:[\]-]+$/u.test(destination)) {
+    throw new Error("invalid SSH destination");
+  }
+  return ["-T", "--", destination, "harness server --stdio"];
+}
+
+/** Headless server entry point. Stdout is exclusively the NDJSON protocol. */
+export async function runStdioServer(): Promise<void> {
+  const connection = createNdjsonMessageConnection(process.stdin, process.stdout);
+  const closed = new Promise<void>((resolvePromise) => connection.onClose(() => resolvePromise()));
+  const server = await buildServerHarness(connection);
+  let stop!: () => void;
+  const signal = new Promise<void>((resolvePromise) => (stop = resolvePromise));
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  try {
+    await Promise.race([closed, signal]);
+  } finally {
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
+    await server.close(true);
+  }
 }
 
 /** Warns when the session's configured model isn't backed by a registered (signed-in) provider. */
-function notifyModel(service: HarnessService, model: ModelConfig): void {
+function notifyModel(service: HarnessClientService, model: ModelConfig): void {
   if (model.provider === "demo") {
     console.log(
       "No model provider configured — running on the demo provider. Run `harness auth login` to sign in.",
@@ -173,73 +401,92 @@ function notifyModel(service: HarnessService, model: ModelConfig): void {
   }
 }
 
-export async function loadSession(service: HarnessService, id: string): Promise<Session> {
-  const conversation = await service.getConversation(id as ConversationId);
+export async function loadSession(service: CliService, id: string): Promise<Session> {
+  const conversation = await service.attachedConversation(id as ConversationId);
   if (!conversation) throw new Error(`unknown conversation: ${id}`);
   const [items, usage] = await Promise.all([
     service.getItems(conversation.id),
-    service.usage(conversation.id),
-    // Activation happens only after the previous runtime family has been deactivated.
-    service.prepare(conversation.id),
+    service.usageSummary(conversation.id),
   ]);
   return { conversation, items, usage };
 }
 
 /** Parses launch flags into a running TUI: new session, resume by id, or resume picker. */
 export async function launch(opts: LaunchOptions = {}): Promise<void> {
-  const { service, store, fallbackModel } = await buildHarness();
-  // Best-effort sweep of stopped sandbox containers left by past sessions (no-op without docker).
-  void reapStoppedSandboxes();
-  // Canonicalize once so a `--cwd ./x` flag and a stored `workspaceRoot` compare equal.
-  const cwd = resolve(opts.cwd ?? process.cwd());
-  // Conversations this instance created; empty ones are dropped on exit.
-  const created = new Set<ConversationId>();
-
-  let start: Start;
-  if (opts.conversationId) {
-    start = { kind: "session", session: await loadSession(service, opts.conversationId) };
-  } else if (opts.resume) {
-    start = { kind: "picker" };
-  } else {
-    // `--model` overrides the model id on the fallback provider (a dev convenience); otherwise
-    // the settings cascade picks the model, falling back to `fallbackModel` only when none is set.
-    const overrides = launchOverrides(fallbackModel, opts.model);
-    const conversation = await service.createConversation({ cwd, overrides });
-    console.log(`conversation ${conversation.id}\n`);
-    created.add(conversation.id);
-    await service.prepare(conversation.id);
-    start = { kind: "session", session: { conversation, items: [], usage: [] } };
+  if (opts.connectStdio && opts.ssh !== undefined) {
+    throw new Error("choose either --connect-stdio or --ssh");
   }
-
-  if (start.kind === "session") {
-    notifyModel(service, start.session.conversation.config.model);
-  }
-
-  let activeId: ConversationId | undefined;
-  const { waitUntilExit } = render(
-    <Root service={service} start={start} cwd={cwd} onActive={(id) => (activeId = id)} />,
-    // Ctrl+C is handled in-app (clear prompt / cancel overlay); Ctrl+D quits when empty.
-    {
-      exitOnCtrlC: false,
-      incrementalRendering: true,
-    },
-  );
+  const harness = opts.ssh
+    ? await buildSshHarness(opts.ssh)
+    : opts.connectStdio
+      ? await buildStdioHarness()
+      : await buildHarness();
+  const { service, plugins, fallbackModel } = harness;
   try {
-    await waitUntilExit();
-    if (activeId) {
-      const result = await service.deactivateSession(activeId, { force: true });
-      if (result.status === "deactivated") {
-        subagentsDefinition.resetSession();
-      }
+    // Canonicalize once so a `--cwd ./x` flag and a stored `workspaceRoot` compare equal.
+    const remote = opts.ssh !== undefined;
+    const cwd = remote ? (opts.cwd ?? ".") : resolve(opts.cwd ?? process.cwd());
+    // Conversations this instance created; empty ones are dropped on exit.
+    const created = new Set<ConversationId>();
+
+    let start: Start;
+    if (opts.conversationId) {
+      start = { kind: "session", session: await loadSession(service, opts.conversationId) };
+    } else if (opts.resume) {
+      start = { kind: "picker" };
+    } else {
+      // `--model` overrides the model id on the fallback provider (a dev convenience); otherwise
+      // the settings cascade picks the model, falling back to `fallbackModel` only when none is set.
+      const overrides = launchOverrides(fallbackModel, opts.model);
+      const conversation = await service.createConversation({
+        ...(remote && opts.cwd === undefined ? {} : { cwd }),
+        overrides,
+      });
+      console.log(`conversation ${conversation.id}\n`);
+      created.add(conversation.id);
+      await service.prepare(conversation.id);
+      start = {
+        kind: "session",
+        session: {
+          conversation,
+          items: [],
+          usage: {
+            usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+            incomplete: false,
+            cost: 0,
+          },
+        },
+      };
     }
+
+    if (start.kind === "session") {
+      notifyModel(service, start.session.conversation.config.model);
+    }
+
+    const { waitUntilExit } = render(
+      <Root
+        service={service}
+        plugins={plugins}
+        start={start}
+        cwd={cwd}
+        onActive={() => undefined}
+      />,
+      // Ctrl+C is handled in-app (clear prompt / cancel overlay); Ctrl+D quits when empty.
+      {
+        exitOnCtrlC: false,
+        incrementalRendering: true,
+      },
+    );
+    await waitUntilExit();
     await Promise.all([...created].map((id) => service.deleteConversationIfEmpty(id)));
   } finally {
-    store.close();
+    await harness.close();
   }
 }
 
 interface RootProps {
-  service: HarnessService;
+  service: CliService;
+  plugins: CliPlugins;
   start: Start;
   cwd: string;
   onActive: (id: ConversationId | undefined) => void;
@@ -251,7 +498,7 @@ interface TransitionRequest {
 }
 
 /** Two screens — picker and session — with `/resume` (and launch) toggling between them. */
-export function Root({ service, start, cwd, onActive }: RootProps): ReactElement | null {
+export function Root({ service, plugins, start, cwd, onActive }: RootProps): ReactElement | null {
   const { exit } = useApp();
   const [session, setSession] = useState<Session | null>(
     start.kind === "session" ? start.session : null,
@@ -276,7 +523,7 @@ export function Root({ service, start, cwd, onActive }: RootProps): ReactElement
     setNotice({ id: ++noticeId.current, text });
   };
 
-  const activate = async (request: TransitionRequest): Promise<void> => {
+  const activate = async (request: TransitionRequest, forceReload = false): Promise<void> => {
     if (transitionInFlight.current) return;
     transitionInFlight.current = true;
     const leaving = session;
@@ -289,24 +536,25 @@ export function Root({ service, start, cwd, onActive }: RootProps): ReactElement
         : "switching conversation",
     );
     try {
-      if (leaving) {
-        const result = await service.deactivateSession(leaving.conversation.id);
-        if (result.status === "busy") {
-          publish("wait for or interrupt the current turn before switching");
-          return;
-        }
-        subagentsDefinition.resetSession();
-      }
-
+      // Configuration mutation requires the current attachment. Persist it first, then replace the
+      // runtime so the next attachment constructs services from the new durable configuration.
       if (request.mutation) {
         try {
           await request.mutation.apply();
         } catch (cause) {
-          if (!leaving) throw cause;
-          const restored = await loadSession(service, leaving.conversation.id);
-          setSession(restored);
-          setGeneration((value) => value + 1);
           publish(`sandbox change failed: ${formatError(cause)}`);
+          return;
+        }
+      }
+
+      if (leaving?.conversation.id === request.targetId) {
+        const result = await service.deactivateSession(leaving.conversation.id, {
+          // A persisted service-config mutation must finish replacing the old fixed service.
+          // Liveness was checked before mutation; force only closes a race with newly arriving work.
+          force: forceReload || request.mutation !== undefined,
+        });
+        if (result.status === "busy") {
+          publish("wait for or interrupt the current turn before switching");
           return;
         }
       }
@@ -319,19 +567,9 @@ export function Root({ service, start, cwd, onActive }: RootProps): ReactElement
         (leaving?.conversation.id === request.targetId ? "conversation reloaded" : undefined);
       if (message) publish(message);
     } catch (cause) {
-      let failure = cause;
-      try {
-        const cleanup = await service.deactivateSession(request.targetId, { force: true });
-        if (cleanup.status === "deactivated") subagentsDefinition.resetSession();
-      } catch (cleanupCause) {
-        failure = new AggregateError(
-          [cause, cleanupCause],
-          `activation failed: ${formatError(cause)}; cleanup failed: ${formatError(cleanupCause)}`,
-        );
-      }
       setSession(null);
       setPicking(true);
-      setError(`could not activate conversation: ${formatError(failure)}`);
+      setError(`could not activate conversation: ${formatError(cause)}`);
     } finally {
       transitionInFlight.current = false;
       setTransitioning(undefined);
@@ -340,8 +578,8 @@ export function Root({ service, start, cwd, onActive }: RootProps): ReactElement
 
   const requestActivation = (request: TransitionRequest): void => {
     if (transitionInFlight.current) return;
-    if (session) {
-      const running = runningActivities(service, session.conversation.id);
+    if (session?.conversation.id === request.targetId) {
+      const running = plugins.runningActivities(session.conversation.id);
       if (running > 0) {
         setPendingSwitch({ request, running });
         return;
@@ -361,6 +599,7 @@ export function Root({ service, start, cwd, onActive }: RootProps): ReactElement
         {error ? <Text color="red">{error}</Text> : null}
         <PickerScreen
           service={service}
+          plugins={plugins}
           cwd={cwd}
           onSelect={(id) => requestActivation({ targetId: id as ConversationId })}
           onCancel={() => (session ? setPicking(false) : exit())}
@@ -376,13 +615,14 @@ export function Root({ service, start, cwd, onActive }: RootProps): ReactElement
         {`stop ${pendingSwitch.running} running ${pendingSwitch.running === 1 ? "activity" : "activities"} and ${pendingSwitch.request.targetId === session.conversation.id ? "reload" : "switch"}? `}
       </Text>
       <ConfirmInput
-        onConfirm={() => void activate(pendingSwitch.request)}
+        onConfirm={() => void activate(pendingSwitch.request, true)}
         onCancel={() => setPendingSwitch(null)}
       />
     </Box>
   ) : picking ? (
     <PickerScreen
       service={service}
+      plugins={plugins}
       cwd={cwd}
       onSelect={(id) => requestActivation({ targetId: id as ConversationId })}
       onCancel={() => setPicking(false)}
@@ -393,6 +633,7 @@ export function Root({ service, start, cwd, onActive }: RootProps): ReactElement
     <App
       key={`${session.conversation.id}:${generation}`}
       service={service}
+      plugins={plugins}
       conversation={session.conversation}
       initialItems={session.items}
       initialUsage={session.usage}
@@ -405,7 +646,6 @@ export function Root({ service, start, cwd, onActive }: RootProps): ReactElement
       {...(transitioning ? { transitioning } : {})}
       {...(sessionOverlay ? { sessionOverlay } : {})}
       {...(notice ? { notice } : {})}
-      activities={makeActivities(service, session.conversation.id)}
     />
   );
 }
@@ -416,11 +656,13 @@ export function Root({ service, start, cwd, onActive }: RootProps): ReactElement
  */
 function PickerScreen({
   service,
+  plugins,
   cwd,
   onSelect,
   onCancel,
 }: {
-  service: HarnessService;
+  service: CliService;
+  plugins: CliPlugins;
   cwd: string;
   onSelect: (id: string) => void;
   onCancel: () => void;
@@ -433,12 +675,10 @@ function PickerScreen({
     // per row is cheap against the listing's per-record resolve; batch if it ever profiles.
     void (async () => {
       const all = await service.listConversations();
-      const marks = await Promise.all(
-        all.map((c) => service.getPluginState("subagents", c.id, "spawn")),
-      );
-      setList(all.filter((_, i) => marks[i] == null));
+      const topLevel = await plugins.topLevel(all.map((conversation) => conversation.id));
+      setList(all.filter((conversation) => topLevel.has(conversation.id)));
     })();
-  }, [service]);
+  }, [service, plugins]);
 
   useInput((input, key) => {
     if (key.escape) onCancel();

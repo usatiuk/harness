@@ -1,18 +1,57 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
-import type { Conversation, ConversationId, HarnessEvent, Item } from "@harness/protocol";
+import type { Conversation, HarnessEvent, Item } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
-import { LocalExecutionContext, type ProcessExit, type SpawnedProcess } from "@harness/execution";
-import { ActivityManager } from "@harness/activities";
-import { DockerExecutionContext, NativeExecutionContext } from "@harness/sandbox";
-import { App, appReduce, sandboxBackendOf, usageLabel, type AppProps } from "./app.tsx";
+import { App, appReduce, usageLabel, type AppProps } from "./app.tsx";
 import { emptyState, type Cell } from "./transcript-reducer.ts";
+import { testPlugins } from "./test-plugins.ts";
+import type { CliPlugins } from "./client-plugins.ts";
 
 const shellCells = (cells: Cell[]): Extract<Cell, { kind: "shell" }>[] =>
   cells.filter((c): c is Extract<Cell, { kind: "shell" }> => c.kind === "shell");
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
 };
+
+const toolCall = (callId: string, name: string, args: unknown): HarnessEvent => ({
+  type: "item.appended",
+  conversationId: "c1",
+  item: {
+    type: "tool_call",
+    id: `tool-call:${callId}` as Item["id"],
+    conversationId: "c1" as Item["conversationId"],
+    turnId: "t1" as Item["turnId"],
+    seq: 0,
+    parent: null,
+    createdAt: 0,
+    callId,
+    name,
+    args,
+  },
+});
+
+const toolResult = (
+  callId: string,
+  status: "ok" | "error",
+  content: Extract<Item, { type: "tool_result" }>["content"],
+  annotations?: Record<string, unknown>,
+): HarnessEvent => ({
+  type: "item.appended",
+  conversationId: "c1",
+  item: {
+    type: "tool_result",
+    id: `tool-result:${callId}` as Item["id"],
+    conversationId: "c1" as Item["conversationId"],
+    turnId: "t1" as Item["turnId"],
+    seq: 1,
+    parent: null,
+    createdAt: 0,
+    callId,
+    status,
+    content,
+    ...(annotations === undefined ? {} : { annotations }),
+  },
+});
 
 const conversation = {
   id: "c1",
@@ -49,10 +88,12 @@ const mount = (
   service: HarnessService,
   initialItems: Item[] = [],
   onReload: AppProps["onReload"] = () => {},
+  plugins: CliPlugins = testPlugins(),
 ) =>
   render(
     <App
       service={service}
+      plugins={plugins}
       conversation={conversation}
       initialItems={initialItems}
       initialUsage={[]}
@@ -60,7 +101,6 @@ const mount = (
       launchCwd="/tmp"
       onResume={() => {}}
       onReload={onReload}
-      activities={{ peek: () => [], kill: () => {} }}
     />,
   );
 
@@ -84,13 +124,6 @@ describe("App", () => {
         1000,
       ),
     ).toContain("usage incomplete");
-  });
-
-  it("identifies the backend from the actual cached execution instance", () => {
-    expect(sandboxBackendOf(new LocalExecutionContext("/work"))).toBe("local");
-    expect(sandboxBackendOf(Object.create(NativeExecutionContext.prototype))).toBe("native");
-    expect(sandboxBackendOf(Object.create(DockerExecutionContext.prototype))).toBe("docker");
-    expect(sandboxBackendOf(undefined)).toBeUndefined();
   });
 
   it("shows the composer and the model on mount", () => {
@@ -143,7 +176,7 @@ describe("App", () => {
     const { lastFrame } = mount(service);
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
     emit({
-      type: "message",
+      type: "item.appended",
       conversationId: "c1",
       item: {
         type: "message",
@@ -157,24 +190,12 @@ describe("App", () => {
         content: [{ type: "text", text: "inspect" }],
       },
     });
-    emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "read-1",
-      name: "read_file",
-      args: { path: "README.md" },
-    });
+    emit(toolCall("read-1", "read_file", { path: "README.md" }));
     await vi.waitFor(() => expect(lastFrame()).toContain("• Explored\n  └ Read README.md"));
     expect(lastFrame()).toContain("Working…");
     expect(lastFrame()!.match(/Read README\.md/gu)).toHaveLength(1);
 
-    emit({
-      type: "tool_call.completed",
-      conversationId: "c1",
-      callId: "read-1",
-      status: "ok",
-      forModel: [{ type: "text", text: "# Harness" }],
-    });
+    emit(toolResult("read-1", "ok", [{ type: "text", text: "# Harness" }]));
     await vi.waitFor(() => expect(lastFrame()).toContain("• Explored\n  └ Read README.md"));
     expect(lastFrame()!.match(/Read README\.md/gu)).toHaveLength(1);
 
@@ -184,7 +205,7 @@ describe("App", () => {
     expect(lastFrame()).toContain("I found the data");
     expect(lastFrame()).toContain("Working…");
     emit({
-      type: "message",
+      type: "item.appended",
       conversationId: "c1",
       item: {
         type: "message",
@@ -198,23 +219,11 @@ describe("App", () => {
         content: [{ type: "text", text: "I found the data" }],
       },
     });
-    emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "search-1",
-      name: "glob",
-      args: { pattern: "text_delta" },
-    });
+    emit(toolCall("search-1", "glob", { pattern: "text_delta" }));
     await vi.waitFor(() => expect(lastFrame()).toContain("• Explored\n  └ Search text_delta"));
     expect(lastFrame()!.match(/Explored/gu)).toHaveLength(2);
 
-    emit({
-      type: "tool_call.completed",
-      conversationId: "c1",
-      callId: "search-1",
-      status: "ok",
-      forModel: [{ type: "text", text: "packages/cli/src/app.tsx" }],
-    });
+    emit(toolResult("search-1", "ok", [{ type: "text", text: "packages/cli/src/app.tsx" }]));
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
     await vi.waitFor(() => expect(lastFrame()).toContain("• Worked for"));
     expect(lastFrame()!.match(/Explored/gu)).toHaveLength(2);
@@ -229,28 +238,10 @@ describe("App", () => {
     const { service, emit } = harness();
     const { lastFrame } = mount(service);
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "command-1",
-      name: "bash",
-      args: { command: "echo pending" },
-    });
-    emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "read-1",
-      name: "read_file",
-      args: { path: "README.md" },
-    });
+    emit(toolCall("command-1", "bash", { command: "echo pending" }));
+    emit(toolCall("read-1", "read_file", { path: "README.md" }));
     emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "I found a lead" });
-    emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "read-2",
-      name: "read_file",
-      args: { path: "package.json" },
-    });
+    emit(toolCall("read-2", "read_file", { path: "package.json" }));
 
     await vi.waitFor(() => expect(lastFrame()).toContain("Read package.json"));
     const frame = lastFrame()!;
@@ -260,35 +251,22 @@ describe("App", () => {
     expect(frame.indexOf("Read package.json")).toBeLessThan(frame.indexOf("Working…"));
   });
 
-  it("registers one-shot shell processes for session teardown", async () => {
+  it("routes one-shot shell execution through the client plugin boundary", async () => {
     const { service } = harness();
-    const manager = new ActivityManager(conversation.id);
-    let settle!: (result: ProcessExit) => void;
-    let kills = 0;
-    const proc: SpawnedProcess = {
-      pid: 1,
-      exit: new Promise((resolve) => (settle = resolve)),
-      onData: () => {},
-      kill: () => {
-        kills++;
-        settle({ code: null, signal: "SIGTERM" });
-      },
-    };
-    Object.assign(service, {
-      service: (_id: ConversationId, key: string) =>
-        key === "execution" ? { spawn: () => proc } : key === "activities" ? manager : undefined,
+    const runShell = vi.fn<CliPlugins["runShell"]>((_conversationId, _command, emit) => {
+      const accepted = Promise.resolve().then(() => {
+        emit("shell-test", { type: "data", text: "watched\n" });
+        emit("shell-test", { type: "exited", exitCode: 0 });
+      });
+      return { id: "shell-test", accepted };
     });
-    const { stdin } = mount(service);
+    const { stdin, lastFrame } = mount(service, [], () => {}, testPlugins({ runShell }));
 
     stdin.write("!watch");
     await flush();
     stdin.write("\r");
-    await flush();
-    expect(manager.runningCount()).toBe(1);
-
-    await manager.dispose();
-    expect(kills).toBe(1);
-    expect(manager.runningCount()).toBe(0);
+    await vi.waitFor(() => expect(runShell).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(lastFrame()).toContain("watched"));
   });
 
   it("reconstructs thought and exploration stages from resumed items", () => {
@@ -399,7 +377,7 @@ describe("App", () => {
     expect(liveLines[workingLine - 1]).toBe("");
     expect(liveLines[workingLine + 1]).toBe("");
     emit({
-      type: "reasoning",
+      type: "item.appended",
       conversationId: "c1",
       item: {
         type: "reasoning",
@@ -421,13 +399,7 @@ describe("App", () => {
     const { service, emit } = harness();
     const { stdin, lastFrame } = mount(service);
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "k1",
-      name: "bash",
-      args: { command: "npm test" },
-    });
+    emit(toolCall("k1", "bash", { command: "npm test" }));
     // Compact: the command is shown as a summary, the raw args JSON is not.
     await vi.waitFor(() => expect(lastFrame()).toContain("npm test"));
     expect(lastFrame()).toContain("Working…");
@@ -441,13 +413,7 @@ describe("App", () => {
     const { service, emit } = harness();
     const { lastFrame } = mount(service);
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "k1",
-      name: "bash",
-      args: { command: "echo hi" },
-    });
+    emit(toolCall("k1", "bash", { command: "echo hi" }));
     emit({
       type: "auto-approval.reviewing",
       conversationId: "c1",
@@ -456,21 +422,16 @@ describe("App", () => {
       model: { provider: "demo", model: "demo-1" },
     });
     await vi.waitFor(() => expect(lastFrame()).toContain("auto approver (demo/demo-1) reviewing"));
-    emit({
-      type: "tool_call.completed",
-      conversationId: "c1",
-      callId: "k1",
-      status: "ok",
-      forModel: [{ type: "text", text: "done" }],
-      annotations: {
+    emit(
+      toolResult("k1", "ok", [{ type: "text", text: "done" }], {
         approval: {
           decision: "allow",
           responder: "auto",
           relationship: "out-of-workspace",
           model: { provider: "demo", model: "demo-1" },
         },
-      },
-    });
+      }),
+    );
     await vi.waitFor(() => expect(lastFrame()).toContain("auto approver (demo/demo-1) approved"));
   });
 
@@ -478,20 +439,8 @@ describe("App", () => {
     const { service, emit } = harness();
     const { stdin, lastFrame } = mount(service);
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "k1",
-      name: "bash",
-      args: { command: "npm test" },
-    });
-    emit({
-      type: "tool_call.completed",
-      conversationId: "c1",
-      callId: "k1",
-      status: "ok",
-      forModel: [{ type: "text", text: "all good\nsecond line" }],
-    });
+    emit(toolCall("k1", "bash", { command: "npm test" }));
+    emit(toolResult("k1", "ok", [{ type: "text", text: "all good\nsecond line" }]));
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
     // Commands stay explicit; compact mode keeps one result line and verbose restores the rest.
     await vi.waitFor(() => expect(lastFrame()).toContain("all good"));
@@ -504,13 +453,7 @@ describe("App", () => {
     const { service, emit } = harness();
     const { lastFrame } = mount(service);
     emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit({
-      type: "tool_call.started",
-      conversationId: "c1",
-      callId: "k1",
-      name: "read_file",
-      args: { path: "secret.txt" },
-    });
+    emit(toolCall("k1", "read_file", { path: "secret.txt" }));
     emit({
       type: "request.created",
       requestId: "q1",

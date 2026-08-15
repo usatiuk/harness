@@ -25,6 +25,25 @@ npm run format       # prettier --write
 npm run check        # typecheck + lint + format:check + test (also runs in CI)
 ```
 
+## Client/server modes
+
+The TUI always uses the public bidirectional JSON-RPC protocol. By default the
+client and server share one process through an in-memory transport. The same TUI
+can spawn a local stdio server or a fixed remote SSH server command:
+
+```sh
+harness --connect-stdio
+harness --ssh user@host --cwd /remote/project
+harness resume --ssh user@host
+```
+
+The headless entry point is `harness server --stdio`. It emits only NDJSON
+protocol frames on stdout and diagnostics on stderr. The server owns its host's
+store, settings, credentials, workspace, execution, activities, approvals, and
+subagents; the SSH destination is therefore a trusted account boundary, not an
+unauthenticated service. See the [v1 protocol](docs/protocol/client-v1.md) and
+[generated JSON Schema](docs/protocol/client-v1.schema.json).
+
 Repository guidance lives in `AGENTS.md`. See `docs/README.md` for the roles of
 subsystem architecture, roadmaps, decisions, research, delivery plans, testing
 guidance, and deferred-work records.

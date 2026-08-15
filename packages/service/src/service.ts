@@ -2,6 +2,7 @@ import type {
   ConfigResolver,
   Conversation,
   ConversationId,
+  ConversationPageCursor,
   ConversationRecord,
   ConversationRunner,
   DeliveryIntent,
@@ -12,6 +13,7 @@ import type {
   ModelIdentity,
   ModelInfo,
   ModelUsage,
+  ModelUsageSummary,
   Plugin,
   PluginEntry,
   Store,
@@ -51,6 +53,8 @@ export interface CreateConversationOptions {
    * instructions. Re-applied on every resolve, so it survives resume.
    */
   overrides?: Record<string, unknown>;
+  /** Parent for a plugin-spawned child; absent creates a new root conversation. */
+  parentId?: ConversationId;
 }
 
 export type EventListener = (event: HarnessEvent) => void;
@@ -110,7 +114,11 @@ export class HarnessService implements ConversationRunner {
       overrides: options.overrides ?? {},
     });
     try {
-      return await this.#resolve(record);
+      const conversation = await this.#resolve(record);
+      if (options.parentId !== undefined) {
+        this.#engine.registerChild(options.parentId, record.id);
+      }
+      return conversation;
     } catch (e) {
       // Resolve can fail (bad project settings, unknown plugin in `overrides`); roll back so a failed
       // create leaves nothing. The record has no head/turns yet, so deleteConversationIfEmpty always reaps.
@@ -168,8 +176,8 @@ export class HarnessService implements ConversationRunner {
   }
 
   /** Runs an explicit summary-only compaction while the conversation is idle. */
-  compact(conversationId: ConversationId): Promise<"compacted" | "noop"> {
-    return this.#engine.compact(conversationId);
+  compact(conversationId: ConversationId, signal?: AbortSignal): Promise<"compacted" | "noop"> {
+    return this.#engine.compact(conversationId, signal);
   }
 
   /** Resolves when the conversation has no running or queued work. */
@@ -186,6 +194,11 @@ export class HarnessService implements ConversationRunner {
     options: { force?: boolean } = {},
   ): Promise<DeactivationResult> {
     return this.#engine.deactivate(rootConversationId, options);
+  }
+
+  /** Requests prompt cancellation while leaving disposal to `deactivateSession`. */
+  cancelSession(rootConversationId: ConversationId): void {
+    this.#engine.cancel(rootConversationId);
   }
 
   /** Aggregate model catalog across registered providers. */
@@ -285,6 +298,11 @@ export class HarnessService implements ConversationRunner {
     return this.#engine.serviceFor(conversationId, key);
   }
 
+  /** Read an already-created service without introducing work during an attach snapshot. */
+  existingService(conversationId: ConversationId, key: string): unknown {
+    return this.#engine.existingServiceFor(conversationId, key);
+  }
+
   /** One conversation by id, with its config resolved on read. Backs session resume. */
   async getConversation(id: ConversationId): Promise<Conversation | undefined> {
     const record = await this.#store.getConversation(id);
@@ -318,6 +336,37 @@ export class HarnessService implements ConversationRunner {
   /** The active item chain (head's ancestry) — the render/resume source for a conversation. */
   getItems(id: ConversationId): Promise<Item[]> {
     return this.#store.listActiveItems(id);
+  }
+
+  listConversationPage(
+    limit: number,
+    before?: ConversationPageCursor,
+  ): Promise<ConversationRecord[]> {
+    return this.#store.listConversationPage(limit, before);
+  }
+
+  getItem(conversationId: ConversationId, itemId: ItemId): Promise<Item | undefined> {
+    return this.#store.getItem(conversationId, itemId);
+  }
+
+  listItemAncestors(
+    conversationId: ConversationId,
+    start: ItemId | null,
+    limit: number,
+  ): Promise<Item[]> {
+    return this.#store.listItemAncestors(conversationId, start, limit);
+  }
+
+  usageSummary(id: ConversationId): Promise<ModelUsageSummary> {
+    return this.#store.summarizeModelUsage(id);
+  }
+
+  conversationTreeState(rootId: ConversationId) {
+    return this.#engine.conversationTreeState(rootId);
+  }
+
+  rootConversationOf(conversationId: ConversationId): ConversationId {
+    return this.#engine.rootConversationOf(conversationId);
   }
 
   /** Per-request usage/cost rows, in record order. Backs resume footer totals. */

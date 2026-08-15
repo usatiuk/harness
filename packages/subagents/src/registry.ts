@@ -31,7 +31,7 @@ export async function depthOf(
 }
 
 /**
- * Activation-local parent→children index used to inspect the active family. Settled children remain
+ * Activation-local parent→children index used to inspect the active conversation tree. Settled children remain
  * until session teardown; durable `plugin_state` parentage is the long-term inspection source.
  */
 export class SubagentRegistry {

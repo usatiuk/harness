@@ -32,7 +32,7 @@ export class Runtime {
    * Ephemeral: a parked request that outlives the process is recovered by crash
    * reconciliation (its tool_call has no result), so nothing here is durable.
    */
-  readonly pendingRequests = new Map<string, { resolve: (response: unknown) => void }>();
+  readonly pendingRequests = new Map<string, (response: unknown) => void>();
   #idleWaiters: Array<() => void> = [];
 
   constructor(conversation: Conversation) {

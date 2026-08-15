@@ -1,15 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
 import type { Conversation, ConversationId } from "@harness/protocol";
-import type { HarnessService } from "@harness/service";
 import { ActivityManager, type Activity, type ActivityResult } from "@harness/activities";
 import {
   ACTIVITY_APPROVAL_DEFAULTS,
   launchOverrides,
   loadSession,
   Root,
+  sshServerArgs,
   type Session,
+  type CliService,
 } from "./index.tsx";
+import { testPlugins } from "./test-plugins.ts";
+import type { CliPlugins } from "./client-plugins.ts";
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
@@ -25,9 +28,10 @@ const conversation = {
 } as Conversation;
 
 function rootHarness(manager?: ActivityManager): {
-  service: HarnessService;
+  service: CliService;
   deactivate: ReturnType<typeof vi.fn>;
   subscribe: ReturnType<typeof vi.fn>;
+  plugins: CliPlugins;
   order: string[];
 } {
   const order: string[] = [];
@@ -41,17 +45,21 @@ function rootHarness(manager?: ActivityManager): {
     availableModels: () => [],
     service: (_id: ConversationId, key: string) => (key === "activities" ? manager : undefined),
     deactivateSession: deactivate,
-    getConversation: async () => {
-      order.push("getConversation");
+    attachedConversation: async () => {
+      order.push("prepare");
       return conversation;
     },
     getItems: async () => {
       order.push("getItems");
       return [];
     },
-    usage: async () => {
-      order.push("usage");
-      return [];
+    usageSummary: async () => {
+      order.push("usageSummary");
+      return {
+        usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+        incomplete: false,
+        cost: 0,
+      };
     },
     prepare: async () => {
       order.push("prepare");
@@ -59,13 +67,24 @@ function rootHarness(manager?: ActivityManager): {
     setPluginConfig: async () => {
       order.push("mutation");
     },
-  } as unknown as HarnessService;
-  return { service, deactivate, subscribe, order };
+  } as unknown as CliService;
+  const plugins = testPlugins({
+    runningActivities: () => manager?.runningCount() ?? 0,
+  });
+  return { service, deactivate, subscribe, plugins, order };
 }
 
 const start: { kind: "session"; session: Session } = {
   kind: "session",
-  session: { conversation, items: [], usage: [] },
+  session: {
+    conversation,
+    items: [],
+    usage: {
+      usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+      incomplete: false,
+      cost: 0,
+    },
+  },
 };
 
 describe("CLI approval defaults", () => {
@@ -90,6 +109,19 @@ describe("launchOverrides", () => {
   });
 });
 
+describe("SSH transport", () => {
+  it("keeps the remote command fixed and rejects option or shell injection", () => {
+    expect(sshServerArgs("agent@example.com")).toEqual([
+      "-T",
+      "--",
+      "agent@example.com",
+      "harness server --stdio",
+    ]);
+    expect(() => sshServerArgs("-oProxyCommand=bad")).toThrow("invalid SSH destination");
+    expect(() => sshServerArgs("host; echo bad")).toThrow("invalid SSH destination");
+  });
+});
+
 describe("loadSession", () => {
   it("prepares the selected conversation before mounting its session", async () => {
     const conversation = {
@@ -100,28 +132,35 @@ describe("loadSession", () => {
       head: null,
       createdAt: 0,
     } as Conversation;
-    const prepare = vi.fn().mockResolvedValue(undefined);
+    const attachedConversation = vi.fn().mockResolvedValue(conversation);
     const service = {
-      getConversation: vi.fn().mockResolvedValue(conversation),
+      attachedConversation,
       getItems: vi.fn().mockResolvedValue([]),
-      usage: vi.fn().mockResolvedValue([]),
-      prepare,
-    } as unknown as HarnessService;
+      usageSummary: vi.fn().mockResolvedValue({
+        usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+        incomplete: false,
+        cost: 0,
+      }),
+    } as unknown as CliService;
 
     await expect(loadSession(service, "c1")).resolves.toEqual({
       conversation,
       items: [],
-      usage: [],
+      usage: {
+        usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+        incomplete: false,
+        cost: 0,
+      },
     });
-    expect(prepare).toHaveBeenCalledWith(conversation.id);
+    expect(attachedConversation).toHaveBeenCalledWith(conversation.id);
   });
 });
 
 describe("Root session lifecycle", () => {
   it("deactivates before preparing a same-id reload", async () => {
-    const { service, order, subscribe } = rootHarness();
+    const { service, plugins, order, subscribe } = rootHarness();
     const { stdin, lastFrame } = render(
-      <Root service={service} start={start} cwd="/work" onActive={() => {}} />,
+      <Root service={service} plugins={plugins} start={start} cwd="/work" onActive={() => {}} />,
     );
     await vi.waitFor(() => expect(subscribe).toHaveBeenCalledOnce());
 
@@ -135,10 +174,10 @@ describe("Root session lifecycle", () => {
     expect(subscribe).toHaveBeenCalledTimes(2);
   });
 
-  it("applies a sandbox change between deactivation and reactivation", async () => {
-    const { service, order } = rootHarness();
+  it("applies a sandbox change while attached before replacing the runtime", async () => {
+    const { service, plugins, order, deactivate } = rootHarness();
     const { stdin, lastFrame } = render(
-      <Root service={service} start={start} cwd="/work" onActive={() => {}} />,
+      <Root service={service} plugins={plugins} start={start} cwd="/work" onActive={() => {}} />,
     );
 
     stdin.write("/sandbox native");
@@ -146,8 +185,9 @@ describe("Root session lifecycle", () => {
     stdin.write("\r");
     await vi.waitFor(() => expect(lastFrame()).toContain("sandbox backend → native"));
 
-    expect(order.indexOf("mutation")).toBeGreaterThan(order.indexOf("deactivate"));
-    expect(order.indexOf("prepare")).toBeGreaterThan(order.indexOf("mutation"));
+    expect(order.indexOf("mutation")).toBeLessThan(order.indexOf("deactivate"));
+    expect(order.indexOf("prepare")).toBeGreaterThan(order.indexOf("deactivate"));
+    expect(deactivate).toHaveBeenCalledWith(conversation.id, { force: true });
   });
 
   it("confirms background cleanup and serializes repeated confirmation", async () => {
@@ -167,9 +207,9 @@ describe("Root session lifecycle", () => {
       } satisfies Activity,
       { callId: "background", emit: () => {} },
     );
-    const { service, deactivate } = rootHarness(manager);
+    const { service, plugins, deactivate } = rootHarness(manager);
     const { stdin, lastFrame } = render(
-      <Root service={service} start={start} cwd="/work" onActive={() => {}} />,
+      <Root service={service} plugins={plugins} start={start} cwd="/work" onActive={() => {}} />,
     );
 
     stdin.write("/reload");
@@ -189,6 +229,7 @@ describe("Root session lifecycle", () => {
     stdin.write("y");
     stdin.write("y");
     await vi.waitFor(() => expect(deactivate).toHaveBeenCalledOnce());
+    expect(deactivate).toHaveBeenCalledWith(conversation.id, { force: true });
     settle();
   });
 });

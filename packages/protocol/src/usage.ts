@@ -21,6 +21,14 @@ export interface ModelUsage {
 /** Input to record: the store assigns `id` and `createdAt`. */
 export type NewModelUsage = Omit<ModelUsage, "id" | "createdAt">;
 
+/** Authoritative bounded-size aggregate for resume and status presentation. */
+export interface ModelUsageSummary {
+  usage: Usage;
+  incomplete: boolean;
+  cost: number;
+  lastInputTokens?: number;
+}
+
 export const zeroUsage = (): Usage => ({
   inputTokens: 0,
   outputTokens: 0,

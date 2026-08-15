@@ -63,3 +63,11 @@ or generated content are involved.
 - Config, engine/service, and CLI regressions cover atomic model selection across
   file/profile/plugin layers, global and conversation persistence, `--model`, and
   explicit preset selection/reset. Same-named presets never cross identities.
+- Client/server regressions cover bidirectional request correlation,
+  cancellation, invalid messages, first/repeat attachment ordering, failed and
+  in-flight attach cleanup, multi-page history plus transient/durable overlap,
+  large item reconstruction, attach-first operation admission, cancellation
+  before disposal, root isolation, plugin snapshots and controls, queued
+  approvals, connection-wide shell identity and collision rejection, sandbox
+  mutation/reload, and fatal NDJSON limits. Local stdio is smoke-tested from the
+  CLI; SSH smoke remains environment-dependent.

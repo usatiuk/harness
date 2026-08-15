@@ -24,11 +24,17 @@ export interface ContextSource {
  * mechanism for per-conversation plugin substrate (the execution backend is one, keyed
  * `"execution"`). The kernel calls `for`, caches the result for the loaded runtime, and
  * never inspects it; tools narrow the opaque value with a typed accessor. A provider that owns
- * live resources may dispose its value when that runtime family is deactivated.
+ * live resources may dispose its value when that conversation tree is deactivated.
  */
 export interface ServiceProvider {
   readonly key: string;
   for(conversation: Conversation): unknown;
+  /**
+   * Optional graceful-close policy check after the root scope has stopped admitting new work.
+   * The service must not independently start work after this point. This does not authorize
+   * disposal; `dispose` must still safely own all resource cleanup.
+   */
+  blocksDeactivation?(service: unknown): boolean;
   dispose?(service: unknown): void | Promise<void>;
 }
 

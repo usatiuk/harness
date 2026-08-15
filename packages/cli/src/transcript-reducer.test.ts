@@ -31,7 +31,7 @@ describe("transcript reducer", () => {
       { type: "text_delta", turnId: "t1", text: "Hel" },
       { type: "text_delta", turnId: "t1", text: "lo" },
       {
-        type: "message",
+        type: "item.appended",
         item: item({ type: "message", role: "assistant", id: "m1", content: text("Hello") }),
       },
       { type: "turn.status", turnId: "t1", status: "completed" },
@@ -46,9 +46,21 @@ describe("transcript reducer", () => {
   it("orders reasoning, then assistant text, then a tool call", () => {
     const state = fold([
       { type: "reasoning_delta", turnId: "t1", text: "think" },
-      { type: "reasoning", item: item({ type: "reasoning", id: "r1", content: text("think") }) },
+      {
+        type: "item.appended",
+        item: item({ type: "reasoning", id: "r1", content: text("think") }),
+      },
       { type: "text_delta", turnId: "t1", text: "answer" },
-      { type: "tool_call.started", callId: "k1", name: "bash", args: { cmd: "ls" } },
+      {
+        type: "item.appended",
+        item: item({
+          type: "tool_call",
+          id: "tc1",
+          callId: "k1",
+          name: "bash",
+          args: { cmd: "ls" },
+        }),
+      },
     ]);
     expect(state.cells.map((c) => c.kind)).toEqual(["reasoning", "assistant", "tool"]);
     expect(state.cells[0]).toMatchObject({ kind: "reasoning", streaming: false });
@@ -57,13 +69,26 @@ describe("transcript reducer", () => {
 
   it("fills a running tool cell by callId on completion", () => {
     const state = fold([
-      { type: "tool_call.started", callId: "k1", name: "bash", args: {} },
-      { type: "tool_call.completed", callId: "k1", status: "ok", forModel: text("done") },
+      {
+        type: "item.appended",
+        item: item({ type: "tool_call", id: "tc1", callId: "k1", name: "bash", args: {} }),
+      },
+      {
+        type: "item.appended",
+        item: item({
+          type: "tool_result",
+          id: "tr1",
+          callId: "k1",
+          status: "ok",
+          content: text("done"),
+        }),
+      },
     ]);
     expect(state.cells).toEqual([
       {
         kind: "tool",
         callId: "k1",
+        turnId: "t1",
         name: "bash",
         args: {},
         startedAt: 0,
@@ -76,7 +101,10 @@ describe("transcript reducer", () => {
 
   it("shows live auto-review progress, then keeps the durable approval annotation", () => {
     const running = fold([
-      { type: "tool_call.started", callId: "k1", name: "bash", args: {} },
+      {
+        type: "item.appended",
+        item: item({ type: "tool_call", id: "tc1", callId: "k1", name: "bash", args: {} }),
+      },
       {
         type: "auto-approval.reviewing",
         conversationId: "c",
@@ -105,18 +133,22 @@ describe("transcript reducer", () => {
     const completed = reduce(
       running,
       {
-        type: "tool_call.completed",
-        callId: "k1",
-        status: "ok",
-        forModel: text("done"),
-        annotations: {
-          approval: {
-            decision: "allow",
-            responder: "auto",
-            relationship: "out-of-workspace",
-            model: { provider: "fake", model: "reviewer" },
+        type: "item.appended",
+        item: item({
+          type: "tool_result",
+          id: "tr1",
+          callId: "k1",
+          status: "ok",
+          content: text("done"),
+          annotations: {
+            approval: {
+              decision: "allow",
+              responder: "auto",
+              relationship: "out-of-workspace",
+              model: { provider: "fake", model: "reviewer" },
+            },
           },
-        },
+        }),
       },
       0,
     );
@@ -132,7 +164,10 @@ describe("transcript reducer", () => {
 
   it("clears reviewing progress when interruption completes without a decision", () => {
     const reviewing = fold([
-      { type: "tool_call.started", callId: "k1", name: "bash", args: {} },
+      {
+        type: "item.appended",
+        item: item({ type: "tool_call", id: "tc1", callId: "k1", name: "bash", args: {} }),
+      },
       {
         type: "auto-approval.reviewing",
         conversationId: "c",
@@ -144,10 +179,14 @@ describe("transcript reducer", () => {
     const interrupted = reduce(
       reviewing,
       {
-        type: "tool_call.completed",
-        callId: "k1",
-        status: "error",
-        forModel: text("interrupted"),
+        type: "item.appended",
+        item: item({
+          type: "tool_result",
+          id: "tr1",
+          callId: "k1",
+          status: "error",
+          content: text("interrupted"),
+        }),
       },
       0,
     );
@@ -160,11 +199,15 @@ describe("transcript reducer", () => {
     const started = reduce(
       { ...emptyState, turn: { id: "t1", status: "running", startedAt: 0 } },
       {
-        type: "tool_call.started",
+        type: "item.appended",
         conversationId: "c",
-        callId: "k1",
-        name: "read_file",
-        args: { path: "secret.txt" },
+        item: item({
+          type: "tool_call",
+          id: "tc1",
+          callId: "k1",
+          name: "read_file",
+          args: { path: "secret.txt" },
+        }),
       },
       0,
     );
@@ -182,7 +225,7 @@ describe("transcript reducer", () => {
       },
       0,
     );
-    expect(created.pending).toEqual({ requestId: "q1", summary: "approve read_file?" });
+    expect(created.pending).toEqual([{ requestId: "q1", summary: "approve read_file?" }]);
     expect(created.cells[0]).toMatchObject({
       kind: "tool",
       approvalProgress: { status: "reviewing", responder: "human" },
@@ -196,7 +239,28 @@ describe("transcript reducer", () => {
       },
       0,
     );
-    expect(resolved.pending).toBeUndefined();
+    expect(resolved.pending).toEqual([]);
+  });
+
+  it("keeps simultaneous approvals visible until each is resolved", () => {
+    const request = (requestId: string, callId: string): HarnessEvent => ({
+      type: "request.created",
+      requestId,
+      conversationId: "c",
+      request: {
+        kind: "approval",
+        call: { callId, name: "bash", args: {} },
+        relationship: "unknown",
+      },
+    });
+    const queued = fold([request("q1", "c1"), request("q2", "c2")]);
+    expect(queued.pending.map(({ requestId }) => requestId)).toEqual(["q1", "q2"]);
+    const remaining = reduce(
+      queued,
+      { type: "request.resolved", requestId: "q1", conversationId: "c" },
+      0,
+    );
+    expect(remaining.pending.map(({ requestId }) => requestId)).toEqual(["q2"]);
   });
 
   it("clears a pending approval when the turn ends without an explicit resolve", () => {
@@ -215,7 +279,7 @@ describe("transcript reducer", () => {
       0,
     );
     const ended = reduce(created, { type: "turn.status", turnId: "t1", status: "aborted" }, 0);
-    expect(ended.pending).toBeUndefined();
+    expect(ended.pending).toEqual([]);
   });
 
   it("appends an error cell carrying the message when a turn fails", () => {
@@ -233,7 +297,7 @@ describe("transcript reducer", () => {
   it("keeps compaction content for the verbose transcript", () => {
     const state = fold([
       {
-        type: "compaction",
+        type: "item.appended",
         item: item({ type: "compaction", id: "fold-1", content: text("Earlier work") }),
       },
     ]);
@@ -243,6 +307,39 @@ describe("transcript reducer", () => {
   it("restores compaction content for the verbose transcript", () => {
     const state = init([item({ type: "compaction", id: "fold-1", content: text("Earlier work") })]);
     expect(state.cells).toEqual([{ kind: "compaction", id: "fold-1", text: "Earlier work" }]);
+  });
+
+  it("deduplicates a durable item present in history and the live suffix", () => {
+    const durable = item({
+      type: "message",
+      role: "assistant",
+      id: "m1",
+      content: text("once"),
+    });
+    const seeded = init([durable]);
+    const repeated = reduce(seeded, { type: "item.appended", item: durable }, 0);
+    expect(repeated).toBe(seeded);
+    expect(repeated.cells).toHaveLength(1);
+  });
+
+  it("removes a streamed draft when history already contains its canonical item", () => {
+    const durable = item({
+      type: "message",
+      role: "assistant",
+      id: "m1",
+      content: text("canonical"),
+    });
+    const seeded = init([durable]);
+    const withOverlappingDelta = reduce(
+      seeded,
+      { type: "text_delta", turnId: "t1", text: "canonical" },
+      0,
+    );
+    const reconciled = reduce(withOverlappingDelta, { type: "item.appended", item: durable }, 0);
+
+    expect(reconciled.cells).toEqual([
+      { kind: "assistant", turnId: "t1", text: "canonical", streaming: false, id: "m1" },
+    ]);
   });
 
   it("records elapsed work without an error cell for an aborted turn", () => {
@@ -292,10 +389,14 @@ describe("transcript reducer", () => {
     const state = fold([
       { type: "turn.status", turnId: "t1", status: "running" },
       {
-        type: "tool_call.started",
-        callId: "k1",
-        name: "bash",
-        args: { command: "work" },
+        type: "item.appended",
+        item: item({
+          type: "tool_call",
+          id: "tc1",
+          callId: "k1",
+          name: "bash",
+          args: { command: "work" },
+        }),
       },
       { type: "turn.status", turnId: "t1", status: "failed", error: "provider disconnected" },
     ]);
@@ -396,22 +497,7 @@ describe("transcript reducer", () => {
 
     const replayed = fold([
       { type: "turn.status", turnId: "t1", status: "running" },
-      { type: "message", item: log[0]! },
-      { type: "tool_call.started", callId: "k1", name: "bash", args: { cmd: "ls" } },
-      {
-        type: "tool_call.completed",
-        callId: "k1",
-        status: "ok",
-        forModel: text("files"),
-        annotations: {
-          approval: {
-            decision: "allow",
-            responder: "auto",
-            relationship: "out-of-workspace",
-          },
-        },
-      },
-      { type: "message", item: log[3]! },
+      ...log.map((entry) => ({ type: "item.appended" as const, item: entry })),
     ]);
 
     expect(seeded.cells).toEqual(replayed.cells);
@@ -437,19 +523,15 @@ describe("transcript reducer", () => {
     ]);
   });
 
-  it("accumulates usage totals, cost, and the latest input size", () => {
-    const usageEvent = (usage: Usage, cost: number | null): HarnessEvent => ({
-      type: "usage",
+  it("replaces usage with the latest authoritative summary", () => {
+    const usageEvent = (usage: Usage, cost: number, lastInputTokens: number): HarnessEvent => ({
+      type: "usage.changed",
       conversationId: "c",
-      turnId: "t1",
-      provider: "fake",
-      model: "fake-1",
-      usage,
-      cost,
+      summary: { usage, incomplete: false, cost, lastInputTokens },
     });
     const state = fold([
-      usageEvent({ inputTokens: 1000, outputTokens: 50, cachedReadTokens: 0 }, 0.01),
-      usageEvent({ inputTokens: 1500, outputTokens: 100, cachedReadTokens: 900 }, null),
+      usageEvent({ inputTokens: 1000, outputTokens: 50, cachedReadTokens: 0 }, 0.01, 1000),
+      usageEvent({ inputTokens: 2500, outputTokens: 150, cachedReadTokens: 900 }, 0.01, 1500),
     ]);
     expect(state.usage).toEqual({ inputTokens: 2500, outputTokens: 150, cachedReadTokens: 900 });
     expect(state.cost).toBeCloseTo(0.01, 10);
@@ -458,15 +540,24 @@ describe("transcript reducer", () => {
 
   it("marks totals incomplete and clears the latest checkpoint when usage is unknown", () => {
     const known: HarnessEvent = {
-      type: "usage",
+      type: "usage.changed",
       conversationId: "c",
-      turnId: "t1",
-      provider: "fake",
-      model: "fake-1",
-      usage: { inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 },
-      cost: 0.01,
+      summary: {
+        usage: { inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 },
+        incomplete: false,
+        cost: 0.01,
+        lastInputTokens: 100,
+      },
     };
-    const unknown: HarnessEvent = { ...known, turnId: "t2", usage: null, cost: null };
+    const unknown: HarnessEvent = {
+      type: "usage.changed",
+      conversationId: "c",
+      summary: {
+        usage: { inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 },
+        incomplete: true,
+        cost: 0.01,
+      },
+    };
     const state = fold([known, unknown]);
     expect(state.usage).toEqual({ inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 });
     expect(state.usageIncomplete).toBe(true);

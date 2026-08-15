@@ -17,23 +17,17 @@ import {
   type HarnessEvent,
   type Item,
   type ModelUsage,
+  type ModelUsageSummary,
   type Usage,
 } from "@harness/protocol";
-import type { HarnessService } from "@harness/service";
-import { ActivityManager, type ActivityResult } from "@harness/activities";
-import { LocalExecutionContext, type ExecutionContext } from "@harness/execution";
-import {
-  DockerExecutionContext,
-  NativeExecutionContext,
-  sandboxConfigSchema,
-  type SandboxBackend,
-  type SandboxPhase,
-} from "@harness/sandbox";
+import type { HarnessClientService } from "@harness/client";
+import { sandboxConfigSchema, type SandboxBackend, type SandboxPhase } from "@harness/sandbox";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
 import { presetsFor, runCommand, type CommandContext } from "./commands.ts";
 import { ModelPicker, PresetPicker } from "./model-picker.tsx";
-import { ActivitiesOverlay, type ActivitiesView } from "./activities-overlay.tsx";
+import { ActivitiesOverlay } from "./activities-overlay.tsx";
 import { SandboxOverlay, type SandboxView } from "./sandbox-overlay.tsx";
+import type { CliPlugins } from "./client-plugins.ts";
 import {
   CellView,
   ExplorationView,
@@ -51,11 +45,12 @@ import {
 } from "./transcript-layout.ts";
 
 export interface AppProps {
-  service: HarnessService;
+  service: HarnessClientService;
+  plugins: CliPlugins;
   conversation: Conversation;
   initialItems: Item[];
   /** Stored usage rows seeding the footer totals on resume. */
-  initialUsage: ModelUsage[];
+  initialUsage: ModelUsage[] | ModelUsageSummary;
   cwd: string;
   /** Where this process was launched; a note flags it when it differs from `cwd`. */
   launchCwd: string;
@@ -63,27 +58,17 @@ export interface AppProps {
   onResume: (id?: string) => void;
   /** Reload this conversation, optionally applying a mutation between teardown and activation. */
   onReload: (mutation?: SessionMutation) => void;
-  /** Disables input while the session owner tears down or activates a runtime family. */
+  /** Disables input while the session owner tears down or activates a root scope. */
   transitioning?: string;
   /** Resume/confirmation UI owned by the session root while this App stays subscribed. */
   sessionOverlay?: ReactNode;
   /** A session-owner message that must survive an App remount. */
   notice?: { id: number; text: string };
-  /** Live activity output/kill handles for this conversation (list/count come from events). */
-  activities: ActivitiesView;
 }
 
 export interface SessionMutation {
   apply(): Promise<void>;
   success: string;
-}
-
-/** Identify the execution backend that is actually cached for this conversation. */
-export function sandboxBackendOf(execution: unknown): SandboxBackend | undefined {
-  if (execution instanceof NativeExecutionContext) return "native";
-  if (execution instanceof DockerExecutionContext) return "docker";
-  if (execution instanceof LocalExecutionContext) return "local";
-  return undefined;
 }
 
 type Action =
@@ -168,6 +153,7 @@ const renderEntry = ({ entry, first }: PositionedEntry): ReactElement => (
 
 export function App({
   service,
+  plugins,
   conversation,
   initialItems,
   initialUsage,
@@ -178,7 +164,6 @@ export function App({
   transitioning,
   sessionOverlay,
   notice,
-  activities,
 }: AppProps): ReactElement {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -189,8 +174,9 @@ export function App({
   const [initialSandboxBackend] = useState<SandboxBackend>(
     () => sandboxConfigSchema.parse(conversation.config.plugins?.["sandbox"] ?? {}).backend,
   );
-  const activeSandboxBackend =
-    sandboxBackendOf(service.service(conversation.id, "execution")) ?? initialSandboxBackend;
+  const sandboxState = plugins.sandbox(conversation.id, initialSandboxBackend);
+  const activeSandboxBackend = sandboxState.backend;
+  const activities = useMemo(() => plugins.activities(conversation.id), [plugins, conversation.id]);
   const model = config.model;
   const [modelPicking, setModelPicking] = useState(false);
   const [presetPicking, setPresetPicking] = useState(false);
@@ -205,7 +191,7 @@ export function App({
   const menuOpen = useRef(false);
   const noteId = useRef(0);
   const busy = state.turn.status === "running";
-  const pending = state.pending;
+  const pending = state.pending[0];
   // Memoized to keep the per-delta render path free of the activities scan.
   const activeCount = useMemo(
     () => state.activities.filter((a) => a.status === undefined).length,
@@ -244,6 +230,45 @@ export function App({
       }),
     [service, conversation.id],
   );
+
+  useEffect(
+    () =>
+      plugins.subscribe(conversation.id, (event) => {
+        dispatch({ type: "event", event, receivedAt: Date.now() });
+      }),
+    [plugins, conversation.id],
+  );
+
+  useEffect(() => {
+    return plugins.approvals.subscribe(conversation.id, (event) => {
+      if (event.type === "resolved") {
+        dispatch({
+          type: "event",
+          event: {
+            type: "request.resolved",
+            conversationId: conversation.id,
+            requestId: event.requestId,
+          },
+          receivedAt: Date.now(),
+        });
+        return;
+      }
+      dispatch({
+        type: "event",
+        event: {
+          type: "request.created",
+          conversationId: conversation.id,
+          requestId: event.approval.requestId,
+          request: {
+            kind: "approval",
+            call: event.approval.call,
+            relationship: event.approval.relationship,
+          },
+        },
+        receivedAt: Date.now(),
+      });
+    });
+  }, [plugins, conversation.id]);
 
   useEffect(() => {
     if (notice) dispatch({ type: "note", id: `session-note-${notice.id}`, text: notice.text });
@@ -288,51 +313,22 @@ export function App({
     else if (busy) report(service.deliver(conversation.id, "", "interrupt"));
   });
 
-  // One-shot `!cmd` in this conversation's execution context (inside the container when sandboxed);
-  // output streams into a local cell, not sent to the model. Imperative (called from submit), so it
-  // can stay a plain closure and use `report`.
+  // One-shot `!cmd` runs on the server's execution backend; output remains a local presentation cell.
   const runShell = (command: string): void => {
-    const ex = service.service(conversation.id, "execution") as ExecutionContext | undefined;
-    if (!ex) return note("no execution backend configured");
-    const id = `shell-${++noteId.current}`;
-    dispatch({ type: "shell-start", id, command });
-    const proc = ex.spawn(command);
-    const done = proc.exit.then(
-      ({ code, signal, error }): ActivityResult => ({
-        status: error || signal || code === null || code !== 0 ? "error" : "ok",
-        summary: error
-          ? `local command failed to start: ${error.message}`
-          : signal
-            ? `local command killed (${signal})`
-            : `local command exited ${code ?? 0}`,
-        view: [],
-      }),
-    );
-    const manager = service.service(conversation.id, "activities");
-    if (manager instanceof ActivityManager) {
-      manager.track(
-        {
-          id,
-          kind: "shell",
-          title: command,
-          peek: () => [],
-          kill: () => proc.kill(),
-          done,
-        },
-        { callId: id, emit: () => {} },
+    const run = plugins.runShell(conversation.id, command, (id, event) => {
+      dispatch(
+        event.type === "data"
+          ? { type: "shell-delta", id, text: event.text }
+          : { type: "shell-end", id, exitCode: event.exitCode },
       );
-    }
-    proc.onData((chunk) => dispatch({ type: "shell-delta", id, text: chunk }));
-    report(proc.exit.then(({ code }) => dispatch({ type: "shell-end", id, exitCode: code ?? 0 })));
+    });
+    dispatch({ type: "shell-start", id: run.id, command });
+    report(run.accepted);
   };
 
-  // Configuration changes go through the session owner so teardown happens before persistence and
-  // the same conversation is freshly activated with the new backend.
+  // Configuration changes go through the session owner so persistence happens while attached,
+  // followed immediately by runtime replacement with the new backend.
   const sandboxView: SandboxView = useMemo(() => {
-    const dockerCtx = (): DockerExecutionContext | undefined => {
-      const ex = service.service(conversation.id, "execution");
-      return ex instanceof DockerExecutionContext ? ex : undefined;
-    };
     const save = (patch: Record<string, unknown>, label: string): void => {
       if (busy) return note("wait for or interrupt the current turn before changing the sandbox");
       onReload({
@@ -345,7 +341,7 @@ export function App({
       backend: activeSandboxBackend,
       workspaceWrite: sandboxConfig.native.workspaceWrite,
       network: sandboxConfig.native.network,
-      containerActive: dockerCtx()?.isProvisioned() ?? false,
+      containerActive: sandboxState.containerActive,
       phase: state.sandbox?.phase,
       setBackend: (backend) => save({ backend }, `sandbox backend → ${backend}`),
       setWorkspaceWrite: (enabled) =>
@@ -353,20 +349,22 @@ export function App({
       setNetwork: (enabled) =>
         save({ native: { network: enabled } }, `native network → ${enabled}`),
       rebuild: () => {
-        const ctx = dockerCtx();
-        if (!ctx) return note("Docker is not active in this conversation");
         note("rebuilding the container…"); // progress streams via the sandbox status chip
-        void ctx.rebuild().then(
-          () => note("sandbox rebuilt"),
+        void plugins.rebuildSandbox(conversation.id).then(
+          (status) =>
+            note(
+              status === "done" ? "sandbox rebuilt" : "Docker is not active in this conversation",
+            ),
           (e: unknown) => note(`error: ${String(e)}`),
         );
       },
       stop: () => {
-        const ctx = dockerCtx();
-        if (!ctx) return note("Docker is not active in this conversation");
         note("stopping sandbox…");
-        void ctx.stop().then(
-          () => note("sandbox stopped"),
+        void plugins.stopSandbox(conversation.id).then(
+          (status) =>
+            note(
+              status === "done" ? "sandbox stopped" : "Docker is not active in this conversation",
+            ),
           (e: unknown) => note(`error: ${String(e)}`),
         );
       },
@@ -375,12 +373,14 @@ export function App({
     service,
     conversation.id,
     activeSandboxBackend,
+    sandboxState.containerActive,
     sandboxConfig.native.workspaceWrite,
     sandboxConfig.native.network,
     state.sandbox?.phase,
     note,
     busy,
     onReload,
+    plugins,
   ]);
 
   // Memoized so the composer's completion menu, keyed on `ctx`, doesn't recompute on every
@@ -471,12 +471,12 @@ export function App({
             <Box>
               <Text color="magenta">{`❓ ${pending.summary} `}</Text>
               <ConfirmInput
-                onConfirm={() =>
-                  service.respond(conversation.id, pending.requestId, { decision: "allow" })
-                }
-                onCancel={() =>
-                  service.respond(conversation.id, pending.requestId, { decision: "deny" })
-                }
+                onConfirm={() => {
+                  plugins.approvals.respond(pending.requestId, "allow");
+                }}
+                onCancel={() => {
+                  plugins.approvals.respond(pending.requestId, "deny");
+                }}
               />
             </Box>
           ) : modelPicking ? (

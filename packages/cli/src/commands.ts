@@ -7,17 +7,17 @@ import {
   type ModelConfig,
   type ConversationConfig,
 } from "@harness/protocol";
-import type { HarnessService } from "@harness/service";
+import type { HarnessClientService } from "@harness/client";
 import type { Suggestion } from "./completion.ts";
 import type { SandboxView } from "./sandbox-overlay.tsx";
 
 /** The presets the given selection's model offers; empty when it has no preset axis. */
-export const presetsFor = (service: HarnessService, model: ModelConfig): PresetInfo[] =>
+export const presetsFor = (service: HarnessClientService, model: ModelConfig): PresetInfo[] =>
   service.availableModels().find((m) => modelId(m) === modelId(model))?.presets ?? [];
 
 /** What a slash command can act on. Kept narrow on purpose. */
 export interface CommandContext {
-  service: HarnessService;
+  service: HarnessClientService;
   conversationId: ConversationId;
   /** This conversation's workspace root. */
   cwd: string;

@@ -2,9 +2,11 @@
 
 ## Status
 
-Harness ships one Node CLI and Ink TUI over `HarnessService`. Configuration is a
-validated cascade resolved per conversation; the TUI owns presentation and user
-interaction but no agent-loop or durable conversation semantics.
+Harness ships one headless runtime and an Ink TUI over a language-neutral
+JSON-RPC client boundary. They may share a process or communicate over bounded
+NDJSON stdio, directly or through SSH. Configuration is a validated cascade
+resolved by the server; clients own presentation and user interaction but no
+agent-loop or durable conversation semantics.
 
 ## Configuration
 
@@ -60,21 +62,18 @@ server). That path does not use the auth registry or secure store.
 
 ## Session lifecycle
 
-The CLI can create a conversation, resume by id, reload the current id, or open
-the resume picker. It owns exactly one active top-level conversation plus that
-conversation's subagent runtimes. A new conversation records its canonical
-workspace root and resolved overrides. Empty conversations created by the current
-process are removed on exit; non-empty history remains durable.
+The client can create, attach, resume, reload, close, or list conversations. One
+connection may keep multiple root scopes active while the TUI
+shows one. A new conversation records its server-side workspace root and resolved
+overrides. Empty conversations created by the client are removed on exit;
+non-empty history remains durable.
 
-A running or queued root turn blocks switching and reload without changing any
-state. When the root is idle but its runtime family has background work, the TUI
-confirms before proceeding. An accepted transition closes the whole family to
-new input, aborts descendants, discards queued work, awaits settlement, disposes
-activities and execution resources, clears ephemeral registries, and only then
-loads the target. Docker containers are stopped and removed. Same-id reload uses
-an activation generation to rebuild the transcript, resolved config,
-instructions, and services. Process exit uses the same cleanup with forced root
-cancellation.
+Switching visible roots does not stop either conversation tree. A same-root reload is blocked
+by a running turn and confirmed when background activities exist; acceptance
+closes only that root and its descendants, aborts pending work, disposes its
+plugin services, then attaches a fresh activation. Connection close force-closes
+all of its root scopes and server-owned processes. Other roots are unaffected by
+closing or reloading one root.
 
 ## TUI model
 
@@ -115,14 +114,18 @@ prepared execution backend as model-issued commands.
 
 ## Client boundary
 
-`HarnessService` and the typed event stream are the reusable client boundary.
-Another client should create/load conversations, deliver input, answer requests,
-read durable items/usage, and subscribe to events through that façade. It should
-not import engine runtime state or duplicate transcript legality rules.
+The reusable boundary is the [v1 bidirectional JSON-RPC protocol](../../protocol/client-v1.md),
+authored as strict Zod schemas with committed JSON Schema for non-TypeScript
+clients. `@harness/client` coordinates initialization, attachment, bounded
+history, and presentation-domain conversion. `@harness/service` owns dispatch
+and connection-owned root-scope lifetime.
 
-There is no web, desktop, daemon, ACP, or remote-control surface. Diagnostic
-support export and stronger service-boundary evidence should precede another
-client.
+Attachment returns a bounded snapshot, then ordered semantic notifications;
+history is fetched independently through anchored byte-bounded pages. Plugins use
+ordinary namespaced requests/notifications and optional bounded snapshots. The
+TUI receives no service, runtime, process, activity-manager, sandbox, or raw
+plugin-state object. Web/mobile/IDE clients and reconnecting daemons remain
+unimplemented rather than simulated.
 
 ## Accepted invariants
 
@@ -131,8 +134,9 @@ client.
 - The TUI renders canonical items/events and never decides agent control flow.
 - A configured provider/backend failure is visible; fallbacks are explicit
   product choices, not silent recovery.
-- Session switching/reload never overlaps two top-level runtime families and
-  disposes all ephemeral work/resources owned by the previous activation.
+- Closing/reloading one root never interrupts another attached conversation tree.
+- Every transport uses the same validation, correlation, cancellation,
+  attachment, and plugin messages; stdout in server mode is protocol-only.
 - Terminal scrollback remains usable during long streaming output.
 
 ## Source map
@@ -140,7 +144,9 @@ client.
 - `packages/config`: settings schema, merge, discovery, resolution, and writes.
 - `packages/cli`: composition root, auth commands, session lifecycle, TUI, and
   transcript reducer.
-- `packages/service`: reusable client façade and event subscription.
+- `packages/client`: transport-neutral peer, client coordinator, domain helper,
+  in-process transport, and Node NDJSON transport.
+- `packages/service`: server dispatch and connection-scoped runtime ownership.
 - `packages/auth`, `packages/secrets`: login methods and credential stores.
 
 ## Verification
@@ -149,4 +155,7 @@ Tests cover settings precedence/validation/writes, auth registry and screens,
 credential backend selection, session creation/resume/switching, commands,
 composer/history/completion, transcript reduction/grouping/rendering, compact and
 verbose edit patches, overlays, streaming/static scrollback, and CLI composition.
-Platform-specific credential tests run only on their supported systems.
+Protocol tests additionally cover both request directions, cancellation and
+closure, bounded history/item ranges, multi-root isolation, plugin controls,
+remote approval, and NDJSON framing/backpressure. Platform-specific credential
+tests run only on their supported systems.

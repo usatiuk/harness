@@ -70,4 +70,21 @@ describe("DockerExecutionContext.stop (mid-provision teardown)", () => {
     await expect(rebuild).rejects.toThrow("disposed");
     expect(ctx.isProvisioned()).toBe(false);
   });
+
+  it("finishes cancellation cleanup before allowing provisioning to be reused", async () => {
+    const ctx = new DockerExecutionContext("/workspace", config);
+    const controller = new AbortController();
+    const rebuild = ctx.rebuild(controller.signal);
+    await vi.waitFor(() => expect(ctx.isProvisioned()).toBe(true));
+
+    controller.abort();
+    await expect(rebuild).rejects.toThrow("aborted");
+    expect(events.log).toEqual(["stopSandbox", "provision-settled", "stopSandbox"]);
+    expect(ctx.isProvisioned()).toBe(false);
+
+    const reused = ctx.read("x").catch(() => {});
+    expect(ctx.isProvisioned()).toBe(true);
+    await ctx.stop();
+    await reused;
+  });
 });

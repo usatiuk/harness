@@ -170,8 +170,17 @@ describe("execution + approval pipeline", () => {
 
     expect(events.some((e) => e.type === "request.created")).toBe(false);
     expect(await readFile(join(root, "note.txt"), "utf8")).toBe("hello");
-    const completed = events.find((e) => e.type === "tool_call.completed");
-    expect(completed && "status" in completed && completed.status).toBe("ok");
+    const completed = events.find(
+      (event) =>
+        isKernelEvent(event) && event.type === "item.appended" && event.item.type === "tool_result",
+    );
+    expect(
+      completed &&
+        isKernelEvent(completed) &&
+        completed.type === "item.appended" &&
+        completed.item.type === "tool_result" &&
+        completed.item.status,
+    ).toBe("ok");
   });
 
   it("prompts for an out-of-workspace command and errors the call on deny", async () => {
@@ -186,8 +195,17 @@ describe("execution + approval pipeline", () => {
     await svc.whenIdle(conv.id);
 
     expect(events.some((e) => e.type === "request.created")).toBe(true);
-    const completed = events.find((e) => e.type === "tool_call.completed");
-    expect(completed && "status" in completed && completed.status).toBe("error");
+    const completed = events.find(
+      (event) =>
+        isKernelEvent(event) && event.type === "item.appended" && event.item.type === "tool_result",
+    );
+    expect(
+      completed &&
+        isKernelEvent(completed) &&
+        completed.type === "item.appended" &&
+        completed.item.type === "tool_result" &&
+        completed.item.status,
+    ).toBe("error");
     const result = (await svc.getItems(conv.id)).find((item) => item.type === "tool_result");
     expect(
       result?.type === "tool_result" && approvalAnnotationOf(result.annotations),
@@ -311,11 +329,20 @@ describe("execution + approval pipeline", () => {
     await svc.send(conv.id, "go");
     await svc.whenIdle(conv.id);
 
-    const completed = events.find((e) => e.type === "tool_call.completed");
-    expect(completed && "status" in completed && completed.status).toBe("ok");
-    expect(completed && "forModel" in completed && JSON.stringify(completed.forModel)).toContain(
-      "hi",
+    const completed = events.find(
+      (event) =>
+        isKernelEvent(event) && event.type === "item.appended" && event.item.type === "tool_result",
     );
+    if (
+      !completed ||
+      !isKernelEvent(completed) ||
+      completed.type !== "item.appended" ||
+      completed.item.type !== "tool_result"
+    ) {
+      throw new Error("missing tool result event");
+    }
+    expect(completed.item.status).toBe("ok");
+    expect(JSON.stringify(completed.item.content)).toContain("hi");
     const result = (await svc.getItems(conv.id)).find((item) => item.type === "tool_result");
     expect(
       result?.type === "tool_result" && approvalAnnotationOf(result.annotations),

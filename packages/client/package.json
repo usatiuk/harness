@@ -1,0 +1,26 @@
+{
+  "name": "@harness/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "development": "./src/node.ts",
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    }
+  },
+  "dependencies": {
+    "@harness/protocol": "*",
+    "vscode-jsonrpc": "^8.2.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8",
+    "zod": "^4.4.3"
+  }
+}

@@ -4,8 +4,8 @@
 
 ## Goal
 
-The TUI owns one active top-level conversation and its subagent runtime family.
-Switching or reloading tears that family down before the next activation, so
+The TUI owns one active root conversation and its subagent conversation tree.
+Switching or reloading tears that tree down before the next activation, so
 conversation-local configuration, instructions, activities, and execution state
 cannot leak across activations. Durable history and process-wide provider/auth
 composition remain intact.
@@ -35,17 +35,18 @@ transition.
   remain memoized within an activation because tools and clients must share the
   same instance; the entire map is discarded on deactivation.
 - Deactivation atomically refuses an active/queued root unless forced for process
-  shutdown. Once accepted, it rejects new work for the closing family, clears
+  shutdown. Once accepted, it rejects new work for the closing root scope, clears
   inboxes, aborts turns, awaits quiescence, disposes services in dependency-safe
   reverse registration order, and clears runtime caches. All disposers run, but
   any cleanup failure rejects the transition after in-memory state is cleared.
 - Activity managers become runtime-owned and dispose by suppressing completion
   delivery, killing live activities, and awaiting settlement. Docker disposal
-  stops/removes its container. The subagent registry is cleared after the family
+  stops/removes its container. The subagent registry is cleared after the tree
   is deactivated.
-- The TUI transitions by target id: confirm when any family activity is live,
-  deactivate the source, perform an optional sandbox config mutation, and only
-  then load/prepare the target. An activation generation remounts the same id.
+- The TUI transitions by target id: confirm when any conversation-tree activity is
+  live, persist an optional sandbox config mutation while attached, deactivate the
+  source, and only then load/prepare the target. An activation generation remounts
+  the same id.
 - `/reload` reactivates the current id. Sandbox setting changes use the same path
   automatically and are not persisted when the root turn is active.
 
@@ -75,7 +76,7 @@ transition.
 
 ## Delivery evidence
 
-- `Engine.deactivate` now owns the atomic family boundary: it refuses a busy root
+- `Engine.deactivate` now owns the atomic root-scope boundary: it refuses a busy root
   unless forced, blocks new work while closing, aborts and awaits every loaded
   runtime, runs service disposers in reverse provider order, and clears caches
   even when cleanup reports an error.
@@ -84,7 +85,7 @@ transition.
   concurrent rebuild cannot recreate a disposed container.
 - `/reload`, resume, and sandbox changes share one serialized TUI transition.
   Focused tests directly prove same-id remount and the sandbox order
-  deactivate → mutate → prepare.
+  mutate → deactivate → prepare.
 - Architecture and user documentation describe the implemented lifecycle and no
   longer instruct users to restart Harness for sandbox configuration changes.
 - Independent correctness and simplicity reviewers found no remaining concrete

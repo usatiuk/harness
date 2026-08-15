@@ -86,7 +86,7 @@ function fakeRunner(): FakeRunner {
   return {
     created,
     release(cid, response) {
-      emit(cid, { type: "message", conversationId: cid, item: msg(cid, response) });
+      emit(cid, { type: "item.appended", conversationId: cid, item: msg(cid, response) });
       emit(cid, {
         type: "turn.status",
         conversationId: cid,

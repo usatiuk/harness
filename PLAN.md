@@ -38,9 +38,9 @@
 ## System overview
 
 ```text
-CLI / TUI
-    ↓
-HarnessService
+CLI / TUI / future clients
+    ↓ JSON-RPC (in-process or bounded NDJSON stdio)
+Harness client ↔ HarnessService server
     ↓
 Engine ── PluginHost ── providers / tools / middleware / policies / services
     ↓
@@ -57,7 +57,7 @@ packages.
 
 ## Current implementation status
 
-As of 2026-08-09, Harness provides:
+As of 2026-08-15, Harness provides:
 
 - An append-only conversation/item graph with one durable head, linear rewind,
   branch-preserving continuation, turn reconciliation, and resumable transcripts.
@@ -79,8 +79,10 @@ As of 2026-08-09, Harness provides:
 - An Ink TUI with streaming Markdown, verbose transcript, resume/rewind,
   model/preset selection, sandbox controls, activities, usage, cost, and context
   fill.
-- One active top-level TUI conversation whose complete runtime/subagent family is
-  disposed and rebuilt on switch or reload, including immediate sandbox changes.
+- A language-neutral JSON-RPC client/server boundary used identically in-process,
+  by a local stdio child, or through SSH. Multiple attached root conversations
+  may run concurrently; the TUI renders one while connection-owned approvals and
+  server-owned background work remain live.
 
 ## Subsystems
 
@@ -107,6 +109,8 @@ As of 2026-08-09, Harness provides:
        isolation claims.
 5. [ ] Reassess product ergonomics and diagnostic export before adding another
        client surface.
+6. [x] Establish the transport-agnostic client/server boundary before adding a
+       second UI client.
 
 ## Documentation roles
 
