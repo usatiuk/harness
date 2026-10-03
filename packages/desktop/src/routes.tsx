@@ -437,6 +437,16 @@ export function createDesktopRouter(session: DesktopSession) {
             {session.settings?.providers.find((provider) => provider.id === model.provider)
               ?.label ?? model.provider}{" "}
             / {model.label ?? model.model}
+            {[
+              ...(model.contextWindow ? [`${model.contextWindow.toLocaleString()} context`] : []),
+              ...(model.maxInputTokens ? [`${model.maxInputTokens.toLocaleString()} input`] : []),
+              ...(model.maxOutputTokens
+                ? [`${model.maxOutputTokens.toLocaleString()} output`]
+                : []),
+              ...(model.reasoning?.supported === true ? ["reasoning"] : []),
+            ]
+              .map((detail) => ` · ${detail}`)
+              .join("")}
           </option>
         ))}
       </>

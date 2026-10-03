@@ -7,6 +7,7 @@ import {
 } from "@harness/protocol";
 import type { ProviderEntry } from "./auth.ts";
 import type { ProviderStatus } from "./client-protocol.ts";
+import { projectModelInfo } from "@harness/service";
 
 export interface ProviderBootstrap {
   plugin: Plugin;
@@ -86,9 +87,9 @@ export async function bootstrapProviders(
             status.catalog = result.status;
             status.diagnostics = result.diagnostics;
           } catch (error) {
-            signal.throwIfAborted();
-            failure.signal.throwIfAborted();
-            if (discovery.aborted)
+            if (signal.aborted && error === signal.reason) throw error;
+            if (failure.signal.aborted && error === failure.signal.reason) throw error;
+            if (discovery.aborted && error === discovery.reason)
               status.diagnostics = ["Catalog discovery exceeded the startup deadline"];
             else if (error instanceof ModelDiscoveryError) status.diagnostics = [error.message];
             else throw error;
@@ -131,7 +132,7 @@ export async function bootstrapProviders(
   }
   if (
     Buffer.byteLength(
-      JSON.stringify(providers.flatMap((provider) => provider.listModels())),
+      JSON.stringify(providers.flatMap((provider) => provider.listModels().map(projectModelInfo))),
       "utf8",
     ) >
     3 * 1024 * 1024

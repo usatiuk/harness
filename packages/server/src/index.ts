@@ -26,7 +26,6 @@ import { createNdjsonMessageConnection } from "@harness/client/node";
 import { FEATURE_PLUGIN_CONTRACTS } from "@harness/client-features";
 import { modelCompaction } from "@harness/core";
 import { QuickJsEvaluator } from "@harness/code-mode";
-import { createCustomProviderPlugins } from "@harness/custom-providers";
 import { DemoProvider } from "./demo-provider.ts";
 import { prepareProviderEntries, providerPlugins } from "./auth.ts";
 import { credentialStoreForRead } from "./credential-store.ts";
@@ -67,16 +66,16 @@ export async function buildServerHarness(
   let startedAppApi: { close(): Promise<void> } | undefined;
   try {
     const settings = await readGlobalSettings(defaultHome());
-    const prepare = prepareProviderEntries(settings);
+    const prepare = prepareProviderEntries(
+      settings,
+      providerPlugins,
+      join(defaultHome(), "settings.json"),
+    );
     const { store: secrets, kind } = await credentialStoreForRead(defaultHome());
     const registry = prepare(secrets);
     const built = await bootstrapProviders(registry, signal);
     const plugins: PluginEntry[] = [...providerPlugins, built.plugin];
     const fallbackModel = built.defaultModel;
-    // Config-defined providers (`customProviders` in global settings) join the same registry as
-    // signed-in built-ins; their plugin id doubles as the model provider id.
-    const customProviders = settings.customProviders;
-    plugins.push(...createCustomProviderPlugins(customProviders ?? {}));
     plugins.push(
       { id: "demo", providers: () => [new DemoProvider()] },
       sandboxPlugin,
@@ -241,7 +240,7 @@ export async function runStdioServer(): Promise<void> {
     server = await buildServerHarness(connection, { signal: startup.signal });
     await Promise.race([closed, signal]);
   } catch (error) {
-    if (!startup.signal.aborted) throw error;
+    if (!startup.signal.aborted || error !== startup.signal.reason) throw error;
   } finally {
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);

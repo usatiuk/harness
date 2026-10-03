@@ -1,4 +1,4 @@
-import type { OpenAIPreset } from "@harness/config";
+import type { OpenAIPreset } from "./config.ts";
 
 /** Loose view of the SDK request so presets can touch freeform extra fields. */
 export type RequestParams = Record<string, unknown>;

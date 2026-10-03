@@ -1,8 +1,39 @@
 import { z } from "zod";
-import { ModelDiscoveryError } from "@harness/protocol";
+import { ModelDiscoveryError, modelReasoningInfoSchema } from "@harness/protocol";
 import { modelIdSchema, modelProfileSchema, type ModelProfile } from "./config.ts";
 
 const MAX_BYTES = 2 * 1024 * 1024;
+const NETWORK_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ETIMEDOUT",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "EPIPE",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET",
+  "CERT_HAS_EXPIRED",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+  "ERR_SSL_WRONG_VERSION_NUMBER",
+]);
+function networkFailure(error: unknown): boolean {
+  const cause = error instanceof Error ? error.cause : undefined;
+  return cause instanceof Error && "code" in cause && NETWORK_CODES.has(String(cause.code));
+}
+function abortedOperation(error: unknown, signal: AbortSignal): boolean {
+  return (
+    signal.aborted &&
+    (error === signal.reason || (error instanceof DOMException && error.name === "AbortError"))
+  );
+}
 export const MAX_MODELS = 5000;
 const record = z.record(z.string(), z.unknown());
 const indexSchema = z
@@ -31,12 +62,13 @@ export async function fetchCatalogJson(
     response = await fetch(url, {
       headers: { authorization: `Bearer ${apiKey}` },
       signal,
-      redirect: "error",
+      redirect: "manual",
     });
-  } catch {
-    if (signal.aborted) {
+  } catch (error) {
+    if (abortedOperation(error, signal)) {
       signal.throwIfAborted();
     }
+    if (!networkFailure(error)) throw error;
     throw new ModelDiscoveryError("network", "Catalog request could not reach the gateway");
   }
   if (!response.ok) {
@@ -62,8 +94,9 @@ export async function fetchCatalogJson(
     }
   } catch (error) {
     await reader.cancel().catch(() => undefined);
-    if (signal.aborted) signal.throwIfAborted();
+    if (abortedOperation(error, signal)) signal.throwIfAborted();
     if (error instanceof ModelDiscoveryError) throw error;
+    if (!networkFailure(error)) throw error;
     throw new ModelDiscoveryError("network", "Catalog response was interrupted");
   } finally {
     reader.releaseLock();
@@ -86,6 +119,34 @@ export function parseIndex(raw: unknown): string[] {
   if (!parsed.success)
     throw new ModelDiscoveryError("invalid-response", "Model index has an invalid data array");
   return [...new Set(parsed.data.data.map((row) => row.id))];
+}
+
+/** Only a complete, consistent deployment claim can describe the public routing alias. */
+function agreedMetadata<T>(
+  group: Record<string, unknown>[],
+  field: string,
+  schema: z.ZodType<T>,
+  id: string,
+  label: string,
+  diagnostics: string[],
+): T | undefined {
+  const values = group.map((info) => info[field]);
+  const known = values.filter((value) => value != null);
+  if (!known.length) return undefined;
+  const parsed = known.map((value) => schema.safeParse(value));
+  if (parsed.some((value) => !value.success)) {
+    diagnostics.push(`Model '${id}' has invalid ${label} metadata`);
+    return undefined;
+  }
+  const valid = parsed.map((value) => {
+    if (!value.success) throw new Error("Validated metadata invariant failed");
+    return value.data;
+  });
+  if (!valid.every((value) => JSON.stringify(value) === JSON.stringify(valid[0]))) {
+    diagnostics.push(`Model '${id}' has conflicting ${label} metadata`);
+    return undefined;
+  }
+  return known.length === group.length ? valid[0] : undefined;
 }
 
 /** Only exact aliases from the public index may be enriched by deployment metadata. */
@@ -117,15 +178,55 @@ export function enrichModels(
     );
     if (!supported) diagnostics.push(`Model '${id}' has unsupported mode or tool metadata`);
     const profile: ModelProfile = {};
-    const maxOutputs = group.map((info) => info.max_output_tokens);
-    if (
-      maxOutputs.length &&
-      maxOutputs.every((value) => typeof value === "number" && Number.isInteger(value) && value > 0)
-    ) {
-      if (maxOutputs.every((value) => value === maxOutputs[0]))
-        profile.maxOutputTokens = maxOutputs[0] as number;
-      else diagnostics.push(`Model '${id}' has conflicting output capacity metadata`);
+    for (const [field, target, label] of [
+      ["max_input_tokens", "maxInputTokens", "input capacity"],
+      ["max_output_tokens", "maxOutputTokens", "output capacity"],
+    ] as const) {
+      const capacity = agreedMetadata(
+        group,
+        field,
+        z.number().int().positive(),
+        id,
+        label,
+        diagnostics,
+      );
+      if (capacity !== undefined) profile[target] = capacity;
     }
+    // LiteLLM's legacy max_tokens field ambiguously means input OR output. It is not context.
+    const reasoning: NonNullable<ModelProfile["reasoning"]> = {};
+    for (const [field, target] of [
+      ["supports_reasoning", "supported"],
+      ["supports_adaptive_thinking", "adaptiveThinking"],
+      ["supports_legacy_thinking", "legacyThinking"],
+      ["thinking_always_on", "alwaysOn"],
+    ] as const) {
+      const value = agreedMetadata(group, field, z.boolean(), id, field, diagnostics);
+      if (value !== undefined) reasoning[target] = value;
+    }
+    const levels = agreedMetadata(
+      group,
+      "reasoning_effort_levels",
+      modelReasoningInfoSchema.shape.effortLevels
+        .unwrap()
+        .transform((values) => [...new Set(values)].sort()),
+      id,
+      "reasoning effort levels",
+      diagnostics,
+    );
+    if (levels) reasoning.effortLevels = levels;
+    const defaultEffort = agreedMetadata(
+      group,
+      "default_reasoning_effort",
+      modelReasoningInfoSchema.shape.defaultEffort.unwrap(),
+      id,
+      "default reasoning effort",
+      diagnostics,
+    );
+    if (defaultEffort !== undefined) {
+      if (!levels || levels.includes(defaultEffort)) reasoning.defaultEffort = defaultEffort;
+      else diagnostics.push(`Model '${id}' has an unadvertised default reasoning effort`);
+    }
+    if (Object.keys(reasoning).length) profile.reasoning = reasoning;
     const annotations = group.map((info) => info.harness).filter((value) => value !== undefined);
     if (annotations.length) {
       const schema = modelProfileSchema.extend({ version: z.literal(1) });
@@ -146,6 +247,18 @@ export function enrichModels(
           else diagnostics.push(`Model '${id}' has conflicting Harness ${key} metadata`);
         }
       }
+    }
+    if (profile.defaultPreset && !Object.hasOwn(profile.presets ?? {}, profile.defaultPreset)) {
+      delete profile.defaultPreset;
+      diagnostics.push(`Model '${id}' has no agreed default preset`);
+    }
+    if (
+      profile.reasoning?.defaultEffort &&
+      profile.reasoning.effortLevels &&
+      !profile.reasoning.effortLevels.includes(profile.reasoning.defaultEffort)
+    ) {
+      delete profile.reasoning.defaultEffort;
+      diagnostics.push(`Model '${id}' has an unadvertised default reasoning effort`);
     }
     return { id, profile, supported };
   });

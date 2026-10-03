@@ -16,9 +16,11 @@ import {
   authRegistry,
   authEntries,
   prepareProviderEntries,
+  providerPlugins,
   ProviderConfigurationError,
   type ProviderEntry,
 } from "./auth.ts";
+import { join } from "node:path";
 import { credentialStoreForLogin, credentialStoreForRead } from "./credential-store.ts";
 import {
   appAuthLoginRequest,
@@ -53,7 +55,11 @@ export function registerAppApi(
   };
   const listProviders = async (): Promise<ProviderStatus[]> => {
     const doc = await readGlobalSettings(defaultHome());
-    const prepare = prepareProviderEntries(doc);
+    const prepare = prepareProviderEntries(
+      doc,
+      providerPlugins,
+      join(defaultHome(), "settings.json"),
+    );
     const { store } = await credentialStoreForRead(defaultHome());
     return Promise.all(
       [...prepare(store).values()].map(async (entry) => {
@@ -163,7 +169,11 @@ export function registerAppApi(
       const doc = await readGlobalSettings(defaultHome());
       let prepare: ReturnType<typeof prepareProviderEntries>;
       try {
-        prepare = prepareProviderEntries(doc);
+        prepare = prepareProviderEntries(
+          doc,
+          providerPlugins,
+          join(defaultHome(), "settings.json"),
+        );
       } catch (error) {
         if (error instanceof ProviderConfigurationError) invalid(error.message);
         throw error;

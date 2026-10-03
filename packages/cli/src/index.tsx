@@ -260,6 +260,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
       <Root
         service={service}
         plugins={plugins}
+        providerLabels={Object.fromEntries(harness.providers.map(({ id, label }) => [id, label]))}
         start={start}
         cwd={cwd}
         onActive={() => undefined}
@@ -280,6 +281,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
 interface RootProps {
   service: CliService;
   plugins: CliPlugins;
+  providerLabels?: Readonly<Record<string, string>>;
   start: Start;
   cwd: string;
   onActive: (id: ConversationId | undefined) => void;
@@ -291,7 +293,14 @@ interface TransitionRequest {
 }
 
 /** Two screens — picker and session — with `/resume` (and launch) toggling between them. */
-export function Root({ service, plugins, start, cwd, onActive }: RootProps): ReactElement | null {
+export function Root({
+  service,
+  plugins,
+  providerLabels = {},
+  start,
+  cwd,
+  onActive,
+}: RootProps): ReactElement | null {
   const { exit } = useApp();
   const [session, setSession] = useState<Session | null>(
     start.kind === "session" ? start.session : null,
@@ -427,6 +436,7 @@ export function Root({ service, plugins, start, cwd, onActive }: RootProps): Rea
       key={`${session.conversation.id}:${generation}`}
       service={service}
       plugins={plugins}
+      providerLabels={providerLabels}
       conversation={session.conversation}
       initialItems={session.items}
       initialUsage={session.usage}

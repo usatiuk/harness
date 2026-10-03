@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { outputRefSchema } from "./tools.ts";
 import { defineNotification, defineRequest, jsonValueSchema } from "./rpc.ts";
+import { modelReasoningInfoSchema } from "./model.ts";
 
 const idSchema = z.string().min(1);
 const nonnegativeInteger = z.number().int().nonnegative();
@@ -103,6 +104,12 @@ export const wireConversationSchema = z.strictObject({
 });
 export type WireConversation = z.infer<typeof wireConversationSchema>;
 
+const rateCardShape = {
+  input: z.number().nonnegative(),
+  output: z.number().nonnegative(),
+  cachedRead: z.number().nonnegative().nullable(),
+  cacheWrite: z.record(z.string().regex(/^[1-9][0-9]*$/), z.number().nonnegative()).nullable(),
+};
 export const wireModelInfoSchema = z.strictObject({
   provider: z.string(),
   model: z.string(),
@@ -110,6 +117,24 @@ export const wireModelInfoSchema = z.strictObject({
   presets: z.array(z.strictObject({ value: z.string(), label: z.string().nullable() })),
   defaultPreset: z.string().nullable(),
   contextWindow: positiveInteger.nullable(),
+  maxInputTokens: positiveInteger.nullable(),
+  maxOutputTokens: positiveInteger.nullable(),
+  reasoning: z
+    .strictObject({
+      supported: modelReasoningInfoSchema.shape.supported.unwrap().nullable(),
+      adaptiveThinking: modelReasoningInfoSchema.shape.adaptiveThinking.unwrap().nullable(),
+      legacyThinking: modelReasoningInfoSchema.shape.legacyThinking.unwrap().nullable(),
+      alwaysOn: modelReasoningInfoSchema.shape.alwaysOn.unwrap().nullable(),
+      effortLevels: modelReasoningInfoSchema.shape.effortLevels.unwrap().nullable(),
+      defaultEffort: modelReasoningInfoSchema.shape.defaultEffort.unwrap().nullable(),
+    })
+    .nullable(),
+  pricing: z
+    .strictObject({
+      ...rateCardShape,
+      longContext: z.strictObject({ ...rateCardShape, threshold: positiveInteger }).nullable(),
+    })
+    .nullable(),
 });
 export type WireModelInfo = z.infer<typeof wireModelInfoSchema>;
 

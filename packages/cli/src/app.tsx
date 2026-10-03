@@ -52,6 +52,7 @@ import {
 export interface AppProps {
   service: HarnessClientService;
   plugins: CliPlugins;
+  providerLabels?: Readonly<Record<string, string>>;
   conversation: Conversation;
   initialItems: Item[];
   /** Stored usage rows seeding the footer totals on resume. */
@@ -159,6 +160,7 @@ const renderEntry = ({ entry, first }: PositionedEntry): ReactElement => (
 export function App({
   service,
   plugins,
+  providerLabels = {},
   conversation,
   initialItems,
   initialUsage,
@@ -496,6 +498,7 @@ export function App({
           ) : modelPicking ? (
             <ModelPicker
               models={service.availableModels()}
+              providerLabels={providerLabels}
               current={model}
               onSelect={(next) => {
                 setModelPicking(false);

@@ -116,6 +116,52 @@ function openCallback(authorizeUrl: string): BrowserCallback {
 }
 
 describe("CodexAuth", () => {
+  it("prevents old-account rotation from being admitted during a new browser sign-in", async () => {
+    const store = new MemorySecretStore();
+    await seedSession(store);
+    let authorize!: (url: string) => void;
+    const shown = new Promise<string>((resolve) => {
+      authorize = resolve;
+    });
+    const grants: string[] = [];
+    const auth = new CodexAuth({
+      store,
+      now: () => 0,
+      openBrowser: false,
+      fetch: async (_input, init) => {
+        if (!(init?.body instanceof URLSearchParams)) throw new Error("Expected token form body");
+        const grant = init.body.get("grant_type")!;
+        grants.push(grant);
+        return new Response(
+          JSON.stringify({
+            access_token: accountToken("new-account"),
+            refresh_token: "new-refresh",
+            id_token: jwt({ email: "new@example.test" }),
+            expires_in: 3600,
+          }),
+          { status: 200 },
+        );
+      },
+    });
+    const login = auth.loginWithBrowser({ onUrl: authorize });
+    const url = await shown;
+    await expect(auth.getValidSession({ forceRefresh: true })).rejects.toThrow(
+      "sign-in is in progress",
+    );
+    expect(grants).toEqual([]);
+    const callback = openCallback(url);
+    try {
+      expect((await login).accountId).toBe("new-account");
+      await callback.response;
+      expect(await callback.closed).toBe(false);
+      expect((await auth.getValidSession()).accountId).toBe("new-account");
+      expect(parseCodexSession((await store.get(STORE_KEY))!).accountId).toBe("new-account");
+      expect(grants).toEqual(["authorization_code"]);
+    } finally {
+      callback.socket.destroy();
+      callback.blocker.destroy();
+    }
+  });
   it("does not cache a credential read that completes after logout", async () => {
     const store = new MemorySecretStore();
     await seedSession(store);

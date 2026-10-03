@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Item, ModelRequest, ModelStreamEvent, ProviderPayloadDraft } from "@harness/protocol";
 import { LiteLLMProvider } from "./provider.ts";
 import { liteLLMConfigSchema } from "./config.ts";
-import { enrichModels, parseIndex } from "./discovery.ts";
+import { enrichModels, parseIndex, fetchCatalogJson } from "./discovery.ts";
 import { httpGateway, json, sse } from "./http-fixture.ts";
 
 const gateways: Awaited<ReturnType<typeof httpGateway>>[] = [];
@@ -75,6 +75,182 @@ function continuation(first: ModelStreamEvent[], base: ModelRequest): ModelReque
 }
 
 describe("LiteLLM discovery", () => {
+  it("rejects invalid configured reasoning defaults and drops only invalid remote defaults", () => {
+    const reasoning = { supported: true, effortLevels: ["low"], defaultEffort: "high" };
+    expect(() =>
+      liteLLMConfigSchema.parse({
+        baseUrl: "http://fixture.test",
+        models: { coding: { reasoning } },
+      }),
+    ).toThrow("reasoning.defaultEffort");
+    const result = enrichModels(["coding"], {
+      data: [
+        {
+          model_name: "coding",
+          model_info: {
+            harness: { version: 1, contextWindow: 10000, reasoning },
+          },
+        },
+      ],
+    });
+    expect(result.models[0]?.profile).toEqual({
+      contextWindow: 10000,
+      reasoning: { supported: true, effortLevels: ["low"] },
+    });
+    expect(result.diagnostics).toEqual([
+      "Model 'coding' has an unadvertised default reasoning effort",
+    ]);
+  });
+  it("collects explicit input/output and reasoning claims without inventing context or controls", () => {
+    const metadata = {
+      max_tokens: 999999,
+      max_input_tokens: 200000,
+      max_output_tokens: 32000,
+      supports_reasoning: true,
+      supports_adaptive_thinking: false,
+      supports_legacy_thinking: null,
+      thinking_always_on: true,
+      reasoning_effort_levels: ["low", "high"],
+      default_reasoning_effort: "low",
+    };
+    const result = enrichModels(["coding", "conflicting", "sparse", "invalid"], {
+      data: [
+        { model_name: "coding", model_info: metadata },
+        {
+          model_name: "coding",
+          model_info: { ...metadata, reasoning_effort_levels: ["high", "low", "low"] },
+        },
+        {
+          model_name: "conflicting",
+          model_info: { supports_reasoning: true, max_input_tokens: 8000 },
+        },
+        {
+          model_name: "conflicting",
+          model_info: { supports_reasoning: false, max_input_tokens: 32000 },
+        },
+        { model_name: "sparse", model_info: metadata },
+        { model_name: "sparse", model_info: null },
+        {
+          model_name: "invalid",
+          model_info: { supports_reasoning: "true", max_output_tokens: -1 },
+        },
+      ],
+    });
+    expect(result.models[0]?.profile).toEqual({
+      maxInputTokens: 200000,
+      maxOutputTokens: 32000,
+      reasoning: {
+        supported: true,
+        adaptiveThinking: false,
+        alwaysOn: true,
+        effortLevels: ["high", "low"],
+        defaultEffort: "low",
+      },
+    });
+    expect(result.models.slice(1).map((model) => model.profile)).toEqual([{}, {}, {}]);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        "Model 'conflicting' has conflicting input capacity metadata",
+        "Model 'conflicting' has conflicting supports_reasoning metadata",
+        "Model 'invalid' has invalid output capacity metadata",
+        "Model 'invalid' has invalid supports_reasoning metadata",
+      ]),
+    );
+  });
+
+  it("keeps advertised reasoning informational without inventing request controls", async () => {
+    const gateway = await httpGateway((req, res) => {
+      if (req.path.endsWith("/v1/models")) return json(res, { data: [{ id: "coding" }] });
+      if (req.path.endsWith("/model/info"))
+        return json(res, {
+          data: [
+            {
+              model_name: "coding",
+              model_info: { supports_reasoning: true, reasoning_effort_levels: ["low", "high"] },
+            },
+          ],
+        });
+      return sse(res, [{ type: "response.completed", response: {} }]);
+    });
+    gateways.push(gateway);
+    const provider = new LiteLLMProvider(
+      "work",
+      liteLLMConfigSchema.parse({
+        baseUrl: gateway.url,
+        defaultTransport: "openai-responses",
+      }),
+      "key",
+    );
+    await provider.refreshModels(signal);
+    expect(provider.listModels()[0]).toMatchObject({ reasoning: { supported: true }, presets: [] });
+    await collect(provider, request());
+    expect(gateway.requests.at(-1)?.body.include).toBeUndefined();
+    expect(gateway.requests.at(-1)?.body.reasoning).toBeUndefined();
+  });
+
+  it("propagates deterministic fetch defects even when cancellation races them", async () => {
+    const controller = new AbortController();
+    const defect = new TypeError("Fixture deterministic defect");
+    const mocked = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      controller.abort();
+      throw defect;
+    });
+    try {
+      await expect(fetchCatalogJson("http://fixture.test", "key", controller.signal)).rejects.toBe(
+        defect,
+      );
+    } finally {
+      mocked.mockRestore();
+    }
+  });
+
+  it("classifies actual connection failure and prevents discovery redirects", async () => {
+    const offline = await httpGateway((_req, res) => json(res, {}));
+    await offline.close();
+    await expect(fetchCatalogJson(offline.url, "key", signal)).rejects.toMatchObject({
+      code: "network",
+    });
+    const gateway = await httpGateway((_req, res) => {
+      res.writeHead(302, { location: "https://should-not-follow.test" });
+      res.end();
+    });
+    gateways.push(gateway);
+    await expect(fetchCatalogJson(gateway.url, "key", signal)).rejects.toMatchObject({
+      code: "http",
+      status: 302,
+    });
+    expect(gateway.requests).toHaveLength(1);
+  });
+
+  it("classifies an HTTPS connection to a plain HTTP listener as an external transport failure", async () => {
+    const gateway = await httpGateway((_req, res) => json(res, {}));
+    gateways.push(gateway);
+    await expect(
+      fetchCatalogJson(gateway.url.replace("http:", "https:"), "key", signal),
+    ).rejects.toMatchObject({ code: "network" });
+  });
+
+  it("keeps independent route/capacity metadata when conflicting presets invalidate the default", () => {
+    const result = enrichModels(["coding"], {
+      data: ["low", "high"].map((reasoningEffort) => ({
+        model_name: "coding",
+        model_info: {
+          harness: {
+            version: 1,
+            transport: "openai-responses",
+            contextWindow: 10000,
+            presets: { precise: { reasoningEffort } },
+            defaultPreset: "precise",
+          },
+        },
+      })),
+    });
+    expect(result.models[0]?.profile).toEqual({
+      transport: "openai-responses",
+      contextWindow: 10000,
+    });
+    expect(result.diagnostics).toContain("Model 'coding' has no agreed default preset");
+  });
   it("preserves nullable unknown capabilities and omits conflicting hard capacities", () => {
     const result = enrichModels(["unknown", "conflicting", "uniform"], {
       data: [

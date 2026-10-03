@@ -1,7 +1,7 @@
 import { AnthropicProvider, type AnthropicRequestConfig } from "@harness/anthropic-core";
 import { apiKeyCredentials } from "@harness/anthropic-api";
 import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
-import type { CustomAnthropicModelConfig, AnthropicPreset } from "@harness/config";
+import type { CustomAnthropicModelConfig, AnthropicPreset } from "./config.ts";
 import { listScopedModels, scopedModel, validateScopedConfig } from "./model-scope.ts";
 
 /** Merges one configured preset's sampling knobs onto the built Messages config. */

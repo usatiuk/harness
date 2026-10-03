@@ -1,12 +1,12 @@
 import {
   ProviderCredentialError,
   type ModelConfig,
-  type Plugin,
   type PluginEntry,
   type ProviderInstance,
   type ProviderType,
 } from "@harness/protocol";
-import type { SettingsDoc } from "@harness/config";
+import { formatIssue, type SettingsDoc } from "@harness/config";
+import { z } from "zod";
 import type { SecretStore } from "@harness/secrets";
 import type { AuthMethod } from "@harness/auth";
 import { anthropicProviderType } from "@harness/anthropic-api";
@@ -14,10 +14,10 @@ import { openAIProviderType } from "@harness/openai-api";
 import { openCodeGoProviderType } from "@harness/opencode-go";
 import { codexProviderType } from "@harness/openai-codex";
 import { liteLLMPlugin } from "@harness/litellm";
+import { customProvidersPlugin } from "@harness/custom-providers";
 
 export interface AuthEntry {
   method: AuthMethod;
-  buildPlugin(): Promise<Plugin | null>;
   defaultModel?: ModelConfig;
 }
 export class ProviderConfigurationError extends Error {}
@@ -33,6 +33,7 @@ export interface ProviderEntry {
 /** Package contributions are collected before constructing any connection. */
 export const providerPlugins: PluginEntry[] = [
   liteLLMPlugin,
+  customProvidersPlugin,
   { id: "openai-api", providerTypes: () => [openAIProviderType] },
   { id: "anthropic-api", providerTypes: () => [anthropicProviderType] },
   { id: "opencode-go", providerTypes: () => [openCodeGoProviderType] },
@@ -73,6 +74,7 @@ const defaults = () => [
 export function prepareProviderEntries(
   settings: SettingsDoc = {},
   plugins: readonly PluginEntry[] = providerPlugins,
+  source?: string,
 ): (store: SecretStore) => Map<string, ProviderEntry> {
   const types = new Map<string, ProviderType>();
   for (const plugin of plugins)
@@ -94,6 +96,11 @@ export function prepareProviderEntries(
       model: prior?.model ?? "",
     });
   }
+  for (const [id, raw] of Object.entries(settings.customProviders ?? {})) {
+    if (id === "demo" || configured.has(id)) throw new Error(`Duplicate provider instance '${id}'`);
+    const { type, ...config } = raw;
+    configured.set(id, { type, config, label: id, model: "" });
+  }
   // Parse every instance before touching a credential backend or starting network discovery.
   const prepared = [...configured].map(([id, entry]) => {
     const type = types.get(entry.type);
@@ -101,8 +108,12 @@ export function prepareProviderEntries(
     try {
       return { id, entry, create: type.prepare(entry.config) };
     } catch (cause) {
+      if (!(cause instanceof z.ZodError)) throw cause;
+      const section = Object.hasOwn(settings.customProviders ?? {}, id)
+        ? `customProviders.${id}`
+        : `providers.${id}.config`;
       throw new ProviderConfigurationError(
-        `Invalid config for provider instance '${id}' (${entry.type})`,
+        `Invalid config for provider instance '${id}' (${entry.type})${source ? ` in ${source}` : ""}: ${section}.${formatIssue(cause)}`,
         { cause },
       );
     }
@@ -117,8 +128,8 @@ export function prepareProviderEntries(
               ? id
               : key === "api-key"
                 ? `apikey:${id}`
-                : `provider-instance:${id}:${key}`
-            : `provider-instance:${id}:${key}`;
+                : `provider-instance:${encodeURIComponent(id)}:${encodeURIComponent(key)}`
+            : `provider-instance:${encodeURIComponent(id)}:${encodeURIComponent(key)}`;
         const instance = create({
           id,
           label: entry.label,
@@ -184,19 +195,6 @@ export function authEntries(entries: ReadonlyMap<string, ProviderEntry>): Map<st
     result.set(entry.id, {
       method: entry.instance.auth,
       ...(entry.defaultModel ? { defaultModel: entry.defaultModel } : {}),
-      buildPlugin: async () => {
-        const provider = await entry.instance.buildProvider();
-        if (provider && provider.provider !== entry.id)
-          throw new Error(`Mismatched provider identity '${entry.id}'`);
-        return provider
-          ? {
-              id: defaults().some((item) => item.id === entry.id)
-                ? entry.type
-                : `provider-instance:${entry.id}`,
-              providers: () => [provider],
-            }
-          : null;
-      },
     });
   }
   return result;

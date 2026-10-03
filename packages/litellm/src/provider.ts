@@ -130,8 +130,9 @@ export class LiteLLMProvider implements ModelProvider {
       models = enriched.models;
       diagnostics.push(...enriched.diagnostics);
     } catch (error) {
-      signal.throwIfAborted();
-      if (enrichment.aborted) diagnostics.push("Model metadata request timed out");
+      if (signal.aborted && error === signal.reason) throw error;
+      if (enrichment.aborted && error === enrichment.reason)
+        diagnostics.push("Model metadata request timed out");
       else if (error instanceof ModelDiscoveryError) diagnostics.push(error.message);
       else throw error;
     }
@@ -184,9 +185,11 @@ export class LiteLLMProvider implements ModelProvider {
         model: id,
         ...(profile.label ? { label: profile.label } : {}),
         ...(profile.contextWindow !== undefined ? { contextWindow: profile.contextWindow } : {}),
+        ...(profile.maxInputTokens !== undefined ? { maxInputTokens: profile.maxInputTokens } : {}),
         ...(profile.maxOutputTokens !== undefined
           ? { maxOutputTokens: profile.maxOutputTokens }
           : {}),
+        ...(profile.reasoning ? { reasoning: profile.reasoning } : {}),
         ...(profile.pricing
           ? {
               pricing: {

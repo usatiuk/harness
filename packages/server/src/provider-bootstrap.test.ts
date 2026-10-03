@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { ModelProvider } from "@harness/protocol";
 import type { ProviderEntry } from "./auth.ts";
 import { bootstrapProviders } from "./provider-bootstrap.ts";
@@ -24,6 +24,32 @@ function entry(id: string, provider: Partial<ModelProvider>): ProviderEntry {
     },
   };
 }
+
+it("does not turn a deterministic provider defect into a catalog timeout", async () => {
+  const timeout = vi
+    .spyOn(AbortSignal, "timeout")
+    .mockReturnValue(AbortSignal.abort(new DOMException("Deadline", "TimeoutError")));
+  const defect = new TypeError("Fixture deterministic defect");
+  try {
+    await expect(
+      bootstrapProviders(
+        new Map([
+          [
+            "work",
+            entry("work", {
+              async refreshModels() {
+                throw defect;
+              },
+            }),
+          ],
+        ]),
+        new AbortController().signal,
+      ),
+    ).rejects.toBe(defect);
+  } finally {
+    timeout.mockRestore();
+  }
+});
 
 it("aborts and drains sibling discovery before reporting a packaged provider defect", async () => {
   let began!: () => void;
@@ -104,4 +130,18 @@ it.each([
       new AbortController().signal,
     ),
   ).rejects.toThrow("Invalid model catalog");
+});
+
+it("bounds the actual expanded wire catalog rather than its smaller internal descriptions", async () => {
+  const models = Array.from({ length: 20000 }, (_, index) => ({
+    provider: "work",
+    model: `alias-${index}`,
+  }));
+  expect(Buffer.byteLength(JSON.stringify(models))).toBeLessThan(3 * 1024 * 1024);
+  await expect(
+    bootstrapProviders(
+      new Map([["work", entry("work", { listModels: () => models })]]),
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow("3 MiB RPC budget");
 });

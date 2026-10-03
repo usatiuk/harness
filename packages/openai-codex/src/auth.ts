@@ -53,6 +53,7 @@ export class CodexAuth {
   #refresh: Promise<CodexSession> | undefined;
   #refreshAbort: AbortController | undefined;
   #epoch = 0;
+  #signingIn = false;
 
   constructor(opts: CodexAuthOptions) {
     this.#store = opts.store;
@@ -75,6 +76,16 @@ export class CodexAuth {
 
   /** Runs the loopback browser flow end to end, persisting the resulting session. */
   async loginWithBrowser(opts: LoginOptions = {}): Promise<CodexSession> {
+    if (this.#signingIn) throw new Error("Codex sign-in is already in progress");
+    this.#signingIn = true;
+    try {
+      return await this.#loginWithBrowser(opts);
+    } finally {
+      this.#signingIn = false;
+    }
+  }
+
+  async #loginWithBrowser(opts: LoginOptions): Promise<CodexSession> {
     const epoch = ++this.#epoch;
     this.#refreshAbort?.abort(new Error("Codex authentication changed"));
     await this.#refresh?.catch(() => undefined);
@@ -115,10 +126,18 @@ export class CodexAuth {
 
   /** A non-expired session, refreshing within the skew window. Throws if not signed in. */
   async getValidSession(opts: { forceRefresh?: boolean } = {}): Promise<CodexSession> {
+    if (this.#signingIn)
+      throw new Error(
+        "Codex sign-in is in progress; finish signing in before invoking this connection",
+      );
     const epoch = this.#epoch;
     const session = await this.#load();
     if (epoch !== this.#epoch)
       throw new Error("Codex authentication changed during credential access");
+    if (this.#signingIn)
+      throw new Error(
+        "Codex sign-in is in progress; finish signing in before invoking this connection",
+      );
     if (!session) throw new Error("Not signed in to Codex. Run `harness auth login`.");
     if (opts.forceRefresh || session.expiresAt <= this.#now() + REFRESH_SKEW_MS) {
       if (!this.#refresh) {

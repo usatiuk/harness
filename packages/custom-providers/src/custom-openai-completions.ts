@@ -1,7 +1,7 @@
 import { OpenAIChatProvider } from "@harness/openai-core";
 import { apiKeyCredentials } from "@harness/openai-api";
 import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
-import type { CustomCompletionsModelConfig } from "@harness/config";
+import type { CustomCompletionsModelConfig } from "./config.ts";
 import { applyOpenAIPreset, type RequestParams } from "./openai-presets.ts";
 import { listScopedModels, scopedModel, validateScopedConfig } from "./model-scope.ts";
 

@@ -1,7 +1,7 @@
 import { OpenAIResponsesProvider } from "@harness/openai-core";
 import { apiKeyCredentials } from "@harness/openai-api";
 import type { ContentBlock, ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
-import type { CustomOpenAIModelConfig } from "@harness/config";
+import type { CustomOpenAIModelConfig } from "./config.ts";
 import { applyOpenAIPreset, type RequestParams } from "./openai-presets.ts";
 import { listScopedModels, scopedModel, validateScopedConfig } from "./model-scope.ts";
 

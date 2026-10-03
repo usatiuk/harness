@@ -53,6 +53,13 @@ Opaque provider payload tests require byte-for-byte round-trip. Live provider
 tests are skipped unless their credential environment variables are explicitly
 present.
 
+LiteLLM tests use the pinned SDKs over controlled HTTP/SSE edges and cover
+connection isolation, discovery metadata, two-turn fidelity and public RPC/domain
+delivery. An opt-in official LiteLLM Docker fixture qualifies real virtual-key
+restrictions and native routing/affinity with synthetic ciphertext/signatures;
+vendor cryptographic acceptance remains unqualified. Commands and boundaries are
+in [../../TESTING.md](../../TESTING.md).
+
 ### TUI
 
 Pure transcript reduction is tested separately from Ink rendering. Component and

@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { once } from "node:events";
 
 export interface CapturedRequest {
+  method: string;
   path: string;
   key: string;
   body: Record<string, unknown>;
@@ -12,6 +13,7 @@ export async function httpGateway(
     response: ServerResponse,
     raw: IncomingMessage,
   ) => void | Promise<void>,
+  host = "127.0.0.1",
 ) {
   const requests: CapturedRequest[] = [];
   const server = createServer((request, response) => {
@@ -19,6 +21,7 @@ export async function httpGateway(
       const chunks: Buffer[] = [];
       for await (const chunk of request) chunks.push(Buffer.from(chunk as Uint8Array));
       const captured = {
+        method: request.method ?? "GET",
         path: request.url ?? "",
         key: String(request.headers.authorization ?? request.headers["x-api-key"] ?? "").replace(
           /^Bearer /,
@@ -35,7 +38,7 @@ export async function httpGateway(
       response.end();
     });
   });
-  server.listen(0, "127.0.0.1");
+  server.listen(0, host);
   await once(server, "listening");
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing HTTP fixture address");

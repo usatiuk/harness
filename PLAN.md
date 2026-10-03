@@ -69,7 +69,7 @@ As of 2026-10-03, Harness provides:
   per-conversation services, policies, observers, and configuration schemas.
 - OpenAI API-key (Responses + chat/completions), OpenAI Codex OAuth, Anthropic
   API-key, OpenCode Go API-key, config-defined OpenAI/Anthropic-compatible
-  providers, named built-in API/OAuth connections, boot-discovered LiteLLM
+  providers, named built-in/compatible API/OAuth connections, boot-discovered LiteLLM
   gateways, and a deterministic demo provider with model catalogs, reasoning
   payload fidelity, usage, and cost.
 - Harness-owned read/write/edit/patch/glob/command tools selected by the active
@@ -163,8 +163,9 @@ invocations remain opt-in qualification.
 7. [x] Deliver the approved desktop v1 with independent conversations, inspection,
        owned background server, database exclusion, and actual native E2E.
 8. [ ] Deliver the [named provider instances and LiteLLM boot catalogs](docs/plans/models/2026-10-03-dynamic-provider-catalogs.md)
-       plan. Design and primary-source research are prepared; implementation and
-       real gateway qualification remain open.
+       plan. Implementation, normalized model metadata, real LiteLLM with controlled
+       upstreams, and packaged Windows behavior are verified. Actual vendor
+       cryptographic acceptance remains credential-dependent and open.
 
 ## Documentation roles
 

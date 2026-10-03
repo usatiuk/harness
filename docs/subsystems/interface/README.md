@@ -12,7 +12,7 @@ agent-loop or durable conversation semantics.
 
 The settings document contains kernel model/instruction/tool fields, opaque
 plugin slices, optional named profiles, and credential-store selection. Top-level
-plugin keys, and custom provider/model entries are validated strictly; typos and
+plugin keys and provider-specific configurations are validated strictly; typos and
 unknown configured plugins fail with their source layer.
 
 The resolution order is:
@@ -67,11 +67,14 @@ generic, verbose, and edit cards. Clients never execute guest code.
 
 ## Authentication UX
 
-The auth registry discovers provider login methods and builds plugins only when
-credentials are available. `harness auth login` supports API-key methods and Codex
-OAuth. Provider build failures are reported and skipped; Harness never silently
-uses a different configured provider. Without credentials/configuration the CLI
-uses a deterministic demo provider and explains how to sign in.
+Provider plugins contribute types before asynchronous server bootstrap. Global
+`providers.<id>` entries are validated by the chosen type before credential or
+network access; conversation/project/profile layers cannot configure connections.
+The auth registry exposes each connection's owned login method, and bootstrap
+constructs one provider per available connection. `harness auth login` supports
+named API-key methods and Codex OAuth. Classified credential/discovery failures
+remain visible per connection; packaged defects fail startup. Saved selections
+are preserved when unavailable. An unconfigured initial profile may use the demo.
 
 Credential-store selection is pinned in global settings. Unsupported Windows
 file/keyring combinations fail and direct the user to DPAPI rather than falling
@@ -84,9 +87,15 @@ require an explicit server restart to rebuild the provider catalog. Credential
 file mutations are serialized across store instances in one process; external
 processes must not concurrently modify the same credential file.
 
-Config-defined providers are the explicit exception: their pre-release schema
-requires an inline key literal in global settings (or a dummy value for a keyless
-server). That path does not use the auth registry or secure store.
+Compatible provider types use the same instance auth/secret boundary. Legacy
+global `customProviders` entries normalize into those types while preserving IDs;
+their literal key option remains useful for a keyless local server. Provider
+schemas live in their plugin packages rather than a central config union.
+
+The model catalog RPC transports normalized capacities, reasoning metadata and
+rate cards, with nullable unknown values. The domain client restores optional
+fields; both pickers show known limits without deriving a context window from
+separate input/output claims. Server bootstrap bounds the actual wire catalog.
 
 ## Session lifecycle
 

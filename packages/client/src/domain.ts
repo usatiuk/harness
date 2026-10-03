@@ -6,6 +6,7 @@ import type {
   Item,
   ItemId,
   ModelInfo,
+  ModelPricing,
   ModelUsageSummary,
   TurnId,
   Usage,
@@ -132,6 +133,52 @@ export const decodeModelInfo = (model: WireModelInfo): ModelInfo => ({
       }),
   ...(model.defaultPreset === null ? {} : { defaultPreset: model.defaultPreset }),
   ...(model.contextWindow === null ? {} : { contextWindow: model.contextWindow }),
+  ...(model.maxInputTokens === null ? {} : { maxInputTokens: model.maxInputTokens }),
+  ...(model.maxOutputTokens === null ? {} : { maxOutputTokens: model.maxOutputTokens }),
+  ...(model.reasoning
+    ? {
+        reasoning: {
+          ...(model.reasoning.supported === null ? {} : { supported: model.reasoning.supported }),
+          ...(model.reasoning.adaptiveThinking === null
+            ? {}
+            : { adaptiveThinking: model.reasoning.adaptiveThinking }),
+          ...(model.reasoning.legacyThinking === null
+            ? {}
+            : { legacyThinking: model.reasoning.legacyThinking }),
+          ...(model.reasoning.alwaysOn === null ? {} : { alwaysOn: model.reasoning.alwaysOn }),
+          ...(model.reasoning.effortLevels === null
+            ? {}
+            : { effortLevels: model.reasoning.effortLevels }),
+          ...(model.reasoning.defaultEffort === null
+            ? {}
+            : { defaultEffort: model.reasoning.defaultEffort }),
+        },
+      }
+    : {}),
+  ...(model.pricing
+    ? {
+        pricing: {
+          ...decodeRateCard(model.pricing),
+          ...(model.pricing.longContext
+            ? {
+                longContext: {
+                  ...decodeRateCard(model.pricing.longContext),
+                  threshold: model.pricing.longContext.threshold,
+                },
+              }
+            : {}),
+        },
+      }
+    : {}),
+});
+
+const decodeRateCard = (
+  pricing: Omit<NonNullable<WireModelInfo["pricing"]>, "longContext">,
+): ModelPricing => ({
+  input: pricing.input,
+  output: pricing.output,
+  ...(pricing.cachedRead === null ? {} : { cachedRead: pricing.cachedRead }),
+  ...(pricing.cacheWrite === null ? {} : { cacheWrite: pricing.cacheWrite }),
 });
 
 /** Core surface consumed by presentation clients; plugin controls extend it separately. */

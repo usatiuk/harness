@@ -9,6 +9,10 @@ OpenAI/Anthropic-compatible endpoints, and a deterministic demo provider. Adapte
 implement one streaming `ModelProvider` contract and own all provider-specific
 request, event, payload, catalog, and error behavior.
 
+All built-in API/OAuth and compatible providers support named connections with
+isolated credentials. LiteLLM connections discover catalogs at server boot and
+reuse the existing adapters.
+
 Every model-backed operation passes through the same model-middleware boundary:
 ordinary agent steps, compaction, subagents, and model-backed auto-approval.
 
@@ -34,6 +38,13 @@ separate advisory per-invocation cap: adapters send it when their transport
 supports one. The Codex transport currently rejects `max_output_tokens`, so its
 adapter omits the request field while retaining hard model limits for capacity
 math.
+
+`maxInputTokens` preserves an independently advertised hard input limit without
+claiming a combined context window. `reasoning` carries explicit support,
+adaptive/legacy/always-on thinking flags and advertised effort levels/defaults;
+absence means unknown and an explicit false remains false. These informational
+fields do not invent request controls or presets. The existing proactive capacity
+policy still requires a known combined context and output reservation.
 
 Catalogs are explicit and may apply complete per-model capacity overrides where
 the same model differs by backend. Pricing lives beside the catalog entry so
@@ -185,10 +196,15 @@ Transport selection is explicit model configuration, consistent validated
 `model_info.harness` metadata, then `defaultTransport` (Chat Completions). Vendor
 names and aliases never infer transport. Configured entries override exact public
 IDs and may add hidden aliases. Unsupported/mixed deployment mode or tool claims
-exclude discovered aliases unless the user explicitly configures that model.
+exclude discovered aliases unless the model is explicitly qualified with
+`codingCompatible: true`; adding a label alone is insufficient.
 Unknown capacities and gateway prices remain unknown; upstream price estimates
 are not copied into gateway billing. `max_output_tokens` metadata supplies only
-a hard output bound. Separate input/output limits never invent a context window.
+a hard output bound and `max_input_tokens` supplies a separate hard input bound.
+LiteLLM's legacy `max_tokens` ambiguously means input or output and is not used as
+context. Explicit reasoning/thinking metadata and effort levels/defaults are
+normalized only when deployment rows agree. Separate input/output limits never
+invent a context window.
 
 The version-one Harness annotation accepts the same fields as a local model
 profile, plus `version: 1`: transport, label, file-tool profile, capacities,
@@ -209,7 +225,7 @@ Startup discovery has four workers, a ten-second overall network budget, and a
 three-second enrichment budget inside it. Startup cancellation drains discovery
 and releases the SQLite lease. Each endpoint is bounded to 2 MiB and 5,000 rows;
 resolved catalogs are bounded to 5,000 models per instance and a 3 MiB aggregate
-RPC budget. Model IDs are at most 512 characters. No polling, disk cache or live
+RPC budget, measured after wire projection. Model IDs are at most 512 characters. No polling, disk cache or live
 refresh is enabled. `app.providers.list` and settings expose safe boot status,
 registration, credential source/presence, labels, counts and diagnostics.
 
@@ -223,14 +239,16 @@ OpenCode Go, and Codex OAuth support any number of named connections. Their
 existing IDs are implicit default instances and retain existing credential keys.
 
 Each connection owns its authentication method and provider construction. The
-host scopes secret slots to `provider-instance:<id>:<slot>` for additional
+host scopes secret slots to `provider-instance:<encoded ID>:<encoded slot>` for additional
 connections (`api-key` or `oauth`). Labels do not affect secret keys. API-key
 sources may select `{stored: true}`, an exact `{env: "VARIABLE"}` reference, or
 explicit environment precedence over storage via both fields. An environment-only
 connection cannot accept or delete stored credentials. Named sign-in does not
 change the global model selection; credential changes require restart. Codex
 accounts have independent token records, caches and coalesced refreshes; logout
-drains any rotation before deleting its session.
+drains any rotation before deleting its session. Interactive login also excludes
+new refresh admissions until the new account has been stored, so an old account's
+rotation cannot overwrite it.
 
 The CLI auth registry exposes built-in provider login methods. Their API keys
 come from environment variables or secure stores. Codex uses PKCE OAuth,
@@ -239,10 +257,11 @@ uses DPAPI; other supported environments may use the OS keyring or an explicitly
 selected file store. Credential backends fail explicitly rather than silently
 downgrade.
 
-Config-defined providers intentionally use an inline `apiKey` literal in global
-settings in this pre-release implementation; keyless servers require a dummy
-value. This accepted simplification is not a secure-store path, so settings and
-backups must be protected accordingly.
+Compatible provider schemas live in `@harness/custom-providers/config`, with
+strict endpoint/model/preset validation before I/O. Their API keys support the
+same stored/environment sources as other instances. Legacy global
+`customProviders` entries normalize into those types and preserve provider IDs;
+the inline literal option remains available for a keyless local endpoint.
 
 ## Errors and observability
 
@@ -275,6 +294,7 @@ middleware. Deterministic request/configuration failures must never be retried.
 - `packages/anthropic-core`, `anthropic-api`: Anthropic adapter/auth.
 - `packages/opencode-go`: OpenCode Go provider and static roster.
 - `packages/custom-providers`: config-defined Responses/chat/Messages providers.
+- `packages/litellm`: instance configuration, discovery normalization and gateway adapters.
 - `packages/auth`, `packages/secrets`: login and credential persistence.
 
 ## Verification
@@ -283,3 +303,12 @@ Adapter tests cover native request shapes, tool/result round-trip, reasoning
 payloads, stream translation, usage, cancellation-facing terminal errors, model
 catalogs, and transport-specific differences. Live provider tests are opt-in and
 skipped without credentials.
+
+The opt-in Docker qualification exercises official LiteLLM v1.103.2 with real
+virtual-key authorization, restricted catalogs, all three native gateway routes,
+two-turn tools/usage, and synthetic encrypted reasoning/signature replay. Forced
+Responses origins A and B plus a shared alias prove gateway item-ID restoration
+and configured affinity using `encrypted_content_affinity`. Actual vendor
+cryptographic acceptance remains credential-dependent. Packaged Windows tests
+exercise secure named key storage, restart discovery, visible model metadata,
+generation and reopening saved unavailable selections. See [testing guidance](../../TESTING.md).

@@ -12,7 +12,14 @@ import {
 } from "@harness/config";
 import { defaultCredentialsPath, defaultDpapiCredentialsPath } from "@harness/secrets";
 import type { ApiKeyMethod, OAuthMethod } from "@harness/auth";
-import { authRegistry, authEntries, prepareProviderEntries, type AuthEntry } from "./auth.ts";
+import {
+  authRegistry,
+  authEntries,
+  prepareProviderEntries,
+  providerPlugins,
+  type AuthEntry,
+} from "./auth.ts";
+import { join } from "node:path";
 import { credentialStoreForLogin, credentialStoreForRead } from "./credential-store.ts";
 
 const modelLabel = (m: ModelConfig): string => `${m.provider}/${m.model}`;
@@ -188,7 +195,11 @@ function parseStore(value: string | undefined): AuthStoreKind | undefined {
 /** `harness auth login`: interactive picker, or a non-interactive stdin path for CI. */
 export async function runLogin(opts: LoginCliOptions = {}): Promise<void> {
   const home = defaultHome();
-  const prepare = prepareProviderEntries(await readGlobalSettings(home));
+  const prepare = prepareProviderEntries(
+    await readGlobalSettings(home),
+    providerPlugins,
+    join(home, "settings.json"),
+  );
   const { store, kind } = await credentialStoreForLogin(home, parseStore(opts.store));
   const registry = authEntries(prepare(store));
   if (opts.provider && !registry.has(opts.provider)) throw unknownProvider(registry, opts.provider);

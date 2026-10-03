@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NativeApplication } from "./application.ts";
 import { seedHistory, seedChildOnlyPages, commandProvider } from "./fixtures.ts";
+import { httpGateway, json, sse } from "../../../litellm/src/http-fixture.ts";
 
 test.skip(process.platform !== "win32", "Native CDP tests require Windows WebView2");
 
@@ -423,7 +424,9 @@ test("provider keys stay in isolated native storage and configured defaults awai
     await expect(page.getByRole("button", { name: "Create conversation" })).toBeDisabled();
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Restart Harness", exact: true }).click();
-    await expect(provider).toContainText("Connected");
+    // Credential presence already changed before restart; a populated boot catalog proves completion.
+    await expect(provider).toContainText(/ready · [1-9]\d* models/u);
+    await expect(provider).toContainText("Credentials available");
     await provider.getByRole("button", { name: "Disconnect stored credentials" }).click();
     await expect(provider).toContainText("Stored credentials removed");
     const logs = await readFile(info.outputPath("app", "process.log"), "utf8");
@@ -431,6 +434,125 @@ test("provider keys stay in isolated native storage and configured defaults awai
     expect(app.errors).toEqual([]);
   } finally {
     await app.close();
+  }
+});
+
+test("named gateways isolate native keys and catalogs while retaining unavailable saved selections", async ({}, info) => {
+  const directory = info.outputPath("profile");
+  const home = await profile(directory);
+  const workKey = "native-work-fixture-key";
+  const personalKey = "native-personal-fixture-key";
+  const gateway = await httpGateway((req, res) => {
+    if (req.path.endsWith("/v1/models"))
+      return json(res, { data: [{ id: req.key === workKey ? "coding" : "personal-code" }] });
+    if (req.path.endsWith("/model/info"))
+      return json(res, {
+        data: [
+          {
+            model_name: req.key === workKey ? "coding" : "personal-code",
+            model_info: {
+              max_input_tokens: 200000,
+              max_output_tokens: 32000,
+              supports_reasoning: true,
+            },
+          },
+        ],
+      });
+    return sse(res, [
+      { choices: [{ delta: { content: "Named gateway completed" }, finish_reason: "stop" }] },
+      { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    ]);
+  });
+  const selected = { provider: "work", model: "coding" };
+  await writeFile(
+    join(home, "settings.json"),
+    JSON.stringify({
+      model: selected,
+      providers: {
+        work: { type: "litellm", label: "Work gateway", config: { baseUrl: gateway.url } },
+        personal: { type: "litellm", label: "Personal gateway", config: { baseUrl: gateway.url } },
+      },
+    }),
+  );
+  const app = await NativeApplication.launch(directory, info.outputPath("app"));
+  try {
+    const page = app.page;
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    const work = page
+      .locator(".provider")
+      .filter({ has: page.getByRole("heading", { name: "Work gateway", exact: true }) });
+    const personal = page
+      .locator(".provider")
+      .filter({ has: page.getByRole("heading", { name: "Personal gateway", exact: true }) });
+    await expect(work).toContainText("missing-credentials");
+    for (const [row, label, key] of [
+      [work, "Work gateway", workKey],
+      [personal, "Personal gateway", personalKey],
+    ] as const) {
+      await row.getByLabel(`${label} API key`).fill(key);
+      await row.getByRole("button", { name: "Save key", exact: true }).click();
+      await expect(row).toContainText("Signed in");
+      await expect(row.getByLabel(`${label} API key`)).toHaveValue("");
+    }
+    expect(
+      (JSON.parse(await readFile(join(home, "settings.json"), "utf8")) as { model: unknown }).model,
+    ).toEqual(selected);
+    expect(gateway.requests).toHaveLength(0);
+    const ciphertext = await readFile(
+      join(directory, "local-appdata", "Harness", "credentials.dpapi"),
+    );
+    for (const key of [workKey, personalKey]) {
+      expect(ciphertext.includes(Buffer.from(key))).toBe(false);
+      expect(await page.locator("body").textContent()).not.toContain(key);
+    }
+    await work.getByRole("button", { name: "Restart Harness", exact: true }).click();
+    await expect(work).toContainText("ready · 1 models");
+    await expect(personal).toContainText("ready · 1 models");
+    await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
+    const picker = page.getByRole("combobox", { name: "Model", exact: true });
+    await expect(picker.locator("option:checked")).toContainText("Work gateway");
+    await expect(picker.locator("option:checked")).toContainText("200,000 input");
+    await expect(picker.locator("option:checked")).toContainText("32,000 output");
+    await expect(picker.locator("option:checked")).toContainText("reasoning");
+    await expect(picker).toHaveValue("work\u0000coding");
+    await page.getByLabel("Project folder").fill(directory);
+    await page.getByRole("button", { name: "Create conversation" }).click();
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill("Use work connection");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByTestId("assistant-message")).toContainText("Named gateway completed");
+    const conversationUrl = page.url();
+    expect(
+      gateway.requests
+        .filter((req) => req.body.model === "coding")
+        .every((req) => req.key === workKey),
+    ).toBe(true);
+    expect(gateway.requests.some((req) => req.body.model === "coding")).toBe(true);
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await work.getByRole("button", { name: "Disconnect stored credentials" }).click();
+    await expect(work).toContainText("Stored credentials removed");
+    await work.getByRole("button", { name: "Restart Harness", exact: true }).click();
+    await expect(work).toContainText("missing-credentials");
+    await expect(personal).toContainText("Credentials available");
+    await expect(personal).toContainText("ready · 1 models");
+    await page.goto(conversationUrl);
+    await expect(page.getByLabel("Conversation model")).toHaveValue("work\u0000coding");
+    await expect(page.getByLabel("Conversation model").locator("option:checked")).toContainText(
+      "unavailable",
+    );
+    await expect(page.getByTestId("assistant-message")).toContainText("Named gateway completed");
+    await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
+    await expect(picker).toHaveValue("work\u0000coding");
+    await expect(picker.locator("option:checked")).toContainText("unavailable");
+    await expect(page.getByRole("button", { name: "Create conversation" })).toBeDisabled();
+    expect(
+      (JSON.parse(await readFile(join(home, "settings.json"), "utf8")) as { model: unknown }).model,
+    ).toEqual(selected);
+    const logs = await readFile(info.outputPath("app", "process.log"), "utf8");
+    for (const key of [workKey, personalKey]) expect(logs).not.toContain(key);
+    expect(app.errors).toEqual([]);
+  } finally {
+    await app.close();
+    await gateway.close();
   }
 });
 

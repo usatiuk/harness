@@ -41,6 +41,17 @@ export interface ModelPricing {
   longContext?: { threshold: number } & Omit<ModelPricing, "longContext">;
 }
 
+/** Explicit advertised reasoning capabilities; absence means unknown, not unsupported. */
+export const modelReasoningInfoSchema = z.strictObject({
+  supported: z.boolean().optional(),
+  adaptiveThinking: z.boolean().optional(),
+  legacyThinking: z.boolean().optional(),
+  alwaysOn: z.boolean().optional(),
+  effortLevels: z.array(z.string().min(1).max(32)).min(1).max(32).optional(),
+  defaultEffort: z.string().min(1).max(32).optional(),
+});
+export type ModelReasoningInfo = z.infer<typeof modelReasoningInfoSchema>;
+
 /** One selectable model in a provider's catalog. */
 export interface ModelInfo {
   provider: string;
@@ -53,8 +64,11 @@ export interface ModelInfo {
   defaultPreset?: string;
   /** Max context size in tokens; absent = unknown. */
   contextWindow?: number;
+  /** Separate hard input limit; it does not establish a combined context window. */
+  maxInputTokens?: number;
   /** Maximum output reservation used when deciding whether the next input still fits. */
   maxOutputTokens?: number;
+  reasoning?: ModelReasoningInfo;
   /** Absent = cost not computable for this model. */
   pricing?: ModelPricing;
 }

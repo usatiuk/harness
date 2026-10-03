@@ -3,8 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemorySecretStore } from "@harness/secrets";
-import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
-import { buildServerHarness, type ServerHarness } from "./index.ts";
+import {
+  HarnessClient,
+  HarnessDomainClient,
+  createInProcessMessageConnectionPair,
+} from "@harness/client";
+import { buildServerHarness, runStdioServer, type ServerHarness } from "./index.ts";
+import * as nodeTransport from "@harness/client/node";
 import {
   appAuthLoginRequest,
   appAuthLogoutRequest,
@@ -17,6 +22,24 @@ import { httpGateway, json } from "../../litellm/src/http-fixture.ts";
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+});
+
+it("preserves a deterministic startup failure when a shutdown signal races it", async () => {
+  const home = await mkdtemp(join(tmpdir(), "harness-startup-signal-defect-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  const pair = createInProcessMessageConnectionPair();
+  vi.spyOn(nodeTransport, "createNdjsonMessageConnection").mockReturnValue(pair.right);
+  const defect = new TypeError("Fixture credential backend defect");
+  vi.spyOn(credentials, "credentialStoreForRead").mockImplementation(async () => {
+    process.emit("SIGINT");
+    throw defect;
+  });
+  try {
+    await expect(runStdioServer()).rejects.toBe(defect);
+  } finally {
+    pair.left.dispose();
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 it("aborts startup discovery, drains its socket and releases the SQLite lease", async () => {
@@ -77,7 +100,22 @@ it("manages two named gateway keys over RPC, preserves global selection, and dis
   const gateway = await httpGateway((req, res) => {
     if (req.path.endsWith("/v1/models"))
       return json(res, { data: [{ id: req.key === "work-key" ? "coding" : "personal-code" }] });
-    return json(res, { data: [] });
+    return json(res, {
+      data: [
+        {
+          model_name: "coding",
+          model_info: {
+            max_input_tokens: 200000,
+            max_output_tokens: 32000,
+            supports_reasoning: true,
+            supports_adaptive_thinking: false,
+            reasoning_effort_levels: ["low", "high"],
+            default_reasoning_effort: "low",
+            harness: { version: 1, contextWindow: 220000, pricing: { input: 2, output: 8 } },
+          },
+        },
+      ],
+    });
   });
   vi.stubEnv("HARNESS_HOME", home);
   for (const env of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
@@ -100,6 +138,7 @@ it("manages two named gateway keys over RPC, preserves global selection, and dis
   await writeFile(join(home, "settings.json"), JSON.stringify(settings));
   let harness: ServerHarness | undefined;
   let client: HarnessClient | undefined;
+  let domain: HarnessDomainClient;
   async function start() {
     const pair = createInProcessMessageConnectionPair();
     harness = await buildServerHarness(pair.right);
@@ -107,7 +146,8 @@ it("manages two named gateway keys over RPC, preserves global selection, and dis
       connection: pair.left,
       client: { name: "named-auth-test", version: "1" },
     });
-    await client.start();
+    domain = new HarnessDomainClient(client);
+    await domain.start();
     return client;
   }
   try {
@@ -133,6 +173,18 @@ it("manages two named gateway keys over RPC, preserves global selection, and dis
     rpc.closeConnection();
     rpc = await start();
     const models = await rpc.models();
+    expect(domain!.availableModels().find((model) => model.provider === "work")).toMatchObject({
+      contextWindow: 220000,
+      maxInputTokens: 200000,
+      maxOutputTokens: 32000,
+      reasoning: {
+        supported: true,
+        adaptiveThinking: false,
+        effortLevels: ["high", "low"],
+        defaultEffort: "low",
+      },
+      pricing: { input: 2, output: 8 },
+    });
     expect(models.models).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ provider: "work", model: "coding" }),
@@ -168,7 +220,9 @@ it("manages two named gateway keys over RPC, preserves global selection, and dis
     loginBackend.mockClear();
     await expect(
       rpc.peer.request(appAuthLoginRequest, { provider: "work", key: "new-key" }),
-    ).rejects.toThrow("Invalid config for provider instance");
+    ).rejects.toThrow(
+      `in ${join(home, "settings.json")}: providers.work.config.baseUrl: Invalid URL`,
+    );
     expect(loginBackend).not.toHaveBeenCalled();
   } finally {
     await harness?.close();

@@ -8,20 +8,27 @@
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./config": {
+      "development": "./src/config.ts",
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
     }
   },
   "dependencies": {
     "@harness/protocol": "*",
-    "@harness/config": "*",
     "@harness/openai-core": "*",
     "@harness/openai-api": "*",
     "@harness/anthropic-core": "*",
-    "@harness/anthropic-api": "*"
+    "@harness/anthropic-api": "*",
+    "@harness/auth": "*",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@harness/service": "*",
     "@harness/store": "*",
     "@harness/testkit": "*",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@harness/config": "*"
   }
 }

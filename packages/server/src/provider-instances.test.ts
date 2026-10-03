@@ -8,6 +8,93 @@ import { authRegistry, providerEntries, providerPlugins } from "./auth.ts";
 afterEach(() => vi.unstubAllEnvs());
 
 describe("named provider instances", () => {
+  it("keeps arbitrary legacy IDs and opaque plugin secret slots in distinct namespaces", async () => {
+    const store = new MemorySecretStore();
+    const type = defineProviderType({
+      type: "slot-fixture",
+      configSchema: z.strictObject({}),
+      create(context) {
+        return {
+          async buildProvider() {
+            await context.secrets.set("b:api-key", "producer-secret");
+            return null;
+          },
+        };
+      },
+    });
+    const entries = providerEntries(
+      store,
+      {
+        providers: { a: { type: "slot-fixture", config: {} } },
+        customProviders: {
+          "a:b": {
+            type: "openai-completions-compatible",
+            endpoint: "http://local/v1",
+            models: { coding: {} },
+            apiKey: { stored: true },
+          },
+        },
+      },
+      [...providerPlugins, { id: "slot-fixture", providerTypes: () => [type] }],
+    );
+    await entries.get("a")!.instance.buildProvider();
+    expect(await entries.get("a:b")!.instance.buildProvider()).toBeNull();
+    expect(await store.get("provider-instance:a:b%3Aapi-key")).toBe("producer-secret");
+    expect(await store.get("provider-instance:a%3Ab:api-key")).toBeNull();
+  });
+  it("normalizes legacy compatible providers and secure named connections through one registry", async () => {
+    const store = new MemorySecretStore();
+    const config = {
+      endpoint: "http://localhost:8000/v1",
+      models: { coding: { contextWindow: 4096, presets: { fast: { temperature: 0.2 } } } },
+    };
+    const entries = providerEntries(
+      store,
+      parseSettingsDoc(
+        {
+          customProviders: {
+            legacy: { type: "openai-completions-compatible", ...config, apiKey: "dummy" },
+          },
+          providers: {
+            secure: { type: "openai-completions-compatible", label: "Secure local", config },
+          },
+        },
+        "fixture",
+      ),
+    );
+    expect(entries.get("legacy")?.instance.auth).toBeUndefined();
+    expect((await entries.get("legacy")!.instance.buildProvider())?.listModels()[0]).toMatchObject({
+      provider: "legacy",
+      model: "coding",
+      contextWindow: 4096,
+      presets: [{ value: "fast" }],
+    });
+    const secure = entries.get("secure")!.instance;
+    expect(await secure.buildProvider()).toBeNull();
+    if (secure.auth?.kind !== "api-key") throw new Error("Expected scoped key auth");
+    await secure.auth.submit("named-key");
+    expect(await store.get("provider-instance:secure:api-key")).toBe("named-key");
+    expect((await secure.buildProvider())?.listModels()[0]?.provider).toBe("secure");
+    expect(() =>
+      providerEntries(store, {
+        customProviders: {
+          openai: { type: "openai-completions-compatible", ...config, apiKey: "dummy" },
+        },
+      }),
+    ).toThrow("Duplicate");
+    expect(() =>
+      providerEntries(store, {
+        customProviders: {
+          bad: {
+            type: "openai-completions-compatible",
+            endpoint: "http://local",
+            apiKey: "dummy",
+            models: { coding: { fileTools: "apply_patch" } },
+          },
+        },
+      }),
+    ).toThrow("Invalid config");
+  });
   it("isolates stored keys, labels and identities while retaining legacy slots", async () => {
     vi.stubEnv("OPENAI_API_KEY", "");
     const store = new MemorySecretStore();
@@ -30,17 +117,19 @@ describe("named provider instances", () => {
       const entry = registry.get(id!)!;
       if (entry.method.kind !== "api-key") throw new Error("Expected key auth");
       await entry.method.submit(key!);
-      expect((await entry.buildPlugin())?.providers?.()[0]?.provider).toBe(id);
+      expect(
+        (await providerEntries(store, settings).get(id!)!.instance.buildProvider())?.provider,
+      ).toBe(id);
     }
     expect(await store.get("provider-instance:work:api-key")).toBe("sk-work");
     expect(await store.get("apikey:openai")).toBe("sk-default");
     expect(registry.get("work")?.defaultModel).toBeUndefined();
     expect(registry.get("work")?.method.label).toBe("Work account");
     await registry.get("work")!.method.logout();
-    expect(await registry.get("work")!.buildPlugin()).toBeNull();
-    expect((await registry.get("personal")!.buildPlugin())?.providers?.()[0]?.provider).toBe(
-      "personal",
-    );
+    expect(await providerEntries(store, settings).get("work")!.instance.buildProvider()).toBeNull();
+    expect(
+      (await providerEntries(store, settings).get("personal")!.instance.buildProvider())?.provider,
+    ).toBe("personal");
     const renamed = authRegistry(store, {
       providers: { personal: { ...settings.providers.personal, label: "New label" } },
     });
@@ -59,7 +148,15 @@ describe("named provider instances", () => {
         },
       },
     }).get("work")!;
-    expect(await entry.buildPlugin()).toBeNull();
+    expect(
+      await providerEntries(store, {
+        providers: {
+          work: { type: "openai-api", config: { apiKey: { env: "HARNESS_NAMED_TEST_KEY" } } },
+        },
+      })
+        .get("work")!
+        .instance.buildProvider(),
+    ).toBeNull();
     if (entry.method.kind !== "api-key") throw new Error("Expected key auth");
     expect(entry.method.canStore).toBe(false);
     await expect(entry.method.submit("sk-key")).rejects.toThrow("managed by the environment");

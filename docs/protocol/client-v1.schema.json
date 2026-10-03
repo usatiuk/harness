@@ -99,9 +99,140 @@
                   { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
                   { "type": "null" }
                 ]
+              },
+              "maxInputTokens": {
+                "anyOf": [
+                  { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+                  { "type": "null" }
+                ]
+              },
+              "maxOutputTokens": {
+                "anyOf": [
+                  { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+                  { "type": "null" }
+                ]
+              },
+              "reasoning": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "supported": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+                      "adaptiveThinking": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+                      "legacyThinking": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+                      "alwaysOn": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+                      "effortLevels": {
+                        "anyOf": [
+                          {
+                            "minItems": 1,
+                            "maxItems": 32,
+                            "type": "array",
+                            "items": { "type": "string", "minLength": 1, "maxLength": 32 }
+                          },
+                          { "type": "null" }
+                        ]
+                      },
+                      "defaultEffort": {
+                        "anyOf": [
+                          { "type": "string", "minLength": 1, "maxLength": 32 },
+                          { "type": "null" }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "supported",
+                      "adaptiveThinking",
+                      "legacyThinking",
+                      "alwaysOn",
+                      "effortLevels",
+                      "defaultEffort"
+                    ],
+                    "additionalProperties": false
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "pricing": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "input": { "type": "number", "minimum": 0 },
+                      "output": { "type": "number", "minimum": 0 },
+                      "cachedRead": {
+                        "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+                      },
+                      "cacheWrite": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+                            "additionalProperties": { "type": "number", "minimum": 0 }
+                          },
+                          { "type": "null" }
+                        ]
+                      },
+                      "longContext": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "input": { "type": "number", "minimum": 0 },
+                              "output": { "type": "number", "minimum": 0 },
+                              "cachedRead": {
+                                "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+                              },
+                              "cacheWrite": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string",
+                                      "pattern": "^[1-9][0-9]*$"
+                                    },
+                                    "additionalProperties": { "type": "number", "minimum": 0 }
+                                  },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "threshold": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "input",
+                              "output",
+                              "cachedRead",
+                              "cacheWrite",
+                              "threshold"
+                            ],
+                            "additionalProperties": false
+                          },
+                          { "type": "null" }
+                        ]
+                      }
+                    },
+                    "required": ["input", "output", "cachedRead", "cacheWrite", "longContext"],
+                    "additionalProperties": false
+                  },
+                  { "type": "null" }
+                ]
               }
             },
-            "required": ["provider", "model", "label", "presets", "defaultPreset", "contextWindow"],
+            "required": [
+              "provider",
+              "model",
+              "label",
+              "presets",
+              "defaultPreset",
+              "contextWindow",
+              "maxInputTokens",
+              "maxOutputTokens",
+              "reasoning",
+              "pricing"
+            ],
             "additionalProperties": false
           }
         },

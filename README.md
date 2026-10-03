@@ -124,12 +124,23 @@ uses only that variable; `{env: "VARIABLE", stored: true}` gives the environment
 precedence over storage. OAuth instances own independent sessions and refresh
 tokens. Credentials stay in the existing machine secret backend.
 
+Compatible types are `openai-responses-compatible`,
+`openai-completions-compatible`, and `anthropic-compatible`. They accept the same
+secure key references; legacy global `customProviders` entries retain their IDs
+and may still supply a literal key for a local compatible server.
+
 LiteLLM refreshes its model catalog at server boot. `baseUrl` is the gateway root,
 including any reverse proxy prefix. Models use exact gateway aliases; optional
 entries override discovery or declare hidden aliases. Other models default to
 Chat Completions and neutral file tools. Discovery failures appear in provider
 status and preserve your saved selection. Configuration and credential changes
 take effect after an explicit server restart.
+
+The catalog carries explicit context, input/output limits, reasoning support,
+thinking modes, advertised effort levels/defaults, and configured gateway prices.
+The pickers show available limits and reasoning support. Unknown or conflicting
+metadata stays unknown; LiteLLM's legacy `max_tokens` does not establish a context
+window. Informational reasoning support does not invent generation presets.
 
 ### Execution backends
 

@@ -2,6 +2,7 @@ import type {
   Conversation,
   Item,
   ModelInfo,
+  ModelPricing,
   ModelUsageSummary,
   Usage,
   WireConversation,
@@ -78,6 +79,13 @@ export const projectItem = (item: Item): WireItem =>
       : item,
   );
 
+const projectRateCard = (pricing: ModelPricing) => ({
+  input: pricing.input,
+  output: pricing.output,
+  cachedRead: pricing.cachedRead ?? null,
+  cacheWrite: pricing.cacheWrite ?? null,
+});
+
 export const projectModelInfo = (model: ModelInfo): WireModelInfo =>
   wireModelInfoSchema.parse({
     provider: model.provider,
@@ -89,4 +97,27 @@ export const projectModelInfo = (model: ModelInfo): WireModelInfo =>
     })),
     defaultPreset: model.defaultPreset ?? null,
     contextWindow: model.contextWindow ?? null,
+    maxInputTokens: model.maxInputTokens ?? null,
+    maxOutputTokens: model.maxOutputTokens ?? null,
+    reasoning: model.reasoning
+      ? {
+          supported: model.reasoning.supported ?? null,
+          adaptiveThinking: model.reasoning.adaptiveThinking ?? null,
+          legacyThinking: model.reasoning.legacyThinking ?? null,
+          alwaysOn: model.reasoning.alwaysOn ?? null,
+          effortLevels: model.reasoning.effortLevels ?? null,
+          defaultEffort: model.reasoning.defaultEffort ?? null,
+        }
+      : null,
+    pricing: model.pricing
+      ? {
+          ...projectRateCard(model.pricing),
+          longContext: model.pricing.longContext
+            ? {
+                ...projectRateCard(model.pricing.longContext),
+                threshold: model.pricing.longContext.threshold,
+              }
+            : null,
+        }
+      : null,
   });

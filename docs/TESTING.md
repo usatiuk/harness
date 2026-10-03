@@ -66,6 +66,22 @@ It requires a Linux Docker daemon, Compose, and image/package download access.
 The fixture creates temporary projects and recipe-owned containers/networks and
 cleans them on completion. Ordinary tests control Docker process edges instead.
 
+Real LiteLLM qualification is separately opt-in:
+
+```sh
+HARNESS_LITELLM_DOCKER=1 npx vitest run packages/litellm/src/live-gateway.test.ts
+```
+
+On PowerShell, set `$env:HARNESS_LITELLM_DOCKER='1'` first. It requires Linux Docker
+and access to the pinned official LiteLLM v1.103.2/Postgres images. The fixture
+creates isolated temporary containers/network/configuration, exposes only a
+loopback gateway port, and cleans owned resources. Real LiteLLM authenticates
+virtual keys, restricts catalogs and generation, and translates three native
+streaming routes to controlled upstreams. Two-turn Responses replay covers both
+origins plus a shared load-balanced alias with encrypted-content affinity;
+Messages replay preserves signatures. The ciphertext/signatures are synthetic:
+this verifies gateway fidelity/affinity, not vendor cryptographic acceptance.
+
 CI runs `npm run check` on Linux and Windows. Execution, process, filesystem,
 credential, and terminal behavior may be platform-specific even when most logic
 is shared.
@@ -139,13 +155,19 @@ delays, or a nearby condition that does not prove completion.
   exact enrichment, hidden aliases, empty/replaced/retained snapshots, byte/row
   limits and cancellation. Server RPC tests cover named login/logout/restart,
   isolated keys, preserved selection, pre-probe validation and startup abort
-  releasing SQLite. These fixtures do not establish real upstream encryption
-  affinity; gateway/native qualification remains tracked in the delivery plan.
+  releasing SQLite. Metadata tests cover separate input/output limits, explicit
+  reasoning flags/efforts, sparse/conflicting rows and the public domain-client
+  round trip. Bootstrap bounds the expanded wire catalog. The opt-in Docker
+  test above adds real gateway fidelity/affinity evidence; actual vendor
+  cryptographic acceptance remains tracked in the delivery plan.
 
 - Named built-in provider tests cover independent stored API keys, exact
   environment references, legacy slots, label changes, construction identity,
   type contributions and pre-construction validation. Codex tests cover isolated
-  OAuth token records, coalesced rotation and logout during refresh. Live browser
+  OAuth token records, coalesced rotation, logout during refresh and interactive
+  login excluding stale-account refresh. Packaged native tests cover two keys in
+  DPAPI, restart discovery, picker metadata and reopening an existing unavailable
+  selection without losing its transcript. Live browser
   login with multiple real accounts remains credential-dependent.
 
 - The `opencode-go` provider's roster is static and unit-tested against the

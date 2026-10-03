@@ -167,3 +167,34 @@ Reading source and tests does not qualify deployed versions, translated custom
 tools, encrypted reasoning, thinking signatures, or proxy path prefixes with the
 pinned TypeScript SDKs. Those are implementation acceptance checks in the
 [delivery plan](../plans/models/2026-10-03-dynamic-provider-catalogs.md).
+
+## Implementation qualification on 2026-10-03
+
+The implementation subsequently exercised the official LiteLLM **v1.103.2** image
+at digest `sha256:f63fb81b831b170ec16851e23c36ac5bf52ef106b271406429524a2ed730bbfd`
+with isolated Postgres and controlled HTTP/SSE upstreams. Real virtual keys
+produced restricted catalogs and rejected a forbidden generation without an
+upstream POST. Responses, Chat Completions and Messages completed two-turn tool
+continuations with usage. Responses synthetic ciphertext/item IDs replayed on
+each forced origin and retained affinity under one shared alias; Messages
+synthetic signatures survived replay. This qualifies gateway serialization,
+authorization and configured affinity, not vendor cryptographic acceptance.
+No real upstream credentials or paid generations were used. The opt-in fixture
+is `packages/litellm/src/live-gateway.test.ts`; its command is in
+[testing guidance](../TESTING.md).
+
+The pinned [model field definitions](https://github.com/BerriAI/litellm/blob/v1.103.2/model_prices_and_context_window.json)
+define legacy `max_tokens` as an input **or** output maximum. It cannot establish
+a combined context window. Harness preserves explicit input/output limits
+separately and accepts combined context through qualified profile metadata.
+The pinned [metadata types](https://github.com/BerriAI/litellm/blob/v1.103.2/litellm/types/utils.py)
+also define `supports_reasoning`, adaptive/legacy/always-on thinking flags,
+`reasoning_effort_levels` and `default_reasoning_effort`. These are normalized
+informational catalog fields, including explicit false values; they do not prove
+encrypted payload support or authorize invented request controls/presets.
+
+Public RPC/domain regression verifies metadata delivery. Packaged Windows tests
+verify DPAPI-isolated keys, restart discovery, model selection/generation, and
+reopening existing unavailable selections without losing history. Real browser
+login to multiple vendor accounts and vendor-encrypted continuation acceptance
+remain unqualified.

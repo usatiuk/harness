@@ -1,6 +1,6 @@
 import { MemorySecretStore } from "@harness/secrets";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { authRegistry, type AuthEntry } from "./auth.ts";
+import { providerEntries, authRegistry, type AuthEntry } from "./auth.ts";
 
 const entryOf = (reg: Map<string, AuthEntry>, id: string): AuthEntry => {
   const entry = reg.get(id);
@@ -28,25 +28,30 @@ describe("authRegistry", () => {
     ]);
   });
 
-  it("builds no plugin until a key is stored, then one after", async () => {
-    const reg = authRegistry(new MemorySecretStore());
+  it("constructs no provider until a key is stored, then one after", async () => {
+    const store = new MemorySecretStore();
+    const reg = authRegistry(store);
     const anthropic = entryOf(reg, "anthropic");
-    expect(await anthropic.buildPlugin()).toBeNull();
+    expect(await providerEntries(store).get("anthropic")!.instance.buildProvider()).toBeNull();
 
     if (anthropic.method.kind !== "api-key") throw new Error("expected api-key method");
     await anthropic.method.submit("sk-ant-test");
-    expect((await anthropic.buildPlugin())?.id).toBe("anthropic-api");
+    expect(
+      (await providerEntries(store).get("anthropic")!.instance.buildProvider())?.provider,
+    ).toBe("anthropic");
   });
 
   it("picks up a key from the environment variable", async () => {
-    const reg = authRegistry(new MemorySecretStore());
+    const entries = providerEntries(new MemorySecretStore());
     process.env.OPENAI_API_KEY = "sk-env";
-    expect((await entryOf(reg, "openai").buildPlugin())?.id).toBe("openai-api");
+    expect((await entries.get("openai")!.instance.buildProvider())?.provider).toBe("openai");
   });
 
-  it("registers an opencode-go plugin from its key", async () => {
-    const reg = authRegistry(new MemorySecretStore());
+  it("constructs an opencode-go provider from its key", async () => {
+    const entries = providerEntries(new MemorySecretStore());
     process.env.OPENCODE_API_KEY = "oc-test";
-    expect((await entryOf(reg, "opencode-go").buildPlugin())?.id).toBe("opencode-go");
+    expect((await entries.get("opencode-go")!.instance.buildProvider())?.provider).toBe(
+      "opencode-go",
+    );
   });
 });

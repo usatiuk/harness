@@ -41,6 +41,14 @@ not an unauthenticated network service.
 
 ## Conversations and attachment
 
+`server.models` returns the boot catalog and default selection. Model identity
+uses the configured connection ID and public model alias. Catalog entries carry
+presets, nullable combined context and separate input/output bounds, explicit
+reasoning/thinking capabilities and effort metadata, and nullable rate cards.
+Unknown values are null on the wire; clients never fabricate capacities or
+generation controls from descriptive capabilities. Shipped server bootstrap
+bounds the projected catalog to 3 MiB before serving it.
+
 `conversation.attach` prepares a conversation and admits its root scope to
 the connection's live set. It returns a bounded authoritative snapshot of the
 root, loaded conversation-tree state, aggregate usage, and already-created plugin state. It
