@@ -30,6 +30,26 @@ changes. For documentation-only changes, at minimum run Prettier on the affected
 files and `git diff --check`; expand validation when configuration, scripts, links,
 or generated content are involved.
 
+Run independent checks concurrently when practical, respecting dependencies and
+shared outputs. Report actual results and limitations; compilation, mocked
+transports, and backend-only tests do not establish real client/process or platform
+behavior. New clients need integration evidence through the public protocol and
+their actual runtime when implemented.
+
+## Failure investigation
+
+When a test fails or observed behavior contradicts an expectation, establish the
+root cause before fixing it. Preserve failure evidence and distinguish product
+defects from incorrect tests, assumptions, and environmental restrictions. Do not
+weaken assertions, increase timeouts, add retries or fallbacks, or patch symptoms
+without evidence that the change addresses the cause. If the cause remains
+unknown, keep the issue open and report it. Verify the eventual fix against the
+original failure and intended contract.
+
+Tests must also work when the system gets faster. Observe the actual prerequisite
+or completion event, rather than relying on debug-build slowness, incidental
+delays, or a nearby condition that does not prove completion.
+
 ## Coverage notes
 
 - The `opencode-go` provider's roster is static and unit-tested against the

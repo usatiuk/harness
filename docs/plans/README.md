@@ -31,6 +31,11 @@ Declare one status near the title:
 
 Plans remain in the repository after completion or supersession.
 
+Update status and validation evidence as work progresses, not only at handoff.
+Check a task only when its stated completion check passes. Distinguish implemented
+code from verified behavior and unfinished integration. Required unfinished work
+blocks completion; it cannot be relabeled as a deferral or simplification.
+
 ## Content
 
 Keep a plan proportional to the work, but include enough to hand it to another
@@ -39,7 +44,9 @@ engineer or agent:
 - Goal and observable completion condition.
 - Grounded current behavior and relevant evidence.
 - Chosen approach, invariants, and explicit non-goals.
-- Coherent implementation slices and affected boundaries.
+- A high-level milestone checklist with actionable tasks, dependencies, completion
+  checks, coherent implementation slices, and affected boundaries. Keep design
+  rationale and research separate from this execution checklist.
 - Behavioral tests, failure scenarios, and other validation.
 - Documentation impact and unresolved blockers or remaining gaps.
 

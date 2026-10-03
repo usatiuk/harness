@@ -20,6 +20,11 @@ comments or the root getting-started documentation.
 - `docs/TESTING.md`: validation commands, test boundaries, and coverage policy.
 - `docs/DEFERRED.md`: known work intentionally left outside current scope.
 
+Substantial execution plans track milestones and actionable tasks with
+dependencies and completion checks. Update status and evidence as work progresses;
+distinguish implemented code from verified integration. Required unfinished work
+remains open and blocks completion. Completed plans stay in place as history.
+
 When these sources drift materially, reconcile them as part of the change. Link
 to existing truth instead of copying it into multiple files.
 
