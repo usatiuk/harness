@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type OpenAI from "openai";
 import { ContextWindowExceededError, type ModelRequest } from "@harness/protocol";
-import { OpenAIResponsesProvider, reasoningForSelection } from "./provider.ts";
+import { OPENAI_MODELS, OpenAIResponsesProvider, reasoningForSelection } from "./provider.ts";
 
 const BASE: OpenAI.Reasoning = { effort: "medium", summary: "auto" };
 const REQUEST: ModelRequest = {
@@ -28,7 +28,7 @@ describe("reasoningForSelection", () => {
   it("falls back to the model default when preset is not offered", () => {
     // codex does not offer `none`
     const r = reasoningForSelection(
-      { provider: "openai", model: "gpt-5.1-codex", preset: "none" },
+      { provider: "openai", model: "gpt-5.3-codex", preset: "none" },
       BASE,
     );
     expect(r.effort).toBe("medium");
@@ -54,9 +54,11 @@ describe("listModels", () => {
   it("overrides context and output limits for only the named model", () => {
     const provider = new OpenAIResponsesProvider({
       credentials: { client: async () => ({}) as never },
-      modelLimits: {
-        "gpt-5.1": { contextWindow: 200_000, maxOutputTokens: 64_000 },
-      },
+      models: OPENAI_MODELS.map((model) =>
+        model.model === "gpt-5.1"
+          ? { ...model, contextWindow: 200_000, maxOutputTokens: 64_000 }
+          : model,
+      ),
     });
     const models = provider.listModels();
 
@@ -72,6 +74,67 @@ describe("listModels", () => {
 });
 
 describe("request parameters", () => {
+  it.each([
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+  ])("sends max reasoning and stateless tools for %s", async (model) => {
+    let params: OpenAI.Responses.ResponseCreateParamsStreaming | undefined;
+    const provider = new OpenAIResponsesProvider({
+      credentials: {
+        client: async () =>
+          ({
+            responses: {
+              create: async (value: OpenAI.Responses.ResponseCreateParamsStreaming) => {
+                params = value;
+                return { async *[Symbol.asyncIterator]() {} };
+              },
+            },
+          }) as unknown as OpenAI,
+      },
+    });
+    await consume(
+      provider.stream(
+        {
+          ...REQUEST,
+          modelConfig: { provider: "openai", model, preset: "max" },
+          tools: [
+            {
+              kind: "function",
+              name: "echo",
+              description: "Echo",
+              parameters: { type: "object", properties: {} },
+            },
+          ],
+        },
+        new AbortController().signal,
+      ),
+    );
+    expect(params).toMatchObject({
+      model,
+      reasoning: { effort: "max" },
+      stream: true,
+      store: false,
+      tools: [{ type: "function", name: "echo" }],
+    });
+    expect(provider.listModels().find((entry) => entry.model === model)).toMatchObject({
+      contextWindow: 1_050_000,
+      maxOutputTokens: 128_000,
+    });
+  });
+
+  it.each(["gpt-6.1-sol", "gpt-6-astra"])("rejects none reasoning for %s", (model) => {
+    const provider = new OpenAIResponsesProvider({
+      credentials: { client: async () => ({}) as never },
+    });
+    expect(() => provider.validateConfig({ provider: "openai", model, preset: "none" })).toThrow(
+      "unknown preset",
+    );
+  });
   it("omits max_output_tokens for a transport that does not support it", async () => {
     let params: OpenAI.Responses.ResponseCreateParamsStreaming | undefined;
     const provider = new OpenAIResponsesProvider({

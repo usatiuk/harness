@@ -1,9 +1,21 @@
 import type OpenAI from "openai";
-import type { ModelStreamEvent } from "@harness/protocol";
+import type { ModelStreamEvent, Usage } from "@harness/protocol";
 import { encodeReasoningPayload } from "./payload.ts";
 
 type StreamEvent = OpenAI.Responses.ResponseStreamEvent;
 type ChatChunk = OpenAI.Chat.Completions.ChatCompletionChunk;
+
+function responseUsage(usage: OpenAI.Responses.ResponseUsage | null | undefined): Usage | null {
+  if (!usage) return null;
+  const writes = usage.input_tokens_details?.cache_write_tokens ?? 0;
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cachedReadTokens: usage.input_tokens_details?.cached_tokens ?? 0,
+    // GPT-5.6+ reports writes separately; the only cache TTL is 30 minutes.
+    ...(writes ? { cacheWriteTokens: { 1800: writes } } : {}),
+  };
+}
 
 /** The raw reasoning_content field chat backends stream; untyped in the SDK. */
 interface ReasoningDelta {
@@ -69,14 +81,7 @@ export async function* toModelEvents(
       case "response.completed":
         yield {
           type: "completed",
-          usage: event.response.usage
-            ? {
-                inputTokens: event.response.usage.input_tokens,
-                outputTokens: event.response.usage.output_tokens,
-                // Already a subset of input_tokens — matches the Usage normalization.
-                cachedReadTokens: event.response.usage.input_tokens_details?.cached_tokens ?? 0,
-              }
-            : null,
+          usage: responseUsage(event.response.usage),
         };
         break;
       case "response.failed":
@@ -84,13 +89,7 @@ export async function* toModelEvents(
       case "response.incomplete":
         yield {
           type: "completed",
-          usage: event.response.usage
-            ? {
-                inputTokens: event.response.usage.input_tokens,
-                outputTokens: event.response.usage.output_tokens,
-                cachedReadTokens: event.response.usage.input_tokens_details?.cached_tokens ?? 0,
-              }
-            : null,
+          usage: responseUsage(event.response.usage),
           error: `openai response incomplete: ${event.response.incomplete_details?.reason ?? "unknown"}`,
         };
         break;

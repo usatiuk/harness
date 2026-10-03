@@ -66,6 +66,30 @@ supplies API-key credentials. `@harness/openai-codex` supplies OAuth
 refresh/session persistence, the Codex endpoint and headers, backend error
 surfacing, per-model limit differences, and unsupported-request-field handling.
 
+The 2026-10-03 catalog refresh covers GPT-6.1 Sol, GPT-6 Astra/Sol/Luna and
+GPT-5.6 Sol/Terra/Luna in both OpenAI API and Codex. The API additionally exposes
+GPT-5.5, GPT-5.4/Mini, GPT-5.2, GPT-5.3-Codex and GPT-5.1. Retired
+GPT-5.1-Codex is no longer offered. API capacities, reasoning efforts, and rate
+cards follow the [official model catalog](https://developers.openai.com/api/docs/models/all)
+and individual model pages. API effort defaults remain `medium`; Astra and
+6.1 Sol reject `none`, and GPT-5.6/6 expose `max`.
+
+Codex follows the [ChatGPT roster](https://learn.chatgpt.com/docs/models), including
+GPT-5.5 until its announced 2026-10-14 retirement. Backend metadata in the local
+Codex model cache advertises a 272,000-token context and `low` through `max`
+efforts on GPT-5.6/6 (`low` through `xhigh` on 5.5); Sol 6.1 and Sol 5.6 default
+to `low`, the others to `medium`. These differ from public API controls/capacity.
+`ultra` is Codex orchestration and is not a Harness provider preset. Account and
+workspace access still determine whether a listed model can be invoked; the
+refresh is not live credentialed qualification. New sign-ins default to 6.1 Sol;
+existing saved selections remain unchanged.
+
+GPT-5.6/6 cache writes are reported separately at the existing usage boundary,
+keyed by the 1,800-second TTL. Rate cards include the write premium and whole-request
+long-context rates above 272,000 input tokens, per
+[official caching guidance](https://developers.openai.com/api/docs/guides/prompt-caching)
+and [pricing](https://developers.openai.com/api/docs/pricing).
+
 Responses are sent with `store: false`; Harness's item log and provider payloads
 remain conversation truth. The OpenAI custom-tool path is used for the
 Harness-owned freeform `apply_patch` dialect, not provider-executed tools.

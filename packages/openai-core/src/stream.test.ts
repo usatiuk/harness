@@ -85,6 +85,32 @@ describe("toModelEvents", () => {
       { type: "completed", usage: null },
     ]);
   });
+  it.each(["response.completed", "response.incomplete"])(
+    "preserves GPT-6 cache-write accounting on %s",
+    async (type) => {
+      const stream = emit({
+        type,
+        response: {
+          usage: {
+            input_tokens: 4000,
+            output_tokens: 50,
+            input_tokens_details: { cached_tokens: 2000, cache_write_tokens: 1000 },
+          },
+          incomplete_details: { reason: "max_output_tokens" },
+        },
+      });
+      const out = await collect(toModelEvents(stream, "openai", "gpt-6.1-sol", never));
+      expect(out[0]).toMatchObject({
+        type: "completed",
+        usage: {
+          inputTokens: 4000,
+          outputTokens: 50,
+          cachedReadTokens: 2000,
+          cacheWriteTokens: { 1800: 1000 },
+        },
+      });
+    },
+  );
 
   it("carries incomplete Responses usage through the terminal error", async () => {
     const stream = emit({

@@ -11,15 +11,15 @@
     }
   },
   "dependencies": {
-    "@harness/protocol": "*",
-    "@harness/openai-core": "*",
-    "@harness/openai-api": "*",
+    "@harness/anthropic-api": "*",
     "@harness/anthropic-core": "*",
-    "@harness/anthropic-api": "*"
+    "@harness/openai-api": "*",
+    "@harness/openai-core": "*",
+    "@harness/protocol": "*"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
-    "openai": "^6.42.0",
+    "openai": "^7.27.0",
     "vitest": "^4.1.8"
   }
 }

@@ -11,10 +11,10 @@
     }
   },
   "dependencies": {
-    "@harness/protocol": "*",
     "@harness/openai-core": "*",
+    "@harness/protocol": "*",
     "@harness/secrets": "*",
-    "openai": "^6.42.0",
+    "openai": "^7.27.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -80,7 +80,7 @@ export function authRegistry(store: SecretStore): Map<string, AuthEntry> {
       label: "OpenAI (API key)",
       envVar: "OPENAI_API_KEY",
       store,
-      defaultModel: { provider: "openai", model: process.env.OPENAI_MODEL ?? "gpt-5.1" },
+      defaultModel: { provider: "openai", model: process.env.OPENAI_MODEL ?? "gpt-6.1-sol" },
       validate: (k) => (k.startsWith("sk-") ? null : "OpenAI keys start with 'sk-'"),
       createPlugin: ({ apiKey }) => createOpenAIPlugin({ apiKey }),
     }),
@@ -112,7 +112,7 @@ export function authRegistry(store: SecretStore): Map<string, AuthEntry> {
       "openai-codex",
       {
         method: codexMethod(codex),
-        defaultModel: { provider: "openai-codex", model: "gpt-5.5" },
+        defaultModel: { provider: "openai-codex", model: "gpt-6.1-sol" },
         buildPlugin: async () => ((await codex.status()).authenticated ? codexPlugin(codex) : null),
       },
     ],

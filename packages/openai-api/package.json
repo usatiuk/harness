@@ -11,9 +11,9 @@
     }
   },
   "dependencies": {
-    "@harness/protocol": "*",
     "@harness/openai-core": "*",
-    "openai": "^6.42.0"
+    "@harness/protocol": "*",
+    "openai": "^7.27.0"
   },
   "devDependencies": {
     "vitest": "^4.1.8"
