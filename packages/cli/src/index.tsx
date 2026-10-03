@@ -85,24 +85,6 @@ async function buildStdioHarness(): Promise<Harness> {
   );
 }
 
-async function buildSshHarness(destination: string): Promise<Harness> {
-  const args = sshServerArgs(destination);
-  return buildSpawnedHarness(
-    spawn("ssh", args, {
-      stdio: ["pipe", "pipe", "inherit"],
-      windowsHide: true,
-    }),
-  );
-}
-
-/** Fixed SSH invocation: only the validated destination is variable. */
-export function sshServerArgs(destination: string): string[] {
-  if (destination.startsWith("-") || !/^[A-Za-z0-9_.@:[\]-]+$/u.test(destination)) {
-    throw new Error("invalid SSH destination");
-  }
-  return ["-T", "--", destination, "harness server --stdio"];
-}
-
 /** Warns when the session's configured model isn't backed by a registered (signed-in) provider. */
 function notifyModel(
   service: HarnessClientService,
@@ -133,19 +115,14 @@ export async function loadSession(service: CliService, id: string): Promise<Sess
 export async function launch(opts: LaunchOptions = {}): Promise<void> {
   if (!opts.connectStdio) return launchConnected(opts);
 
-  if (opts.connectStdio && opts.ssh !== undefined) {
-    throw new Error("choose either --connect-stdio or --ssh");
+  if (opts.ssh !== undefined || opts.host !== undefined) {
+    throw new Error("Choose --connect-stdio or a host connection");
   }
-  const harness = opts.ssh
-    ? await buildSshHarness(opts.ssh)
-    : opts.connectStdio
-      ? await buildStdioHarness()
-      : await buildStdioHarness();
+  const harness = await buildStdioHarness();
   const { service, plugins, fallbackModel } = harness;
   try {
     // Canonicalize once so a `--cwd ./x` flag and a stored `workspaceRoot` compare equal.
-    const remote = opts.ssh !== undefined;
-    const cwd = remote ? (opts.cwd ?? ".") : resolve(opts.cwd ?? process.cwd());
+    const cwd = resolve(opts.cwd ?? process.cwd());
     // Conversations this instance created; empty ones are dropped on exit.
     const created = new Set<ConversationId>();
 
@@ -159,7 +136,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
       // the settings cascade picks the model, falling back to `fallbackModel` only when none is set.
       const overrides = launchOverrides(fallbackModel, opts.model);
       const conversation = await service.createConversation({
-        ...(remote && opts.cwd === undefined ? {} : { cwd }),
+        cwd,
         overrides,
       });
       console.log(`conversation ${conversation.id}\n`);

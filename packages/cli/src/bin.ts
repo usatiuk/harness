@@ -35,6 +35,15 @@ program
     },
   );
 
+program.hook("preAction", (_command, action) => {
+  if (action.parent?.name() !== "auth" && action.parent?.name() !== "sandbox") return;
+  const flags: { host?: string; ssh?: string; connectStdio?: boolean } = action.optsWithGlobals();
+  if (flags.host || flags.ssh || flags.connectStdio)
+    throw new Error(
+      "These local utilities do not accept host flags. Use the TUI agent command center for the selected host.",
+    );
+});
+
 program
   .command("resume [id]")
   .description("resume a conversation (omit the id to pick from a list)")

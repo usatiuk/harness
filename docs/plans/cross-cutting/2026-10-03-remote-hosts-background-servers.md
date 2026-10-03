@@ -200,3 +200,8 @@ desktop exit preference. Tray, notifications and login autostart remain optional
   CLI subcommand boundaries, remote OAuth routing, full native fixture migration,
   remote fault/credential qualification and final independent reviews. Created
   TUI conversations persist after client exit, consistently with server ownership.
+- Client interaction was committed as 0282aac. The following cleanup removes the
+  unreachable connection-owned SSH launcher and its duplicate destination parser.
+  Isolated stdio rejects both --host and --ssh before launching. Existing local
+  auth/sandbox utilities reject host flags and direct selected-host operations to
+  the command center, rather than silently executing against the wrong machine.

@@ -4,10 +4,10 @@ import type { Conversation, ConversationId } from "@harness/protocol";
 import { ActivityManager, type Activity, type ActivityResult } from "@harness/activities";
 import {
   ACTIVITY_APPROVAL_DEFAULTS,
+  launch,
   launchOverrides,
   loadSession,
   Root,
-  sshServerArgs,
   type Session,
   type CliService,
 } from "./index.tsx";
@@ -109,16 +109,14 @@ describe("launchOverrides", () => {
   });
 });
 
-describe("SSH transport", () => {
-  it("keeps the remote command fixed and rejects option or shell injection", () => {
-    expect(sshServerArgs("agent@example.com")).toEqual([
-      "-T",
-      "--",
-      "agent@example.com",
-      "harness server --stdio",
-    ]);
-    expect(() => sshServerArgs("-oProxyCommand=bad")).toThrow("invalid SSH destination");
-    expect(() => sshServerArgs("host; echo bad")).toThrow("invalid SSH destination");
+describe("isolated launch", () => {
+  it("rejects host flags before starting an isolated Local server", async () => {
+    await expect(launch({ connectStdio: true, host: "remote" })).rejects.toThrow(
+      "Choose --connect-stdio",
+    );
+    await expect(launch({ connectStdio: true, ssh: "workstation" })).rejects.toThrow(
+      "Choose --connect-stdio",
+    );
   });
 });
 

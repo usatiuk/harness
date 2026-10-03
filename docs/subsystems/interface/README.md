@@ -40,6 +40,9 @@ cross-process filesystem lock. Configured remote homes do not change this
 client-side path. Both clients offer host editors and lifecycle controls. SSH
 accepts a destination/alias and uses OpenSSH BatchMode; advanced SSH configuration
 belongs in .ssh/config. WSL distributions are discovered as editor choices.
+The isolated stdio launcher rejects host flags. Legacy local auth/sandbox utility
+subcommands also reject host flags; selected-host controls live in the command
+center. Created TUI conversations persist when that client exits.
 
 The project root is the nearest `.harness` directory, then Git root, then starting
 directory, while the Harness home itself is never treated as a project. Shared and
