@@ -29,7 +29,7 @@ export class ActivityWaitTool implements Tool<z.infer<typeof waitArgs>> {
     const mgr = activitiesOf(ctx);
     if (!mgr.get(id)) return errorResult(`unknown activity: ${id}`);
     const seconds = timeout_seconds ?? DEFAULT_WAIT_S;
-    const outcome = await mgr.wait(id, seconds * 1000);
+    const outcome = await mgr.wait(id, seconds * 1000, ctx.signal);
     if (outcome === "running") {
       return okResult(
         `activity ${id} still running after ${seconds}s; wait again or activity_peek it.`,

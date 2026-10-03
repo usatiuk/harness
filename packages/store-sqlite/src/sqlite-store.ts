@@ -483,13 +483,16 @@ export class SqliteStore implements Store {
   async getBlob(ref: OutputRef, range?: ByteRange): Promise<Uint8Array> {
     const row = await this.#k
       .selectFrom("blobs")
-      .select("data")
+      .select(
+        range
+          ? sql<Uint8Array>`substr(data, ${range.offset + 1}, ${range.length})`.as("data")
+          : "data",
+      )
       .where("id", "=", ref.id)
       .executeTakeFirst();
     if (!row) throw new Error(`unknown blob: ${ref.id}`);
     const data = row.data;
-    if (!range) return Uint8Array.from(data);
-    return Uint8Array.from(data.subarray(range.offset, range.offset + range.length));
+    return Uint8Array.from(data);
   }
 
   #buildAppendTxn(): (p: AppendParams) => { seq: number; parent: string | null } {

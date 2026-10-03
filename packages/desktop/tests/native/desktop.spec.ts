@@ -1,10 +1,85 @@
 import { expect, test } from "@playwright/test";
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NativeApplication } from "./application.ts";
 import { seedHistory, seedChildOnlyPages, commandProvider } from "./fixtures.ts";
 
 test.skip(process.platform !== "win32", "Native CDP tests require Windows WebView2");
+
+test("code-only execution reviews concrete child calls and keeps nested history after reopening", async ({}, info) => {
+  const directory = await mkdtemp(join(tmpdir(), "harness-native-code-"));
+  await mkdir(join(directory, ".harness"));
+  const profileRoot = info.outputPath("profile");
+  const appProfile = await profile(profileRoot);
+  const previousPath = process.env.HARNESS_NATIVE_PATH;
+  const windows = process.env.SystemRoot ?? "C:\\Windows";
+  process.env.HARNESS_NATIVE_PATH = [
+    join(windows, "System32"),
+    join(windows, "System32", "WindowsPowerShell", "v1.0"),
+  ].join(";");
+  let app = await NativeApplication.launch(
+    profileRoot,
+    info.outputPath("first"),
+    appProfile,
+    directory,
+  );
+  try {
+    const page = app.page;
+    await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
+    await page.getByLabel("Project folder").fill(directory);
+    await page.getByLabel("Tool interface").selectOption("code-only");
+    await page.getByRole("button", { name: "Create conversation" }).click();
+    await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill("code-mode-marker");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const approval = page.getByRole("region", { name: "Approval request" });
+    await expect(approval).toContainText("Allow powershell?");
+    await expect(approval.locator("pre")).toContainText("code-mode-marker");
+    await expect(
+      page
+        .locator('[data-testid="tool-call"]')
+        .filter({ has: page.locator("summary strong", { hasText: "tool_search" }) }),
+    ).toHaveCount(1);
+    const outer = page
+      .locator('[data-testid="tool-call"]')
+      .filter({ has: page.locator("summary strong", { hasText: "eval" }) })
+      .first();
+    await outer.locator(":scope > summary").click();
+    await expect(outer.locator(".nested-tools")).toContainText("powershell");
+    await page.getByRole("button", { name: "Allow", exact: true }).click();
+    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    const nested = outer.locator('.nested-tools [data-testid="tool-call"]');
+    await nested.locator("summary").click();
+    await expect(nested.getByTestId("tool-output")).toContainText("code-mode-marker");
+    await expect(nested).toContainText("Invoked by");
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill("deny-code-marker");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(approval).toContainText("deny-code-marker");
+    await page.getByRole("button", { name: "Deny", exact: true }).click();
+    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await app.close();
+    app = await NativeApplication.launch(
+      profileRoot,
+      info.outputPath("reopened"),
+      appProfile,
+      directory,
+    );
+    await app.page.locator(".conversation-list").getByRole("link").first().click();
+    const reopened = app.page
+      .locator('[data-testid="tool-call"]')
+      .filter({ has: app.page.locator("summary strong", { hasText: "eval" }) });
+    await expect(reopened).toHaveCount(2);
+    await reopened.last().locator(":scope > summary").click();
+    await expect(reopened.last().locator(".nested-tools")).toContainText("error");
+    expect(app.errors).toEqual([]);
+  } finally {
+    await app.close();
+    if (previousPath === undefined) delete process.env.HARNESS_NATIVE_PATH;
+    else process.env.HARNESS_NATIVE_PATH = previousPath;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 async function profile(directory: string) {
   const home = join(directory, "app");

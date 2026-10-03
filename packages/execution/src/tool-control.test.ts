@@ -43,6 +43,25 @@ function context(execution: ExecutionContext): ToolContext {
 }
 
 describe("executionFunctionTool", () => {
+  it("preserves a class tool's exposure and output contract on an escaping backend", async () => {
+    class DeferredTool implements Tool {
+      readonly name = "deferred";
+      readonly description = "Deferred execution";
+      readonly input = { kind: "function" as const, schema: z.strictObject({}) };
+      readonly exposure = { direct: false, code: true };
+      readonly outputSchema = { type: "string" };
+      async execute() {
+        return { ...okResult(this.name), structured: this.name };
+      }
+    }
+    const sandbox = { ...fakeExecution("native"), unconfined: fakeExecution("host") };
+    const original = new DeferredTool();
+    const wrapped = executionFunctionTool(sandbox, original);
+    expect(wrapped.exposure).toEqual({ direct: false, code: true });
+    expect(wrapped.outputSchema).toEqual({ type: "string" });
+    expect(await wrapped.execute({}, context(sandbox))).toMatchObject({ structured: "deferred" });
+  });
+
   it("registers an execution-managed tool without changing non-escalating backends", () => {
     const register = vi.fn();
     const execution = { ...fakeExecution("docker"), registerManagedTool: register };

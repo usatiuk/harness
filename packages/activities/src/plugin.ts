@@ -1,13 +1,13 @@
 import type {
   Conversation,
-  ModelMiddleware,
+  ToolContractResolver,
   Plugin,
   ServiceProvider,
   Tool,
   ToolMiddleware,
 } from "@harness/protocol";
 import { ActivityManager } from "./manager.ts";
-import { backgroundInjectMiddleware, consumeMiddleware } from "./consume.ts";
+import { backgroundContractResolver, consumeMiddleware } from "./consume.ts";
 import { ActivityKillTool, ActivityListTool, ActivityPeekTool, ActivityWaitTool } from "./tools.ts";
 
 /** Contributes runtime-owned activity managers, consumption middleware, and `activity_*` tools. */
@@ -29,8 +29,8 @@ class ActivitiesPlugin implements Plugin {
     return [consumeMiddleware()];
   }
 
-  modelMiddleware(): ModelMiddleware[] {
-    return [backgroundInjectMiddleware()];
+  toolContracts(): ToolContractResolver[] {
+    return [backgroundContractResolver()];
   }
 
   tools(): Tool[] {

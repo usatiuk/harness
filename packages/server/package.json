@@ -40,6 +40,7 @@
     "@harness/client": "*",
     "@harness/config": "*",
     "@harness/core": "*",
+    "@harness/code-mode": "*",
     "@harness/custom-providers": "*",
     "@harness/execution": "*",
     "@harness/openai-api": "*",

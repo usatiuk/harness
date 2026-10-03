@@ -1,6 +1,6 @@
 import {
   okResult,
-  type ModelMiddleware,
+  type ToolContractResolver,
   type ToolContext,
   type ToolMiddleware,
   type ToolResult,
@@ -26,9 +26,18 @@ export async function consume(
   if (ctx.signal.aborted) activity.kill();
   else ctx.signal.addEventListener("abort", onAbort, { once: true });
   try {
-    const outcome = await mgr.wait(activity.id, FOREGROUND_MS);
+    const outcome = await mgr.wait(activity.id, FOREGROUND_MS, ctx.signal);
     if (outcome === "running") return backgroundNotice(mgr, activity, ctx, false);
-    return { forModel: noticeContent(activity.id, outcome), status: outcome.status };
+    return {
+      forModel: noticeContent(activity.id, outcome),
+      status: outcome.status,
+      structured: {
+        activityId: activity.id,
+        state: "completed",
+        status: outcome.status,
+        content: noticeContent(activity.id, outcome),
+      },
+    };
   } finally {
     ctx.signal.removeEventListener("abort", onAbort);
   }
@@ -46,10 +55,13 @@ function backgroundNotice(
   const lead = immediate
     ? `Started activity ${activity.id} (${activity.title}) in the background.`
     : `Activity ${activity.id} (${activity.title}) is still running; left in the background.`;
-  return okResult(
-    `${lead} You'll get a one-shot completion notice, ` +
-      `or use activity_wait / activity_peek / activity_kill with id ${activity.id}.`,
-  );
+  return {
+    ...okResult(
+      `${lead} You'll get a one-shot completion notice, ` +
+        `or use activity_wait / activity_peek / activity_kill with id ${activity.id}.`,
+    ),
+    structured: { activityId: activity.id, state: "running", title: activity.title },
+  };
 }
 
 /**
@@ -83,22 +95,11 @@ export function consumeMiddleware(): ToolMiddleware {
  * foreground vs background without each tool author writing the arg. Tool meta never reaches the
  * provider; only `function`-kind tools have a JSON-schema slot.
  */
-export function backgroundInjectMiddleware(): ModelMiddleware {
-  return {
-    id: "activity-background-inject",
-    async *wrap(request, ctx, next) {
-      if (!request.tools) {
-        yield* next(request);
-        return;
-      }
-      const tools = request.tools.map((tool) =>
-        tool.kind === "function" && ctx.toolMeta(tool.name)?.backgroundable
-          ? withBackground(tool)
-          : tool,
-      );
-      yield* next({ ...request, tools });
-    },
-  };
+export function backgroundContractResolver(): ToolContractResolver {
+  return (contract, ctx) =>
+    contract.input.kind === "function" && ctx.toolMeta(contract.input.name)?.backgroundable
+      ? { ...contract, input: withBackground(contract.input) }
+      : contract;
 }
 
 function withBackground(tool: Extract<ToolSchema, { kind: "function" }>): ToolSchema {

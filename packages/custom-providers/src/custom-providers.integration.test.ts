@@ -126,6 +126,8 @@ describe("custom provider public boundary", () => {
     expect(fake.calls[0]?.params).toMatchObject({ model: "m", temperature: 0.2 });
     expect(fake.calls[0]?.params.tools).toMatchObject([
       { type: "function", function: { name: "echo" } },
+      { type: "function", function: { name: "tool_describe" } },
+      { type: "function", function: { name: "tool_search" } },
     ]);
     expect(fake.calls[1]?.params.messages).toEqual(
       expect.arrayContaining([expect.objectContaining({ role: "tool", tool_call_id: "call-1" })]),

@@ -34,6 +34,7 @@ function ctxWith(
     signal: new AbortController().signal,
     service: (key) => (key === "execution" ? execution : undefined),
     toolMeta: () => undefined,
+    toolContract: () => undefined,
     acceptsToolCall: () => true,
     setResultAnnotation: () => {},
     emit: () => {},

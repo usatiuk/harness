@@ -16,6 +16,7 @@ import {
   type PluginDefinition,
   type RequestMiddleware,
 } from "@harness/protocol";
+import { reviewerWindow } from "./reviewer-window.ts";
 
 const REVIEW_TIMEOUT_MS = 30_000;
 const TOOL_RESULT_CHARS = 1_000;
@@ -39,6 +40,7 @@ export interface ReviewContextInput {
   conversation: Conversation;
   items: readonly Item[];
   request: ApprovalRequest;
+  structuredPreviews?: ReadonlyMap<string, string>;
 }
 
 export type ReviewContextBuilder = (input: ReviewContextInput) => ModelRequest["items"];
@@ -75,7 +77,12 @@ const asMessage = (source: Item, role: "user" | "assistant", content: string): {
  * Default reviewer projection. It preserves one stable provider item per source
  * item so an appended conversation retains a cacheable prefix.
  */
-export const defaultReviewContext: ReviewContextBuilder = ({ conversation, items, request }) => {
+export const defaultReviewContext: ReviewContextBuilder = ({
+  conversation,
+  items,
+  request,
+  structuredPreviews,
+}) => {
   const selected: ModelRequest["items"] = [];
   let current: Item | undefined;
   for (const item of items) {
@@ -95,7 +102,7 @@ export const defaultReviewContext: ReviewContextBuilder = ({ conversation, items
           asMessage(
             item,
             "assistant",
-            `[assistant tool call]\nname: ${item.name}\narguments:\n${safeJson(item.args)}`,
+            `[${item.parentCallId ? `nested tool call; parent: ${item.parentCallId}` : "assistant tool call"}]\ncall id: ${item.callId}\nname: ${item.name}\narguments:\n${boundToolResult(safeJson(item.args))}`,
           ),
         );
         break;
@@ -109,6 +116,8 @@ export const defaultReviewContext: ReviewContextBuilder = ({ conversation, items
                 "user",
                 [
                   "[prior approval denial; tool was not executed]",
+                  `call id: ${item.callId}`,
+                  ...(item.parentCallId ? [`parent call: ${item.parentCallId}`] : []),
                   `responder: ${approval.responder}`,
                   `workspace relationship: ${approval.relationship}`,
                   `reason: ${boundToolResult(approval.reason ?? "no reason provided")}`,
@@ -122,7 +131,7 @@ export const defaultReviewContext: ReviewContextBuilder = ({ conversation, items
           asMessage(
             item,
             "user",
-            `[tool result: ${item.status}]\n${boundToolResult(textOf(item.content))}`,
+            `[tool result: ${item.status}; call id: ${item.callId}${item.parentCallId ? `; parent: ${item.parentCallId}` : ""}]\n${boundToolResult(textOf(item.content))}${item.structured === undefined ? "" : `\nstructured result: ${boundToolResult(safeJson(item.structured))}`}${item.structuredRef ? `\nstructured JSON preview: ${structuredPreviews?.get(item.callId) ?? "[not loaded]"}\nstructured output reference: ${safeJson(item.structuredRef)}` : ""}`,
           ),
         );
         break;
@@ -141,6 +150,9 @@ export const defaultReviewContext: ReviewContextBuilder = ({ conversation, items
       [
         "[proposed tool call to review]",
         `name: ${request.call.name}`,
+        ...(request.call.parentCallId ? [`invoking call: ${request.call.parentCallId}`] : []),
+        ...(request.description ? [`tool description: ${request.description}`] : []),
+        ...(request.input ? [`input contract: ${safeJson(request.input)}`] : []),
         `workspace root: ${conversation.workspaceRoot ?? "[none]"}`,
         `workspace relationship: ${request.relationship}`,
         "arguments:",
@@ -227,12 +239,28 @@ function autoApprovalMiddleware(
 
       let decision: ParsedDecision;
       try {
+        const items = reviewerWindow(await ctx.active({ includeCompacted: true }));
+        const structuredPreviews = new Map<string, string>();
+        for (const item of items) {
+          if (item.type !== "tool_result" || !item.structuredRef) continue;
+          const ref = item.structuredRef;
+          const head = await ctx.readBlob(ref, { offset: 0, length: TOOL_RESULT_HEAD });
+          const tail = await ctx.readBlob(ref, {
+            offset: Math.max(TOOL_RESULT_HEAD, ref.bytes - (TOOL_RESULT_CHARS - TOOL_RESULT_HEAD)),
+            length: TOOL_RESULT_CHARS - TOOL_RESULT_HEAD,
+          });
+          structuredPreviews.set(
+            item.callId,
+            `${new TextDecoder().decode(head)}\n…[truncated]…\n${new TextDecoder().decode(tail)}`,
+          );
+        }
         const result = await ctx.models.invoke(
           {
             instructions: REVIEW_INSTRUCTIONS,
             items: buildContext({
               conversation: ctx.conversation,
-              items: await ctx.active(),
+              items,
+              structuredPreviews,
               request,
             }),
             modelConfig: model,

@@ -1,6 +1,6 @@
 import type { ZodType } from "zod";
 import type { ModelCapabilities, ModelMiddleware, ModelProvider } from "./model.ts";
-import type { Tool, ToolMiddleware } from "./tools.ts";
+import type { Tool, ToolMiddleware, ToolContractResolver } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
 import type { Conversation } from "./conversation.ts";
 import type { ConversationId } from "./ids.ts";
@@ -62,6 +62,8 @@ export interface Plugin {
   readonly toolMiddlewareAfter?: readonly string[];
   providers?(): ModelProvider[];
   tools?(caps: ModelCapabilities, ctx: ToolContributionContext): Tool[];
+  /** Resolve callable documentation for direct declarations and code discovery alike. */
+  toolContracts?(): ToolContractResolver[];
   /** Wraps tool execution, outermost first. Absence of any gate = allow. */
   toolMiddleware?(): ToolMiddleware[];
   /** Wraps each model step, outermost first (retry / cache / model-fallback). */

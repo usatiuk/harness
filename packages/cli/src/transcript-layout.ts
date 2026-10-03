@@ -40,6 +40,7 @@ const stringArg = (args: unknown, key: string): string | undefined => {
 const explorationAction = (
   cell: Extract<Cell, { kind: "tool" }>,
 ): ExplorationAction | undefined => {
+  if (cell.parentCallId) return undefined;
   if (cell.status === "error" || cell.approval || cell.approvalProgress) return undefined;
   switch (cell.name) {
     case "read_file":

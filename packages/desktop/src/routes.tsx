@@ -505,6 +505,14 @@ export function createDesktopRouter(session: DesktopSession) {
               <SandboxOptions selected={backend} />
             </select>
           </label>
+          <label>
+            Tool interface
+            <select name="toolMode" defaultValue="direct">
+              <option value="direct">Direct</option>
+              <option value="hybrid">Direct and code</option>
+              <option value="code-only">Code only</option>
+            </select>
+          </label>
           <Button
             className="primary"
             disabled={
@@ -649,7 +657,7 @@ export function createDesktopRouter(session: DesktopSession) {
     );
   }
 
-  function TranscriptCell({ cell }: { cell: Cell }) {
+  function TranscriptCell({ cell, children = [] }: { cell: Cell; children?: Cell[] | undefined }) {
     if (cell.kind === "tool") {
       const edit = editPresentation(cell);
       return (
@@ -667,8 +675,23 @@ export function createDesktopRouter(session: DesktopSession) {
                     : edit.labels.running
                 : cell.name}
             </strong>
-            <span className="muted">{cell.status ?? "running"}</span>
+            <span className="muted">
+              {cell.approvalProgress?.status === "reviewing"
+                ? "awaiting approval"
+                : (cell.status ?? "running")}
+            </span>
+            {children.length > 0 && (
+              <span className="muted">{children.length} nested operations</span>
+            )}
           </summary>
+          {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
+          {children.length > 0 && (
+            <div className="nested-tools">
+              {children.map((child) => (
+                <TranscriptCell key={child.kind === "tool" ? child.callId : ""} cell={child} />
+              ))}
+            </div>
+          )}
           {edit &&
             edit.files.map((file, index) => (
               <section className="diff" key={`${file.path}:${index}`}>
@@ -914,6 +937,17 @@ export function createDesktopRouter(session: DesktopSession) {
     const older = useFetcher<ActionResult>();
     const scroller = useRef<VirtuosoHandle>(null);
     const [atBottom, setAtBottom] = useState(true);
+    const calls = new Set(
+      view.state.cells.flatMap((cell) => (cell.kind === "tool" ? [cell.callId] : [])),
+    );
+    const children = new Map<string, Cell[]>();
+    const cells = view.state.cells.filter((cell) => {
+      if (cell.kind !== "tool" || !cell.parentCallId || !calls.has(cell.parentCallId)) return true;
+      const siblings = children.get(cell.parentCallId) ?? [];
+      siblings.push(cell);
+      children.set(cell.parentCallId, siblings);
+      return false;
+    });
     return (
       <div className="conversation-page" key={view.conversation.id}>
         <header className="conversation-header">
@@ -927,11 +961,16 @@ export function createDesktopRouter(session: DesktopSession) {
           <Virtuoso
             ref={scroller}
             key={view.conversation.id}
-            data={view.state.cells}
-            initialTopMostItemIndex={Math.max(0, view.state.cells.length - 1)}
+            data={cells}
+            initialTopMostItemIndex={Math.max(0, cells.length - 1)}
             followOutput={(bottom) => (bottom ? "auto" : false)}
             atBottomStateChange={setAtBottom}
-            itemContent={(_index, cell) => <TranscriptCell cell={cell} />}
+            itemContent={(_index, cell) => (
+              <TranscriptCell
+                cell={cell}
+                children={cell.kind === "tool" ? children.get(cell.callId) : undefined}
+              />
+            )}
             components={{
               Header: () =>
                 view.cursor ? (
@@ -1265,7 +1304,12 @@ export function createDesktopRouter(session: DesktopSession) {
           action: async ({ request }) => {
             const data = await request.formData();
             const cwd = field(data, "cwd");
-            const id = await session.create(cwd, field(data, "model"), field(data, "sandbox"));
+            const id = await session.create(
+              cwd,
+              field(data, "model"),
+              field(data, "sandbox"),
+              field(data, "toolMode"),
+            );
             localStorage.setItem("last-directory", cwd);
             return redirect(`/conversations/${id}`);
           },

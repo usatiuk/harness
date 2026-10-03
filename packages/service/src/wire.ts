@@ -47,7 +47,10 @@ export const projectConversationConfig = (
     model: config.model.model,
     preset: config.model.preset ?? null,
   },
-  tools: config.tools === undefined ? null : { allow: config.tools.allow ?? null },
+  tools:
+    config.tools === undefined
+      ? null
+      : { allow: config.tools.allow ?? null, mode: config.tools.mode ?? "direct" },
   plugins: jsonValueSchema.parse(config.plugins ?? {}) as Record<
     string,
     ReturnType<typeof jsonValueSchema.parse>
@@ -66,7 +69,13 @@ export const projectConversation = (conversation: Conversation): WireConversatio
 
 export const projectItem = (item: Item): WireItem =>
   wireItemSchema.parse(
-    item.type === "tool_result" ? { ...item, annotations: item.annotations ?? null } : item,
+    item.type === "tool_result"
+      ? {
+          ...item,
+          annotations: item.annotations ?? null,
+          structured: item.structured === undefined ? null : { value: item.structured },
+        }
+      : item,
   );
 
 export const projectModelInfo = (model: ModelInfo): WireModelInfo =>

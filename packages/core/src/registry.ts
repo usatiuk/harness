@@ -1,4 +1,4 @@
-import type { ModelInfo, ModelProvider, Tool, ToolSchema } from "@harness/protocol";
+import type { ModelInfo, ModelProvider, Tool, ToolSchema, ToolContract } from "@harness/protocol";
 import { toToolSchema } from "./tools.ts";
 
 export class ProviderRegistry {
@@ -32,13 +32,22 @@ export class ProviderRegistry {
 /** The tools offered to the model on a single turn; duplicate names throw. */
 export class ToolSet {
   readonly #byName = new Map<string, Tool>();
+  readonly #contracts = new Map<string, ToolContract>();
 
-  constructor(tools: readonly Tool[]) {
+  constructor(tools: readonly Tool[], contracts?: readonly ToolContract[]) {
+    const resolved = new Map(contracts?.map((contract) => [contract.input.name, contract]));
     for (const tool of tools) {
       if (this.#byName.has(tool.name)) {
         throw new Error(`duplicate tool: ${tool.name}`);
       }
       this.#byName.set(tool.name, tool);
+      this.#contracts.set(
+        tool.name,
+        resolved.get(tool.name) ?? {
+          input: toToolSchema(tool),
+          ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+        },
+      );
     }
   }
 
@@ -59,10 +68,21 @@ export class ToolSet {
     return this.#byName.get(name)?.meta;
   }
 
+  values(): Tool[] {
+    return [...this.#byName.values()];
+  }
+  contract(name: string): ToolContract | undefined {
+    return this.#contracts.get(name);
+  }
+  exposes(name: string, channel: "direct" | "code"): boolean {
+    const tool = this.#byName.get(name);
+    return !!tool && (tool.exposure?.[channel] ?? true);
+  }
+
   /** Wire schemas for the offered tools, name-sorted for a cache-stable prefix. */
   schemas(): ToolSchema[] {
-    return [...this.#byName.values()]
-      .map(toToolSchema)
+    return [...this.#contracts.values()]
+      .map((contract) => contract.input)
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 }

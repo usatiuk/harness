@@ -1,15 +1,19 @@
-import type { ZodType } from "zod";
+import { z, type ZodType } from "zod";
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
 import type { Item } from "./items.ts";
 import type { ToolGrammar } from "./model.ts";
 import type { PluginEvent } from "./events.ts";
 import type { InteractionRequest } from "./requests.ts";
+import type { JsonValue } from "./rpc.ts";
+import type { ToolSchema } from "./model.ts";
 
 export interface ToolCall {
   readonly callId: string;
   readonly name: string;
   readonly args: unknown;
+  /** Invoking tool, independent of the item's conversation-branch parent. */
+  readonly parentCallId?: string;
 }
 
 export type ToolStatus = "ok" | "error";
@@ -21,8 +25,16 @@ export interface OutputRef {
   contentType: string;
 }
 
+export const outputRefSchema = z.strictObject({
+  id: z.string(),
+  bytes: z.number().int().nonnegative(),
+  contentType: z.string(),
+});
+
 export interface ToolResult {
   forModel: ContentBlock[];
+  /** JSON data for programmatic consumers, processed by the same tool middleware. */
+  structured?: JsonValue;
   full?: OutputRef;
   /** Namespaced, durable facts about how this result was produced. Never sent to a provider. */
   annotations?: Record<string, unknown>;
@@ -47,6 +59,8 @@ export interface ToolContext {
   /** This call's id (`ToolCall.callId`); lets a tool correlate state it registers for itself. */
   callId: string;
   signal: AbortSignal;
+  /** Present only on the core evaluator entry point. Closed when the call ends. */
+  codeTools?: CodeToolBridge;
   /**
    * A per-conversation service a plugin hangs off `ctx`, keyed and built lazily by its
    * `ServiceProvider` (e.g. the execution substrate under `"execution"`, or an activity
@@ -79,6 +93,9 @@ export interface Tool<A = unknown> {
   readonly name: string;
   readonly description: string;
   readonly input: ToolInput<A>;
+  /** Presentation channels, never permissions. Omitted means both channels. */
+  readonly exposure?: { direct: boolean; code: boolean };
+  readonly outputSchema?: Record<string, unknown>;
   /**
    * Open, kernel-opaque metadata bag. The kernel only ferries it and exposes a name→meta
    * lookup (`ModelMiddlewareContext.toolMeta`); plugins agree on namespaced keys by convention
@@ -98,6 +115,8 @@ export interface ToolMiddlewareContext extends ToolContext {
    * (e.g. skip bounding `addressableOutput` tools) without the `Tool` itself.
    */
   toolMeta(name: string): Record<string, unknown> | undefined;
+  /** The effective callable contract, including plugin enrichment. */
+  toolContract(name: string): ToolContract | undefined;
   /** True only when the call names an offered tool and its raw arguments pass that tool's parser. */
   acceptsToolCall(call: ToolCall): boolean;
   /**
@@ -137,4 +156,32 @@ export interface ToolMiddlewareContext extends ToolContext {
 export interface ToolMiddleware {
   readonly id: string;
   wrap(call: ToolCall, ctx: ToolMiddlewareContext, next: ToolHandler): Promise<ToolResult>;
+}
+
+export type ToolMode = "direct" | "hybrid" | "code-only";
+
+/** A tool's public description and argument schema, plus its result schema when known. */
+export interface ToolContract {
+  input: ToolSchema;
+  outputSchema?: Record<string, unknown>;
+}
+
+export interface ToolContractContext {
+  conversationId: ConversationId;
+  toolMeta(name: string): Record<string, unknown> | undefined;
+}
+
+/** Enrich an effective contract or withhold it. Identity and exposure stay host-owned. */
+export type ToolContractResolver = (
+  contract: ToolContract,
+  ctx: ToolContractContext,
+) => ToolContract | null | Promise<ToolContract | null>;
+
+/** Core owns scope and recording; the evaluator owns only JavaScript execution. */
+export interface CodeToolBridge {
+  call(name: string, args: unknown): Promise<ToolResult>;
+}
+
+export interface CodeEvaluator {
+  evaluate(code: string, tools: CodeToolBridge, signal: AbortSignal): Promise<ToolResult>;
 }

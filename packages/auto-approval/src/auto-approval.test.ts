@@ -60,6 +60,9 @@ function setup(config: unknown, invoke = vi.fn(async () => result("YES"))) {
   const middleware = createAutoApprovalPlugin().create(reader).requestMiddleware!()[0]!;
   const events: unknown[] = [];
   const ctx: RequestMiddlewareContext = {
+    readBlob: async () => {
+      throw new Error("unexpected blob read");
+    },
     conversation,
     turnId: "t" as RequestMiddlewareContext["turnId"],
     signal: new AbortController().signal,
@@ -80,6 +83,45 @@ function setup(config: unknown, invoke = vi.fn(async () => result("YES"))) {
 }
 
 describe("auto approval request middleware", () => {
+  it("loads structured previews only for retained child results across compaction", async () => {
+    const { middleware, ctx, invoke } = setup({ enabled: true });
+    const history = Array.from({ length: 20 }, (_, i): Item[] => [
+      item({
+        type: "tool_call",
+        seq: i * 2,
+        callId: `child-${i}`,
+        parentCallId: "eval",
+        name: "lookup",
+        args: { i },
+      }),
+      item({
+        type: "tool_result",
+        seq: i * 2 + 1,
+        callId: `child-${i}`,
+        parentCallId: "eval",
+        status: "ok",
+        content: text(`result-${i}`),
+        structuredRef: { id: `blob-${i}`, bytes: 100000, contentType: "application/json" },
+      }),
+    ]).flat();
+    history.push(
+      item({ type: "compaction", seq: 40, content: text("summary") }),
+      item({ type: "tool_call", seq: 41, ...approvalRequest.call }),
+    );
+    ctx.active = async (options) => (options?.includeCompacted ? history : history.slice(-2));
+    const loaded: string[] = [];
+    ctx.readBlob = async (ref) => {
+      loaded.push(ref.id);
+      return new TextEncoder().encode("retained evidence");
+    };
+    await middleware.wrap(approvalRequest, ctx, vi.fn());
+    expect(new Set(loaded)).toEqual(new Set(Array.from({ length: 16 }, (_, i) => `blob-${i + 4}`)));
+    expect(loaded).toHaveLength(32);
+    const request = (invoke.mock.calls as unknown as Array<[ModelRequest]>)[0]![0];
+    expect(JSON.stringify(request.items)).toContain("result-4");
+    expect(JSON.stringify(request.items)).not.toContain("result-3");
+  });
+
   it("passes through when disabled", async () => {
     const { middleware, ctx, invoke } = setup({ enabled: false });
     const next = vi.fn(async () => ({ decision: "allow" }));

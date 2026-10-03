@@ -50,7 +50,12 @@ export class NativeApplication {
     this.page = page;
   }
 
-  static async launch(profile: string, artifacts: string, appProfile = join(profile, "app")) {
+  static async launch(
+    profile: string,
+    artifacts: string,
+    appProfile = join(profile, "app"),
+    cwd = profile,
+  ) {
     if (process.platform !== "win32") {
       throw new Error("The native CDP harness currently requires Windows WebView2");
     }
@@ -66,7 +71,7 @@ export class NativeApplication {
       environment.Path = process.env.HARNESS_NATIVE_PATH;
     }
     const child = spawn(executable, [], {
-      cwd: resolve(profile),
+      cwd: resolve(cwd),
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],

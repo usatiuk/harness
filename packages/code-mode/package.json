@@ -1,0 +1,23 @@
+{
+  "name": "@harness/code-mode",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@harness/protocol": "*",
+    "quickjs-emscripten": "0.32.0"
+  },
+  "devDependencies": {
+    "@harness/core": "*",
+    "@harness/store": "*",
+    "@harness/testkit": "*",
+    "vitest": "^4.1.8"
+  }
+}

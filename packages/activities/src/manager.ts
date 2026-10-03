@@ -18,7 +18,8 @@ export class ActivityManager {
   readonly #byCall = new Map<string, string>(); // callId -> activityId, claimed once
   readonly #settled = new Map<string, ActivityResult>();
   readonly #surfaced = new Set<string>(); // result already shown once
-  readonly #waiting = new Set<string>(); // a foreground/explicit wait is in flight
+  readonly #waiting = new Map<string, number>(); // overlapping foreground/explicit waits
+  readonly #notices = new Map<string, (content: ContentBlock[]) => void>();
   #closed = false;
 
   constructor(private readonly conversationId: ConversationId) {}
@@ -46,6 +47,7 @@ export class ActivityManager {
         status: result.status,
         summary: result.summary,
       });
+      this.#flushNotice(activity.id);
     });
   }
 
@@ -87,7 +89,12 @@ export class ActivityManager {
   }
 
   /** Bounded wait over `activity.done`; marks the result surfaced on settle. */
-  async wait(id: string, timeoutMs: number): Promise<ActivityResult | "running"> {
+  async wait(
+    id: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<ActivityResult | "running"> {
+    signal?.throwIfAborted();
     const activity = this.#byId.get(id);
     if (!activity) return "running";
     let timer: ReturnType<typeof setTimeout>;
@@ -95,35 +102,52 @@ export class ActivityManager {
       timer = setTimeout(() => res("running"), timeoutMs);
       timer.unref();
     });
-    this.#waiting.add(id);
+    let onAbort: (() => void) | undefined;
+    const cancelled = signal
+      ? new Promise<never>((_resolve, reject) => {
+          onAbort = () => reject(new Error("activity wait aborted", { cause: signal.reason }));
+          signal.addEventListener("abort", onAbort, { once: true });
+        })
+      : undefined;
+    this.#waiting.set(id, (this.#waiting.get(id) ?? 0) + 1);
     try {
-      const outcome = await Promise.race([activity.done, timeout]);
-      if (outcome !== "running") this.#surfaced.add(id);
+      const outcome = await Promise.race([
+        activity.done,
+        timeout,
+        ...(cancelled ? [cancelled] : []),
+      ]);
+      signal?.throwIfAborted();
+      if (outcome !== "running") {
+        this.#surfaced.add(id);
+        this.#notices.delete(id);
+      }
       return outcome;
     } finally {
       clearTimeout(timer!);
-      this.#waiting.delete(id);
+      if (onAbort) signal!.removeEventListener("abort", onAbort);
+      const remaining = this.#waiting.get(id)! - 1;
+      if (remaining === 0) this.#waiting.delete(id);
+      else this.#waiting.set(id, remaining);
+      this.#flushNotice(id);
     }
   }
 
   /**
    * Arm a one-shot completion notice. Suppressed if the result was already surfaced inline, or if a
-   * wait is in flight at exit time (that wait will deliver it) — so a completion never doubles.
+   * wait is in flight. Keep the callback until a successful wait consumes the result or the last
+   * waiter leaves, so cancellation cannot discard the completion notice.
    */
   notifyOnExit(id: string, deliver: (content: ContentBlock[]) => void): void {
-    const activity = this.#byId.get(id);
-    if (!activity) return;
-    void activity.done.then((result) => {
-      if (this.#closed || this.#surfaced.has(id) || this.#waiting.has(id)) return;
-      this.#surfaced.add(id);
-      deliver(noticeContent(id, result));
-    });
+    if (!this.#byId.has(id) || this.#closed || this.#surfaced.has(id)) return;
+    this.#notices.set(id, deliver);
+    this.#flushNotice(id);
   }
 
   /** Stop accepting completion delivery, terminate live work, and await every requested stop. */
   async dispose(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
+    this.#notices.clear();
     const live = [...this.#byId.entries()]
       .filter(([id]) => !this.#settled.has(id))
       .map(([, activity]) => activity);
@@ -136,14 +160,26 @@ export class ActivityManager {
     const evicted = new Set<string>();
     for (const [id] of this.#byId) {
       if (this.#byId.size < MAX_LIVE) break;
-      if (this.#settled.has(id)) {
+      // Settlement does not release a waiter or its pending completion delivery.
+      if (this.#settled.has(id) && !this.#waiting.has(id) && !this.#notices.has(id)) {
         this.#byId.delete(id);
         this.#settled.delete(id);
         this.#surfaced.delete(id);
+        this.#notices.delete(id);
         evicted.add(id);
       }
     }
     for (const [callId, id] of this.#byCall) if (evicted.has(id)) this.#byCall.delete(callId);
+  }
+
+  #flushNotice(id: string): void {
+    const result = this.#settled.get(id);
+    const deliver = this.#notices.get(id);
+    if (!result || !deliver || this.#closed || this.#waiting.has(id) || this.#surfaced.has(id))
+      return;
+    this.#notices.delete(id);
+    this.#surfaced.add(id);
+    deliver(noticeContent(id, result));
   }
 }
 

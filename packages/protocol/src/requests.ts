@@ -3,6 +3,8 @@ import type { TurnId } from "./ids.ts";
 import type { Item } from "./items.ts";
 import type { ModelInvoker } from "./model.ts";
 import type { PluginEvent } from "./events.ts";
+import type { OutputRef } from "./tools.ts";
+import type { ByteRange } from "./store.ts";
 
 /** Open request envelope; the request owner validates the payload for its `kind`. */
 export interface InteractionRequest {
@@ -18,7 +20,10 @@ export interface RequestMiddlewareContext {
   conversation: Conversation;
   turnId: TurnId;
   signal: AbortSignal;
-  active(): Promise<readonly Item[]>;
+  /** Current active branch, starting at its latest compaction unless explicitly included. */
+  active(options?: { includeCompacted?: boolean }): Promise<readonly Item[]>;
+  /** Read part of stored tool output, e.g. a bounded preview for approval review. */
+  readBlob(ref: OutputRef, range: ByteRange): Promise<Uint8Array>;
   service(key: string): unknown;
   /** Emit ephemeral progress for this interaction; durable meaning belongs in the request owner. */
   emit(event: PluginEvent): void;

@@ -11,7 +11,10 @@ const modelSchema = z.strictObject({
   model: z.string(),
   preset: z.string().optional(),
 });
-const toolsSchema = z.strictObject({ allow: z.array(z.string()).optional() });
+const toolsSchema = z.strictObject({
+  allow: z.array(z.string()).optional(),
+  mode: z.enum(["direct", "hybrid", "code-only"]).optional(),
+});
 
 const extraBodyExcluding = (reserved: ReadonlySet<string>, transport: string) =>
   z.record(z.string(), z.unknown()).superRefine((body, ctx) => {

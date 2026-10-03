@@ -132,6 +132,52 @@ Provider-owned execution tools are intentionally outside the current product
 surface; all execution tools offered by the shipped composition are controlled
 by Harness.
 
+### Code mode and tool discovery
+
+Set `"tools": {"mode": "hybrid"}` or `"code-only"` in settings or conversation
+overrides; `direct` is the default. Desktop creation also offers a Tool interface
+selector. `tool_search` and `tool_describe` are ordinary, immediately available
+tools in every mode. Hybrid also offers ordinary capability declarations and
+`eval`; code-only runs capabilities through `eval`, which accepts an async
+JavaScript function body:
+
+```javascript
+const { paths } = await tools.call("glob", { pattern: "src/*.ts" });
+return await Promise.all(
+  paths.map(async (path) => ({
+    path,
+    first: (await tools.call("read_file", { path })).text.slice(0, 100),
+  })),
+);
+```
+
+Call `tool_search` with `{query: "read file"}` to discover definitions, including
+descriptions and input/output schemas. Search excludes tools already declared or
+discovered in the current context; compaction resets discovery tracking. Call
+`tool_describe` with `{name: "read_file"}` for an explicit current definition,
+including the output schema omitted by ordinary input declarations. The JavaScript
+environment exposes only `tools.call`. Plugins declare direct/code
+exposure independently of permission: ordinary tools default to both, deferred
+tools use `{direct: false, code: true}`, and entry points can be direct-only.
+Discovery never makes a deferred tool directly callable. Responses contain
+complete definitions under a 64-KiB limit; oversized definitions are reported
+without being marked discovered.
+Tool allowlists, approvals, execution backends, activities, and subagent scopes
+still govern each computed operation. Children inherit the parent's tool mode.
+
+Calls return structured JSON when supplied, otherwise a content/status envelope;
+custom tools accept raw strings. Errors and denials throw with `error.result`.
+JavaScript controls child-call order: sequential `await` orders operations;
+concurrent submissions such as `Promise.all` overlap, including foreground commands.
+Direct model-call batches retain their existing sequential order.
+Only explicit `emit`, text-only `emitContent`, and the returned JSON reach the
+main agent. Nested calls remain visible in history and approval review. Completed
+effects and emitted output survive later failures; scripts never replay or roll
+back automatically. Each invocation uses a fresh bounded QuickJS worker without
+ambient filesystem, network, imports, process, or credentials. Await all work;
+ending the body cancels outstanding calls. Ordinary background activities retain
+their own lifecycle and must be explicitly waited on when completion is needed.
+
 ### Project instructions
 
 The standalone `agents` plugin loads hierarchical `AGENTS.md` guidance for every conversation,

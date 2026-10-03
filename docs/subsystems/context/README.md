@@ -18,13 +18,32 @@ At each agent step the engine:
 2. Replaces the prefix before the latest compaction fold with that durable fold.
 3. Attaches provider payloads for selected items.
 4. Resolves cache-stable conversation and plugin instructions.
-5. Uses the active model's complete Harness-owned tool roster.
+5. Uses the mode's declarations from the scoped, contract-enriched tool catalog.
 6. Records the resulting context build before invoking the model.
 
 Non-agentic callers use the same model invoker and record a purpose such as
 `compaction` or `auto-approval`. A caller may add a non-durable final prompt,
 disable tool selection, or request an advisory output cap without changing the
 canonical item log.
+
+## Programmatic context projection
+
+Code-mode descendants stay in canonical history but are omitted from the main
+agent and compactor windows. Outer source and explicitly selected output remain
+ordinary tool pairs; structured payloads and full-output references are not
+automatically sent. Opaque provider payloads are attached to selected items as
+before. Auto-approval owns its projection of the same active chain:
+ordinary current-window context, the most recent sixteen nested calls, and up to
+sixteen failed nested call/result pairs across the active chain. This bound is
+independent of main compaction. Caught failures remain inspectable after main
+compaction. Rewind removes abandoned evidence naturally. Auto-approval bounds
+arguments and results, correlates ids/parents, and reads bounded head/tail
+previews of spilled structured data without duplicating durable state. Generic
+request middleware receives compacted history by default; auto-approval explicitly
+requests the whole active branch before selecting its bounded evidence.
+
+Nested `AGENTS.md` discoveries stage context after the complete outer batch;
+they do not interrupt, resume, or inject instructions into a running script.
 
 ## Hierarchical project instructions
 
@@ -58,6 +77,13 @@ V1 does not parse arbitrary shell commands, watch instruction files for changes,
 or discover instruction trees that exist only inside a container.
 
 ## Compaction model
+
+Ordinary tool search deduplicates against initially declared tools and successful
+root search/describe result annotations after the latest active-branch compaction.
+Only definitions actually delivered are annotated. A fold resets that discovered
+set; rewind/reload restore the selected branch's current window. Explicit describe
+remains repeatable and returns the current full definition. Discovery does not
+change permissions or direct-call eligibility.
 
 A compaction fold is an immutable item whose content represents the entire active
 window before it. Model context begins at the latest fold and includes later

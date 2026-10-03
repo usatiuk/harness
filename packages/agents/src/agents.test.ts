@@ -56,6 +56,7 @@ const middlewareContext = (
   emit: () => {},
   deliver: () => {},
   toolMeta: () => undefined,
+  toolContract: () => undefined,
   acceptsToolCall: () => true,
   setResultAnnotation: () => {},
   putBlob: () => Promise.reject(new Error("unused")),

@@ -28,6 +28,14 @@ append.
 
 ## Related records
 
+Tool calls and results may carry `parentCallId` linking a computed operation to
+its evaluator, independently of the item's graph `parent`. Results retain
+optional structured JSON and full-output references; structured JSON above
+64 KiB is stored once in the blob store as `structuredRef`. Public RPC preserves
+these fields, including a structured scalar `null`. SQLite range reads select
+only requested blob bytes. Crash reconciliation pairs dangling descendants with
+errors retaining their invocation association; no computation resumes.
+
 - **Turns** record running/completed/failed/aborted status. Runtime liveness stays
   in memory; persisted `running` exists for crash reconciliation only.
 - **Provider payloads** preserve provider/model/type/version-bound opaque data

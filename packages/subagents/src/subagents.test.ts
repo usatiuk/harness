@@ -20,7 +20,7 @@ import {
   SubagentRegistry,
   SubagentTool,
   depthOf,
-  subagentCatalogMiddleware,
+  subagentContractResolver,
   subagentsConfigSchema,
 } from "./index.ts";
 
@@ -160,6 +160,7 @@ function ctx(
     emit: () => {},
     deliver: () => {},
     toolMeta: () => undefined,
+    toolContract: () => undefined,
     acceptsToolCall: () => true,
     setResultAnnotation: () => {},
     putBlob: () => Promise.resolve({ id: "b", bytes: 0, contentType: "text/plain" }),
@@ -327,7 +328,7 @@ describe("subagentsConfigSchema — built-in agents", () => {
   });
 });
 
-describe("subagentCatalogMiddleware", () => {
+describe("subagentContractResolver", () => {
   const baseTool = {
     kind: "function" as const,
     name: "subagent",
@@ -344,7 +345,7 @@ describe("subagentCatalogMiddleware", () => {
   });
   /** Drains the middleware into the request the next handler actually saw. */
   const applied = async (
-    mw: ReturnType<typeof subagentCatalogMiddleware>,
+    mw: ReturnType<typeof subagentContractResolver>,
     tools: ToolSchema[],
   ): Promise<ModelRequest | undefined> => {
     const request: ModelRequest = {
@@ -353,17 +354,15 @@ describe("subagentCatalogMiddleware", () => {
       modelConfig: { provider: "x", model: "y" },
       tools,
     };
-    let seen: ModelRequest | undefined;
-    // eslint-disable-next-line require-yield
-    async function* sink(req: ModelRequest): AsyncGenerator<never> {
-      seen = req;
-    }
-    for await (const _ of mw.wrap(request, mwCtx(), sink)) void _;
-    return seen;
+    const contracts = await Promise.all(tools.map(async (input) => await mw({ input }, mwCtx())));
+    return {
+      ...request,
+      tools: contracts.flatMap((contract) => (contract ? [contract.input] : [])),
+    };
   };
 
   it("constrains `agent` to the catalog names and lists the roster in the description", async () => {
-    const mw = subagentCatalogMiddleware(
+    const mw = subagentContractResolver(
       fakeReader({
         agents: [
           { name: "researcher", description: "finds things", systemPrompt: "s" },
@@ -382,13 +381,13 @@ describe("subagentCatalogMiddleware", () => {
   });
 
   it("drops the tool when no agents are configured", async () => {
-    const mw = subagentCatalogMiddleware(fakeReader({ agents: [] }) as never);
+    const mw = subagentContractResolver(fakeReader({ agents: [] }) as never);
     const seen = await applied(mw, [baseTool]);
     expect(seen!.tools).toHaveLength(0);
   });
 
   it("leaves the request untouched when the subagent tool isn't offered", async () => {
-    const mw = subagentCatalogMiddleware(
+    const mw = subagentContractResolver(
       fakeReader({ agents: [{ name: "a", description: "d", systemPrompt: "s" }] }) as never,
     );
     const other = {
@@ -409,7 +408,7 @@ describe("subagentCatalogMiddleware", () => {
         properties: { ...baseTool.parameters.properties, background: { type: "boolean" } },
       },
     };
-    const mw = subagentCatalogMiddleware(
+    const mw = subagentContractResolver(
       fakeReader({ agents: [{ name: "a", description: "d", systemPrompt: "s" }] }) as never,
     );
     const seen = await applied(mw, [withBackground]);

@@ -10,6 +10,8 @@ import type {
   ToolContributionContext,
   ToolMiddleware,
   RequestMiddleware,
+  ToolContractResolver,
+  ToolContractContext,
 } from "@harness/protocol";
 import { ProviderRegistry, ToolSet } from "./registry.ts";
 import { noCompaction, truncateMiddleware } from "./policies.ts";
@@ -47,6 +49,7 @@ export class PluginHost {
   readonly modelMiddleware: readonly ModelMiddleware[];
   /** Outer→inner (registration order); the correlated host/UI request is terminal. */
   readonly requestMiddleware: readonly RequestMiddleware[];
+  readonly #contractResolvers: readonly ToolContractResolver[];
 
   constructor(plugins: readonly Plugin[]) {
     const contextSources: ContextSource[] = [];
@@ -58,6 +61,7 @@ export class PluginHost {
     const toolMiddleware: ToolMiddleware[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
     const requestMiddleware: RequestMiddleware[] = [];
+    const contractResolvers: ToolContractResolver[] = [];
     const registered = new Set<string>();
     const middlewareContributors = new Set<string>();
 
@@ -77,6 +81,7 @@ export class PluginHost {
         this.providers.register(provider);
       }
       if (plugin.tools) toolContributors.push(plugin.tools.bind(plugin));
+      contractResolvers.push(...(plugin.toolContracts?.() ?? []));
       toolMiddleware.push(...contributedToolMiddleware);
       modelMiddleware.push(...(plugin.modelMiddleware?.() ?? []));
       requestMiddleware.push(...(plugin.requestMiddleware?.() ?? []));
@@ -104,6 +109,32 @@ export class PluginHost {
     this.toolMiddleware = [...toolMiddleware, truncateMiddleware()];
     this.modelMiddleware = modelMiddleware;
     this.requestMiddleware = requestMiddleware;
+    this.#contractResolvers = contractResolvers;
+  }
+
+  async resolveContracts(tools: ToolSet, ctx: ToolContractContext): Promise<ToolSet> {
+    const available: Tool[] = [];
+    const contracts = [];
+    for (const tool of tools.values()) {
+      let contract = tools.contract(tool.name)!;
+      let withheld = false;
+      for (const resolve of this.#contractResolvers) {
+        const resolved = await resolve(contract, ctx);
+        if (!resolved) {
+          withheld = true;
+          break;
+        }
+        if (resolved.input.name !== tool.name || resolved.input.kind !== contract.input.kind) {
+          throw new Error(`tool contract resolver changed identity: ${tool.name}`);
+        }
+        contract = resolved;
+      }
+      if (!withheld) {
+        available.push(tool);
+        contracts.push(contract);
+      }
+    }
+    return new ToolSet(available, contracts);
   }
 
   /**

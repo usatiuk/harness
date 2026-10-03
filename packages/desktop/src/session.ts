@@ -244,7 +244,7 @@ export class DesktopSession {
     this.changed();
   }
 
-  async create(cwd: string, model: string, sandbox: string): Promise<string> {
+  async create(cwd: string, model: string, sandbox: string, toolMode = "direct"): Promise<string> {
     const [provider, modelId] = model.split("\u0000");
     if (!provider || !modelId) throw new Error("Select a model");
     if (
@@ -263,6 +263,7 @@ export class DesktopSession {
     const overrides: Record<string, JsonValue> = {
       instructions: "You are a helpful coding agent.",
       model: { provider, model: modelId, ...(preset ? { preset } : {}) },
+      tools: { mode: toolMode },
       plugins: { sandbox: { backend: sandbox } },
     };
     const conversation = decodeConversation(await this.client.create({ cwd, overrides }));

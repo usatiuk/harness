@@ -54,6 +54,17 @@ preset; preset changes use a separate API scoped to the current identity.
 Named profiles exist in the resolver/schema, but the current CLI does not expose a
 profile-selection workflow.
 
+## Tool modes and inspection
+
+The kernel `tools.mode` setting accepts `direct` (default), `hybrid`, and
+`code-only` in the settings cascade or conversation overrides. Desktop creation
+exposes a Tool interface selector; settings-file changes take effect on reload.
+RPC carries mode, nested associations, structured values, and output references.
+Desktop nests child operation cards under their evaluator with concrete
+arguments, status, approval facts, and output; incomplete history pages retain
+standalone children until their parent is loaded. The TUI marks children in
+generic, verbose, and edit cards. Clients never execute guest code.
+
 ## Authentication UX
 
 The auth registry discovers provider login methods and builds plugins only when

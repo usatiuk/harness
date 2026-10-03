@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   assertNever,
   ContextWindowExceededError,
@@ -8,6 +9,7 @@ import {
   findModel,
   textOf,
   type ConfigResolver,
+  type CodeEvaluator,
   type Conversation,
   type ConversationConfig,
   type ConversationId,
@@ -33,6 +35,7 @@ import {
   type InteractionRequest,
   type PluginEvent,
   type ProviderPayloadDraft,
+  type RequestMiddlewareContext,
   type Store,
   type ToolCall,
   type ToolHandler,
@@ -42,7 +45,9 @@ import {
   type TurnId,
 } from "@harness/protocol";
 import type { PluginHost } from "./plugin-host.ts";
-import type { ToolSet } from "./registry.ts";
+import { ToolSet } from "./registry.ts";
+import { evaluatorTool, EVALUATOR_NAME, modelSchemas } from "./code-mode.ts";
+import { discoveryTools, isDiscoveryTool } from "./tool-discovery.ts";
 import { parseToolArgs } from "./tools.ts";
 import { compactedWindow, estimateContextTokens, fallbackCompaction } from "./policies.ts";
 import { Runtime, type Delivery } from "./runtime.ts";
@@ -110,6 +115,7 @@ export class Engine {
     /** Derives a conversation's config from its record on every load — injected so core stays free
      *  of `@harness/config`. */
     private readonly resolveConfig: ConfigResolver,
+    private readonly codeEvaluator?: CodeEvaluator,
   ) {
     this.#observers = host.observers.map((observer) => ({ observer }));
   }
@@ -236,12 +242,12 @@ export class Engine {
       try {
         const provider = this.host.providers.get(conversation.config.model.provider);
         provider.validateConfig(conversation.config.model);
-        const toolSet = this.host.toolsFor(
-          provider.capabilities(conversation.config.model.model),
-          { service: (key) => this.#service(runtime, key) },
-          conversation.config.tools?.allow,
+        const toolSet = await this.#resolveTools(conversation, runtime);
+        const build = await this.#assembleContext(
+          conversation,
+          modelSchemas(toolSet, conversation.config.tools?.mode ?? "direct"),
+          runtime,
         );
-        const build = await this.#assembleContext(conversation, toolSet.schemas(), runtime);
         const folded = await this.#compact(
           "manual",
           conversation,
@@ -706,14 +712,8 @@ export class Engine {
     // here rather than per step.
     const provider = this.host.providers.get(conversation.config.model.provider);
     provider.validateConfig(conversation.config.model);
-    const toolSet = this.host.toolsFor(
-      provider.capabilities(conversation.config.model.model),
-      {
-        service: (key) => this.#service(runtime, key),
-      },
-      conversation.config.tools?.allow,
-    );
-    const toolSchemas = toolSet.schemas();
+    const toolSet = await this.#resolveTools(conversation, runtime);
+    const toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "direct");
     const pricing = this.#pricingFor(conversation.config.model);
     let recoveredOverflow = false;
     let compactedBeforeAttempt = false;
@@ -950,36 +950,16 @@ export class Engine {
   ): Promise<void> {
     const batchContexts: PendingContext[] = [];
     for (const call of calls) {
-      const callContexts: PendingContext[] = [];
-      const outcome = terminalError
-        ? { result: errorResult(terminalError), completed: false }
-        : signal.aborted
-          ? { result: interruptedResult(), completed: false }
-          : await this.#dispatchInterruptible(
-              call,
-              toolSet,
-              conversation,
-              turnId,
-              signal,
-              runtime,
-              callContexts,
-            );
-      const { result } = outcome;
-      const item = await this.store.appendItem({
-        conversationId: conversation.id,
+      await this.#invokeRecorded(
+        call,
+        toolSet,
+        conversation,
         turnId,
-        type: "tool_result",
-        callId: call.callId,
-        content: result.forModel,
-        status: result.status,
-        ...(result.annotations ? { annotations: result.annotations } : {}),
-      });
-      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
-      if (outcome.completed) {
-        for (const pending of callContexts) {
-          if (!batchContexts.some(({ key }) => key === pending.key)) batchContexts.push(pending);
-        }
-      }
+        signal,
+        runtime,
+        batchContexts,
+        terminalError,
+      );
     }
     for (const pending of batchContexts) {
       const item = await this.store.appendItem({
@@ -991,6 +971,90 @@ export class Engine {
       });
       this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
     }
+  }
+
+  /**
+   * Record a child's call before dispatch, and every call's result before returning it.
+   * parentCallId links a child to its invoking eval; it does not change the log's branch parent.
+   * Model-origin calls were already recorded while consuming the provider stream.
+   */
+  async #invokeRecorded(
+    call: ToolCall,
+    toolSet: ToolSet,
+    conversation: Conversation,
+    turnId: TurnId,
+    signal: AbortSignal,
+    runtime: Runtime,
+    batchContexts: PendingContext[],
+    terminalError?: string,
+  ): Promise<ToolResult> {
+    if (call.parentCallId) {
+      const item = await this.store.appendItem({
+        conversationId: conversation.id,
+        turnId,
+        type: "tool_call",
+        ...call,
+      });
+      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
+    }
+    const callContexts: PendingContext[] = [];
+    const mode = conversation.config.tools?.mode ?? "direct";
+    const available = call.parentCallId
+      ? toolSet.exposes(call.name, "code")
+      : toolSet.exposes(call.name, "direct") &&
+        (mode !== "code-only" || call.name === EVALUATOR_NAME || isDiscoveryTool(call.name));
+    const outcome = terminalError
+      ? { result: errorResult(terminalError), completed: false }
+      : signal.aborted
+        ? { result: interruptedResult(), completed: false }
+        : !available
+          ? {
+              result: errorResult(
+                toolSet.has(call.name)
+                  ? `tool unavailable through ${call.parentCallId ? "code" : "model"} interface: ${call.name}`
+                  : `unknown tool: ${call.name}`,
+              ),
+              completed: false,
+            }
+          : await this.#dispatchInterruptible(
+              call,
+              toolSet,
+              conversation,
+              turnId,
+              signal,
+              runtime,
+              callContexts,
+            );
+    const { result } = outcome;
+    const structured =
+      result.structured === undefined ? undefined : JSON.stringify(result.structured);
+    const structuredRef =
+      structured && Buffer.byteLength(structured) > 64 * 1024
+        ? await this.store.putBlob(Buffer.from(structured))
+        : undefined;
+    const item = await this.store.appendItem({
+      conversationId: conversation.id,
+      turnId,
+      type: "tool_result",
+      callId: call.callId,
+      ...(call.parentCallId ? { parentCallId: call.parentCallId } : {}),
+      content: result.forModel,
+      status: result.status,
+      ...(result.annotations ? { annotations: result.annotations } : {}),
+      ...(structuredRef
+        ? { structuredRef }
+        : result.structured === undefined
+          ? {}
+          : { structured: result.structured }),
+      ...(result.full ? { full: result.full } : {}),
+    });
+    this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
+    if (outcome.completed) {
+      for (const pending of callContexts) {
+        if (!batchContexts.some(({ key }) => key === pending.key)) batchContexts.push(pending);
+      }
+    }
+    return result;
   }
 
   /** Injects only steering deliveries at a tool-result boundary. */
@@ -1014,7 +1078,7 @@ export class Engine {
    * `interrupted` result and the tool is abandoned (cooperative tools also stop via
    * `ctx.signal`). Either way the call gets exactly one result.
    */
-  #dispatchInterruptible(
+  async #dispatchInterruptible(
     call: ToolCall,
     toolSet: ToolSet,
     conversation: Conversation,
@@ -1023,6 +1087,9 @@ export class Engine {
     runtime: Runtime,
     pendingContexts: PendingContext[],
   ): Promise<DispatchOutcome> {
+    const controller = new AbortController();
+    const callSignal = AbortSignal.any([signal, controller.signal]);
+    const children: Promise<ToolResult>[] = [];
     const annotations: Record<string, unknown> = {};
     const finalize = (result: ToolResult): ToolResult =>
       Object.keys(annotations).length === 0
@@ -1032,28 +1099,35 @@ export class Engine {
             annotations: { ...result.annotations, ...annotations },
           };
     if (signal.aborted) {
-      return Promise.resolve({ result: finalize(interruptedResult()), completed: false });
+      return { result: finalize(interruptedResult()), completed: false };
     }
+    let onAbort!: () => void;
     const aborted = new Promise<DispatchOutcome>((resolve) => {
-      signal.addEventListener(
-        "abort",
-        () => resolve({ result: finalize(interruptedResult()), completed: false }),
-        { once: true },
-      );
+      onAbort = () => resolve({ result: finalize(interruptedResult()), completed: false });
+      callSignal.addEventListener("abort", onAbort, { once: true });
     });
-    return Promise.race([
-      this.#dispatch(
-        call,
-        toolSet,
-        conversation,
-        turnId,
-        signal,
-        runtime,
-        annotations,
-        pendingContexts,
-      ).then((result) => ({ result: finalize(result), completed: true })),
-      aborted,
-    ]);
+    const dispatched = this.#dispatch(
+      call,
+      toolSet,
+      conversation,
+      turnId,
+      callSignal,
+      runtime,
+      annotations,
+      pendingContexts,
+      children,
+    ).then((result) => ({ result: finalize(result), completed: true }));
+    try {
+      // Evaluator cancellation must terminate its worker and preserve emitted content.
+      return await (call.name === EVALUATOR_NAME && conversation.config.tools?.mode !== "direct"
+        ? dispatched
+        : Promise.race([dispatched, aborted]));
+    } finally {
+      callSignal.removeEventListener("abort", onAbort);
+      controller.abort();
+      // Recorded descendants must be paired before the outer result/turn can finish.
+      await Promise.all(children);
+    }
   }
 
   /**
@@ -1071,6 +1145,7 @@ export class Engine {
     runtime: Runtime,
     resultAnnotations: Record<string, unknown>,
     pendingContexts: PendingContext[],
+    children: Promise<ToolResult>[],
   ): Promise<ToolResult> {
     type ParsedCall = ReturnType<typeof parseToolArgs> | undefined;
     const parsedCalls = new Map<ToolCall, ParsedCall>();
@@ -1087,6 +1162,27 @@ export class Engine {
       callId: call.callId,
       signal,
       toolMeta: (name) => toolSet.metaOf(name),
+      toolContract: (name) => toolSet.contract(name),
+      ...(call.name === EVALUATOR_NAME && conversation.config.tools?.mode !== "direct"
+        ? {
+            codeTools: {
+              call: (name: string, args: unknown) => {
+                signal.throwIfAborted();
+                const child = this.#invokeRecorded(
+                  { callId: `nested_${randomUUID()}`, name, args, parentCallId: call.callId },
+                  toolSet,
+                  conversation,
+                  turnId,
+                  signal,
+                  runtime,
+                  pendingContexts,
+                );
+                children.push(child);
+                return child;
+              },
+            },
+          }
+        : {}),
       acceptsToolCall: (candidate) => parseCall(candidate)?.ok === true,
       setResultAnnotation: (key, value) => {
         resultAnnotations[key] = value;
@@ -1128,6 +1224,7 @@ export class Engine {
       },
     };
     const execute: ToolHandler = (c) => {
+      signal.throwIfAborted();
       const parsed = parseCall(c);
       if (!parsed) return Promise.resolve(errorResult(`unknown tool: ${c.name}`));
       const tool = toolSet.get(c.name);
@@ -1135,7 +1232,11 @@ export class Engine {
       return tool.execute(parsed.data, ctx);
     };
     try {
-      return await runToolChain(this.host.toolMiddleware, call, ctx, execute);
+      // Reserved discovery reads host metadata only. Its own bounded output must not be cropped
+      // by execution middleware while retaining annotations that say definitions were delivered.
+      return await (isDiscoveryTool(call.name)
+        ? execute(call)
+        : runToolChain(this.host.toolMiddleware, call, ctx, execute));
     } catch (error) {
       return errorResult(`tool '${call.name}' failed: ${formatError(error)}`);
     }
@@ -1158,11 +1259,18 @@ export class Engine {
     ) {
       return Promise.reject(new Error("cannot request interaction from an inactive runtime"));
     }
-    const ctx = {
+    const ctx: RequestMiddlewareContext = {
       conversation,
       turnId,
       signal,
-      active: async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
+      active: async (options) => {
+        const items = await this.store.listActiveItems(conversation.id);
+        return options?.includeCompacted ? items : compactedWindow(items);
+      },
+      readBlob: (
+        ref: import("@harness/protocol").OutputRef,
+        range: import("@harness/protocol").ByteRange,
+      ) => this.store.getBlob(ref, range),
       service: (key: string) => this.#service(runtime, key),
       emit: (event: PluginEvent) => {
         if (
@@ -1464,6 +1572,35 @@ export class Engine {
     return true;
   }
 
+  async #resolveTools(conversation: Conversation, runtime: Runtime): Promise<ToolSet> {
+    const provider = this.host.providers.get(conversation.config.model.provider);
+    const tools = this.host.toolsFor(
+      provider.capabilities(conversation.config.model.model),
+      { service: (key) => this.#service(runtime, key) },
+      conversation.config.tools?.allow,
+    );
+    for (const name of [EVALUATOR_NAME, "tool_search", "tool_describe"])
+      if (tools.has(name)) throw new Error(`reserved core tool name: ${name}`);
+    const catalog = await this.host.resolveContracts(tools, {
+      conversationId: conversation.id,
+      toolMeta: (name) => tools.metaOf(name),
+    });
+    const mode = conversation.config.tools?.mode ?? "direct";
+    const controls = discoveryTools(
+      catalog,
+      modelSchemas(catalog, mode).map((schema) => schema.name),
+      async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
+    );
+    if (mode !== "direct") {
+      if (!this.codeEvaluator) throw new Error("code mode selected but no evaluator is configured");
+      controls.push(evaluatorTool(this.codeEvaluator));
+    }
+    return new ToolSet(
+      [...catalog.values(), ...controls],
+      catalog.schemas().map((schema) => catalog.contract(schema.name)!),
+    );
+  }
+
   /** The model's rate card from its provider's catalog; undefined = cost not computable. */
   #pricingFor(model: ModelConfig): ModelPricing | undefined {
     return findModel(this.host.providers.listModels(), model)?.pricing;
@@ -1477,7 +1614,19 @@ export class Engine {
     // Use the active chain (not the raw log): after a rewind, abandoned-branch items
     // must stay out of context. Read `head` from the store, never off the cached
     // `Runtime.conversation` snapshot.
-    const items = compactedWindow(await this.store.listActiveItems(conversation.id));
+    const items = compactedWindow(await this.store.listActiveItems(conversation.id))
+      .filter(
+        (item) =>
+          !((item.type === "tool_call" || item.type === "tool_result") && item.parentCallId),
+      )
+      .map((item) => {
+        if (item.type !== "tool_result") return item;
+        const presentation = { ...item };
+        delete presentation.structured;
+        delete presentation.structuredRef;
+        delete presentation.full;
+        return presentation;
+      });
     const payloadList = await this.store.getProviderPayloads(items.map((i) => i.id));
     const payloads = new Map(payloadList.map((p) => [p.itemId, p]));
     const sourceContext = { service: (key: string) => this.#service(runtime, key) };

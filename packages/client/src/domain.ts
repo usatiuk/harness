@@ -57,7 +57,12 @@ export const decodeConversationConfig = (config: WireConversationConfig): Conver
   },
   ...(config.tools === null
     ? {}
-    : { tools: config.tools.allow === null ? {} : { allow: config.tools.allow } }),
+    : {
+        tools: {
+          ...(config.tools.allow === null ? {} : { allow: config.tools.allow }),
+          ...(config.tools.mode ? { mode: config.tools.mode } : {}),
+        },
+      }),
   ...(Object.keys(config.plugins).length === 0 ? {} : { plugins: config.plugins }),
 });
 
@@ -92,6 +97,7 @@ export const decodeItem = (item: WireItem): Item => {
         callId: item.callId,
         name: item.name,
         args: item.args,
+        ...(item.parentCallId ? { parentCallId: item.parentCallId } : {}),
       };
     case "tool_result":
       return {
@@ -100,7 +106,12 @@ export const decodeItem = (item: WireItem): Item => {
         callId: item.callId,
         content: item.content,
         status: item.status,
+        ...(item.parentCallId ? { parentCallId: item.parentCallId } : {}),
         ...(item.annotations === null ? {} : { annotations: item.annotations }),
+        // The wire wrapper distinguishes no structured result from a real JSON null result.
+        ...(item.structured === null ? {} : { structured: item.structured.value }),
+        ...(item.structuredRef === null ? {} : { structuredRef: item.structuredRef }),
+        ...(item.full === null ? {} : { full: item.full }),
       };
     case "context":
       return { ...base, type: item.type, content: item.content, key: item.key };

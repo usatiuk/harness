@@ -190,9 +190,14 @@
                         { "type": "array", "items": { "type": "string" } },
                         { "type": "null" }
                       ]
+                    },
+                    "mode": {
+                      "default": "direct",
+                      "type": "string",
+                      "enum": ["direct", "hybrid", "code-only"]
                     }
                   },
-                  "required": ["allow"],
+                  "required": ["allow", "mode"],
                   "additionalProperties": false
                 },
                 { "type": "null" }
@@ -277,9 +282,14 @@
                             { "type": "array", "items": { "type": "string" } },
                             { "type": "null" }
                           ]
+                        },
+                        "mode": {
+                          "default": "direct",
+                          "type": "string",
+                          "enum": ["direct", "hybrid", "code-only"]
                         }
                       },
-                      "required": ["allow"],
+                      "required": ["allow", "mode"],
                       "additionalProperties": false
                     },
                     { "type": "null" }
@@ -390,9 +400,14 @@
                               { "type": "array", "items": { "type": "string" } },
                               { "type": "null" }
                             ]
+                          },
+                          "mode": {
+                            "default": "direct",
+                            "type": "string",
+                            "enum": ["direct", "hybrid", "code-only"]
                           }
                         },
-                        "required": ["allow"],
+                        "required": ["allow", "mode"],
                         "additionalProperties": false
                       },
                       { "type": "null" }
@@ -501,9 +516,14 @@
                             { "type": "array", "items": { "type": "string" } },
                             { "type": "null" }
                           ]
+                        },
+                        "mode": {
+                          "default": "direct",
+                          "type": "string",
+                          "enum": ["direct", "hybrid", "code-only"]
                         }
                       },
-                      "required": ["allow"],
+                      "required": ["allow", "mode"],
                       "additionalProperties": false
                     },
                     { "type": "null" }
@@ -567,9 +587,14 @@
                                   { "type": "array", "items": { "type": "string" } },
                                   { "type": "null" }
                                 ]
+                              },
+                              "mode": {
+                                "default": "direct",
+                                "type": "string",
+                                "enum": ["direct", "hybrid", "code-only"]
                               }
                             },
-                            "required": ["allow"],
+                            "required": ["allow", "mode"],
                             "additionalProperties": false
                           },
                           { "type": "null" }
@@ -766,9 +791,14 @@
                                     { "type": "array", "items": { "type": "string" } },
                                     { "type": "null" }
                                   ]
+                                },
+                                "mode": {
+                                  "default": "direct",
+                                  "type": "string",
+                                  "enum": ["direct", "hybrid", "code-only"]
                                 }
                               },
-                              "required": ["allow"],
+                              "required": ["allow", "mode"],
                               "additionalProperties": false
                             },
                             { "type": "null" }
@@ -834,9 +864,14 @@
                                           { "type": "array", "items": { "type": "string" } },
                                           { "type": "null" }
                                         ]
+                                      },
+                                      "mode": {
+                                        "default": "direct",
+                                        "type": "string",
+                                        "enum": ["direct", "hybrid", "code-only"]
                                       }
                                     },
-                                    "required": ["allow"],
+                                    "required": ["allow", "mode"],
                                     "additionalProperties": false
                                   },
                                   { "type": "null" }
@@ -1161,7 +1196,11 @@
                           "type": { "type": "string", "const": "tool_call" },
                           "callId": { "type": "string" },
                           "name": { "type": "string" },
-                          "args": { "$ref": "#/$defs/__schema0" }
+                          "args": { "$ref": "#/$defs/__schema0" },
+                          "parentCallId": {
+                            "default": null,
+                            "anyOf": [{ "type": "string" }, { "type": "null" }]
+                          }
                         },
                         "required": [
                           "id",
@@ -1173,7 +1212,8 @@
                           "type",
                           "callId",
                           "name",
-                          "args"
+                          "args",
+                          "parentCallId"
                         ],
                         "additionalProperties": false
                       },
@@ -1207,12 +1247,68 @@
                             }
                           },
                           "status": { "type": "string", "enum": ["ok", "error"] },
+                          "parentCallId": {
+                            "default": null,
+                            "anyOf": [{ "type": "string" }, { "type": "null" }]
+                          },
                           "annotations": {
                             "anyOf": [
                               {
                                 "type": "object",
                                 "propertyNames": { "type": "string" },
                                 "additionalProperties": { "$ref": "#/$defs/__schema0" }
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "structured": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": { "value": { "$ref": "#/$defs/__schema0" } },
+                                "required": ["value"],
+                                "additionalProperties": false
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "structuredRef": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": { "type": "string" },
+                                  "bytes": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "contentType": { "type": "string" }
+                                },
+                                "required": ["id", "bytes", "contentType"],
+                                "additionalProperties": false
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "full": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": { "type": "string" },
+                                  "bytes": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "contentType": { "type": "string" }
+                                },
+                                "required": ["id", "bytes", "contentType"],
+                                "additionalProperties": false
                               },
                               { "type": "null" }
                             ]
@@ -1229,7 +1325,11 @@
                           "callId",
                           "content",
                           "status",
-                          "annotations"
+                          "parentCallId",
+                          "annotations",
+                          "structured",
+                          "structuredRef",
+                          "full"
                         ],
                         "additionalProperties": false
                       },
@@ -1625,7 +1725,11 @@
                         "type": { "type": "string", "const": "tool_call" },
                         "callId": { "type": "string" },
                         "name": { "type": "string" },
-                        "args": { "$ref": "#/$defs/__schema0" }
+                        "args": { "$ref": "#/$defs/__schema0" },
+                        "parentCallId": {
+                          "default": null,
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        }
                       },
                       "required": [
                         "id",
@@ -1637,7 +1741,8 @@
                         "type",
                         "callId",
                         "name",
-                        "args"
+                        "args",
+                        "parentCallId"
                       ],
                       "additionalProperties": false
                     },
@@ -1671,12 +1776,68 @@
                           }
                         },
                         "status": { "type": "string", "enum": ["ok", "error"] },
+                        "parentCallId": {
+                          "default": null,
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
                         "annotations": {
                           "anyOf": [
                             {
                               "type": "object",
                               "propertyNames": { "type": "string" },
                               "additionalProperties": { "$ref": "#/$defs/__schema0" }
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "structured": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": { "value": { "$ref": "#/$defs/__schema0" } },
+                              "required": ["value"],
+                              "additionalProperties": false
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "structuredRef": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": { "type": "string" },
+                                "bytes": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "contentType": { "type": "string" }
+                              },
+                              "required": ["id", "bytes", "contentType"],
+                              "additionalProperties": false
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "full": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": { "type": "string" },
+                                "bytes": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "contentType": { "type": "string" }
+                              },
+                              "required": ["id", "bytes", "contentType"],
+                              "additionalProperties": false
                             },
                             { "type": "null" }
                           ]
@@ -1693,7 +1854,11 @@
                         "callId",
                         "content",
                         "status",
-                        "annotations"
+                        "parentCallId",
+                        "annotations",
+                        "structured",
+                        "structuredRef",
+                        "full"
                       ],
                       "additionalProperties": false
                     },
@@ -1878,9 +2043,14 @@
                                 { "type": "array", "items": { "type": "string" } },
                                 { "type": "null" }
                               ]
+                            },
+                            "mode": {
+                              "default": "direct",
+                              "type": "string",
+                              "enum": ["direct", "hybrid", "code-only"]
                             }
                           },
-                          "required": ["allow"],
+                          "required": ["allow", "mode"],
                           "additionalProperties": false
                         },
                         { "type": "null" }

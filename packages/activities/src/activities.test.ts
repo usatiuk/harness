@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   ContentBlock,
   ConversationId,
@@ -10,7 +10,8 @@ import type {
 } from "@harness/protocol";
 import {
   ActivityManager,
-  backgroundInjectMiddleware,
+  ActivityWaitTool,
+  backgroundContractResolver,
   consume,
   consumeMiddleware,
   type Activity,
@@ -47,6 +48,7 @@ function fakeMwCtx(over: Partial<ToolMiddlewareContext> = {}): ToolMiddlewareCon
   return {
     ...fakeCtx(over),
     toolMeta: () => undefined,
+    toolContract: () => undefined,
     acceptsToolCall: () => true,
     setResultAnnotation: () => {},
     putBlob: () => Promise.resolve({ id: "b", bytes: 0, contentType: "text/plain" }),
@@ -58,6 +60,97 @@ function fakeMwCtx(over: Partial<ToolMiddlewareContext> = {}): ToolMiddlewareCon
 }
 
 describe("ActivityManager — surface a completion exactly once", () => {
+  it("retains settled entries until pending notices and cancelled waiters release ownership", async () => {
+    for (const wait of [false, true]) {
+      const mgr = new ActivityManager("c" as ConversationId);
+      const controller = new AbortController();
+      const { activity, settle } = fakeActivity("watched");
+      const notices: ContentBlock[][] = [];
+      mgr.track(activity, {
+        callId: "watched-call",
+        emit: (event) => {
+          if (event.type === "activity.exited") {
+            if (wait) controller.abort();
+            mgr.track(fakeActivity("replacement").activity, {
+              callId: "replacement-call",
+              emit: () => {},
+            });
+          }
+        },
+      });
+      for (let i = 0; i < 49; i++)
+        mgr.track(fakeActivity(`live-${i}`).activity, { callId: `call-${i}`, emit: () => {} });
+      mgr.notifyOnExit(activity.id, (content) => notices.push(content));
+      const cancelled = wait
+        ? expect(mgr.wait(activity.id, 1000, controller.signal)).rejects.toThrow(/abort/i)
+        : undefined;
+      settle({ status: "ok", summary: "completed", view: [] });
+      if (cancelled) await cancelled;
+      await activity.done;
+      expect(notices).toHaveLength(1);
+      expect(mgr.get(activity.id)).toBe(activity);
+      mgr.track(fakeActivity("after-release").activity, {
+        callId: "after-release-call",
+        emit: () => {},
+      });
+      expect(mgr.get(activity.id)).toBeUndefined();
+    }
+  });
+
+  it("keeps notice suppression while another concurrent waiter remains", async () => {
+    vi.useFakeTimers();
+    try {
+      const mgr = new ActivityManager("c" as ConversationId);
+      const { activity, settle } = fakeActivity("overlap");
+      const notices: ContentBlock[][] = [];
+      mgr.track(activity, { callId: "overlap-call", emit: () => {} });
+      mgr.notifyOnExit(activity.id, (content) => notices.push(content));
+      const short = mgr.wait(activity.id, 10);
+      const long = mgr.wait(activity.id, 1000);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(await short).toBe("running");
+      settle({ status: "ok", summary: "completed", view: [] });
+      expect(await long).toMatchObject({ status: "ok" });
+      expect(notices).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("releases cancelled explicit waits without discarding background completion", async () => {
+    for (const timing of ["before-exit", "at-exit"] as const) {
+      const mgr = new ActivityManager("c" as ConversationId);
+      const controller = new AbortController();
+      const { activity, settle } = fakeActivity(timing);
+      const notices: ContentBlock[][] = [];
+      mgr.track(activity, {
+        callId: timing,
+        emit: (event) => {
+          if (timing === "at-exit" && event.type === "activity.exited") controller.abort();
+        },
+      });
+      mgr.notifyOnExit(activity.id, (content) => notices.push(content));
+      const waiting = new ActivityWaitTool().execute(
+        { id: activity.id },
+        fakeCtx({
+          signal: controller.signal,
+          service: (key) => (key === "activities" ? mgr : undefined),
+        }),
+      );
+      const rejected = expect(waiting).rejects.toThrow(/abort/i);
+      if (timing === "before-exit") {
+        controller.abort();
+        await rejected;
+      }
+      settle({ status: "ok", summary: "completed", view: [] });
+      await rejected;
+      await activity.done;
+      expect(notices).toHaveLength(1);
+      mgr.notifyOnExit(activity.id, (content) => notices.push(content));
+      expect(notices).toHaveLength(1);
+    }
+  });
+
   it("suppresses the proactive notice when a wait is in flight", async () => {
     const mgr = new ActivityManager("c" as ConversationId);
     const { activity, settle } = fakeActivity("a1");
@@ -237,7 +330,7 @@ describe("consumeMiddleware", () => {
   });
 });
 
-describe("backgroundInjectMiddleware", () => {
+describe("backgroundContractResolver", () => {
   it("injects `background` into backgroundable function schemas only", async () => {
     const request: ModelRequest = {
       instructions: [],
@@ -263,15 +356,16 @@ describe("backgroundInjectMiddleware", () => {
       signal: new AbortController().signal,
       toolMeta: (name) => (name === "bash" ? { backgroundable: true } : undefined),
     };
-    let seen: ModelRequest | undefined;
-    // eslint-disable-next-line require-yield
-    async function* sink(req: ModelRequest): AsyncGenerator<never> {
-      seen = req;
-    }
-    for await (const _ of backgroundInjectMiddleware().wrap(request, ctx, sink)) void _;
+    const resolver = backgroundContractResolver();
+    const seen = {
+      ...request,
+      tools: await Promise.all(
+        request.tools!.map(async (input) => (await resolver({ input }, ctx))!.input),
+      ),
+    };
 
     const find = (name: string): Record<string, unknown> => {
-      const tool = seen!.tools!.find((t) => t.name === name)!;
+      const tool = seen.tools.find((t) => t.name === name)!;
       return (tool as unknown as { parameters: { properties: Record<string, unknown> } }).parameters
         .properties;
     };

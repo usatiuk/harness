@@ -60,7 +60,14 @@ export class DemoProvider implements ModelProvider {
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
     const last = request.items.at(-1)?.item;
 
-    if (last?.type === "tool_result") {
+    const discoveryIds = new Set(
+      request.items.flatMap(({ item }) =>
+        item.type === "tool_call" && ["tool_search", "tool_describe"].includes(item.name)
+          ? [item.callId]
+          : [],
+      ),
+    );
+    if (last?.type === "tool_result" && !discoveryIds.has(last.callId)) {
       const text = "Done — ran your message through the command tool.";
       await delay(DEMO_LATENCY_MS, signal);
       if (signal.aborted) return;
@@ -78,6 +85,43 @@ export class DemoProvider implements ModelProvider {
     await delay(DEMO_LATENCY_MS, signal);
     if (signal.aborted) return;
     const tools = request.tools ?? [];
+    if (tools.some((tool) => tool.name === "eval")) {
+      const definitions = request.items.flatMap(({ item }) => {
+        if (item.type !== "tool_result" || item.status !== "ok" || !discoveryIds.has(item.callId))
+          return [];
+        const data = JSON.parse(textOf(item.content)) as {
+          tools?: { input: { name: string } }[];
+          input?: { name: string };
+        };
+        return data.tools ?? (data.input ? [{ input: data.input }] : []);
+      });
+      const shell = [
+        ...tools.map((tool) => tool.name),
+        ...definitions.map((tool) => tool.input.name),
+      ].find((name) => ["powershell", "bash"].includes(name));
+      if (!shell) {
+        if (last?.type === "tool_result" && discoveryIds.has(last.callId))
+          throw new Error("demo provider requires a command tool");
+        yield {
+          type: "tool_call",
+          callId: `call-${++this.#calls}`,
+          name: "tool_search",
+          args: { query: "powershell bash" },
+        };
+        yield { type: "completed", usage: ZERO_USAGE };
+        return;
+      }
+      yield {
+        type: "tool_call",
+        callId: `call-${++this.#calls}`,
+        name: "eval",
+        args: {
+          code: `return await tools.call(${JSON.stringify(shell)}, {command:${JSON.stringify(shell === "powershell" ? `Write-Output ${powershellQuote(youSaid)}` : `printf '%s\\n' ${bashQuote(youSaid)}`)}});`,
+        },
+      };
+      yield { type: "completed", usage: ZERO_USAGE };
+      return;
+    }
     const shell = tools.some((tool) => tool.name === "powershell")
       ? "powershell"
       : tools.some((tool) => tool.name === "bash")

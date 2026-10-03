@@ -14,7 +14,7 @@ The activities plugin owns one `ActivityManager` per loaded conversation and
 contributes:
 
 - Tool middleware that claims activities minted by backgroundable tools.
-- Model middleware that injects a uniform `background` argument into eligible
+- Contract resolution that injects a uniform `background` argument into eligible
   function schemas.
 - `activity_wait`, `activity_peek`, `activity_list`, and `activity_kill` tools.
 - A service used by tools and the TUI activities overlay.
@@ -25,17 +25,24 @@ the background, preserves output, and returns control to the model. An explicit
 sourced completion notice using `steer`; the current turn consumes it at the next
 after-tool-result boundary or a new turn starts when idle.
 
-Activity ids are the originating tool call ids. Output can be inspected while
+Activity ids identify work independently of its originating tool call. Output can be inspected while
 running, regex-filtered by line, waited on with a bounded timeout, or killed as a
 complete process tree. The manager belongs to one loaded runtime and suppresses
 completion delivery, kills, and awaits live work when that root scope is
 deactivated. Runtime handles are not durable across switch, reload, or process
 exit.
 
+Concurrent waits share a waiter count. A timeout or cancellation releases only
+that waiter's registration; a successful wait consumes the pending completion
+notice. The manager retains the notice callback while waiters are present, so an
+abandoned explicit wait cannot discard background completion. Cancelling a
+foreground call still kills its activity; cancelling an explicit background wait
+leaves the activity conversation-owned.
+
 ## Subagents
 
-The subagents plugin contributes one `subagent({agent, task})` tool and model
-middleware that rewrites its schema from the resolved per-conversation catalog.
+The subagents plugin contributes one `subagent({agent, task})` tool and a shared
+contract resolver that enriches its schema from the per-conversation catalog.
 When no agents are configured, the tool is withheld. Otherwise the `agent`
 argument is constrained to configured names and the model sees their descriptions.
 
@@ -57,6 +64,13 @@ whose plugin definitions set `inheritConfig`. Sandbox opts in, preserving a
 parent's execution selection. Explicit child selections win; other policies use
 their ordinary configuration cascade. The kernel and subagents package do not
 import sandbox implementations.
+
+Children also inherit the parent's tool mode unless explicitly overridden. Their
+own allowlist governs declarations, discovery, descriptions, and nested dispatch.
+Activity/subagent enrichment is identical through direct tools and evaluator
+discovery. A backgroundable call returns structured running/completed state and
+an activity id alongside presentation text; code must use `activity_wait` when
+it requires completed work rather than treating submission as completion.
 
 The subagent is itself backgroundable. Foreground completion returns the child's
 final result. Background execution is tracked through the same activity tools and

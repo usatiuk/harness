@@ -99,6 +99,39 @@ delays, or a nearby condition that does not prove completion.
 
 ## Coverage notes
 
+- Code-mode regressions exercise a real QuickJS worker and workspace tools through
+  HarnessService: selected data, deferred/effective contracts, freeform inputs,
+  scope and restricted children, instructions after the outer batch, computed
+  auto/human/policy decisions, partial effects, return/throw with pending work,
+  cancellation and next-turn recovery, concurrent foreground commands, sequential
+  awaits and direct batches, simultaneous correlated approvals, activities,
+  nonzero parent/child/reviewer usage, and per-operation escalation routing with
+  a controlled OS execution edge. This qualifies routing, not live Linux
+  containment. Public RPC with reopened SQLite qualifies nested associations,
+  structured `null`, spill/full refs, and crash reconciliation. Actual projected
+  history is rendered through OpenAI Responses/chat and Anthropic builders;
+  live provider credentials are not required by these checks.
+- Ordinary discovery regressions cover all three modes, unchanged deferred-call
+  admission, repeated/overlapping searches beyond the result cap, initially
+  declared tools, repeatable full describe, actual service compaction, rewind and
+  runtime reload, and interrupted discovery. Complete multibyte definitions and
+  oversized omissions are checked with the shipped output plugin and without an
+  execution backend. Core discovery is absent from the guest and nested calls to
+  discovery entry points are rejected.
+- Runtime tests reject runaway code/jobs/getters, empty-message failures, memory,
+  output, argument/name/result/cumulative data and submission limits. Ordinary
+  search bounds queries independently. Eight
+  multiline 32-KiB workspace reads qualify a representative valid workload.
+  Compaction/rewind tests bound retained successful and failed child pairs; generic
+  request history follows selected branches with explicit pre-compaction access.
+  Activity tests cover overlapping waiters and cancelled waiters retaining notices.
+  Native callback globals are absent from the guest. Service checks preserve
+  caught denial evidence and bounded spilled structured previews. Windows native
+  code-only qualification uses bundled Node/server/worker/WASM from a temporary
+  cwd outside the checkout, excludes system Node, reviews actual PowerShell
+  children, and reopens nested allowed/denied history. Other desktop platforms
+  and live Linux code-mode execution remain separate platform qualifications.
+
 - The `opencode-go` provider's roster is static and unit-tested against the
   2026-08-09 gateway-list and Models.dev metadata snapshots: documented family
   assignments (including Grok chat and GPT Luna Responses), exact model-scoped

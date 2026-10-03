@@ -53,6 +53,7 @@ export type Cell =
   | {
       kind: "tool";
       callId: string;
+      parentCallId?: string;
       turnId?: string;
       name: string;
       args: unknown;
@@ -277,6 +278,7 @@ function reduceItem(state: State, item: Item): State {
             turnId: item.turnId,
             name: item.name,
             args: item.args,
+            ...(item.parentCallId ? { parentCallId: item.parentCallId } : {}),
             startedAt: item.createdAt,
           },
         ],

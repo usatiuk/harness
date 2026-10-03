@@ -30,6 +30,8 @@ function approvalMiddleware(reader: ConfigReader): ToolMiddleware {
   return {
     id: "approval",
     async wrap(call, ctx, next) {
+      // The computation wrapper grants no authority. Review each computed child operation.
+      if (ctx.codeTools) return next(call);
       const config = approvalConfigSchema.parse(await reader.get("approval", ctx.conversationId));
       const relationship: Relationship = ctx.service("execution")
         ? executionOf(ctx).classify(call)
@@ -46,7 +48,13 @@ function approvalMiddleware(reader: ConfigReader): ToolMiddleware {
         });
         return errorResult(`tool '${call.name}' ${reason}`);
       }
-      const request: ApprovalRequest = { kind: "approval", call, relationship };
+      const contract = ctx.toolContract(call.name);
+      const request: ApprovalRequest = {
+        kind: "approval",
+        call,
+        relationship,
+        ...(contract ? { description: contract.input.description, input: contract.input } : {}),
+      };
       const parsed = approvalResponseSchema.safeParse(await ctx.request(request));
       const answer: ApprovalResponse = parsed.success
         ? (parsed.data as ApprovalResponse)

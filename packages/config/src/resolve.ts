@@ -95,7 +95,14 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
       model: doc.model.model,
       ...(doc.model.preset ? { preset: doc.model.preset } : {}),
     },
-    ...(doc.tools?.allow ? { tools: { allow: doc.tools.allow } } : {}),
+    ...(doc.tools
+      ? {
+          tools: {
+            ...(doc.tools.allow !== undefined ? { allow: doc.tools.allow } : {}),
+            ...(doc.tools.mode !== undefined ? { mode: doc.tools.mode } : {}),
+          },
+        }
+      : {}),
     plugins: resolvePlugins(doc.plugins ?? {}, opts.schemas, sources),
   };
 }

@@ -29,6 +29,7 @@ export async function reconcileConversation(
       turnId: call.turnId,
       type: "tool_result",
       callId: call.callId,
+      ...(call.parentCallId ? { parentCallId: call.parentCallId } : {}),
       content: [{ type: "text", text: "interrupted: session ended" }],
       status: "error",
     });

@@ -200,7 +200,9 @@ function ToolCard({
     const args = truncate(safeArgs(cell.args), ARGS_CAP);
     return (
       <Box flexDirection="column">
-        <Text color={color}>{`${mark} ${cell.name}(${args})`}</Text>
+        <Text
+          color={color}
+        >{`${cell.parentCallId ? "  ↳ " : ""}${mark} ${cell.name}(${args})`}</Text>
         {cell.output && !approvalDenied ? (
           <Text dimColor>{indent(truncate(cell.output, TOOL_OUTPUT_CAP))}</Text>
         ) : null}
@@ -212,7 +214,7 @@ function ToolCard({
   return (
     <Box flexDirection="column">
       <Text>
-        <Text color={color}>{`${mark} ${cell.name}`}</Text>
+        <Text color={color}>{`${cell.parentCallId ? "  ↳ " : ""}${mark} ${cell.name}`}</Text>
         {summary ? <Text dimColor>{`  ${summary}`}</Text> : null}
       </Text>
       <ApprovalLine cell={cell} />
@@ -241,7 +243,7 @@ function EditCard({
         : edit.labels.failed;
   return (
     <Box flexDirection="column">
-      <Text color={color}>{`${mark} ${label}`}</Text>
+      <Text color={color}>{`${cell.parentCallId ? "  ↳ " : ""}${mark} ${label}`}</Text>
       {cell.status === "error" ? (
         <Text dimColor>{approvalDenied ? " requested changes:" : " attempted changes:"}</Text>
       ) : null}

@@ -1,5 +1,6 @@
 import type {
   ConfigResolver,
+  CodeEvaluator,
   Conversation,
   ConversationId,
   ConversationPageCursor,
@@ -43,6 +44,7 @@ export interface HarnessServiceOptions {
    * resolution can never fail "no model configured".
    */
   defaults?: SettingsDoc;
+  codeEvaluator?: CodeEvaluator;
 }
 
 export interface CreateConversationOptions {
@@ -103,7 +105,12 @@ export class HarnessService implements ConversationRunner {
         plugins.push(entry);
       }
     }
-    this.#engine = new Engine(this.#store, new PluginHost(plugins), this.#resolveConfig);
+    this.#engine = new Engine(
+      this.#store,
+      new PluginHost(plugins),
+      this.#resolveConfig,
+      options.codeEvaluator,
+    );
   }
 
   /**
@@ -118,7 +125,14 @@ export class HarnessService implements ConversationRunner {
       const plugins = Object.fromEntries(
         [...this.#inheritedPlugins].map((id) => [id, parent.plugins?.[id]]),
       );
-      overrides = deepMerge({ model: parent.model, plugins }, overrides) as Record<string, unknown>;
+      overrides = deepMerge(
+        {
+          model: parent.model,
+          ...(parent.tools?.mode ? { tools: { mode: parent.tools.mode } } : {}),
+          plugins,
+        },
+        overrides,
+      ) as Record<string, unknown>;
     }
     const record = await this.#store.createConversation({
       workspaceRoot: options.cwd ?? null,

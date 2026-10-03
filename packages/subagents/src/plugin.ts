@@ -2,7 +2,7 @@ import type { ZodType } from "zod";
 import type {
   ConfigReader,
   ConversationRunner,
-  ModelMiddleware,
+  ToolContractResolver,
   Plugin,
   PluginDefinition,
   ToolSchema,
@@ -17,32 +17,16 @@ function roster(agents: AgentDef[]): string {
 }
 
 /**
- * Per request, rewrites the `subagent` tool schema from the conversation's catalog: constrains `agent`
+ * At the turn boundary, enriches the `subagent` contract from the conversation's catalog: constrains `agent`
  * to configured names and appends the roster. Drops the tool when no agents are configured, so the
- * model never sees a callable it can't use. Only this request's schema is touched — the global tool
- * surface stays unchanged.
+ * model never sees a callable it can't use. Declarations and discovery share this turn's contract.
  */
-export function subagentCatalogMiddleware(reader: ConfigReader): ModelMiddleware {
-  return {
-    id: "subagent-catalog",
-    async *wrap(request, ctx, next) {
-      if (!request.tools) {
-        yield* next(request);
-        return;
-      }
-      const cfg = (await reader.get<SubagentsConfig>("subagents", ctx.conversationId)) ?? {};
-      const agents = cfg.agents ?? [];
-      const idx = request.tools.findIndex((t) => t.kind === "function" && t.name === "subagent");
-      if (idx < 0) {
-        yield* next(request);
-        return;
-      }
-      const tools =
-        agents.length === 0
-          ? request.tools.filter((t) => !(t.kind === "function" && t.name === "subagent"))
-          : request.tools.map((t, i) => (i === idx ? withRoster(t, agents) : t));
-      yield* next({ ...request, tools });
-    },
+export function subagentContractResolver(reader: ConfigReader): ToolContractResolver {
+  return async (contract, ctx) => {
+    if (contract.input.name !== "subagent") return contract;
+    const cfg = (await reader.get<SubagentsConfig>("subagents", ctx.conversationId)) ?? {};
+    const agents = cfg.agents ?? [];
+    return agents.length === 0 ? null : { ...contract, input: withRoster(contract.input, agents) };
   };
 }
 
@@ -64,7 +48,7 @@ function withRoster(tool: ToolSchema, agents: AgentDef[]): ToolSchema {
   };
 }
 
-/** The composed subagents plugin: one generic tool + the per-request catalog rewriter. */
+/** The composed subagents plugin: one generic tool and its turn-local contract resolver. */
 class SubagentsPlugin implements Plugin {
   readonly id = "subagents";
   readonly #reader: ConfigReader;
@@ -85,8 +69,8 @@ class SubagentsPlugin implements Plugin {
     ];
   }
 
-  modelMiddleware() {
-    return [subagentCatalogMiddleware(this.#reader)];
+  toolContracts() {
+    return [subagentContractResolver(this.#reader)];
   }
 }
 

@@ -103,6 +103,33 @@ judgment, model failure, or timeout fails closed as an automatic denial rather
 than falling through to a human prompt. Downstream delegated calls are reviewed
 independently.
 
+## Code-mode execution
+
+The shipped `@harness/code-mode` implementation runs a fresh QuickJS WASM runtime
+in a Node worker for each invocation. Its only bridge capabilities are scoped
+tool calls and explicit output. Search/describe are ordinary host tools, outside
+the guest. No host filesystem, network, process,
+imports, timers, or credentials are ambient. Computed calls use ordinary
+execution/approval middleware; approving computation grants no downstream
+authority. Escalation selects unconfined execution for one child operation only.
+Execution wrappers preserve each tool's direct/code exposure and output contract.
+Guest bridge callbacks remain private to the trusted setup closure.
+
+Fixed limits are 32 MiB guest memory, 512 KiB guest stack, one second cumulative
+interpreter CPU (including getters, serialization, jobs, and settlement), 64 KiB
+selected output, 1 MiB per bridge transfer, 8 MiB cumulative bidirectional data,
+128 submissions, and 16 outstanding submissions. Search accepts 512 characters
+and 32 distinct terms, returning at most twelve contracts. Waiting on tools or
+human approvals consumes no interpreter CPU. Cancellation terminates the worker
+and closes its bridge before outer completion. Unsupported content blocks fail
+explicitly; the current protocol and `emitContent` support text only.
+
+Structured data passes through result middleware alongside presentation content.
+Middleware that redacts or restricts results must handle both representations.
+Read/glob tools provide structured line windows/path lists; the evaluator bridge
+bounds data delivered to guest code. Other tools work
+through content envelopes. Full results and refs stay in canonical history.
+
 ## Output handling
 
 Short results remain inline. The output plugin preserves large results in the

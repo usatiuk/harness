@@ -145,6 +145,85 @@ function setup(steps: FakeStep[], plugin?: Partial<Plugin>, existingStore?: InMe
 }
 
 describe("Engine — turn cycle", () => {
+  it("keeps generic request history compacted by default and follows rewind when including older items", async () => {
+    const snapshots: { current: readonly Item[]; full: readonly Item[] }[] = [];
+    const { store, engine } = setup(
+      [
+        toolStep("first-request", "echo", {}),
+        textStep("done"),
+        toolStep("second-request", "echo", {}),
+        textStep("done"),
+      ],
+      {
+        toolMiddleware: () => [
+          {
+            id: "interaction",
+            wrap: async (call, ctx, next) => {
+              await ctx.request({ kind: "history-inspection" });
+              return next(call);
+            },
+          },
+        ],
+        requestMiddleware: () => [
+          {
+            id: "inspect",
+            wrap: async (_request, ctx) => {
+              snapshots.push({
+                current: await ctx.active(),
+                full: await ctx.active({ includeCompacted: true }),
+              });
+              return {};
+            },
+          },
+        ],
+      },
+    );
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    const turn = await store.createTurn(conversation.id);
+    await store.appendItem({
+      conversationId: conversation.id,
+      turnId: turn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "old history" }],
+    });
+    const firstFold = await store.appendItem({
+      conversationId: conversation.id,
+      turnId: turn.id,
+      type: "compaction",
+      content: [{ type: "text", text: "first summary" }],
+    });
+    const secondFold = await store.appendItem({
+      conversationId: conversation.id,
+      turnId: turn.id,
+      type: "compaction",
+      content: [{ type: "text", text: "second summary" }],
+    });
+    await store.updateTurn(turn.id, "completed");
+    await engine.deliver(conversation.id, userInput("inspect"));
+    await engine.whenIdle(conversation.id);
+    expect(snapshots[0]!.current[0]!.id).toBe(secondFold.id);
+    expect(snapshots[0]!.full.map((item) => item.type)).toEqual([
+      "message",
+      "compaction",
+      "compaction",
+      "message",
+      "tool_call",
+    ]);
+    await engine.rewind(conversation.id, firstFold.id);
+    await engine.deliver(conversation.id, userInput("inspect selected branch"));
+    await engine.whenIdle(conversation.id);
+    expect(snapshots[1]!.current[0]!.id).toBe(firstFold.id);
+    expect(snapshots[1]!.full.map((item) => item.type)).toEqual([
+      "message",
+      "compaction",
+      "message",
+      "tool_call",
+    ]);
+    expect(snapshots[1]!.full.some((item) => item.id === secondFold.id)).toBe(false);
+    expect(JSON.stringify(snapshots[1]!.full)).not.toContain("first-request");
+  });
+
   it("records forced context-assembly teardown as cancellation without constructing services", async () => {
     let entered!: () => void, release!: () => void;
     const waiting = new Promise<void>((resolve) => {

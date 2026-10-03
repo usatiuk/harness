@@ -53,6 +53,15 @@ const readArgs = z.strictObject({
   limit: z.number().int().positive().optional(),
 });
 export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
+  readonly outputSchema = {
+    type: "object",
+    properties: {
+      text: { type: "string" },
+      offset: { type: "integer" },
+      totalLines: { type: "integer" },
+    },
+    required: ["text", "offset", "totalLines"],
+  };
   readonly name = "read_file";
   readonly description =
     "Read a UTF-8 text file. `path` is relative to the workspace root. Reads a window of lines " +
@@ -77,7 +86,10 @@ export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
     });
     const windowed = start > 0 || end < lines.length;
     const header = windowed ? `[lines ${start + 1}-${end} of ${lines.length}]\n` : "";
-    return okResult(header + body);
+    return {
+      ...okResult(header + body),
+      structured: { text: body, offset: start, totalLines: lines.length },
+    };
   }
 }
 
@@ -283,6 +295,11 @@ export function scopedPattern(pattern: string, path?: string): string {
   return dir === "" || dir === "." ? pat : `${dir}/${pat}`;
 }
 export class GlobTool implements Tool<z.infer<typeof globArgs>> {
+  readonly outputSchema = {
+    type: "object",
+    properties: { paths: { type: "array", items: { type: "string" } } },
+    required: ["paths"],
+  };
   readonly name = "glob";
   readonly description =
     "List files matching a glob `pattern`. Optional `path` scopes the search to a " +
@@ -293,6 +310,9 @@ export class GlobTool implements Tool<z.infer<typeof globArgs>> {
     ctx: ToolContext,
   ): Promise<ToolResult> {
     const matches = await executionOf(ctx).list(scopedPattern(pattern, path));
-    return okResult(matches.length ? matches.join("\n") : "no matches");
+    return {
+      ...okResult(matches.length ? matches.join("\n") : "no matches"),
+      structured: { paths: matches },
+    };
   }
 }

@@ -130,6 +130,8 @@ export function executionFunctionTool(execution: ExecutionContext, tool: Tool): 
     name: tool.name,
     description: tool.description,
     input,
+    ...(tool.exposure ? { exposure: tool.exposure } : {}),
+    ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
     ...(tool.meta ? { meta: tool.meta } : {}),
     async execute(value, ctx) {
       const split = splitStructuredExecutionArgs(value);

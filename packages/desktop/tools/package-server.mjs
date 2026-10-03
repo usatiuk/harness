@@ -34,7 +34,13 @@ try {
   nodeLicense = await response.text();
 }
 await writeFile(join(output, "runtime", "LICENSE"), nodeLicense);
-const external = ["better-sqlite3", "@napi-rs/keyring", "@primno/dpapi", "@devcontainers/cli"];
+const external = [
+  "better-sqlite3",
+  "@napi-rs/keyring",
+  "@primno/dpapi",
+  "@devcontainers/cli",
+  "quickjs-emscripten",
+];
 await build({
   entryPoints: [join(root, "packages/server/src/bin.ts")],
   outfile: join(output, "server.mjs"),
@@ -47,6 +53,15 @@ await build({
   banner: {
     js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
   },
+});
+await build({
+  entryPoints: [join(root, "packages/code-mode/src/worker.mjs")],
+  outfile: join(output, "worker.mjs"),
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node22",
+  external,
 });
 const copied = new Set();
 async function copyPackage(name, from) {

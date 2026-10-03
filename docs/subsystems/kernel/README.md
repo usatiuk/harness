@@ -80,6 +80,54 @@ Tool middleware owns execution-time transformation, approval, output handling,
 and context staging. Model middleware sees every model call, including agent,
 compaction, subagent, and auto-approval calls. Request middleware wraps correlated
 host interactions such as approval and may short-circuit before the UI transport.
+Their `active()` capability returns the compacted active branch by default;
+`active({includeCompacted: true})` includes earlier items on that branch. Request
+owners choose any additional selection, including auto-approval's bounded evidence.
+
+## Tool modes and programmatic execution
+
+The host resolves one scoped catalog per turn, then applies contract resolvers
+before either provider declarations or discovery. A contract is the public tool
+description and input schema, plus its output schema when known. Resolvers enrich schemas
+or withhold a tool; activity background options and subagent catalogs use this
+shared path. Tool identity and direct/code exposure remain host-owned. Exposure
+is presentation and entry-point eligibility; the conversation allowlist still
+defines authority. Omitted exposure means both interfaces.
+
+`tools.mode` defaults to `direct`. `hybrid` offers direct tools and the core
+`eval` entry point. The ordinary core `tool_search` and `tool_describe` tools are
+immediately available in every mode. `code-only` runs capabilities through `eval`
+and rejects guessed ordinary direct calls, including after discovery. Deferred
+tools have code exposure only. The evaluator itself is
+direct-only and cannot recurse. Enabling code mode without an injected evaluator
+fails explicitly. The server injects `@harness/code-mode`; core imports only its
+protocol contract.
+
+Search excludes initially declared names and paired successful discovery results
+in the context since the latest compaction. Rewind and reload derive the set from
+the active branch. Describe always returns the current full definition, including
+output information and changed plugin enrichment. There is no separate loaded-tool
+registry or promotion into direct calls. Search filters known names before ranking
+and packs up to twelve complete definitions under 64 KiB; oversized names are
+reported without being marked known. Describe of an oversized definition fails
+explicitly. These reserved metadata-only operations use core parsing, cancellation
+and recording with their own complete-output budget, outside plugin execution,
+approval and generic output-cropping middleware. They cannot execute capabilities
+and are not callable from guest code; the guest exposes only `tools.call`.
+
+Nested operations receive host-generated ids and `parentCallId`, then pass through
+ordinary validation, middleware, approval, execution, output handling, events, and
+canonical call/result recording. A result is persisted before guest code receives
+it. The main model sees outer source and selected output; reviewers and clients
+retain canonical descendants. Mandatory cancellation admission is checked at the
+terminal execution boundary after middleware returns.
+
+JavaScript controls child ordering: sequential `await` orders calls; concurrent
+submissions overlap through the same governed invocation path. Direct model batches
+retain their sequential loop. Body completion cancels unawaited work;
+descendants are paired before the outer result. Evaluator cancellation awaits
+worker termination and preserves emitted output. No heaps, cells, workflow
+resumption, rollback, or automatic script replay are persisted.
 
 ## State and ownership
 

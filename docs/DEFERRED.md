@@ -5,6 +5,19 @@ current change. Keep entries concrete: state the limitation, consequence, reason
 for deferral, and the condition that should reopen it. Package-local follow-up may
 instead live in the owning execution plan or an issue.
 
+## Alternate home and natural-home project discovery
+
+With `HARNESS_HOME` pointing elsewhere, a workspace below the user's normal home
+can treat `~/.harness` as a project marker. Global-only fields such as `auth` then
+fail project validation. Code-mode native qualification reproduced this with an
+unmarked temporary project; an explicit project marker isolates the fixture.
+`findProjectRoot` currently compares the configured home with `defaultHome()`,
+which resolves to that same configured path under the environment override.
+
+Reopen with configuration-discovery work: keep the natural user home separate
+from the configured home and regression-test temporary/alternate profiles.
+This existing settings issue is outside the evaluator change.
+
 ## Native sandbox filesystem race
 
 Harness currently validates built-in filesystem mutation paths before performing

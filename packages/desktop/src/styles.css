@@ -543,3 +543,8 @@ main {
 .settings-page .form-grid > button {
   grid-column: 1 / -1;
 }
+.nested-tools {
+  margin: 0.75rem 0 0.75rem 1rem;
+  border-left: 2px solid var(--gray-5);
+  padding-left: 0.75rem;
+}

@@ -25,6 +25,7 @@ import type { RpcConnection } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { FEATURE_PLUGIN_CONTRACTS } from "@harness/client-features";
 import { modelCompaction } from "@harness/core";
+import { QuickJsEvaluator } from "@harness/code-mode";
 import { createCustomProviderPlugins } from "@harness/custom-providers";
 import { DemoProvider } from "./demo-provider.ts";
 import { authRegistry } from "./auth.ts";
@@ -97,6 +98,7 @@ export async function buildServerHarness(connection: RpcConnection): Promise<Ser
     // Lowest cascade layer: every conversation has a model even on resume with no settings, and
     // resolution never fails "no model configured".
     const service = new HarnessService({
+      codeEvaluator: new QuickJsEvaluator(),
       store,
       plugins,
       defaults: {

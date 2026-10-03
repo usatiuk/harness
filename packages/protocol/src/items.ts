@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { ConversationId, ItemId, TurnId } from "./ids.ts";
 import { contentBlockSchema, type ContentBlock } from "./content.ts";
-import type { ToolStatus } from "./tools.ts";
+import { outputRefSchema, type ToolStatus, type OutputRef } from "./tools.ts";
+import { jsonValueSchema, type JsonValue } from "./rpc.ts";
 
 interface ItemBase {
   id: ItemId;
@@ -18,13 +19,23 @@ export type MessageRole = "user" | "assistant" | "system";
 export type Item =
   | (ItemBase & { type: "message"; role: MessageRole; content: ContentBlock[] })
   | (ItemBase & { type: "reasoning"; content: ContentBlock[] })
-  | (ItemBase & { type: "tool_call"; callId: string; name: string; args: unknown })
+  | (ItemBase & {
+      type: "tool_call";
+      callId: string;
+      name: string;
+      args: unknown;
+      parentCallId?: string;
+    })
   | (ItemBase & {
       type: "tool_result";
       callId: string;
+      parentCallId?: string;
       content: ContentBlock[];
       status: ToolStatus;
       annotations?: Record<string, unknown>;
+      structured?: JsonValue;
+      structuredRef?: OutputRef;
+      full?: OutputRef;
     })
   // A fold of the complete active history before it. Renders to the provider as a
   // plain message; its position is the context boundary.
@@ -67,14 +78,19 @@ export const itemSchema = z.discriminatedUnion("type", [
     callId: z.string(),
     name: z.string(),
     args: z.unknown(),
+    parentCallId: z.string().optional(),
   }),
   z.object({
     ...baseShape,
     type: z.literal("tool_result"),
     callId: z.string(),
     content: z.array(contentBlockSchema),
+    parentCallId: z.string().optional(),
     status: z.enum(["ok", "error"]),
     annotations: z.record(z.string(), z.unknown()).optional(),
+    structured: jsonValueSchema.optional(),
+    structuredRef: outputRefSchema.optional(),
+    full: outputRefSchema.optional(),
   }),
   z.object({
     ...baseShape,

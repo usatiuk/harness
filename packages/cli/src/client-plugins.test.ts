@@ -28,6 +28,7 @@ async function createHarness() {
   openStores.push(store);
   const service = new HarnessService({
     store,
+    home: "/nonexistent-harness-test-home",
     plugins: [sandboxPlugin, activitiesPlugin],
     defaults: { model: { provider: "demo", model: "demo-1" } },
   });

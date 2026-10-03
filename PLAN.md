@@ -73,6 +73,8 @@ As of 2026-10-03, Harness provides:
   payload fidelity, usage, and cost.
 - Harness-owned read/write/edit/patch/glob/command tools selected by the active
   model's trained file-tool dialect.
+- Direct, hybrid, and code-only tool modes over one scoped catalog, ordinary
+  discovery, governed recorded nested calls, and a bounded QuickJS worker.
 - Local, Linux Bubblewrap, and dev-container execution; bounded output files;
   human approval and optional model-backed auto-approval.
 - Hierarchical `AGENTS.md` instructions, model-backed/manual compaction,
@@ -110,6 +112,23 @@ As of 2026-10-03, Harness provides:
 | Testing                     | [Architecture](docs/subsystems/testing/README.md)       | [Evidence for active reliability and security work](docs/subsystems/testing/PLAN.md)     |
 
 ## Near-term order
+
+The [code-mode delivery](docs/plans/cross-cutting/2026-10-03-code-mode.md) adds
+programmatic selection without a second tool registry or permissions path. It
+includes shared effective contracts, deferred exposure, canonical nested history,
+reviewer failure evidence across compaction, and client inspection. Delivery is
+complete with independent plan/design and implementation reviews, full local
+validation (891 tests passed, 30 skipped), and all 12 native scenarios against the
+staged Windows release outside the checkout without system Node. Evidence and
+qualification limits are recorded in that delivery plan. Discovery uses ordinary
+immediately available search/describe tools, existing deferred code exposure, and
+deduplication that resets with compaction.
+The completed architecture cleanup lets JavaScript control child concurrency,
+preserves wrapper contracts, hides guest internals, and moves reviewer selection
+into auto-approval. Concurrent activity waits retain completion notices until
+delivery or consumption, and collection respects those owners. The final cleanup
+passed refreshed full checks, three independent reviews, and all 12 native Windows
+scenarios against the fresh release.
 
 Completed the
 [independent parallel conversation foundation](docs/plans/cross-cutting/2026-10-03-parallel-conversations.md)

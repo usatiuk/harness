@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { outputRefSchema } from "./tools.ts";
 import { defineNotification, defineRequest, jsonValueSchema } from "./rpc.ts";
 
 const idSchema = z.string().min(1);
@@ -45,6 +46,7 @@ export const wireItemSchema = z.discriminatedUnion("type", [
     callId: z.string(),
     name: z.string(),
     args: jsonValueSchema,
+    parentCallId: z.string().nullable().default(null),
   }),
   z.strictObject({
     ...itemBaseShape,
@@ -52,7 +54,11 @@ export const wireItemSchema = z.discriminatedUnion("type", [
     callId: z.string(),
     content: z.array(wireContentBlockSchema),
     status: z.enum(["ok", "error"]),
+    parentCallId: z.string().nullable().default(null),
     annotations: z.record(z.string(), jsonValueSchema).nullable(),
+    structured: z.strictObject({ value: jsonValueSchema }).nullable().default(null),
+    structuredRef: outputRefSchema.nullable().default(null),
+    full: outputRefSchema.nullable().default(null),
   }),
   z.strictObject({
     ...itemBaseShape,
@@ -77,7 +83,12 @@ export const wireModelConfigSchema = z.strictObject({
 export const wireConversationConfigSchema = z.strictObject({
   instructions: z.string(),
   model: wireModelConfigSchema,
-  tools: z.strictObject({ allow: z.array(z.string()).nullable() }).nullable(),
+  tools: z
+    .strictObject({
+      allow: z.array(z.string()).nullable(),
+      mode: z.enum(["direct", "hybrid", "code-only"]).default("direct"),
+    })
+    .nullable(),
   plugins: z.record(z.string(), jsonValueSchema),
 });
 export type WireConversationConfig = z.infer<typeof wireConversationConfigSchema>;

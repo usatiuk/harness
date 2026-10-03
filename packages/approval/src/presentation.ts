@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { HarnessEvent, InteractionRequest, ModelConfig, ToolCall } from "@harness/protocol";
+import type {
+  HarnessEvent,
+  InteractionRequest,
+  ModelConfig,
+  ToolCall,
+  ToolSchema,
+} from "@harness/protocol";
 import type { Relationship } from "@harness/execution";
 
 const effect = z.enum(["allow", "ask", "deny"]);
@@ -28,6 +34,8 @@ export interface ApprovalRequest extends InteractionRequest {
   kind: "approval";
   call: ToolCall;
   relationship: Relationship;
+  description?: string;
+  input?: ToolSchema;
 }
 
 export type ApprovalResponder = "auto" | "human" | "policy";

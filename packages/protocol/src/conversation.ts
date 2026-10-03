@@ -1,5 +1,6 @@
 import type { ConversationId, ItemId, TurnId } from "./ids.ts";
 import type { ModelConfig } from "./model.ts";
+import type { ToolMode } from "./tools.ts";
 
 /**
  * A conversation's resolved settings — DERIVED from the cascade + the durable `overrides` layer on
@@ -10,7 +11,7 @@ export interface ConversationConfig {
   instructions: string;
   model: ModelConfig;
   /** Tool scope (which tools this conversation may use). Enforced by `PluginHost.toolsFor`. */
-  tools?: { allow?: string[] };
+  tools?: { allow?: string[]; mode?: ToolMode };
   /** Per-plugin config, validated against each plugin's schema. Read via `ConfigReader`. */
   plugins?: Record<string, unknown>;
 }

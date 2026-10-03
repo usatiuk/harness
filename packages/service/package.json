@@ -17,6 +17,14 @@
     "@harness/config": "*"
   },
   "devDependencies": {
+    "@harness/output": "*",
+    "@harness/store-sqlite": "*",
+    "@harness/openai-core": "*",
+    "@harness/anthropic-core": "*",
+    "@harness/code-mode": "*",
+    "@harness/activities": "*",
+    "@harness/auto-approval": "*",
+    "@harness/subagents": "*",
     "@harness/agents": "*",
     "@harness/store": "*",
     "@harness/testkit": "*",
