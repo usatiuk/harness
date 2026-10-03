@@ -1,0 +1,48 @@
+{
+  "name": "@harness/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 1420 --strictPort",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "prepare:server": "node tools/package-server.mjs",
+    "tauri": "node tools/native.mjs tauri",
+    "desktop:dev": "npm run prepare:server && node tools/native.mjs tauri dev",
+    "desktop:build": "npm run prepare:server && node tools/native.mjs tauri build",
+    "test:native": "npm run prepare:server && npm run build && node tools/native.mjs cargo build --manifest-path src-tauri/Cargo.toml --features custom-protocol --locked && node --conditions=development ../../node_modules/@playwright/test/cli.js test -c playwright.native.config.ts"
+  },
+  "dependencies": {
+    "@harness/approval": "*",
+    "@harness/client": "*",
+    "@harness/client-features": "*",
+    "@harness/protocol": "*",
+    "@harness/server": "*",
+    "@radix-ui/themes": "^3.3.0",
+    "@tauri-apps/api": "^2.12.0",
+    "@tauri-apps/plugin-dialog": "^2.7.0",
+    "@tauri-apps/plugin-opener": "^2.7.0",
+    "lucide-react": "^1.51.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "react-router": "^7.13.1",
+    "react-virtuoso": "^4.18.3",
+    "remark-gfm": "^4.0.1",
+    "vscode-jsonrpc": "^8.2.0"
+  },
+  "devDependencies": {
+    "@harness/service": "*",
+    "@harness/store": "*",
+    "@harness/store-sqlite": "*",
+    "@harness/testkit": "*",
+    "@playwright/test": "^1.63.0",
+    "@tauri-apps/cli": "^2.12.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^6.0.1",
+    "esbuild": "^0.28.0",
+    "vite": "^8.0.0"
+  }
+}

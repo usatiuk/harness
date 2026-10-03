@@ -11,7 +11,10 @@
   ],
   "scripts": {
     "dev": "tsx --conditions=development --tsconfig packages/cli/tsconfig.json packages/cli/src/bin.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/cli/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/cli/tsconfig.json && tsc --noEmit -p packages/desktop/tsconfig.json",
+    "desktop:dev": "npm run desktop:dev --workspace @harness/desktop",
+    "desktop:build": "npm run desktop:build --workspace @harness/desktop",
+    "test:native": "npm run test:native --workspace @harness/desktop",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

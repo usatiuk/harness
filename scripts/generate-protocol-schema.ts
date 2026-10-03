@@ -23,6 +23,13 @@ import {
 } from "@harness/sandbox";
 import { subagentsTopLevelRequest } from "@harness/subagents";
 import { workspaceShellEventNotification, workspaceShellRunRequest } from "@harness/workspace";
+import {
+  appSettingsRequest,
+  appSettingsUpdateRequest,
+  appAuthLoginRequest,
+  appAuthLogoutRequest,
+  appAuthUrlNotification,
+} from "@harness/server/client-protocol";
 
 const messages: readonly RpcMessage[] = [
   initializeRequest,
@@ -37,6 +44,11 @@ const messages: readonly RpcMessage[] = [
   subagentsTopLevelRequest,
   workspaceShellRunRequest,
   workspaceShellEventNotification,
+  appSettingsRequest,
+  appSettingsUpdateRequest,
+  appAuthLoginRequest,
+  appAuthLogoutRequest,
+  appAuthUrlNotification,
 ] as readonly RpcMessage[];
 
 const definitions: Record<string, JsonValue> = {};

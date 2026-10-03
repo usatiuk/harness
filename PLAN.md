@@ -18,8 +18,8 @@
   features should not fork the turn loop.
 - **Cancellable, observable work.** User input, model calls, tools, approvals,
   background work, and subagents expose bounded lifetimes and typed events.
-- **Simple product surface.** Keep the TUI opinionated and useful before adding
-  additional clients or generalized frameworks.
+- **Simple product surface.** Keep the TUI and desktop focused on conversations,
+  controls, and inspection rather than an IDE or generalized UI framework.
 
 ## Non-goals for the current version
 
@@ -29,8 +29,8 @@
 - A general workflow engine, distributed scheduler, or multi-user daemon.
 - Full branch management merely because the store can represent branches.
 - Provider server state such as `previous_response_id` as conversation truth.
-- Web, desktop, ACP, or remote-control surfaces before the TUI and service
-  contracts are dependable.
+- Web, ACP, shared daemons, parallel TUI presentation, and desktop side-by-side
+  views or IDE features.
 - Generic compaction pipelines, server-side compaction, or a model-capability
   framework without a concrete implementation that needs them.
 - Compatibility preservation for disposable pre-release database schemas.
@@ -38,7 +38,7 @@
 ## System overview
 
 ```text
-CLI / TUI / future clients
+CLI / TUI / Tauri desktop
     ↓ JSON-RPC (in-process or bounded NDJSON stdio)
 Harness client ↔ HarnessService server
     ↓
@@ -50,7 +50,8 @@ SQLite (production) or in-memory (tests)
 ```
 
 The primary package direction remains `protocol → store → core → service →
-cli`. Feature packages are plugin contributions wired at the CLI composition
+server`, with CLI and desktop over the public client boundary. Feature packages
+are plugin contributions wired at the shared server composition
 root. They may depend on protocol and narrower feature contracts, but the kernel
 does not import provider, workspace, sandbox, approval, activity, or subagent
 packages.
@@ -79,6 +80,12 @@ As of 2026-10-03, Harness provides:
 - An Ink TUI with streaming Markdown, verbose transcript, resume/rewind,
   model/preset selection, sandbox controls, activities, usage, cost, and context
   fill.
+- A Tauri/React desktop client with React Router loaders/actions/fetchers, a
+  live conversation sidebar, independent turns/drafts/approvals, virtualized
+  bounded history, Markdown/tool/diff/output inspection, provider/settings
+  controls, and a bundled owned server with exclusive database ownership.
+  Native Windows tests cover actual WebView2, processes, restart, and shutdown;
+  other desktop platforms remain unqualified.
 - A language-neutral JSON-RPC client/server boundary used identically in-process,
   by a local stdio child, or through SSH. Multiple attached root conversations
   may run concurrently; the TUI renders one while connection-owned approvals and
@@ -106,8 +113,12 @@ Completed the
 [independent parallel conversation foundation](docs/plans/cross-cutting/2026-10-03-parallel-conversations.md)
 with full local validation, independent review, real stdio concurrency, and live
 Docker/Compose qualification. The service/protocol is ready to underpin a desktop
-client; desktop implementation, TUI parallel presentation, and worktrees remain
-outside this milestone. Existing provider reliability and native containment
+client. The approved [desktop v1 delivery](docs/plans/interface/2026-10-03-desktop-v1.md)
+is complete with full local validation, three independent reviews, and ten
+native E2E scenarios against the staged Windows release outside the checkout
+without system Node. The NSIS installer builds; installation and other desktop
+platforms remain unqualified. TUI parallel presentation and worktrees remain outside
+scope. Existing provider reliability and native containment
 priorities below remain active follow-up.
 
 1. [x] Replace obsolete monolithic design documents with this product plan and
@@ -118,10 +129,11 @@ priorities below remain active follow-up.
        or MCP callable tools for ecosystem reach.
 4. [ ] Close the native filesystem mutation race before strengthening sandbox
        isolation claims.
-5. [ ] Reassess product ergonomics and diagnostic export before adding another
-       client surface.
+5. [ ] Reassess product ergonomics and diagnostic export in the shipped clients.
 6. [x] Establish the transport-agnostic client/server boundary before adding a
        second UI client.
+7. [x] Deliver the approved desktop v1 with independent conversations, inspection,
+       owned background server, database exclusion, and actual native E2E.
 
 ## Documentation roles
 

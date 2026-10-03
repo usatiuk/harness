@@ -2,8 +2,9 @@
 
 ## Objective
 
-Keep one dependable local TUI and one reusable service/event boundary. Improve
-diagnosis and daily operation before multiplying client surfaces.
+Keep dependable local TUI and desktop clients over one reusable service/event
+boundary. Improve diagnosis and daily operation. Desktop v1 delivery is tracked
+in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 
 ## Diagnostics and supportability
 
@@ -26,11 +27,11 @@ diagnosis and daily operation before multiplying client surfaces.
 
 ## Deliberately deferred
 
-- Web, desktop, daemon, ACP, and remote multi-user surfaces.
+- Web, daemon, ACP, remote multi-user surfaces, and parallel TUI presentation.
 - A general UI component framework shared with hypothetical clients.
 - Full branch visualization without a branch-management workflow.
 - Profile selection without an actual launch or session-switch workflow.
 - Transcript search/export until conversation length demonstrates the need.
-- Another client until a concrete consumer validates the service boundary.
+- Desktop side-by-side views, file explorers, editors, and worktree management.
 - Silent provider or sandbox fallback in the name of smoother UX.
 - Storing derived transcript/UI state durably.

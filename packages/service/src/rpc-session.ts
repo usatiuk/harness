@@ -85,7 +85,9 @@ export class HarnessRpcSession {
     this.#service = options.service;
     this.#defaultModel = options.defaultModel ?? { provider: "demo", model: "demo-1" };
     this.#onError = options.onError ?? (() => undefined);
-    options.connection.onClose(() => void this.shutdown(false));
+    options.connection.onClose(() => {
+      void this.shutdown(false).catch(this.#onError);
+    });
     this.server = new RpcServer({
       connection: options.connection,
       server: options.server,
@@ -233,10 +235,11 @@ export class HarnessRpcSession {
     this.#owned.clear();
     this.#attached.clear();
     this.#closing.clear();
-    for (const result of settled) {
-      if (result.status === "rejected") this.#onError(result.reason);
-    }
     if (closePeer) this.server.close();
+    const errors = settled.flatMap((result) =>
+      result.status === "rejected" ? [result.reason as unknown] : [],
+    );
+    if (errors.length > 0) throw new AggregateError(errors, "Conversation shutdown failed");
   }
 
   #registerCoreHandlers(): void {
@@ -503,7 +506,7 @@ export class HarnessRpcSession {
     };
     if (Buffer.byteLength(JSON.stringify(result), "utf8") > MAX_ATTACH_BYTES) {
       this.server.peer.terminateProtocol("attachment snapshot exceeds its byte limit");
-      void this.shutdown(false);
+      void this.shutdown(false).catch(this.#onError);
       throw new Error("attachment snapshot exceeds its byte limit");
     }
     return result;

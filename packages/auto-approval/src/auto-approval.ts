@@ -10,7 +10,6 @@ import {
   type ConfigReader,
   type ContentBlock,
   type Conversation,
-  type HarnessEvent,
   type Item,
   type ModelConfig,
   type ModelRequest,
@@ -35,18 +34,7 @@ export const autoApprovalConfigSchema = z.strictObject({
 
 export type AutoApprovalConfig = z.infer<typeof autoApprovalConfigSchema>;
 
-export interface AutoApprovalEvent {
-  type: "auto-approval.reviewing";
-  conversationId?: string;
-  callId: string;
-  name: string;
-  model: ModelConfig;
-}
-
-export const isAutoApprovalEvent = (
-  event: HarnessEvent,
-): event is HarnessEvent & AutoApprovalEvent => event.type === "auto-approval.reviewing";
-
+export { isAutoApprovalEvent, type AutoApprovalEvent } from "./events.ts";
 export interface ReviewContextInput {
   conversation: Conversation;
   items: readonly Item[];

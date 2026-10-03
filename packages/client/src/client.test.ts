@@ -6,6 +6,7 @@ import {
   conversationReloadRequest,
   conversationDetachedNotification,
   conversationEventNotification,
+  conversationPresetSetRequest,
   defineNotification,
   serverModelsRequest,
   type AttachResult,
@@ -69,6 +70,69 @@ const attachment: AttachResult = {
 };
 
 describe("HarnessClient attachment", () => {
+  it("projects a complete model selection to the identity expected by preset changes", async () => {
+    const connections = createInProcessMessageConnectionPair();
+    const server = new RpcPeer({ role: "server", connection: connections.right });
+    server.onInitialize(() => ({
+      protocolVersion: HARNESS_PROTOCOL_VERSION,
+      server: { name: "server", version: "1" },
+      plugins: [],
+    }));
+    let selection: unknown;
+    server.onRequest(conversationPresetSetRequest, ({ expected }) => {
+      selection = expected;
+      return null;
+    });
+    server.listen();
+    const client = new HarnessClient({
+      connection: connections.left,
+      client: { name: "client", version: "1" },
+    });
+    await client.start();
+    const model = { provider: "demo", model: "demo-1", preset: "high" };
+    await client.setPreset("root", model, "low");
+    expect(selection).toEqual({ provider: "demo", model: "demo-1" });
+    client.closeConnection();
+  });
+
+  it("does not accumulate unobserved descendant output or disconnect observed roots", async () => {
+    const connections = createInProcessMessageConnectionPair();
+    const server = new RpcPeer({ role: "server", connection: connections.right });
+    server.onInitialize(() => ({
+      protocolVersion: HARNESS_PROTOCOL_VERSION,
+      server: { name: "server", version: "1" },
+      plugins: [],
+    }));
+    server.onRequest(serverModelsRequest, () => ({
+      models: [],
+      defaultModel: { provider: "demo", model: "demo-1", preset: null },
+    }));
+    server.onRequest(conversationAttachRequest, () => attachment);
+    server.listen();
+    const wire = new HarnessClient({
+      connection: connections.left,
+      client: { name: "client", version: "1" },
+    });
+    const client = new HarnessDomainClient(wire);
+    await client.start();
+    await client.attachedConversation("root" as ConversationId);
+    const observed: string[] = [];
+    client.subscribe("root" as ConversationId, (event) => observed.push(event.type));
+    for (let index = 0; index < 4; index++)
+      await server.notify(conversationEventNotification, {
+        rootConversationId: "root",
+        conversationId: "child",
+        event: { type: "text.delta", turnId: "child-turn", text: "x".repeat(1024 * 1024) },
+      });
+    await server.notify(conversationEventNotification, {
+      rootConversationId: "root",
+      conversationId: "root",
+      event: { type: "text.delta", turnId: "root-turn", text: "root remains live" },
+    });
+    await expect(wire.models()).resolves.toMatchObject({ models: [] });
+    expect(observed).toContain("text_delta");
+    client.closeConnection();
+  });
   it("keeps child routing from a fresh reload suffix through later detachment", async () => {
     const connections = createInProcessMessageConnectionPair();
     const server = new RpcPeer({ role: "server", connection: connections.right });

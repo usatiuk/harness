@@ -5,10 +5,23 @@ import prettier from "eslint-config-prettier";
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "old/**", "coverage/**"],
+    ignores: [
+      "**/dist/**",
+      "**/target/**",
+      "**/gen/**",
+      "**/resources/**",
+      "old/**",
+      "coverage/**",
+    ],
   },
   eslint.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
+  {
+    // Playwright requires a destructured first parameter even when native tests
+    // own their WebView and use none of its browser fixtures.
+    files: ["packages/desktop/tests/**/*.spec.ts"],
+    rules: { "no-empty-pattern": "off" },
+  },
   {
     languageOptions: {
       parserOptions: {
@@ -29,7 +42,7 @@ export default tseslint.config(
   },
   {
     // Config files aren't in any package's tsconfig.
-    files: ["**/*.js", "**/*.config.ts"],
+    files: ["**/*.js", "**/*.mjs", "**/*.config.ts"],
     extends: [tseslint.configs.disableTypeChecked],
   },
   prettier,

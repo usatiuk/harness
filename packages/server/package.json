@@ -1,0 +1,59 @@
+{
+  "name": "@harness/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./auth": {
+      "development": "./src/auth.ts",
+      "types": "./dist/auth.d.ts",
+      "default": "./dist/auth.js"
+    },
+    "./credential-store": {
+      "development": "./src/credential-store.ts",
+      "types": "./dist/credential-store.d.ts",
+      "default": "./dist/credential-store.js"
+    },
+    "./demo-provider": {
+      "development": "./src/demo-provider.ts",
+      "types": "./dist/demo-provider.d.ts",
+      "default": "./dist/demo-provider.js"
+    },
+    "./client-protocol": {
+      "development": "./src/client-protocol.ts",
+      "types": "./dist/client-protocol.d.ts",
+      "default": "./dist/client-protocol.js"
+    }
+  },
+  "dependencies": {
+    "@harness/activities": "*",
+    "@harness/agents": "*",
+    "@harness/anthropic-api": "*",
+    "@harness/approval": "*",
+    "@harness/auth": "*",
+    "@harness/auto-approval": "*",
+    "@harness/client": "*",
+    "@harness/config": "*",
+    "@harness/core": "*",
+    "@harness/custom-providers": "*",
+    "@harness/execution": "*",
+    "@harness/openai-api": "*",
+    "@harness/openai-codex": "*",
+    "@harness/output": "*",
+    "@harness/protocol": "*",
+    "@harness/sandbox": "*",
+    "@harness/secrets": "*",
+    "@harness/service": "*",
+    "@harness/store-sqlite": "*",
+    "@harness/subagents": "*",
+    "@harness/workspace": "*",
+    "@harness/client-features": "*",
+    "zod": "^4.4.3",
+    "vscode-jsonrpc": "^8.2.0"
+  }
+}

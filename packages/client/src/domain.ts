@@ -153,7 +153,6 @@ export class HarnessDomainClient implements HarnessClientService {
   readonly #client: HarnessClient;
   readonly #listeners = new Map<ConversationId, Set<(event: HarnessEvent) => void>>();
   readonly #backlog = new Map<ConversationId, HarnessEvent[]>();
-  readonly #subscribed = new Set<ConversationId>();
   readonly #attaching = new Set<ConversationId>();
   readonly #usage = new Map<ConversationId, ModelUsageSummary>();
   #backlogBytes = 0;
@@ -257,7 +256,6 @@ export class HarnessDomainClient implements HarnessClientService {
   }
 
   subscribe(id: ConversationId, listener: (event: HarnessEvent) => void): () => void {
-    this.#subscribed.add(id);
     let listeners = this.#listeners.get(id);
     if (listeners === undefined) {
       listeners = new Set();
@@ -392,7 +390,7 @@ export class HarnessDomainClient implements HarnessClientService {
     }
     // Bridge only the initial attach/history race. A revisited background root
     // converges from durable history plus a fresh attach snapshot.
-    if (this.#subscribed.has(conversationId) && !this.#attaching.has(conversationId)) return;
+    if (!this.#attaching.has(conversationId)) return;
     const size = encodedLength(translated);
     if (this.#backlogBytes + size > MAX_BACKLOG_BYTES) {
       this.#client.peer.terminateProtocol("client event backlog exceeded its byte limit");

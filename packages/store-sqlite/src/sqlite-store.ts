@@ -58,14 +58,31 @@ export class SqliteStore implements Store {
     path: string,
     private readonly ids: IdGenerator = uuidIdGenerator,
     private readonly clock: Clock = systemClock,
+    options: { exclusive?: boolean } = {},
   ) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.#db = new BetterSqlite3(path);
-    this.#db.pragma("foreign_keys = ON"); // off by default — without it the FKs are inert
-    this.#db.pragma("journal_mode = WAL");
-    this.#db.pragma("synchronous = NORMAL");
-    this.#db.pragma("busy_timeout = 5000");
-    migrate(this.#db);
+    try {
+      this.#db.pragma(`busy_timeout = ${options.exclusive ? 0 : 5000}`);
+      if (options.exclusive) {
+        // Acquire before migrations or starting runtime resources; the OS releases
+        // SQLite's lock even if the owning process crashes.
+        this.#db.pragma("locking_mode = EXCLUSIVE");
+        this.#db.exec("BEGIN EXCLUSIVE; COMMIT;");
+      }
+      this.#db.pragma("foreign_keys = ON");
+      this.#db.pragma("journal_mode = WAL");
+      this.#db.pragma("synchronous = NORMAL");
+      migrate(this.#db);
+    } catch (error) {
+      this.#db.close();
+      if (options.exclusive && (error as { code?: string }).code === "SQLITE_BUSY") {
+        throw new Error(`Harness database is already in use by another server: ${path}`, {
+          cause: error,
+        });
+      }
+      throw error;
+    }
     this.#k = new Kysely<Database>({ dialect: new SqliteDialect({ database: this.#db }) });
     this.#appendTxn = this.#buildAppendTxn();
     this.#updateOverridesTxn = this.#buildUpdateOverridesTxn();

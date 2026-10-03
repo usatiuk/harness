@@ -23,6 +23,20 @@ if (process.platform === "win32") {
 }
 
 describe.runIf(process.platform === "win32")("DpapiSecretStore on Windows", () => {
+  it("preserves concurrent updates and deletions across Windows case aliases of one file", async () => {
+    const path = freshPath();
+    const first = new DpapiSecretStore(path);
+    const second = new DpapiSecretStore(path.toUpperCase());
+    await Promise.all([first.set("openai", "first"), second.set("anthropic", "second")]);
+    expect(await first.get("openai")).toBe("first");
+    expect(await second.get("anthropic")).toBe("second");
+    expect(await Promise.all([first.delete("openai"), second.delete("anthropic")])).toEqual([
+      true,
+      true,
+    ]);
+    expect(await first.get("openai")).toBeNull();
+    expect(await second.get("anthropic")).toBeNull();
+  });
   it("uses LOCALAPPDATA for the default credential path", () => {
     const localAppData = join(tmpdir(), "harness-local-app-data");
     vi.stubEnv("LOCALAPPDATA", localAppData);

@@ -1,0 +1,34 @@
+{
+  "name": "@harness/client-features",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./transcript-reducer": {
+      "development": "./src/transcript-reducer.ts",
+      "types": "./dist/transcript-reducer.d.ts",
+      "default": "./dist/transcript-reducer.js"
+    },
+    "./edit-presentation": {
+      "development": "./src/edit-presentation.ts",
+      "types": "./dist/edit-presentation.d.ts",
+      "default": "./dist/edit-presentation.js"
+    }
+  },
+  "dependencies": {
+    "@harness/protocol": "*",
+    "@harness/client": "*",
+    "@harness/activities": "*",
+    "@harness/sandbox": "*",
+    "@harness/approval": "*",
+    "@harness/auto-approval": "*",
+    "@harness/subagents": "*",
+    "@harness/workspace": "*",
+    "@harness/execution": "*"
+  }
+}

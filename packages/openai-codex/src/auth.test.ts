@@ -1,4 +1,5 @@
 import { createConnection, Socket } from "node:net";
+import { getEventListeners } from "node:events";
 import { describe, expect, it } from "vitest";
 import { MemorySecretStore } from "@harness/secrets";
 import { CodexAuth } from "./auth.ts";
@@ -115,6 +116,25 @@ function openCallback(authorizeUrl: string): BrowserCallback {
 }
 
 describe("CodexAuth", () => {
+  it("cancels browser sign-in even when the URL callback aborts before listener registration", async () => {
+    const store = new MemorySecretStore();
+    const auth = new CodexAuth({ store, openBrowser: false });
+    const controller = new AbortController();
+    let redirect: string | undefined;
+    await expect(
+      auth.loginWithBrowser({
+        signal: controller.signal,
+        onUrl: (url) => {
+          redirect = new URL(url).searchParams.get("redirect_uri") ?? undefined;
+          controller.abort();
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+    expect(await store.get(STORE_KEY)).toBeNull();
+    if (!redirect) throw new Error("OAuth flow did not publish a redirect");
+    await expect(fetch(redirect)).rejects.toThrow();
+  });
   it("reports not-authenticated with an empty store", async () => {
     const auth = new CodexAuth({ store: new MemorySecretStore() });
     expect(await auth.status()).toEqual({ authenticated: false });

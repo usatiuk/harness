@@ -2273,6 +2273,145 @@
       "required": ["rootConversationId", "conversationId", "shellId", "event"],
       "additionalProperties": false
     },
+    "app_settings_get_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "app_settings_get_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "home": { "type": "string" },
+        "cwd": { "type": "string" },
+        "platform": { "type": "string", "enum": ["win32", "darwin", "linux"] },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "type": "string", "minLength": 1 },
+                    "model": { "type": "string", "minLength": 1 },
+                    "preset": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                  },
+                  "required": ["provider", "model", "preset"],
+                  "additionalProperties": false
+                },
+                { "type": "null" }
+              ]
+            },
+            "approval": {
+              "type": "object",
+              "properties": {
+                "inWorkspace": { "type": "string", "enum": ["allow", "ask", "deny"] },
+                "outOfWorkspace": { "type": "string", "enum": ["allow", "ask", "deny"] }
+              },
+              "required": ["inWorkspace", "outOfWorkspace"],
+              "additionalProperties": false
+            },
+            "sandbox": { "type": "string", "enum": ["local", "native", "docker"] }
+          },
+          "required": ["model", "approval", "sandbox"],
+          "additionalProperties": false
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "kind": { "type": "string", "enum": ["api-key", "oauth"] },
+              "authenticated": { "type": "boolean" },
+              "detail": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+            },
+            "required": ["id", "label", "kind", "authenticated", "detail"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["home", "cwd", "platform", "settings", "providers"],
+      "additionalProperties": false
+    },
+    "app_settings_update_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "provider": { "type": "string", "minLength": 1 },
+                "model": { "type": "string", "minLength": 1 },
+                "preset": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+              },
+              "required": ["provider", "model", "preset"],
+              "additionalProperties": false
+            },
+            { "type": "null" }
+          ]
+        },
+        "approval": {
+          "type": "object",
+          "properties": {
+            "inWorkspace": { "type": "string", "enum": ["allow", "ask", "deny"] },
+            "outOfWorkspace": { "type": "string", "enum": ["allow", "ask", "deny"] }
+          },
+          "required": ["inWorkspace", "outOfWorkspace"],
+          "additionalProperties": false
+        },
+        "sandbox": { "type": "string", "enum": ["local", "native", "docker"] }
+      },
+      "required": ["model", "approval", "sandbox"],
+      "additionalProperties": false
+    },
+    "app_settings_update_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "null"
+    },
+    "app_auth_login_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string" },
+        "key": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+      },
+      "required": ["provider", "key"],
+      "additionalProperties": false
+    },
+    "app_auth_login_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "restartRequired": { "type": "boolean", "const": true } },
+      "required": ["restartRequired"],
+      "additionalProperties": false
+    },
+    "app_auth_logout_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "provider": { "type": "string" } },
+      "required": ["provider"],
+      "additionalProperties": false
+    },
+    "app_auth_logout_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "restartRequired": { "type": "boolean", "const": true } },
+      "required": ["restartRequired"],
+      "additionalProperties": false
+    },
+    "app_auth_url_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "url": { "type": "string", "format": "uri" } },
+      "required": ["url"],
+      "additionalProperties": false
+    },
     "activities_snapshot": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -2526,6 +2665,40 @@
       "kind": "notification",
       "direction": "server-to-client",
       "params": { "$ref": "#/$defs/plugin_workspace_shell_event_params" }
+    },
+    {
+      "method": "app.settings.get",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/app_settings_get_params" },
+      "result": { "$ref": "#/$defs/app_settings_get_result" }
+    },
+    {
+      "method": "app.settings.update",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/app_settings_update_params" },
+      "result": { "$ref": "#/$defs/app_settings_update_result" }
+    },
+    {
+      "method": "app.auth.login",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/app_auth_login_params" },
+      "result": { "$ref": "#/$defs/app_auth_login_result" }
+    },
+    {
+      "method": "app.auth.logout",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/app_auth_logout_params" },
+      "result": { "$ref": "#/$defs/app_auth_logout_result" }
+    },
+    {
+      "method": "app.auth.url",
+      "kind": "notification",
+      "direction": "server-to-client",
+      "params": { "$ref": "#/$defs/app_auth_url_params" }
     }
   ],
   "x-harness-snapshots": {

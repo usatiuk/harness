@@ -60,23 +60,8 @@ export interface Provisioned {
   remoteWorkspaceFolder: string;
 }
 
-export type SandboxPhase = "build" | "create" | "postCreate" | "ready" | "error" | "warning";
-
-/**
- * Build/start progress, emitted onto the conversation stream so a client can render a bar. The
- * open index signature makes it a structural `PluginEvent` (the kernel stamps `conversationId`).
- */
-export interface SandboxStatus {
-  type: "sandbox.status";
-  phase: SandboxPhase;
-  message?: string;
-  [key: string]: unknown;
-}
-
-/** Narrows a stream event to a sandbox status update (mirror of activities' `isActivityEvent`). */
-export function isSandboxStatus(event: { type: string }): event is SandboxStatus {
-  return event.type === "sandbox.status";
-}
+export { isSandboxStatus, type SandboxPhase, type SandboxStatus } from "./events.ts";
+import type { SandboxPhase, SandboxStatus } from "./events.ts";
 
 /** Marks every container the harness creates, so the reaper can find them without our own bookkeeping. */
 export const HARNESS_OWNER_LABEL = "harness.owner=harness";

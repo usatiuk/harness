@@ -336,7 +336,7 @@ export class HarnessClient {
   ) {
     return this.peer.request(conversationPresetSetRequest, {
       conversationId,
-      expected,
+      expected: { provider: expected.provider, model: expected.model },
       preset: preset ?? null,
     });
   }

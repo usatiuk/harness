@@ -8,6 +8,11 @@
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./client": {
+      "development": "./src/events.ts",
+      "types": "./dist/events.d.ts",
+      "default": "./dist/events.js"
     }
   },
   "dependencies": {

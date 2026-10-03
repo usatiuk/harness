@@ -1,11 +1,12 @@
 # Harness client protocol v1
 
 Harness exposes one bidirectional JSON-RPC 2.0 connection. The current TUI uses
-it over an in-process queue; `harness server --stdio` uses newline-delimited JSON
+it over an in-process queue; the desktop uses a Tauri bridge to the same bundled
+stdio server. `harness server --stdio` uses newline-delimited JSON
 over pipes, including through SSH. Transport does not change message semantics.
 
 The committed [JSON Schema](client-v1.schema.json) defines every core and shipped
-plugin parameter, result, notification, and attach snapshot. Zod is the
+plugin and shipped application parameter, result, notification, and attach snapshot. Zod is the
 TypeScript authoring/runtime source. This document defines behavior schemas
 cannot express.
 
@@ -90,9 +91,15 @@ aggregate rather than adding a delta. Text and reasoning deltas are transient; a
 missed delta converges when the durable item arrives. V1 has no reconnect, replay
 log, sequence cursor, or exactly-once claim.
 
-Closing or reloading a root affects only that conversation tree. Switching the visible TUI
+The shared domain client buffers only the initial root attach/history gap;
+events for unobserved descendants do not accumulate in an unused presentation
+backlog. A client that later opens a root uses fresh history and an attach snapshot.
+
+Closing or reloading a root affects only that conversation tree. Switching the visible
 screen leaves other attached roots running. Closing the connection force-closes
 all its root scopes and server-owned processes.
+Shutdown drains every root and reports real disposal failures after drainage
+rather than returning false success.
 
 ## Plugins
 
@@ -120,3 +127,24 @@ Wire values are strict JSON. No dates, bigints, maps, sets, classes, functions,
 values are rejected once at dispatch; an invalid outbound value is a program
 defect and closes or errors the affected protocol operation without exposing
 stacks, credentials, provider bodies, or opaque provider payloads.
+
+## Shipped application controls
+
+`@harness/server/client-protocol` defines the composition-owned `app.*` messages,
+separate from kernel and plugin semantics:
+
+- `app.settings.get` returns global model/preset, approval and sandbox defaults,
+  home/cwd/platform, and safe provider authentication metadata.
+- `app.settings.update` persists the exposed defaults through existing validated
+  config writers. Existing model selections remain pinned.
+- `app.auth.login` accepts an API key or starts cancellable browser OAuth;
+  `app.auth.url` supplies the external browser URL. It never returns credentials.
+- `app.auth.logout` deletes stored credentials. Auth mutations return
+  `restartRequired: true`; the client explicitly restarts its owned server to
+  rebuild provider composition.
+
+These operations carry the authority of the local server user, like existing
+stdio controls. They are not an unauthenticated network API. Request cancellation
+and server close abort OAuth and drain tracked auth mutations before releasing
+ownership. Safe classified validation errors can be shown to users; unexpected
+internal failures retain the generic protocol error treatment.

@@ -8,6 +8,16 @@
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./client": {
+      "development": "./src/client-protocol.ts",
+      "types": "./dist/client-protocol.d.ts",
+      "default": "./dist/client-protocol.js"
+    },
+    "./presentation": {
+      "development": "./src/apply-patch-parse.ts",
+      "types": "./dist/apply-patch-parse.d.ts",
+      "default": "./dist/apply-patch-parse.js"
     }
   },
   "dependencies": {

@@ -36,7 +36,7 @@ export interface ApiKeyMethod extends CommonAuth {
 export interface OAuthMethod extends CommonAuth {
   readonly kind: "oauth";
   /** Runs the interactive browser flow. `onUrl` receives the authorize URL for a manual fallback. */
-  login(opts: { onUrl: (url: string) => void }): Promise<void>;
+  login(opts: { onUrl: (url: string) => void; signal?: AbortSignal }): Promise<void>;
 }
 
 export type AuthMethod = ApiKeyMethod | OAuthMethod;

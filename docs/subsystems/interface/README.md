@@ -2,7 +2,7 @@
 
 ## Status
 
-Harness ships one headless runtime and an Ink TUI over a language-neutral
+Harness ships one shared server composition, an Ink TUI, and a Tauri/React desktop over a language-neutral
 JSON-RPC client boundary. They may share a process or communicate over bounded
 NDJSON stdio, directly or through SSH. Configuration is a validated cascade
 resolved by the server; clients own presentation and user interaction but no
@@ -25,6 +25,10 @@ service defaults
 < selected profile
 < durable conversation overrides
 ```
+
+`HARNESS_HOME` overrides `~/.harness` for an isolated profile. The shared shipped
+server acquires exclusive SQLite ownership before migrations and runtime startup;
+GUI and TUI therefore use a profile separately rather than share a running daemon.
 
 The project root is the nearest `.harness` directory, then Git root, then starting
 directory, while the Harness home itself is never treated as a project. Shared and
@@ -62,6 +66,13 @@ Credential-store selection is pinned in global settings. Unsupported Windows
 file/keyring combinations fail and direct the user to DPAPI rather than falling
 back to plaintext.
 
+Desktop provider controls call composition-owned `app.auth.*` RPCs. Responses
+contain authentication status and safe validation errors, never keys or tokens.
+OAuth uses an external browser and a cancellable callback listener. Auth changes
+require an explicit server restart to rebuild the provider catalog. Credential
+file mutations are serialized across store instances in one process; external
+processes must not concurrently modify the same credential file.
+
 Config-defined providers are the explicit exception: their pre-release schema
 requires an inline key literal in global settings (or a dummy value for a keyless
 server). That path does not use the auth registry or secure store.
@@ -73,6 +84,12 @@ connection may keep multiple root scopes active while the TUI
 shows one. A new conversation records its server-side workspace root and resolved
 overrides. Empty conversations created by the client are removed on exit;
 non-empty history remains durable.
+
+The desktop owns its bundled Node child and stdio bridge. Native close cancels
+blocked writes, closes server input, and waits for root/process disposal. A
+20-second shutdown timeout terminates the child and exits unsuccessfully. A new
+child cannot start until its predecessor has exited. Crashes surface a restart
+action; restart reloads durable history without resuming in-flight work.
 
 Switching visible roots does not stop either conversation tree. A same-root reload is blocked
 by a running turn and confirmed when background activities exist; acceptance
@@ -139,14 +156,39 @@ Attachment returns a bounded snapshot, then ordered semantic notifications;
 history is fetched independently through anchored byte-bounded pages. Plugins use
 ordinary namespaced requests/notifications and optional bounded snapshots. The
 TUI receives no service, runtime, process, activity-manager, sandbox, or raw
-plugin-state object. Web/mobile/IDE clients and reconnecting daemons remain
+plugin-state object. Desktop uses the same contract over Tauri channels and
+bounded native pipes. Web/mobile/IDE clients and reconnecting daemons remain
 unimplemented rather than simulated.
+
+## Desktop model
+
+React Router hash-route loaders fetch settings, paged conversation lists, and
+anchored history. Actions and fetchers own mutations, pending states, and errors.
+An application-wide session owns subscriptions and loaded conversation views;
+route navigation leaves work running. Detachment clears stale views and
+subscriptions so retry performs a fresh attach. Sidebar pagination survives
+action revalidation.
+
+`@harness/client-features` shares plugin clients, transcript reduction, and edit
+presentation with the TUI. Plugin browser entry points expose schemas and pure
+presentation without importing execution or native dependencies. A virtualized
+transcript renders Markdown, reasoning, tool arguments/output and diffs, while
+history is loaded in byte-bounded pages and large items use range requests.
+Inline approvals, activities, usage, send/queue/steer/interrupt, model/preset,
+sandbox controls, provider/default settings, and client-owned drafts/appearance
+complete v1. Unavailable configured models/backends remain explicit choices;
+creation requires an available model and a platform-supported backend.
+
+Radix Themes provides compact controls; Harness owns its neutral desktop layout.
+Only one conversation is visible. There is no IDE, side-by-side view, tray, or
+parallel TUI presentation. External HTTP(S) transcript links open through the
+scoped OS opener instead of navigating the application WebView.
 
 ## Accepted invariants
 
 - Configuration is validated at the source boundary and resolved, not stored as
   a second canonical copy.
-- The TUI renders canonical items/events and never decides agent control flow.
+- Clients render canonical items/events and never decide agent control flow.
 - A configured provider/backend failure is visible; fallbacks are explicit
   product choices, not silent recovery.
 - Closing/reloading one root never interrupts another attached conversation tree.
@@ -157,8 +199,10 @@ unimplemented rather than simulated.
 ## Source map
 
 - `packages/config`: settings schema, merge, discovery, resolution, and writes.
-- `packages/cli`: composition root, auth commands, session lifecycle, TUI, and
-  transcript reducer.
+- `packages/server`: shipped composition, authentication, app RPCs, and stdio entry.
+- `packages/cli`: auth commands, terminal lifecycle, and TUI.
+- `packages/client-features`: shared plugin clients and pure transcript/edit presentation.
+- `packages/desktop`: React Router UI/session, Tauri process bridge, packaging, and native E2E.
 - `packages/client`: transport-neutral peer, client coordinator, domain helper,
   in-process transport, and Node NDJSON transport.
 - `packages/service`: server dispatch and connection-scoped runtime ownership.
@@ -174,3 +218,10 @@ Protocol tests additionally cover both request directions, cancellation and
 closure, bounded history/item ranges, multi-root isolation, plugin controls,
 remote approval, and NDJSON framing/backpressure. Platform-specific credential
 tests run only on their supported systems.
+
+Actual native Windows E2E covers concurrent conversations and approvals,
+draft/keyboard behavior, queue/steer/interrupt, settings/presets, diffs and large
+output, paged/virtualized history, secure key storage and restart, crash recovery,
+database contention, and real PowerShell/Node cleanup. See
+[testing guidance](../../TESTING.md) and the
+[desktop delivery evidence](../../plans/interface/2026-10-03-desktop-v1.md).

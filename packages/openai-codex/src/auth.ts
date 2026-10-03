@@ -33,6 +33,7 @@ export interface CodexStatus {
 }
 
 export interface LoginOptions {
+  signal?: AbortSignal;
   /** Receives the authorize URL so a caller can print it as a manual fallback. */
   onUrl?: (url: string) => void;
 }
@@ -68,9 +69,11 @@ export class CodexAuth {
 
   /** Runs the loopback browser flow end to end, persisting the resulting session. */
   async loginWithBrowser(opts: LoginOptions = {}): Promise<CodexSession> {
+    opts.signal?.throwIfAborted();
     const pkce = generatePkce();
     const state = randomState();
     const server = await startCallbackServer(state);
+    let abort: (() => void) | undefined;
     try {
       const url = buildAuthorizeUrl({
         redirectUri: server.redirectUri,
@@ -79,16 +82,24 @@ export class CodexAuth {
       });
       opts.onUrl?.(url);
       if (this.#openBrowser) openBrowser(url);
-      const code = await server.waitForCode();
+      const code = await new Promise<string>((resolve, reject) => {
+        abort = (): void => reject(new DOMException("Provider sign-in cancelled", "AbortError"));
+        opts.signal?.addEventListener("abort", abort, { once: true });
+        if (opts.signal?.aborted) abort();
+        void server.waitForCode().then(resolve, reject);
+      });
       const tokens = await exchangeCode({
         code,
         verifier: pkce.verifier,
         redirectUri: server.redirectUri,
-        fetch: this.#fetch,
+        fetch: (input, init) =>
+          this.#fetch(input, { ...init, ...(opts.signal ? { signal: opts.signal } : {}) }),
         now: this.#now,
       });
+      opts.signal?.throwIfAborted();
       return await this.#persist(tokens);
     } finally {
+      if (abort) opts.signal?.removeEventListener("abort", abort);
       await server.close();
     }
   }

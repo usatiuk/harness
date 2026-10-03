@@ -13,11 +13,40 @@ Current coverage boundaries, platform evidence, and gaps are documented in the
 ```sh
 npm test                         # all Vitest tests
 npx vitest run path/to/test.ts   # focused test file
-npm run typecheck                # root and CLI TypeScript projects
+npm run typecheck                # root, CLI, and desktop TypeScript projects
 npm run lint                     # ESLint
 npm run format:check             # Prettier verification
 npm run check                    # complete local and CI validation
+npm run test:native              # build and exercise actual Windows Tauri app
+npm run desktop:build            # release executable and NSIS installer
 ```
+
+## Desktop native tests
+
+`npm run test:native` requires Windows WebView2, Rust, and Visual Studio C++ build
+tools. It packages the real server and Node runtime, builds the production web
+assets and native executable, then runs Playwright against that executable's
+WebView2 through CDP. It verifies that the WebView process belongs to the launched
+application. Neither a browser mock nor a development HTTP server stands in for
+the native app. Only the model network edge is controlled for deterministic
+command tests; actual SQLite, credentials, shell processes, and shutdown run.
+
+Tests isolate `HARNESS_HOME`, `APPDATA`, `LOCALAPPDATA`, and the WebView profile.
+They cover concurrent approvals/turns/drafts, queue/steer/interrupt, presets and
+settings, bounded history and large output/diffs, server crash/restart, exclusive
+database ownership, secure key validation/storage, real command cleanup, and
+observable shutdown failure. Test artifacts live under
+`packages/desktop/test-results/`; non-secret visual scenarios save screenshots.
+Credential scenarios do not record traces or screenshots. These native tests are
+separate from the ordinary Linux/Windows `npm run check` CI matrix.
+
+`HARNESS_NATIVE_EXECUTABLE` can select a staged release executable for the same
+suite. It must have its packaged `server/` resources beside it.
+`HARNESS_NATIVE_PATH` overrides only the native application's PATH, leaving the
+test runner's environment intact. Windows release
+qualification must launch outside the source tree with no system Node on PATH;
+a debug build or browser-only test is not packaged-app evidence. macOS/Linux
+desktop installation and live external OAuth sign-in remain unqualified.
 
 Real shared Docker/Compose qualification is opt-in:
 
@@ -109,7 +138,8 @@ delays, or a nearby condition that does not prove completion.
   real SQLite/plugin composition and the demo provider exercises simultaneous
   approvals, closing A while B's approval and real shell survive, and retrying A.
   This fixture qualifies the protocol/process boundary; it does not invoke the
-  credentialed CLI bootstrap or provide desktop/TUI parallel presentation.
+  credentialed CLI bootstrap or provide TUI parallel presentation. Desktop native
+  tests independently exercise the shipped composition and parallel client UI.
 - Docker controlled regressions cover shared provisioning, aggregate idle,
   scoped IO/process cancellation, close-before-child-exit, cleanup/retry, and
   warning controls. The opt-in live Compose test additionally qualifies shared

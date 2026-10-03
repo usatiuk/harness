@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { SecretStore } from "./store.ts";
+import { mutateCredentialFile } from "./file-mutation.ts";
 
 /** The default credentials file: `~/.harness/credentials.json`. */
 export const defaultCredentialsPath = (): string => join(homedir(), ".harness", "credentials.json");
@@ -26,17 +27,21 @@ export class FileSecretStore implements SecretStore {
   }
 
   async set(key: string, value: string): Promise<void> {
-    const data = await this.#read();
-    data[key] = value;
-    await this.#write(data);
+    return mutateCredentialFile(this.#path, async () => {
+      const data = await this.#read();
+      data[key] = value;
+      await this.#write(data);
+    });
   }
 
   async delete(key: string): Promise<boolean> {
-    const data = await this.#read();
-    if (!(key in data)) return false;
-    delete data[key];
-    await this.#write(data);
-    return true;
+    return mutateCredentialFile(this.#path, async () => {
+      const data = await this.#read();
+      if (!(key in data)) return false;
+      delete data[key];
+      await this.#write(data);
+      return true;
+    });
   }
 
   async #read(): Promise<Record<string, string>> {

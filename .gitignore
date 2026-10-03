@@ -3,6 +3,10 @@ dist/
 coverage/
 *.tsbuildinfo
 *.log
+packages/desktop/resources/
+packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/gen/
+packages/desktop/test-results/
 
 # Editor / IDE
 .idea/

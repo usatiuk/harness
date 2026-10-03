@@ -18,6 +18,8 @@ condition — there is no build step to run or test.
 ```sh
 npm install          # link workspaces, install husky hook
 npm run dev          # run the CLI from source (tsx --conditions=development)
+npm run desktop:dev  # Tauri desktop development
+npm run desktop:build # Windows release and NSIS installer
 npm test             # vitest
 npm run typecheck    # tsc --noEmit
 npm run lint         # eslint
@@ -26,6 +28,29 @@ npm run check        # typecheck + lint + format:check + test (also runs in CI)
 ```
 
 ## Client/server modes
+
+The desktop client uses Tauri 2, React, React Router data routes, and Radix Themes.
+It shows one selected conversation with live status for other open conversations,
+streaming history, approvals, tool output and edit diffs. Conversations keep
+independent turns and drafts while you navigate. Settings provide provider
+sign-in, model and sandbox defaults, approval policy, and light/dark appearance.
+Ctrl/Cmd+Enter sends the composer; running turns support queue, steer, and stop.
+
+Windows desktop development requires Rust, Visual Studio C++ build tools, and
+WebView2. `desktop:build` bundles Node, the shared server, and its native/runtime
+dependencies; installed users do not need Node or this checkout. Docker remains
+an external requirement for devcontainers, and execution tools use the host's
+installed shell/programs. The current installer and native E2E qualification
+target Windows; macOS/Linux desktop packaging is not yet qualified.
+
+Each desktop application owns one hidden background server. Closing its window
+cancels and drains all owned conversations and processes before quitting. Server
+crashes are visible and can be restarted; completed history remains durable,
+while in-flight work is not resumed. Provider credential changes require an
+explicit restart, which stops active work. There is no tray or shared daemon.
+GUI and TUI use the same Harness home, with an exclusive database lock allowing
+one server at a time. Quit one before starting the other. `HARNESS_HOME` selects
+an alternative home for isolated profiles; the default is `~/.harness`.
 
 The TUI always uses the public bidirectional JSON-RPC protocol. By default the
 client and server share one process through an in-memory transport. The same TUI
@@ -49,8 +74,8 @@ subsystem architecture, roadmaps, decisions, research, delivery plans, testing
 guidance, and deferred-work records.
 
 On Windows, local command execution is exposed to models as `powershell`; Linux,
-macOS, and Linux dev containers expose `bash`. Windows sign-in requires Credential
-Manager (file-backed credentials are intentionally unsupported). Tool allowlists
+macOS, and Linux dev containers expose `bash`. Windows sign-in uses DPAPI-encrypted
+credentials; plaintext file storage is intentionally unsupported. Tool allowlists
 that target both local Windows and dev-container sessions should include both
 `powershell` and `bash`.
 
@@ -131,7 +156,8 @@ protection against that race.
 ### Layout
 
 Packages under `packages/*`, layered one-directionally:
-`protocol → store → core → service → cli`. Tools and model providers are not
-layers — they are plugin contributions wired in at the `cli` composition root. Providers declare
+`protocol → store → core → service → server`, with CLI and desktop clients over
+the public client boundary. Tools and model providers are plugin contributions
+wired in at the `server` composition root. Providers declare
 which file-tool dialect a model expects; `workspace` owns and executes every concrete file tool,
 while `agents` independently supplies hierarchical project instructions around those calls.

@@ -3,6 +3,10 @@ dist
 coverage
 old
 *.tsbuildinfo
+**/target
+**/resources
+**/gen
+**/test-results
 package-lock.json
 
 # Authored prose docs — keep manual line wrapping

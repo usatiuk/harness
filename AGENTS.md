@@ -41,8 +41,9 @@ distinguish implemented code from verified behavior and unfinished integration.
 ## Engineering principles
 
 - Preserve one-directional package layering. The primary path is protocol to
-  store to core to service to CLI. Model providers, tools, policies, and other
-  behavior enter through plugin packages and are wired at the composition root.
+  store to core to service to the shared server composition. CLI and desktop use
+  the public client boundary. Model providers, tools, policies, and other behavior
+  enter through plugin packages and are wired in `packages/server`.
 - Clients own presentation and interaction; the server owns conversations,
   configuration, credentials, tools, execution, and persistence. Keep clients on
   the public JSON-RPC boundary instead of exposing runtime objects or duplicating

@@ -58,6 +58,15 @@ new invariant is simpler.
 
 ## Configuration boundary
 
+The shipped server opens SQLite in exclusive mode with no busy retry before
+migrations or runtime/provider startup. A second server for the same database
+fails with a safe ownership error. The owner keeps its connection for the whole
+server lifetime and closes it after runtime shutdown; process exit/crash also
+releases the OS-managed SQLite lock. No separate PID lock or stale-lock recovery
+is needed. Direct store tests/tools may use the ordinary nonexclusive constructor;
+they must not bypass a running shipped server's ownership. This coordinates GUI
+and TUI database use, not arbitrary external credential/settings writers.
+
 The store persists workspace identity and overrides, not a resolved
 `ConversationConfig`. `HarnessService` re-runs the settings cascade on creation,
 load, and configuration change, so global/project settings can evolve without
@@ -89,3 +98,6 @@ The shared store contract exercises conversation creation, append/head behavior,
 active lineage, turns, payloads, usage, context builds, plugin state, blobs, and
 range reads against both stores. SQLite-specific tests cover migrations,
 constraints, transactions, reopen behavior, and reconciliation prerequisites.
+Real stdio-server process tests establish exclusive contention, normal release,
+and reopen after a crash; native desktop tests additionally exercise rejection
+and retry through the UI.

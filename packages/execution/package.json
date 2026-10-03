@@ -8,6 +8,11 @@
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./presentation": {
+      "development": "./src/tool-control.ts",
+      "types": "./dist/tool-control.d.ts",
+      "default": "./dist/tool-control.js"
     }
   },
   "dependencies": {

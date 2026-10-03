@@ -59,6 +59,21 @@ Pure transcript reduction is tested separately from Ink rendering. Component and
 application tests cover composer input, completion/history, commands, overlays,
 approvals, session lifecycle, streaming/static scrollback, and verbose rendering.
 
+### Desktop
+
+The desktop session is regression-tested through the public in-process RPC and
+real service, including failed replacement/attach recovery while another root
+remains usable. Native Playwright tests launch the actual Windows Tauri app and
+bundled server through WebView2 CDP. They exercise router actions, independent
+turns/approvals/drafts, history/diffs/output, settings/auth restart, crash recovery,
+database exclusion, and real process cleanup. They also suspend the server to
+prove that forced shutdown exits unsuccessfully. Only the external model network
+edge is substituted where command output needs deterministic control.
+
+Commands, profile isolation, artifacts, and release qualification are described
+in [../../TESTING.md](../../TESTING.md). Native tests are opt-in and separate from
+the ordinary repository CI checks.
+
 ## Platform matrix
 
 - **Windows:** PowerShell tool shape, process-tree termination, DPAPI, terminal
@@ -92,6 +107,9 @@ approvals, session lifecycle, streaming/static scrollback, and verbose rendering
 - macOS execution, credentials, and terminal behavior lack the same CI evidence
   as Windows/Linux.
 - There is no packaged-install or clean-machine CLI scenario.
+- Desktop native/installer evidence currently targets Windows. macOS/Linux
+  desktop packaging, a clean-machine install, and live external OAuth sign-in are
+  not covered by the local native suite.
 
 ## Source map
 
@@ -100,3 +118,4 @@ approvals, session lifecycle, streaming/static scrollback, and verbose rendering
 - `vitest.config.ts`, root TypeScript/ESLint/Prettier configuration: validation
   entrypoints.
 - `.github/workflows`: CI execution matrix.
+- `packages/desktop/tests/native`: actual native app fixtures and E2E tests.
