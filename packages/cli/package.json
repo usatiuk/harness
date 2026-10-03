@@ -42,7 +42,8 @@
     "react": "^19.2.0",
     "shiki": "^4.2.0",
     "@harness/server": "*",
-    "@harness/client-features": "*"
+    "@harness/client-features": "*",
+    "@harness/connections": "*"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",

@@ -26,8 +26,14 @@ npm run desktop:build            # release executable and NSIS installer
 Public RPC regressions in server/src/shared-server.test.ts qualify multi-client
 approval decisions, disconnected accepted/queued work, fresh reconnect without
 partial stream suffixes, failed second-client attach, shared detachment and request
-drainage. Background process, provisioning, host-editor and native integration
-checks remain open in [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
+drainage. Real-process tests in server/src/background.test.ts qualify simultaneous
+startup, unauthorized rejection, zero-client pending approval and completion,
+bridge-parent exit, crash/stale discovery, canonical-home reuse, copied-home
+isolation, unsafe existing homes, initialized-client stop and classified startup
+failure. Registry tests include concurrent edits by separate client processes.
+These passed on native Windows; Linux/WSL/SSH, provisioning, host editors and
+native GUI integration remain open in
+[the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
 ## Desktop native tests
 

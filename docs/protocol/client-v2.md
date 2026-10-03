@@ -39,6 +39,27 @@ Only the validated destination varies. Workspace paths and other inputs remain
 JSON-RPC parameters. The server has the authority of the remote OS user and is
 not an unauthenticated network service.
 
+`harness server --background` runs the shared owner without a client transport.
+`harness server --bridge` ensures that owner is ready and relays stdio into its
+authenticated loopback socket. Closing the bridge removes that connection;
+the owner continues with zero clients. The legacy `--stdio` command still owns
+an isolated composition and disposes it on EOF.
+
+Loopback discovery lives under the canonical Harness home's user-private `.server`
+directory. Windows protects the random token with current-user DPAPI as well as
+directory ACLs; POSIX uses owner-only permissions. The socket accepts a token line
+of at most 128 bytes within five seconds and returns one identity JSON line of at
+most 4 KiB before NDJSON RPC begins. Clients validate that identity against the
+requested canonical home and discovery record. They verify readiness rather than trusting a
+discovery file or PID. SQLite exclusive ownership arbitrates simultaneous starts.
+
+After initialization, `server.info` returns the canonical home, stable server ID,
+per-process instance ID, PID, platform, protocol version and build ID.
+`server.stop` returns acceptance and then drains the shared composition and closes
+its clients. Acceptance does not mean drainage is finished; the control adapter
+waits for connection closure. These owner controls are provided by background
+servers, not isolated in-process compositions.
+
 ## Conversations and attachment
 
 `conversation.attach` prepares a conversation and admits its root scope to

@@ -68,7 +68,7 @@ desktop exit preference. Tray, notifications and login autostart remain optional
       decision; evolve protocol version. Check through two real RPC clients that one
       disconnect/failed attach does not cancel another client's work or approval, and
       explicit root/server stop disposes resources and drains before store close.
-- [ ] **Background discovery and common adapters.** Depends on shared authority.
+- [x] **Background discovery and common adapters.** Depends on shared authority.
       Implement authenticated ensure/connect, exclusive startup convergence, stale
       discovery recovery, stable home/instance identity, explicit shutdown and fixed
       stdio bridge. Check concurrent real process starts, unauthorized connections,
@@ -111,6 +111,22 @@ desktop exit preference. Tray, notifications and login autostart remain optional
 - Three independent read-only reviews covered correctness, architecture/simplicity,
   and tests/docs. Fixed snapshot/admission event loss, connection admission during
   composition closure, concurrent close drainage, and test resource cleanup.
-- Remaining milestones stay open. The current desktop/stdio launchers still own
-  their child compositions; actual background discovery, host provisioning,
-  GUI/TUI controls and native/remote integration remain required.
+- Background owner and common local adapter now provide authenticated single-stream
+  attachment, atomic home/instance discovery, bounded stop, and bridge independence.
+  Windows regressions qualify zero-client approval survival/completion, parent exit,
+  concurrent startup, crash recovery, canonical aliases, unsafe/copy-home rejection,
+  initialized-client control and deterministic startup-failure classification.
+  Separate Node processes qualify shared registry edits. A real fresh-start race
+  showed both SQLite openers can fail their lock upgrade; only classified contention
+  now permits at most eight staggered starts within twenty seconds.
+- Windows home creation uses the OS's
+  [atomic directory ACL API](<https://learn.microsoft.com/en-us/dotnet/api/system.io.directory.createdirectory?view=netframework-4.8.1#system-io-directory-createdirectory(system-string-system-security-accesscontrol-directorysecurity)>);
+  existing unsafe homes are rejected, not rewritten. This also avoids module-path
+  incompatibility between inherited PowerShell 7 modules and Windows PowerShell.
+- Rebased on latest primary branch main, ce9db0a, at the user's request. Shared
+  authority commit is now 2332e06. Migrated the new code-mode RPC persistence fixture
+  to host-owned cleanup. Full npm run check passed after rebase: 99 files/907 tests,
+  with 6 files/30 existing opt-in/platform skips.
+- Remaining milestones stay open. The current desktop/TUI default launchers still
+  own their compositions; remote adapters, host provisioning, GUI/TUI controls and
+  native/remote integration remain required.

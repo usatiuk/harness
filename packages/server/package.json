@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./background": {
+      "development": "./src/background.ts",
+      "types": "./dist/background.d.ts",
+      "default": "./dist/background.js"
+    },
     ".": {
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
@@ -61,6 +66,7 @@
     "@harness/client-features": "*",
     "zod": "^4.4.3",
     "vscode-jsonrpc": "^8.2.0",
-    "@harness/litellm": "*"
+    "@harness/litellm": "*",
+    "@harness/connections": "*"
   }
 }

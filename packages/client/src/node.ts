@@ -35,6 +35,7 @@ export class NdjsonMessageReader extends AbstractMessageReader {
     this.#source.once("error", onError);
     this.#source.once("end", onClose);
     this.#source.once("close", onClose);
+    this.#source.resume();
     return {
       dispose: () => {
         this.#source.off("data", onData);

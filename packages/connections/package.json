@@ -1,0 +1,34 @@
+{
+  "name": "@harness/connections",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/contracts.ts",
+      "types": "./dist/contracts.d.ts",
+      "default": "./dist/contracts.js"
+    },
+    "./local": {
+      "development": "./src/local.ts",
+      "types": "./dist/local.d.ts",
+      "default": "./dist/local.js"
+    },
+    "./node": {
+      "development": "./src/node.ts",
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    }
+  },
+  "dependencies": {
+    "@harness/client": "*",
+    "@harness/config": "*",
+    "@harness/protocol": "*",
+    "@harness/secrets": "*",
+    "proper-lockfile": "^4.1.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/proper-lockfile": "^4.1.4"
+  }
+}

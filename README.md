@@ -64,11 +64,16 @@ harness --ssh user@host --cwd /remote/project
 harness resume --ssh user@host
 ```
 
-The headless entry point is `harness server --stdio`. It emits only NDJSON
+The shared headless owner is `harness server --background`; `harness server --bridge`
+ensures it is ready and attaches stdin/stdout. Bridge EOF leaves its work running.
+The current GUI/TUI launchers are being migrated to this owner; their defaults
+described above still use owned compositions. New Harness homes are user-private;
+background connections reject existing homes writable by other OS users.
+`harness server --stdio` remains an isolated connection-owned entry point. It emits only NDJSON
 protocol frames on stdout and diagnostics on stderr. The server owns its host's
 store, settings, credentials, workspace, execution, activities, approvals, and
 subagents; the SSH destination is therefore a trusted account boundary, not an
-unauthenticated service. See the [v1 protocol](docs/protocol/client-v2.md) and
+unauthenticated service. See the [v2 protocol](docs/protocol/client-v2.md) and
 [generated JSON Schema](docs/protocol/client-v2.schema.json).
 
 Repository guidance lives in `AGENTS.md`. See `docs/README.md` for the roles of

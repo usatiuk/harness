@@ -60,7 +60,8 @@ packages.
 
 Shared background servers and Local/WSL/SSH connections for desktop and TUI are
 selected for delivery in [the active plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
-The shared server/session ownership boundary is implemented; background discovery,
+The shared server/session ownership boundary and authenticated background discovery
+are implemented and qualified with Windows process tests. Remote adapters,
 provisioning and client interaction remain in progress.
 
 ## Current implementation status

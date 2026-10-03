@@ -36,10 +36,13 @@ import {
   appAuthLogoutRequest,
   appAuthUrlNotification,
 } from "@harness/server/client-protocol";
+import { serverInfoRequest, serverStopRequest } from "@harness/connections";
 
 const messages: readonly RpcMessage[] = [
   initializeRequest,
   ...coreRpcMessages,
+  serverInfoRequest,
+  serverStopRequest,
   approvalDecideRequest,
   approvalCreatedNotification,
   approvalResolvedNotification,

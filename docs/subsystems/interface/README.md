@@ -27,8 +27,17 @@ service defaults
 ```
 
 `HARNESS_HOME` overrides `~/.harness` for an isolated profile. The shared shipped
-server acquires exclusive SQLite ownership before migrations and runtime startup;
-GUI and TUI therefore use a profile separately rather than share a running daemon.
+server acquires exclusive SQLite ownership before migrations and runtime startup.
+The background owner now supports authenticated multi-client attachment through
+loopback TCP and a disposable stdio bridge. GUI/TUI default launchers still own
+their compositions until the active connection delivery integrates them.
+
+The controlling machine's `client.json` registry is separate from server settings.
+It initially contains only Local and stores structured WSL/SSH routes, selected
+host and desktop keep-running preference. Browser-safe contracts live in
+`@harness/connections`; Node adapters atomically replace the registry under a
+cross-process filesystem lock. Configured remote homes do not change this
+client-side path. UI editors and runtime provisioning remain in delivery.
 
 The project root is the nearest `.harness` directory, then Git root, then starting
 directory, while the Harness home itself is never treated as a project. Shared and
@@ -113,6 +122,19 @@ blocked writes, closes server input, and waits for root/process disposal. A
 20-second shutdown timeout terminates the child and exits unsuccessfully. A new
 child cannot start until its predecessor has exited. Crashes surface a restart
 action; restart reloads durable history without resuming in-flight work.
+
+The shared headless owner (`server --background`) outlives clients, including
+the `server --bridge` process that started it. Its private discovery directory
+contains atomic stable-home identity, per-instance endpoint metadata and an
+authentication secret. A bounded preamble authenticates before RPC and returns
+the owner identity; connections reject a different canonical home or instance.
+`server.info` reports that identity and `server.stop` acknowledges explicit shared
+shutdown. Control uses a separate connection and a bounded drainage wait.
+Only classified SQLite startup contention permits bounded staggered starts;
+broken packages and inaccessible or unsafe existing homes fail visibly. New
+Windows homes use an ACL applied atomically at creation; existing homes are
+validated without rewriting their ACLs. POSIX homes must be user-owned and not
+writable by other users. Discovery is removed before releasing SQLite ownership.
 
 Switching visible roots does not stop either conversation tree. A same-root reload is blocked
 by a running turn and confirmed when background activities exist; acceptance

@@ -43,6 +43,7 @@ import { SubagentsDefinition } from "@harness/subagents";
 import { QuickJsEvaluator } from "@harness/code-mode";
 import { HarnessService } from "./service.ts";
 import { HarnessRpcSession } from "./rpc-session.ts";
+import { HarnessRpcHost } from "./rpc-host.ts";
 
 const roots: string[] = [];
 const sessions: { svc: HarnessService; id: ConversationId }[] = [];
@@ -1326,9 +1327,10 @@ describe("recorded code-mode execution", () => {
       { store },
     );
     const connections = createInProcessMessageConnectionPair();
+    const host = new HarnessRpcHost(fixture.svc);
     const session = new HarnessRpcSession({
       connection: connections.right,
-      service: fixture.svc,
+      host,
       server: { name: "test", version: "1" },
     });
     const client = new HarnessClient({
@@ -1363,6 +1365,7 @@ describe("recorded code-mode execution", () => {
           .map((item) => item.callId),
       ).toEqual(nested.map((item) => item.callId));
       await session.shutdown();
+      await host.shutdown();
       client.closeConnection();
       store.close();
       store = new SqliteStore(path);
@@ -1398,13 +1401,14 @@ describe("recorded code-mode execution", () => {
         ),
       ).toHaveLength(1);
     } finally {
+      await host.shutdown();
       await session.shutdown();
       client.closeConnection();
+      sessions.splice(
+        sessions.findIndex((entry) => entry.svc === fixture.svc),
+        1,
+      );
       store.close();
     }
-    sessions.splice(
-      sessions.findIndex((entry) => entry.svc === fixture.svc),
-      1,
-    );
   });
 });

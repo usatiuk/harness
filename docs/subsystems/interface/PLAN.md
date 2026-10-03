@@ -30,7 +30,8 @@ in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 [The active cross-package plan](../../plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md)
 delivers shared background servers, the Local-first host switcher, equivalent
 desktop/TUI WSL/SSH editors, and client.json configuration. Shared RPC ownership
-is implemented; adapters, provisioning and interaction qualification remain open.
+and the authenticated background owner/bridge are implemented and Windows process
+regressions pass. Remote adapters, provisioning and interaction qualification remain open.
 
 ## Deliberately deferred
 
