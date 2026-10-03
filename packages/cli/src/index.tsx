@@ -9,26 +9,20 @@ import type {
   Item,
   ModelConfig,
   ModelUsageSummary,
-  PluginContract,
 } from "@harness/protocol";
 import { formatError } from "@harness/protocol";
 import type { SettingsDoc } from "@harness/config";
-import { APPROVAL_CLIENT_CONTRACT_VERSION, ApprovalClient } from "@harness/approval";
-import {
-  HarnessClient,
-  type HarnessClientService,
-  HarnessDomainClient,
-  createInProcessMessageConnectionPair,
-  type RpcConnection,
-} from "@harness/client";
+import type { HarnessClientService } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
-import { buildServerHarness } from "@harness/server";
-import { appProvidersRequest, type ProviderStatus } from "@harness/server/client-protocol";
+import { type ProviderStatus } from "@harness/server/client-protocol";
 import { modelAvailabilityMessage } from "./provider-status.ts";
 export { ACTIVITY_APPROVAL_DEFAULTS, runStdioServer } from "@harness/server";
 import { App, type SessionMutation } from "./app.tsx";
-import { CLI_PLUGIN_CONTRACTS, CliPluginClient, type CliPlugins } from "./client-plugins.ts";
+import { type CliPlugins } from "./client-plugins.ts";
 import { ResumePicker } from "./resume-picker.tsx";
+import { buildClientHarness, type Harness, type CliService } from "./client-harness.ts";
+export type { CliService } from "./client-harness.ts";
+import { launchConnected } from "./host-app.tsx";
 const INSTRUCTIONS = "You are a helpful coding agent.";
 
 export interface LaunchOptions {
@@ -39,6 +33,7 @@ export interface LaunchOptions {
   cwd?: string | undefined;
   connectStdio?: boolean | undefined;
   ssh?: string | undefined;
+  host?: string | undefined;
 }
 
 /** Builds the new-conversation top layer; a model-id override always drops the fallback preset. */
@@ -57,77 +52,7 @@ export interface Session {
   usage: ModelUsageSummary;
 }
 
-export interface CliService extends HarnessClientService {
-  createConversation(options?: {
-    cwd?: string;
-    overrides?: Record<string, unknown>;
-  }): Promise<Conversation>;
-  getConversation(id: ConversationId): Promise<Conversation | undefined>;
-  listConversations(): Promise<Conversation[]>;
-  getItems(id: ConversationId): Promise<Item[]>;
-  prepare(id: ConversationId): Promise<void>;
-  deleteConversationIfEmpty(id: ConversationId): Promise<void>;
-  deactivateSession(
-    id: ConversationId,
-    options?: { force?: boolean },
-  ): Promise<{ status: "busy" | "deactivated" }>;
-  attachedConversation(id: ConversationId): Promise<Conversation>;
-  usageSummary(id: ConversationId): Promise<ModelUsageSummary>;
-  closeConnection?(): void;
-}
-
 export type Start = { kind: "session"; session: Session } | { kind: "picker" };
-
-interface Harness {
-  service: CliService;
-  providers: ProviderStatus[];
-  plugins: CliPluginClient;
-  /** Model used only when no settings layer configures one (no `auth login`, no project config). */
-  fallbackModel: ModelConfig;
-  close(): Promise<void>;
-}
-
-const CLIENT_CONTRACTS: PluginContract[] = [
-  { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
-  ...CLI_PLUGIN_CONTRACTS,
-];
-
-async function buildClientHarness(
-  connection: RpcConnection,
-  closeTransport: () => Promise<void>,
-): Promise<Harness> {
-  const wireClient = new HarnessClient({
-    connection,
-    client: { name: "harness-tui", version: "0.0.0" },
-    plugins: CLIENT_CONTRACTS,
-  });
-  const approvals = new ApprovalClient(wireClient);
-  const plugins = new CliPluginClient(wireClient, approvals);
-  const service = new HarnessDomainClient(wireClient);
-  await service.start();
-  const providers = await wireClient.peer.request(appProvidersRequest, {});
-  return {
-    service,
-    providers,
-    plugins,
-    fallbackModel: service.defaultModel(),
-    close: async () => {
-      service.closeConnection();
-      await closeTransport();
-    },
-  };
-}
-
-async function buildHarness(): Promise<Harness> {
-  const connections = createInProcessMessageConnectionPair();
-  const server = await buildServerHarness(connections.right);
-  try {
-    return await buildClientHarness(connections.left, () => server.close());
-  } catch (error) {
-    await server.close();
-    throw error;
-  }
-}
 
 const waitForChild = (child: ChildProcess): Promise<void> =>
   child.exitCode !== null
@@ -206,6 +131,8 @@ export async function loadSession(service: CliService, id: string): Promise<Sess
 
 /** Parses launch flags into a running TUI: new session, resume by id, or resume picker. */
 export async function launch(opts: LaunchOptions = {}): Promise<void> {
+  if (!opts.connectStdio) return launchConnected(opts);
+
   if (opts.connectStdio && opts.ssh !== undefined) {
     throw new Error("choose either --connect-stdio or --ssh");
   }
@@ -213,7 +140,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
     ? await buildSshHarness(opts.ssh)
     : opts.connectStdio
       ? await buildStdioHarness()
-      : await buildHarness();
+      : await buildStdioHarness();
   const { service, plugins, fallbackModel } = harness;
   try {
     // Canonicalize once so a `--cwd ./x` flag and a stored `workspaceRoot` compare equal.
@@ -285,6 +212,8 @@ interface RootProps {
   start: Start;
   cwd: string;
   onActive: (id: ConversationId | undefined) => void;
+  onHosts?: () => void;
+  drafts?: Map<string, string>;
 }
 
 interface TransitionRequest {
@@ -300,6 +229,8 @@ export function Root({
   start,
   cwd,
   onActive,
+  onHosts,
+  drafts,
 }: RootProps): ReactElement | null {
   const { exit } = useApp();
   const [session, setSession] = useState<Session | null>(
@@ -443,6 +374,8 @@ export function Root({
       cwd={session.conversation.workspaceRoot ?? cwd}
       launchCwd={cwd}
       onResume={resume}
+      {...(onHosts ? { onHosts } : {})}
+      {...(drafts ? { drafts } : {})}
       onReload={(mutation) =>
         requestActivation({ targetId: session.conversation.id, ...(mutation ? { mutation } : {}) })
       }

@@ -11,6 +11,7 @@ import {
 } from "./contracts.ts";
 import { readClientConfig, removeHost, saveHost, updateClientConfig } from "./registry.ts";
 import { stopServer } from "./connect.ts";
+import { readDiscovery } from "./local.ts";
 import {
   connectRemote,
   discoverWsl,
@@ -42,6 +43,22 @@ export async function runConnectionCommand(
       }));
     case "wsl.list":
       return discoverWsl();
+    case "desktop.exit": {
+      if ((await readClientConfig()).desktop.keepServerRunning) return null;
+      const current = await readDiscovery(command.identity.home);
+      if (
+        !current ||
+        current.instanceId !== command.identity.instanceId ||
+        current.serverId !== command.identity.serverId
+      )
+        return null;
+      try {
+        await stopServer(command.identity, true);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ECONNREFUSED") throw error;
+      }
+      return null;
+    }
     case "runtime.prepare": {
       if (command.host.kind === "local") throw new Error("Local uses the bundled runtime");
       return prepareRemoteRuntime(command.host, payload, options);

@@ -33,8 +33,12 @@ Clients use a common Node connection/provisioning adapter. Local connects direct
 WSL and SSH execute a fixed stdio bridge into the same server. The server launches
 independently inside the selected environment; actual WSL/SSH qualification checks
 that it survives every bridge closing. SSH uses OpenSSH configuration,
-host verification and agents. Protocol stdout stays separate from authentication
-interaction and diagnostic stderr.
+host verification and agents. SSH uses non-interactive BatchMode: users configure
+keys, ports and host verification through their .ssh/config alias. The editors
+take only an SSH destination, with no SSH port/key/config-file fields or prompts.
+Missing authentication or an unverified host fails visibly; protocol stdout stays
+separate from diagnostic stderr. Interactive SSH authentication is outside the
+user's selected scope.
 
 Add `client.json` alongside the controlling machine's existing global settings.
 It stores structured host routes, runtime choices and client preferences, shared
@@ -163,3 +167,36 @@ desktop exit preference. Tray, notifications and login autostart remain optional
   two-work/one-simplification cadence, periodic validated increments, and inspection
   of existing affected boundaries. The next work increment records remote deployment;
   client behavior and remaining required qualification will follow separately.
+- Remote deployment and the skill cadence were committed as 122f743. The desktop
+  editor now remains open through selected-host disconnect. Two real native GUI
+  cases pass: Local-only initial registry, saved SSH route, disconnected management,
+  reconnect and owner survival after exit; two simultaneous GUIs with stop-on-exit
+  preserve the remaining client and stop only after the last GUI exits. Local
+  packaged execution is staged into a private immutable runtime so a surviving
+  background owner does not lock mutable desktop resources during the next build.
+- The user narrowed SSH to non-interactive authentication and OS-configured aliases.
+  Removed the in-progress askpass broker, native wrappers and credential dialogs,
+  and removed SSH-specific advanced fields from both editors and client.json.
+  Real key-based SSH qualification and provider OAuth routing remain required;
+  human OpenSSH password/passphrase/host-key prompt flows are no longer in scope.
+- The client increment now has three passing native GUI cases (32.8 seconds),
+  including stop-on-exit before WebView RPC initialization. The authenticated
+  Local bridge publishes its owner to native shutdown, independently of UI
+  readiness. Shutdown closes independent bridges concurrently and rejects new
+  admission; Local packaged dependency caches include the complete copied closure.
+- Rendered TUI tests exercise Local-first editing, repeated conversation/editor
+  switching, same-owner reconnect, another client's survival, changed-home draft
+  isolation and post-quit admission rejection. An intermittent allocation failure
+  reproduced Ink 7.1.1's dangling nested Static layout reference. Upgraded to the
+  maintained [Ink 8 fix](https://github.com/vadimdemedes/ink/releases/tag/v8.0.0)
+  and required React peers; no renderer patch or increased heap limit was added.
+- Full npm run check passes: 109 files/960 tests, with 8 files/35 opt-in/platform
+  skips. Four real WSL/SSH cases pass (82.01 seconds), including non-interactive
+  password/unknown-host rejection and immediate fresh reconnect after forcibly
+  terminating only the fixture's bridge. The background owner remains the same.
+  Detached TUI aliases split their mutable presentation, and disposal of an
+  already-failed remote transport does not prevent explicit reconnect.
+- Remaining required work includes desktop cancellation/readiness, selected-host
+  CLI subcommand boundaries, remote OAuth routing, full native fixture migration,
+  remote fault/credential qualification and final independent reviews. Created
+  TUI conversations persist after client exit, consistently with server ownership.

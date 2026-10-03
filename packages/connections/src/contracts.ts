@@ -27,9 +27,6 @@ export const hostSchema = z.discriminatedUnion("kind", [
       .string()
       .regex(/^[A-Za-z0-9_.@:[\]-]+$/u)
       .refine((value) => !value.startsWith("-")),
-    port: z.number().int().min(1).max(65535).nullable(),
-    identityFile: z.string().min(1).nullable(),
-    configFile: z.string().min(1).nullable().optional(),
     runtime: remoteRuntimeSchema,
   }),
 ]);
@@ -80,6 +77,13 @@ export const serverStopRequest = defineRequest({
   params: z.strictObject({}),
   result: z.strictObject({ accepted: z.literal(true) }),
 });
+/** Exit stops an otherwise unobserved local owner without interrupting another client. */
+export const serverReleaseRequest = defineRequest({
+  direction: "client-to-server",
+  method: "server.release",
+  params: z.strictObject({}),
+  result: z.strictObject({ stopping: z.boolean() }),
+});
 
 export const preparedRuntimeSchema = z.strictObject({
   node: z.string().min(1),
@@ -96,6 +100,7 @@ export const connectionCommandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("host.select"), id: z.string() }),
   z.strictObject({ type: z.literal("preferences"), keepServerRunning: z.boolean() }),
   z.strictObject({ type: z.literal("wsl.list") }),
+  z.strictObject({ type: z.literal("desktop.exit"), identity: serverIdentitySchema }),
   z.strictObject({ type: z.literal("runtime.prepare"), host: hostSchema }),
   z.strictObject({
     type: z.literal("server.stop"),

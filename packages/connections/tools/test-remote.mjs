@@ -51,7 +51,7 @@ try {
   const sshPath = (path) => path.replaceAll("\\", "/");
   await writeFile(
     join(directory, "config"),
-    `Host harness-fixture\n HostName 127.0.0.1\n Port ${port}\n User harness\n IdentityFile "${sshPath(join(directory, "identity"))}"\n UserKnownHostsFile "${sshPath(join(directory, "known_hosts"))}"\n StrictHostKeyChecking yes\n IdentitiesOnly yes\n`,
+    `Host harness-fixture harness-password harness-unknown\n HostName 127.0.0.1\n Port ${port}\n User harness\n IdentityFile "${sshPath(join(directory, "identity"))}"\n IdentitiesOnly yes\nHost harness-fixture harness-password\n UserKnownHostsFile "${sshPath(join(directory, "known_hosts"))}"\n StrictHostKeyChecking yes\nHost harness-password\n PubkeyAuthentication no\n PreferredAuthentications password\nHost harness-unknown\n UserKnownHostsFile "${sshPath(join(directory, "unknown_hosts"))}"\n StrictHostKeyChecking ask\n`,
   );
   const child = spawn(
     process.execPath,

@@ -15,15 +15,25 @@ program
   .option("--model <id>", "model id override")
   .option("--cwd <dir>", "working directory for the session")
   .option("--connect-stdio", "run the server as a local stdio child process")
-  .option("--ssh <destination>", "run the server through SSH (user@host)")
-  .action(async (opts: { model?: string; cwd?: string; connectStdio?: boolean; ssh?: string }) => {
-    await launch({
-      model: opts.model,
-      cwd: opts.cwd,
-      connectStdio: opts.connectStdio,
-      ssh: opts.ssh,
-    });
-  });
+  .option("--ssh <destination>", "add/select and provision an SSH connection")
+  .option("--host <id>", "select a saved host from client.json")
+  .action(
+    async (opts: {
+      model?: string;
+      cwd?: string;
+      connectStdio?: boolean;
+      ssh?: string;
+      host?: string;
+    }) => {
+      await launch({
+        model: opts.model,
+        cwd: opts.cwd,
+        connectStdio: opts.connectStdio,
+        ssh: opts.ssh,
+        host: opts.host,
+      });
+    },
+  );
 
 program
   .command("resume [id]")
@@ -34,6 +44,7 @@ program
       cwd?: string;
       connectStdio?: boolean;
       ssh?: string;
+      host?: string;
     } = cmd.optsWithGlobals();
     await launch({
       resume: true,
@@ -42,6 +53,7 @@ program
       cwd: globals.cwd,
       connectStdio: globals.connectStdio,
       ssh: globals.ssh,
+      host: globals.host,
     });
   });
 

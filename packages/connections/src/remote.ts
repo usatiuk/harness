@@ -28,6 +28,8 @@ async function cleanupAfter<T>(work: Promise<T>, cleanup: () => Promise<void>): 
 
 export type RemoteHost = Exclude<Host, { kind: "local" }>;
 export interface RemoteOptions {
+  /** Process-edge override for isolated OpenSSH qualification, never a saved host setting. */
+  sshConfigFile?: string;
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
   progress?: (message: string) => void;
@@ -46,6 +48,7 @@ export const shellQuote = (value: string): string => `'${value.replaceAll("'", "
 export function remoteCommand(
   host: RemoteHost,
   script: string,
+  sshConfigFile?: string,
 ): { executable: string; args: string[] } {
   hostSchema.parse(host);
   if (host.kind === "wsl") {
@@ -68,14 +71,14 @@ export function remoteCommand(
     args: [
       "-T",
       "-o",
+      "BatchMode=yes",
+      "-o",
       "ConnectTimeout=15",
       "-o",
       "ServerAliveInterval=15",
       "-o",
       "ServerAliveCountMax=3",
-      ...(host.port === null ? [] : ["-p", String(host.port)]),
-      ...(host.identityFile === null ? [] : ["-i", host.identityFile]),
-      ...(host.configFile ? ["-F", host.configFile] : []),
+      ...(sshConfigFile ? ["-F", sshConfigFile] : []),
       "--",
       host.destination,
       `sh -c ${shellQuote(script)}`,
@@ -88,14 +91,15 @@ function remoteProcess(
   options: RemoteOptions,
   timeout = 600_000,
 ): ChildProcessWithoutNullStreams {
-  const command = remoteCommand(host, script);
-  return spawn(command.executable, command.args, {
+  const command = remoteCommand(host, script, options.sshConfigFile);
+  const child = spawn(command.executable, command.args, {
     env: { ...process.env, ...options.env },
     windowsHide: true,
     timeout,
     stdio: ["pipe", "pipe", "pipe"],
     ...(options.signal ? { signal: options.signal } : {}),
   });
+  return child;
 }
 export async function runRemote(
   host: RemoteHost,
@@ -404,6 +408,7 @@ export async function prepareRemoteRuntime(
 
 export interface RemoteConnection {
   connection: RpcConnection;
+  readonly failure: Error | undefined;
   close(): Promise<void>;
 }
 export async function connectRemote(
@@ -422,26 +427,42 @@ export async function connectRemote(
   child.stderr.on("data", (chunk: Buffer) => {
     diagnostic = (diagnostic + chunk.toString()).slice(-8192);
   });
+  let ended = false;
+  let failure: Error | undefined;
   const exited = new Promise<void>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code) =>
-      code === 0
-        ? resolve()
-        : reject(new RemoteCommandError(code, diagnostic || "Remote bridge disconnected")),
-    );
+    child.once("error", (error) => {
+      failure = error;
+      reject(error);
+    });
+    child.once("close", (code) => {
+      ended = true;
+      if (code === 0) resolve();
+      else {
+        failure ??= new RemoteCommandError(code, diagnostic || "Remote bridge disconnected");
+        reject(failure);
+      }
+    });
   });
   // The client observes transport failure; retain the classified diagnostic for explicit close.
   void exited.catch(() => undefined);
   const connection = createNdjsonMessageConnection(child.stdout, child.stdin);
+  let connectionClosed = false;
+  connection.onClose(() => {
+    connectionClosed = true;
+  });
   return {
     connection,
+    get failure() {
+      return failure;
+    },
     close: async () => {
+      const alreadyEnded = ended || connectionClosed;
       connection.dispose();
       child.stdin.end();
       let timer!: ReturnType<typeof setTimeout>;
       try {
         await Promise.race([
-          exited,
+          alreadyEnded ? exited.catch(() => undefined) : exited,
           new Promise<never>((_resolve, reject) => {
             timer = setTimeout(() => {
               child.kill();

@@ -52,8 +52,13 @@ export class DesktopSession {
   authUrl: string | undefined;
   disconnected: string | undefined;
   revision = 0;
+  private scope: string;
 
-  constructor(connection: RpcConnection) {
+  constructor(
+    connection: RpcConnection,
+    readonly hostScope = "local",
+  ) {
+    this.scope = hostScope;
     this.client = new HarnessClient({
       connection,
       client: { name: "harness-desktop", version: "0.1.0" },
@@ -96,6 +101,13 @@ export class DesktopSession {
   disconnect(message: string): void {
     this.disconnected = message;
     this.changed();
+  }
+
+  storageKey(key: string): string {
+    return `host:${this.scope}:${key}`;
+  }
+  setIdentityScope(serverId: string, home: string): void {
+    this.scope = `${this.hostScope}:${serverId}:${encodeURIComponent(home)}`;
   }
 
   async start(): Promise<void> {

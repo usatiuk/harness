@@ -19,6 +19,8 @@ export interface ComposerProps {
   onMenuOpenChange: (open: boolean) => void;
   /** Ctrl+C with an empty prompt interrupts the running turn. */
   onInterrupt: () => void;
+  initialValue?: string;
+  onValueChange?: (value: string) => void;
 }
 
 /**
@@ -32,9 +34,14 @@ export function Composer({
   onSubmit,
   onMenuOpenChange,
   onInterrupt,
+  initialValue = "",
+  onValueChange,
 }: ComposerProps): ReactElement {
-  const [value, setValue] = useState("");
-  const [cursor, setCursor] = useState(0);
+  const [value, setValue] = useState(initialValue);
+  const [cursor, setCursor] = useState(initialValue.length);
+  useEffect(() => {
+    onValueChange?.(value);
+  }, [value, onValueChange]);
   const [active, setActive] = useState(0);
   // Suppresses the menu after history-nav/Esc; cleared on the next printable key.
   const [suppress, setSuppress] = useState(false);
@@ -78,6 +85,7 @@ export function Composer({
   };
 
   useInput((input, key) => {
+    if (key.ctrl && input === "g") return;
     // Ctrl+C clears the prompt (interrupts when empty); Ctrl+D quits when empty, else
     // forward-deletes. Both bypass the menu/history/edit precedence below.
     if (key.ctrl && input === "c") {

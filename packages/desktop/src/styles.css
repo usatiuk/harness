@@ -548,3 +548,66 @@ main {
   border-left: 2px solid var(--gray-5);
   padding-left: 0.75rem;
 }
+
+.host-controls {
+  display: grid;
+  gap: 8px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--gray-6);
+  margin-bottom: 12px;
+}
+.host-selector {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--gray-11);
+}
+.host-selector select {
+  width: 100%;
+  min-height: 34px;
+}
+.connections-layout {
+  display: grid;
+  grid-template-columns: 155px 1fr;
+  gap: 24px;
+  margin: 24px 0;
+}
+.saved-connections {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.connection-editor {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.connection-editor h3 {
+  margin: 0;
+}
+.connection-editor label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+}
+.connection-editor input,
+.connection-editor select {
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 8px;
+}
+.connection-editor details {
+  display: grid;
+  gap: 10px;
+}
+.connection-editor details label {
+  margin-top: 10px;
+}
+.background-preference {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 18px 0;
+  font-size: 13px;
+}

@@ -37,6 +37,7 @@ await writeFile(join(output, "runtime", "LICENSE"), nodeLicense);
 await bundleServer(output);
 const external = RUNTIME_EXTERNAL;
 const copied = new Set();
+const dependencies = {};
 async function copyPackage(name, from) {
   if (copied.has(name)) return;
   let manifest;
@@ -63,6 +64,7 @@ async function copyPackage(name, from) {
   }
   const source = dirname(manifest);
   const json = JSON.parse(await readFile(manifest, "utf8"));
+  dependencies[name] = json;
   copied.add(name);
   await cp(source, join(output, "node_modules", name), { recursive: true });
   for (const dependency of Object.keys(json.dependencies ?? {}))
@@ -78,6 +80,9 @@ async function copyPackage(name, from) {
   }
 }
 for (const name of external) await copyPackage(name, root);
+// The remote install lock omits Windows-only dependencies such as DPAPI.
+// Local cache identity must describe the complete closure actually copied.
+await writeFile(join(output, "packaged-dependencies.json"), JSON.stringify(dependencies));
 console.log(
   `Packaged Node ${process.version}, Harness server and ${copied.size} native/runtime dependencies.`,
 );

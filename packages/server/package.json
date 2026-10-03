@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./entry": {
+      "development": "./src/bin.ts",
+      "default": "./dist/bin.js"
+    },
     "./background": {
       "development": "./src/background.ts",
       "types": "./dist/background.d.ts",

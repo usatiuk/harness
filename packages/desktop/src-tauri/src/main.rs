@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::{
         Arc,
@@ -36,32 +37,49 @@ struct Server {
 
 #[derive(Default)]
 struct Bridge {
-    server: Mutex<Option<Server>>,
+    servers: Mutex<HashMap<u64, Server>>,
     next_id: AtomicU64,
+    exit_owner: Mutex<Option<serde_json::Value>>,
+    stopping: AtomicBool,
 }
 
 impl Bridge {
-    async fn close(&self) -> Result<(), String> {
-        let mut slot = self.server.lock().await;
-        let Some(server) = slot.as_mut() else {
+    async fn close(&self, id: u64) -> Result<(), String> {
+        let Some(mut server) = self.servers.lock().await.remove(&id) else {
             return Ok(());
         };
-        // Closing stdin asks the existing stdio server to cancel and drain all
-        // roots. Keep the native application alive until the child exits.
         let already_exited = server.finished.load(Ordering::Acquire);
         let _ = server.cancel.send(true);
         if let Some(stop) = server.stop.take() {
             let _ = stop.send(());
         }
-        let result = (&mut server.done)
+        let result = server
+            .done
             .await
-            .map_err(|_| "Server owner task failed".to_string());
-        // Hold the ownership slot through drainage so connect cannot race stop.
-        slot.take();
-        let result = result?;
-        // Its terminal failure was already delivered to the UI. Recovery can
-        // start a fresh child once this previous process has finished draining.
+            .map_err(|_| "Bridge owner task failed".to_string())?;
         if already_exited { Ok(()) } else { result }
+    }
+    async fn close_all(self: &Arc<Self>) -> Result<(), String> {
+        self.stopping.store(true, Ordering::Release);
+        let ids: Vec<u64> = self.servers.lock().await.keys().copied().collect();
+        let mut failures = Vec::new();
+        let mut tasks = tokio::task::JoinSet::new();
+        for id in ids {
+            let bridge = self.clone();
+            tasks.spawn(async move { bridge.close(id).await });
+        }
+        while let Some(result) = tasks.join_next().await {
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => failures.push(error),
+                Err(error) => failures.push(error.to_string()),
+            }
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
+        }
     }
 }
 
@@ -101,35 +119,41 @@ async fn read_frames(
     }
 }
 
-async fn read_diagnostics(error: tokio::process::ChildStderr) -> Result<String, String> {
+async fn read_diagnostics(
+    error: tokio::process::ChildStderr,
+    local_owner: Option<Arc<Bridge>>,
+) -> Result<String, String> {
     let mut reader = BufReader::new(error);
     let mut tail = Vec::new();
-    let mut chunk = [0; 1024];
     loop {
-        let count = reader
-            .read(&mut chunk)
+        let mut line = Vec::new();
+        let count = (&mut reader)
+            .take((MAX_FRAME + 1) as u64)
+            .read_until(b'\n', &mut line)
             .await
             .map_err(|_| "Could not read server diagnostics".to_string())?;
         if count == 0 {
             return Ok(String::from_utf8_lossy(&tail).into_owned());
         }
-        tail.extend_from_slice(&chunk[..count]);
+        if count > MAX_FRAME {
+            return Err("Server diagnostic line exceeds limit".into());
+        }
+        if let Some(bridge) = &local_owner {
+            if let Ok(event) = serde_json::from_slice::<serde_json::Value>(&line) {
+                if event["type"] == "localOwner" {
+                    *bridge.exit_owner.lock().await = Some(event["identity"].clone());
+                    continue;
+                }
+            }
+        }
+        tail.extend_from_slice(&line);
         if tail.len() > 8192 {
             tail.drain(..tail.len() - 8192);
         }
     }
 }
 
-#[tauri::command]
-async fn server_connect(
-    app: tauri::AppHandle,
-    bridge: tauri::State<'_, Arc<Bridge>>,
-    channel: Channel<ServerEvent>,
-) -> Result<u64, String> {
-    let mut slot = bridge.server.lock().await;
-    if slot.is_some() {
-        return Err("The desktop server is already connected".into());
-    }
+fn resources(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let resources = if cfg!(debug_assertions) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../resources")
     } else {
@@ -142,12 +166,119 @@ async fn server_connect(
     // entry-point resolution requires the ordinary form when it is equivalent.
     #[cfg(windows)]
     let resources = dunce::simplified(&resources).to_path_buf();
+    Ok(resources)
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ConnectionProgress {
+    message: String,
+}
+
+#[tauri::command]
+async fn connection_command(
+    app: tauri::AppHandle,
+    command: serde_json::Value,
+    channel: Channel<ConnectionProgress>,
+) -> Result<serde_json::Value, String> {
+    let directory = resources(&app)?;
+    let node = directory
+        .join("runtime")
+        .join(if cfg!(windows) { "node.exe" } else { "node" });
+    let mut process = Command::new(node);
+    process
+        .arg(directory.join("server.mjs"))
+        .arg("--connection-command")
+        .arg(command.to_string())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    process.creation_flags(0x08000000);
+    let mut child = process.spawn().map_err(|error| error.to_string())?;
+    let output = child.stdout.take().expect("piped command stdout");
+    let diagnostics = child.stderr.take().expect("piped command stderr");
+    let errors = tauri::async_runtime::spawn(async move {
+        let mut reader = BufReader::new(diagnostics);
+        let mut tail = String::new();
+        loop {
+            let mut line = Vec::new();
+            let count = (&mut reader)
+                .take(8193)
+                .read_until(b'\n', &mut line)
+                .await
+                .map_err(|error| error.to_string())?;
+            if count == 0 {
+                return Ok::<String, String>(tail);
+            }
+            if count > 8192 {
+                return Err("Connection diagnostic line exceeds limit".into());
+            }
+            let text = String::from_utf8_lossy(&line);
+            if let Ok(event) = serde_json::from_str::<serde_json::Value>(&text) {
+                if event["type"] == "progress" {
+                    if let Some(message) = event["message"].as_str() {
+                        channel
+                            .send(ConnectionProgress {
+                                message: message.to_owned(),
+                            })
+                            .map_err(|error| error.to_string())?;
+                    }
+                    continue;
+                }
+            }
+            tail.push_str(&text);
+            if tail.len() > 8192 {
+                tail = tail
+                    .chars()
+                    .rev()
+                    .take(4096)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect();
+            }
+        }
+    });
+    let mut data = Vec::new();
+    output
+        .take((MAX_FRAME + 1) as u64)
+        .read_to_end(&mut data)
+        .await
+        .map_err(|error| error.to_string())?;
+    if data.len() > MAX_FRAME {
+        return Err("Connection command output exceeds limit".into());
+    }
+    let status = child.wait().await.map_err(|error| error.to_string())?;
+    let diagnostics = errors.await.map_err(|error| error.to_string())??;
+    if !status.success() {
+        return Err(diagnostics);
+    }
+    serde_json::from_slice(&data).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn server_connect(
+    app: tauri::AppHandle,
+    bridge: tauri::State<'_, Arc<Bridge>>,
+    channel: Channel<ServerEvent>,
+    host: serde_json::Value,
+    runtime: Option<serde_json::Value>,
+) -> Result<u64, String> {
+    // Publish every spawned bridge before shutdown takes its snapshot.
+    let mut servers = bridge.servers.lock().await;
+    if bridge.stopping.load(Ordering::Acquire) {
+        return Err("Desktop is shutting down".into());
+    }
+    let resources = resources(&app)?;
     let node = resources
         .join("runtime")
         .join(if cfg!(windows) { "node.exe" } else { "node" });
     let mut command = Command::new(node);
     command
         .arg(resources.join("server.mjs"))
+        .arg("--host-bridge")
+        .arg(serde_json::json!({"host": host, "runtime": runtime}).to_string())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -172,8 +303,9 @@ async fn server_connect(
     let finished = Arc::new(AtomicBool::new(false));
     let owner_finished = finished.clone();
     let reader_credit = credit.clone();
+    let local_owner = (host["kind"] == "local").then(|| bridge.inner().clone());
     tauri::async_runtime::spawn(async move {
-        let diagnostics = tauri::async_runtime::spawn(read_diagnostics(error));
+        let diagnostics = tauri::async_runtime::spawn(read_diagnostics(error, local_owner));
         let stream_channel = channel.clone();
         let mut stream = tauri::async_runtime::spawn(async move {
             read_frames(output, &stream_channel, id, reader_credit, canceled).await
@@ -197,7 +329,7 @@ async fn server_connect(
                 Err(_) => {
                     let killed = child.kill().await;
                     Err(format!(
-                        "Harness server did not finish shutdown within 20 seconds (termination: {killed:?})"
+                        "Harness bridge did not finish disconnecting within 20 seconds (termination: {killed:?})"
                     ))
                 }
             },
@@ -229,15 +361,18 @@ async fn server_connect(
         let _ = channel.send(ServerEvent::Closed { message });
         let _ = complete.send(result);
     });
-    *slot = Some(Server {
+    servers.insert(
         id,
-        credit,
-        cancel,
-        input,
-        stop: Some(stop),
-        done,
-        finished,
-    });
+        Server {
+            id,
+            credit,
+            cancel,
+            input,
+            stop: Some(stop),
+            done,
+            finished,
+        },
+    );
     Ok(id)
 }
 
@@ -251,8 +386,8 @@ async fn server_write(
         return Err("Invalid desktop protocol frame".into());
     }
     let (input, mut cancel) = {
-        let slot = bridge.server.lock().await;
-        let server = slot.as_ref().ok_or("Harness server is disconnected")?;
+        let slot = bridge.servers.lock().await;
+        let server = slot.get(&id).ok_or("Harness server is disconnected")?;
         if server.id != id {
             return Err("Desktop connection is obsolete".into());
         }
@@ -274,8 +409,8 @@ async fn server_write(
 
 #[tauri::command]
 async fn server_ack(bridge: tauri::State<'_, Arc<Bridge>>, id: u64) -> Result<(), String> {
-    let slot = bridge.server.lock().await;
-    let server = slot.as_ref().ok_or("Harness server is disconnected")?;
+    let slot = bridge.servers.lock().await;
+    let server = slot.get(&id).ok_or("Harness server is disconnected")?;
     if server.id != id {
         return Err("Desktop connection is obsolete".into());
     }
@@ -284,8 +419,34 @@ async fn server_ack(bridge: tauri::State<'_, Arc<Bridge>>, id: u64) -> Result<()
 }
 
 #[tauri::command]
-async fn server_stop(bridge: tauri::State<'_, Arc<Bridge>>) -> Result<(), String> {
-    bridge.close().await
+async fn server_disconnect(bridge: tauri::State<'_, Arc<Bridge>>, id: u64) -> Result<(), String> {
+    bridge.close(id).await
+}
+async fn release_local_owner(app: &tauri::AppHandle, bridge: &Bridge) -> Result<(), String> {
+    let Some(identity) = bridge.exit_owner.lock().await.clone() else {
+        return Ok(());
+    };
+    let resources = resources(app)?;
+    let mut command = Command::new(resources.join("runtime").join(if cfg!(windows) {
+        "node.exe"
+    } else {
+        "node"
+    }));
+    command
+        .arg(resources.join("server.mjs"))
+        .arg("--connection-command")
+        .arg(serde_json::json!({"type":"desktop.exit", "identity":identity}).to_string())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    let output = tokio::time::timeout(Duration::from_secs(25), command.output())
+        .await
+        .map_err(|_| "Local exit command exceeded its deadline".to_string())?
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(())
 }
 
 fn main() {
@@ -297,7 +458,8 @@ fn main() {
             server_connect,
             server_write,
             server_ack,
-            server_stop
+            server_disconnect,
+            connection_command
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -312,8 +474,12 @@ fn main() {
     let code = application.run_return(move |app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
             let bridge = app.state::<Arc<Bridge>>();
-            if let Err(error) = tauri::async_runtime::block_on(bridge.close()) {
+            if let Err(error) = tauri::async_runtime::block_on(bridge.close_all()) {
                 eprintln!("Desktop shutdown failed: {error}");
+                failure.store(true, Ordering::Release);
+            }
+            if let Err(error) = tauri::async_runtime::block_on(release_local_owner(app, &bridge)) {
+                eprintln!("Local server exit failed: {error}");
                 failure.store(true, Ordering::Release);
             }
         }

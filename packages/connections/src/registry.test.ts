@@ -21,8 +21,7 @@ it("starts with Local and preserves simultaneous registry edits", async () => {
             label: id,
             home: null,
             destination: id,
-            port: null,
-            identityFile: null,
+
             runtime: { source: "development", node: null, directory: null },
           },
           path,

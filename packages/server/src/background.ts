@@ -7,7 +7,12 @@ import { z } from "zod";
 import { defaultHome } from "@harness/config";
 import { HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
 import { createNdjsonMessageConnection } from "@harness/client/node";
-import { serverIdentitySchema, serverInfoRequest, serverStopRequest } from "@harness/connections";
+import {
+  serverIdentitySchema,
+  serverInfoRequest,
+  serverStopRequest,
+  serverReleaseRequest,
+} from "@harness/connections";
 import {
   authenticateSocket,
   canonicalHome,
@@ -96,6 +101,12 @@ export async function runBackgroundServer(): Promise<void> {
               // Shutdown cannot await the request that admitted it. Return acceptance first.
               setImmediate(stop);
               return { accepted: true as const };
+            });
+            session.onRequest(serverReleaseRequest, () => {
+              if (sockets.size !== 1) return { stopping: false };
+              stopping = true;
+              setImmediate(stop);
+              return { stopping: true };
             });
           } catch (error) {
             socket.destroy();

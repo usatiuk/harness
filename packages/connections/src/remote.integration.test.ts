@@ -18,6 +18,30 @@ import {
 
 const distribution = process.env["HARNESS_REMOTE_WSL"];
 const sshConfig = process.env["HARNESS_REMOTE_SSH_CONFIG"];
+for (const [destination, diagnostic] of [
+  ["harness-password", /Permission denied/iu],
+  ["harness-unknown", /Host key verification failed/iu],
+] as const)
+  it.skipIf(!sshConfig)(
+    `fails non-interactively for ${destination}`,
+    async () => {
+      const host: RemoteHost = {
+        kind: "ssh",
+        id: destination,
+        label: destination,
+        home: null,
+        destination,
+        runtime: { source: "managed", node: null, directory: null },
+      };
+      const attempt = runRemote(host, "printf connected", {
+        sshConfigFile: sshConfig!,
+        signal: AbortSignal.timeout(10000),
+      });
+      await expect(attempt).rejects.toMatchObject({ code: 255 });
+      await expect(attempt).rejects.toThrow(diagnostic);
+    },
+    15000,
+  );
 for (const kind of ["wsl", "ssh"] as const)
   it.skipIf(kind === "wsl" ? !distribution : !sshConfig)(
     `provisions a real ${kind} host, caches dependencies and reconnects after all bridges exit`,
@@ -36,20 +60,19 @@ for (const kind of ["wsl", "ssh"] as const)
               ...common,
               kind,
               destination: "harness-fixture",
-              port: null,
-              identityFile: null,
-              configFile: sshConfig!,
             };
+      const options = { ...(kind === "ssh" ? { sshConfigFile: sshConfig! } : {}) };
       const payload = resolve("packages/connections/resources");
       const changedPayload = await mkdtemp(join(tmpdir(), "harness-payload-"));
       const clients: HarnessClient[] = [];
       let runtime: PreparedRuntime | undefined;
       try {
         runtime = await prepareRemoteRuntime(host, payload, {
+          ...options,
           progress: (message) => process.stderr.write(`${message}\n`),
         });
         expect(runtime.transferred).toBe(true);
-        const cached = await prepareRemoteRuntime(host, payload);
+        const cached = await prepareRemoteRuntime(host, payload, options);
         expect(cached).toEqual({ ...runtime, transferred: false });
         await cp(payload, changedPayload, { recursive: true });
         await appendFile(
@@ -60,7 +83,7 @@ for (const kind of ["wsl", "ssh"] as const)
           ...host,
           runtime: { ...host.runtime, source: "development", node: runtime.node },
         };
-        const changed = await prepareRemoteRuntime(development, changedPayload);
+        const changed = await prepareRemoteRuntime(development, changedPayload, options);
         expect(changed.buildId).not.toBe(runtime.buildId);
         expect(changed.dependencyKey).toBe(runtime.dependencyKey);
         expect(changed.transferred).toBe(true);
@@ -69,12 +92,12 @@ for (const kind of ["wsl", "ssh"] as const)
           ...development,
           runtime: {
             ...development.runtime,
-            node: `./${posix.relative(await runRemote(host, "pwd"), runtime.node)}`,
+            node: `./${posix.relative(await runRemote(host, "pwd", options), runtime.node)}`,
           },
         };
-        const repeated = await prepareRemoteRuntime(relative, changedPayload);
+        const repeated = await prepareRemoteRuntime(relative, changedPayload, options);
         expect(repeated).toEqual({ ...changed, transferred: false });
-        const first = await connectRemote(host, runtime);
+        const first = await connectRemote(host, runtime, options);
         const client = new HarnessClient({
           connection: first.connection,
           client: { name: "wsl-fixture", version: "1" },
@@ -83,9 +106,14 @@ for (const kind of ["wsl", "ssh"] as const)
         await client.start();
         const identity = await client.peer.request(serverInfoRequest, {});
         expect(identity.buildId).toBe(runtime.buildId);
-        client.closeConnection();
+        const lost = new Promise<void>((resolve) => first.connection.onClose(() => resolve()));
+        // Kill only the fixture bridge with this authenticated home's environment.
+        const killBridge = `const fs=require('node:fs'); const home=${JSON.stringify(runtime.home)}; let found=0; for(const pid of fs.readdirSync('/proc').filter(p=>/^\\d+$/.test(p))){ try { const args=fs.readFileSync('/proc/'+pid+'/cmdline','utf8').split('\\0'); const env=fs.readFileSync('/proc/'+pid+'/environ','utf8').split('\\0'); if(args.at(-2)==='--bridge' && args.includes(${JSON.stringify(`${runtime.directory}/server.mjs`)}) && env.includes('HARNESS_HOME='+home)){ process.kill(Number(pid),'SIGKILL'); found++; } } catch(e){ if(!['ENOENT','EACCES','ESRCH'].includes(e.code)) throw e; } } if(found!==1) throw new Error('Expected one fixture bridge, got '+found);`;
+        await runRemote(host, `${shellQuote(runtime.node)} -e ${shellQuote(killBridge)}`, options);
+        await lost;
         await first.close();
-        const fresh = await connectRemote(host, runtime);
+        expect(first.failure).toBeInstanceOf(Error);
+        const fresh = await connectRemote(host, runtime, options);
         const reconnected = new HarnessClient({
           connection: fresh.connection,
           client: { name: "wsl-reconnected", version: "1" },
@@ -108,12 +136,13 @@ for (const kind of ["wsl", "ssh"] as const)
                 await runRemote(
                   host,
                   `if test -f ${shellQuote(path)}; then cat ${shellQuote(path)}; else printf null; fi`,
+                  options,
                 ),
               ),
             );
-          if (discovery) await stopRemoteServer(host, runtime, discovery);
+          if (discovery) await stopRemoteServer(host, runtime, discovery, options);
         }
-        await runRemote(host, `rm -rf ${shellQuote(root)}`);
+        await runRemote(host, `rm -rf ${shellQuote(root)}`, options);
         await rm(changedPayload, { recursive: true, force: true });
       }
     },

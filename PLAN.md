@@ -63,8 +63,10 @@ selected for delivery in [the active plan](docs/plans/cross-cutting/2026-10-03-r
 The shared server/session ownership boundary and authenticated background discovery
 are implemented and qualified with Windows process tests. Common remote adapters
 and managed/development deployment are qualified on Ubuntu WSL and isolated SSH;
-client interaction, authentication routing and fault-path qualification remain
-in progress.
+desktop/TUI host editors, selection and background exit are implemented. Native
+Local/editor/shared-exit cases and rendered TUI/real-owner cases are qualified;
+remote client interaction, provider OAuth routing and fault-path qualification
+remain in progress. SSH is non-interactive and uses OS-configured aliases.
 
 ## Current implementation status
 

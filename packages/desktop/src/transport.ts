@@ -1,3 +1,4 @@
+import type { Host, ConnectionCommand } from "@harness/connections";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import {
   AbstractMessageReader,
@@ -99,7 +100,11 @@ class NativeWriter extends AbstractMessageWriter {
   }
 }
 
-export async function connectNative(onClosed: (message: string) => void) {
+export async function connectNative(
+  host: Host,
+  runtime: unknown,
+  onClosed: (message: string) => void,
+) {
   const reader = new NativeReader();
   const channel = new Channel<ServerEvent>();
   channel.onmessage = (event) => {
@@ -118,12 +123,19 @@ export async function connectNative(onClosed: (message: string) => void) {
       }
     }
   };
-  const id = await invoke<number>("server_connect", { channel });
+  const id = await invoke<number>("server_connect", { channel, host, runtime });
   const connection = createMessageConnection(reader, new NativeWriter(reader, id));
-  return connection;
+  return { connection, id };
 }
 
-export async function restartNative(): Promise<void> {
-  await invoke("server_stop");
-  window.location.reload();
+export async function disconnectNative(id: number): Promise<void> {
+  await invoke("server_disconnect", { id });
+}
+export async function connectionCommand(
+  command: ConnectionCommand,
+  progress?: (message: string) => void,
+): Promise<unknown> {
+  const channel = new Channel<{ message: string }>();
+  channel.onmessage = (event) => progress?.(event.message);
+  return invoke("connection_command", { command, channel });
 }

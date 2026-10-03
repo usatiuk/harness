@@ -1,5 +1,5 @@
 import { useMemo, Fragment, type ReactElement, type ReactNode } from "react";
-import { Box, Text, useStdout } from "ink";
+import { Box, Text, useWindowSize } from "ink";
 import { marked, type Token, type Tokens } from "marked";
 import { highlight } from "./markdown-highlight.ts";
 
@@ -26,8 +26,8 @@ export function Markdown({
   streaming?: boolean;
   dim?: boolean;
 }): ReactElement {
-  const { stdout } = useStdout();
-  const width = Math.max(20, Math.min(stdout?.columns ?? 80, 100));
+  const { columns } = useWindowSize();
+  const width = Math.max(20, Math.min(columns, 100));
   const cut = streaming ? lastNewline(text) : text.length;
   const committed = streaming ? text.slice(0, cut) : text;
   const tail = streaming ? text.slice(cut) : "";

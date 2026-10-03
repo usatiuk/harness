@@ -234,9 +234,11 @@ cleanup need qualification before selecting a library/implementation. A loopback
 socket with an owner-protected secret is an alternative if it provides a simpler
 verified boundary. Binding to localhost alone does not authenticate clients.
 
-Reuse OpenSSH configuration, aliases, agents, and host-key verification. Desktop
-must handle password/passphrase/host-key interaction separately from protocol
-stdout. Use maintained OS facilities before introducing an SSH stack. WSL
+Reuse OpenSSH configuration, aliases, agents, and host-key verification. The user
+selected non-interactive SSH for this delivery: use BatchMode, accept a destination
+or alias in both editors, and leave ports/keys/custom settings to .ssh/config.
+Authentication and unknown-host failures surface diagnostics rather than prompting.
+Use maintained OS facilities before introducing an SSH stack. WSL
 discovery/launch can use the distribution and user controls documented in
 [Microsoft's WSL command reference](https://learn.microsoft.com/en-us/windows/wsl/basic-commands).
 

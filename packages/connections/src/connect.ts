@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { Socket } from "node:net";
 import { HarnessClient, type RpcConnection } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
-import { serverStopRequest, type ServerIdentity } from "./contracts.ts";
+import { serverStopRequest, serverReleaseRequest, type ServerIdentity } from "./contracts.ts";
 import {
   canonicalHome,
   connectDiscovered,
@@ -120,8 +120,13 @@ export async function ensureLocalServer(
 }
 
 /** A bridge has no execution ownership. EOF only closes its authenticated socket. */
-export async function runLocalBridge(home: string, launch?: ServerLaunch): Promise<void> {
+export async function runLocalBridge(
+  home: string,
+  launch?: ServerLaunch,
+  onConnected?: (identity: ServerIdentity) => void,
+): Promise<void> {
   const host = launch ? await ensureLocalServer(home, launch) : await attachLocalServer(home);
+  onConnected?.(host.identity);
   const socket = host.socket;
   process.stdin.pipe(socket);
   socket.pipe(process.stdout);
@@ -146,7 +151,7 @@ export async function runLocalBridge(home: string, launch?: ServerLaunch): Promi
 }
 
 /** Use an independent control connection, so an initialized GUI/TUI peer is untouched. */
-export async function stopServer(identity: ServerIdentity): Promise<void> {
+export async function stopServer(identity: ServerIdentity, ifAlone = false): Promise<void> {
   const discovery = await readDiscovery(identity.home);
   if (discovery === null)
     throw new Error("Server discovery is unavailable; shutdown outcome is unknown");
@@ -174,7 +179,10 @@ export async function stopServer(identity: ServerIdentity): Promise<void> {
       deadline,
       (async () => {
         await client.start();
-        await client.peer.request(serverStopRequest, {});
+        if (ifAlone) {
+          const result = await client.peer.request(serverReleaseRequest, {});
+          if (!result.stopping) return;
+        } else await client.peer.request(serverStopRequest, {});
         await closed;
       })(),
     ]);

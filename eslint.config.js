@@ -10,6 +10,7 @@ export default tseslint.config(
       "**/target/**",
       "**/gen/**",
       "**/resources/**",
+      "**/test-results/**",
       "old/**",
       "coverage/**",
     ],

@@ -6,6 +6,7 @@ import {
   runRemoteBridge,
   runConnectionCommand,
   runLocalBridge,
+  prepareLocalRuntime,
 } from "@harness/connections/node";
 import { dirname } from "node:path";
 import { defaultHome } from "@harness/config";
@@ -18,12 +19,15 @@ try {
       .strictObject({ host: hostSchema, runtime: preparedRuntimeSchema.nullable() })
       .parse(JSON.parse(process.argv[bridgeIndex + 1]!));
     const host = value.host;
-    if (host.kind === "local")
-      await runLocalBridge(host.home ?? defaultHome(), {
-        executable: process.execPath,
-        args: [...process.execArgv, process.argv[1]!, "--background"],
+    if (host.kind === "local") {
+      const runtime = await prepareLocalRuntime(
+        dirname(process.argv[1]!),
+        host.home ?? defaultHome(),
+      );
+      await runLocalBridge(runtime.home, runtime.launch, (identity) => {
+        process.stderr.write(JSON.stringify({ type: "localOwner", identity }) + "\n");
       });
-    else {
+    } else {
       if (!value.runtime) throw new Error("Missing prepared remote runtime");
       await runRemoteBridge(host, value.runtime);
     }

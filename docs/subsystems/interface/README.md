@@ -29,15 +29,17 @@ service defaults
 `HARNESS_HOME` overrides `~/.harness` for an isolated profile. The shared shipped
 server acquires exclusive SQLite ownership before migrations and runtime startup.
 The background owner now supports authenticated multi-client attachment through
-loopback TCP and a disposable stdio bridge. GUI/TUI default launchers still own
-their compositions until the active connection delivery integrates them.
+loopback TCP and a disposable stdio bridge. GUI/TUI default launchers reuse that
+owner; explicit stdio mode retains its isolated composition.
 
 The controlling machine's `client.json` registry is separate from server settings.
 It initially contains only Local and stores structured WSL/SSH routes, selected
 host and desktop keep-running preference. Browser-safe contracts live in
 `@harness/connections`; Node adapters atomically replace the registry under a
 cross-process filesystem lock. Configured remote homes do not change this
-client-side path. UI editors and runtime provisioning remain in delivery.
+client-side path. Both clients offer host editors and lifecycle controls. SSH
+accepts a destination/alias and uses OpenSSH BatchMode; advanced SSH configuration
+belongs in .ssh/config. WSL distributions are discovered as editor choices.
 
 The project root is the nearest `.harness` directory, then Git root, then starting
 directory, while the Harness home itself is never treated as a project. Shared and
@@ -117,11 +119,13 @@ shows one. A new conversation records its server-side workspace root and resolve
 overrides. Empty conversations created by the client are removed on exit;
 non-empty history remains durable.
 
-The desktop owns its bundled Node child and stdio bridge. Native close cancels
-blocked writes, closes server input, and waits for root/process disposal. A
-20-second shutdown timeout terminates the child and exits unsuccessfully. A new
-child cannot start until its predecessor has exited. Crashes surface a restart
-action; restart reloads durable history without resuming in-flight work.
+The desktop owns one disposable bundled Node bridge per connected authority.
+Native close blocks new admission, cancels blocked writes, and closes every
+bridge concurrently. A 20-second bridge deadline terminates that child and exits
+unsuccessfully. Each server persists independently. Local packaged execution
+uses a private immutable Node/code/dependency cache, including the complete
+packaged native dependency closure. The keep-running preference defaults true;
+stop-on-exit releases Local only when another client is not attached.
 
 The shared headless owner (`server --background`) outlives clients, including
 the `server --bridge` process that started it. Its private discovery directory
@@ -140,8 +144,8 @@ Switching visible roots does not stop either conversation tree. A same-root relo
 by a running turn and confirmed when background activities exist; acceptance
 closes only that root and its descendants, aborts pending work, disposes its
 plugin services, then attaches a fresh activation. RPC connection close removes its observer; shared server ownership preserves
-accepted work. The current owned stdio launcher explicitly closes its composition
-on exit until background connection delivery is complete. Other roots are unaffected by
+accepted work. The explicitly selected isolated stdio launcher closes its composition
+on exit. Other roots are unaffected by
 closing or reloading one root.
 
 `conversation.detached` reports that an activation is gone even when cleanup or

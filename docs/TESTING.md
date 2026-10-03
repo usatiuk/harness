@@ -33,8 +33,13 @@ bridge-parent exit, crash/stale discovery, canonical-home reuse, copied-home
 isolation, unsafe existing homes, initialized-client stop and classified startup
 failure. Registry tests include concurrent edits by separate client processes.
 These passed on native Windows. Common provisioning/reconnect tests also pass on
-real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Host editors, human
-SSH authentication, OAuth routing, interruption and upgrade fault paths remain open in
+real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Two native GUI cases
+qualify Local-first editing, disconnected management, reconnect, persistent exit
+and last-client stop-on-exit. TUI tests render the command center with a real
+background server and qualify registry edits, reconnect and host redirection.
+Local cache regression covers Windows-only dependency invalidation. SSH BatchMode
+cases reject password-only and unknown-host routes without prompting. Remote
+client UI interaction, OAuth routing, interruption and upgrade fault paths remain open in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
 `npm run test:remote` requires Docker and OpenSSH on the controlling client. It
