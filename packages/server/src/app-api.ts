@@ -11,13 +11,22 @@ import { autoApprovalConfigSchema } from "@harness/auto-approval";
 import { sandboxConfigSchema } from "@harness/sandbox";
 import type { HarnessRpcSession, HarnessService } from "@harness/service";
 import { ErrorCodes, ResponseError } from "vscode-jsonrpc";
-import { authRegistry, type ProviderEntry } from "./auth.ts";
+import { ProviderCredentialError } from "@harness/protocol";
+import {
+  authRegistry,
+  authEntries,
+  prepareProviderEntries,
+  ProviderConfigurationError,
+  type ProviderEntry,
+} from "./auth.ts";
 import { credentialStoreForLogin, credentialStoreForRead } from "./credential-store.ts";
 import {
   appAuthLoginRequest,
   appAuthLogoutRequest,
   appAuthUrlNotification,
   appSettingsRequest,
+  appProvidersRequest,
+  type ProviderStatus,
   appSettingsUpdateRequest,
 } from "./client-protocol.ts";
 
@@ -25,7 +34,11 @@ import {
 export function registerAppApi(
   session: HarnessRpcSession,
   service: HarnessService,
-  active?: { kind: AuthStoreKind | null; entries: ReadonlyMap<string, ProviderEntry> },
+  active?: {
+    kind: AuthStoreKind | null;
+    entries: ReadonlyMap<string, ProviderEntry>;
+    statuses: ReadonlyMap<string, ProviderStatus>;
+  },
 ): { close(): Promise<void> } {
   const lifetime = new AbortController();
   const operations = new Set<Promise<unknown>>();
@@ -38,21 +51,49 @@ export function registerAppApi(
     void operation.finally(() => operations.delete(operation)).catch(() => undefined);
     return operation;
   };
-  session.onRequest(appSettingsRequest, async () => {
+  const listProviders = async (): Promise<ProviderStatus[]> => {
     const doc = await readGlobalSettings(defaultHome());
+    const prepare = prepareProviderEntries(doc);
     const { store } = await credentialStoreForRead(defaultHome());
-    const providers = await Promise.all(
-      [...authRegistry(store, doc).values()].map(async ({ method }) => {
-        const status = await method.status();
-        return {
-          id: method.id,
-          label: method.label,
-          kind: method.kind,
-          authenticated: status.authenticated,
-          detail: status.detail ?? null,
+    return Promise.all(
+      [...prepare(store).values()].map(async (entry) => {
+        const method = entry.instance.auth;
+        const prior = active?.statuses.get(entry.id);
+        const status: ProviderStatus = {
+          id: entry.id,
+          label: entry.label,
+          type: entry.type,
+          kind: method?.kind ?? "none",
+          canStore: method?.kind === "oauth" || (method?.kind === "api-key" && method.canStore),
+          authenticated: !method,
+          detail: null,
+          credentialSource: null,
+          registered: prior?.registered ?? false,
+          catalog: prior?.catalog ?? "missing-credentials",
+          modelCount: prior?.modelCount ?? 0,
+          diagnostics: prior?.diagnostics ?? [],
         };
+        if (method)
+          try {
+            const credentials = await method.status();
+            status.authenticated = credentials.authenticated;
+            status.detail = credentials.detail ?? null;
+            status.credentialSource =
+              credentials.source ??
+              (method.kind === "oauth" && credentials.authenticated ? "stored" : null);
+          } catch (error) {
+            if (!(error instanceof ProviderCredentialError)) throw error;
+            status.catalog = "credentials-unavailable";
+            status.diagnostics = [error.message];
+          }
+        return status;
       }),
     );
+  };
+  session.onRequest(appProvidersRequest, () => track(listProviders()));
+  session.onRequest(appSettingsRequest, async () => {
+    const doc = await readGlobalSettings(defaultHome());
+    const providers = await listProviders();
     const approval = approvalConfigSchema.parse(doc.plugins?.["approval"] ?? {});
     const autoApproval = autoApprovalConfigSchema.parse(doc.plugins?.["auto-approval"] ?? {});
     return {
@@ -119,12 +160,18 @@ export function registerAppApi(
     const operation = (async () => {
       const signal = AbortSignal.any([requestSignal, lifetime.signal]);
       signal.throwIfAborted();
+      const doc = await readGlobalSettings(defaultHome());
+      let prepare: ReturnType<typeof prepareProviderEntries>;
+      try {
+        prepare = prepareProviderEntries(doc);
+      } catch (error) {
+        if (error instanceof ProviderConfigurationError) invalid(error.message);
+        throw error;
+      }
       const { store, kind } = await credentialStoreForLogin(defaultHome());
-      const entry = authRegistry(store, await readGlobalSettings(defaultHome())).get(
-        params.provider,
-      );
+      const entry = authEntries(prepare(store)).get(params.provider);
       if (!entry) return invalid("Unknown authentication provider");
-      if (active?.kind === kind)
+      if (active?.kind === kind && entry.method.kind === "oauth")
         entry.method = active.entries.get(params.provider)?.instance.auth ?? entry.method;
       if (entry.method.kind === "api-key") {
         if (params.key === null) return invalid("An API key is required");
@@ -160,7 +207,7 @@ export function registerAppApi(
         const { store, kind } = await credentialStoreForRead(defaultHome());
         const entry = authRegistry(store, await readGlobalSettings(defaultHome())).get(provider);
         if (!entry) return invalid("Unknown authentication provider");
-        if (active?.kind === kind)
+        if (active?.kind === kind && entry.method.kind === "oauth")
           entry.method = active.entries.get(provider)?.instance.auth ?? entry.method;
         await entry.method.logout();
         return { restartRequired: true as const };

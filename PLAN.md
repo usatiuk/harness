@@ -69,7 +69,8 @@ As of 2026-10-03, Harness provides:
   per-conversation services, policies, observers, and configuration schemas.
 - OpenAI API-key (Responses + chat/completions), OpenAI Codex OAuth, Anthropic
   API-key, OpenCode Go API-key, config-defined OpenAI/Anthropic-compatible
-  providers, and a deterministic demo provider with model catalogs, reasoning
+  providers, named built-in API/OAuth connections, boot-discovered LiteLLM
+  gateways, and a deterministic demo provider with model catalogs, reasoning
   payload fidelity, usage, and cost.
 - Harness-owned read/write/edit/patch/glob/command tools selected by the active
   model's trained file-tool dialect.

@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ConversationId, PluginContract } from "@harness/protocol";
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
 import { HarnessRpcSession, HarnessService } from "@harness/service";
@@ -18,15 +21,20 @@ import {
 } from "./client-plugins.ts";
 
 const openStores: SqliteStore[] = [];
-afterEach(() => {
+const homes: string[] = [];
+afterEach(async () => {
   for (const store of openStores.splice(0)) store.close();
+  await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
 });
 
 async function createHarness() {
+  const home = await mkdtemp(join(tmpdir(), "harness-cli-plugin-test-"));
+  homes.push(home);
   const errors: unknown[] = [];
   const store = new SqliteStore(":memory:");
   openStores.push(store);
   const service = new HarnessService({
+    home,
     store,
     home: "/nonexistent-harness-test-home",
     plugins: [sandboxPlugin, activitiesPlugin],

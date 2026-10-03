@@ -172,6 +172,47 @@ budgets as OpenCode. Omitting a preset leaves every other model on the gateway's
 native behavior. Preset names never transfer between models, and models without
 an advertised control reject presets rather than ignoring them.
 
+## LiteLLM connections and boot discovery
+
+`@harness/litellm` contributes a configurable provider type. Each named instance
+uses its own virtual key and catalog, including when URLs are identical. It
+discovers exact public aliases from `/v1/models`, optionally enriches them from
+`/model/info`, and atomically replaces its in-memory snapshot. Missing metadata
+keeps the index usable with a neutral Chat Completions profile. Failed mandatory
+discovery retains configured models (or the prior snapshot), with explicit status.
+
+Transport selection is explicit model configuration, consistent validated
+`model_info.harness` metadata, then `defaultTransport` (Chat Completions). Vendor
+names and aliases never infer transport. Configured entries override exact public
+IDs and may add hidden aliases. Unsupported/mixed deployment mode or tool claims
+exclude discovered aliases unless the user explicitly configures that model.
+Unknown capacities and gateway prices remain unknown; upstream price estimates
+are not copied into gateway billing. `max_output_tokens` metadata supplies only
+a hard output bound. Separate input/output limits never invent a context window.
+
+The version-one Harness annotation accepts the same fields as a local model
+profile, plus `version: 1`: transport, label, file-tool profile, capacities,
+advisory request cap, sampling/thinking/effort controls, presets, default preset,
+and an explicit USD-per-million-token rate card. All deployment rows for an alias
+must agree on each annotation field. Invalid/conflicting metadata is diagnostic;
+configured fields take precedence. `apply_patch` requires Responses. Unknown
+models use `string_replace`; reasoning support alone never invents effort presets.
+
+Adapters reuse OpenAI/Anthropic implementation packages with gateway credentials.
+They keep the outer instance ID and public alias in opaque payloads. Matching
+saved reasoning requires its original Responses or Messages transport and a
+supported payload version before any request is sent. All calls pass through the
+existing model middleware once. Responses remain stateless with `store: false`;
+load-balanced upstream ciphertext origins require gateway affinity.
+
+Startup discovery has four workers, a ten-second overall network budget, and a
+three-second enrichment budget inside it. Startup cancellation drains discovery
+and releases the SQLite lease. Each endpoint is bounded to 2 MiB and 5,000 rows;
+resolved catalogs are bounded to 5,000 models per instance and a 3 MiB aggregate
+RPC budget. Model IDs are at most 512 characters. No polling, disk cache or live
+refresh is enabled. `app.providers.list` and settings expose safe boot status,
+registration, credential source/presence, labels, counts and diagnostics.
+
 ## Authentication and secrets
 
 Provider plugins contribute configurable types through `providerTypes()`.

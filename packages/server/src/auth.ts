@@ -13,12 +13,14 @@ import { anthropicProviderType } from "@harness/anthropic-api";
 import { openAIProviderType } from "@harness/openai-api";
 import { openCodeGoProviderType } from "@harness/opencode-go";
 import { codexProviderType } from "@harness/openai-codex";
+import { liteLLMPlugin } from "@harness/litellm";
 
 export interface AuthEntry {
   method: AuthMethod;
   buildPlugin(): Promise<Plugin | null>;
   defaultModel?: ModelConfig;
 }
+export class ProviderConfigurationError extends Error {}
 
 export interface ProviderEntry {
   id: string;
@@ -30,6 +32,7 @@ export interface ProviderEntry {
 
 /** Package contributions are collected before constructing any connection. */
 export const providerPlugins: PluginEntry[] = [
+  liteLLMPlugin,
   { id: "openai-api", providerTypes: () => [openAIProviderType] },
   { id: "anthropic-api", providerTypes: () => [anthropicProviderType] },
   { id: "opencode-go", providerTypes: () => [openCodeGoProviderType] },
@@ -67,11 +70,10 @@ const defaults = () => [
   },
 ];
 
-export function providerEntries(
-  store: SecretStore,
+export function prepareProviderEntries(
   settings: SettingsDoc = {},
   plugins: readonly PluginEntry[] = providerPlugins,
-): Map<string, ProviderEntry> {
+): (store: SecretStore) => Map<string, ProviderEntry> {
   const types = new Map<string, ProviderType>();
   for (const plugin of plugins)
     for (const type of plugin.providerTypes?.() ?? []) {
@@ -81,7 +83,7 @@ export function providerEntries(
   const builtin = defaults();
   const configured = new Map(builtin.map(({ id, ...entry }) => [id, entry]));
   for (const [id, entry] of Object.entries(settings.providers ?? {})) {
-    if (id === "demo" || id in (settings.customProviders ?? {}))
+    if (id === "demo" || Object.hasOwn(settings.customProviders ?? {}, id))
       throw new Error(`Duplicate provider instance '${id}'`);
     const prior = configured.get(id);
     if (prior && prior.type !== entry.type)
@@ -99,51 +101,72 @@ export function providerEntries(
     try {
       return { id, entry, create: type.prepare(entry.config) };
     } catch (cause) {
-      throw new Error(`Invalid config for provider instance '${id}' (${entry.type})`, { cause });
+      throw new ProviderConfigurationError(
+        `Invalid config for provider instance '${id}' (${entry.type})`,
+        { cause },
+      );
     }
   });
-  return new Map(
-    prepared.map(({ id, entry, create }) => {
-      const legacy = builtin.some((item) => item.id === id);
-      const slot = (key: string) =>
-        legacy
-          ? id === "openai-codex" && key === "oauth"
-            ? id
-            : key === "api-key"
-              ? `apikey:${id}`
-              : `provider-instance:${id}:${key}`
-          : `provider-instance:${id}:${key}`;
-      const instance = create({
-        id,
-        label: entry.label,
-        secrets: {
-          get: async (key) => {
-            try {
-              return await store.get(slot(key));
-            } catch {
-              throw new ProviderCredentialError();
-            }
-          },
-          set: (key, value) => store.set(slot(key), value),
-          delete: (key) => store.delete(slot(key)),
-        },
-      });
-      if (instance.auth && instance.auth.id !== id)
-        throw new Error(
-          `Provider type '${entry.type}' returned mismatched authentication identity`,
-        );
-      return [
-        id,
-        {
+  return (store) =>
+    new Map(
+      prepared.map(({ id, entry, create }) => {
+        const legacy = builtin.some((item) => item.id === id);
+        const slot = (key: string) =>
+          legacy
+            ? id === "openai-codex" && key === "oauth"
+              ? id
+              : key === "api-key"
+                ? `apikey:${id}`
+                : `provider-instance:${id}:${key}`
+            : `provider-instance:${id}:${key}`;
+        const instance = create({
           id,
           label: entry.label,
-          type: entry.type,
-          instance,
-          ...(entry.model ? { defaultModel: { provider: id, model: entry.model } } : {}),
-        },
-      ];
-    }),
-  );
+          secrets: {
+            get: async (key) => {
+              try {
+                return await store.get(slot(key));
+              } catch (error) {
+                let cause: unknown = error;
+                while (cause instanceof Error) {
+                  if (
+                    "code" in cause &&
+                    ["EACCES", "EPERM", "EBUSY", "EIO"].includes(String(cause.code))
+                  )
+                    throw new ProviderCredentialError();
+                  cause = cause.cause;
+                }
+                throw error;
+              }
+            },
+            set: (key, value) => store.set(slot(key), value),
+            delete: (key) => store.delete(slot(key)),
+          },
+        });
+        if (instance.auth && instance.auth.id !== id)
+          throw new Error(
+            `Provider type '${entry.type}' returned mismatched authentication identity`,
+          );
+        return [
+          id,
+          {
+            id,
+            label: entry.label,
+            type: entry.type,
+            instance,
+            ...(entry.model ? { defaultModel: { provider: id, model: entry.model } } : {}),
+          },
+        ];
+      }),
+    );
+}
+
+export function providerEntries(
+  store: SecretStore,
+  settings: SettingsDoc = {},
+  plugins: readonly PluginEntry[] = providerPlugins,
+): Map<string, ProviderEntry> {
+  return prepareProviderEntries(settings, plugins)(store);
 }
 
 /** Auth commands and the server share the same plugin-owned connection definitions. */
@@ -151,8 +174,12 @@ export function authRegistry(
   store: SecretStore,
   settings: SettingsDoc = {},
 ): Map<string, AuthEntry> {
+  return authEntries(providerEntries(store, settings));
+}
+
+export function authEntries(entries: ReadonlyMap<string, ProviderEntry>): Map<string, AuthEntry> {
   const result = new Map<string, AuthEntry>();
-  for (const entry of providerEntries(store, settings).values()) {
+  for (const entry of entries.values()) {
     if (!entry.instance.auth) continue;
     result.set(entry.id, {
       method: entry.instance.auth,

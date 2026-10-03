@@ -81,6 +81,56 @@ credentials; plaintext file storage is intentionally unsupported. Tool allowlist
 that target both local Windows and dev-container sessions should include both
 `powershell` and `bash`.
 
+### Named provider connections
+
+Add connections to the machine-global `settings.json` under your Harness home:
+
+```json
+{
+  "providers": {
+    "work": {
+      "type": "litellm",
+      "label": "Work gateway",
+      "config": {
+        "baseUrl": "https://llm.example.com/team",
+        "apiKey": { "stored": true },
+        "models": {
+          "coding": { "transport": "openai-responses", "fileTools": "apply_patch" },
+          "claude": { "transport": "anthropic-messages", "requestMaxOutputTokens": 8192 }
+        }
+      }
+    },
+    "personal": {
+      "type": "openai-api",
+      "label": "Personal OpenAI",
+      "config": { "apiKey": { "env": "PERSONAL_OPENAI_KEY" } }
+    },
+    "subscription": { "type": "openai-codex", "config": {} }
+  },
+  "model": { "provider": "work", "model": "coding" }
+}
+```
+
+Built-in types are `openai-api`, `anthropic-api`, `opencode-go`, and
+`openai-codex`; existing connections with IDs `openai`, `anthropic`,
+`opencode-go`, and `openai-codex` remain available. Each named connection has
+isolated credentials. Sign in through desktop Settings or
+`harness auth login --provider work`. Additional named sign-ins preserve the
+global model selection. Labels are editable; instance IDs identify saved
+selections and credential slots.
+
+API-key configuration defaults to secure storage. An `{env: "VARIABLE"}` source
+uses only that variable; `{env: "VARIABLE", stored: true}` gives the environment
+precedence over storage. OAuth instances own independent sessions and refresh
+tokens. Credentials stay in the existing machine secret backend.
+
+LiteLLM refreshes its model catalog at server boot. `baseUrl` is the gateway root,
+including any reverse proxy prefix. Models use exact gateway aliases; optional
+entries override discovery or declare hidden aliases. Other models default to
+Chat Completions and neutral file tools. Discovery failures appear in provider
+status and preserve your saved selection. Configuration and credential changes
+take effect after an explicit server restart.
+
 ### Execution backends
 
 The `sandbox` plugin selects one execution backend per loaded conversation:

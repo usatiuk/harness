@@ -12,7 +12,7 @@ import {
 } from "@harness/config";
 import { defaultCredentialsPath, defaultDpapiCredentialsPath } from "@harness/secrets";
 import type { ApiKeyMethod, OAuthMethod } from "@harness/auth";
-import { authRegistry, type AuthEntry } from "./auth.ts";
+import { authRegistry, authEntries, prepareProviderEntries, type AuthEntry } from "./auth.ts";
 import { credentialStoreForLogin, credentialStoreForRead } from "./credential-store.ts";
 
 const modelLabel = (m: ModelConfig): string => `${m.provider}/${m.model}`;
@@ -89,6 +89,9 @@ function ApiKeyLogin({
   onResolve,
 }: BranchProps<ApiKeyMethod>): ReactElement {
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!method.canStore) onResolve(`Set $${method.envVar} to configure ${method.label}.`);
+  }, [method, onResolve]);
 
   if (!method.canStore) return <Text>{`Set ${method.envVar} to configure ${method.label}.`}</Text>;
 
@@ -185,8 +188,9 @@ function parseStore(value: string | undefined): AuthStoreKind | undefined {
 /** `harness auth login`: interactive picker, or a non-interactive stdin path for CI. */
 export async function runLogin(opts: LoginCliOptions = {}): Promise<void> {
   const home = defaultHome();
+  const prepare = prepareProviderEntries(await readGlobalSettings(home));
   const { store, kind } = await credentialStoreForLogin(home, parseStore(opts.store));
-  const registry = authRegistry(store, await readGlobalSettings(defaultHome()));
+  const registry = authEntries(prepare(store));
   if (opts.provider && !registry.has(opts.provider)) throw unknownProvider(registry, opts.provider);
 
   // Persist the backend choice and default model together, only after a successful sign-in.
@@ -234,6 +238,8 @@ async function loginNonInteractive(
       `${opts.provider} signs in via the browser; run \`harness auth login\` in a terminal`,
     );
   }
+  if (!entry.method.canStore)
+    throw new Error(`Set $${entry.method.envVar} to configure ${entry.method.label}.`);
   await entry.method.submit(await readStdin());
   await persist(entry);
   console.log(`Signed in to ${entry.method.label}.${modelNotice(entry)}${storageNote}`);

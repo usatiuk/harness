@@ -13,12 +13,32 @@ const settings = z.strictObject({
   autoApproval: z.strictObject({ enabled: z.boolean(), model: model.nullable() }),
   sandbox: z.enum(["local", "native", "docker"]),
 });
-const provider = z.strictObject({
+export const providerStatusSchema = z.strictObject({
   id: z.string(),
   label: z.string(),
-  kind: z.enum(["api-key", "oauth"]),
+  type: z.string(),
+  kind: z.enum(["api-key", "oauth", "none"]),
+  canStore: z.boolean(),
   authenticated: z.boolean(),
   detail: z.string().nullable(),
+  credentialSource: z.enum(["env", "stored"]).nullable(),
+  registered: z.boolean(),
+  catalog: z.enum([
+    "ready",
+    "degraded",
+    "failed",
+    "missing-credentials",
+    "credentials-unavailable",
+  ]),
+  modelCount: z.number().int().nonnegative(),
+  diagnostics: z.array(z.string()),
+});
+export type ProviderStatus = z.infer<typeof providerStatusSchema>;
+export const appProvidersRequest = defineRequest({
+  direction: "client-to-server",
+  method: "app.providers.list",
+  params: z.strictObject({}),
+  result: z.array(providerStatusSchema),
 });
 
 export const appSettingsRequest = defineRequest({
@@ -30,7 +50,7 @@ export const appSettingsRequest = defineRequest({
     cwd: z.string(),
     platform: z.enum(["win32", "darwin", "linux"]),
     settings,
-    providers: z.array(provider),
+    providers: z.array(providerStatusSchema),
   }),
 });
 export const appSettingsUpdateRequest = defineRequest({

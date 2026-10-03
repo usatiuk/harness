@@ -55,6 +55,7 @@
     "@harness/workspace": "*",
     "@harness/client-features": "*",
     "zod": "^4.4.3",
-    "vscode-jsonrpc": "^8.2.0"
+    "vscode-jsonrpc": "^8.2.0",
+    "@harness/litellm": "*"
   }
 }

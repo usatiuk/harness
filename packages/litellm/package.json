@@ -1,0 +1,25 @@
+{
+  "name": "@harness/litellm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@harness/protocol": "*",
+    "@harness/auth": "*",
+    "@harness/openai-api": "*",
+    "@harness/openai-core": "*",
+    "@harness/anthropic-api": "*",
+    "@harness/anthropic-core": "*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
+  }
+}

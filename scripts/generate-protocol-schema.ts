@@ -25,6 +25,7 @@ import { subagentsTopLevelRequest } from "@harness/subagents";
 import { workspaceShellEventNotification, workspaceShellRunRequest } from "@harness/workspace";
 import {
   appSettingsRequest,
+  appProvidersRequest,
   appSettingsUpdateRequest,
   appAuthLoginRequest,
   appAuthLogoutRequest,
@@ -45,6 +46,7 @@ const messages: readonly RpcMessage[] = [
   workspaceShellRunRequest,
   workspaceShellEventNotification,
   appSettingsRequest,
+  appProvidersRequest,
   appSettingsUpdateRequest,
   appAuthLoginRequest,
   appAuthLogoutRequest,

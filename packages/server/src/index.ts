@@ -3,7 +3,6 @@ import { defaultHome, readGlobalSettings } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
 import {
   isKernelEvent,
-  ProviderCredentialError,
   jsonValueSchema,
   type ModelConfig,
   type PluginEntry,
@@ -29,10 +28,11 @@ import { modelCompaction } from "@harness/core";
 import { QuickJsEvaluator } from "@harness/code-mode";
 import { createCustomProviderPlugins } from "@harness/custom-providers";
 import { DemoProvider } from "./demo-provider.ts";
-import { providerEntries, providerPlugins } from "./auth.ts";
+import { prepareProviderEntries, providerPlugins } from "./auth.ts";
 import { credentialStoreForRead } from "./credential-store.ts";
 import { registerFeatureServer } from "./features.ts";
 import { registerAppApi } from "./app-api.ts";
+import { bootstrapProviders } from "./provider-bootstrap.ts";
 export { registerFeatureServer } from "./features.ts";
 export const ACTIVITY_APPROVAL_DEFAULTS = {
   activity_wait: "allow",
@@ -50,48 +50,29 @@ export interface ServerHarness {
   store: SqliteStore;
   close(closePeer?: boolean): Promise<void>;
 }
-export async function buildServerHarness(connection: RpcConnection): Promise<ServerHarness> {
+export async function buildServerHarness(
+  connection: RpcConnection,
+  options: { signal?: AbortSignal } = {},
+): Promise<ServerHarness> {
+  const startup = new AbortController();
+  const closedDuringStartup = connection.onClose(() => startup.abort());
+  const signal = options.signal
+    ? AbortSignal.any([startup.signal, options.signal])
+    : startup.signal;
+  signal.throwIfAborted();
   const store = new SqliteStore(join(defaultHome(), "store.db"), undefined, undefined, {
     exclusive: true,
   });
   let startedSession: HarnessRpcSession | undefined;
   let startedAppApi: { close(): Promise<void> } | undefined;
   try {
-    const { store: secrets, kind } = await credentialStoreForRead(defaultHome());
     const settings = await readGlobalSettings(defaultHome());
-    const registry = providerEntries(secrets, settings);
-    const plugins: PluginEntry[] = [...providerPlugins];
-    let fallbackModel: ModelConfig | undefined;
-    // Resolve providers concurrently; a configured backend that can't be reached (e.g. a locked
-    // configured credential backend) warns and is skipped — we never silently fall back.
-    const built = await Promise.all(
-      [...registry.values()].map((entry) =>
-        entry.instance.buildProvider().then(
-          (provider) => {
-            if (provider && provider.provider !== entry.id)
-              throw new Error(`Mismatched provider identity ${entry.id}`);
-            return {
-              entry,
-              plugin: provider
-                ? { id: `provider-instance:${entry.id}`, providers: () => [provider] }
-                : null,
-            };
-          },
-          (reason: unknown) => {
-            if (!(reason instanceof ProviderCredentialError)) throw reason;
-            console.error(
-              JSON.stringify({ event: "provider.credentials-unavailable", instance: entry.id }),
-            );
-            return { entry, plugin: null };
-          },
-        ),
-      ),
-    );
-    for (const { entry, plugin } of built) {
-      if (!plugin) continue;
-      plugins.push(plugin);
-      fallbackModel ??= entry.defaultModel;
-    }
+    const prepare = prepareProviderEntries(settings);
+    const { store: secrets, kind } = await credentialStoreForRead(defaultHome());
+    const registry = prepare(secrets);
+    const built = await bootstrapProviders(registry, signal);
+    const plugins: PluginEntry[] = [...providerPlugins, built.plugin];
+    const fallbackModel = built.defaultModel;
     // Config-defined providers (`customProviders` in global settings) join the same registry as
     // signed-in built-ins; their plugin id doubles as the model provider id.
     const customProviders = settings.customProviders;
@@ -143,7 +124,11 @@ export async function buildServerHarness(connection: RpcConnection): Promise<Ser
     });
     startedSession = rpcSession;
     registerFeatureServer(rpcSession, service);
-    const appApi = registerAppApi(rpcSession, service, { kind, entries: registry });
+    const appApi = registerAppApi(rpcSession, service, {
+      kind,
+      entries: registry,
+      statuses: built.statuses,
+    });
     startedAppApi = appApi;
     const approvalRequests = new Map<string, AbortController>();
     rpcSession.observeEvents((event, rootId) => {
@@ -183,6 +168,8 @@ export async function buildServerHarness(connection: RpcConnection): Promise<Ser
         )
         .finally(() => approvalRequests.delete(event.requestId));
     });
+    signal.throwIfAborted();
+    closedDuringStartup.dispose();
     rpcSession.start();
     let closed = false;
     return {
@@ -205,6 +192,7 @@ export async function buildServerHarness(connection: RpcConnection): Promise<Ser
       },
     };
   } catch (error) {
+    closedDuringStartup.dispose();
     const cleanupErrors: unknown[] = [];
     try {
       await startedAppApi?.close();
@@ -239,16 +227,24 @@ export async function buildServerHarness(connection: RpcConnection): Promise<Ser
 export async function runStdioServer(): Promise<void> {
   const connection = createNdjsonMessageConnection(process.stdin, process.stdout);
   const closed = new Promise<void>((resolvePromise) => connection.onClose(() => resolvePromise()));
-  const server = await buildServerHarness(connection);
-  let stop!: () => void;
-  const signal = new Promise<void>((resolvePromise) => (stop = resolvePromise));
+  const startup = new AbortController();
+  let resolveSignal!: () => void;
+  const signal = new Promise<void>((resolvePromise) => (resolveSignal = resolvePromise));
+  const stop = () => {
+    startup.abort();
+    resolveSignal();
+  };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
+  let server: ServerHarness | undefined;
   try {
+    server = await buildServerHarness(connection, { signal: startup.signal });
     await Promise.race([closed, signal]);
+  } catch (error) {
+    if (!startup.signal.aborted) throw error;
   } finally {
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);
-    await server.close(true);
+    await server?.close(true);
   }
 }

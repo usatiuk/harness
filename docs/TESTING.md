@@ -132,6 +132,16 @@ delays, or a nearby condition that does not prove completion.
   children, and reopens nested allowed/denied history. Other desktop platforms
   and live Linux code-mode execution remain separate platform qualifications.
 
+- LiteLLM tests exercise real pinned SDKs against local HTTP/SSE edges for all
+  three transports, exact aliases and credentials, prefixed paths, two-turn tool
+  continuations, Responses ciphertext and Messages signatures, effort/request
+  caps and nullable usage. Discovery covers conflicting/unsupported metadata,
+  exact enrichment, hidden aliases, empty/replaced/retained snapshots, byte/row
+  limits and cancellation. Server RPC tests cover named login/logout/restart,
+  isolated keys, preserved selection, pre-probe validation and startup abort
+  releasing SQLite. These fixtures do not establish real upstream encryption
+  affinity; gateway/native qualification remains tracked in the delivery plan.
+
 - Named built-in provider tests cover independent stored API keys, exact
   environment references, legacy slots, label changes, construction identity,
   type contributions and pre-construction validation. Codex tests cover isolated

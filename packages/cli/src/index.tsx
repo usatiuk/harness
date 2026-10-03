@@ -23,6 +23,8 @@ import {
 } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { buildServerHarness } from "@harness/server";
+import { appProvidersRequest, type ProviderStatus } from "@harness/server/client-protocol";
+import { modelAvailabilityMessage } from "./provider-status.ts";
 export { ACTIVITY_APPROVAL_DEFAULTS, runStdioServer } from "@harness/server";
 import { App, type SessionMutation } from "./app.tsx";
 import { CLI_PLUGIN_CONTRACTS, CliPluginClient, type CliPlugins } from "./client-plugins.ts";
@@ -78,6 +80,7 @@ export type Start = { kind: "session"; session: Session } | { kind: "picker" };
 
 interface Harness {
   service: CliService;
+  providers: ProviderStatus[];
   plugins: CliPluginClient;
   /** Model used only when no settings layer configures one (no `auth login`, no project config). */
   fallbackModel: ModelConfig;
@@ -102,8 +105,10 @@ async function buildClientHarness(
   const plugins = new CliPluginClient(wireClient, approvals);
   const service = new HarnessDomainClient(wireClient);
   await service.start();
+  const providers = await wireClient.peer.request(appProvidersRequest, {});
   return {
     service,
+    providers,
     plugins,
     fallbackModel: service.defaultModel(),
     close: async () => {
@@ -174,20 +179,19 @@ export function sshServerArgs(destination: string): string[] {
 }
 
 /** Warns when the session's configured model isn't backed by a registered (signed-in) provider. */
-function notifyModel(service: HarnessClientService, model: ModelConfig): void {
+function notifyModel(
+  service: HarnessClientService,
+  providers: ProviderStatus[],
+  model: ModelConfig,
+): void {
   if (model.provider === "demo") {
     console.log(
       "No model provider configured — running on the demo provider. Run `harness auth login` to sign in.",
     );
     return;
   }
-  const registered = new Set(service.availableModels().map((m) => m.provider));
-  if (!registered.has(model.provider)) {
-    console.log(
-      `Configured model ${model.provider}/${model.model} isn't signed in. ` +
-        `Run \`harness auth login --provider ${model.provider}\` (or set its API key env var).`,
-    );
-  }
+  const message = modelAvailabilityMessage(service.availableModels(), providers, model);
+  if (message) console.log(message);
 }
 
 export async function loadSession(service: CliService, id: string): Promise<Session> {
@@ -249,7 +253,7 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
     }
 
     if (start.kind === "session") {
-      notifyModel(service, start.session.conversation.config.model);
+      notifyModel(service, harness.providers, start.session.conversation.config.model);
     }
 
     const { waitUntilExit } = render(

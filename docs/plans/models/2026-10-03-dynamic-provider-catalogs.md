@@ -449,8 +449,25 @@ follow-up review, with no remaining consequential gap. Prettier checks and
 documents resolve. Formatting used the existing primary-checkout Prettier
 installation because this worktree has no installed dependencies. This
 documentation-only change did not run `npm run check` or native/provider tests.
-Implementation, fixture validation, and live LiteLLM qualification: not started.
-No commits, pushes, or external publication are authorized by this plan.
+Feature increment one committed as `8a886a6`: named built-in API/OAuth instances,
+type-owned schema/auth construction and scoped storage. All TypeScript projects,
+changed-code lint and 77 focused regressions passed. Independent implementation
+review found an OAuth initial-read/logout race, unbounded refresh draining, an
+environment-only CLI dead end, overbroad credential classification and login
+validation ordering. These findings are accepted and being fixed with regressions.
+The foundation review findings are fixed with regression evidence. Public named-key
+RPC login/logout/restart and all three real-SDK HTTP continuation fixtures pass.
+The second increment adds LiteLLM, bounded boot discovery, status RPCs, and client
+credential/catalog presentation. Follow-up findings were accepted and fixed:
+neutral Responses controls, request defaults separate from hard capacities,
+nullable unknown metadata, conflicting output capacities, qualified unsupported
+overrides, hidden-alias enrichment, local preset replacement, catalog identity
+assertions, and abort/drain before releasing bootstrap resources. Forty-three
+focused regressions and the full `npm run check` pass after these fixes (872 tests
+passed, 30 environment-gated tests skipped). The CLI plugin fixture now uses an
+isolated home; the full check had exposed its dependency on real user settings.
+The legacy bridge and native/real-gateway qualification remain in progress.
+Local commits are authorized; push/publication are not.
 
 After V1, an explicit refresh action can reuse `refreshModels`, but its delivery
 must include catalog replacement in clients and a captured model description for

@@ -51,6 +51,7 @@ export class CodexAuth {
   readonly #openBrowser: boolean;
   #cached: CodexSession | undefined;
   #refresh: Promise<CodexSession> | undefined;
+  #refreshAbort: AbortController | undefined;
   #epoch = 0;
 
   constructor(opts: CodexAuthOptions) {
@@ -75,6 +76,7 @@ export class CodexAuth {
   /** Runs the loopback browser flow end to end, persisting the resulting session. */
   async loginWithBrowser(opts: LoginOptions = {}): Promise<CodexSession> {
     const epoch = ++this.#epoch;
+    this.#refreshAbort?.abort(new Error("Codex authentication changed"));
     await this.#refresh?.catch(() => undefined);
     opts.signal?.throwIfAborted();
     const pkce = generatePkce();
@@ -120,15 +122,21 @@ export class CodexAuth {
     if (!session) throw new Error("Not signed in to Codex. Run `harness auth login`.");
     if (opts.forceRefresh || session.expiresAt <= this.#now() + REFRESH_SKEW_MS) {
       if (!this.#refresh) {
+        const controller = new AbortController();
+        this.#refreshAbort = controller;
+        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]);
         const refresh = refreshTokens({
           refreshToken: session.refreshToken,
-          fetch: this.#fetch,
+          fetch: (input, init) => this.#fetch(input, { ...init, signal }),
           now: this.#now,
         }).then((tokens) => this.#persist(tokens, epoch));
         this.#refresh = refresh;
         void refresh
           .finally(() => {
-            if (this.#refresh === refresh) this.#refresh = undefined;
+            if (this.#refresh === refresh) {
+              this.#refresh = undefined;
+              this.#refreshAbort = undefined;
+            }
           })
           .catch(() => undefined);
       }
@@ -139,6 +147,7 @@ export class CodexAuth {
 
   async logout(): Promise<boolean> {
     ++this.#epoch;
+    this.#refreshAbort?.abort(new Error("Codex authentication changed"));
     // Drain an already-started rotation before removing the durable session.
     await this.#refresh?.catch(() => undefined);
     this.#cached = undefined;
@@ -147,7 +156,9 @@ export class CodexAuth {
 
   async #load(): Promise<CodexSession | undefined> {
     if (this.#cached) return this.#cached;
+    const epoch = this.#epoch;
     const raw = await this.#store.get(this.#storeKey);
+    if (epoch !== this.#epoch) return undefined;
     if (!raw) return undefined;
     this.#cached = parseCodexSession(raw);
     return this.#cached;

@@ -116,6 +116,66 @@ function openCallback(authorizeUrl: string): BrowserCallback {
 }
 
 describe("CodexAuth", () => {
+  it("does not cache a credential read that completes after logout", async () => {
+    const store = new MemorySecretStore();
+    await seedSession(store);
+    const get = store.get.bind(store);
+    let entered!: () => void;
+    let release!: () => void;
+    const began = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    store.get = async (key) => {
+      const value = await get(key);
+      if (first) {
+        first = false;
+        entered();
+        await gate;
+      }
+      return value;
+    };
+    const auth = new CodexAuth({ store, now: () => 0 });
+    const reading = auth.getValidSession();
+    const rejected = expect(reading).rejects.toThrow("authentication changed");
+    await began;
+    await auth.logout();
+    release();
+    await rejected;
+    expect(await auth.status()).toEqual({ authenticated: false });
+    await expect(auth.getValidSession()).rejects.toThrow("Not signed in");
+    expect(await get(STORE_KEY)).toBeNull();
+  });
+
+  it("cancels a stalled token rotation when signing out", async () => {
+    const store = new MemorySecretStore();
+    await seedSession(store);
+    let entered!: () => void;
+    const began = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const auth = new CodexAuth({
+      store,
+      now: () => 0,
+      fetch: async (_input, init) => {
+        const signal = init?.signal;
+        if (!signal) throw new Error("Refresh omitted cancellation");
+        entered();
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason as Error), { once: true });
+        });
+      },
+    });
+    const refresh = auth.getValidSession();
+    const rejected = expect(refresh).rejects.toThrow("authentication changed");
+    await began;
+    await auth.logout();
+    await rejected;
+    expect(await auth.status()).toEqual({ authenticated: false });
+  });
   it("keeps independently named OAuth accounts and rotated token records isolated", async () => {
     const store = new MemorySecretStore();
     await seedSession(store);

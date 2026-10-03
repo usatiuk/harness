@@ -2518,17 +2518,101 @@
             "properties": {
               "id": { "type": "string" },
               "label": { "type": "string" },
-              "kind": { "type": "string", "enum": ["api-key", "oauth"] },
+              "type": { "type": "string" },
+              "kind": { "type": "string", "enum": ["api-key", "oauth", "none"] },
+              "canStore": { "type": "boolean" },
               "authenticated": { "type": "boolean" },
-              "detail": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+              "detail": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+              "credentialSource": {
+                "anyOf": [{ "type": "string", "enum": ["env", "stored"] }, { "type": "null" }]
+              },
+              "registered": { "type": "boolean" },
+              "catalog": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "degraded",
+                  "failed",
+                  "missing-credentials",
+                  "credentials-unavailable"
+                ]
+              },
+              "modelCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "diagnostics": { "type": "array", "items": { "type": "string" } }
             },
-            "required": ["id", "label", "kind", "authenticated", "detail"],
+            "required": [
+              "id",
+              "label",
+              "type",
+              "kind",
+              "canStore",
+              "authenticated",
+              "detail",
+              "credentialSource",
+              "registered",
+              "catalog",
+              "modelCount",
+              "diagnostics"
+            ],
             "additionalProperties": false
           }
         }
       },
       "required": ["home", "cwd", "platform", "settings", "providers"],
       "additionalProperties": false
+    },
+    "app_providers_list_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "app_providers_list_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "type": { "type": "string" },
+          "kind": { "type": "string", "enum": ["api-key", "oauth", "none"] },
+          "canStore": { "type": "boolean" },
+          "authenticated": { "type": "boolean" },
+          "detail": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "credentialSource": {
+            "anyOf": [{ "type": "string", "enum": ["env", "stored"] }, { "type": "null" }]
+          },
+          "registered": { "type": "boolean" },
+          "catalog": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "degraded",
+              "failed",
+              "missing-credentials",
+              "credentials-unavailable"
+            ]
+          },
+          "modelCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "diagnostics": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": [
+          "id",
+          "label",
+          "type",
+          "kind",
+          "canStore",
+          "authenticated",
+          "detail",
+          "credentialSource",
+          "registered",
+          "catalog",
+          "modelCount",
+          "diagnostics"
+        ],
+        "additionalProperties": false
+      }
     },
     "app_settings_update_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2888,6 +2972,13 @@
       "direction": "client-to-server",
       "params": { "$ref": "#/$defs/app_settings_get_params" },
       "result": { "$ref": "#/$defs/app_settings_get_result" }
+    },
+    {
+      "method": "app.providers.list",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/app_providers_list_params" },
+      "result": { "$ref": "#/$defs/app_providers_list_result" }
     },
     {
       "method": "app.settings.update",

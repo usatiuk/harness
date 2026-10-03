@@ -422,7 +422,11 @@ export function createDesktopRouter(session: DesktopSession) {
       <>
         {unavailable && (
           <option value={modelKey(selected.provider, selected.model)}>
-            {selected.provider} / {selected.model} — unavailable; restart or connect provider
+            {session.settings?.providers.find((provider) => provider.id === selected.provider)
+              ?.label ?? selected.provider}{" "}
+            / {selected.model} — unavailable;{" "}
+            {session.settings?.providers.find((provider) => provider.id === selected.provider)
+              ?.catalog ?? "check provider configuration"}
           </option>
         )}
         {models.map((model) => (
@@ -430,7 +434,9 @@ export function createDesktopRouter(session: DesktopSession) {
             key={modelKey(model.provider, model.model)}
             value={modelKey(model.provider, model.model)}
           >
-            {model.provider} / {model.label ?? model.model}
+            {session.settings?.providers.find((provider) => provider.id === model.provider)
+              ?.label ?? model.provider}{" "}
+            / {model.label ?? model.model}
           </option>
         ))}
       </>
@@ -1062,38 +1068,53 @@ export function createDesktopRouter(session: DesktopSession) {
         <h3>{provider.label}</h3>
         <p className="muted">
           {provider.authenticated
-            ? `Connected${provider.detail ? ` · ${provider.detail}` : ""}`
-            : "Not connected"}
+            ? `Credentials available${provider.detail ? ` · ${provider.detail}` : ""}`
+            : "No credentials"}
         </p>
-        <fetcher.Form
-          method="post"
-          action="/actions"
-          {...(provider.kind === "api-key" ? { onSubmit: submitKey } : {})}
-          className="button-row"
-        >
-          <input type="hidden" name="intent" value="login" />
-          <input type="hidden" name="provider" value={provider.id} />
-          {provider.kind === "api-key" && (
-            <label>
-              API key
-              <input
-                name="key"
-                type="password"
-                autoComplete="off"
-                required
-                aria-label={`${provider.label} API key`}
-              />
-            </label>
-          )}
-          <Button disabled={fetcher.state !== "idle"}>
-            {fetcher.state !== "idle"
-              ? "Connecting…"
-              : provider.kind === "oauth"
-                ? "Sign in with browser"
-                : "Save key"}
-          </Button>
-        </fetcher.Form>
-        {provider.authenticated && (
+        <p className="muted">
+          {provider.id} · {provider.type} · {provider.catalog} · {provider.modelCount} models
+        </p>
+        {provider.diagnostics.map((diagnostic, index) => (
+          <p className="muted" key={index}>
+            {diagnostic}
+          </p>
+        ))}
+        {provider.canStore && (
+          <fetcher.Form
+            method="post"
+            action="/actions"
+            {...(provider.kind === "api-key" ? { onSubmit: submitKey } : {})}
+            className="button-row"
+          >
+            <input type="hidden" name="intent" value="login" />
+            <input type="hidden" name="provider" value={provider.id} />
+            {provider.kind === "api-key" && (
+              <label>
+                API key
+                <input
+                  name="key"
+                  type="password"
+                  autoComplete="off"
+                  required
+                  aria-label={`${provider.label} API key`}
+                />
+              </label>
+            )}
+            <Button disabled={fetcher.state !== "idle"}>
+              {fetcher.state !== "idle"
+                ? "Connecting…"
+                : provider.kind === "oauth"
+                  ? "Sign in with browser"
+                  : "Save key"}
+            </Button>
+          </fetcher.Form>
+        )}
+        {!provider.canStore && provider.kind === "api-key" && (
+          <p className="muted">
+            Manage this connection through its configured environment variable and restart Harness.
+          </p>
+        )}
+        {provider.authenticated && provider.canStore && (
           <fetcher.Form method="post" action="/actions">
             <input type="hidden" name="intent" value="logout" />
             <input type="hidden" name="provider" value={provider.id} />
