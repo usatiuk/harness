@@ -339,6 +339,15 @@ export class HarnessDomainClient implements HarnessClientService {
   }
 
   #receive(event: HarnessClientEvent): void {
+    if (event.type === "detached") {
+      for (const raw of event.conversationIds) {
+        const id = raw as ConversationId;
+        this.#usage.delete(id);
+        this.#attaching.delete(id);
+        this.#replaceBacklog(id, []);
+      }
+      return;
+    }
     if (event.type === "attached") {
       const rootId = event.attachment.root.id as ConversationId;
       const root = event.attachment.members.find(

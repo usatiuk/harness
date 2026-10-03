@@ -169,9 +169,16 @@ export class Engine {
       throw new Error("cannot prepare a conversation during deactivation");
     }
     const execution = this.#service(runtime, "execution") as
-      | { bind?: (emit: (event: PluginEvent) => void) => void }
+      | { bind?: (emit: (event: PluginEvent) => void) => void | Promise<unknown> }
       | undefined;
-    execution?.bind?.((event) => this.#emitPlugin({ conversationId, ...event }));
+    await execution?.bind?.((event) => {
+      if (
+        this.#runtimes.get(conversationId) === runtime &&
+        !this.#rootScopeUnavailable(conversationId)
+      ) {
+        this.#emitPlugin({ conversationId, ...event });
+      }
+    });
   }
 
   /**
@@ -423,6 +430,12 @@ export class Engine {
   /** Resolve-and-cache a service for a runtime, building it from its provider on first use. */
   #service(runtime: Runtime, key: string): unknown {
     if (runtime.services.has(key)) return runtime.services.get(key);
+    if (
+      this.#runtimes.get(runtime.conversation.id) !== runtime ||
+      this.#rootScopeUnavailable(runtime.conversation.id)
+    ) {
+      throw new Error("cannot construct a service for an inactive runtime");
+    }
     const built = this.host.services.get(key)?.for(runtime.conversation);
     runtime.services.set(key, built);
     return built;
@@ -616,6 +629,7 @@ export class Engine {
 
     try {
       await this.#runSteps(conversation, turn.id, controller.signal, runtime);
+      if (controller.signal.aborted) throw new TurnAborted();
       await this.store.updateTurn(turn.id, "completed");
       this.#emitKernel({
         type: "turn.status",
@@ -624,7 +638,7 @@ export class Engine {
         status: "completed",
       });
     } catch (error) {
-      if (error instanceof TurnAborted) {
+      if (error instanceof TurnAborted || controller.signal.aborted) {
         await this.store.updateTurn(turn.id, "aborted");
         this.#emitKernel({
           type: "turn.status",
@@ -1055,14 +1069,30 @@ export class Engine {
       service: (key) => this.#service(runtime, key),
       // Default the dispatching conversation onto the event so a plugin can't emit an
       // unscoped (and thus silently dropped) event; an explicit id in the event still wins.
-      emit: (event) => this.#emitPlugin({ conversationId: conversation.id, ...event }),
+      emit: (event) => {
+        if (
+          this.#runtimes.get(conversation.id) === runtime &&
+          !this.#rootScopeUnavailable(conversation.id)
+        ) {
+          this.#emitPlugin({ conversationId: conversation.id, ...event });
+        }
+      },
       // Plugin-origin delivery, fixed to `steer`, stamped with the dispatching tool's name.
-      deliver: (content) =>
-        void this.deliver(
-          conversation.id,
-          { source: { kind: "plugin", pluginId: call.name }, content },
-          "steer",
-        ),
+      deliver: (content) => {
+        // Completion callbacks belong to this activation. Addressing only the durable id would
+        // let a disposed plugin inject work into a replacement runtime after reload.
+        if (
+          this.#runtimes.get(conversation.id) !== runtime ||
+          this.#rootScopeUnavailable(conversation.id)
+        )
+          return;
+        applyDelivery(runtime, {
+          input: { source: { kind: "plugin", pluginId: call.name }, content },
+          intent: "steer",
+        });
+        this.#emitInbox(runtime);
+        this.#ensureRunning(runtime);
+      },
       putBlob: (bytes) => this.store.putBlob(bytes),
       request: (request) => this.#request(request, conversation, turnId, signal, runtime),
       active: async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
@@ -1097,13 +1127,26 @@ export class Engine {
     signal: AbortSignal,
     runtime: Runtime,
   ): Promise<unknown> {
+    if (
+      this.#runtimes.get(conversation.id) !== runtime ||
+      this.#rootScopeUnavailable(conversation.id)
+    ) {
+      return Promise.reject(new Error("cannot request interaction from an inactive runtime"));
+    }
     const ctx = {
       conversation,
       turnId,
       signal,
       active: async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
       service: (key: string) => this.#service(runtime, key),
-      emit: (event: PluginEvent) => this.#emitPlugin({ conversationId: conversation.id, ...event }),
+      emit: (event: PluginEvent) => {
+        if (
+          this.#runtimes.get(conversation.id) === runtime &&
+          !this.#rootScopeUnavailable(conversation.id)
+        ) {
+          this.#emitPlugin({ conversationId: conversation.id, ...event });
+        }
+      },
       models: this.#modelInvoker(conversation, turnId, signal),
     };
     return runRequestChain(this.host.requestMiddleware, request, ctx, (req) =>
@@ -1122,6 +1165,12 @@ export class Engine {
     runtime: Runtime,
   ): Promise<unknown> {
     const aborted = (): Error => new Error("interrupted: turn aborted");
+    if (
+      this.#runtimes.get(conversationId) !== runtime ||
+      this.#rootScopeUnavailable(conversationId)
+    ) {
+      return Promise.reject(new Error("cannot request interaction from an inactive runtime"));
+    }
     if (signal.aborted) return Promise.reject(aborted());
     const requestId = `req_${++this.#requestSeq}`;
     return new Promise<unknown>((resolve, reject) => {

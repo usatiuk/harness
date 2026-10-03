@@ -11,6 +11,7 @@ import {
   conversationCreateRequest,
   conversationDeleteEmptyRequest,
   conversationDeliverRequest,
+  conversationDetachedNotification,
   conversationEventNotification,
   conversationGetRequest,
   conversationHistoryRequest,
@@ -395,12 +396,20 @@ export class HarnessRpcSession {
       if (force) this.#cancelOperations(root);
       await this.#whenOperationsIdle(root);
       const result = await this.#service.deactivateSession(root, { force });
-      if (result.status === "deactivated") {
-        this.#attached.delete(root);
-        this.#owned.delete(root);
-      }
       return result;
     } finally {
+      // Engine completes all disposal before reporting cleanup errors. Membership follows the
+      // surviving activation, not whether the request happened to return successfully.
+      if (this.#service.conversationTreeState(root).length === 0) {
+        this.#attached.delete(root);
+        this.#owned.delete(root);
+        void this.server.peer
+          .notify(conversationDetachedNotification, { rootConversationId: root })
+          .catch((error: unknown) => {
+            this.#onError(error);
+            this.server.peer.terminateProtocol("failed to send conversation detachment");
+          });
+      }
       this.#closing.delete(root);
     }
   }
@@ -473,9 +482,12 @@ export class HarnessRpcSession {
     if (root === undefined) throw new Error(`unknown conversation: ${rootId}`);
 
     // No await from the authoritative snapshot through admission to the live set.
+    const members = this.#service.conversationTreeState(rootId);
+    const liveRoot = members.find((member) => member.conversation.id === rootId);
+    if (!liveRoot) throw new Error("attachment omitted its root runtime");
     const result: AttachResult = {
-      root: projectConversation(root),
-      members: this.#service.conversationTreeState(rootId).map((member) => ({
+      root: projectConversation({ ...root, config: liveRoot.conversation.config }),
+      members: members.map((member) => ({
         conversation: projectConversation(member.conversation),
         live: {
           conversationId: member.conversation.id,

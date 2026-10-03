@@ -3,6 +3,9 @@ import { z } from "zod";
 import {
   HARNESS_PROTOCOL_VERSION,
   conversationAttachRequest,
+  conversationReloadRequest,
+  conversationDetachedNotification,
+  conversationEventNotification,
   defineNotification,
   serverModelsRequest,
   type AttachResult,
@@ -66,6 +69,40 @@ const attachment: AttachResult = {
 };
 
 describe("HarnessClient attachment", () => {
+  it("keeps child routing from a fresh reload suffix through later detachment", async () => {
+    const connections = createInProcessMessageConnectionPair();
+    const server = new RpcPeer({ role: "server", connection: connections.right });
+    server.onInitialize(() => ({
+      protocolVersion: HARNESS_PROTOCOL_VERSION,
+      server: { name: "server", version: "1" },
+      plugins: [],
+    }));
+    server.onRequest(conversationAttachRequest, () => attachment);
+    server.onRequest(conversationReloadRequest, async () => {
+      await server.notify(conversationDetachedNotification, { rootConversationId: "root" });
+      await server.notify(conversationEventNotification, {
+        rootConversationId: "root",
+        conversationId: "child",
+        event: { type: "head.changed", head: null },
+      });
+      return { status: "reloaded" as const, attachment };
+    });
+    server.listen();
+    const client = new HarnessClient({
+      connection: connections.left,
+      client: { name: "client", version: "1" },
+    });
+    const detached: string[][] = [];
+    client.subscribe((event) => {
+      if (event.type === "detached") detached.push(event.conversationIds);
+    });
+    await client.start();
+    await client.attach("root");
+    await client.reload("root");
+    await server.notify(conversationDetachedNotification, { rootConversationId: "root" });
+    await vi.waitFor(() => expect(detached).toEqual([["root"], ["root", "child"]]));
+    client.closeConnection();
+  });
   it("applies the snapshot before an early plugin notification", async () => {
     const connections = createInProcessMessageConnectionPair();
     const server = new RpcPeer({ role: "server", connection: connections.right });

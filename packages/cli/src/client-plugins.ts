@@ -80,6 +80,11 @@ export class CliPluginClient implements CliPlugins {
     this.#client = client;
     this.approvals = approvals;
     client.subscribe((event) => {
+      if (event.type === "detached") {
+        this.#activities.delete(event.rootConversationId);
+        for (const id of event.conversationIds) this.#sandbox.delete(id);
+        return;
+      }
       if (event.type !== "attached") return;
       const root = event.attachment.root.id;
       const activities = activitiesSnapshotSchema.parse(

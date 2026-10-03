@@ -9,6 +9,21 @@ const readDoc = async (home: string) =>
   JSON.parse(await readFile(join(home, "settings.json"), "utf8")) as Record<string, unknown>;
 
 describe("updateGlobalModel", () => {
+  it("preserves concurrent plugin, model, and auth updates to the same file", async () => {
+    const home = await newHome();
+    const { setAuthStore } = await import("./write.ts");
+    await Promise.all([
+      updateGlobalPluginConfig(home, "audit", { a: 1 }),
+      updateGlobalPluginConfig(home, "audit", { b: 2 }),
+      updateGlobalModel(home, { provider: "fake", model: "next" }),
+      setAuthStore(home, "file"),
+    ]);
+    expect(await readDoc(home)).toEqual({
+      plugins: { audit: { a: 1, b: 2 } },
+      model: { provider: "fake", model: "next" },
+      auth: { store: "file" },
+    });
+  });
   it("creates the settings file with the model when none exists", async () => {
     const home = await newHome();
     await updateGlobalModel(home, { provider: "openai", model: "gpt-5.1" });

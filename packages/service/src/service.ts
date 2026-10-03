@@ -70,7 +70,8 @@ export class HarnessService implements ConversationRunner {
   readonly #engine: Engine;
   readonly #home: string;
   readonly #schemas = new Map<string, ZodType>();
-  #selectionMutation: Promise<void> = Promise.resolve();
+  readonly #inheritedPlugins = new Set<string>();
+  #configMutation: Promise<void> = Promise.resolve();
   readonly #resolveConfig: ConfigResolver;
 
   constructor(options: HarnessServiceOptions) {
@@ -96,6 +97,7 @@ export class HarnessService implements ConversationRunner {
     for (const entry of options.plugins) {
       if (isPluginDefinition(entry)) {
         this.#schemas.set(entry.id, entry.configSchema);
+        if (entry.inheritConfig) this.#inheritedPlugins.add(entry.id);
         plugins.push(entry.create(reader));
       } else {
         plugins.push(entry);
@@ -109,12 +111,27 @@ export class HarnessService implements ConversationRunner {
    * freshly resolved config. Config is never stored — it is re-derived on every load.
    */
   async createConversation(options: CreateConversationOptions = {}): Promise<Conversation> {
+    let overrides = options.overrides ?? {};
+    if (options.parentId !== undefined) {
+      const parent = this.#engine.configFor(options.parentId);
+      if (!parent) throw new Error(`cannot create a child for inactive parent ${options.parentId}`);
+      const plugins = Object.fromEntries(
+        [...this.#inheritedPlugins].map((id) => [id, parent.plugins?.[id]]),
+      );
+      overrides = deepMerge({ model: parent.model, plugins }, overrides) as Record<string, unknown>;
+    }
     const record = await this.#store.createConversation({
       workspaceRoot: options.cwd ?? null,
-      overrides: options.overrides ?? {},
+      overrides,
     });
     try {
       const conversation = await this.#resolve(record);
+      // Persist the selection, not a second copy of resolved configuration. Other settings keep
+      // their cascade; model defaults only select newly created conversations.
+      await this.#store.updateConversationOverrides(record.id, {
+        model: conversation.config.model,
+      });
+      conversation.overrides = { ...record.overrides, model: conversation.config.model };
       if (options.parentId !== undefined) {
         this.#engine.registerChild(options.parentId, record.id);
       }
@@ -136,7 +153,8 @@ export class HarnessService implements ConversationRunner {
    * Warms a conversation's runtime and execution backend before its first turn, so pre-turn
    * `!cmd`/`/sandbox` work and lazy sandbox provisioning can stream progress. Idempotent.
    */
-  prepare(conversationId: ConversationId): Promise<void> {
+  async prepare(conversationId: ConversationId): Promise<void> {
+    await this.#pinLegacyModel(conversationId);
     return this.#engine.prepare(conversationId);
   }
 
@@ -145,7 +163,12 @@ export class HarnessService implements ConversationRunner {
    * Resolves once it is accepted, not once its turn completes. An empty-text
    * `interrupt` is a pure abort (no message seeds the next turn).
    */
-  deliver(conversationId: ConversationId, text: string, intent: DeliveryIntent): Promise<void> {
+  async deliver(
+    conversationId: ConversationId,
+    text: string,
+    intent: DeliveryIntent,
+  ): Promise<void> {
+    await this.#pinLegacyModel(conversationId);
     return this.#engine.deliver(
       conversationId,
       { source: { kind: "user" }, content: text ? [{ type: "text", text }] : [] },
@@ -212,7 +235,7 @@ export class HarnessService implements ConversationRunner {
    * before the global write can fail.
    */
   async setModel(conversationId: ConversationId, identity: ModelIdentityChange): Promise<void> {
-    await this.#serializeSelectionMutation(async () => {
+    await this.#serializeConfigMutation(async () => {
       const model = await this.#engine.setModel(conversationId, identity);
       await updateGlobalModel(this.#home, model);
     });
@@ -224,19 +247,35 @@ export class HarnessService implements ConversationRunner {
     expected: ModelIdentity,
     preset: string | undefined,
   ): Promise<void> {
-    await this.#serializeSelectionMutation(async () => {
+    await this.#serializeConfigMutation(async () => {
       const model = await this.#engine.setPreset(conversationId, expected, preset);
       await updateGlobalModel(this.#home, model);
     });
   }
 
-  #serializeSelectionMutation(mutate: () => Promise<void>): Promise<void> {
-    const result = this.#selectionMutation.then(mutate, mutate);
-    this.#selectionMutation = result.then(
+  #serializeConfigMutation(mutate: () => Promise<void>): Promise<void> {
+    const result = this.#configMutation.then(mutate, mutate);
+    this.#configMutation = result.then(
       () => undefined,
       () => undefined,
     );
     return result;
+  }
+
+  /** Pre-selection records adopt the current default once, before entering an activation. */
+  async #pinLegacyModel(conversationId: ConversationId): Promise<void> {
+    // Turns and interrupts on loaded roots never wait behind another root's settings IO.
+    if (this.#engine.configFor(conversationId) !== undefined) return;
+    const existing = await this.#store.getConversation(conversationId);
+    if (!existing) throw new Error(`unknown conversation: ${conversationId}`);
+    if (existing.overrides.model !== undefined) return;
+    return this.#serializeConfigMutation(async () => {
+      const record = await this.#store.getConversation(conversationId);
+      if (!record) throw new Error(`unknown conversation: ${conversationId}`);
+      if (record.overrides.model !== undefined) return;
+      const config = await this.#resolveConfig(record);
+      await this.#store.updateConversationOverrides(conversationId, { model: config.model });
+    });
   }
 
   /**
@@ -249,32 +288,34 @@ export class HarnessService implements ConversationRunner {
     patch: Record<string, unknown>,
     options: { saveGlobal?: boolean } = {},
   ): Promise<void> {
-    const schema = this.#schemas.get(pluginId);
-    if (!schema) throw new Error(`unknown plugin '${pluginId}'`);
-    const record = await this.#store.getConversation(conversationId);
-    if (!record) throw new Error(`unknown conversation: ${conversationId}`);
-    const current = await this.#resolve(record);
-    const effective = current.config.plugins?.[pluginId] ?? {};
-    const checked = schema.safeParse(deepMerge(effective, patch));
-    if (!checked.success) {
-      throw new Error(`invalid config for plugin '${pluginId}'`);
-    }
+    return this.#serializeConfigMutation(async () => {
+      const schema = this.#schemas.get(pluginId);
+      if (!schema) throw new Error(`unknown plugin '${pluginId}'`);
+      const record = await this.#store.getConversation(conversationId);
+      if (!record) throw new Error(`unknown conversation: ${conversationId}`);
+      const current = await this.#resolve(record);
+      const effective = current.config.plugins?.[pluginId] ?? {};
+      const checked = schema.safeParse(deepMerge(effective, patch));
+      if (!checked.success) {
+        throw new Error(`invalid config for plugin '${pluginId}'`);
+      }
 
-    // Global first: the subsequent conversation re-resolution sees the newly saved defaults.
-    if (options.saveGlobal) {
-      await updateGlobalPluginConfig(this.#home, pluginId, patch);
-    }
+      // Global first: the subsequent conversation re-resolution sees the newly saved defaults.
+      if (options.saveGlobal) {
+        await updateGlobalPluginConfig(this.#home, pluginId, patch);
+      }
 
-    const overridesPlugins =
-      record.overrides.plugins &&
-      typeof record.overrides.plugins === "object" &&
-      !Array.isArray(record.overrides.plugins)
-        ? (record.overrides.plugins as Record<string, unknown>)
-        : {};
-    const overrideSlice = overridesPlugins[pluginId] ?? {};
-    await this.#engine.updatePluginOverrides(conversationId, {
-      ...overridesPlugins,
-      [pluginId]: deepMerge(overrideSlice, patch),
+      const overridesPlugins =
+        record.overrides.plugins &&
+        typeof record.overrides.plugins === "object" &&
+        !Array.isArray(record.overrides.plugins)
+          ? (record.overrides.plugins as Record<string, unknown>)
+          : {};
+      const overrideSlice = overridesPlugins[pluginId] ?? {};
+      await this.#engine.updatePluginOverrides(conversationId, {
+        ...overridesPlugins,
+        [pluginId]: deepMerge(overrideSlice, patch),
+      });
     });
   }
 

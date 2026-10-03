@@ -17,6 +17,8 @@ import type {
   ModelProvider,
   ModelRequest,
   ModelStreamEvent,
+  ToolMiddlewareContext,
+  RequestMiddlewareContext,
   NewContextBuild,
   Plugin,
   Tool,
@@ -43,6 +45,7 @@ import {
 } from "@harness/testkit";
 import { PluginHost } from "./plugin-host.ts";
 import { Engine } from "./engine.ts";
+import { okResult } from "@harness/protocol";
 import { reconcileConversation } from "./reconcile.ts";
 import { compactedWindow, modelCompaction } from "./policies.ts";
 
@@ -111,6 +114,48 @@ function setup(steps: FakeStep[], plugin?: Partial<Plugin>, existingStore?: InMe
 }
 
 describe("Engine — turn cycle", () => {
+  it("records forced context-assembly teardown as cancellation without constructing services", async () => {
+    let entered!: () => void, release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let constructed = false;
+    const { store, engine, events } = setup([textStep("unused")], {
+      services: () => [
+        {
+          key: "owned",
+          for: () => {
+            constructed = true;
+            return {};
+          },
+        },
+      ],
+      contextSources: () => [
+        {
+          id: "gated-context",
+          instructions: async (ctx) => {
+            entered();
+            await gate;
+            ctx.service("owned");
+            return [];
+          },
+        },
+      ],
+    });
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conversation.id, userInput("go"));
+    await waiting;
+    const closing = engine.deactivate(conversation.id, { force: true });
+    release();
+    await closing;
+    expect(turnStatuses(events)).toEqual(["running", "aborted"]);
+    expect(constructed).toBe(false);
+    expect(engine.conversationTreeState(conversation.id)).toEqual([]);
+  });
+
   it("validates model config before capability-dependent tool construction", async () => {
     let capabilitiesCalled = false;
     const provider: ModelProvider = {
@@ -282,6 +327,104 @@ describe("Engine — turn cycle", () => {
     ).resolves.toBeUndefined();
     release();
     await expect(closing).resolves.toEqual({ status: "deactivated" });
+  });
+
+  it("ignores callbacks from a disposed activation after the same root reopens", async () => {
+    let oldContext!: ToolMiddlewareContext;
+    let oldRequestContext!: RequestMiddlewareContext;
+    const { engine, store, events } = setup(
+      [
+        toolStep("capture", "capture", {}),
+        textStep("first completed"),
+        textStep("reopened completed"),
+      ],
+      {
+        toolMiddleware: () => [
+          {
+            id: "capture-context",
+            wrap: async (call, ctx, next) => {
+              oldContext = ctx;
+              await ctx.request({ kind: "audit.capture" });
+              return next(call);
+            },
+          },
+        ],
+        requestMiddleware: () => [
+          {
+            id: "capture-request",
+            wrap: async (_request, ctx) => {
+              oldRequestContext = ctx;
+              return {};
+            },
+          },
+        ],
+        tools: () => [
+          {
+            name: "capture",
+            description: "capture context",
+            input: { kind: "function", schema: z.strictObject({}) },
+            execute: async () => {
+              return okResult("captured");
+            },
+          },
+        ],
+      },
+    );
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conversation.id, userInput("first"));
+    await engine.whenIdle(conversation.id);
+    await engine.deactivate(conversation.id);
+    await engine.prepare(conversation.id);
+    oldContext.deliver([{ type: "text", text: "stale completion" }]);
+    oldContext.emit({ type: "audit.stale" });
+    oldRequestContext.emit({ type: "audit.stale-request" });
+    await expect(oldContext.request({ kind: "audit.stale-request" })).rejects.toThrow(
+      "inactive runtime",
+    );
+    await engine.deliver(conversation.id, userInput("reopened"));
+    await engine.whenIdle(conversation.id);
+    expect(userTexts(await store.listActiveItems(conversation.id))).toEqual(["first", "reopened"]);
+    expect(events.some((event) => event.type === "audit.stale")).toBe(false);
+    expect(events.some((event) => event.type === "audit.stale-request")).toBe(false);
+  });
+
+  it("closes one root while another foreground turn remains running", async () => {
+    const a = new GateProvider("A"),
+      b = new GateProvider("B");
+    const store = new InMemoryStore();
+    const provider: ModelProvider = {
+      provider: "fake",
+      capabilities: () => a.capabilities(),
+      validateConfig: () => {},
+      listModels: () => [],
+      stream: (request, signal) =>
+        (request.modelConfig.model === "a" ? a : b).stream(request, signal),
+    };
+    const engine = new Engine(
+      store,
+      new PluginHost([{ id: "fake", providers: () => [provider] }]),
+      testConfigResolver(),
+    );
+    const first = await store.createConversation(
+      newConversationInput({ ...CONFIG, model: { provider: "fake", model: "a" } }),
+    );
+    const second = await store.createConversation(
+      newConversationInput({ ...CONFIG, model: { provider: "fake", model: "b" } }),
+    );
+    await Promise.all([
+      engine.deliver(first.id, userInput("A input")),
+      engine.deliver(second.id, userInput("B input")),
+    ]);
+    await Promise.all([a.started, b.started]);
+    await engine.deactivate(first.id, { force: true });
+    expect(engine.conversationTreeState(second.id)[0]?.status).toBe("running");
+    b.release();
+    await engine.whenIdle(second.id);
+    expect(shapeOf(await store.listActiveItems(second.id))).toEqual([
+      "user:B input",
+      "assistant:B",
+    ]);
+    await engine.deactivate(second.id);
   });
 
   it("deactivates one root without disturbing another loaded root", async () => {

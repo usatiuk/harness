@@ -7,6 +7,7 @@ import {
   conversationCreateRequest,
   conversationDeleteEmptyRequest,
   conversationDeliverRequest,
+  conversationDetachedNotification,
   conversationEventNotification,
   conversationGetRequest,
   conversationHistoryRequest,
@@ -37,6 +38,7 @@ import type { RpcConnection } from "./peer.ts";
 
 export type HarnessClientEvent =
   | { type: "attached"; attachment: AttachResult }
+  | { type: "detached"; rootConversationId: string; conversationIds: string[] }
   | {
       type: "conversation";
       rootConversationId: string;
@@ -81,9 +83,21 @@ export class HarnessClient {
         : { onProtocolError: options.onProtocolError }),
     });
     this.peer.onNotification(conversationEventNotification, (params) => {
-      this.receive(params.rootConversationId, params, () =>
-        this.#emit({ type: "conversation", ...params }),
-      );
+      this.receive(params.rootConversationId, params, () => {
+        this.#rootByConversation.set(params.conversationId, params.rootConversationId);
+        this.#emit({ type: "conversation", ...params });
+      });
+    });
+    this.peer.onNotification(conversationDetachedNotification, ({ rootConversationId }) => {
+      const conversationIds = [...this.#rootByConversation]
+        .filter(([, root]) => root === rootConversationId)
+        .map(([id]) => id);
+      this.#forgetRoot(rootConversationId);
+      if (this.#pendingAttach?.targetRootId === rootConversationId) {
+        this.#pendingAttach.events.length = 0;
+        this.#pendingAttach.bytes = 0;
+      }
+      this.#emit({ type: "detached", rootConversationId, conversationIds });
     });
   }
 
@@ -213,14 +227,12 @@ export class HarnessClient {
       const root = this.#rootOf(conversationId);
       const pending = { targetRootId: root, events: [] as BufferedDelivery[], bytes: 0 };
       this.#pendingAttach = pending;
-      this.#attachedRoots.delete(root);
       try {
         const response = await this.peer.request(conversationReloadRequest, {
           conversationId,
           force,
         });
         if (response.status === "busy") {
-          this.#attachedRoots.add(root);
           for (const event of pending.events) event.deliver();
         } else {
           this.#forgetRoot(root);
@@ -234,8 +246,9 @@ export class HarnessClient {
         }
         resolveResult(response);
       } catch (error) {
-        this.#attachedRoots.add(root);
-        for (const event of pending.events) event.deliver();
+        if (this.#attachedRoots.has(root)) {
+          for (const event of pending.events) event.deliver();
+        }
         rejectResult(error);
       } finally {
         this.#pendingAttach = undefined;

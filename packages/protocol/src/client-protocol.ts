@@ -347,6 +347,13 @@ export const wireConversationEventSchema = z.discriminatedUnion("type", [
 ]);
 export type WireConversationEvent = z.infer<typeof wireConversationEventSchema>;
 
+/** The old activation is gone, even if cleanup or replacement preparation failed. */
+export const conversationDetachedNotification = defineNotification({
+  direction: "server-to-client",
+  method: "conversation.detached",
+  params: z.strictObject({ rootConversationId: idSchema }),
+});
+
 export const conversationEventNotification = defineNotification({
   direction: "server-to-client",
   method: "conversation.event",
@@ -376,4 +383,5 @@ export const coreRpcMessages = [
   conversationPresetSetRequest,
   conversationPluginConfigPatchRequest,
   conversationEventNotification,
+  conversationDetachedNotification,
 ] as const;

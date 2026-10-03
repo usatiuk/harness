@@ -92,6 +92,8 @@ export interface ConfigReader {
 export interface PluginDefinition {
   readonly id: string;
   readonly configSchema: ZodType;
+  /** Copy this plugin's effective parent slice into a child's durable overrides. */
+  readonly inheritConfig?: boolean;
   create(reader: ConfigReader): Plugin;
 }
 

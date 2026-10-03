@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { conversationAttachRequest, type ConversationId } from "@harness/protocol";
+import {
+  conversationAttachRequest,
+  conversationEventNotification,
+  type ConversationId,
+  type Plugin,
+} from "@harness/protocol";
 import {
   HarnessClient,
   HarnessDomainClient,
@@ -10,12 +15,12 @@ import { FakeProvider, counterIdGenerator, fixedClock, textStep } from "@harness
 import { HarnessService } from "./service.ts";
 import { HarnessRpcSession } from "./rpc-session.ts";
 
-const createHarness = (steps = [textStep("done")]) => {
+const createHarness = (steps = [textStep("done")], plugins: Plugin[] = []) => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const service = new HarnessService({
     store,
     home: "/nonexistent-harness-home",
-    plugins: [{ id: "fake", providers: () => [new FakeProvider(steps)] }],
+    plugins: [{ id: "fake", providers: () => [new FakeProvider(steps)] }, ...plugins],
   });
   const connections = createInProcessMessageConnectionPair();
   const session = new HarnessRpcSession({
@@ -40,6 +45,99 @@ const createConversation = (client: HarnessClient) =>
   });
 
 describe("HarnessRpcSession", () => {
+  it("preserves attachment and buffered events when reload fails before teardown", async () => {
+    const { client, service, session } = createHarness();
+    await client.start();
+    const a = await createConversation(client);
+    await client.attach(a.id);
+    const received: string[] = [];
+    client.subscribe((event) => {
+      received.push(event.type === "conversation" ? event.event.type : event.type);
+    });
+    vi.spyOn(service, "deactivateSession").mockImplementationOnce(async () => {
+      await session.server.peer.notify(conversationEventNotification, {
+        rootConversationId: a.id,
+        conversationId: a.id,
+        event: { type: "head.changed", head: null },
+      });
+      throw new Error("teardown not started");
+    });
+    await expect(client.reload(a.id)).rejects.toThrow("internal error");
+    expect(received).toEqual(["head.changed"]);
+    expect(session.isAttached(a.id as ConversationId)).toBe(true);
+    await client.deliver(a.id, "still attached", "send");
+    await service.whenIdle(a.id as ConversationId);
+    expect((await client.history({ conversationId: a.id })).entries).toHaveLength(2);
+    await session.shutdown();
+  });
+  it("reports detachment on failed replacement and permits a clean retry without affecting B", async () => {
+    const { client, service, session } = createHarness([
+      textStep("B completed"),
+      textStep("A retried"),
+    ]);
+    await client.start();
+    const a = await createConversation(client),
+      b = await createConversation(client);
+    await client.attach(a.id);
+    await client.attach(b.id);
+    const detached: string[] = [];
+    client.subscribe((event) => {
+      if (event.type === "detached") detached.push(event.rootConversationId);
+    });
+    vi.spyOn(service, "prepare").mockRejectedValueOnce(new Error("replacement failed"));
+    await expect(client.reload(a.id)).rejects.toThrow("internal error");
+    expect(detached).toEqual([a.id]);
+    expect(session.isAttached(a.id as ConversationId)).toBe(false);
+    expect(service.conversationTreeState(a.id as ConversationId)).toEqual([]);
+    expect(session.isAttached(b.id as ConversationId)).toBe(true);
+    await client.deliver(b.id, "continue B", "send");
+    await service.whenIdle(b.id as ConversationId);
+    await client.attach(a.id);
+    await client.deliver(a.id, "retry A", "send");
+    await service.whenIdle(a.id as ConversationId);
+    expect((await client.history({ conversationId: a.id })).entries).toHaveLength(2);
+    await session.shutdown();
+  });
+
+  it("reports actual detachment despite disposer failure and leaves B usable", async () => {
+    const { client, service, session } = createHarness(
+      [textStep("B survived")],
+      [
+        {
+          id: "broken-resource",
+          services: () => [
+            {
+              key: "broken",
+              for: () => ({}),
+              dispose: () => {
+                throw new Error("cleanup failed");
+              },
+            },
+          ],
+        },
+      ],
+    );
+    await client.start();
+    const a = await createConversation(client),
+      b = await createConversation(client);
+    await client.attach(a.id);
+    await client.attach(b.id);
+    service.service(a.id as ConversationId, "broken");
+    const detached: string[][] = [];
+    client.subscribe((event) => {
+      if (event.type === "detached") detached.push(event.conversationIds);
+    });
+    await expect(client.close(a.id)).rejects.toThrow("internal error");
+    expect(detached).toEqual([[a.id]]);
+    expect(session.isAttached(a.id as ConversationId)).toBe(false);
+    expect(service.conversationTreeState(a.id as ConversationId)).toEqual([]);
+    await client.deliver(b.id, "continue", "send");
+    await service.whenIdle(b.id as ConversationId);
+    expect((await client.history({ conversationId: b.id })).entries).toHaveLength(2);
+    await client.attach(a.id);
+    await expect(client.close(a.id)).resolves.toEqual({ status: "closed" });
+    await session.shutdown();
+  });
   it("drives core conversation work through the in-process public contract", async () => {
     const { client, service } = createHarness();
     await client.start();
@@ -50,7 +148,7 @@ describe("HarnessRpcSession", () => {
     const observed: string[] = [];
     client.subscribe((event) => {
       observed.push(
-        event.type === "attached" ? "attached" : `${event.conversationId}:${event.event.type}`,
+        event.type === "conversation" ? `${event.conversationId}:${event.event.type}` : event.type,
       );
     });
     const attachment = await client.attach(conversation.id);
