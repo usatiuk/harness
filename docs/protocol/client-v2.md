@@ -134,7 +134,7 @@ request, not the attach response.
 
 The shipped contracts cover activities, workspace shell streaming, sandbox
 control, subagent list filtering, and approval. Workspace shell IDs are allocated
-with a unique per-client prefix; duplicate active activity IDs fail rather than overwrite.
+with a fresh UUID; duplicate active activity IDs fail rather than overwrite.
 Approval contract v2 exposes pending requests in the approval attach snapshot,
 created/resolved notifications, and a client-to-server decision request. The first
 valid decision resolves the kernel-owned request; subsequent decisions return

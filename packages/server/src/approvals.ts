@@ -1,6 +1,6 @@
 import { isKernelEvent, jsonValueSchema } from "@harness/protocol";
 import type { ConversationId, InteractionRequest } from "@harness/protocol";
-import type { HarnessRpcSession, HarnessService } from "@harness/service";
+import type { HarnessRpcSession } from "@harness/service";
 import {
   isApprovalRequest,
   approvalCreatedNotification,
@@ -8,10 +8,8 @@ import {
   approvalDecideRequest,
 } from "@harness/approval";
 
-export function registerApprovalServer(
-  rpcSession: HarnessRpcSession,
-  service: HarnessService,
-): void {
+export function registerApprovalServer(rpcSession: HarnessRpcSession): void {
+  const service = rpcSession.host.service;
   const approval = (
     requestId: string,
     conversationId: ConversationId,

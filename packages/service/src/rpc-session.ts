@@ -67,7 +67,7 @@ export interface HarnessRpcSessionOptions {
 export class HarnessRpcSession {
   readonly server: RpcServer;
   readonly #service: HarnessService;
-  readonly #host: HarnessRpcHost;
+  readonly host: HarnessRpcHost;
   readonly #attached = new Set<ConversationId>();
   readonly #unsubscribe: () => void;
   readonly #onError: (error: unknown) => void;
@@ -80,7 +80,7 @@ export class HarnessRpcSession {
   #shutdown: Promise<void> | undefined;
 
   constructor(options: HarnessRpcSessionOptions) {
-    this.#host = options.host;
+    this.host = options.host;
     this.#service = options.host.service;
     this.#defaultModel = options.defaultModel ?? { provider: "demo", model: "demo-1" };
     this.#onError = options.onError ?? (() => undefined);
@@ -100,7 +100,7 @@ export class HarnessRpcSession {
     });
     this.#registerCoreHandlers();
     this.#cleanups.push(
-      this.#host.onDetached((root) => {
+      this.host.onDetached((root) => {
         if (!this.#attached.delete(root)) return;
         void this.notify(conversationDetachedNotification, { rootConversationId: root }).catch(
           (error: unknown) => {
@@ -111,7 +111,7 @@ export class HarnessRpcSession {
       }),
     );
     this.#cleanups.push(
-      this.#host.subscribeNotifications((root, definition, params) => {
+      this.host.subscribeNotifications((root, definition, params) => {
         if (!this.#attached.has(root)) return;
         void this.notify(definition, params).catch(() =>
           this.server.peer.terminateProtocol("failed to send a plugin event"),
@@ -149,7 +149,7 @@ export class HarnessRpcSession {
     handler: RequestHandler<P, R>,
   ): void {
     this.server.onRequest(definition, (params, signal) =>
-      this.#host.request(() => handler(params, signal)),
+      this.host.request(() => handler(params, signal)),
     );
   }
 
@@ -172,14 +172,6 @@ export class HarnessRpcSession {
     return this.server.peer.notify(definition, params);
   }
 
-  broadcast<P extends JsonValue>(
-    root: ConversationId,
-    definition: RpcNotification<P>,
-    params: P,
-  ): void {
-    this.#host.broadcast(root, definition, params);
-  }
-
   registerSnapshot(pluginId: string, read: (rootId: ConversationId) => JsonValue): void {
     if (this.#snapshots.has(pluginId)) throw new Error(`duplicate plugin snapshot '${pluginId}'`);
     this.#snapshots.set(pluginId, read);
@@ -198,7 +190,7 @@ export class HarnessRpcSession {
 
   isAttached(conversationId: ConversationId): boolean {
     const root = this.#service.rootConversationOf(conversationId);
-    return this.#attached.has(root) && !this.#host.isClosing(root);
+    return this.#attached.has(root) && !this.host.isClosing(root);
   }
 
   async runAttached<T>(
@@ -207,10 +199,10 @@ export class HarnessRpcSession {
     requestSignal?: AbortSignal,
   ): Promise<T> {
     const root = this.#service.rootConversationOf(conversationId);
-    if (!this.#attached.has(root) || this.#host.isClosing(root) || this.#shutdown !== undefined) {
+    if (!this.#attached.has(root) || this.host.isClosing(root) || this.#shutdown !== undefined) {
       throw new Error(`conversation '${conversationId}' is not attached`);
     }
-    return this.#host.run(root, operation, requestSignal);
+    return this.host.run(root, operation, requestSignal);
   }
 
   shutdown(closePeer = true): Promise<void> {
@@ -369,10 +361,10 @@ export class HarnessRpcSession {
 
   async #deactivate(rootOrMember: ConversationId, force: boolean) {
     const root = this.#service.rootConversationOf(rootOrMember);
-    if (!this.#attached.has(root) || this.#host.isClosing(root)) {
+    if (!this.#attached.has(root) || this.host.isClosing(root)) {
       throw new Error(`conversation '${rootOrMember}' is not attached`);
     }
-    return this.#host.deactivate(root, force);
+    return this.host.deactivate(root, force);
   }
 
   async #attach(
@@ -380,7 +372,7 @@ export class HarnessRpcSession {
     requestSignal?: AbortSignal,
   ): Promise<AttachResult> {
     const rootId = this.#service.rootConversationOf(conversationId);
-    if (this.#shutdown !== undefined || this.#host.isClosing(rootId)) {
+    if (this.#shutdown !== undefined || this.host.isClosing(rootId)) {
       throw new Error("connection is shutting down");
     }
     if (this.#attaching.has(rootId))
@@ -388,12 +380,12 @@ export class HarnessRpcSession {
     const alreadyAttached = this.#attached.has(rootId);
     this.#attaching.add(rootId);
     try {
-      const result = await this.#host.run(
+      const result = await this.host.run(
         rootId,
         (signal) => this.#buildAttachment(conversationId, rootId, signal),
         requestSignal,
       );
-      if (this.#shutdown !== undefined || this.#host.isClosing(rootId)) {
+      if (this.#shutdown !== undefined || this.host.isClosing(rootId)) {
         throw new Error("connection closed during attachment");
       }
       return result;
@@ -411,7 +403,7 @@ export class HarnessRpcSession {
     signal: AbortSignal,
   ): Promise<AttachResult> {
     await this.#service.prepare(conversationId);
-    if (signal.aborted || this.#shutdown !== undefined || this.#host.isClosing(rootId)) {
+    if (signal.aborted || this.#shutdown !== undefined || this.host.isClosing(rootId)) {
       throw new Error("attachment cancelled");
     }
     if (this.#service.rootConversationOf(conversationId) !== rootId) {
@@ -421,7 +413,7 @@ export class HarnessRpcSession {
       this.#service.getConversation(rootId),
       this.#service.usageSummary(rootId),
     ]);
-    if (signal.aborted || this.#shutdown !== undefined || this.#host.isClosing(rootId)) {
+    if (signal.aborted || this.#shutdown !== undefined || this.host.isClosing(rootId)) {
       throw new Error("attachment cancelled");
     }
     if (root === undefined) throw new Error(`unknown conversation: ${rootId}`);

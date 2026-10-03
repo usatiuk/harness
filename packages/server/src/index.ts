@@ -124,7 +124,7 @@ export async function buildServerComposition(
             }),
           ),
       });
-      registerFeatureServer(rpcSession, service);
+      registerFeatureServer(rpcSession);
       const appApi = registerAppApi(rpcSession, service, appState);
       sessions.set(rpcSession, appApi);
       connection.onClose(() => {
@@ -133,7 +133,7 @@ export async function buildServerComposition(
           .finally(() => sessions.delete(rpcSession))
           .catch(() => undefined);
       });
-      registerApprovalServer(rpcSession, service);
+      registerApprovalServer(rpcSession);
       rpcSession.start();
       return rpcSession;
     };

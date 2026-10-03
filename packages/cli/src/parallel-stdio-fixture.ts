@@ -33,8 +33,8 @@ const session = new HarnessRpcSession({
   server: { name: "parallel-stdio-fixture", version: "1" },
   plugins: [{ id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION }, ...CLI_PLUGIN_CONTRACTS],
 });
-registerCliPluginServer(session, service);
-registerApprovalServer(session, service);
+registerCliPluginServer(session);
+registerApprovalServer(session);
 session.start();
 await closed;
 await host.shutdown();

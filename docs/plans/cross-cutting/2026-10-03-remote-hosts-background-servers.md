@@ -130,3 +130,9 @@ desktop exit preference. Tray, notifications and login autostart remain optional
 - Remaining milestones stay open. The current desktop/TUI default launchers still
   own their compositions; remote adapters, host provisioning, GUI/TUI controls and
   native/remote integration remain required.
+- Background transport increment committed as d9547d5. The following tied cleanup
+  derives plugin services from the session's mandatory shared host, sends shell
+  process events directly through that host, and uses stateless UUID shell IDs.
+  Fixture cleanup discovers only existing owners and runs independently of whether
+  an assertion captured the owner's identity. Full npm run check passed: 99 files,
+  908 tests; 6 files/30 existing opt-in/platform skips.

@@ -43,8 +43,8 @@ function sharedHarness(provider: FakeProvider, plugins: PluginEntry[] = []) {
       server: { name: "test", version: "1" },
     });
     sessions.push(session);
-    registerApprovalServer(session, service);
-    registerFeatureServer(session, service);
+    registerApprovalServer(session);
+    registerFeatureServer(session);
     session.start();
     const client = new HarnessClient({
       connection: pair.left,

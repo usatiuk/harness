@@ -21,14 +21,18 @@ const args = ["--conditions=development", "--import=tsx", entry];
 const launch = { executable: process.execPath, args: [...args, "--background"] };
 const exec = promisify(execFile);
 async function stopHome(home: string): Promise<void> {
-  const host = await ensureLocalServer(home, launch);
-  host.close();
-  await stopServer(host.identity);
+  const discovery = await readDiscovery(home);
+  if (discovery === null) return;
+  try {
+    await stopServer(discovery);
+  } catch (error) {
+    // A deliberately crashed fixture leaves stale discovery, but no live owner.
+    if ((error as NodeJS.ErrnoException).code !== "ECONNREFUSED") throw error;
+  }
 }
 
 it("converges simultaneous starters, rejects unauthenticated peers and survives bridge exit", async () => {
   const home = join(tmpdir(), `harness-background-${randomUUID()}`);
-  let started = false;
   try {
     const [first, second] = await Promise.all([
       ensureLocalServer(home, launch),
@@ -38,7 +42,6 @@ it("converges simultaneous starters, rejects unauthenticated peers and survives 
         cause: error,
       });
     });
-    started = true;
     expect(second.identity).toEqual(first.identity);
     second.close();
     const discovery = await readDiscovery(home);
@@ -137,7 +140,7 @@ it("converges simultaneous starters, rejects unauthenticated peers and survives 
     expect(restarted.identity.serverId).toBe(first.identity.serverId);
     expect(restarted.identity.instanceId).not.toBe(first.identity.instanceId);
   } finally {
-    if (started && (await readDiscovery(home)) !== null) await stopHome(home);
+    await stopHome(home);
     await rm(home, { recursive: true, force: true });
   }
 }, 30000);
@@ -191,7 +194,7 @@ it("keeps the daemon alive after its bridge parent process exits", async () => {
     client.closeConnection();
     if (bridge.exitCode === null) bridge.kill();
     await exited;
-    if (identity !== undefined) await stopServer(identity);
+    await stopHome(home);
     await rm(home, { recursive: true, force: true });
   }
 }, 30000);
@@ -238,7 +241,7 @@ it("retries classified startup contention but never retries a broken entry point
     ).rejects.toThrow("exit 1");
     expect(await readFile(marker, "utf8")).toBe("attempt\nattempt\nbroken\n");
   } finally {
-    if (identity !== undefined) await stopServer(identity);
+    await stopHome(home);
     await rm(home, { recursive: true, force: true });
   }
 }, 30000);
@@ -255,8 +258,8 @@ it("rejects discovery copied from another home instead of attaching to that prof
   } finally {
     if (owner !== undefined) {
       owner.close();
-      await stopServer(owner.identity);
     }
+    await stopHome(home);
     await rm(home, { recursive: true, force: true });
     await rm(other, { recursive: true, force: true });
   }
@@ -264,10 +267,8 @@ it("rejects discovery copied from another home instead of attaching to that prof
 
 it("recovers stale discovery after a crashed owner and canonicalizes equivalent home routes", async () => {
   const home = join(tmpdir(), `harness-background-crash-${randomUUID()}`);
-  let ready = false;
   try {
     const first = await ensureLocalServer(home, launch);
-    ready = true;
     const client = new HarnessClient({
       connection: first.connection,
       client: { name: "crash-test", version: "1" },
@@ -296,9 +297,8 @@ it("recovers stale discovery after a crashed owner and canonicalizes equivalent 
     await active.start();
     await stopServer(replacement.identity);
     expect(active.peer.ready).toBe(false);
-    ready = false;
   } finally {
-    if (ready && (await readDiscovery(home)) !== null) await stopHome(home);
+    await stopHome(home);
     await rm(home, { recursive: true, force: true });
   }
 }, 30000);

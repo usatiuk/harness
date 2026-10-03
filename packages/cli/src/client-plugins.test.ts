@@ -62,7 +62,7 @@ async function createHarness() {
     onError: (error) => errors.push(error),
   });
   fixtures.push({ host, session, store });
-  registerCliPluginServer(session, service);
+  registerCliPluginServer(session);
   const client = new HarnessClient({
     connection: connections.left,
     client: { name: "test-client", version: "1" },
