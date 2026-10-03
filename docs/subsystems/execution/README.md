@@ -64,15 +64,31 @@ symlink. This limitation is documented and blocks stronger isolation claims.
 
 ### Docker
 
-Uses the project's dev-container configuration, provisions lazily, streams build
-status, reuses labeled containers, and stops them after a configurable idle
-period. Paths and output stay in the container workspace. There is no Docker-to-
-host escape path.
+Uses the project's dev-container configuration and provisions lazily. One concrete
+environment pool belongs to each sandbox plugin composition, keyed by canonical
+project and config path. Compatible conversations share provisioning and the
+physical environment; each execution view retains its own cwd mapping, processes,
+IO cancellation, output namespace, and event channel. The project may be an
+ancestor of the conversation cwd; paths preserve that relative subdirectory.
+There is no Docker-to-host escape path.
 
-One backend is shared by the tools and TUI within a loaded activation. Switching,
-explicit reload, and sandbox configuration changes dispose that instance before
-building the next one; Docker disposal stops/removes its container. Selection
-never silently falls back to a less confined backend.
+Ordinary close aborts and awaits only that view's IO/processes, then releases its
+ownership. Other owners keep the environment and in-flight provisioning. Final
+release cancels and awaits provisioning before removing owned containers,
+Compose sidecars, and networks. Recipe-derived labels and `COMPOSE_PROJECT_NAME`
+align sharing and cleanup identity. Persistent volumes keep existing behavior.
+Explicit shared stop/rebuild emits a warning to affected conversations and acts;
+it may interrupt their commands. The TUI displays the warning through its existing
+status flow; this does not add parallel TUI support.
+
+Idle accounting aggregates all IO and commands. Interactive sessions prevent
+idle stopping. The longest owner's timeout wins; any zero disables idle stopping.
+The workspace container stops after idle and restarts lazily. Compose sidecars
+remain until explicit stop or final release. Ownership remains while loaded.
+
+Tools and client controls resolve the same backend within an activation. Explicit
+reload and sandbox configuration changes dispose that view before constructing
+the next. Selection never silently falls back to a less confined backend.
 
 ## Approval
 

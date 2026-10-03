@@ -110,7 +110,7 @@ Implementation qualification on Windows:
 
 1. `6513a85`: conversation model/config inheritance and pinning, settings mutation,
    activation-bound callbacks, authoritative detach, and real stdio regression.
-2. Shared Docker environment ownership, own IO/process cancellation, recipe/Compose
+2. `ab1f18a`: shared Docker environment ownership, own IO/process cancellation, recipe/Compose
    identity, idle accounting/recovery, warnings, and live integration coverage.
 3. Accepted architecture, protocol/schema, corrected audit, and delivery evidence.
 

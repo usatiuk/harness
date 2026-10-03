@@ -32,9 +32,15 @@ local project settings remain separate layers. Plugin definitions contribute
 their own Zod schemas and defaults; core configuration code treats their values as
 opaque after central validation.
 
-Conversation records persist workspace root and overrides. Resolved configuration
-is derived again on load. Model and plugin changes update the conversation's top
-layer and may also update global defaults. Sandbox changes deactivate and reload
+Conversation records persist workspace root and overrides. The complete model
+and preset selection is pinned there at creation and survives resume/reload.
+Legacy records without a selection are pinned once on first activation using
+the current cascade. Explicit model/preset changes update that conversation and
+the global default for new conversations; other existing pinned conversations
+keep their selection. Other settings retain the cascade, including intentionally
+global approval policy. Configuration mutations are serialized by the service;
+settings writers coordinate by canonical file path and atomically replace files.
+Sandbox changes deactivate and reload
 the current conversation so its execution backend is rebuilt immediately.
 Every complete `{provider, model, preset?}` selection is atomic wherever it
 appears in the configuration tree, including named profiles and plugin-owned
@@ -74,6 +80,15 @@ closes only that root and its descendants, aborts pending work, disposes its
 plugin services, then attaches a fresh activation. Connection close force-closes
 all of its root scopes and server-owned processes. Other roots are unaffected by
 closing or reloading one root.
+
+`conversation.detached` reports that an activation is gone even when cleanup or
+replacement fails. Clients discard its buffered events and plugin caches;
+failure before teardown preserves the attachment. Attachment config comes from
+the live runtime alongside fresh durable history/head state.
+
+The service/protocol supports independent simultaneous roots. Parallel TUI
+presentation is outside the current product scope; the existing screen shows one
+conversation. Shared Docker controls surface their warning in that screen.
 
 ## TUI model
 

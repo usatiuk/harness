@@ -19,6 +19,17 @@ npm run format:check             # Prettier verification
 npm run check                    # complete local and CI validation
 ```
 
+Real shared Docker/Compose qualification is opt-in:
+
+```sh
+HARNESS_DOCKER_INTEGRATION=1 npx vitest run packages/sandbox/src/docker-sharing.integration.test.ts
+```
+
+On PowerShell, set `$env:HARNESS_DOCKER_INTEGRATION='1'` before that command.
+It requires a Linux Docker daemon, Compose, and image/package download access.
+The fixture creates temporary projects and recipe-owned containers/networks and
+cleans them on completion. Ordinary tests control Docker process edges instead.
+
 CI runs `npm run check` on Linux and Windows. Execution, process, filesystem,
 credential, and terminal behavior may be platform-specific even when most logic
 is shared.
@@ -91,3 +102,17 @@ delays, or a nearby condition that does not prove completion.
   approvals, connection-wide shell identity and collision rejection, sandbox
   mutation/reload, and fatal NDJSON limits. Local stdio is smoke-tested from the
   CLI; SSH smoke remains environment-dependent.
+- Parallel-conversation regressions cover model/preset pinning across reload and
+  service recreation, child/plugin inheritance, concurrent settings patches,
+  independent interruption during held settings IO, stale runtime callbacks,
+  and authoritative failed-reload/cleanup detachment. A separate stdio server with
+  real SQLite/plugin composition and the demo provider exercises simultaneous
+  approvals, closing A while B's approval and real shell survive, and retrying A.
+  This fixture qualifies the protocol/process boundary; it does not invoke the
+  credentialed CLI bootstrap or provide desktop/TUI parallel presentation.
+- Docker controlled regressions cover shared provisioning, aggregate idle,
+  scoped IO/process cancellation, close-before-child-exit, cleanup/retry, and
+  warning controls. The opt-in live Compose test additionally qualifies shared
+  handles, subdirectory mapping, distinct recipes, own-command shutdown, rebuild,
+  and final workspace/sidecar/network cleanup. Native Linux execution and live
+  model-provider concurrency remain separate platform/credential qualifications.

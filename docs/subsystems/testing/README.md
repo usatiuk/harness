@@ -41,6 +41,11 @@ edges; native Bubblewrap integration is capability/platform gated. Workspace,
 approval, agents, activities, output, and subagents also have cross-package
 integration scenarios where their middleware order matters.
 
+The parallel stdio scenario runs a separate real server process with SQLite,
+approval, activities, workspace, and local sandbox plugins. Docker ownership has
+controlled lifetime regressions plus an opt-in live Compose test; the command
+and capability requirements are in [../../TESTING.md](../../TESTING.md).
+
 ### Provider adapters
 
 Request and stream adapters use representative native payloads and fake streams.

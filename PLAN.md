@@ -57,7 +57,7 @@ packages.
 
 ## Current implementation status
 
-As of 2026-08-15, Harness provides:
+As of 2026-10-03, Harness provides:
 
 - An append-only conversation/item graph with one durable head, linear rewind,
   branch-preserving continuation, turn reconciliation, and resumable transcripts.
@@ -83,6 +83,9 @@ As of 2026-08-15, Harness provides:
   by a local stdio child, or through SSH. Multiple attached root conversations
   may run concurrently; the TUI renders one while connection-owned approvals and
   server-owned background work remain live.
+- Durable model/preset pinning, plugin-owned child inheritance, runtime-bound
+  callbacks, authoritative failed-reload detachment, and shared devcontainer
+  ownership with conversation-scoped processes/cancellation and warning controls.
 
 ## Subsystems
 
@@ -98,6 +101,14 @@ As of 2026-08-15, Harness provides:
 | Testing                     | [Architecture](docs/subsystems/testing/README.md)       | [Evidence for active reliability and security work](docs/subsystems/testing/PLAN.md)     |
 
 ## Near-term order
+
+Completed the
+[independent parallel conversation foundation](docs/plans/cross-cutting/2026-10-03-parallel-conversations.md)
+with full local validation, independent review, real stdio concurrency, and live
+Docker/Compose qualification. The service/protocol is ready to underpin a desktop
+client; desktop implementation, TUI parallel presentation, and worktrees remain
+outside this milestone. Existing provider reliability and native containment
+priorities below remain active follow-up.
 
 1. [x] Replace obsolete monolithic design documents with this product plan and
        current subsystem documentation.

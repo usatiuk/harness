@@ -5,9 +5,9 @@
 The kernel is a provider- and tool-neutral conversation engine implemented by
 `@harness/protocol`, `@harness/core`, and `@harness/service`. One `Engine` may
 drive several loaded conversation runtimes, while each conversation has at most
-one active turn and one ordered inbox. The production TUI limits that loaded set
-to one top-level conversation plus its concurrent descendants and reaches it only
-through `HarnessService`.
+one active turn and one ordered inbox. The TUI shows one conversation while the
+public client connection may own several active root trees. Clients reach the
+server through the JSON-RPC boundary.
 
 The kernel does not import providers, workspace tools, sandboxes, approval,
 activities, agents, or subagents. Those capabilities enter through plugins.
@@ -86,11 +86,16 @@ host interactions such as approval and may short-circuit before the UI transport
 Per-conversation `Runtime` state is intentionally process-local and discardable:
 inbox entries, turn liveness, abort controller, pending requests, and lazily built
 plugin services. Durable conversation truth belongs to the store. Runtime
-services are shared while loaded and optionally disposed in reverse provider
-order when the loaded set is deactivated. The production TUI performs that
-deactivation on switch/reload, so none of its conversation-local service
-instances survive. A running turn holds a configuration snapshot; ordinary
-model/plugin changes apply at the next turn boundary.
+services are reused within their runtime and disposed in reverse provider order
+when that root tree is deactivated. Closing/reloading one root preserves other
+roots. Model requests use the turn's captured configuration; plugin configuration
+readers may observe the current effective policy. Model selection is pinned in
+durable overrides by HarnessService.
+
+Plugin emission, delivery, requests, and service creation are bound to the Runtime
+that supplied their context. Old callbacks cannot act on a replacement activation
+of the same durable conversation. Cached services remain available during their
+own teardown; constructing new services requires an active runtime.
 
 `HarnessService` owns configuration resolution and presents the client API for
 conversation creation/load, conversation-tree deactivation, delivery, responses, rewind,

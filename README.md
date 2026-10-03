@@ -88,6 +88,13 @@ confirmed and stopped by the reload. Selecting `native` then fails normally if `
 cannot create namespaces; it never silently falls back to host execution. `/reload` performs the
 same clean reactivation without changing settings.
 
+The headless service supports independent concurrent conversations; the TUI
+continues to show one conversation. Model/preset choices are pinned at creation,
+while an explicit selection also sets the global default for new conversations.
+Docker conversations using the same project/devcontainer recipe share an
+environment. Closing one releases its own work; the last close removes the
+owned environment. Shared stop/rebuild warns affected conversations and proceeds.
+
 Routine Native calls run inside Bubblewrap without approval. Harness-executed function tools can
 opt into explicit host escape with `executionFunctionTool`; their schema then exposes
 `sandbox_permissions: "require_escalated"` plus a required `justification`. The existing approval

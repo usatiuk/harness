@@ -60,6 +60,14 @@ aborts admitted operations and runtime turns, then waits before disposing root-o
 services. A non-forced close reports `busy` if any tree runtime, input queue, or
 plugin service still has live work.
 
+`conversation.detached {rootConversationId}` announces that the old activation
+has been removed, including cleanup failures and the teardown part of reload.
+It precedes the operation response. Clients clear that activation's buffered
+events, membership, and plugin caches; a successful reload then installs the new
+snapshot and its event suffix. A failure before teardown preserves attachment.
+Snapshot configuration is the live runtime's effective value; durable head/history
+remain freshly read from the store.
+
 The server does not maintain a generic UI reducer. Store owns immutable items;
 runtime owns turns and accepted pending input; each plugin owns its live objects.
 Attach reads small projections from those authorities. Anything actionable and
@@ -102,6 +110,10 @@ different conversation is visible and simultaneous approvals remain queued. V1
 requires attach before work can create an approval; it does not replay requests
 during attachment. If the client did not advertise the approval contract, the
 server denies instead of leaving work parked.
+
+Sandbox status includes a `warning` phase. Explicit shared Docker stop/rebuild
+warns all affected conversations and proceeds. Ordinary conversation close
+releases its environment ownership and work; another owner's environment remains.
 
 Wire values are strict JSON. No dates, bigints, maps, sets, classes, functions,
 `undefined`, coercion, or Zod transforms cross the boundary. Invalid inbound

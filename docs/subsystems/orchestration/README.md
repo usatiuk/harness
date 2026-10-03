@@ -52,12 +52,19 @@ inherits the parent's workspace root, creates its own durable conversation,
 receives its own `AGENTS.md` snapshot, and starts from the delegated task rather
 than the parent's transcript.
 
+HarnessService inherits the parent's effective model and configuration slices
+whose plugin definitions set `inheritConfig`. Sandbox opts in, preserving a
+parent's execution selection. Explicit child selections win; other policies use
+their ordinary configuration cascade. The kernel and subagents package do not
+import sandbox implementations.
+
 The subagent is itself backgroundable. Foreground completion returns the child's
 final result. Background execution is tracked through the same activity tools and
 completion delivery as commands. Parent/child metadata is stored in namespaced
 plugin state; live handles and cascade-stop ownership remain activation-local.
-Switching, reloading, or shutting down deactivates the complete loaded conversation tree and
-clears its ephemeral parent/child index.
+Closing/reloading a root deactivates its complete loaded conversation tree and
+clears that tree's ephemeral parent/child index. Other roots remain independent;
+connection shutdown closes all roots owned by that connection.
 
 ## Ownership and isolation
 
