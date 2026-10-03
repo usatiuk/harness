@@ -174,6 +174,23 @@ an advertised control reject presets rather than ignoring them.
 
 ## Authentication and secrets
 
+Provider plugins contribute configurable types through `providerTypes()`.
+Global `providers.<id>` entries choose a type, optional display label, and the
+type-owned config. The stable instance ID remains `ModelConfig.provider`; the
+engine needs no extra identity field or execution path. OpenAI API, Anthropic API,
+OpenCode Go, and Codex OAuth support any number of named connections. Their
+existing IDs are implicit default instances and retain existing credential keys.
+
+Each connection owns its authentication method and provider construction. The
+host scopes secret slots to `provider-instance:<id>:<slot>` for additional
+connections (`api-key` or `oauth`). Labels do not affect secret keys. API-key
+sources may select `{stored: true}`, an exact `{env: "VARIABLE"}` reference, or
+explicit environment precedence over storage via both fields. An environment-only
+connection cannot accept or delete stored credentials. Named sign-in does not
+change the global model selection; credential changes require restart. Codex
+accounts have independent token records, caches and coalesced refreshes; logout
+drains any rotation before deleting its session.
+
 The CLI auth registry exposes built-in provider login methods. Their API keys
 come from environment variables or secure stores. Codex uses PKCE OAuth,
 refreshes sessions, and persists credentials through `@harness/secrets`. Windows

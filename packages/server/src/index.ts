@@ -3,6 +3,7 @@ import { defaultHome, readGlobalSettings } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
 import {
   isKernelEvent,
+  ProviderCredentialError,
   jsonValueSchema,
   type ModelConfig,
   type PluginEntry,
@@ -28,7 +29,7 @@ import { modelCompaction } from "@harness/core";
 import { QuickJsEvaluator } from "@harness/code-mode";
 import { createCustomProviderPlugins } from "@harness/custom-providers";
 import { DemoProvider } from "./demo-provider.ts";
-import { authRegistry } from "./auth.ts";
+import { providerEntries, providerPlugins } from "./auth.ts";
 import { credentialStoreForRead } from "./credential-store.ts";
 import { registerFeatureServer } from "./features.ts";
 import { registerAppApi } from "./app-api.ts";
@@ -56,18 +57,31 @@ export async function buildServerHarness(connection: RpcConnection): Promise<Ser
   let startedSession: HarnessRpcSession | undefined;
   let startedAppApi: { close(): Promise<void> } | undefined;
   try {
-    const { store: secrets } = await credentialStoreForRead(defaultHome());
-    const registry = authRegistry(secrets);
-    const plugins: PluginEntry[] = [];
+    const { store: secrets, kind } = await credentialStoreForRead(defaultHome());
+    const settings = await readGlobalSettings(defaultHome());
+    const registry = providerEntries(secrets, settings);
+    const plugins: PluginEntry[] = [...providerPlugins];
     let fallbackModel: ModelConfig | undefined;
     // Resolve providers concurrently; a configured backend that can't be reached (e.g. a locked
     // configured credential backend) warns and is skipped — we never silently fall back.
     const built = await Promise.all(
       [...registry.values()].map((entry) =>
-        entry.buildPlugin().then(
-          (plugin) => ({ entry, plugin }),
+        entry.instance.buildProvider().then(
+          (provider) => {
+            if (provider && provider.provider !== entry.id)
+              throw new Error(`Mismatched provider identity ${entry.id}`);
+            return {
+              entry,
+              plugin: provider
+                ? { id: `provider-instance:${entry.id}`, providers: () => [provider] }
+                : null,
+            };
+          },
           (reason: unknown) => {
-            console.error(`Could not load ${entry.method.label}: ${String(reason)}`);
+            if (!(reason instanceof ProviderCredentialError)) throw reason;
+            console.error(
+              JSON.stringify({ event: "provider.credentials-unavailable", instance: entry.id }),
+            );
             return { entry, plugin: null };
           },
         ),
@@ -80,7 +94,7 @@ export async function buildServerHarness(connection: RpcConnection): Promise<Ser
     }
     // Config-defined providers (`customProviders` in global settings) join the same registry as
     // signed-in built-ins; their plugin id doubles as the model provider id.
-    const customProviders = (await readGlobalSettings(defaultHome())).customProviders;
+    const customProviders = settings.customProviders;
     plugins.push(...createCustomProviderPlugins(customProviders ?? {}));
     plugins.push(
       { id: "demo", providers: () => [new DemoProvider()] },
@@ -129,7 +143,7 @@ export async function buildServerHarness(connection: RpcConnection): Promise<Ser
     });
     startedSession = rpcSession;
     registerFeatureServer(rpcSession, service);
-    const appApi = registerAppApi(rpcSession, service);
+    const appApi = registerAppApi(rpcSession, service, { kind, entries: registry });
     startedAppApi = appApi;
     const approvalRequests = new Map<string, AbortController>();
     rpcSession.observeEvents((event, rootId) => {

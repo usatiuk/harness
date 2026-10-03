@@ -76,7 +76,7 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
     layers.push({ label: `profile '${opts.profile}'`, doc: profile });
   }
   if (opts.overrides !== undefined) {
-    const parsed = settingsDocSchema.safeParse(opts.overrides);
+    const parsed = projectDocSchema.safeParse(opts.overrides);
     if (!parsed.success) throw new Error(`invalid overrides: ${formatIssue(parsed.error)}`);
     layers.push({ label: "overrides", doc: parsed.data });
   }

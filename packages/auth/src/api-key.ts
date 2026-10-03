@@ -6,7 +6,8 @@ export interface ApiKeyAuthOptions {
   label: string;
   store: SecretStore;
   /** Environment variable that overrides the stored key. */
-  envVar: string;
+  envVar?: string;
+  allowStored?: boolean;
   /** Storage key; defaults to `apikey:<id>`. */
   storeKey?: string;
   /** Optional shape check returning an error message, or null when the key looks valid. */
@@ -21,7 +22,8 @@ export class ApiKeyAuth implements ApiKeyMethod {
   readonly kind = "api-key" as const;
   readonly id: string;
   readonly label: string;
-  readonly envVar: string;
+  readonly envVar?: string;
+  readonly canStore: boolean;
   readonly #store: SecretStore;
   readonly #storeKey: string;
   readonly #validate: (key: string) => string | null;
@@ -29,7 +31,8 @@ export class ApiKeyAuth implements ApiKeyMethod {
   constructor(opts: ApiKeyAuthOptions) {
     this.id = opts.id;
     this.label = opts.label;
-    this.envVar = opts.envVar;
+    if (opts.envVar !== undefined) this.envVar = opts.envVar;
+    this.canStore = opts.allowStored ?? true;
     this.#store = opts.store;
     this.#storeKey = opts.storeKey ?? `apikey:${opts.id}`;
     this.#validate = opts.validate ?? (() => null);
@@ -42,6 +45,8 @@ export class ApiKeyAuth implements ApiKeyMethod {
   }
 
   async submit(key: string): Promise<void> {
+    if (!this.canStore)
+      throw new Error(`Credentials for '${this.id}' are managed by the environment`);
     const trimmed = key.trim();
     const error = this.validate(trimmed);
     if (error) throw new Error(error);
@@ -49,20 +54,22 @@ export class ApiKeyAuth implements ApiKeyMethod {
   }
 
   async getKey(): Promise<string | null> {
-    const fromEnv = process.env[this.envVar]?.trim();
+    const fromEnv = this.envVar ? process.env[this.envVar]?.trim() : undefined;
     if (fromEnv) return fromEnv;
-    return this.#store.get(this.#storeKey);
+    return this.canStore ? this.#store.get(this.#storeKey) : null;
   }
 
   async status(): Promise<AuthStatus> {
-    const fromEnv = process.env[this.envVar]?.trim();
+    const fromEnv = this.envVar ? process.env[this.envVar]?.trim() : undefined;
     if (fromEnv) return { authenticated: true, source: "env", detail: `$${this.envVar}` };
-    const stored = await this.#store.get(this.#storeKey);
+    const stored = this.canStore ? await this.#store.get(this.#storeKey) : null;
     if (stored) return { authenticated: true, source: "stored", detail: "stored credential" };
     return { authenticated: false };
   }
 
   logout(): Promise<boolean> {
+    if (!this.canStore)
+      throw new Error(`Credentials for '${this.id}' are managed by the environment`);
     return this.#store.delete(this.#storeKey);
   }
 }

@@ -27,3 +27,5 @@ export function createAnthropicPlugin(opts: AnthropicPluginOptions): Plugin {
     providers: () => [new AnthropicProvider({ credentials })],
   };
 }
+
+export * from "./provider-type.ts";

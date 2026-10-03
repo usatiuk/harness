@@ -1,120 +1,176 @@
-import type { ModelConfig, Plugin } from "@harness/protocol";
+import {
+  ProviderCredentialError,
+  type ModelConfig,
+  type Plugin,
+  type PluginEntry,
+  type ProviderInstance,
+  type ProviderType,
+} from "@harness/protocol";
+import type { SettingsDoc } from "@harness/config";
 import type { SecretStore } from "@harness/secrets";
-import { ApiKeyAuth, type AuthMethod, type OAuthMethod } from "@harness/auth";
-import { createAnthropicPlugin } from "@harness/anthropic-api";
-import { createOpenAIPlugin } from "@harness/openai-api";
-import { createOpenCodeGoPlugin } from "@harness/opencode-go";
-import { CodexAuth, codexPlugin } from "@harness/openai-codex";
+import type { AuthMethod } from "@harness/auth";
+import { anthropicProviderType } from "@harness/anthropic-api";
+import { openAIProviderType } from "@harness/openai-api";
+import { openCodeGoProviderType } from "@harness/opencode-go";
+import { codexProviderType } from "@harness/openai-codex";
 
-/** A provider's sign-in method plus how an authenticated session becomes a runnable plugin. */
 export interface AuthEntry {
   method: AuthMethod;
-  /** The plugin to register when authenticated, or null when there are no credentials. */
   buildPlugin(): Promise<Plugin | null>;
-  /** The model `auth login` records as the global default. */
-  defaultModel: ModelConfig;
+  defaultModel?: ModelConfig;
 }
 
-/** Wraps the Codex OAuth lifecycle in the generic `OAuthMethod` seam. */
-function codexMethod(auth: CodexAuth): OAuthMethod {
-  return {
-    kind: "oauth",
-    id: "openai-codex",
-    label: "ChatGPT / Codex",
-    login: async ({ onUrl, signal }) => {
-      await auth.loginWithBrowser({ onUrl, ...(signal ? { signal } : {}) });
-    },
-    status: async () => {
-      const s = await auth.status();
-      if (!s.authenticated) return { authenticated: false };
-      const detail = s.email ?? (s.accountId ? `account ${s.accountId}` : undefined);
-      return {
-        authenticated: true,
-        ...(detail !== undefined ? { detail } : {}),
-        ...(s.expiresAt !== undefined ? { expiresAt: s.expiresAt } : {}),
-      };
-    },
-    logout: () => auth.logout(),
-  };
-}
-
-/** Builds an API-key entry: the env var or a stored key lights up the provider's plugin. */
-function apiKeyEntry(opts: {
+export interface ProviderEntry {
   id: string;
   label: string;
-  envVar: string;
-  store: SecretStore;
-  defaultModel: ModelConfig;
-  validate: (key: string) => string | null;
-  createPlugin: (init: { apiKey: string }) => Plugin;
-}): [string, AuthEntry] {
-  const method = new ApiKeyAuth({
-    id: opts.id,
-    label: opts.label,
-    store: opts.store,
-    envVar: opts.envVar,
-    validate: opts.validate,
-  });
-  return [
-    opts.id,
-    {
-      method,
-      defaultModel: opts.defaultModel,
-      buildPlugin: async () => {
-        const apiKey = await method.getKey();
-        return apiKey ? opts.createPlugin({ apiKey }) : null;
-      },
-    },
-  ];
+  type: string;
+  instance: ProviderInstance;
+  defaultModel?: ModelConfig;
 }
 
-/**
- * The providers a user can sign in to. Both the `auth` command and the composition root iterate
- * this map, so adding a provider is one new entry here.
- */
-export function authRegistry(store: SecretStore): Map<string, AuthEntry> {
-  const codex = new CodexAuth({ store });
-  return new Map<string, AuthEntry>([
-    apiKeyEntry({
-      id: "openai",
-      label: "OpenAI (API key)",
-      envVar: "OPENAI_API_KEY",
-      store,
-      defaultModel: { provider: "openai", model: process.env.OPENAI_MODEL ?? "gpt-6.1-sol" },
-      validate: (k) => (k.startsWith("sk-") ? null : "OpenAI keys start with 'sk-'"),
-      createPlugin: ({ apiKey }) => createOpenAIPlugin({ apiKey }),
+/** Package contributions are collected before constructing any connection. */
+export const providerPlugins: PluginEntry[] = [
+  { id: "openai-api", providerTypes: () => [openAIProviderType] },
+  { id: "anthropic-api", providerTypes: () => [anthropicProviderType] },
+  { id: "opencode-go", providerTypes: () => [openCodeGoProviderType] },
+  { id: "openai-codex", providerTypes: () => [codexProviderType] },
+];
+
+const defaults = () => [
+  {
+    id: "openai",
+    type: "openai-api",
+    label: "OpenAI (API key)",
+    config: { apiKey: { env: "OPENAI_API_KEY", stored: true } },
+    model: process.env.OPENAI_MODEL ?? "gpt-6.1-sol",
+  },
+  {
+    id: "anthropic",
+    type: "anthropic-api",
+    label: "Anthropic (API key)",
+    config: { apiKey: { env: "ANTHROPIC_API_KEY", stored: true } },
+    model: process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8",
+  },
+  {
+    id: "opencode-go",
+    type: "opencode-go",
+    label: "OpenCode Go (API key)",
+    config: { apiKey: { env: "OPENCODE_API_KEY", stored: true } },
+    model: process.env.OPENCODE_MODEL ?? "gpt-5.6-luna",
+  },
+  {
+    id: "openai-codex",
+    type: "openai-codex",
+    label: "ChatGPT / Codex",
+    config: {},
+    model: "gpt-6.1-sol",
+  },
+];
+
+export function providerEntries(
+  store: SecretStore,
+  settings: SettingsDoc = {},
+  plugins: readonly PluginEntry[] = providerPlugins,
+): Map<string, ProviderEntry> {
+  const types = new Map<string, ProviderType>();
+  for (const plugin of plugins)
+    for (const type of plugin.providerTypes?.() ?? []) {
+      if (types.has(type.type)) throw new Error(`Duplicate provider type '${type.type}'`);
+      types.set(type.type, type);
+    }
+  const builtin = defaults();
+  const configured = new Map(builtin.map(({ id, ...entry }) => [id, entry]));
+  for (const [id, entry] of Object.entries(settings.providers ?? {})) {
+    if (id === "demo" || id in (settings.customProviders ?? {}))
+      throw new Error(`Duplicate provider instance '${id}'`);
+    const prior = configured.get(id);
+    if (prior && prior.type !== entry.type)
+      throw new Error(`Built-in instance '${id}' must retain type '${prior.type}'`);
+    configured.set(id, {
+      ...entry,
+      label: entry.label ?? prior?.label ?? id,
+      model: prior?.model ?? "",
+    });
+  }
+  // Parse every instance before touching a credential backend or starting network discovery.
+  const prepared = [...configured].map(([id, entry]) => {
+    const type = types.get(entry.type);
+    if (!type) throw new Error(`Unknown provider type '${entry.type}' for instance '${id}'`);
+    try {
+      return { id, entry, create: type.prepare(entry.config) };
+    } catch (cause) {
+      throw new Error(`Invalid config for provider instance '${id}' (${entry.type})`, { cause });
+    }
+  });
+  return new Map(
+    prepared.map(({ id, entry, create }) => {
+      const legacy = builtin.some((item) => item.id === id);
+      const slot = (key: string) =>
+        legacy
+          ? id === "openai-codex" && key === "oauth"
+            ? id
+            : key === "api-key"
+              ? `apikey:${id}`
+              : `provider-instance:${id}:${key}`
+          : `provider-instance:${id}:${key}`;
+      const instance = create({
+        id,
+        label: entry.label,
+        secrets: {
+          get: async (key) => {
+            try {
+              return await store.get(slot(key));
+            } catch {
+              throw new ProviderCredentialError();
+            }
+          },
+          set: (key, value) => store.set(slot(key), value),
+          delete: (key) => store.delete(slot(key)),
+        },
+      });
+      if (instance.auth && instance.auth.id !== id)
+        throw new Error(
+          `Provider type '${entry.type}' returned mismatched authentication identity`,
+        );
+      return [
+        id,
+        {
+          id,
+          label: entry.label,
+          type: entry.type,
+          instance,
+          ...(entry.model ? { defaultModel: { provider: id, model: entry.model } } : {}),
+        },
+      ];
     }),
-    apiKeyEntry({
-      id: "anthropic",
-      label: "Anthropic (API key)",
-      envVar: "ANTHROPIC_API_KEY",
-      store,
-      defaultModel: {
-        provider: "anthropic",
-        model: process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8",
+  );
+}
+
+/** Auth commands and the server share the same plugin-owned connection definitions. */
+export function authRegistry(
+  store: SecretStore,
+  settings: SettingsDoc = {},
+): Map<string, AuthEntry> {
+  const result = new Map<string, AuthEntry>();
+  for (const entry of providerEntries(store, settings).values()) {
+    if (!entry.instance.auth) continue;
+    result.set(entry.id, {
+      method: entry.instance.auth,
+      ...(entry.defaultModel ? { defaultModel: entry.defaultModel } : {}),
+      buildPlugin: async () => {
+        const provider = await entry.instance.buildProvider();
+        if (provider && provider.provider !== entry.id)
+          throw new Error(`Mismatched provider identity '${entry.id}'`);
+        return provider
+          ? {
+              id: defaults().some((item) => item.id === entry.id)
+                ? entry.type
+                : `provider-instance:${entry.id}`,
+              providers: () => [provider],
+            }
+          : null;
       },
-      validate: (k) => (k.startsWith("sk-ant-") ? null : "Anthropic keys start with 'sk-ant-'"),
-      createPlugin: ({ apiKey }) => createAnthropicPlugin({ apiKey }),
-    }),
-    apiKeyEntry({
-      id: "opencode-go",
-      label: "OpenCode Go (API key)",
-      envVar: "OPENCODE_API_KEY",
-      store,
-      defaultModel: {
-        provider: "opencode-go",
-        model: process.env.OPENCODE_MODEL ?? "gpt-5.6-luna",
-      },
-      validate: (k) => (k.trim().length > 0 ? null : "OpenCode Go keys must not be empty"),
-      createPlugin: ({ apiKey }) => createOpenCodeGoPlugin({ apiKey }),
-    }),
-    [
-      "openai-codex",
-      {
-        method: codexMethod(codex),
-        defaultModel: { provider: "openai-codex", model: "gpt-6.1-sol" },
-        buildPlugin: async () => ((await codex.status()).authenticated ? codexPlugin(codex) : null),
-      },
-    ],
-  ]);
+    });
+  }
+  return result;
 }

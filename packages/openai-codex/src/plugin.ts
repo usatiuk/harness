@@ -20,12 +20,12 @@ const CODEX_MODELS = OPENAI_MODELS.filter(
 }));
 
 /** Registers the Codex (ChatGPT subscription) Responses provider, authenticated via OAuth. */
-export function codexPlugin(auth: CodexAuth): Plugin {
+export function codexPlugin(auth: CodexAuth, provider = CODEX_PROVIDER): Plugin {
   return {
-    id: CODEX_PROVIDER,
+    id: provider,
     providers: () => [
       new OpenAIResponsesProvider({
-        provider: CODEX_PROVIDER,
+        provider,
         credentials: codexCredentials(auth),
         models: CODEX_MODELS,
         supportsMaxOutputTokens: false,

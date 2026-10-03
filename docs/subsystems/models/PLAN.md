@@ -2,9 +2,24 @@
 
 ## Objective
 
-Make existing providers reliable and semantically consistent before expanding
-the catalog. Keep provider quirks at adapter boundaries and keep the kernel free
+Keep existing providers reliable and semantically consistent as catalog support
+expands. Keep provider quirks at adapter boundaries and keep the kernel free
 of SDK-specific error, tool, and payload behavior.
+
+## Named instances and dynamic gateway catalogs
+
+The [dynamic provider catalog delivery plan](../../plans/models/2026-10-03-dynamic-provider-catalogs.md)
+selects a bounded LiteLLM integration: plugin-owned provider types, global named
+connections with independent credentials, boot-only discovery, and the existing
+three transport adapters. Named built-in API/OAuth instances are implemented and
+under validation; LiteLLM, the legacy normalization bridge, diagnostics and real
+gateway qualification remain in progress. Existing transient reliability work
+remains open.
+
+- [ ] Deliver the instance/factory boundary and legacy custom-provider bridge.
+- [ ] Deliver LiteLLM discovery and all three gateway adapter routes.
+- [ ] Integrate bounded startup, safe connection status, and instance key controls.
+- [ ] Qualify real gateway continuations and complete the delivery checks.
 
 ## Bounded transient reliability
 
@@ -40,10 +55,10 @@ of SDK-specific error, tool, and payload behavior.
   and live-boundary evidence.
 - Splitting a shared provider catalog before backend divergence outgrows a
   small, complete per-model override map.
-- Automatic model discovery and pricing fetches. (Scoped exception: the
-  `opencode-go` provider ships a static compiled roster — its gateway `/v1/models`
-  returns bare ids only, so a runtime fetch would add nothing dispatchable. Any
-  general discovery mechanism stays deferred.)
+- Periodic/live catalog refresh, disk catalog caches, and automatic pricing
+  fetches. LiteLLM boot discovery is selected in the plan above; `opencode-go`
+  retains its static roster. Discovered upstream pricing is not automatically
+  treated as a gateway billing rate.
 - Guaranteed enforcement of advisory output caps on transports without a native
   parameter.
 - Provider-native/server-side compaction until one adapter implements it through

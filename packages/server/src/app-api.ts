@@ -4,13 +4,14 @@ import {
   setAuthStore,
   updateGlobalModel,
   updateGlobalPluginConfig,
+  type AuthStoreKind,
 } from "@harness/config";
 import { approvalConfigSchema } from "@harness/approval";
 import { autoApprovalConfigSchema } from "@harness/auto-approval";
 import { sandboxConfigSchema } from "@harness/sandbox";
 import type { HarnessRpcSession, HarnessService } from "@harness/service";
 import { ErrorCodes, ResponseError } from "vscode-jsonrpc";
-import { authRegistry } from "./auth.ts";
+import { authRegistry, type ProviderEntry } from "./auth.ts";
 import { credentialStoreForLogin, credentialStoreForRead } from "./credential-store.ts";
 import {
   appAuthLoginRequest,
@@ -24,6 +25,7 @@ import {
 export function registerAppApi(
   session: HarnessRpcSession,
   service: HarnessService,
+  active?: { kind: AuthStoreKind | null; entries: ReadonlyMap<string, ProviderEntry> },
 ): { close(): Promise<void> } {
   const lifetime = new AbortController();
   const operations = new Set<Promise<unknown>>();
@@ -40,7 +42,7 @@ export function registerAppApi(
     const doc = await readGlobalSettings(defaultHome());
     const { store } = await credentialStoreForRead(defaultHome());
     const providers = await Promise.all(
-      [...authRegistry(store).values()].map(async ({ method }) => {
+      [...authRegistry(store, doc).values()].map(async ({ method }) => {
         const status = await method.status();
         return {
           id: method.id,
@@ -118,8 +120,12 @@ export function registerAppApi(
       const signal = AbortSignal.any([requestSignal, lifetime.signal]);
       signal.throwIfAborted();
       const { store, kind } = await credentialStoreForLogin(defaultHome());
-      const entry = authRegistry(store).get(params.provider);
+      const entry = authRegistry(store, await readGlobalSettings(defaultHome())).get(
+        params.provider,
+      );
       if (!entry) return invalid("Unknown authentication provider");
+      if (active?.kind === kind)
+        entry.method = active.entries.get(params.provider)?.instance.auth ?? entry.method;
       if (entry.method.kind === "api-key") {
         if (params.key === null) return invalid("An API key is required");
         const issue = entry.method.validate(params.key);
@@ -136,7 +142,7 @@ export function registerAppApi(
       }
       signal.throwIfAborted();
       await setAuthStore(defaultHome(), kind);
-      await updateGlobalModel(defaultHome(), entry.defaultModel);
+      if (entry.defaultModel) await updateGlobalModel(defaultHome(), entry.defaultModel);
       return { restartRequired: true as const };
     })();
     void operation
@@ -151,9 +157,11 @@ export function registerAppApi(
       (async () => {
         lifetime.signal.throwIfAborted();
         if (signingIn) invalid("Wait for provider sign-in to finish");
-        const { store } = await credentialStoreForRead(defaultHome());
-        const entry = authRegistry(store).get(provider);
+        const { store, kind } = await credentialStoreForRead(defaultHome());
+        const entry = authRegistry(store, await readGlobalSettings(defaultHome())).get(provider);
         if (!entry) return invalid("Unknown authentication provider");
+        if (active?.kind === kind)
+          entry.method = active.entries.get(provider)?.instance.auth ?? entry.method;
         await entry.method.logout();
         return { restartRequired: true as const };
       })(),

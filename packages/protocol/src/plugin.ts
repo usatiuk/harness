@@ -7,6 +7,7 @@ import type { ConversationId } from "./ids.ts";
 import type { HarnessEvent } from "./events.ts";
 import type { CompactionStrategy } from "./policies.ts";
 import type { RequestMiddleware } from "./requests.ts";
+import type { ProviderTypeContributions } from "./provider-instance.ts";
 
 /** Per-conversation context for cache-stable prompt/project instruction sources. */
 export interface ContextSourceContext {
@@ -56,7 +57,7 @@ export interface ToolContributionContext {
  * The single extension surface. A plugin contributes typed capabilities; it never
  * touches control flow.
  */
-export interface Plugin {
+export interface Plugin extends ProviderTypeContributions {
   readonly id: string;
   /** Plugin ids whose tool middleware must already be registered outside this plugin's chain. */
   readonly toolMiddlewareAfter?: readonly string[];
@@ -91,7 +92,7 @@ export interface ConfigReader {
  * unknown keys rejected) and is built from a `ConfigReader`. Plugins needing no
  * config are plain `Plugin`s.
  */
-export interface PluginDefinition {
+export interface PluginDefinition extends ProviderTypeContributions {
   readonly id: string;
   readonly configSchema: ZodType;
   /** Copy this plugin's effective parent slice into a child's durable overrides. */

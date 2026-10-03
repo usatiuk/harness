@@ -132,6 +132,12 @@ delays, or a nearby condition that does not prove completion.
   children, and reopens nested allowed/denied history. Other desktop platforms
   and live Linux code-mode execution remain separate platform qualifications.
 
+- Named built-in provider tests cover independent stored API keys, exact
+  environment references, legacy slots, label changes, construction identity,
+  type contributions and pre-construction validation. Codex tests cover isolated
+  OAuth token records, coalesced rotation and logout during refresh. Live browser
+  login with multiple real accounts remains credential-dependent.
+
 - The `opencode-go` provider's roster is static and unit-tested against the
   2026-08-09 gateway-list and Models.dev metadata snapshots: documented family
   assignments (including Grok chat and GPT Luna Responses), exact model-scoped

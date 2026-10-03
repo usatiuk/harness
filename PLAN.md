@@ -104,7 +104,7 @@ As of 2026-10-03, Harness provides:
 | --------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | Kernel                      | [Architecture](docs/subsystems/kernel/README.md)        | No selected kernel change; add seams only for concrete plugin needs.                     |
 | Persistence                 | [Architecture](docs/subsystems/persistence/README.md)   | No selected persistence change; branch navigation and stable migrations remain deferred. |
-| Models                      | [Architecture](docs/subsystems/models/README.md)        | [Bounded transient reliability](docs/subsystems/models/PLAN.md)                          |
+| Models                      | [Architecture](docs/subsystems/models/README.md)        | [Transient reliability and named gateway catalogs](docs/subsystems/models/PLAN.md)       |
 | Execution and safety        | [Architecture](docs/subsystems/execution/README.md)     | [Native mutation containment](docs/subsystems/execution/PLAN.md)                         |
 | Context and compaction      | [Architecture](docs/subsystems/context/README.md)       | Observe v1; add another strategy only for a demonstrated need.                           |
 | Orchestration               | [Architecture](docs/subsystems/orchestration/README.md) | No selected change; MCP callable tools remain a next-plugin candidate.                   |
@@ -161,6 +161,9 @@ invocations remain opt-in qualification.
        second UI client.
 7. [x] Deliver the approved desktop v1 with independent conversations, inspection,
        owned background server, database exclusion, and actual native E2E.
+8. [ ] Deliver the [named provider instances and LiteLLM boot catalogs](docs/plans/models/2026-10-03-dynamic-provider-catalogs.md)
+       plan. Design and primary-source research are prepared; implementation and
+       real gateway qualification remain open.
 
 ## Documentation roles
 

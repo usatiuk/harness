@@ -116,6 +116,64 @@ function openCallback(authorizeUrl: string): BrowserCallback {
 }
 
 describe("CodexAuth", () => {
+  it("keeps independently named OAuth accounts and rotated token records isolated", async () => {
+    const store = new MemorySecretStore();
+    await seedSession(store);
+    const original = await store.get(STORE_KEY);
+    if (!original) throw new Error("Missing seed");
+    await store.set("work-oauth", original);
+    await store.set(
+      "personal-oauth",
+      JSON.stringify({
+        ...parseCodexSession(original),
+        accountId: "personal",
+        expiresAt: 1_000_000,
+      }),
+    );
+    const net = refreshingFetch();
+    const work = new CodexAuth({ store, storeKey: "work-oauth", fetch: net.fetch, now: () => 0 });
+    const personal = new CodexAuth({ store, storeKey: "personal-oauth", now: () => 0 });
+    await Promise.all([work.getValidSession(), work.getValidSession()]);
+    expect(net.calls()).toBe(1);
+    expect((await personal.getValidSession()).accountId).toBe("personal");
+    expect(parseCodexSession((await store.get("work-oauth"))!).refreshToken).toBe("refresh_2");
+    expect(parseCodexSession((await store.get("personal-oauth"))!).refreshToken).toBe("refresh_1");
+    await work.logout();
+    expect(await work.status()).toEqual({ authenticated: false });
+    expect((await personal.status()).authenticated).toBe(true);
+    expect(await store.get(STORE_KEY)).toBe(original);
+  });
+
+  it("does not resurrect an OAuth session when logout races with token rotation", async () => {
+    const store = new MemorySecretStore();
+    await seedSession(store);
+    let started!: () => void;
+    let release!: () => void;
+    const began = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const net = refreshingFetch();
+    const auth = new CodexAuth({
+      store,
+      now: () => 0,
+      fetch: async (...args) => {
+        started();
+        await released;
+        return net.fetch(...args);
+      },
+    });
+    const refresh = auth.getValidSession();
+    const failed = expect(refresh).rejects.toThrow("authentication changed");
+    await began;
+    const logout = auth.logout();
+    release();
+    await Promise.all([failed, logout]);
+    expect(await store.get(STORE_KEY)).toBeNull();
+    expect(await auth.status()).toEqual({ authenticated: false });
+  });
   it("cancels browser sign-in even when the URL callback aborts before listener registration", async () => {
     const store = new MemorySecretStore();
     const auth = new CodexAuth({ store, openBrowser: false });

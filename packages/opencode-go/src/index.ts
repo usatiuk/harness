@@ -17,3 +17,5 @@ export function createOpenCodeGoPlugin(opts: { apiKey: string }): Plugin {
     providers: () => [new OpenCodeGoProvider({ openai, anthropic })],
   };
 }
+
+export * from "./provider-type.ts";

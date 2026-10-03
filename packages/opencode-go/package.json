@@ -15,7 +15,9 @@
     "@harness/anthropic-core": "*",
     "@harness/openai-api": "*",
     "@harness/openai-core": "*",
-    "@harness/protocol": "*"
+    "@harness/protocol": "*",
+    "zod": "^4.3.6",
+    "@harness/auth": "*"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

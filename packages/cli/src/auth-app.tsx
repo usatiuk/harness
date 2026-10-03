@@ -5,6 +5,7 @@ import type { ModelConfig } from "@harness/protocol";
 import {
   AUTH_STORE_KINDS,
   defaultHome,
+  readGlobalSettings,
   setAuthStore,
   updateGlobalModel,
   type AuthStoreKind,
@@ -15,6 +16,10 @@ import { authRegistry, type AuthEntry } from "./auth.ts";
 import { credentialStoreForLogin, credentialStoreForRead } from "./credential-store.ts";
 
 const modelLabel = (m: ModelConfig): string => `${m.provider}/${m.model}`;
+const modelNotice = (entry: AuthEntry): string =>
+  entry.defaultModel
+    ? ` Default model → ${modelLabel(entry.defaultModel)}.`
+    : " Restart Harness to use this connection.";
 
 interface LoginAppProps {
   registry: Map<string, AuthEntry>;
@@ -85,21 +90,19 @@ function ApiKeyLogin({
 }: BranchProps<ApiKeyMethod>): ReactElement {
   const [error, setError] = useState<string | null>(null);
 
+  if (!method.canStore) return <Text>{`Set ${method.envVar} to configure ${method.label}.`}</Text>;
+
   const submit = (value: string): void => {
     method
       .submit(value)
       .then(() => persist(entry))
-      .then(() =>
-        onResolve(
-          `Signed in to ${method.label}. Default model → ${modelLabel(entry.defaultModel)}.`,
-        ),
-      )
+      .then(() => onResolve(`Signed in to ${method.label}.${modelNotice(entry)}`))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   };
 
   return (
     <Box flexDirection="column">
-      <Text>{`Paste your ${method.label} key (overridden by $${method.envVar} when set):`}</Text>
+      <Text>{`Paste your ${method.label} key${method.envVar ? ` (overridden by ${method.envVar} when set)` : ""}:`}</Text>
       <PasswordInput placeholder="key is hidden as you type" onSubmit={submit} />
       {error ? <Alert variant="error">{error}</Alert> : null}
     </Box>
@@ -119,7 +122,7 @@ function OAuthLogin({
     method
       .login({ onUrl: setUrl })
       .then(() => persist(entry))
-      .then(() => onResolve(`Signed in. Default model → ${modelLabel(entry.defaultModel)}.`))
+      .then(() => onResolve(`Signed in.${modelNotice(entry)}`))
       .catch((e: unknown) => onReject(e instanceof Error ? e : new Error(String(e))));
     // The method instance is stable for the lifetime of this flow.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,13 +186,13 @@ function parseStore(value: string | undefined): AuthStoreKind | undefined {
 export async function runLogin(opts: LoginCliOptions = {}): Promise<void> {
   const home = defaultHome();
   const { store, kind } = await credentialStoreForLogin(home, parseStore(opts.store));
-  const registry = authRegistry(store);
+  const registry = authRegistry(store, await readGlobalSettings(defaultHome()));
   if (opts.provider && !registry.has(opts.provider)) throw unknownProvider(registry, opts.provider);
 
   // Persist the backend choice and default model together, only after a successful sign-in.
   const persist = async (entry: AuthEntry): Promise<void> => {
     await setAuthStore(home, kind);
-    await updateGlobalModel(home, entry.defaultModel);
+    if (entry.defaultModel) await updateGlobalModel(home, entry.defaultModel);
   };
   const storageNote =
     kind === "file"
@@ -233,15 +236,13 @@ async function loginNonInteractive(
   }
   await entry.method.submit(await readStdin());
   await persist(entry);
-  console.log(
-    `Signed in to ${entry.method.label}. Default model → ${modelLabel(entry.defaultModel)}.${storageNote}`,
-  );
+  console.log(`Signed in to ${entry.method.label}.${modelNotice(entry)}${storageNote}`);
 }
 
 /** `harness auth status`: one provider with `--provider`, otherwise all of them. */
 export async function runStatus(provider?: string): Promise<void> {
   const { store } = await credentialStoreForRead(defaultHome());
-  const registry = authRegistry(store);
+  const registry = authRegistry(store, await readGlobalSettings(defaultHome()));
   const entries = provider ? [requireEntry(registry, provider)] : [...registry.values()];
   for (const entry of entries) {
     const s = await entry.method.status();
@@ -260,7 +261,7 @@ export async function runStatus(provider?: string): Promise<void> {
 /** `harness auth logout --provider <id>`: clears one provider's stored credentials. */
 export async function runLogout(provider?: string): Promise<void> {
   const { store } = await credentialStoreForRead(defaultHome());
-  const registry = authRegistry(store);
+  const registry = authRegistry(store, await readGlobalSettings(defaultHome()));
   if (!provider) {
     console.log(`specify --provider <id> (one of: ${[...registry.keys()].join(", ")})`);
     return;

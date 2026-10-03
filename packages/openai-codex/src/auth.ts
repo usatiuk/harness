@@ -18,6 +18,7 @@ const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 export interface CodexAuthOptions {
   store: SecretStore;
+  storeKey?: string;
   now?: () => number;
   fetch?: typeof fetch;
   /** Open the browser during login; default true. Set false for tests/headless. */
@@ -44,13 +45,17 @@ export interface LoginOptions {
  */
 export class CodexAuth {
   readonly #store: SecretStore;
+  readonly #storeKey: string;
   readonly #now: () => number;
   readonly #fetch: typeof fetch;
   readonly #openBrowser: boolean;
   #cached: CodexSession | undefined;
+  #refresh: Promise<CodexSession> | undefined;
+  #epoch = 0;
 
   constructor(opts: CodexAuthOptions) {
     this.#store = opts.store;
+    this.#storeKey = opts.storeKey ?? STORE_KEY;
     this.#now = opts.now ?? (() => Date.now());
     this.#fetch = opts.fetch ?? fetch;
     this.#openBrowser = opts.openBrowser ?? true;
@@ -69,6 +74,8 @@ export class CodexAuth {
 
   /** Runs the loopback browser flow end to end, persisting the resulting session. */
   async loginWithBrowser(opts: LoginOptions = {}): Promise<CodexSession> {
+    const epoch = ++this.#epoch;
+    await this.#refresh?.catch(() => undefined);
     opts.signal?.throwIfAborted();
     const pkce = generatePkce();
     const state = randomState();
@@ -97,7 +104,7 @@ export class CodexAuth {
         now: this.#now,
       });
       opts.signal?.throwIfAborted();
-      return await this.#persist(tokens);
+      return await this.#persist(tokens, epoch);
     } finally {
       if (abort) opts.signal?.removeEventListener("abort", abort);
       await server.close();
@@ -106,33 +113,49 @@ export class CodexAuth {
 
   /** A non-expired session, refreshing within the skew window. Throws if not signed in. */
   async getValidSession(opts: { forceRefresh?: boolean } = {}): Promise<CodexSession> {
+    const epoch = this.#epoch;
     const session = await this.#load();
+    if (epoch !== this.#epoch)
+      throw new Error("Codex authentication changed during credential access");
     if (!session) throw new Error("Not signed in to Codex. Run `harness auth login`.");
     if (opts.forceRefresh || session.expiresAt <= this.#now() + REFRESH_SKEW_MS) {
-      const tokens = await refreshTokens({
-        refreshToken: session.refreshToken,
-        fetch: this.#fetch,
-        now: this.#now,
-      });
-      return this.#persist(tokens);
+      if (!this.#refresh) {
+        const refresh = refreshTokens({
+          refreshToken: session.refreshToken,
+          fetch: this.#fetch,
+          now: this.#now,
+        }).then((tokens) => this.#persist(tokens, epoch));
+        this.#refresh = refresh;
+        void refresh
+          .finally(() => {
+            if (this.#refresh === refresh) this.#refresh = undefined;
+          })
+          .catch(() => undefined);
+      }
+      return this.#refresh;
     }
     return session;
   }
 
   async logout(): Promise<boolean> {
+    ++this.#epoch;
+    // Drain an already-started rotation before removing the durable session.
+    await this.#refresh?.catch(() => undefined);
     this.#cached = undefined;
-    return this.#store.delete(STORE_KEY);
+    return this.#store.delete(this.#storeKey);
   }
 
   async #load(): Promise<CodexSession | undefined> {
     if (this.#cached) return this.#cached;
-    const raw = await this.#store.get(STORE_KEY);
+    const raw = await this.#store.get(this.#storeKey);
     if (!raw) return undefined;
     this.#cached = parseCodexSession(raw);
     return this.#cached;
   }
 
-  async #persist(tokens: OAuthTokens): Promise<CodexSession> {
+  async #persist(tokens: OAuthTokens, epoch = this.#epoch): Promise<CodexSession> {
+    if (epoch !== this.#epoch)
+      throw new Error("Codex authentication changed during sign-in or refresh");
     const email = decodeEmail(tokens.idToken);
     const session: CodexSession = {
       accessToken: tokens.accessToken,
@@ -142,7 +165,7 @@ export class CodexAuth {
       expiresAt: tokens.expiresAt,
       ...(email ? { email } : {}),
     };
-    await this.#store.set(STORE_KEY, JSON.stringify(session));
+    await this.#store.set(this.#storeKey, JSON.stringify(session));
     this.#cached = session;
     return session;
   }

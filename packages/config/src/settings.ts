@@ -265,6 +265,16 @@ export const projectDocSchema = z.strictObject({
 export const settingsDocSchema = z.strictObject({
   ...projectDocSchema.shape,
   auth: authSchema.optional(),
+  providers: z
+    .record(
+      z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/),
+      z.strictObject({
+        type: z.string().min(1),
+        label: z.string().trim().min(1).max(200).optional(),
+        config: z.record(z.string(), z.unknown()).default({}),
+      }),
+    )
+    .optional(),
   customProviders: z.record(z.string(), customProviderSchema).optional(),
 });
 

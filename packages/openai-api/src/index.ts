@@ -35,3 +35,5 @@ export function createOpenAIPlugin(opts: OpenAIPluginOptions): Plugin {
     ],
   };
 }
+
+export * from "./provider-type.ts";

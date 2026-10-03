@@ -3,6 +3,7 @@ export * from "./errors.ts";
 export * from "./ids.ts";
 export * from "./content.ts";
 export * from "./model.ts";
+export * from "./provider-instance.ts";
 export * from "./usage.ts";
 export * from "./tools.ts";
 export * from "./items.ts";

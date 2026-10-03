@@ -226,6 +226,10 @@ export interface ModelProvider {
   stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent>;
   /** The selectable models this provider offers (may be empty). */
   listModels(): ModelInfo[];
+  /** Replace the discovered snapshot; synchronous reads never perform network I/O. */
+  refreshModels?(
+    signal: AbortSignal,
+  ): Promise<import("./provider-instance.ts").ModelCatalogRefresh>;
 }
 
 /** A point in the model-middleware chain: runs the next inner middleware, or the provider. */
