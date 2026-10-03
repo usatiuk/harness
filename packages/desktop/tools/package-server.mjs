@@ -1,4 +1,4 @@
-import { build } from "esbuild";
+import { bundleServer, RUNTIME_EXTERNAL } from "../../connections/tools/bundle-server.mjs";
 import { cp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
@@ -34,35 +34,8 @@ try {
   nodeLicense = await response.text();
 }
 await writeFile(join(output, "runtime", "LICENSE"), nodeLicense);
-const external = [
-  "better-sqlite3",
-  "@napi-rs/keyring",
-  "@primno/dpapi",
-  "@devcontainers/cli",
-  "quickjs-emscripten",
-];
-await build({
-  entryPoints: [join(root, "packages/server/src/bin.ts")],
-  outfile: join(output, "server.mjs"),
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  target: "node22",
-  conditions: ["development"],
-  external,
-  banner: {
-    js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
-  },
-});
-await build({
-  entryPoints: [join(root, "packages/code-mode/src/worker.mjs")],
-  outfile: join(output, "worker.mjs"),
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  target: "node22",
-  external,
-});
+await bundleServer(output);
+const external = RUNTIME_EXTERNAL;
 const copied = new Set();
 async function copyPackage(name, from) {
   if (copied.has(name)) return;
@@ -105,10 +78,6 @@ async function copyPackage(name, from) {
   }
 }
 for (const name of external) await copyPackage(name, root);
-await writeFile(
-  join(output, "package.json"),
-  JSON.stringify({ private: true, type: "module" }) + "\n",
-);
 console.log(
   `Packaged Node ${process.version}, Harness server and ${copied.size} native/runtime dependencies.`,
 );

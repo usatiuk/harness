@@ -42,6 +42,13 @@ async function attachDiscovered(home: string, discovery: ServerDiscovery): Promi
   };
 }
 
+export async function attachLocalServer(requestedHome: string): Promise<HostConnection> {
+  const home = await canonicalHome(requestedHome);
+  const discovery = await readDiscovery(home);
+  if (discovery === null) throw new Error("Server discovery is unavailable; reconnect explicitly");
+  return attachDiscovered(home, discovery);
+}
+
 const unavailable = (error: unknown): boolean =>
   (error as NodeJS.ErrnoException).code === "ECONNREFUSED";
 
@@ -113,8 +120,8 @@ export async function ensureLocalServer(
 }
 
 /** A bridge has no execution ownership. EOF only closes its authenticated socket. */
-export async function runLocalBridge(home: string, launch: ServerLaunch): Promise<void> {
-  const host = await ensureLocalServer(home, launch);
+export async function runLocalBridge(home: string, launch?: ServerLaunch): Promise<void> {
+  const host = launch ? await ensureLocalServer(home, launch) : await attachLocalServer(home);
   const socket = host.socket;
   process.stdin.pipe(socket);
   socket.pipe(process.stdout);

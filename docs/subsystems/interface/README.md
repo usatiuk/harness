@@ -259,6 +259,8 @@ scoped OS opener instead of navigating the application WebView.
 ## Source map
 
 - `packages/config`: settings schema, merge, discovery, resolution, and writes.
+- `packages/connections`: client.json registry, authenticated background discovery,
+  local/WSL/SSH adapters, immutable built-bundle deployment and target dependencies.
 - `packages/server`: shipped composition, authentication, app RPCs, and stdio entry.
 - `packages/cli`: auth commands, terminal lifecycle, and TUI.
 - `packages/client-features`: shared plugin clients and pure transcript/edit presentation.
@@ -267,6 +269,14 @@ scoped OS opener instead of navigating the application WebView.
   in-process transport, and Node NDJSON transport.
 - `packages/service`: server dispatch and connection-scoped runtime ownership.
 - `packages/auth`, `packages/secrets`: login methods and credential stores.
+
+The common connection layer is now qualified with actual Ubuntu WSL and isolated
+OpenSSH Linux x64 glibc. It uses Node already on the target in development mode or
+verified portable Node in managed mode, plus current locally bundled Harness code.
+Desktop packaging shares this server/worker bundler. Code and target dependency
+caches are immutable; refresh stages a build and activation requires explicit
+server restart. GUI/TUI integration and human authentication routing remain active
+delivery work, tracked in the remote-host plan.
 
 ## Verification
 

@@ -61,8 +61,10 @@ packages.
 Shared background servers and Local/WSL/SSH connections for desktop and TUI are
 selected for delivery in [the active plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 The shared server/session ownership boundary and authenticated background discovery
-are implemented and qualified with Windows process tests. Remote adapters,
-provisioning and client interaction remain in progress.
+are implemented and qualified with Windows process tests. Common remote adapters
+and managed/development deployment are qualified on Ubuntu WSL and isolated SSH;
+client interaction, authentication routing and fault-path qualification remain
+in progress.
 
 ## Current implementation status
 

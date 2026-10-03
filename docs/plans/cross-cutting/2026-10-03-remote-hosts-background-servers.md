@@ -30,9 +30,9 @@ the final ownership authority. Bounded ensure/connect handles startup contention
 and stale discovery, and never treats a PID or file as proof of liveness.
 
 Clients use a common Node connection/provisioning adapter. Local connects directly;
-WSL and SSH execute a fixed stdio bridge into the same server. WSL persistent
-execution uses an independently launched Windows WSL process, so its lifetime
-does not depend on a closed desktop transport. SSH uses OpenSSH configuration,
+WSL and SSH execute a fixed stdio bridge into the same server. The server launches
+independently inside the selected environment; actual WSL/SSH qualification checks
+that it survives every bridge closing. SSH uses OpenSSH configuration,
 host verification and agents. Protocol stdout stays separate from authentication
 interaction and diagnostic stderr.
 
@@ -127,12 +127,39 @@ desktop exit preference. Tray, notifications and login autostart remain optional
   authority commit is now 2332e06. Migrated the new code-mode RPC persistence fixture
   to host-owned cleanup. Full npm run check passed after rebase: 99 files/907 tests,
   with 6 files/30 existing opt-in/platform skips.
-- Remaining milestones stay open. The current desktop/TUI default launchers still
-  own their compositions; remote adapters, host provisioning, GUI/TUI controls and
-  native/remote integration remain required.
+- Remaining milestones stay open. Remote adapters and provisioning now have real
+  process evidence; GUI/TUI integration, authentication interaction and routing,
+  exit preferences, and fault-path qualification remain required.
 - Background transport increment committed as d9547d5. The following tied cleanup
   derives plugin services from the session's mandatory shared host, sends shell
   process events directly through that host, and uses stateless UUID shell IDs.
   Fixture cleanup discovers only existing owners and runs independently of whether
   an assertion captured the owner's identity. Full npm run check passed: 99 files,
   908 tests; 6 files/30 existing opt-in/platform skips.
+- Rebased again on the latest primary branch main, 0282afc. The first two work
+  increments and cleanup are now ec69df2, 6fe523e and 630246f. Integrated named
+  provider instances, shared live OAuth owners, cancellable bootstrap and the new
+  provider fields in the generated v2 schema.
+- The common remote adapter deploys current local JavaScript and a minimal locked
+  runtime manifest. Desktop packaging now uses that same bundler. Linux x64 glibc
+  managed mode verifies pinned official Node 22.23.3; development mode resolves
+  existing Node/npm and caches dependencies by lock/platform/ABI. Immutable code
+  builds also include the dependency key, and private canonical runtime ancestry
+  is checked before staging or reuse. Provisioning cleanup preserves both original
+  and cleanup failures. The client-download fallback has cancellation and a finite
+  deadline. Source and local node_modules are not transferred.
+- Real Ubuntu WSL and an isolated Docker/OpenSSH host passed both remote integration
+  cases (43.11 seconds): managed install/cache reuse, changed JavaScript without
+  dependency reinstall, relative Node resolution, authenticated identity, all-bridge
+  exit survival, fresh reconnect to the same owner and explicit shutdown. SSH uses
+  a fixture-specific key/config and verified host key. No SSH service was installed
+  in the user's Ubuntu distro. Downloads, caches and servers use isolated fixtures.
+- Full npm run check passed after the second rebase: 107 files/957 tests, with
+  8 files/33 opt-in/platform skips. Desktop frontend build, cargo check and the
+  native debug executable build pass. The first native editor test found that a
+  selected-view remount closed connection management during disconnect; its owner
+  is being lifted above host presentation and the scenario remains unqualified.
+- The repository ship-change skill now explicitly requires the authorized repeating
+  two-work/one-simplification cadence, periodic validated increments, and inspection
+  of existing affected boundaries. The next work increment records remote deployment;
+  client behavior and remaining required qualification will follow separately.

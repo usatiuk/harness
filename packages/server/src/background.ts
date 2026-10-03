@@ -16,13 +16,14 @@ import {
   replaceJson,
   serverSecretStore,
 } from "@harness/connections/local";
-import { buildServerComposition } from "./index.ts";
+import { buildServerComposition, type ServerComposition } from "./index.ts";
 
 /** The SQLite owner alone publishes or removes discovery. Network peers only observe it. */
 export async function runBackgroundServer(): Promise<void> {
   const home = await canonicalHome(defaultHome());
   process.env["HARNESS_HOME"] = home;
-  const composition = await buildServerComposition();
+  let composition: ServerComposition | undefined;
+  const startup = new AbortController();
   const sockets = new Set<Socket>();
   let stopping = false;
   let listenerFailure: Error | undefined;
@@ -36,9 +37,16 @@ export async function runBackgroundServer(): Promise<void> {
     console.error(JSON.stringify({ event: "server.listener.failed", message: error.message }));
     stop();
   };
-  const signal = () => stop();
+  const signal = () => {
+    startup.abort();
+    stop();
+  };
+  process.once("SIGINT", signal);
+  process.once("SIGTERM", signal);
   let published: string | undefined;
   try {
+    composition = await buildServerComposition({ signal: startup.signal });
+    const owner = composition;
     const directory = await privateRuntimeDirectory(home);
     const identityPath = join(directory, "identity.json");
     let serverId: string;
@@ -82,7 +90,7 @@ export async function runBackgroundServer(): Promise<void> {
           }
           try {
             socket.write(identityFrame);
-            const session = composition.connect(createNdjsonMessageConnection(socket, socket));
+            const session = owner.connect(createNdjsonMessageConnection(socket, socket));
             session.onRequest(serverInfoRequest, () => identity);
             session.onRequest(serverStopRequest, () => {
               // Shutdown cannot await the request that admitted it. Return acceptance first.
@@ -110,10 +118,10 @@ export async function runBackgroundServer(): Promise<void> {
       throw new Error("Background server did not bind TCP");
     published = join(directory, "discovery.json");
     await replaceJson(published, { ...identity, port: address.port });
-    process.once("SIGINT", signal);
-    process.once("SIGTERM", signal);
     await stopped;
     if (listenerFailure !== undefined) throw listenerFailure;
+  } catch (error) {
+    if (!startup.signal.aborted || error !== startup.signal.reason) throw error;
   } finally {
     stopping = true;
     process.off("SIGINT", signal);
@@ -129,7 +137,7 @@ export async function runBackgroundServer(): Promise<void> {
       if (published !== undefined) await rm(published, { force: true });
     } finally {
       try {
-        await composition.close();
+        await composition?.close();
       } finally {
         for (const socket of sockets) socket.destroy();
         await closed;

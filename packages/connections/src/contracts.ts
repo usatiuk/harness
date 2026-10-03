@@ -29,6 +29,7 @@ export const hostSchema = z.discriminatedUnion("kind", [
       .refine((value) => !value.startsWith("-")),
     port: z.number().int().min(1).max(65535).nullable(),
     identityFile: z.string().min(1).nullable(),
+    configFile: z.string().min(1).nullable().optional(),
     runtime: remoteRuntimeSchema,
   }),
 ]);
@@ -79,3 +80,28 @@ export const serverStopRequest = defineRequest({
   params: z.strictObject({}),
   result: z.strictObject({ accepted: z.literal(true) }),
 });
+
+export const preparedRuntimeSchema = z.strictObject({
+  node: z.string().min(1),
+  directory: z.string().startsWith("/"),
+  home: z.string().startsWith("/"),
+  buildId: z.string().regex(/^[a-f0-9]{64}$/u),
+  dependencyKey: z.string().regex(/^[a-f0-9]{64}$/u),
+  transferred: z.boolean(),
+});
+export const connectionCommandSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("config.read") }),
+  z.strictObject({ type: z.literal("host.save"), host: hostSchema }),
+  z.strictObject({ type: z.literal("host.remove"), id: z.string() }),
+  z.strictObject({ type: z.literal("host.select"), id: z.string() }),
+  z.strictObject({ type: z.literal("preferences"), keepServerRunning: z.boolean() }),
+  z.strictObject({ type: z.literal("wsl.list") }),
+  z.strictObject({ type: z.literal("runtime.prepare"), host: hostSchema }),
+  z.strictObject({
+    type: z.literal("server.stop"),
+    host: hostSchema,
+    identity: serverIdentitySchema,
+    runtime: preparedRuntimeSchema.nullable(),
+  }),
+]);
+export type ConnectionCommand = z.infer<typeof connectionCommandSchema>;

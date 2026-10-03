@@ -35,11 +35,16 @@ work.
 7. **Finish cleanly.** Rerun affected checks, inspect the final diff and status,
    update durable plans with actual evidence, and hand off concisely. Commit,
    push, deploy, or publish only when explicitly authorized. When commits are
-   authorized, commit coherent, validated increments as work progresses. Aim for
-   two feature-progress commits followed by one cleanup, simplification, or
-   focused refactoring commit. Keep cleanup tied to the work and its invariants;
-   do not manufacture churn to meet the cadence. Record completed work and
-   remaining tasks in the plan with each increment.
+   authorized, commit coherent, validated increments periodically as work
+   progresses. Use a repeating cadence of two work commits followed by one
+   simplification, reflection, refactoring, or cleanup commit. Review the affected
+   design and existing boundaries before that third increment: remove duplicate
+   state and superseded paths, tighten ownership, or record evidence-based
+   simplification decisions. Keep the increment tied to the work and its
+   invariants; do not manufacture code churn to meet the cadence. Continue the
+   cycle for larger deliveries instead of waiting until the entire goal is done.
+   Record completed work, validation, and remaining tasks in the durable plan
+   with each increment.
 
 ## Durable plans
 

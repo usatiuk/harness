@@ -18,6 +18,7 @@ npm run lint                     # ESLint
 npm run format:check             # Prettier verification
 npm run check                    # complete local and CI validation
 npm run test:native              # build and exercise actual Windows Tauri app
+npm run test:remote              # bundle and exercise isolated real SSH; WSL is opt-in
 npm run desktop:build            # release executable and NSIS installer
 ```
 
@@ -31,9 +32,20 @@ startup, unauthorized rejection, zero-client pending approval and completion,
 bridge-parent exit, crash/stale discovery, canonical-home reuse, copied-home
 isolation, unsafe existing homes, initialized-client stop and classified startup
 failure. Registry tests include concurrent edits by separate client processes.
-These passed on native Windows; Linux/WSL/SSH, provisioning, host editors and
-native GUI integration remain open in
+These passed on native Windows. Common provisioning/reconnect tests also pass on
+real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Host editors, human
+SSH authentication, OAuth routing, interruption and upgrade fault paths remain open in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
+
+`npm run test:remote` requires Docker and OpenSSH on the controlling client. It
+creates a loopback-only SSH container, ephemeral key, verified known-host entry
+and private client configuration, then removes the fixture. Set
+`HARNESS_REMOTE_WSL=Ubuntu` to also qualify that installed distribution. Each case
+uses a unique remote home/runtime directory and explicitly shuts down its existing
+owner before cleanup. The target needs network access for the initial Node/dependency
+installation. These tests exercise real managed deployment, development bundle
+changes, cache reuse, target Node resolution and reconnect; they do not establish
+GUI interaction, provider sign-in or every interrupted-install path.
 
 ## Desktop native tests
 
