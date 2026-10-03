@@ -22,12 +22,17 @@ export function capture(
     const child = spawn(bin, args, { ...(opts.signal ? { signal: opts.signal } : {}) });
     const out: Buffer[] = [];
     let err = "";
+    let failure: Error | undefined;
     child.stdout?.on("data", (b: Buffer) => out.push(b));
     child.stderr?.on("data", (b: Buffer) => (err += b.toString("utf8")));
-    child.on("error", reject);
-    child.on("close", (code) =>
-      resolvePromise({ stdout: Buffer.concat(out), stderr: err, exitCode: code ?? 0 }),
-    );
+    // AbortError is emitted before the child has exited. Resource owners must await close.
+    child.on("error", (error: Error) => {
+      failure = error;
+    });
+    child.on("close", (code) => {
+      if (failure) reject(failure);
+      else resolvePromise({ stdout: Buffer.concat(out), stderr: err, exitCode: code ?? 0 });
+    });
     child.stdin?.end(opts.input ?? undefined);
   });
 }

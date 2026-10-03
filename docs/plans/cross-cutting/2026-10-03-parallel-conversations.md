@@ -108,7 +108,7 @@ Implementation qualification on Windows:
 
 ## Delivery slices
 
-1. Conversation model/config inheritance and pinning, settings mutation,
+1. `6513a85`: conversation model/config inheritance and pinning, settings mutation,
    activation-bound callbacks, authoritative detach, and real stdio regression.
 2. Shared Docker environment ownership, own IO/process cancellation, recipe/Compose
    identity, idle accounting/recovery, warnings, and live integration coverage.

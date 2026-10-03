@@ -1985,6 +1985,13 @@
         }
       }
     },
+    "conversation_detached_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "rootConversationId": { "type": "string", "minLength": 1 } },
+      "required": ["rootConversationId"],
+      "additionalProperties": false
+    },
     "plugin_approval_decide_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -2117,7 +2124,10 @@
       "properties": {
         "rootConversationId": { "type": "string" },
         "conversationId": { "type": "string" },
-        "phase": { "type": "string", "enum": ["build", "create", "postCreate", "ready", "error"] },
+        "phase": {
+          "type": "string",
+          "enum": ["build", "create", "postCreate", "ready", "error", "warning"]
+        },
         "message": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
       },
       "required": ["rootConversationId", "conversationId", "phase", "message"],
@@ -2443,6 +2453,12 @@
       "kind": "notification",
       "direction": "server-to-client",
       "params": { "$ref": "#/$defs/conversation_event_params" }
+    },
+    {
+      "method": "conversation.detached",
+      "kind": "notification",
+      "direction": "server-to-client",
+      "params": { "$ref": "#/$defs/conversation_detached_params" }
     },
     {
       "method": "plugin.approval.decide",

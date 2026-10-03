@@ -3,6 +3,7 @@ import type { Conversation, PluginDefinition, ServiceProvider } from "@harness/p
 import { LocalExecutionContext } from "@harness/execution";
 import { DEFAULT_DEVCONTAINER_CONFIG } from "./devcontainer.ts";
 import { DockerExecutionContext } from "./docker.ts";
+import { DockerEnvironmentPool } from "./docker-environment.ts";
 import { NativeExecutionContext } from "./native.ts";
 
 export const nativeSandboxConfigSchema = z.strictObject({
@@ -39,7 +40,9 @@ export type SandboxBackend = SandboxConfig["backend"];
 export const sandboxPlugin: PluginDefinition = {
   id: "sandbox",
   configSchema: sandboxConfigSchema,
+  inheritConfig: true,
   create() {
+    const environments = new DockerEnvironmentPool();
     return {
       id: "sandbox",
       services: (): ServiceProvider[] => [
@@ -55,7 +58,11 @@ export const sandboxPlugin: PluginDefinition = {
               case "native":
                 return new NativeExecutionContext(conversation.workspaceRoot, config.native);
               case "docker":
-                return new DockerExecutionContext(conversation.workspaceRoot, config.docker);
+                return new DockerExecutionContext(
+                  conversation.workspaceRoot,
+                  config.docker,
+                  environments,
+                );
             }
           },
           dispose: (service) =>

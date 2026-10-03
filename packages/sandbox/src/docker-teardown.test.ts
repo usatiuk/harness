@@ -6,8 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const events = vi.hoisted(() => ({ log: [] as string[], aborted: false }));
 vi.mock("./devcontainer.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./devcontainer.ts")>()),
-  provisionDevcontainer: (_root: string, opts: { signal?: AbortSignal }) =>
+  provisionDevcontainer: (_root: string, opts: import("./devcontainer.ts").ProvisionOptions) =>
     new Promise((_resolve, reject) => {
+      opts.onStarted?.();
       opts.signal?.addEventListener("abort", () => {
         events.aborted = true;
         events.log.push("provision-settled");
@@ -33,7 +34,7 @@ describe("DockerExecutionContext.stop (mid-provision teardown)", () => {
   it("aborts the in-flight provision and reaps only after it settles", async () => {
     const ctx = new DockerExecutionContext("/workspace", config);
     const io = ctx.read("x").catch(() => {}); // triggers provisioning; stays pending until aborted
-    expect(ctx.isProvisioned()).toBe(true);
+    await vi.waitFor(() => expect(ctx.isProvisioned()).toBe(true));
 
     await ctx.stop();
 
@@ -58,16 +59,17 @@ describe("DockerExecutionContext.stop (mid-provision teardown)", () => {
 
     await expect(ctx.rebuild()).rejects.toThrow("disposed");
     await expect(ctx.read("x")).rejects.toThrow("disposed");
-    expect(events.log).toEqual(["stopSandbox"]);
+    expect(events.log).toEqual([]); // Ordinary disposal does not touch an unused environment.
   });
 
   it("does not let a concurrent rebuild revive a disposed runtime", async () => {
     const ctx = new DockerExecutionContext("/workspace", config);
 
     const rebuild = ctx.rebuild();
+    const rejected = expect(rebuild).rejects.toThrow(/disposed|cancelled/);
     await ctx.dispose();
 
-    await expect(rebuild).rejects.toThrow("disposed");
+    await rejected;
     expect(ctx.isProvisioned()).toBe(false);
   });
 
@@ -78,12 +80,14 @@ describe("DockerExecutionContext.stop (mid-provision teardown)", () => {
     await vi.waitFor(() => expect(ctx.isProvisioned()).toBe(true));
 
     controller.abort();
-    await expect(rebuild).rejects.toThrow("aborted");
-    expect(events.log).toEqual(["stopSandbox", "provision-settled", "stopSandbox"]);
+    await expect(rebuild).rejects.toThrow(/aborted|cancelled/);
+    await vi.waitFor(() =>
+      expect(events.log).toEqual(["stopSandbox", "provision-settled", "stopSandbox"]),
+    );
     expect(ctx.isProvisioned()).toBe(false);
 
     const reused = ctx.read("x").catch(() => {});
-    expect(ctx.isProvisioned()).toBe(true);
+    await vi.waitFor(() => expect(ctx.isProvisioned()).toBe(true));
     await ctx.stop();
     await reused;
   });

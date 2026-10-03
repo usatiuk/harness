@@ -99,8 +99,10 @@ export interface ExecutionContext {
    * (docker) stream build progress before/outside a turn. `executionOf` rebinds it on every access
    * with the live tool context's emit; `Engine.prepare` binds it once at startup with the engine's
    * plugin-emit seam. The local substrate doesn't implement it. Must stay cheap and idempotent.
+   * May return existing backend initialization for prepare to await. Tool rebinding is synchronous;
+   * the backend must observe that promise's rejection and expose failure through its IO/disposal.
    */
-  bind?(emit: (event: PluginEvent) => void): void;
+  bind?(emit: (event: PluginEvent) => void): void | Promise<unknown>;
 }
 
 /** Narrows an opaque execution service for tool contribution or execution. */
@@ -119,6 +121,6 @@ export function executionServiceOf(
 
 export function executionOf(ctx: ToolContext): ExecutionContext {
   const execution = executionServiceOf(ctx);
-  execution.bind?.((event) => ctx.emit(event));
+  void execution.bind?.((event) => ctx.emit(event));
   return execution;
 }

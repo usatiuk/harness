@@ -19,7 +19,7 @@ export const sandboxEventNotification = defineNotification({
   params: z.strictObject({
     rootConversationId: z.string(),
     conversationId: z.string(),
-    phase: z.enum(["build", "create", "postCreate", "ready", "error"]),
+    phase: z.enum(["build", "create", "postCreate", "ready", "error", "warning"]),
     message: z.string().nullable(),
   }),
 });

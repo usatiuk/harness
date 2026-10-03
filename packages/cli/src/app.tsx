@@ -21,7 +21,12 @@ import {
   type Usage,
 } from "@harness/protocol";
 import type { HarnessClientService } from "@harness/client";
-import { sandboxConfigSchema, type SandboxBackend, type SandboxPhase } from "@harness/sandbox";
+import {
+  isSandboxStatus,
+  sandboxConfigSchema,
+  type SandboxBackend,
+  type SandboxPhase,
+} from "@harness/sandbox";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
 import { presetsFor, runCommand, type CommandContext } from "./commands.ts";
 import { ModelPicker, PresetPicker } from "./model-picker.tsx";
@@ -234,9 +239,18 @@ export function App({
   useEffect(
     () =>
       plugins.subscribe(conversation.id, (event) => {
+        if (
+          isSandboxStatus(event) &&
+          event.phase === "warning" &&
+          event.conversationId === conversation.id
+        ) {
+          note(
+            `warning: ${event.message ?? "Shared Docker control may interrupt other conversations."}`,
+          );
+        }
         dispatch({ type: "event", event, receivedAt: Date.now() });
       }),
-    [plugins, conversation.id],
+    [plugins, conversation.id, note],
   );
 
   useEffect(() => {
@@ -640,6 +654,7 @@ const SANDBOX_CHIP_COLOR: Record<SandboxPhase, string> = {
   postCreate: "yellow",
   ready: "green",
   error: "red",
+  warning: "yellow",
 };
 
 /** Compact status for the backend fixed to this loaded conversation. */

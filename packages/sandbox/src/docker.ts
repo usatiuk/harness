@@ -1,6 +1,6 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { posix } from "node:path";
+import { posix, relative, sep } from "node:path";
 import type { ByteRange, PluginEvent, ToolCall } from "@harness/protocol";
 import type {
   ExecutionContext,
@@ -10,7 +10,12 @@ import type {
 } from "@harness/execution";
 import { LocalOutputStore, matchGlob, streamProcess } from "@harness/execution";
 import { capture, captureText } from "./docker-cli.ts";
-import { provisionDevcontainer, stopSandbox, type Provisioned } from "./devcontainer.ts";
+import { type Provisioned } from "./devcontainer.ts";
+import {
+  DockerEnvironmentPool,
+  type DockerEnvironment,
+  type DockerOwner,
+} from "./docker-environment.ts";
 import type { DockerSandboxConfig } from "./plugin.ts";
 
 /**
@@ -27,25 +32,44 @@ import type { DockerSandboxConfig } from "./plugin.ts";
 export class DockerExecutionContext implements ExecutionContext {
   readonly workspaceRoot: string | null;
   readonly shellKind = "bash" as const;
-  readonly #config: DockerSandboxConfig;
-  #provision: Promise<Provisioned> | undefined;
-  #abort: AbortController | undefined;
+  readonly #environment: Promise<DockerEnvironment> | undefined;
+  #resolvedEnvironment: DockerEnvironment | undefined;
+  readonly #owner: DockerOwner;
+  readonly #lifetime = new AbortController();
+  readonly #processes = new Set<SpawnedProcess>();
+  readonly #io = new Set<Promise<unknown>>();
   #emit: ((event: PluginEvent) => void) | undefined;
-  /** Idle-reap timer; armed/re-armed on every IO, cleared on teardown. */
-  #idleTimer: ReturnType<typeof setTimeout> | undefined;
-  /** In-flight `spawn`s; an idle reap is deferred while any command is still running. */
-  #inflight = 0;
   #disposed = false;
+  #disposing: Promise<void> | undefined;
   readonly #managedTools = new Set<string>();
 
-  constructor(hostRoot: string | null, config: DockerSandboxConfig) {
+  constructor(
+    hostRoot: string | null,
+    config: DockerSandboxConfig,
+    pool = new DockerEnvironmentPool(),
+  ) {
     this.workspaceRoot = hostRoot;
-    this.#config = config;
+    this.#owner = {
+      idleTimeoutMinutes: config.idleTimeoutMinutes,
+      emit: (event) => {
+        if (!this.#disposed) this.#emit?.(event);
+      },
+    };
+    if (hostRoot !== null) {
+      this.#environment = pool.acquire(hostRoot, config, this.#owner).then((environment) => {
+        this.#resolvedEnvironment = environment;
+        return environment;
+      });
+      // The acquisition is observed by bind, IO, and disposal. It can begin before a client binds.
+      void this.#environment.catch(() => {});
+    }
   }
 
-  /** Capture the latest emit channel so lazy provisioning can stream `sandbox.status` progress. */
-  bind(emit: (event: PluginEvent) => void): void {
+  bind(emit: (event: PluginEvent) => void): void | Promise<unknown> {
     this.#emit = emit;
+    // Return the already-observed acquisition, rather than minting an unobserved rejected promise
+    // when a synchronous tool accessor rebinds events. Prepare and IO await the same lifetime.
+    return this.#environment;
   }
 
   async read(path: string, range?: ByteRange): Promise<Uint8Array> {
@@ -56,7 +80,7 @@ export class DockerExecutionContext implements ExecutionContext {
       const argv = range
         ? [...this.#exec(h), "dd", `if=${cp}`, "bs=65536", `skip=${range.offset}`, `count=${range.length}`, "iflag=skip_bytes,count_bytes", "status=none"] // prettier-ignore
         : [...this.#exec(h), "cat", "--", cp];
-      return capture("docker", argv);
+      return capture("docker", argv, { signal: this.#lifetime.signal });
     });
     if (r.exitCode !== 0) this.#fail("read", path, r);
     return r.stdout;
@@ -65,14 +89,18 @@ export class DockerExecutionContext implements ExecutionContext {
   async stat(path: string): Promise<{ isDirectory: boolean } | undefined> {
     // One probe: `d`/`f`/empty — distinguishes directory, file, and absent without two round-trips.
     const r = await this.#withRetry((h) =>
-      captureText("docker", [
-        ...this.#exec(h),
-        "sh",
-        "-c",
-        'if [ -d "$1" ]; then echo d; elif [ -e "$1" ]; then echo f; fi',
-        "sh",
-        this.#cpath(h, path),
-      ]),
+      captureText(
+        "docker",
+        [
+          ...this.#exec(h),
+          "sh",
+          "-c",
+          'if [ -d "$1" ]; then echo d; elif [ -e "$1" ]; then echo f; fi',
+          "sh",
+          this.#cpath(h, path),
+        ],
+        { signal: this.#lifetime.signal },
+      ),
     );
     if (r.exitCode !== 0) this.#fail("stat", path, r);
     const kind = r.stdout.trim();
@@ -93,7 +121,7 @@ export class DockerExecutionContext implements ExecutionContext {
           "sh",
           this.#cpath(h, path),
         ],
-        { input: bytes },
+        { input: bytes, signal: this.#lifetime.signal },
       ),
     );
     if (r.exitCode !== 0) this.#fail("write", path, r);
@@ -101,7 +129,9 @@ export class DockerExecutionContext implements ExecutionContext {
 
   async remove(path: string): Promise<void> {
     const r = await this.#withRetry((h) =>
-      captureText("docker", [...this.#exec(h), "rm", "--", this.#cpath(h, path)]),
+      captureText("docker", [...this.#exec(h), "rm", "--", this.#cpath(h, path)], {
+        signal: this.#lifetime.signal,
+      }),
     );
     if (r.exitCode !== 0) this.#fail("remove", path, r);
   }
@@ -114,7 +144,7 @@ export class DockerExecutionContext implements ExecutionContext {
     // plain argv. The pattern is never sent to the container at all. cwd = workspace ⇒ relative.
     const r = await this.#withRetry((h) => {
       const argv = [...this.#exec(h, { cwd: true }), "find", ".", "(", "-type", "f", "-o", "-type", "d", ")"]; // prettier-ignore
-      return captureText("docker", argv);
+      return captureText("docker", argv, { signal: this.#lifetime.signal });
     });
     if (r.exitCode !== 0) this.#fail("list", pattern, r);
     const paths = r.stdout
@@ -141,17 +171,22 @@ export class DockerExecutionContext implements ExecutionContext {
     );
     // A running command keeps the container busy: bump the in-flight count so an idle reap can't stop
     // it, and restart the idle clock when it ends.
-    this.#inflight++;
-    void exit.finally(() => {
-      this.#inflight--;
-      this.#touch();
+    let endActivity: (() => void) | undefined;
+    void exit.then(() => {
+      endActivity?.();
+      this.#processes.delete(handle);
     });
 
     const kill = (): void => {
       if (killed || terminal) return;
       killed = true;
+      if (child === undefined) {
+        terminal = true;
+        resolveExit({ code: null, signal: "SIGTERM" });
+        return;
+      }
       void this.#reap(marker);
-      if (child?.pid !== undefined) {
+      if (child.pid !== undefined) {
         try {
           process.kill(-child.pid, "SIGTERM");
         } catch {
@@ -162,9 +197,14 @@ export class DockerExecutionContext implements ExecutionContext {
 
     // spawn() is synchronous but the container handle is async; start the exec once provisioned,
     // bridging its stream/exit into the SpawnedProcess we return immediately.
-    void this.#ready().then(
+    const ready = this.#openEnvironment().then(async (environment) => {
+      if (killed) return undefined;
+      endActivity = environment.beginActivity();
+      return this.#whileOpen(environment.ready());
+    });
+    void ready.then(
       (h) => {
-        if (killed) {
+        if (killed || !h) {
           terminal = true;
           resolveExit({ code: null, signal: "SIGTERM" });
           return;
@@ -185,13 +225,14 @@ export class DockerExecutionContext implements ExecutionContext {
         });
       },
       (err: Error) => {
+        if (terminal) return;
         for (const l of listeners) l(`sandbox provisioning failed: ${err.message}\n`);
         terminal = true;
         resolveExit({ code: 1, signal: null });
       },
     );
 
-    return {
+    const handle: SpawnedProcess = {
       get pid() {
         return child?.pid;
       },
@@ -199,6 +240,8 @@ export class DockerExecutionContext implements ExecutionContext {
       onData: (listener) => listeners.push(listener),
       kill,
     };
+    this.#processes.add(handle);
+    return handle;
   }
 
   /** Output spills host-side under the bind-mounted workspace, so in-container reads still see it. */
@@ -215,140 +258,69 @@ export class DockerExecutionContext implements ExecutionContext {
     return this.#managedTools.has(call.name) ? "in-workspace" : "unknown";
   }
 
-  /**
-   * Tear down the workspace's container(s) by id-label and drop the cached handle. Idempotent.
-   *
-   * Cancels any in-flight provision and AWAITS it before reaping: `devcontainer up` labels the
-   * container as it creates it, so reaping mid-build could run `docker ps` before that container
-   * exists and leave it orphaned. Aborting makes the build give up promptly; waiting for it to settle
-   * guarantees the label filter then sees whatever it managed to create.
-   */
+  /** Explicit shared control: warn all owners, then perform the requested teardown. */
   async stop(): Promise<void> {
-    this.#clearIdleTimer();
-    this.#abort?.abort();
-    const inflight = this.#provision;
-    this.#provision = undefined;
-    this.#abort = undefined;
-    if (inflight) await inflight.catch(() => {}); // rejection (incl. the abort) is expected here
-    if (this.workspaceRoot) await stopSandbox(this.workspaceRoot);
+    await (await this.#openEnvironment()).stop();
   }
 
-  /** Permanently close this runtime-owned context and prevent any concurrent work from reviving it. */
-  async dispose(): Promise<void> {
+  /** Close only this handle's work, then release its resource ownership. */
+  dispose(): Promise<void> {
+    if (this.#disposing) return this.#disposing;
     this.#disposed = true;
-    await this.stop();
+    this.#lifetime.abort();
+    for (const process of this.#processes) process.kill();
+    this.#disposing = (async () => {
+      await Promise.allSettled([
+        ...this.#io,
+        ...[...this.#processes].map((process) => process.exit),
+      ]);
+      const environment = await this.#environment;
+      await environment?.release(this.#owner);
+    })();
+    return this.#disposing;
   }
 
-  /**
-   * Throw the container away and provision a fresh one, streaming build progress. Backs `/sandbox
-   * rebuild` to recover from a wedged or stale container: full `rm -f` teardown (re-runs postCreate),
-   * then re-provision via the lazy `#ready` gate.
-   */
   async rebuild(signal?: AbortSignal): Promise<void> {
-    if (this.#disposed) throw new Error("Docker execution context is disposed");
-    await this.stop();
-    const cancel = () => this.#abort?.abort();
-    signal?.addEventListener("abort", cancel, { once: true });
-    try {
-      if (signal?.aborted) throw new Error("sandbox rebuild cancelled");
-      await this.#ready();
-      if (signal?.aborted) throw new Error("sandbox rebuild cancelled");
-    } finally {
-      signal?.removeEventListener("abort", cancel);
-      if (signal?.aborted) await this.stop();
-    }
+    const environment = await this.#openEnvironment();
+    const rebuilding = environment.rebuild(signal);
+    await this.#whileOpen(rebuilding, signal);
   }
 
-  /**
-   * Reset the idle clock. After `idleTimeoutMinutes` of no IO, a genuinely-idle container is stopped
-   * (see `#reapIfIdle`). Unref'd so a pending timer never keeps the process (or a quit TUI) alive;
-   * `0` disables idle reaping entirely.
-   */
-  #touch(): void {
-    const minutes = this.#config.idleTimeoutMinutes;
-    if (minutes <= 0) return;
-    this.#clearIdleTimer();
-    this.#idleTimer = setTimeout(() => void this.#reapIfIdle(), minutes * 60_000);
-    this.#idleTimer.unref();
-  }
-
-  #clearIdleTimer(): void {
-    if (this.#idleTimer) {
-      clearTimeout(this.#idleTimer);
-      this.#idleTimer = undefined;
-    }
-  }
-
-  /**
-   * Idle-timer fire: stop the container, but only if it is genuinely unused. Re-arms instead of
-   * reaping when a command is in flight or an interactive session (`harness sandbox shell`) is
-   * attached — a long-running build or an open shell must never be killed out from under the user.
-   * Stops (not removes) the container and drops the cached handle, so the next IO restarts it by
-   * id-label with no postCreate; `rm -f` stays reserved for explicit teardown (`stop`).
-   */
-  async #reapIfIdle(): Promise<void> {
-    this.#idleTimer = undefined;
-    if (this.#inflight > 0 || (await this.#hasInteractiveSession())) {
-      this.#touch(); // still busy — re-arm rather than reap
-      return;
-    }
-    // The interactive probe is itself a `docker exec` round-trip; an IO arriving during it re-arms
-    // the timer (every IO calls `#touch` via `#ready`) and may have just started a command. Bail if
-    // so, rather than racing a `docker stop` against fresh work.
-    if (this.#idleTimer !== undefined || this.#inflight > 0) return;
-    const h = await this.#provision?.catch(() => undefined);
-    if (!h) return;
-    this.#provision = undefined;
-    await captureText("docker", ["stop", h.containerId]).catch(() => {});
-  }
-
-  /**
-   * Whether an interactive (`harness sandbox shell`, the only `-t` caller) is attached: it leaves a
-   * numbered pty under `/dev/pts` (agent execs don't). Best-effort — treat a failed probe as busy,
-   * since a wrongly-reaped container would kill an attached shell.
-   */
-  async #hasInteractiveSession(): Promise<boolean> {
-    const h = await this.#provision?.catch(() => undefined);
-    if (!h) return false;
-    const r = await captureText("docker", [
-      "exec",
-      h.containerId,
-      "sh",
-      "-c",
-      "ls -1 /dev/pts 2>/dev/null | grep -vc ptmx",
-    ]).catch(() => undefined);
-    if (!r) return true;
-    return Number(r.stdout.trim()) > 0;
-  }
-
-  /** Whether a container has been (or is being) provisioned. */
   isProvisioned(): boolean {
-    return this.#provision !== undefined;
+    return this.#resolvedEnvironment?.isProvisioned() ?? false;
   }
 
-  #ready(): Promise<Provisioned> {
-    if (this.#disposed) return Promise.reject(new Error("Docker execution context is disposed"));
-    this.#touch(); // the common IO gate: every read/write/spawn resets the idle clock
-    if (this.#provision) return this.#provision;
-    const root = this.workspaceRoot;
-    if (!root) return Promise.reject(new Error("sandbox requires a workspace root"));
-    const abort = new AbortController();
-    this.#abort = abort;
-    // Clear the cache on failure so a later call retries rather than wedging the conversation — but
-    // only if this is still the current attempt, so a concurrent stop/rebuild isn't clobbered.
-    const provision: Promise<Provisioned> = provisionDevcontainer(root, {
-      configPath: this.#config.configPath,
-      onStatus: (s) => this.#emit?.(s),
-      signal: abort.signal,
-    }).catch((err: unknown) => {
-      if (this.#provision === provision) {
-        this.#provision = undefined;
-        this.#abort = undefined;
+  async #openEnvironment(): Promise<DockerEnvironment> {
+    if (this.#disposed) throw new Error("Docker execution context is disposed");
+    if (!this.#environment) throw new Error("sandbox requires a workspace root");
+    return this.#whileOpen(this.#environment);
+  }
+
+  /** An owner's cancellation detaches its wait, never aborting another owner's shared build. */
+  #whileOpen<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    const lifetime = signal
+      ? AbortSignal.any([this.#lifetime.signal, signal])
+      : this.#lifetime.signal;
+    return new Promise<T>((resolvePromise, reject) => {
+      const cancel = () => reject(new Error("Docker operation cancelled"));
+      if (lifetime.aborted) {
+        cancel();
+      } else {
+        lifetime.addEventListener("abort", cancel, { once: true });
       }
-      throw err;
+      void promise
+        .then(resolvePromise, reject)
+        .finally(() => lifetime.removeEventListener("abort", cancel));
     });
-    this.#provision = provision;
-    return provision;
+  }
+
+  #workspaceFolder(h: Provisioned): string {
+    if (!this.#resolvedEnvironment || this.workspaceRoot === null)
+      throw new Error("Docker workspace has not been acquired");
+    const suffix = relative(this.#resolvedEnvironment.root, this.workspaceRoot)
+      .split(sep)
+      .join("/");
+    return posix.resolve(h.remoteWorkspaceFolder, suffix);
   }
 
   /** `docker exec` argv prefix as the remote user; `interactive` adds `-i`, `cwd` runs in the workspace. */
@@ -358,14 +330,14 @@ export class DockerExecutionContext implements ExecutionContext {
       ...(opts?.interactive ? ["-i"] : []),
       "-u",
       h.remoteUser,
-      ...(opts?.cwd ? ["-w", h.remoteWorkspaceFolder] : []),
+      ...(opts?.cwd ? ["-w", this.#workspaceFolder(h)] : []),
       h.containerId,
     ];
   }
 
   /** Resolve a tool path (relative to the workspace, or absolute) to a container path. */
   #cpath(h: Provisioned, path: string): string {
-    return posix.resolve(h.remoteWorkspaceFolder, path);
+    return posix.resolve(this.#workspaceFolder(h), path);
   }
 
   /**
@@ -374,13 +346,32 @@ export class DockerExecutionContext implements ExecutionContext {
    * instead of surfacing a failed tool call. Only idempotent file ops go through this; `spawn` (side
    * effects) deliberately doesn't retry.
    */
-  async #withRetry<R extends { stderr: string; exitCode: number }>(
+  #withRetry<R extends { stderr: string; exitCode: number }>(
     build: (h: Provisioned) => Promise<R>,
   ): Promise<R> {
-    const r = await build(await this.#ready());
-    if (r.exitCode === 0 || !this.#isGone(r.stderr)) return r;
-    this.#provision = undefined; // container vanished — re-provision and retry once
-    return build(await this.#ready());
+    const operation = this.#executeIO(build);
+    this.#io.add(operation);
+    void operation.then(
+      () => this.#io.delete(operation),
+      () => this.#io.delete(operation),
+    );
+    return operation;
+  }
+
+  async #executeIO<R extends { stderr: string; exitCode: number }>(
+    build: (h: Provisioned) => Promise<R>,
+  ): Promise<R> {
+    const environment = await this.#openEnvironment();
+    const endActivity = environment.beginActivity();
+    try {
+      const handle = await this.#whileOpen(environment.ready());
+      const r = await build(handle);
+      if (r.exitCode === 0 || !this.#isGone(r.stderr)) return r;
+      await environment.invalidate(handle);
+      return await build(await this.#whileOpen(environment.ready()));
+    } finally {
+      endActivity();
+    }
   }
 
   /** Whether an exec failure means the container is gone (stopped/removed out-of-band). */
@@ -395,7 +386,7 @@ export class DockerExecutionContext implements ExecutionContext {
 
   /** Best-effort reap of a spawned command's in-container process group, TERM then KILL. */
   async #reap(marker: string): Promise<void> {
-    const h = await this.#provision?.catch(() => undefined);
+    const h = await this.#resolvedEnvironment?.current();
     if (!h) return;
     const killGroup = (sig: string): string =>
       `for p in $(pgrep -f '${marker}' 2>/dev/null); do ` +

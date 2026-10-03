@@ -60,7 +60,7 @@ export interface Provisioned {
   remoteWorkspaceFolder: string;
 }
 
-export type SandboxPhase = "build" | "create" | "postCreate" | "ready" | "error";
+export type SandboxPhase = "build" | "create" | "postCreate" | "ready" | "error" | "warning";
 
 /**
  * Build/start progress, emitted onto the conversation stream so a client can render a bar. The
@@ -89,9 +89,22 @@ export function workspaceLabel(root: string): string {
   return `harness.workspace=${createHash("sha256").update(root).digest("hex").slice(0, 16)}`;
 }
 
+/** Recipe identity also names the Compose project; id labels alone do not isolate Compose. */
+export function environmentName(root: string, configPath: string): string {
+  const canonical = (path: string) =>
+    process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
+  const identity = JSON.stringify([canonical(root), canonical(resolve(root, configPath))]);
+  return `harness_${createHash("sha256").update(identity).digest("hex").slice(0, 16)}`;
+}
+
+export const environmentLabel = (root: string, configPath: string): string =>
+  `harness.environment=${environmentName(root, configPath)}`;
+
 export interface ProvisionOptions {
   /** Devcontainer config path relative to the workspace; only passed through when non-default. */
   configPath: string;
+  /** The CLI process has started and may create owned resources. Never called on validation/spawn failure. */
+  onStarted?: () => void;
   onStatus?: (status: SandboxStatus) => void;
   /**
    * Cancels an in-flight build: aborting kills the `devcontainer up` child (the promise then
@@ -116,7 +129,7 @@ export async function provisionDevcontainer(
   const root = await containerRoot(hostRoot);
   // Fail fast on a misconfiguration ("sandbox enabled, no devcontainer") with a clear message,
   // rather than letting the devcontainer CLI fail opaquely deep in `up`.
-  if (!existsSync(join(root, opts.configPath))) {
+  if (!existsSync(resolve(root, opts.configPath))) {
     throw new Error(
       `sandbox enabled but no devcontainer config found at ${opts.configPath} (under ${root})`,
     );
@@ -129,36 +142,52 @@ export async function provisionDevcontainer(
     workspaceLabel(root),
     "--id-label",
     HARNESS_OWNER_LABEL,
+    "--id-label",
+    environmentLabel(root, opts.configPath),
     "--log-format",
     "json",
   ];
   // The CLI auto-discovers the default config; only point it elsewhere when asked.
   if (opts.configPath && opts.configPath !== DEFAULT_DEVCONTAINER_CONFIG) {
-    args.push("--config", join(root, opts.configPath));
+    args.push("--config", resolve(root, opts.configPath));
   }
 
   const { cmd, pre } = devcontainerCmd();
   return new Promise<Provisioned>((resolvePromise, reject) => {
-    const child = spawn(cmd, [...pre, ...args], { cwd: root, signal: opts.signal });
+    const child = spawn(cmd, [...pre, ...args], {
+      cwd: root,
+      signal: opts.signal,
+      env: { ...process.env, COMPOSE_PROJECT_NAME: environmentName(root, opts.configPath) },
+    });
+    child.once("spawn", () => opts.onStarted?.());
     let stdout = "";
     let stderr = "";
+    let failure: NodeJS.ErrnoException | undefined;
     child.stdout?.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
     child.stderr?.on("data", (b: Buffer) => {
       const chunk = b.toString("utf8");
       stderr += chunk;
       for (const line of chunk.split("\n")) emitProgress(line, opts.onStatus);
     });
-    child.on("error", (e: NodeJS.ErrnoException) =>
-      reject(
-        e.code === "ENOENT"
-          ? new Error("devcontainer CLI not found (bundled @devcontainers/cli missing and none on PATH)") // prettier-ignore
-          : e,
-      ),
-    );
+    // Killing the CLI emits AbortError before close. Cleanup cannot run until the process stops
+    // creating resources; settle both abort and spawn failures at the terminal close event.
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      failure = error;
+    });
     child.on("close", (code) => {
       // Intentional cancellation, not a build failure — reject quietly without an `error` phase.
       if (opts.signal?.aborted) {
         reject(new Error("devcontainer up aborted"));
+        return;
+      }
+      if (failure) {
+        reject(
+          failure.code === "ENOENT"
+            ? new Error(
+                "devcontainer CLI not found (bundled @devcontainers/cli missing and none on PATH)",
+              )
+            : failure,
+        );
         return;
       }
       if (code !== 0) {
@@ -245,14 +274,48 @@ function tail(s: string): string {
  * Reserved for explicit teardown (`stop()`/`rebuild()` and the standalone `harness sandbox stop`);
  * idle reaping uses `docker stop` instead.
  */
-export async function stopSandbox(hostRoot: string): Promise<number> {
+export async function stopSandbox(hostRoot: string, configPath?: string): Promise<number> {
   // Same `.devcontainer/` root key as `provisionDevcontainer`, so `stop` from a subdirectory targets
   // the container that was built — no leak, no spurious "no sandbox container running".
   const root = await containerRoot(hostRoot);
-  const ls = await captureText("docker", ["ps", "-aq", "--filter", `label=${workspaceLabel(root)}`]); // prettier-ignore
-  const ids = ls.stdout.split("\n").filter(Boolean);
-  if (ids.length > 0) await captureText("docker", ["rm", "-f", ...ids]);
-  return ids.length;
+  const filters = [`label=${workspaceLabel(root)}`, `label=${HARNESS_OWNER_LABEL}`];
+  if (configPath !== undefined) filters.push(`label=${environmentLabel(root, configPath)}`);
+  const ids = new Set(
+    await dockerIds("ps", ["-aq", ...filters.flatMap((filter) => ["--filter", filter])]),
+  );
+  if (configPath !== undefined) {
+    const project = environmentName(root, configPath);
+    // Compose sidecars do not receive devcontainer id labels. The explicitly assigned owned
+    // project name covers them even when provisioning was aborted before returning a handle.
+    for (const id of await dockerIds("ps", [
+      "-aq",
+      "--filter",
+      `label=com.docker.compose.project=${project}`,
+    ]))
+      ids.add(id);
+    if (ids.size > 0) await checkedDocker(["rm", "-f", ...ids]);
+    const networks = await dockerIds("network", [
+      "ls",
+      "-q",
+      "--filter",
+      `label=com.docker.compose.project=${project}`,
+    ]);
+    if (networks.length > 0) await checkedDocker(["network", "rm", ...networks]);
+  } else if (ids.size > 0) await checkedDocker(["rm", "-f", ...ids]);
+  return ids.size;
+}
+
+async function checkedDocker(args: string[]): Promise<string> {
+  const result = await captureText("docker", args);
+  if (result.exitCode !== 0)
+    throw new Error(
+      `docker ${args[0]} failed: ${result.stderr.trim() || `exit ${result.exitCode}`}`,
+    );
+  return result.stdout;
+}
+
+async function dockerIds(command: string, args: string[]): Promise<string[]> {
+  return (await checkedDocker([command, ...args])).split("\n").filter(Boolean);
 }
 
 /**

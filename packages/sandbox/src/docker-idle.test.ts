@@ -7,6 +7,7 @@ import { EventEmitter } from "node:events";
 const state = vi.hoisted(() => ({
   handle: { containerId: "cid", remoteUser: "root", remoteWorkspaceFolder: "/work" },
   child: undefined as undefined | EventEmitter,
+  spawnStarted: undefined as undefined | (() => void),
   captureText:
     vi.fn<
       (bin: string, args: string[]) => Promise<{ stdout: string; stderr: string; exitCode: number }>
@@ -28,7 +29,10 @@ vi.mock("./docker-cli.ts", async (importOriginal) => ({
 
 vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:child_process")>()),
-  spawn: () => state.child,
+  spawn: () => {
+    state.spawnStarted?.();
+    return state.child;
+  },
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
@@ -60,10 +64,32 @@ beforeEach(() => {
   // Default: every docker exec succeeds; the pty probe reports no interactive session.
   captureText.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
   state.child = undefined;
+  state.spawnStarted = undefined;
 });
 afterEach(() => vi.useRealTimers());
 
 describe("DockerExecutionContext idle reaping", () => {
+  it("retains the handle and rearms after a Docker stop launch failure", async () => {
+    const ctx = make({ idleTimeoutMinutes: 1 });
+    await ctx.stat("x");
+    const statuses: string[] = [];
+    await ctx.bind((event) => statuses.push(String(event.message)));
+    captureText.mockImplementation(async (_bin, args) => {
+      if (args[0] === "stop")
+        throw Object.assign(new Error("Docker CLI unavailable"), { code: "ENOENT" });
+      return { stdout: "0", stderr: "", exitCode: 0 };
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ctx.isProvisioned()).toBe(true);
+    expect(vi.getTimerCount()).toBe(1);
+    expect(statuses).toEqual(["Could not idle-stop Docker (ENOENT); retaining the environment."]);
+    await ctx.stat("still usable");
+    captureText.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(stopCalls()).toHaveLength(2);
+    expect(ctx.isProvisioned()).toBe(false);
+  });
+
   it("stops a genuinely idle container after the window and drops the handle", async () => {
     const ctx = make({ idleTimeoutMinutes: 1 });
     await ctx.stat("x"); // first IO provisions + arms the idle timer
@@ -105,8 +131,11 @@ describe("DockerExecutionContext idle reaping", () => {
   it("does not stop while a spawned command is in flight; reaps after it ends", async () => {
     const ctx = make({ idleTimeoutMinutes: 1 });
     state.child = fakeChild();
+    const started = new Promise<void>((resolve) => {
+      state.spawnStarted = resolve;
+    });
     const proc = ctx.spawn("sleep 999");
-    await vi.advanceTimersByTimeAsync(0); // let #ready resolve and nodeSpawn fire
+    await started;
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(stopCalls()).toHaveLength(0); // in-flight → re-armed
