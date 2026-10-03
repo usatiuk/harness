@@ -3,7 +3,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readGlobalSettings } from "@harness/config";
-import { createCustomProviderPlugins } from "./factory.ts";
+import { configuredProviders } from "./provider-fixture.ts";
 const homes: string[] = [];
 async function tmp() {
   const home = await mkdtemp(join(tmpdir(), "harness-custom-config-"));
@@ -18,15 +18,18 @@ afterEach(async () => {
 });
 const model = { provider: "demo", model: "demo-1" };
 async function validateCustomSettings(home: string) {
-  return createCustomProviderPlugins((await readGlobalSettings(home)).customProviders ?? {});
+  return configuredProviders(await readGlobalSettings(home));
 }
 describe("plugin-owned compatible provider configuration", () => {
   it("rejects a custom provider type outside the discriminated union", async () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
-      customProviders: {
-        mine: { type: "openai-compatible", endpoint: "http://a", apiKey: "k", model: "m" },
+      providers: {
+        mine: {
+          type: "openai-compatible",
+          config: { endpoint: "http://a", apiKey: "k", model: "m" },
+        },
       },
     });
     await expect(validateCustomSettings(home)).rejects.toThrow(/type/);
@@ -36,16 +39,18 @@ describe("plugin-owned compatible provider configuration", () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
-      customProviders: {
+      providers: {
         ovms: {
           type: "openai-completions-compatible",
-          endpoint: "http://localhost:8000/v1",
-          apiKey: "k",
-          models: {
-            "qwen3.6": {
-              contextWindow: 200_000,
-              maxOutputTokens: 4096,
-              presets: { fast: { temperature: 0.2 } },
+          config: {
+            endpoint: "http://localhost:8000/v1",
+            apiKey: "k",
+            models: {
+              "qwen3.6": {
+                contextWindow: 200_000,
+                maxOutputTokens: 4096,
+                presets: { fast: { temperature: 0.2 } },
+              },
             },
           },
         },
@@ -58,12 +63,14 @@ describe("plugin-owned compatible provider configuration", () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
-      customProviders: {
+      providers: {
         local: {
           type: "openai-responses-compatible",
-          endpoint: "http://localhost:8000/v1",
-          apiKey: "k",
-          models: { m: { maxOutputToken: 4096 } },
+          config: {
+            endpoint: "http://localhost:8000/v1",
+            apiKey: "k",
+            models: { m: { maxOutputToken: 4096 } },
+          },
         },
       },
     });
@@ -84,12 +91,14 @@ describe("plugin-owned compatible provider configuration", () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
-      customProviders: {
+      providers: {
         local: {
           type: "openai-responses-compatible",
-          endpoint: "http://localhost:8000/v1",
-          apiKey: "k",
-          models: { m: entry },
+          config: {
+            endpoint: "http://localhost:8000/v1",
+            apiKey: "k",
+            models: { m: entry },
+          },
         },
       },
     });
@@ -109,12 +118,14 @@ describe("plugin-owned compatible provider configuration", () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
-      customProviders: {
+      providers: {
         local: {
           type: "openai-responses-compatible",
-          endpoint: "http://localhost:8000/v1",
-          apiKey: "k",
-          models: { m: { presets: { unsafe: { extraBody: { [field]: "override" } } } } },
+          config: {
+            endpoint: "http://localhost:8000/v1",
+            apiKey: "k",
+            models: { m: { presets: { unsafe: { extraBody: { [field]: "override" } } } } },
+          },
         },
       },
     });
@@ -127,12 +138,14 @@ describe("plugin-owned compatible provider configuration", () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
-      customProviders: {
+      providers: {
         ovms: {
           type: "openai-completions-compatible",
-          endpoint: "http://localhost:8000/v1",
-          apiKey: "k",
-          models: { "qwen3.6": { fileTools: "apply_patch" } },
+          config: {
+            endpoint: "http://localhost:8000/v1",
+            apiKey: "k",
+            models: { "qwen3.6": { fileTools: "apply_patch" } },
+          },
         },
       },
     });
@@ -145,12 +158,14 @@ describe("plugin-owned compatible provider configuration", () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
-      customProviders: {
+      providers: {
         local: {
           type: "anthropic-compatible",
-          endpoint: "http://localhost:1234",
-          apiKey: "k",
-          models: { claude: { fileTools: "apply_patch" } },
+          config: {
+            endpoint: "http://localhost:1234",
+            apiKey: "k",
+            models: { claude: { fileTools: "apply_patch" } },
+          },
         },
       },
     });
@@ -163,12 +178,14 @@ describe("plugin-owned compatible provider configuration", () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
-      customProviders: {
+      providers: {
         dead: {
           type: "openai-responses-compatible",
-          endpoint: "http://a",
-          apiKey: "k",
-          models: {},
+          config: {
+            endpoint: "http://a",
+            apiKey: "k",
+            models: {},
+          },
         },
       },
     });
@@ -179,13 +196,15 @@ describe("plugin-owned compatible provider configuration", () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
-      customProviders: {
+      providers: {
         old: {
           type: "openai-responses-compatible",
-          endpoint: "http://a",
-          apiKey: "k",
-          model: "m",
-          presets: { fast: { temperature: 0.2 } },
+          config: {
+            endpoint: "http://a",
+            apiKey: "k",
+            model: "m",
+            presets: { fast: { temperature: 0.2 } },
+          },
         },
       },
     });
@@ -196,13 +215,15 @@ describe("plugin-owned compatible provider configuration", () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
-      customProviders: {
+      providers: {
         ovms: {
           type: "openai-completions-compatible",
-          endpoint: "http://localhost:8000/v1",
-          apiKey: "k",
-          models: { "qwen3.6": {} },
-          sendInstructionsAsSystem: true,
+          config: {
+            endpoint: "http://localhost:8000/v1",
+            apiKey: "k",
+            models: { "qwen3.6": {} },
+            sendInstructionsAsSystem: true,
+          },
         },
       },
     });

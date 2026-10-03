@@ -1,4 +1,4 @@
-import { AnthropicProvider, type AnthropicRequestConfig } from "@harness/anthropic-core";
+import { AnthropicMessagesTransport, type AnthropicRequestConfig } from "@harness/anthropic-core";
 import { apiKeyCredentials } from "@harness/anthropic-api";
 import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
 import type { CustomAnthropicModelConfig, AnthropicPreset } from "./config.ts";
@@ -30,7 +30,7 @@ export interface CustomAnthropicProviderOptions {
 }
 
 /** An Anthropic Messages-compatible provider defined by settings rather than a compiled catalog. */
-export class CustomAnthropicProvider extends AnthropicProvider {
+export class CustomAnthropicProvider extends AnthropicMessagesTransport {
   readonly #models: ReadonlyMap<string, CustomAnthropicModelConfig>;
 
   constructor(opts: CustomAnthropicProviderOptions) {
@@ -41,7 +41,7 @@ export class CustomAnthropicProvider extends AnthropicProvider {
     this.#models = new Map(Object.entries(opts.models));
   }
 
-  override capabilities(model: string): ModelCapabilities {
+  capabilities(model: string): ModelCapabilities {
     return {
       contentTypes: ["text"],
       toolCalling: true,
@@ -50,33 +50,25 @@ export class CustomAnthropicProvider extends AnthropicProvider {
     };
   }
 
-  override listModels() {
+  listModels() {
     return listScopedModels(this.provider, this.#models);
   }
 
-  override validateConfig(config: ModelConfig): void {
+  validateConfig(config: ModelConfig): void {
     validateScopedConfig(this.provider, this.#models, config);
   }
 
-  /**
-   * Drops thinking/effort knobs (local backends reject them) and applies the configured preset for
-   * the chosen model. The built-in base falls back to a hardcoded `MAX_TOKENS_FALLBACK` when the
-   * model isn't in its catalog; fix that by defaulting from the chosen model's configured cap so the
-   * wire cap matches the advertised `ModelInfo.maxOutputTokens` (otherwise generation is silently
-   * truncated). An explicit per-invocation cap remains more specific than the preset.
-   */
+  /** Model capacity supplies the default; an invocation cap takes precedence over presets. */
   protected override buildConfig(request: ModelRequest) {
-    const config = super.buildConfig(request);
-    delete config.thinking;
-    delete config.effort;
-    const maxOutputTokens = this.#models.get(request.modelConfig.model)?.maxOutputTokens;
-    if (maxOutputTokens !== undefined) {
-      config.maxTokens = maxOutputTokens;
-    }
+    const config: AnthropicRequestConfig = {
+      maxTokens:
+        scopedModel(this.provider, this.#models, request.modelConfig.model).maxOutputTokens ?? 8192,
+    };
     applyAnthropicPreset(
       config,
       this.#models.get(request.modelConfig.model)?.presets?.[request.modelConfig.preset ?? ""],
     );
+    if (request.maxOutputTokens !== undefined) config.maxTokens = request.maxOutputTokens;
     return config;
   }
 }

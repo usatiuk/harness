@@ -29,7 +29,7 @@ interface Entry {
   info: ModelInfo;
   profile: ModelProfile;
   transport: Transport;
-  adapter: ModelProvider;
+  adapter: Pick<ModelProvider, "stream">;
 }
 
 export class LiteLLMProvider implements ModelProvider {
@@ -96,19 +96,7 @@ export class LiteLLMProvider implements ModelProvider {
           );
       }
     }
-    const cap = request.maxOutputTokens;
-    const bounded =
-      cap === undefined
-        ? request
-        : {
-            ...request,
-            maxOutputTokens: Math.min(
-              cap,
-              entry.profile.maxOutputTokens ?? cap,
-              entry.profile.contextWindow ?? cap,
-            ),
-          };
-    yield* entry.adapter.stream(bounded, signal);
+    yield* entry.adapter.stream(request, signal);
   }
 
   async refreshModels(signal: AbortSignal) {

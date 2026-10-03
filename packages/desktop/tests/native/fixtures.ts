@@ -176,19 +176,21 @@ export async function commandProvider(
     join(home, "settings.json"),
     JSON.stringify({
       model: { provider: "fixture", model: "test-model" },
-      customProviders: {
+      providers: {
         fixture: {
           type: "openai-completions-compatible",
-          endpoint: `http://127.0.0.1:${address.port}/v1`,
-          apiKey: "test-only",
-          models: {
-            "test-model": {},
-            ...(options.reviewer
-              ? {
-                  reviewer: { presets: { careful: { temperature: 0.1 } } },
-                  "reviewer-fast": { presets: { quick: { temperature: 0.5 } } },
-                }
-              : {}),
+          config: {
+            endpoint: `http://127.0.0.1:${address.port}/v1`,
+            apiKey: "test-only",
+            models: {
+              "test-model": {},
+              ...(options.reviewer
+                ? {
+                    reviewer: { presets: { careful: { temperature: 0.1 } } },
+                    "reviewer-fast": { presets: { quick: { temperature: 0.5 } } },
+                  }
+                : {}),
+            },
           },
         },
       },

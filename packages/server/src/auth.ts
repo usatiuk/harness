@@ -85,8 +85,7 @@ export function prepareProviderEntries(
   const builtin = defaults();
   const configured = new Map(builtin.map(({ id, ...entry }) => [id, entry]));
   for (const [id, entry] of Object.entries(settings.providers ?? {})) {
-    if (id === "demo" || Object.hasOwn(settings.customProviders ?? {}, id))
-      throw new Error(`Duplicate provider instance '${id}'`);
+    if (id === "demo") throw new Error(`Duplicate provider instance '${id}'`);
     const prior = configured.get(id);
     if (prior && prior.type !== entry.type)
       throw new Error(`Built-in instance '${id}' must retain type '${prior.type}'`);
@@ -96,11 +95,6 @@ export function prepareProviderEntries(
       model: prior?.model ?? "",
     });
   }
-  for (const [id, raw] of Object.entries(settings.customProviders ?? {})) {
-    if (id === "demo" || configured.has(id)) throw new Error(`Duplicate provider instance '${id}'`);
-    const { type, ...config } = raw;
-    configured.set(id, { type, config, label: id, model: "" });
-  }
   // Parse every instance before touching a credential backend or starting network discovery.
   const prepared = [...configured].map(([id, entry]) => {
     const type = types.get(entry.type);
@@ -109,9 +103,7 @@ export function prepareProviderEntries(
       return { id, entry, create: type.prepare(entry.config) };
     } catch (cause) {
       if (!(cause instanceof z.ZodError)) throw cause;
-      const section = Object.hasOwn(settings.customProviders ?? {}, id)
-        ? `customProviders.${id}`
-        : `providers.${id}.config`;
+      const section = `providers.${id}.config`;
       throw new ProviderConfigurationError(
         `Invalid config for provider instance '${id}' (${entry.type})${source ? ` in ${source}` : ""}: ${section}.${formatIssue(cause)}`,
         { cause },
@@ -121,15 +113,8 @@ export function prepareProviderEntries(
   return (store) =>
     new Map(
       prepared.map(({ id, entry, create }) => {
-        const legacy = builtin.some((item) => item.id === id);
         const slot = (key: string) =>
-          legacy
-            ? id === "openai-codex" && key === "oauth"
-              ? id
-              : key === "api-key"
-                ? `apikey:${id}`
-                : `provider-instance:${encodeURIComponent(id)}:${encodeURIComponent(key)}`
-            : `provider-instance:${encodeURIComponent(id)}:${encodeURIComponent(key)}`;
+          `provider-instance:${encodeURIComponent(id)}:${encodeURIComponent(key)}`;
         const instance = create({
           id,
           label: entry.label,

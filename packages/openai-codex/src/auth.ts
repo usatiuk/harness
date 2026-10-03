@@ -1,4 +1,4 @@
-import type { SecretStore } from "@harness/secrets";
+import type { ProviderSecrets } from "@harness/protocol";
 import {
   buildAuthorizeUrl,
   decodeAccountId,
@@ -13,12 +13,11 @@ import {
 } from "./oauth.ts";
 import { parseCodexSession, type CodexSession } from "./session.ts";
 
-const STORE_KEY = "openai-codex";
+const STORE_KEY = "oauth";
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 export interface CodexAuthOptions {
-  store: SecretStore;
-  storeKey?: string;
+  store: ProviderSecrets;
   now?: () => number;
   fetch?: typeof fetch;
   /** Open the browser during login; default true. Set false for tests/headless. */
@@ -39,25 +38,28 @@ export interface LoginOptions {
   onUrl?: (url: string) => void;
 }
 
+interface TokenRefresh {
+  promise: Promise<CodexSession>;
+  abort: AbortController;
+  waiters: number;
+}
+
 /**
- * Owns the Codex OAuth lifecycle over a `SecretStore`: browser login, status, logout, and
+ * Owns the Codex OAuth lifecycle over instance-scoped secrets: browser login, status, logout, and
  * lazy refresh. Caches the active session in memory and persists every refresh.
  */
 export class CodexAuth {
-  readonly #store: SecretStore;
-  readonly #storeKey: string;
+  readonly #store: ProviderSecrets;
   readonly #now: () => number;
   readonly #fetch: typeof fetch;
   readonly #openBrowser: boolean;
   #cached: CodexSession | undefined;
-  #refresh: Promise<CodexSession> | undefined;
-  #refreshAbort: AbortController | undefined;
+  #refresh: TokenRefresh | undefined;
   #epoch = 0;
-  #signingIn = false;
+  #authChange: "login" | "logout" | undefined;
 
   constructor(opts: CodexAuthOptions) {
     this.#store = opts.store;
-    this.#storeKey = opts.storeKey ?? STORE_KEY;
     this.#now = opts.now ?? (() => Date.now());
     this.#fetch = opts.fetch ?? fetch;
     this.#openBrowser = opts.openBrowser ?? true;
@@ -76,19 +78,19 @@ export class CodexAuth {
 
   /** Runs the loopback browser flow end to end, persisting the resulting session. */
   async loginWithBrowser(opts: LoginOptions = {}): Promise<CodexSession> {
-    if (this.#signingIn) throw new Error("Codex sign-in is already in progress");
-    this.#signingIn = true;
+    if (this.#authChange) throw new Error("Codex authentication change is already in progress");
+    this.#authChange = "login";
     try {
       return await this.#loginWithBrowser(opts);
     } finally {
-      this.#signingIn = false;
+      this.#authChange = undefined;
     }
   }
 
   async #loginWithBrowser(opts: LoginOptions): Promise<CodexSession> {
     const epoch = ++this.#epoch;
-    this.#refreshAbort?.abort(new Error("Codex authentication changed"));
-    await this.#refresh?.catch(() => undefined);
+    this.#refresh?.abort.abort(new Error("Codex authentication changed"));
+    await this.#refresh?.promise.catch(() => undefined);
     opts.signal?.throwIfAborted();
     const pkce = generatePkce();
     const state = randomState();
@@ -125,58 +127,95 @@ export class CodexAuth {
   }
 
   /** A non-expired session, refreshing within the skew window. Throws if not signed in. */
-  async getValidSession(opts: { forceRefresh?: boolean } = {}): Promise<CodexSession> {
-    if (this.#signingIn)
-      throw new Error(
-        "Codex sign-in is in progress; finish signing in before invoking this connection",
-      );
+  async getValidSession(
+    opts: { forceRefresh?: boolean; signal?: AbortSignal } = {},
+  ): Promise<CodexSession> {
+    opts.signal?.throwIfAborted();
+    this.#assertInvocationAllowed();
     const epoch = this.#epoch;
     const session = await this.#load();
+    opts.signal?.throwIfAborted();
     if (epoch !== this.#epoch)
       throw new Error("Codex authentication changed during credential access");
-    if (this.#signingIn)
-      throw new Error(
-        "Codex sign-in is in progress; finish signing in before invoking this connection",
-      );
+    this.#assertInvocationAllowed();
     if (!session) throw new Error("Not signed in to Codex. Run `harness auth login`.");
     if (opts.forceRefresh || session.expiresAt <= this.#now() + REFRESH_SKEW_MS) {
       if (!this.#refresh) {
         const controller = new AbortController();
-        this.#refreshAbort = controller;
         const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]);
-        const refresh = refreshTokens({
+        const promise = refreshTokens({
           refreshToken: session.refreshToken,
           fetch: (input, init) => this.#fetch(input, { ...init, signal }),
           now: this.#now,
         }).then((tokens) => this.#persist(tokens, epoch));
+        const refresh: TokenRefresh = { promise, abort: controller, waiters: 0 };
         this.#refresh = refresh;
-        void refresh
+        void promise
           .finally(() => {
             if (this.#refresh === refresh) {
               this.#refresh = undefined;
-              this.#refreshAbort = undefined;
             }
           })
           .catch(() => undefined);
       }
-      return this.#refresh;
+      return this.#waitForRefresh(this.#refresh, opts.signal);
     }
     return session;
   }
 
+  #assertInvocationAllowed(): void {
+    if (this.#authChange)
+      throw new Error(
+        `Codex sign-${this.#authChange === "login" ? "in" : "out"} is in progress; finish authentication before invoking this connection`,
+      );
+  }
+
+  async #waitForRefresh(refresh: TokenRefresh, signal?: AbortSignal): Promise<CodexSession> {
+    refresh.waiters++;
+    let cancel: (() => void) | undefined;
+    try {
+      if (!signal) return await refresh.promise;
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        cancel = () => {
+          // AbortSignal permits any reason; preserve its identity for cancellation classification.
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+          reject(signal.reason as unknown);
+        };
+        signal.addEventListener("abort", cancel, { once: true });
+        if (signal.aborted) cancel();
+      });
+      return await Promise.race([refresh.promise, cancelled]);
+    } finally {
+      if (cancel) signal!.removeEventListener("abort", cancel);
+      refresh.waiters--;
+      if (signal?.aborted && refresh.waiters === 0) {
+        // A dispatched rotation may already have consumed the old token. Drain and persist it
+        // even when generation is cancelled; only login/logout may replace this auth owner.
+        await refresh.promise;
+      }
+    }
+  }
+
   async logout(): Promise<boolean> {
-    ++this.#epoch;
-    this.#refreshAbort?.abort(new Error("Codex authentication changed"));
-    // Drain an already-started rotation before removing the durable session.
-    await this.#refresh?.catch(() => undefined);
-    this.#cached = undefined;
-    return this.#store.delete(this.#storeKey);
+    if (this.#authChange) throw new Error("Codex authentication change is already in progress");
+    this.#authChange = "logout";
+    try {
+      ++this.#epoch;
+      this.#refresh?.abort.abort(new Error("Codex authentication changed"));
+      // Drain an already-started rotation before removing the durable session.
+      await this.#refresh?.promise.catch(() => undefined);
+      this.#cached = undefined;
+      return await this.#store.delete(STORE_KEY);
+    } finally {
+      this.#authChange = undefined;
+    }
   }
 
   async #load(): Promise<CodexSession | undefined> {
+    if (this.#authChange === "logout") return undefined;
     if (this.#cached) return this.#cached;
     const epoch = this.#epoch;
-    const raw = await this.#store.get(this.#storeKey);
+    const raw = await this.#store.get(STORE_KEY);
     if (epoch !== this.#epoch) return undefined;
     if (!raw) return undefined;
     this.#cached = parseCodexSession(raw);
@@ -195,7 +234,7 @@ export class CodexAuth {
       expiresAt: tokens.expiresAt,
       ...(email ? { email } : {}),
     };
-    await this.#store.set(this.#storeKey, JSON.stringify(session));
+    await this.#store.set(STORE_KEY, JSON.stringify(session));
     this.#cached = session;
     return session;
   }

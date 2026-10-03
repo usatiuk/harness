@@ -87,10 +87,13 @@ require an explicit server restart to rebuild the provider catalog. Credential
 file mutations are serialized across store instances in one process; external
 processes must not concurrently modify the same credential file.
 
-Compatible provider types use the same instance auth/secret boundary. Legacy
-global `customProviders` entries normalize into those types while preserving IDs;
-their literal key option remains useful for a keyless local server. Provider
-schemas live in their plugin packages rather than a central config union.
+Every connection uses uniform instance-scoped credential slots. Compatible
+provider types use the same auth boundary; their literal key option supports a
+keyless local server. Only `providers.<id>` configures connections, and schemas
+live in plugin packages. There is no pre-release config or secret-key migration.
+Auth RPCs reuse a live OAuth owner only for the same instance/type and secret
+backend, so login/logout drain its rotation without borrowing another auth kind
+when the connection type was edited before restart.
 
 The model catalog RPC transports normalized capacities, reasoning metadata and
 rate cards, with nullable unknown values. The domain client restores optional

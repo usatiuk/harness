@@ -29,6 +29,7 @@
     "@harness/store": "*",
     "@harness/testkit": "*",
     "vitest": "^4.1.8",
-    "@harness/config": "*"
+    "@harness/config": "*",
+    "@harness/secrets": "*"
   }
 }

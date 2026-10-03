@@ -5,9 +5,11 @@ export { toModelEvents, toChatEvents } from "./stream.ts";
 export {
   OPENAI_MODELS,
   OpenAIResponsesProvider,
-  OpenAIChatProvider,
+  OpenAIResponsesTransport,
+  type OpenAIResponsesTransportOptions,
+  OpenAIChatTransport,
   type OpenAIModelLimits,
   type OpenAIModelSpec,
   type OpenAIProviderOptions,
-  type OpenAIChatProviderOptions,
+  type OpenAIChatTransportOptions,
 } from "./provider.ts";

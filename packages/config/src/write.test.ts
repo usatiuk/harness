@@ -95,17 +95,19 @@ describe("readGlobalSettings custom providers", () => {
       join(home, "settings.json"),
       JSON.stringify({
         model: { provider: "demo", model: "demo-1" },
-        customProviders: {
+        providers: {
           ovms: {
             type: "openai-completions-compatible",
-            endpoint: "http://localhost:8000/v1",
-            apiKey: "k",
-            models: { "qwen3.6": {} },
+            config: {
+              endpoint: "http://localhost:8000/v1",
+              apiKey: "k",
+              models: { "qwen3.6": {} },
+            },
           },
         },
       }),
     );
     const doc = await readGlobalSettings(home);
-    expect(doc.customProviders?.ovms).toMatchObject({ type: "openai-completions-compatible" });
+    expect(doc.providers?.ovms).toMatchObject({ type: "openai-completions-compatible" });
   });
 });

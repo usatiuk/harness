@@ -1,4 +1,4 @@
-import { OpenAIResponsesProvider } from "@harness/openai-core";
+import { OpenAIResponsesTransport, buildResponseParams } from "@harness/openai-core";
 import { apiKeyCredentials } from "@harness/openai-api";
 import type { ContentBlock, ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
 import type { CustomOpenAIModelConfig } from "./config.ts";
@@ -28,7 +28,7 @@ export interface CustomOpenAIProviderOptions {
 }
 
 /** An OpenAI Responses-compatible provider defined by settings rather than a compiled catalog. */
-export class CustomOpenAIProvider extends OpenAIResponsesProvider {
+export class CustomOpenAIProvider extends OpenAIResponsesTransport {
   readonly #models: ReadonlyMap<string, CustomOpenAIModelConfig>;
   readonly #sendInstructionsAsSystem: boolean;
 
@@ -41,7 +41,7 @@ export class CustomOpenAIProvider extends OpenAIResponsesProvider {
     this.#sendInstructionsAsSystem = opts.sendInstructionsAsSystem ?? false;
   }
 
-  override capabilities(model: string): ModelCapabilities {
+  capabilities(model: string): ModelCapabilities {
     return {
       contentTypes: ["text"],
       toolCalling: true,
@@ -50,11 +50,11 @@ export class CustomOpenAIProvider extends OpenAIResponsesProvider {
     };
   }
 
-  override listModels() {
+  listModels() {
     return listScopedModels(this.provider, this.#models);
   }
 
-  override validateConfig(config: ModelConfig): void {
+  validateConfig(config: ModelConfig): void {
     validateScopedConfig(this.provider, this.#models, config);
   }
 
@@ -64,8 +64,17 @@ export class CustomOpenAIProvider extends OpenAIResponsesProvider {
    * input message instead of the top-level `instructions` field — for backends that silently drop it.
    */
   protected override buildParams(request: ModelRequest) {
-    const params = super.buildParams(request);
-    delete params.reasoning;
+    const params = buildResponseParams(
+      request,
+      undefined,
+      this.provider,
+      request.items.some(
+        ({ payload }) =>
+          payload?.provider === this.provider &&
+          payload.model === request.modelConfig.model &&
+          payload.type === "reasoning",
+      ),
+    );
     if (this.#sendInstructionsAsSystem && params.instructions && Array.isArray(params.input)) {
       const system = textOf(request.instructions);
       if (system) {

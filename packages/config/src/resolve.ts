@@ -199,8 +199,7 @@ async function readDoc(
   } catch (error) {
     throw new Error(`invalid JSON in ${file}: ${(error as Error).message}`, { cause: error });
   }
-  // The global layer can carry `customProviders`, so it parses as a settings
-  // doc; project layers reject customProviders and parse as project docs.
+  // Provider connections are machine-global; project layers parse as project docs.
   if (schema === settingsDocSchema) return parseSettingsDoc(raw, file);
   return parseProjectDoc(raw, file);
 }

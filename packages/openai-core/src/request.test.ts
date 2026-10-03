@@ -28,6 +28,11 @@ const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
 });
 
 describe("buildResponseParams", () => {
+  it("omits reasoning controls unless the connection requests them", () => {
+    const params = buildResponseParams(baseRequest([]), undefined, "gateway", false);
+    expect(params).not.toHaveProperty("reasoning");
+    expect(params).not.toHaveProperty("include");
+  });
   it("maps items, tools, and instructions onto native Responses params", () => {
     const request = baseRequest([
       { item: item({ type: "message", role: "user", content: [{ type: "text", text: "hi" }] }) },
@@ -46,7 +51,7 @@ describe("buildResponseParams", () => {
       },
     ]);
 
-    const params = buildResponseParams(request, REASONING, "openai");
+    const params = buildResponseParams(request, REASONING, "openai", true);
 
     expect(params.model).toBe("gpt-x");
     expect(params.instructions).toBe("be nice");
@@ -86,6 +91,7 @@ describe("buildResponseParams", () => {
       },
       REASONING,
       "openai",
+      true,
     );
     expect(params.input).toEqual([{ role: "user", content: "compact now" }]);
     expect(params.tool_choice).toBe("none");
@@ -102,6 +108,7 @@ describe("buildResponseParams", () => {
       ]),
       REASONING,
       "openai",
+      true,
     );
     expect(params.input).toEqual([{ role: "user", content: "the story so far" }]);
   });
@@ -119,6 +126,7 @@ describe("buildResponseParams", () => {
       ]),
       REASONING,
       "openai",
+      true,
     );
     expect(params.input).toEqual([{ role: "developer", content: "project rules" }]);
   });
@@ -145,6 +153,7 @@ describe("buildResponseParams", () => {
       ]),
       REASONING,
       "openai",
+      true,
     );
 
     expect(params.input).toEqual([
@@ -158,11 +167,17 @@ describe("buildResponseParams", () => {
     const reasoning = item({ type: "reasoning", content: [{ type: "text", text: "s" }] });
     const foreign: ProviderPayload = { ...reasoningPayload("gpt-x"), provider: "openai-codex" };
 
-    const noPayload = buildResponseParams(baseRequest([{ item: reasoning }]), REASONING, "openai");
+    const noPayload = buildResponseParams(
+      baseRequest([{ item: reasoning }]),
+      REASONING,
+      "openai",
+      true,
+    );
     const wrongProvider = buildResponseParams(
       baseRequest([{ item: reasoning, payload: foreign }]),
       REASONING,
       "openai",
+      true,
     );
 
     expect(noPayload.input).toEqual([]);
@@ -176,6 +191,7 @@ describe("buildResponseParams", () => {
       baseRequest([{ item: reasoning, payload: reasoningPayload("gpt-old") }]),
       REASONING,
       "openai",
+      true,
     );
     expect(params.input).toEqual([]);
   });
@@ -208,7 +224,7 @@ describe("buildResponseParams", () => {
     });
 
     it("renders a freeform tool as a grammar-constrained custom tool", () => {
-      const params = buildResponseParams(patchRequest([]), REASONING, "openai");
+      const params = buildResponseParams(patchRequest([]), REASONING, "openai", true);
       expect(params.tools).toContainEqual({
         type: "custom",
         name: "apply_patch",
@@ -224,6 +240,7 @@ describe("buildResponseParams", () => {
         patchRequest([{ item: updateCall }, { item: callResult }]),
         REASONING,
         "openai",
+        true,
       );
       expect(params.input).toEqual([
         { type: "custom_tool_call", call_id: "call_p", name: "apply_patch", input: patch },
@@ -236,7 +253,7 @@ describe("buildResponseParams", () => {
         ...baseRequest([]),
         tools: [{ kind: "custom", name: "scratch", description: "free text" }],
       };
-      const params = buildResponseParams(request, REASONING, "openai");
+      const params = buildResponseParams(request, REASONING, "openai", true);
       expect(params.tools).toEqual([
         { type: "custom", name: "scratch", description: "free text", format: { type: "text" } },
       ]);

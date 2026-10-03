@@ -6,8 +6,9 @@ Harness supports OpenAI Responses and chat/completions through API keys,
 ChatGPT/Codex OAuth, Anthropic Messages through API keys, OpenCode Go through an
 API key across all three gateway transports, config-defined
 OpenAI/Anthropic-compatible endpoints, and a deterministic demo provider. Adapters
-implement one streaming `ModelProvider` contract and own all provider-specific
-request, event, payload, catalog, and error behavior.
+expose one streaming `ModelProvider` contract. Shared transports own native
+serialization, streaming, payload fidelity and error normalization; concrete
+connections own catalogs, capabilities and generation policy.
 
 All built-in API/OAuth and compatible providers support named connections with
 isolated credentials. LiteLLM connections discover catalogs at server boot and
@@ -72,7 +73,10 @@ provider, model, type, and version match.
 
 `@harness/openai-core` owns stateless Responses and chat/completions mapping,
 encrypted reasoning round-trip, function/custom tool translation, stream
-normalization, catalogs, and context-overflow normalization. `@harness/openai-api`
+normalization and context-overflow normalization. Neutral
+`OpenAIResponsesTransport` and `OpenAIChatTransport` carry no vendor catalog or
+reasoning defaults. The concrete `OpenAIResponsesProvider` owns direct
+OpenAI/Codex catalog and generation policy. `@harness/openai-api`
 supplies API-key credentials. `@harness/openai-codex` supplies OAuth
 refresh/session persistence, the Codex endpoint and headers, backend error
 surfacing, per-model limit differences, and unsupported-request-field handling.
@@ -128,7 +132,7 @@ explicitly: `"openai-responses-compatible"` for the
 Responses shape (with the `sendInstructionsAsSystem` opt-in above) and
 `"openai-completions-compatible"` for chat/completions (function-only; rejects
 `fileTools: "apply_patch"` on every model). Each entry strictly scopes only what an
-endpoint owns — `endpoint`, `apiKey`, `type`, and the responses-only
+endpoint owns — `endpoint`, `apiKey`, and the responses-only
 `sendInstructionsAsSystem` opt-in — while each served model carries its own
 `fileTools`, `contextWindow`, `maxOutputTokens`, and `presets` under
 `models.<id>`. One entry can therefore serve several models on a shared server
@@ -138,9 +142,8 @@ Configured hard output limits cannot exceed the context window, and preset caps
 cannot exceed the model's declared output capacity.
 Model/preset validation runs before capability-dependent tool/context work, and
 `capabilities(model)` resolves the chosen model's `fileTools` or throws for an
-unknown id. The pre-rename
-`"openai-compatible"` literal is no longer accepted; the validation message
-lists the supported type names.
+unknown id. Compatible transports are selected by the outer connection type;
+there is no legacy provider configuration union or construction factory.
 
 The chat backend always sends `stream_options.include_usage` (and `tool_choice`
 only when a tool turn requests it), which some strict servers reject. Usage
@@ -155,7 +158,10 @@ no usage row.
 
 `@harness/anthropic-core` owns Messages mapping, prompt-cache placement,
 reasoning/thinking payload fidelity, generic function-tool rendering, model
-catalogs, and stream normalization. `@harness/anthropic-api` supplies API-key
+catalogs, and stream normalization. `AnthropicMessagesTransport` carries no
+Claude defaults: each connection resolves a native `AnthropicRequestConfig`,
+including its final output cap, before the mapper serializes it.
+`@harness/anthropic-api` supplies API-key
 credentials. The Anthropic-shaped editor schema and implementation remain owned
 by the Harness workspace plugin.
 
@@ -167,11 +173,10 @@ transports under `https://opencode.ai/zen/go/v1`. A static compiled roster maps
 each model to its transport family (chat/completions | responses | messages); the
 gateway's `GET /v1/models` returns bare ids only, so no runtime catalog fetch is
 used and unknown ids fail validation. `OpenCodeGoProvider`
-delegates to three inner provider instances — the chat `OpenAIChatProvider`, a
-stateless Responses subclass that retains encrypted reasoning replay, and an
-Anthropic Messages subclass (whose `buildConfig`
-overrides `max_tokens` from the roster) — reusing each transport's overflow
-mapping, cancellation, and usage normalization. Go is a subscription plan, so the
+delegates to three connection-specific transport subclasses, which construct
+Chat, Responses and Messages requests from the Go roster. They reuse native
+streaming, payload fidelity, overflow mapping, cancellation and usage
+normalization without inheriting another vendor's catalog or request defaults. Go is a subscription plan, so the
 catalog ships no per-token pricing and usage rows record `null` cost.
 
 The compiled roster also exposes only the model-scoped reasoning controls
@@ -236,11 +241,13 @@ Global `providers.<id>` entries choose a type, optional display label, and the
 type-owned config. The stable instance ID remains `ModelConfig.provider`; the
 engine needs no extra identity field or execution path. OpenAI API, Anthropic API,
 OpenCode Go, and Codex OAuth support any number of named connections. Their
-existing IDs are implicit default instances and retain existing credential keys.
+existing IDs are implicit default instances with the same scoped storage as
+additional named connections.
 
 Each connection owns its authentication method and provider construction. The
-host scopes secret slots to `provider-instance:<encoded ID>:<encoded slot>` for additional
-connections (`api-key` or `oauth`). Labels do not affect secret keys. API-key
+host scopes every secret slot to `provider-instance:<encoded ID>:<encoded slot>`
+(`api-key` or `oauth`). Auth implementations receive only `ProviderSecrets` and
+own local slot names, never physical store keys. Labels do not affect secret keys. API-key
 sources may select `{stored: true}`, an exact `{env: "VARIABLE"}` reference, or
 explicit environment precedence over storage via both fields. An environment-only
 connection cannot accept or delete stored credentials. Named sign-in does not
@@ -248,7 +255,13 @@ change the global model selection; credential changes require restart. Codex
 accounts have independent token records, caches and coalesced refreshes; logout
 drains any rotation before deleting its session. Interactive login also excludes
 new refresh admissions until the new account has been stored, so an old account's
-rotation cannot overwrite it.
+rotation cannot overwrite it. Credential acquisition receives the invocation
+signal. Cancelling one refresh waiter leaves other waiters running; cancelling
+the final waiter drains the bounded rotation and persists any returned token
+before returning cancellation. An already dispatched refresh may have consumed
+the old token, so generation cancellation never aborts rotation. Login/logout
+replace the auth owner and may abort its rotation. Logout excludes reads and
+other mutations through durable deletion.
 
 The CLI auth registry exposes built-in provider login methods. Their API keys
 come from environment variables or secure stores. Codex uses PKCE OAuth,
@@ -259,9 +272,10 @@ downgrade.
 
 Compatible provider schemas live in `@harness/custom-providers/config`, with
 strict endpoint/model/preset validation before I/O. Their API keys support the
-same stored/environment sources as other instances. Legacy global
-`customProviders` entries normalize into those types and preserve provider IDs;
-the inline literal option remains available for a keyless local endpoint.
+same stored/environment sources as other instances. The inline literal option
+supports a keyless local endpoint. Only the global `providers` envelope is
+accepted. Old development configs and physical credential keys are not migrated;
+rewrite the config and sign in again.
 
 ## Errors and observability
 

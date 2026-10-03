@@ -1,10 +1,11 @@
 import {
-  OpenAIResponsesProvider,
-  OpenAIChatProvider,
+  OpenAIResponsesTransport,
+  buildResponseParams,
+  OpenAIChatTransport,
   type OpenAICredentials,
 } from "@harness/openai-core";
 import {
-  AnthropicProvider,
+  AnthropicMessagesTransport,
   type AnthropicCredentials,
   type AnthropicRequestConfig,
 } from "@harness/anthropic-core";
@@ -27,36 +28,38 @@ function outputCap(
     : Math.min(cap, profile.maxOutputTokens ?? cap, profile.contextWindow ?? cap);
 }
 
-class GatewayResponses extends OpenAIResponsesProvider {
+class GatewayResponses extends OpenAIResponsesTransport {
   constructor(
     credentials: OpenAICredentials,
     provider: string,
     readonly profile: ModelProfile,
   ) {
-    super({ credentials, provider, models: [] });
+    super({ credentials, provider });
   }
   protected override buildParams(request: ModelRequest) {
-    const params = super.buildParams(request);
-    delete params.reasoning;
     const controls = generation(this.profile, request);
-    if (
-      !controls.reasoningEffort &&
-      !this.profile.reasoningSummary &&
-      !request.items.some(
+    // The gateway can accept effort values newer than the pinned SDK's union.
+    const reasoning =
+      controls.reasoningEffort || this.profile.reasoningSummary
+        ? ({
+            ...(controls.reasoningEffort ? { effort: controls.reasoningEffort } : {}),
+            ...(this.profile.reasoningSummary ? { summary: this.profile.reasoningSummary } : {}),
+          } as Parameters<typeof buildResponseParams>[1])
+        : undefined;
+    const includeEncryptedReasoning =
+      reasoning !== undefined ||
+      request.items.some(
         ({ payload }) =>
           payload?.provider === this.provider &&
           payload.model === request.modelConfig.model &&
           payload.type === "reasoning",
-      )
-    )
-      delete params.include;
-    if (controls.reasoningEffort || this.profile.reasoningSummary) {
-      // The gateway accepts newer effort values before they appear in every SDK's union.
-      (params as unknown as Record<string, unknown>).reasoning = {
-        ...(controls.reasoningEffort ? { effort: controls.reasoningEffort } : {}),
-        ...(this.profile.reasoningSummary ? { summary: this.profile.reasoningSummary } : {}),
-      };
-    }
+      );
+    const params = buildResponseParams(
+      request,
+      reasoning,
+      this.provider,
+      includeEncryptedReasoning,
+    );
     if (controls.temperature !== undefined) params.temperature = controls.temperature;
     if (controls.topP !== undefined) params.top_p = controls.topP;
     const cap = outputCap(this.profile, controls, request);
@@ -65,7 +68,7 @@ class GatewayResponses extends OpenAIResponsesProvider {
   }
 }
 
-class GatewayChat extends OpenAIChatProvider {
+class GatewayChat extends OpenAIChatTransport {
   constructor(
     credentials: OpenAICredentials,
     provider: string,
@@ -86,7 +89,7 @@ class GatewayChat extends OpenAIChatProvider {
   }
 }
 
-class GatewayMessages extends AnthropicProvider {
+class GatewayMessages extends AnthropicMessagesTransport {
   constructor(
     credentials: AnthropicCredentials,
     provider: string,
@@ -125,7 +128,7 @@ export function gatewayAdapter(
   provider: string,
   openai: OpenAICredentials,
   anthropic: AnthropicCredentials,
-): ModelProvider {
+): Pick<ModelProvider, "stream"> {
   switch (transport) {
     case "openai-responses":
       return new GatewayResponses(openai, provider, profile);

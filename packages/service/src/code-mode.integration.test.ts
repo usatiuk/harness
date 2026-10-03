@@ -443,7 +443,7 @@ describe("recorded code-mode execution", () => {
       ),
     ).toContain("nested instruction");
     const projected = fixture.requests[1]!;
-    const responseInput = buildResponseParams(projected, {}, "fake").input;
+    const responseInput = buildResponseParams(projected, undefined, "fake", false).input;
     expect(responseInput).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "function_call", call_id: "outer", name: "eval" }),

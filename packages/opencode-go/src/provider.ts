@@ -6,12 +6,13 @@ import type {
   ModelRequest,
 } from "@harness/protocol";
 import {
-  OpenAIResponsesProvider,
-  OpenAIChatProvider,
+  OpenAIResponsesTransport,
+  buildResponseParams,
+  OpenAIChatTransport,
   type OpenAICredentials,
 } from "@harness/openai-core";
 import {
-  AnthropicProvider,
+  AnthropicMessagesTransport,
   type AnthropicCredentials,
   type AnthropicRequestConfig,
 } from "@harness/anthropic-core";
@@ -30,7 +31,7 @@ function effortFor(request: ModelRequest): string | undefined {
 }
 
 /** Chat-family subclass that maps the rostered preset to the compatible wire field. */
-class GoChatProvider extends OpenAIChatProvider {
+class GoChatProvider extends OpenAIChatTransport {
   protected override buildParams(request: ModelRequest) {
     const params = super.buildParams(request);
     const effort = effortFor(request);
@@ -47,45 +48,32 @@ class GoChatProvider extends OpenAIChatProvider {
  * Responses provider, retaining encrypted reasoning for stateless continuation
  * and applying a gateway-specific reasoning default.
  */
-class GoResponsesProvider extends OpenAIResponsesProvider {
+class GoResponsesProvider extends OpenAIResponsesTransport {
   constructor(credentials: OpenAICredentials, provider: string) {
     super({
       provider,
       credentials,
-      reasoning: { summary: "auto" },
-      supportsMaxOutputTokens: true,
     });
   }
 
   protected override buildParams(request: ModelRequest) {
-    const params = super.buildParams(request);
     const effort = effortFor(request);
-    if (effort) {
-      (params as unknown as Record<string, unknown>).reasoning = {
-        ...params.reasoning,
-        // The pinned SDK predates GPT-5.6's `max` value but sends it unchanged.
-        effort,
-      };
-    }
-    return params;
+    const reasoning = { summary: "auto", ...(effort ? { effort } : {}) } as Parameters<
+      typeof buildResponseParams
+    >[1];
+    return buildResponseParams(request, reasoning, this.provider, true);
   }
 }
 
-/**
- * Messages-family subclass for the Go gateway: overrides the per-request config so
- * `max_tokens` comes from the opencode-go roster (the stock Anthropic provider
- * falls back to a hardcoded 8192 for uncataloged models, which would silently
- * truncate MiniMax/Qwen generation). Model-scoped presets additionally select
- * MiniMax's thinking toggle or Qwen's compiled thinking budget.
- */
-class GoMessagesProvider extends AnthropicProvider {
+/** Messages policy from the Go roster, including model-scoped thinking controls. */
+class GoMessagesProvider extends AnthropicMessagesTransport {
   constructor(credentials: AnthropicCredentials, provider: string) {
     super({ provider, credentials });
   }
 
   protected override buildConfig(request: ModelRequest): AnthropicRequestConfig {
     const config: AnthropicRequestConfig = {
-      maxTokens: maxOutputOf(request.modelConfig.model) ?? 8192,
+      maxTokens: request.maxOutputTokens ?? maxOutputOf(request.modelConfig.model) ?? 8192,
     };
     const preset = presetFor(request.modelConfig.model, request.modelConfig.preset);
     if (!preset) return config;
@@ -96,8 +84,7 @@ class GoMessagesProvider extends AnthropicProvider {
       case "thinking-budget": {
         // Messages requires the thinking budget to stay below the effective output cap. An
         // invocation-specific cap is more specific than the compiled preset budget.
-        const outputCap = request.maxOutputTokens ?? config.maxTokens;
-        const budgetTokens = Math.min(preset.control.budgetTokens, outputCap - 1);
+        const budgetTokens = Math.min(preset.control.budgetTokens, config.maxTokens - 1);
         if (budgetTokens < 1024) {
           throw new Error(
             `preset "${preset.value}" for ${request.modelConfig.model} requires an output cap above 1024 tokens`,
@@ -128,7 +115,7 @@ export interface OpenCodeGoProviderOptions {
  */
 export class OpenCodeGoProvider implements ModelProvider {
   readonly provider: string;
-  readonly #chat: OpenAIChatProvider;
+  readonly #chat: OpenAIChatTransport;
   readonly #responses: GoResponsesProvider;
   readonly #messages: GoMessagesProvider;
 

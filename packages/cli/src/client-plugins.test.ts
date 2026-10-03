@@ -36,7 +36,6 @@ async function createHarness() {
   const service = new HarnessService({
     home,
     store,
-    home: "/nonexistent-harness-test-home",
     plugins: [sandboxPlugin, activitiesPlugin],
     defaults: { model: { provider: "demo", model: "demo-1" } },
   });

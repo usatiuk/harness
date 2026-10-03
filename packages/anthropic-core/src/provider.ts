@@ -85,14 +85,41 @@ export interface AnthropicProviderOptions {
   provider?: string;
 }
 
-/** A `ModelProvider` backed by the Anthropic Messages API, streaming only. */
-export class AnthropicProvider implements ModelProvider {
+/** Connection identity and credential access for the Messages wire transport. */
+export interface AnthropicMessagesTransportOptions {
+  credentials: AnthropicCredentials;
+  provider: string;
+}
+/** Native streaming and error normalization; concrete connections own catalog and request policy. */
+export abstract class AnthropicMessagesTransport {
   readonly provider: string;
   readonly #credentials: AnthropicCredentials;
 
-  constructor(opts: AnthropicProviderOptions) {
-    this.provider = opts.provider ?? "anthropic";
+  constructor(opts: AnthropicMessagesTransportOptions) {
+    this.provider = opts.provider;
     this.#credentials = opts.credentials;
+  }
+  protected abstract buildConfig(request: ModelRequest): AnthropicRequestConfig;
+  async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
+    try {
+      const client = await this.#credentials.client(signal);
+      const params = buildMessages(request, this.buildConfig(request), this.provider);
+      const stream = await client.messages.create(params, { signal });
+      yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
+    } catch (error) {
+      const e = error as { status?: number; message?: string };
+      const message = e.message ?? String(error);
+      if (e.status === 400 && /context window|prompt is too long|too many tokens/i.test(message)) {
+        throw new ContextWindowExceededError(message, { cause: error });
+      }
+      throw error;
+    }
+  }
+}
+
+export class AnthropicProvider extends AnthropicMessagesTransport implements ModelProvider {
+  constructor(opts: AnthropicProviderOptions) {
+    super({ credentials: opts.credentials, provider: opts.provider ?? "anthropic" });
   }
 
   capabilities(model: string): ModelCapabilities {
@@ -133,26 +160,10 @@ export class AnthropicProvider implements ModelProvider {
     const spec = MODELS.find((m) => m.model === request.modelConfig.model);
     const preset = spec ? presetForSelection(spec, request.modelConfig) : undefined;
     return {
-      maxTokens: spec?.maxTokens ?? MAX_TOKENS_FALLBACK,
+      maxTokens: request.maxOutputTokens ?? spec?.maxTokens ?? MAX_TOKENS_FALLBACK,
       // display must be explicit: Opus 4.7+ defaults to "omitted" (empty thinking text).
       ...(spec?.adaptiveThinking ? { thinking: { type: "adaptive", display: "summarized" } } : {}),
       ...(preset ? { effort: preset } : {}),
     };
-  }
-
-  async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
-    try {
-      const client = await this.#credentials.client();
-      const params = buildMessages(request, this.buildConfig(request), this.provider);
-      const stream = await client.messages.create(params, { signal });
-      yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
-    } catch (error) {
-      const e = error as { status?: number; message?: string };
-      const message = e.message ?? String(error);
-      if (e.status === 400 && /context window|prompt is too long|too many tokens/i.test(message)) {
-        throw new ContextWindowExceededError(message, { cause: error });
-      }
-      throw error;
-    }
   }
 }

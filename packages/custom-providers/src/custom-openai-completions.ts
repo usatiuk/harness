@@ -1,4 +1,4 @@
-import { OpenAIChatProvider } from "@harness/openai-core";
+import { OpenAIChatTransport } from "@harness/openai-core";
 import { apiKeyCredentials } from "@harness/openai-api";
 import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
 import type { CustomCompletionsModelConfig } from "./config.ts";
@@ -15,7 +15,7 @@ export interface CustomOpenAICompletionsProviderOptions {
 }
 
 /** A chat/completions-compatible provider defined by settings rather than a compiled catalog. */
-export class CustomOpenAICompletionsProvider extends OpenAIChatProvider {
+export class CustomOpenAICompletionsProvider extends OpenAIChatTransport {
   readonly #models: ReadonlyMap<string, CustomCompletionsModelConfig>;
 
   constructor(opts: CustomOpenAICompletionsProviderOptions) {
@@ -26,7 +26,7 @@ export class CustomOpenAICompletionsProvider extends OpenAIChatProvider {
     this.#models = new Map(Object.entries(opts.models));
   }
 
-  override capabilities(model: string): ModelCapabilities {
+  capabilities(model: string): ModelCapabilities {
     return {
       contentTypes: ["text"],
       toolCalling: true,
@@ -35,11 +35,11 @@ export class CustomOpenAICompletionsProvider extends OpenAIChatProvider {
     };
   }
 
-  override listModels() {
+  listModels() {
     return listScopedModels(this.provider, this.#models);
   }
 
-  override validateConfig(config: ModelConfig): void {
+  validateConfig(config: ModelConfig): void {
     validateScopedConfig(this.provider, this.#models, config);
   }
 

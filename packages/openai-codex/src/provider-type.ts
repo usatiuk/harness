@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { defineProviderType, type ProviderOAuth } from "@harness/protocol";
 import { CodexAuth } from "./auth.ts";
-import { codexPlugin } from "./plugin.ts";
+import { createCodexProvider } from "./provider.ts";
 
 export const codexProviderType = defineProviderType({
   type: "openai-codex",
   configSchema: z.strictObject({}),
   create(context) {
-    const codex = new CodexAuth({ store: context.secrets, storeKey: "oauth" });
+    const codex = new CodexAuth({ store: context.secrets });
     const auth: ProviderOAuth = {
       kind: "oauth",
       id: context.id,
@@ -19,6 +19,7 @@ export const codexProviderType = defineProviderType({
         const status = await codex.status();
         return {
           authenticated: status.authenticated,
+          ...(status.authenticated ? { source: "stored" as const } : {}),
           ...(status.email ? { detail: status.email } : {}),
           ...(status.expiresAt !== undefined ? { expiresAt: status.expiresAt } : {}),
         };
@@ -28,9 +29,7 @@ export const codexProviderType = defineProviderType({
     return {
       auth,
       async buildProvider() {
-        return (await codex.status()).authenticated
-          ? codexPlugin(codex, context.id).providers!()[0]!
-          : null;
+        return (await codex.status()).authenticated ? createCodexProvider(codex, context.id) : null;
       },
     };
   },

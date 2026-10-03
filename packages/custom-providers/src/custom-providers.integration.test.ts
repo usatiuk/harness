@@ -7,7 +7,7 @@ import { readGlobalSettings } from "@harness/config";
 import { HarnessService } from "@harness/service";
 import { InMemoryStore } from "@harness/store";
 import { EchoTool } from "@harness/testkit";
-import { createCustomProviderPlugins } from "./factory.ts";
+import { configuredProviders } from "./provider-fixture.ts";
 
 const fake = vi.hoisted(() => ({
   calls: [] as { params: Record<string, unknown>; signal: AbortSignal }[],
@@ -94,23 +94,26 @@ describe("custom provider public boundary", () => {
       join(home, "settings.json"),
       `${JSON.stringify({
         model: { provider: "local", model: "m", preset: "fast" },
-        customProviders: {
+        providers: {
           local: {
             type: "openai-completions-compatible",
-            endpoint: "http://localhost:8000/v1",
-            apiKey: "literal-test-key",
-            models: { m: { presets: { fast: { temperature: 0.2 } } } },
+            config: {
+              endpoint: "http://localhost:8000/v1",
+              apiKey: "literal-test-key",
+              models: { m: { presets: { fast: { temperature: 0.2 } } } },
+            },
           },
         },
       })}\n`,
     );
 
     const settings = await readGlobalSettings(home);
+    const providers = await configuredProviders(settings);
     const tools: Plugin = { id: "tools", tools: () => [new EchoTool()] };
     const service = new HarnessService({
       store: new InMemoryStore(),
       home,
-      plugins: [...createCustomProviderPlugins(settings.customProviders ?? {}), tools],
+      plugins: [{ id: "configured-provider-instances", providers: () => providers }, tools],
     });
     const conversation = await service.createConversation();
     const events: HarnessEvent[] = [];
@@ -154,21 +157,24 @@ describe("custom provider public boundary", () => {
       join(home, "settings.json"),
       `${JSON.stringify({
         model: { provider: "local", model: "m" },
-        customProviders: {
+        providers: {
           local: {
             type: "openai-completions-compatible",
-            endpoint: "http://localhost:8000/v1",
-            apiKey: "literal-test-key",
-            models: { m: {} },
+            config: {
+              endpoint: "http://localhost:8000/v1",
+              apiKey: "literal-test-key",
+              models: { m: {} },
+            },
           },
         },
       })}\n`,
     );
     const settings = await readGlobalSettings(home);
+    const providers = await configuredProviders(settings);
     const service = new HarnessService({
       store: new InMemoryStore(),
       home,
-      plugins: createCustomProviderPlugins(settings.customProviders ?? {}),
+      plugins: [{ id: "configured-provider-instances", providers: () => providers }],
     });
     const conversation = await service.createConversation();
     const events: HarnessEvent[] = [];

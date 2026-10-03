@@ -195,7 +195,7 @@ export function buildMessages(
 
   return {
     model: request.modelConfig.model,
-    max_tokens: request.maxOutputTokens ?? config.maxTokens,
+    max_tokens: config.maxTokens,
     messages,
     stream: true,
     ...(system ? { system } : {}),

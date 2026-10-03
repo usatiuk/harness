@@ -45,9 +45,7 @@ export async function bootstrapProviders(
           const credentials = await auth.status();
           status.authenticated = credentials.authenticated;
           status.detail = credentials.detail ?? null;
-          status.credentialSource =
-            credentials.source ??
-            (auth.kind === "oauth" && credentials.authenticated ? "stored" : null);
+          status.credentialSource = credentials.source ?? null;
         }
         signal.throwIfAborted();
         provider = await entry.instance.buildProvider();

@@ -1,4 +1,3 @@
-import type { Plugin } from "@harness/protocol";
 import { OPENAI_MODELS, OpenAIResponsesProvider } from "@harness/openai-core";
 import type { CodexAuth } from "./auth.ts";
 import { codexCredentials } from "./credentials.ts";
@@ -19,17 +18,12 @@ const CODEX_MODELS = OPENAI_MODELS.filter(
   defaultPreset: model.model === "gpt-6.1-sol" || model.model === "gpt-5.6-sol" ? "low" : "medium",
 }));
 
-/** Registers the Codex (ChatGPT subscription) Responses provider, authenticated via OAuth. */
-export function codexPlugin(auth: CodexAuth, provider = CODEX_PROVIDER): Plugin {
-  return {
-    id: provider,
-    providers: () => [
-      new OpenAIResponsesProvider({
-        provider,
-        credentials: codexCredentials(auth),
-        models: CODEX_MODELS,
-        supportsMaxOutputTokens: false,
-      }),
-    ],
-  };
+/** A subscription connection with Codex-specific capacity and request policy. */
+export function createCodexProvider(auth: CodexAuth, provider: string): OpenAIResponsesProvider {
+  return new OpenAIResponsesProvider({
+    provider,
+    credentials: codexCredentials(auth),
+    models: CODEX_MODELS,
+    supportsMaxOutputTokens: false,
+  });
 }

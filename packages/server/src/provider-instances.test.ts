@@ -8,7 +8,7 @@ import { authRegistry, providerEntries, providerPlugins } from "./auth.ts";
 afterEach(() => vi.unstubAllEnvs());
 
 describe("named provider instances", () => {
-  it("keeps arbitrary legacy IDs and opaque plugin secret slots in distinct namespaces", async () => {
+  it("scopes every opaque plugin slot without interpreting its name", async () => {
     const store = new MemorySecretStore();
     const type = defineProviderType({
       type: "slot-fixture",
@@ -16,7 +16,8 @@ describe("named provider instances", () => {
       create(context) {
         return {
           async buildProvider() {
-            await context.secrets.set("b:api-key", "producer-secret");
+            await context.secrets.set("oauth:a", context.id);
+            await context.secrets.set("oauth%3Aa", "encoded");
             return null;
           },
         };
@@ -25,24 +26,23 @@ describe("named provider instances", () => {
     const entries = providerEntries(
       store,
       {
-        providers: { a: { type: "slot-fixture", config: {} } },
-        customProviders: {
-          "a:b": {
-            type: "openai-completions-compatible",
-            endpoint: "http://local/v1",
-            models: { coding: {} },
-            apiKey: { stored: true },
-          },
+        providers: {
+          a: { type: "slot-fixture", config: {} },
+          b: { type: "slot-fixture", config: {} },
         },
       },
       [...providerPlugins, { id: "slot-fixture", providerTypes: () => [type] }],
     );
-    await entries.get("a")!.instance.buildProvider();
-    expect(await entries.get("a:b")!.instance.buildProvider()).toBeNull();
-    expect(await store.get("provider-instance:a:b%3Aapi-key")).toBe("producer-secret");
-    expect(await store.get("provider-instance:a%3Ab:api-key")).toBeNull();
+    await Promise.all([
+      entries.get("a")!.instance.buildProvider(),
+      entries.get("b")!.instance.buildProvider(),
+    ]);
+    expect(await store.get("provider-instance:a:oauth%3Aa")).toBe("a");
+    expect(await store.get("provider-instance:b:oauth%3Aa")).toBe("b");
+    expect(await store.get("provider-instance:a:oauth%253Aa")).toBe("encoded");
+    expect(await store.get("oauth:a")).toBeNull();
   });
-  it("normalizes legacy compatible providers and secure named connections through one registry", async () => {
+  it("constructs compatible named connections with literal or secure keys", async () => {
     const store = new MemorySecretStore();
     const config = {
       endpoint: "http://localhost:8000/v1",
@@ -52,19 +52,20 @@ describe("named provider instances", () => {
       store,
       parseSettingsDoc(
         {
-          customProviders: {
-            legacy: { type: "openai-completions-compatible", ...config, apiKey: "dummy" },
-          },
           providers: {
+            local: {
+              type: "openai-completions-compatible",
+              config: { ...config, apiKey: "dummy" },
+            },
             secure: { type: "openai-completions-compatible", label: "Secure local", config },
           },
         },
         "fixture",
       ),
     );
-    expect(entries.get("legacy")?.instance.auth).toBeUndefined();
-    expect((await entries.get("legacy")!.instance.buildProvider())?.listModels()[0]).toMatchObject({
-      provider: "legacy",
+    expect(entries.get("local")?.instance.auth).toBeUndefined();
+    expect((await entries.get("local")!.instance.buildProvider())?.listModels()[0]).toMatchObject({
+      provider: "local",
       model: "coding",
       contextWindow: 4096,
       presets: [{ value: "fast" }],
@@ -77,25 +78,21 @@ describe("named provider instances", () => {
     expect((await secure.buildProvider())?.listModels()[0]?.provider).toBe("secure");
     expect(() =>
       providerEntries(store, {
-        customProviders: {
-          openai: { type: "openai-completions-compatible", ...config, apiKey: "dummy" },
-        },
-      }),
-    ).toThrow("Duplicate");
-    expect(() =>
-      providerEntries(store, {
-        customProviders: {
+        providers: {
           bad: {
             type: "openai-completions-compatible",
-            endpoint: "http://local",
-            apiKey: "dummy",
-            models: { coding: { fileTools: "apply_patch" } },
+            config: {
+              endpoint: "http://local",
+              apiKey: "dummy",
+              models: { coding: { fileTools: "apply_patch" } },
+            },
           },
         },
       }),
     ).toThrow("Invalid config");
+    expect(() => parseSettingsDoc({ customProviders: {} }, "fixture")).toThrow("customProviders");
   });
-  it("isolates stored keys, labels and identities while retaining legacy slots", async () => {
+  it("isolates stored keys, labels and identities including the built-in defaults", async () => {
     vi.stubEnv("OPENAI_API_KEY", "");
     const store = new MemorySecretStore();
     const settings = {
@@ -122,7 +119,7 @@ describe("named provider instances", () => {
       ).toBe(id);
     }
     expect(await store.get("provider-instance:work:api-key")).toBe("sk-work");
-    expect(await store.get("apikey:openai")).toBe("sk-default");
+    expect(await store.get("provider-instance:openai:api-key")).toBe("sk-default");
     expect(registry.get("work")?.defaultModel).toBeUndefined();
     expect(registry.get("work")?.method.label).toBe("Work account");
     await registry.get("work")!.method.logout();

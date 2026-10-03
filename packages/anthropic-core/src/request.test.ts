@@ -29,7 +29,7 @@ const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
 });
 
 describe("buildMessages", () => {
-  it("appends a non-durable prompt and preserves tools while disabling calls", () => {
+  it("appends a non-durable prompt, preserves tools, and uses the resolved output cap", () => {
     const params = buildMessages(
       {
         ...baseRequest([]),
@@ -48,7 +48,8 @@ describe("buildMessages", () => {
     ]);
     expect(params.tool_choice).toEqual({ type: "none" });
     expect(params.tools).toHaveLength(1);
-    expect(params.max_tokens).toBe(4096);
+    // The connection resolves advisory caps and hard limits before serialization.
+    expect(params.max_tokens).toBe(1000);
   });
 
   it("renders a flat text-editor schema accepted by Anthropic", () => {

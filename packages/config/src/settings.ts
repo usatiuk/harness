@@ -34,7 +34,7 @@ export const profileDocSchema = z.strictObject(baseFields);
 /**
  * The project- and local-layer settings doc (`.harness/settings.json` and
  * `.harness/settings.local.json`): the kernel keys plus named profiles, but NOT the
- * machine-global `auth` and `customProviders` keys, which only the global settings file accepts.
+ * machine-global `auth` and `providers` keys, which only the global settings file accepts.
  * Rejecting them here makes a stray project-local occurrence a loud error instead of a silently
  * dropped one — the CLI reads those keys only from the global file.
  */
@@ -55,9 +55,6 @@ export const settingsDocSchema = z.strictObject({
         config: z.record(z.string(), jsonValueSchema).default({}),
       }),
     )
-    .optional(),
-  customProviders: z
-    .record(z.string(), z.object({ type: z.string().min(1) }).catchall(jsonValueSchema))
     .optional(),
 });
 
@@ -84,7 +81,7 @@ export function parseSettingsDoc(raw: unknown, path: string): SettingsDoc {
 
 /**
  * Parses one project-layer settings document (`.harness/settings.json` and
- * `settings.local.json`), which rejects the global-only `auth`/`customProviders`
+ * `settings.local.json`), which rejects the global-only `auth`/`providers`
  * keys. Shares the error format with `parseSettingsDoc` so all layers read the
  * same way.
  */

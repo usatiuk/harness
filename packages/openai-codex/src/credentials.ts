@@ -28,8 +28,8 @@ const surfacingFetch: typeof fetch = async (input, init) => {
  */
 export function codexCredentials(auth: CodexAuth): OpenAICredentials {
   return {
-    client: async () => {
-      const session = await auth.getValidSession();
+    client: async (signal) => {
+      const session = await auth.getValidSession({ signal });
       return new OpenAI({
         apiKey: session.accessToken,
         baseURL: CODEX_API_BASE_URL,

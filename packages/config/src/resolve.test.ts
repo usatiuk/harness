@@ -192,17 +192,15 @@ describe("resolveSettings validation", () => {
     );
   });
 
-  it("accepts customProviders only in global settings (fail-fast elsewhere)", async () => {
+  it("accepts providers only in global settings (fail-fast elsewhere)", async () => {
     const provider = {
       type: "openai-responses-compatible",
-      endpoint: "http://localhost:8000/v1",
-      apiKey: "k",
-      models: { m: {} },
+      config: { endpoint: "http://localhost:8000/v1", apiKey: "k", models: { m: {} } },
     };
 
     // Global settings: accepted (read by the CLI composition root).
     const home = await tmp();
-    await writeJson(join(home, "settings.json"), { model, customProviders: { mine: provider } });
+    await writeJson(join(home, "settings.json"), { model, providers: { mine: provider } });
     await expect(resolveSettings({ home, schemas })).resolves.toBeTruthy();
 
     // Project layer: rejected loudly rather than silently ignored.
@@ -210,28 +208,28 @@ describe("resolveSettings validation", () => {
     const projHome = await tmp();
     await writeJson(join(projHome, "settings.json"), { model });
     await writeJson(join(root, ".harness", "settings.json"), {
-      customProviders: { mine: provider },
+      providers: { mine: provider },
     });
     await expect(resolveSettings({ home: projHome, cwd: root, schemas })).rejects.toThrow(
-      /invalid settings in .*settings\.json.*customProviders/s,
+      /invalid settings in .*settings\.json.*providers/s,
     );
 
     // Profile layer: rejected loudly rather than silently ignored.
     const profHome = await tmp();
     await writeJson(join(profHome, "settings.json"), {
       model,
-      profiles: { x: { customProviders: { mine: provider } } },
+      profiles: { x: { providers: { mine: provider } } },
     });
     await expect(resolveSettings({ home: profHome, profile: "x", schemas })).rejects.toThrow(
-      /invalid settings in .*settings\.json.*customProviders/s,
+      /invalid settings in .*settings\.json.*providers/s,
     );
   });
 
-  it("rejects auth and customProviders in project-local settings (not just project-shared)", async () => {
+  it("rejects auth and providers in project-local settings (not just project-shared)", async () => {
     const home = await tmp();
     const root = await tmp();
     await writeJson(join(home, "settings.json"), { model });
-    for (const key of ["auth", "customProviders"]) {
+    for (const key of ["auth", "providers"]) {
       const file = join(root, ".harness", "settings.local.json");
       await writeJson(file, { [key]: { store: "keyring" } });
       await expect(resolveSettings({ home, cwd: root, schemas })).rejects.toThrow(

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemorySecretStore } from "@harness/secrets";
+import { CodexAuth } from "@harness/openai-codex";
 import {
   HarnessClient,
   HarnessDomainClient,
@@ -22,6 +23,54 @@ import { httpGateway, json } from "../../litellm/src/http-fixture.ts";
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+});
+
+it("uses the newly configured OAuth type when a named API-key connection changes before restart", async () => {
+  const home = await mkdtemp(join(tmpdir(), "harness-provider-type-edit-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  for (const env of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
+    vi.stubEnv(env, "");
+  const store = new MemorySecretStore();
+  await store.set("provider-instance:work:api-key", "old-key");
+  vi.spyOn(credentials, "credentialStoreForRead").mockResolvedValue({ store, kind: "dpapi" });
+  vi.spyOn(credentials, "credentialStoreForLogin").mockResolvedValue({ store, kind: "dpapi" });
+  const login = vi.spyOn(CodexAuth.prototype, "loginWithBrowser").mockResolvedValue({
+    accessToken: "fixture-access-token",
+    refreshToken: "fixture-refresh-token",
+    idToken: "fixture-id-token",
+    accountId: "fixture-account",
+    expiresAt: Date.now() + 3600000,
+  });
+  const settingsPath = join(home, "settings.json");
+  await writeFile(
+    settingsPath,
+    JSON.stringify({ providers: { work: { type: "openai-api", config: {} } } }),
+  );
+  const pair = createInProcessMessageConnectionPair();
+  const harness = await buildServerHarness(pair.right);
+  const client = new HarnessClient({
+    connection: pair.left,
+    client: { name: "type-edit-test", version: "1" },
+  });
+  try {
+    await client.start();
+    await writeFile(
+      settingsPath,
+      JSON.stringify({ providers: { work: { type: "openai-codex", config: {} } } }),
+    );
+    expect(
+      (await client.peer.request(appProvidersRequest, {})).find(({ id }) => id === "work"),
+    ).toMatchObject({ type: "openai-codex", kind: "oauth", registered: false, modelCount: 0 });
+    await expect(
+      client.peer.request(appAuthLoginRequest, { provider: "work", key: null }),
+    ).resolves.toEqual({ restartRequired: true });
+    expect(login).toHaveBeenCalledOnce();
+    expect(await store.get("provider-instance:work:api-key")).toBe("old-key");
+  } finally {
+    await harness.close();
+    client.closeConnection();
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 it("preserves a deterministic startup failure when a shutdown signal races it", async () => {

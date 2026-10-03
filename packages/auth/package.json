@@ -11,11 +11,11 @@
     }
   },
   "dependencies": {
-    "@harness/secrets": "*",
     "@harness/protocol": "*",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@harness/secrets": "*"
   }
 }

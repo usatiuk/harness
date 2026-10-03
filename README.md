@@ -122,12 +122,14 @@ selections and credential slots.
 API-key configuration defaults to secure storage. An `{env: "VARIABLE"}` source
 uses only that variable; `{env: "VARIABLE", stored: true}` gives the environment
 precedence over storage. OAuth instances own independent sessions and refresh
-tokens. Credentials stay in the existing machine secret backend.
+tokens. Every connection, including the defaults, uses instance-scoped slots in
+the machine secret backend. This pre-release format has no migration: older
+stored credentials require signing in again.
 
 Compatible types are `openai-responses-compatible`,
 `openai-completions-compatible`, and `anthropic-compatible`. They accept the same
-secure key references; legacy global `customProviders` entries retain their IDs
-and may still supply a literal key for a local compatible server.
+secure key references and may supply a literal key for a local compatible
+server. All connections use `providers.<id>`; `customProviders` is rejected.
 
 LiteLLM refreshes its model catalog at server boot. `baseUrl` is the gateway root,
 including any reverse proxy prefix. Models use exact gateway aliases; optional

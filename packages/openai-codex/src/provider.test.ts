@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { CodexAuth } from "./auth.ts";
-import { CODEX_PROVIDER, codexPlugin } from "./plugin.ts";
+import { CODEX_PROVIDER, createCodexProvider } from "./provider.ts";
 
-describe("codexPlugin", () => {
+describe("createCodexProvider", () => {
   it("exposes the current ChatGPT roster with Codex capacity and effort controls", () => {
-    const provider = codexPlugin({} as CodexAuth).providers?.()[0];
-    const gpt = provider?.listModels().find((model) => model.model === "gpt-5.5");
+    const provider = createCodexProvider({} as CodexAuth, CODEX_PROVIDER);
+    const gpt = provider.listModels().find((model) => model.model === "gpt-5.5");
 
-    expect(provider?.provider).toBe(CODEX_PROVIDER);
+    expect(provider.provider).toBe(CODEX_PROVIDER);
     expect(gpt?.contextWindow).toBe(272_000);
     expect(gpt?.maxOutputTokens).toBe(128_000);
-    const models = provider!.listModels();
+    const models = provider.listModels();
     expect(models.map((entry) => entry.model)).toEqual([
       "gpt-6.1-sol",
       "gpt-6-astra",

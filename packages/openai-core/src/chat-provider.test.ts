@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type OpenAI from "openai";
 import { ContextWindowExceededError, type ModelRequest } from "@harness/protocol";
-import { OpenAIChatProvider } from "./provider.ts";
+import { OpenAIChatTransport } from "./provider.ts";
 
 const REQUEST: ModelRequest = {
   instructions: [{ type: "text", text: "be nice" }],
@@ -13,21 +13,11 @@ async function consume(stream: AsyncIterable<unknown>): Promise<void> {
   for await (const event of stream) void event;
 }
 
-describe("OpenAIChatProvider", () => {
-  it("defaults capabilities to the function-only string_replace profile", () => {
-    const provider = new OpenAIChatProvider({
-      credentials: { client: async () => ({}) as never },
-    });
-    expect(provider.capabilities("m")).toEqual({
-      contentTypes: ["text"],
-      toolCalling: true,
-      fileTools: "string_replace",
-    });
-  });
-
+describe("OpenAIChatTransport", () => {
   it("builds chat params and streams via client.chat.completions.create", async () => {
     let params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming | undefined;
-    const provider = new OpenAIChatProvider({
+    const provider = new OpenAIChatTransport({
+      provider: "opencode-go",
       credentials: {
         client: async () =>
           ({
@@ -64,7 +54,8 @@ describe("OpenAIChatProvider", () => {
       status: 400,
       code: "context_length_exceeded",
     });
-    const provider = new OpenAIChatProvider({
+    const provider = new OpenAIChatTransport({
+      provider: "opencode-go",
       credentials: {
         client: async () =>
           ({
@@ -80,7 +71,8 @@ describe("OpenAIChatProvider", () => {
 
   it("does not normalize a non-400 failure merely because its message mentions context", async () => {
     const error = Object.assign(new Error("context service unavailable"), { status: 500 });
-    const provider = new OpenAIChatProvider({
+    const provider = new OpenAIChatTransport({
+      provider: "opencode-go",
       credentials: {
         client: async () =>
           ({

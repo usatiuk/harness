@@ -1,6 +1,8 @@
 # Custom providers: per-model scope
 
-**Status:** Complete — implemented and validated 2026-08-09.
+**Status:** Complete — implemented and validated 2026-08-09. The endpoint/model
+scope remains current; its configuration envelope and factory construction were
+superseded by [named provider instances](../models/2026-10-03-dynamic-provider-catalogs.md).
 
 ## Outcome
 

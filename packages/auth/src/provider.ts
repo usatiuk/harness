@@ -16,7 +16,6 @@ export function instanceApiKeyAuth(
     id: context.id,
     label: context.label,
     store: context.secrets,
-    storeKey: "api-key",
     ...("env" in source ? { envVar: source.env } : {}),
     allowStored: source.stored === true,
     ...(validate ? { validate } : {}),

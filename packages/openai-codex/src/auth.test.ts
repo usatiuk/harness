@@ -1,11 +1,13 @@
 import { createConnection, Socket } from "node:net";
+import { createServer, type ServerResponse } from "node:http";
 import { getEventListeners } from "node:events";
 import { describe, expect, it } from "vitest";
 import { MemorySecretStore } from "@harness/secrets";
 import { CodexAuth } from "./auth.ts";
 import { parseCodexSession, type CodexSession } from "./session.ts";
+import { createCodexProvider } from "./provider.ts";
 
-const STORE_KEY = "openai-codex";
+const STORE_KEY = "oauth";
 
 function jwt(payload: Record<string, unknown>): string {
   const part = (obj: Record<string, unknown>): string =>
@@ -222,6 +224,169 @@ describe("CodexAuth", () => {
     await rejected;
     expect(await auth.status()).toEqual({ authenticated: false });
   });
+
+  it("cancels one caller without cancelling the token rotation needed by another", async () => {
+    const store = new MemorySecretStore();
+    await seedSession(store);
+    let entered!: () => void;
+    let release!: () => void;
+    const began = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let refreshSignal: AbortSignal | null | undefined;
+    const net = refreshingFetch();
+    const auth = new CodexAuth({
+      store,
+      now: () => 0,
+      fetch: async (input, init) => {
+        refreshSignal = init?.signal;
+        entered();
+        await gate;
+        refreshSignal?.throwIfAborted();
+        return net.fetch(input, init);
+      },
+    });
+    await auth.status();
+    const first = new AbortController();
+    const cancelled = auth.getValidSession({ signal: first.signal });
+    const cancellation = cancelled.then(
+      () => {
+        throw new Error("Expected cancellation");
+      },
+      (error: unknown) => error,
+    );
+    const other = auth.getValidSession({ signal: new AbortController().signal });
+    try {
+      await began;
+      first.abort();
+      expect(await cancellation).toBe(first.signal.reason);
+      expect(refreshSignal?.aborted).toBe(false);
+      release();
+      expect((await other).refreshToken).toBe("refresh_2");
+      expect(parseCodexSession((await store.get(STORE_KEY))!).refreshToken).toBe("refresh_2");
+      expect(net.calls()).toBe(1);
+      expect(getEventListeners(first.signal, "abort")).toHaveLength(0);
+    } finally {
+      release();
+    }
+  });
+
+  it("drains a server-consumed token rotation before returning cancelled generation", async () => {
+    const store = new MemorySecretStore();
+    await seedSession(store);
+    let entered!: () => void;
+    const began = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let response: ServerResponse | undefined;
+    let rotations = 0;
+    const tokens = JSON.stringify({
+      access_token: accountToken("acc_1"),
+      refresh_token: "refresh_2",
+      id_token: jwt({ email: "a@b.com" }),
+      expires_in: 3600,
+    });
+    const server = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        rotations++;
+        if (rotations > 1) {
+          res.writeHead(401);
+          res.end("refresh token already consumed");
+          return;
+        }
+        response = res;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.write("{"); // The old token is consumed while the new credential is still in flight.
+      });
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing token server address");
+    const auth = new CodexAuth({
+      store,
+      now: () => 0,
+      fetch: async (_input, init) => {
+        const result = await fetch(`http://127.0.0.1:${address.port}/oauth/token`, init);
+        entered();
+        return result;
+      },
+    });
+    const controller = new AbortController();
+    const stream = createCodexProvider(auth, "work").stream(
+      { instructions: [], items: [], modelConfig: { provider: "work", model: "gpt-6.1-sol" } },
+      controller.signal,
+    );
+    const invocation = (async () => {
+      for await (const event of stream) void event;
+    })();
+    const outcome = invocation.then(
+      () => {
+        throw new Error("Expected cancellation");
+      },
+      async (error: unknown) => ({
+        error,
+        session: parseCodexSession((await store.get(STORE_KEY))!),
+      }),
+    );
+    try {
+      await began;
+      controller.abort();
+      if (!response) throw new Error("Missing token response");
+      response.end(tokens.slice(1));
+      const result = await outcome;
+      expect(result.error).toBe(controller.signal.reason);
+      expect(result.session.refreshToken).toBe("refresh_2");
+      expect((await auth.getValidSession()).refreshToken).toBe("refresh_2");
+      expect(rotations).toBe(1);
+      expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it("prevents a credential read during logout from restoring the deleted session", async () => {
+    const store = new MemorySecretStore();
+    await seedSession(store);
+    const remove = store.delete.bind(store);
+    let entered!: () => void;
+    let release!: () => void;
+    const began = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    store.delete = async (key) => {
+      entered();
+      await gate;
+      return remove(key);
+    };
+    const auth = new CodexAuth({ store, now: () => 0 });
+    expect((await auth.status()).authenticated).toBe(true);
+    const logout = auth.logout();
+    try {
+      await began;
+      expect(await auth.status()).toEqual({ authenticated: false });
+      await expect(auth.getValidSession()).rejects.toThrow("sign-out is in progress");
+      await expect(auth.loginWithBrowser()).rejects.toThrow("authentication change");
+      release();
+      expect(await logout).toBe(true);
+      expect(await auth.status()).toEqual({ authenticated: false });
+      expect(await store.get(STORE_KEY)).toBeNull();
+    } finally {
+      release();
+    }
+  });
+
   it("keeps independently named OAuth accounts and rotated token records isolated", async () => {
     const store = new MemorySecretStore();
     await seedSession(store);
@@ -236,9 +401,14 @@ describe("CodexAuth", () => {
         expiresAt: 1_000_000,
       }),
     );
+    const scoped = (id: string) => ({
+      get: (key: string) => store.get(`${id}-${key}`),
+      set: (key: string, value: string) => store.set(`${id}-${key}`, value),
+      delete: (key: string) => store.delete(`${id}-${key}`),
+    });
     const net = refreshingFetch();
-    const work = new CodexAuth({ store, storeKey: "work-oauth", fetch: net.fetch, now: () => 0 });
-    const personal = new CodexAuth({ store, storeKey: "personal-oauth", now: () => 0 });
+    const work = new CodexAuth({ store: scoped("work"), fetch: net.fetch, now: () => 0 });
+    const personal = new CodexAuth({ store: scoped("personal"), now: () => 0 });
     await Promise.all([work.getValidSession(), work.getValidSession()]);
     expect(net.calls()).toBe(1);
     expect((await personal.getValidSession()).accountId).toBe("personal");

@@ -11,13 +11,14 @@ of SDK-specific error, tool, and payload behavior.
 The [dynamic provider catalog delivery plan](../../plans/models/2026-10-03-dynamic-provider-catalogs.md)
 selects a bounded LiteLLM integration: plugin-owned provider types, global named
 connections with independent credentials, boot-only discovery, and the existing
-three transport adapters. Named built-in API/OAuth instances, the legacy bridge,
+three neutral transport adapters. Named built-in API/OAuth instances,
 LiteLLM discovery/metadata, diagnostics and client key controls are implemented.
 Real LiteLLM with controlled upstreams and packaged Windows behavior are verified;
 actual vendor cryptographic acceptance remains credential-dependent. Existing
 transient reliability work remains open.
 
-- [x] Deliver the instance/factory boundary and legacy custom-provider bridge.
+- [x] Deliver one instance/factory boundary for built-in and compatible types.
+- [x] Remove pre-release compatibility and separate transport from vendor defaults.
 - [x] Deliver LiteLLM discovery and all three gateway adapter routes.
 - [x] Integrate bounded startup, safe connection status, and instance key controls.
 - [x] Qualify real LiteLLM with controlled upstream continuations and packaged Windows behavior.

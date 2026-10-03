@@ -123,8 +123,9 @@ function toCustomTool(
 /** Maps a harness `ModelRequest` onto native Responses streaming params. */
 export function buildResponseParams(
   request: ModelRequest,
-  reasoning: OpenAI.Reasoning,
+  reasoning: OpenAI.Reasoning | undefined,
   provider: string,
+  includeEncryptedReasoning: boolean,
 ): OpenAI.Responses.ResponseCreateParamsStreaming {
   // Freeform tools round-trip as `custom_tool_call` items. A tool_result carries only its
   // callId, so pre-scan the calls to know which results render as custom output.
@@ -157,8 +158,8 @@ export function buildResponseParams(
     input,
     stream: true,
     store: false, // stateless: we own the log and round-trip reasoning via encrypted_content
-    include: ["reasoning.encrypted_content"],
-    reasoning,
+    ...(includeEncryptedReasoning ? { include: ["reasoning.encrypted_content" as const] } : {}),
+    ...(reasoning ? { reasoning } : {}),
     ...(request.maxOutputTokens ? { max_output_tokens: request.maxOutputTokens } : {}),
     ...(request.toolChoice ? { tool_choice: request.toolChoice } : {}),
     ...(tools.length > 0 ? { tools } : {}),

@@ -13,8 +13,6 @@ import type { HarnessRpcSession, HarnessService } from "@harness/service";
 import { ErrorCodes, ResponseError } from "vscode-jsonrpc";
 import { ProviderCredentialError } from "@harness/protocol";
 import {
-  authRegistry,
-  authEntries,
   prepareProviderEntries,
   providerPlugins,
   ProviderConfigurationError,
@@ -36,7 +34,7 @@ import {
 export function registerAppApi(
   session: HarnessRpcSession,
   service: HarnessService,
-  active?: {
+  active: {
     kind: AuthStoreKind | null;
     entries: ReadonlyMap<string, ProviderEntry>;
     statuses: ReadonlyMap<string, ProviderStatus>;
@@ -53,6 +51,17 @@ export function registerAppApi(
     void operation.finally(() => operations.delete(operation)).catch(() => undefined);
     return operation;
   };
+  const authFor = (entry: ProviderEntry, kind: AuthStoreKind | null) => {
+    const running = active.entries.get(entry.id);
+    // Reuse the live OAuth owner so logout and login drain its token rotation.
+    // A settings edit can change a named connection's type before restart.
+    return active.kind === kind &&
+      running?.type === entry.type &&
+      running.instance.auth?.kind === "oauth" &&
+      entry.instance.auth?.kind === "oauth"
+      ? running.instance.auth
+      : entry.instance.auth;
+  };
   const listProviders = async (): Promise<ProviderStatus[]> => {
     const doc = await readGlobalSettings(defaultHome());
     const prepare = prepareProviderEntries(
@@ -60,11 +69,14 @@ export function registerAppApi(
       providerPlugins,
       join(defaultHome(), "settings.json"),
     );
-    const { store } = await credentialStoreForRead(defaultHome());
+    const { store, kind } = await credentialStoreForRead(defaultHome());
     return Promise.all(
       [...prepare(store).values()].map(async (entry) => {
-        const method = entry.instance.auth;
-        const prior = active?.statuses.get(entry.id);
+        const method = authFor(entry, kind);
+        const prior =
+          active.entries.get(entry.id)?.type === entry.type
+            ? active.statuses.get(entry.id)
+            : undefined;
         const status: ProviderStatus = {
           id: entry.id,
           label: entry.label,
@@ -84,9 +96,7 @@ export function registerAppApi(
             const credentials = await method.status();
             status.authenticated = credentials.authenticated;
             status.detail = credentials.detail ?? null;
-            status.credentialSource =
-              credentials.source ??
-              (method.kind === "oauth" && credentials.authenticated ? "stored" : null);
+            status.credentialSource = credentials.source ?? null;
           } catch (error) {
             if (!(error instanceof ProviderCredentialError)) throw error;
             status.catalog = "credentials-unavailable";
@@ -179,18 +189,17 @@ export function registerAppApi(
         throw error;
       }
       const { store, kind } = await credentialStoreForLogin(defaultHome());
-      const entry = authEntries(prepare(store)).get(params.provider);
-      if (!entry) return invalid("Unknown authentication provider");
-      if (active?.kind === kind && entry.method.kind === "oauth")
-        entry.method = active.entries.get(params.provider)?.instance.auth ?? entry.method;
-      if (entry.method.kind === "api-key") {
+      const entry = prepare(store).get(params.provider);
+      const method = entry && authFor(entry, kind);
+      if (!entry || !method) return invalid("Unknown authentication provider");
+      if (method.kind === "api-key") {
         if (params.key === null) return invalid("An API key is required");
-        const issue = entry.method.validate(params.key);
+        const issue = method.validate(params.key);
         if (issue) invalid(issue);
-        await entry.method.submit(params.key);
+        await method.submit(params.key);
       } else {
         if (params.key !== null) invalid("Browser sign-in does not accept an API key");
-        await entry.method.login({
+        await method.login({
           signal,
           onUrl: (url) => {
             void session.notify(appAuthUrlNotification, { url }).catch(() => lifetime.abort());
@@ -215,11 +224,12 @@ export function registerAppApi(
         lifetime.signal.throwIfAborted();
         if (signingIn) invalid("Wait for provider sign-in to finish");
         const { store, kind } = await credentialStoreForRead(defaultHome());
-        const entry = authRegistry(store, await readGlobalSettings(defaultHome())).get(provider);
-        if (!entry) return invalid("Unknown authentication provider");
-        if (active?.kind === kind && entry.method.kind === "oauth")
-          entry.method = active.entries.get(provider)?.instance.auth ?? entry.method;
-        await entry.method.logout();
+        const entry = prepareProviderEntries(await readGlobalSettings(defaultHome()))(store).get(
+          provider,
+        );
+        const method = entry && authFor(entry, kind);
+        if (!method) return invalid("Unknown authentication provider");
+        await method.logout();
         return { restartRequired: true as const };
       })(),
     ),

@@ -11,15 +11,6 @@ import { CustomOpenAIProvider } from "./custom-openai.ts";
 import { CustomOpenAICompletionsProvider } from "./custom-openai-completions.ts";
 import { CustomAnthropicProvider } from "./custom-anthropic.ts";
 
-/** Wires one `customProviderConfig` entry into a runnable plugin. The config key is the registry id. */
-export function createCustomProviderPlugin(id: string, raw: unknown): Plugin {
-  const config = customProviderSchema.parse(raw);
-  if (typeof config.apiKey !== "string")
-    throw new Error("Credential references require provider instance construction");
-  const provider = buildProvider(id, config, config.apiKey);
-  return { id, providers: () => [provider] };
-}
-
 function buildProvider(id: string, config: CustomProviderConfig, apiKey: string): ModelProvider {
   switch (config.type) {
     case "openai-responses-compatible":
@@ -47,11 +38,6 @@ function buildProvider(id: string, config: CustomProviderConfig, apiKey: string)
         models: config.models,
       });
   }
-}
-
-/** Builds the full custom-provider plugin set from the parsed `customProviders` settings section. */
-export function createCustomProviderPlugins(configs: Record<string, unknown>): Plugin[] {
-  return Object.entries(configs).map(([id, config]) => createCustomProviderPlugin(id, config));
 }
 
 /** Compatible transports use the same named connection/auth path as built-in providers. */

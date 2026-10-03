@@ -162,10 +162,13 @@ delays, or a nearby condition that does not prove completion.
   cryptographic acceptance remains tracked in the delivery plan.
 
 - Named built-in provider tests cover independent stored API keys, exact
-  environment references, legacy slots, label changes, construction identity,
+  environment references, uniform encoded slots, label changes, construction identity,
   type contributions and pre-construction validation. Codex tests cover isolated
-  OAuth token records, coalesced rotation, logout during refresh and interactive
-  login excluding stale-account refresh. Packaged native tests cover two keys in
+  OAuth token records, coalesced rotation, single/final waiter cancellation, logout
+  during refresh and interactive login excluding stale-account refresh. A public
+  RPC regression covers changing an API-key instance to OAuth before restart.
+  Compatible-provider settings/SDK tests use the contributed provider types;
+  removed direct factories have no remaining production or test consumers. Packaged native tests cover two keys in
   DPAPI, restart discovery, picker metadata and reopening an existing unavailable
   selection without losing its transcript. Live browser
   login with multiple real accounts remains credential-dependent.

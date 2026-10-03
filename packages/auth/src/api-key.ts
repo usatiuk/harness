@@ -1,21 +1,19 @@
-import type { SecretStore } from "@harness/secrets";
+import type { ProviderSecrets } from "@harness/protocol";
 import type { ApiKeyMethod, AuthStatus } from "./method.ts";
 
 export interface ApiKeyAuthOptions {
   id: string;
   label: string;
-  store: SecretStore;
+  store: ProviderSecrets;
   /** Environment variable that overrides the stored key. */
   envVar?: string;
   allowStored?: boolean;
-  /** Storage key; defaults to `apikey:<id>`. */
-  storeKey?: string;
   /** Optional shape check returning an error message, or null when the key looks valid. */
   validate?: (key: string) => string | null;
 }
 
 /**
- * Generic API-key sign-in over any `SecretStore`. The env var wins over the stored key (so CI and
+ * Generic API-key sign-in over instance-scoped secrets. The env var wins over the stored key (so CI and
  * one-off overrides keep working); `auth login` persists a key for everyone who doesn't set it.
  */
 export class ApiKeyAuth implements ApiKeyMethod {
@@ -24,8 +22,7 @@ export class ApiKeyAuth implements ApiKeyMethod {
   readonly label: string;
   readonly envVar?: string;
   readonly canStore: boolean;
-  readonly #store: SecretStore;
-  readonly #storeKey: string;
+  readonly #store: ProviderSecrets;
   readonly #validate: (key: string) => string | null;
 
   constructor(opts: ApiKeyAuthOptions) {
@@ -34,7 +31,6 @@ export class ApiKeyAuth implements ApiKeyMethod {
     if (opts.envVar !== undefined) this.envVar = opts.envVar;
     this.canStore = opts.allowStored ?? true;
     this.#store = opts.store;
-    this.#storeKey = opts.storeKey ?? `apikey:${opts.id}`;
     this.#validate = opts.validate ?? (() => null);
   }
 
@@ -50,19 +46,19 @@ export class ApiKeyAuth implements ApiKeyMethod {
     const trimmed = key.trim();
     const error = this.validate(trimmed);
     if (error) throw new Error(error);
-    await this.#store.set(this.#storeKey, trimmed);
+    await this.#store.set("api-key", trimmed);
   }
 
   async getKey(): Promise<string | null> {
     const fromEnv = this.envVar ? process.env[this.envVar]?.trim() : undefined;
     if (fromEnv) return fromEnv;
-    return this.canStore ? this.#store.get(this.#storeKey) : null;
+    return this.canStore ? this.#store.get("api-key") : null;
   }
 
   async status(): Promise<AuthStatus> {
     const fromEnv = this.envVar ? process.env[this.envVar]?.trim() : undefined;
     if (fromEnv) return { authenticated: true, source: "env", detail: `$${this.envVar}` };
-    const stored = this.canStore ? await this.#store.get(this.#storeKey) : null;
+    const stored = this.canStore ? await this.#store.get("api-key") : null;
     if (stored) return { authenticated: true, source: "stored", detail: "stored credential" };
     return { authenticated: false };
   }
@@ -70,6 +66,6 @@ export class ApiKeyAuth implements ApiKeyMethod {
   logout(): Promise<boolean> {
     if (!this.canStore)
       throw new Error(`Credentials for '${this.id}' are managed by the environment`);
-    return this.#store.delete(this.#storeKey);
+    return this.#store.delete("api-key");
   }
 }

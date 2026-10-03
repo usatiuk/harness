@@ -70,6 +70,6 @@ describe("LoginApp", () => {
 
     await vi.waitFor(() => expect(onResolve).toHaveBeenCalled());
     expect(onResolve.mock.calls[0]?.[0]).toContain("anthropic/claude-opus-4-8");
-    expect(await store.get("apikey:anthropic")).toBe("sk-ant-secret");
+    expect(await store.get("provider-instance:anthropic:api-key")).toBe("sk-ant-secret");
   });
 });

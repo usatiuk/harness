@@ -3,7 +3,7 @@ import type { ModelRequest } from "@harness/protocol";
 import { CustomOpenAIProvider } from "./custom-openai.ts";
 import { CustomOpenAICompletionsProvider } from "./custom-openai-completions.ts";
 import { CustomAnthropicProvider } from "./custom-anthropic.ts";
-import { createCustomProviderPlugin, createCustomProviderPlugins } from "./factory.ts";
+import { configuredProvider, configuredProviders } from "./provider-fixture.ts";
 
 // `buildParams` (OpenAI) and `buildConfig` (Anthropic) are overrides of protected seams, so tests
 // widen the subclass with their signatures rather than going through a live provider stream.
@@ -392,69 +392,39 @@ describe("CustomAnthropicProvider", () => {
   });
 });
 
-describe("factory wiring", () => {
-  it("creates an openai-responses-compatible plugin keyed by its config id", () => {
-    const plugin = createCustomProviderPlugin("ollama", {
-      type: "openai-responses-compatible",
-      endpoint: "http://localhost:11434/v1",
-      apiKey: "ollama",
-      models: { "llama3.2": { presets: { default: { temperature: 0.7 } } } },
-    });
-
-    expect(plugin.id).toBe("ollama");
-    const models = plugin.providers?.().flatMap((p) => p.listModels()) ?? [];
-    expect(models).toEqual([
-      { provider: "ollama", model: "llama3.2", presets: [{ value: "default" }] },
-    ]);
-  });
-
-  it("creates an anthropic-compatible plugin", () => {
-    const plugin = createCustomProviderPlugin("lmstudio", {
-      type: "anthropic-compatible",
-      endpoint: "http://localhost:1234",
-      apiKey: "lm-studio",
-      models: { "neural-chat": {} },
-    });
-
-    expect(plugin.id).toBe("lmstudio");
-    const models = plugin.providers?.().flatMap((p) => p.listModels()) ?? [];
-    expect(models).toEqual([{ provider: "lmstudio", model: "neural-chat", presets: [] }]);
-  });
-
-  it("creates an openai-completions-compatible plugin whose endpoint serves several models", () => {
-    const plugin = createCustomProviderPlugin("ovms", {
-      type: "openai-completions-compatible",
-      endpoint: "http://localhost:8000/v1",
-      apiKey: "ovms",
-      models: { "qwen3.6": {}, "gpt-oss-20b": { presets: { high: {} } } },
-    });
-
-    expect(plugin.id).toBe("ovms");
-    const models = plugin.providers?.().flatMap((p) => p.listModels()) ?? [];
-    expect(models).toEqual([
-      { provider: "ovms", model: "qwen3.6", presets: [] },
-      { provider: "ovms", model: "gpt-oss-20b", presets: [{ value: "high" }] },
-    ]);
-  });
-
-  it("builds the full plugin set from a parsed settings section", () => {
-    const plugins = createCustomProviderPlugins({
-      a: {
-        type: "openai-responses-compatible",
-        endpoint: "http://a",
-        apiKey: "k",
-        models: { m1: {} },
-      },
-      b: { type: "anthropic-compatible", endpoint: "http://b", apiKey: "k", models: { m2: {} } },
-      c: {
-        type: "openai-completions-compatible",
-        endpoint: "http://c",
-        apiKey: "k",
-        models: { m3: {} },
+describe("configured provider types", () => {
+  it.each(["openai-responses-compatible", "openai-completions-compatible", "anthropic-compatible"])(
+    "constructs %s with its configured identity and catalog",
+    async (type) => {
+      const provider = await configuredProvider("local", type, {
+        endpoint: "http://localhost:8000/v1",
+        apiKey: "dummy",
+        models: { coding: { presets: { fast: { temperature: 0.2 } } } },
+      });
+      expect(provider.provider).toBe("local");
+      expect(provider.listModels()).toEqual([
+        { provider: "local", model: "coding", presets: [{ value: "fast" }] },
+      ]);
+    },
+  );
+  it("constructs several configured types through the same instance boundary", async () => {
+    const providers = await configuredProviders({
+      providers: {
+        a: {
+          type: "openai-responses-compatible",
+          config: { endpoint: "http://a", apiKey: "k", models: { m1: {} } },
+        },
+        b: {
+          type: "anthropic-compatible",
+          config: { endpoint: "http://b", apiKey: "k", models: { m2: {} } },
+        },
+        c: {
+          type: "openai-completions-compatible",
+          config: { endpoint: "http://c", apiKey: "k", models: { m3: {} } },
+        },
       },
     });
-
-    expect(plugins.map((p) => p.id)).toEqual(["a", "b", "c"]);
+    expect(providers.map((provider) => provider.provider)).toEqual(["a", "b", "c"]);
   });
 });
 

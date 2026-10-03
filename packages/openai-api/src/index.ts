@@ -1,6 +1,5 @@
 import OpenAI from "openai";
-import type { Plugin } from "@harness/protocol";
-import { OpenAIResponsesProvider, type OpenAICredentials } from "@harness/openai-core";
+import type { OpenAICredentials } from "@harness/openai-core";
 
 export interface ApiKeyOptions {
   apiKey: string;
@@ -14,26 +13,6 @@ export function apiKeyCredentials(opts: ApiKeyOptions): OpenAICredentials {
     ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
   });
   return { client: () => Promise.resolve(client) };
-}
-
-export interface OpenAIPluginOptions {
-  apiKey: string;
-  baseURL?: string;
-  reasoning?: OpenAI.Reasoning;
-}
-
-/** Registers the API-key-authenticated OpenAI Responses provider. */
-export function createOpenAIPlugin(opts: OpenAIPluginOptions): Plugin {
-  const credentials = apiKeyCredentials(opts);
-  return {
-    id: "openai-api",
-    providers: () => [
-      new OpenAIResponsesProvider({
-        credentials,
-        ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
-      }),
-    ],
-  };
 }
 
 export * from "./provider-type.ts";

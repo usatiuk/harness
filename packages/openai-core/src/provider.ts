@@ -158,17 +158,53 @@ export interface OpenAIProviderOptions {
   supportsMaxOutputTokens?: boolean;
 }
 
-/** A `ModelProvider` backed by the OpenAI Responses API, streaming only. */
-export class OpenAIResponsesProvider implements ModelProvider {
+/** Connection identity and credential access for the Responses wire transport. */
+export interface OpenAIResponsesTransportOptions {
+  credentials: OpenAICredentials;
+  provider: string;
+}
+/** Native streaming and error normalization; concrete connections own catalog and request policy. */
+export abstract class OpenAIResponsesTransport {
   readonly provider: string;
   readonly #credentials: OpenAICredentials;
+  constructor(opts: OpenAIResponsesTransportOptions) {
+    this.provider = opts.provider;
+    this.#credentials = opts.credentials;
+  }
+  protected abstract buildParams(
+    request: ModelRequest,
+  ): OpenAI.Responses.ResponseCreateParamsStreaming;
+  async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
+    try {
+      const client = await this.#credentials.client(signal);
+      const params = this.buildParams(request);
+      const stream = await client.responses.create(params, { signal });
+      yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
+    } catch (error) {
+      const e = error as { status?: number; code?: string; message?: string };
+      const message = e.message ?? String(error);
+      if (
+        e.status === 400 &&
+        (e.code === "context_length_exceeded" ||
+          /context (window|length)|too many tokens/i.test(message))
+      ) {
+        throw new ContextWindowExceededError(message, { cause: error });
+      }
+      throw error;
+    }
+  }
+}
+
+export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements ModelProvider {
   readonly #reasoning: OpenAI.Reasoning;
   readonly #models: readonly OpenAIModelSpec[];
   readonly #supportsMaxOutputTokens: boolean;
 
   constructor(opts: OpenAIProviderOptions) {
-    this.provider = opts.provider ?? "openai";
-    this.#credentials = opts.credentials;
+    super({
+      credentials: opts.credentials,
+      provider: opts.provider ?? "openai",
+    });
     this.#reasoning = opts.reasoning ?? { effort: "medium", summary: "auto" };
     this.#models = opts.models ?? OPENAI_MODELS;
     this.#supportsMaxOutputTokens = opts.supportsMaxOutputTokens ?? true;
@@ -206,71 +242,29 @@ export class OpenAIResponsesProvider implements ModelProvider {
     });
   }
 
-  /**
-   * The native request for one model step. Overridable so config-defined providers can reshape the
-   * request (drop the reasoning field, apply generation presets) without forking the stream glue.
-   */
+  /** Direct OpenAI/Codex generation policy over the native Responses mapper. */
   protected buildParams(request: ModelRequest): OpenAI.Responses.ResponseCreateParamsStreaming {
     const reasoning = reasoningForSelection(request.modelConfig, this.#reasoning, this.#models);
-    return buildResponseParams(request, reasoning, this.provider);
-  }
-
-  async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
-    try {
-      const client = await this.#credentials.client();
-      const params = this.buildParams(request);
-      if (!this.#supportsMaxOutputTokens) delete params.max_output_tokens;
-      const stream = await client.responses.create(params, { signal });
-      yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
-    } catch (error) {
-      const e = error as { status?: number; code?: string; message?: string };
-      const message = e.message ?? String(error);
-      if (
-        e.status === 400 &&
-        (e.code === "context_length_exceeded" ||
-          /context (window|length)|too many tokens/i.test(message))
-      ) {
-        throw new ContextWindowExceededError(message, { cause: error });
-      }
-      throw error;
-    }
+    const params = buildResponseParams(request, reasoning, this.provider, true);
+    if (!this.#supportsMaxOutputTokens) delete params.max_output_tokens;
+    return params;
   }
 }
 
-export interface OpenAIChatProviderOptions {
+export interface OpenAIChatTransportOptions {
   credentials: OpenAICredentials;
-  /** Registry name; defaults to `"openai-chat"`. */
-  provider?: string;
+  /** Outer connection identity, retained on opaque payloads. */
+  provider: string;
 }
 
-/**
- * A `ModelProvider` backed by the OpenAI chat/completions API, streaming only.
- * Thin shell: no built-in catalog (config-defined providers supply their own via
- * `listModels`); chat always honors the advisory `max_tokens` output cap.
- */
-export class OpenAIChatProvider implements ModelProvider {
+/** Chat Completions serialization and streaming; connections own catalog and policy. */
+export class OpenAIChatTransport {
   readonly provider: string;
   readonly #credentials: OpenAICredentials;
 
-  constructor(opts: OpenAIChatProviderOptions) {
-    this.provider = opts.provider ?? "openai-chat";
+  constructor(opts: OpenAIChatTransportOptions) {
+    this.provider = opts.provider;
     this.#credentials = opts.credentials;
-  }
-
-  capabilities(model: string): ModelCapabilities {
-    void model;
-    // Function-only: the chat transport cannot carry freeform custom tools, so
-    // the file-editing dialect must never be apply_patch.
-    return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" };
-  }
-
-  /** No catalog to guard presets against; unknown configs pass to the SDK. */
-  validateConfig(_config: ModelConfig): void {
-    void _config;
-  }
-
-  listModels(): ModelInfo[] {
-    return [];
   }
 
   /**
@@ -285,7 +279,7 @@ export class OpenAIChatProvider implements ModelProvider {
 
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
     try {
-      const client = await this.#credentials.client();
+      const client = await this.#credentials.client(signal);
       const params = this.buildParams(request);
       const stream = await client.chat.completions.create(params, { signal });
       yield* toChatEvents(stream, this.provider, request.modelConfig.model, signal);
