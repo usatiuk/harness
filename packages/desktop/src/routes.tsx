@@ -78,7 +78,7 @@ export function createDesktopRouter(session: DesktopSession) {
           const decision = field(data, "decision");
           if (decision !== "allow" && decision !== "deny")
             throw new Error("Invalid approval decision");
-          session.plugins.approvals.respond(field(data, "requestId"), decision);
+          await session.plugins.approvals.respond(field(data, "requestId"), decision);
           return { ok: true };
         }
         case "list-more":

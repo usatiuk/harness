@@ -101,7 +101,7 @@ async function buildClientHarness(
     client: { name: "harness-tui", version: "0.0.0" },
     plugins: CLIENT_CONTRACTS,
   });
-  const approvals = new ApprovalClient(wireClient.peer);
+  const approvals = new ApprovalClient(wireClient);
   const plugins = new CliPluginClient(wireClient, approvals);
   const service = new HarnessDomainClient(wireClient);
   await service.start();
@@ -122,7 +122,7 @@ async function buildHarness(): Promise<Harness> {
   const connections = createInProcessMessageConnectionPair();
   const server = await buildServerHarness(connections.right);
   try {
-    return await buildClientHarness(connections.left, () => server.close(false));
+    return await buildClientHarness(connections.left, () => server.close());
   } catch (error) {
     await server.close();
     throw error;

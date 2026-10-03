@@ -428,6 +428,10 @@ export class HarnessService implements ConversationRunner {
     return this.#engine.conversationTreeState(rootId);
   }
 
+  pendingRequests(rootId: ConversationId) {
+    return this.#engine.pendingRequests(rootId);
+  }
+
   rootConversationOf(conversationId: ConversationId): ConversationId {
     return this.#engine.rootConversationOf(conversationId);
   }

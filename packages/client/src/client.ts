@@ -69,6 +69,7 @@ export class HarnessClient {
   readonly #listeners = new Set<(event: HarnessClientEvent) => void>();
   readonly #attachedRoots = new Set<string>();
   readonly #rootByConversation = new Map<string, string>();
+  readonly #existingStreams = new Map<string, string>();
   #pendingAttach: { targetRootId: string; events: BufferedDelivery[]; bytes: number } | undefined;
   #attachTail: Promise<void> = Promise.resolve();
 
@@ -85,6 +86,14 @@ export class HarnessClient {
     this.peer.onNotification(conversationEventNotification, (params) => {
       this.receive(params.rootConversationId, params, () => {
         this.#rootByConversation.set(params.conversationId, params.rootConversationId);
+        const event = params.event;
+        if (
+          (event.type === "text.delta" || event.type === "reasoning.delta") &&
+          this.#existingStreams.get(params.conversationId) === event.turnId
+        )
+          return;
+        if (event.type === "turn.changed" && event.status !== "running")
+          this.#existingStreams.delete(params.conversationId);
         this.#emit({ type: "conversation", ...params });
       });
     });
@@ -365,6 +374,9 @@ export class HarnessClient {
     this.#rootByConversation.set(root, root);
     for (const member of attachment.members) {
       this.#rootByConversation.set(member.conversation.id, root);
+      if (member.live.status === "running" && member.live.turnId !== null)
+        this.#existingStreams.set(member.conversation.id, member.live.turnId);
+      else this.#existingStreams.delete(member.conversation.id);
     }
     this.#emit({ type: "attached", attachment });
   }
@@ -372,7 +384,10 @@ export class HarnessClient {
   #forgetRoot(root: string): void {
     this.#attachedRoots.delete(root);
     for (const [conversationId, candidate] of this.#rootByConversation) {
-      if (candidate === root) this.#rootByConversation.delete(conversationId);
+      if (candidate === root) {
+        this.#rootByConversation.delete(conversationId);
+        this.#existingStreams.delete(conversationId);
+      }
     }
   }
 

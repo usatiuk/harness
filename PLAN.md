@@ -29,7 +29,7 @@
 - A general workflow engine, distributed scheduler, or multi-user daemon.
 - Full branch management merely because the store can represent branches.
 - Provider server state such as `previous_response_id` as conversation truth.
-- Web, ACP, shared daemons, parallel TUI presentation, and desktop side-by-side
+- Web, ACP, parallel TUI presentation, and desktop side-by-side
   views or IDE features.
 - Generic compaction pipelines, server-side compaction, or a model-capability
   framework without a concrete implementation that needs them.
@@ -55,6 +55,13 @@ are plugin contributions wired at the shared server composition
 root. They may depend on protocol and narrower feature contracts, but the kernel
 does not import provider, workspace, sandbox, approval, activity, or subagent
 packages.
+
+## Active delivery
+
+Shared background servers and Local/WSL/SSH connections for desktop and TUI are
+selected for delivery in [the active plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
+The shared server/session ownership boundary is implemented; background discovery,
+provisioning and client interaction remain in progress.
 
 ## Current implementation status
 
@@ -94,7 +101,7 @@ As of 2026-10-03, Harness provides:
   other desktop platforms remain unqualified.
 - A language-neutral JSON-RPC client/server boundary used identically in-process,
   by a local stdio child, or through SSH. Multiple attached root conversations
-  may run concurrently; the TUI renders one while connection-owned approvals and
+  may run concurrently; the TUI renders one while server-owned approvals and
   server-owned background work remain live.
 - Durable model/preset pinning, plugin-owned child inheritance, runtime-bound
   callbacks, authoritative failed-reload detachment, and shared devcontainer

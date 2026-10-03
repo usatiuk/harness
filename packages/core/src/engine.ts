@@ -193,7 +193,17 @@ export class Engine {
    * A no-op if the request is unknown (already resolved, or cancelled by abort).
    */
   respond(conversationId: ConversationId, requestId: string, response: unknown): void {
-    this.#runtimes.get(conversationId)?.pendingRequests.get(requestId)?.(response);
+    this.#runtimes.get(conversationId)?.pendingRequests.get(requestId)?.resolve(response);
+  }
+
+  pendingRequests(rootId: ConversationId) {
+    return this.#treeRuntimes(rootId).flatMap((runtime) =>
+      [...runtime.pendingRequests].map(([requestId, pending]) => ({
+        requestId,
+        conversationId: runtime.conversation.id,
+        request: pending.request,
+      })),
+    );
   }
 
   /**
@@ -1317,10 +1327,13 @@ export class Engine {
         reject(aborted());
       };
       signal.addEventListener("abort", onAbort, { once: true });
-      runtime.pendingRequests.set(requestId, (response) => {
-        cleanup();
-        this.#emitKernel({ type: "request.resolved", requestId, conversationId });
-        resolve(response);
+      runtime.pendingRequests.set(requestId, {
+        request,
+        resolve: (response) => {
+          cleanup();
+          this.#emitKernel({ type: "request.resolved", requestId, conversationId });
+          resolve(response);
+        },
       });
       this.#emitKernel({ type: "request.created", requestId, conversationId, request });
     });

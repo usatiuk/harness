@@ -63,7 +63,7 @@ export class DesktopSession {
       ],
       onProtocolError: (error) => this.disconnect(error.message),
     });
-    const approvals = new ApprovalClient(this.client.peer);
+    const approvals = new ApprovalClient(this.client);
     this.plugins = new HarnessPluginClient(this.client, approvals);
     this.domain = new HarnessDomainClient(this.client);
     this.client.subscribe((event) => {

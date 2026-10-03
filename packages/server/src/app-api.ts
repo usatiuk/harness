@@ -31,18 +31,32 @@ import {
 } from "./client-protocol.ts";
 
 /** Concrete application configuration/auth composition, separate from core dispatch. */
-export function registerAppApi(
-  session: HarnessRpcSession,
-  service: HarnessService,
-  active: {
+export interface AppApiState {
+  signingIn: boolean;
+  settingsTail: Promise<void>;
+  readonly active: {
     kind: AuthStoreKind | null;
     entries: ReadonlyMap<string, ProviderEntry>;
     statuses: ReadonlyMap<string, ProviderStatus>;
-  },
+  };
+}
+
+export function registerAppApi(
+  session: HarnessRpcSession,
+  service: HarnessService,
+  state: AppApiState,
 ): { close(): Promise<void> } {
+  const active = state.active;
   const lifetime = new AbortController();
   const operations = new Set<Promise<unknown>>();
-  let signingIn = false;
+  const serializeSettings = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = state.settingsTail.then(operation);
+    state.settingsTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
   const invalid = (message: string): never => {
     throw new ResponseError(ErrorCodes.InvalidParams, message);
   };
@@ -135,7 +149,7 @@ export function registerAppApi(
   });
   session.onRequest(appSettingsUpdateRequest, (settings) =>
     track(
-      (async () => {
+      serializeSettings(async () => {
         lifetime.signal.throwIfAborted();
         if (settings.model) {
           await updateGlobalModel(defaultHome(), {
@@ -167,12 +181,12 @@ export function registerAppApi(
         await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });
         await service.refreshPluginDefaults(["approval", "auto-approval"]);
         return null;
-      })(),
+      }),
     ),
   );
   session.onRequest(appAuthLoginRequest, (params, requestSignal) => {
-    if (signingIn) invalid("A provider sign-in is already in progress");
-    signingIn = true;
+    if (state.signingIn) invalid("A provider sign-in is already in progress");
+    state.signingIn = true;
     const operation = (async () => {
       const signal = AbortSignal.any([requestSignal, lifetime.signal]);
       signal.throwIfAborted();
@@ -213,7 +227,7 @@ export function registerAppApi(
     })();
     void operation
       .finally(() => {
-        signingIn = false;
+        state.signingIn = false;
       })
       .catch(() => undefined);
     return track(operation);
@@ -222,7 +236,7 @@ export function registerAppApi(
     track(
       (async () => {
         lifetime.signal.throwIfAborted();
-        if (signingIn) invalid("Wait for provider sign-in to finish");
+        if (state.signingIn) invalid("Wait for provider sign-in to finish");
         const { store, kind } = await credentialStoreForRead(defaultHome());
         const entry = prepareProviderEntries(await readGlobalSettings(defaultHome()))(store).get(
           provider,

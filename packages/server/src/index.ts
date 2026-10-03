@@ -1,26 +1,16 @@
 import { join } from "node:path";
 import { defaultHome, readGlobalSettings } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
-import {
-  isKernelEvent,
-  jsonValueSchema,
-  type ModelConfig,
-  type PluginEntry,
-} from "@harness/protocol";
+import { type ModelConfig, type PluginEntry } from "@harness/protocol";
 import { reapStoppedSandboxes, sandboxPlugin } from "@harness/sandbox";
 import { activitiesPlugin } from "@harness/activities";
 import { agentsPlugin } from "@harness/agents";
 import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
-import {
-  APPROVAL_CLIENT_CONTRACT_VERSION,
-  approvalDecideRequest,
-  approvalPlugin,
-  isApprovalRequest,
-} from "@harness/approval";
+import { APPROVAL_CLIENT_CONTRACT_VERSION, approvalPlugin } from "@harness/approval";
 import { autoApprovalPlugin } from "@harness/auto-approval";
-import { subagentsDefinition } from "@harness/subagents";
-import { HarnessService, HarnessRpcSession } from "@harness/service";
+import { SubagentsDefinition } from "@harness/subagents";
+import { HarnessService, HarnessRpcSession, HarnessRpcHost } from "@harness/service";
 import type { RpcConnection } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { FEATURE_PLUGIN_CONTRACTS } from "@harness/client-features";
@@ -32,6 +22,7 @@ import { credentialStoreForRead } from "./credential-store.ts";
 import { registerFeatureServer } from "./features.ts";
 import { registerAppApi } from "./app-api.ts";
 import { bootstrapProviders } from "./provider-bootstrap.ts";
+import { registerApprovalServer } from "./approvals.ts";
 export { registerFeatureServer } from "./features.ts";
 export const ACTIVITY_APPROVAL_DEFAULTS = {
   activity_wait: "allow",
@@ -43,27 +34,29 @@ const CLIENT_CONTRACTS = [
   { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
   ...FEATURE_PLUGIN_CONTRACTS,
 ];
+export interface ServerComposition {
+  service: HarnessService;
+  host: HarnessRpcHost;
+  store: SqliteStore;
+  connect(connection: RpcConnection): HarnessRpcSession;
+  close(): Promise<void>;
+}
 export interface ServerHarness {
   service: HarnessService;
   rpcSession: HarnessRpcSession;
   store: SqliteStore;
-  close(closePeer?: boolean): Promise<void>;
+  close(): Promise<void>;
 }
-export async function buildServerHarness(
-  connection: RpcConnection,
+export async function buildServerComposition(
   options: { signal?: AbortSignal } = {},
-): Promise<ServerHarness> {
-  const startup = new AbortController();
-  const closedDuringStartup = connection.onClose(() => startup.abort());
-  const signal = options.signal
-    ? AbortSignal.any([startup.signal, options.signal])
-    : startup.signal;
+): Promise<ServerComposition> {
+  const signal = options.signal ?? new AbortController().signal;
   signal.throwIfAborted();
   const store = new SqliteStore(join(defaultHome(), "store.db"), undefined, undefined, {
     exclusive: true,
   });
-  let startedSession: HarnessRpcSession | undefined;
-  let startedAppApi: { close(): Promise<void> } | undefined;
+  const subagents = new SubagentsDefinition();
+  let startedHost: HarnessRpcHost | undefined;
   try {
     const settings = await readGlobalSettings(defaultHome());
     const prepare = prepareProviderEntries(
@@ -85,7 +78,7 @@ export async function buildServerHarness(
       approvalPlugin,
       agentsPlugin,
       autoApprovalPlugin,
-      subagentsDefinition,
+      subagents,
       { id: "compaction", policies: () => ({ compaction: modelCompaction }) },
     );
     const resolvedFallback: ModelConfig = fallbackModel ?? { provider: "demo", model: "demo-1" };
@@ -105,106 +98,83 @@ export async function buildServerHarness(
     void reapStoppedSandboxes();
     // Late-bind the runner so the subagents tool can spawn/observe/abort children. Mirrors the
     // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
-    subagentsDefinition.bindRunner(service);
-    const rpcSession = new HarnessRpcSession({
-      connection,
-      service,
-      server: { name: "harness", version: "0.0.0" },
-      plugins: CLIENT_CONTRACTS,
-      defaultModel: resolvedFallback,
-      // Handler payloads may contain secrets; report only the failure class.
-      onError: (error) =>
-        console.error(
-          JSON.stringify({
-            event: "server.failure",
-            kind: error instanceof Error ? error.name : "UnknownError",
-          }),
-        ),
-    });
-    startedSession = rpcSession;
-    registerFeatureServer(rpcSession, service);
-    const appApi = registerAppApi(rpcSession, service, {
-      kind,
-      entries: registry,
-      statuses: built.statuses,
-    });
-    startedAppApi = appApi;
-    const approvalRequests = new Map<string, AbortController>();
-    rpcSession.observeEvents((event, rootId) => {
-      if (!isKernelEvent(event)) return;
-      if (event.type === "request.resolved") {
-        approvalRequests.get(event.requestId)?.abort();
-        approvalRequests.delete(event.requestId);
-        return;
-      }
-      if (event.type !== "request.created" || !isApprovalRequest(event.request)) return;
-      if (approvalRequests.has(event.requestId)) return;
-      if (!rpcSession.supportsClientPlugin("approval", APPROVAL_CLIENT_CONTRACT_VERSION)) {
-        service.respond(event.conversationId, event.requestId, { decision: "deny" });
-        return;
-      }
-      const controller = new AbortController();
-      approvalRequests.set(event.requestId, controller);
-      void rpcSession
-        .request(
-          approvalDecideRequest,
-          {
-            requestId: event.requestId,
-            rootConversationId: rootId,
-            conversationId: event.conversationId,
-            call: {
-              callId: event.request.call.callId,
-              name: event.request.call.name,
-              args: jsonValueSchema.parse(event.request.call.args),
-            },
-            relationship: event.request.relationship,
-          },
-          { signal: controller.signal },
-        )
-        .then(
-          (response) => service.respond(event.conversationId, event.requestId, response),
-          () => service.respond(event.conversationId, event.requestId, { decision: "deny" }),
-        )
-        .finally(() => approvalRequests.delete(event.requestId));
-    });
-    signal.throwIfAborted();
-    closedDuringStartup.dispose();
-    rpcSession.start();
-    let closed = false;
-    return {
-      service,
-      rpcSession,
-      store,
-      close: async (closePeer = true) => {
-        if (closed) return;
-        closed = true;
+    subagents.bindRunner(service);
+    const host = new HarnessRpcHost(service);
+    startedHost = host;
+    const sessions = new Map<HarnessRpcSession, { close(): Promise<void> }>();
+    let closing: Promise<void> | undefined;
+    const appState = {
+      signingIn: false,
+      settingsTail: Promise.resolve(),
+      active: { kind, entries: registry, statuses: built.statuses },
+    };
+    const connect = (connection: RpcConnection): HarnessRpcSession => {
+      if (closing !== undefined) throw new Error("server is stopping");
+      const rpcSession = new HarnessRpcSession({
+        connection,
+        host,
+        server: { name: "harness", version: "0.0.0" },
+        plugins: CLIENT_CONTRACTS,
+        defaultModel: resolvedFallback,
+        onError: (error) =>
+          console.error(
+            JSON.stringify({
+              event: "server.failure",
+              kind: error instanceof Error ? error.name : "UnknownError",
+            }),
+          ),
+      });
+      registerFeatureServer(rpcSession, service);
+      const appApi = registerAppApi(rpcSession, service, appState);
+      sessions.set(rpcSession, appApi);
+      connection.onClose(() => {
+        void appApi
+          .close()
+          .finally(() => sessions.delete(rpcSession))
+          .catch(() => undefined);
+      });
+      registerApprovalServer(rpcSession, service);
+      rpcSession.start();
+      return rpcSession;
+    };
+    const close = (): Promise<void> => {
+      closing ??= doClose();
+      return closing;
+    };
+    const doClose = async (): Promise<void> => {
+      try {
+        // Stop shared admission before aborting peer-owned auth interactions. Drain
+        // both lifetimes before disposing sessions or the store, including failures.
+        const results = await Promise.allSettled([
+          host.shutdown(),
+          ...[...sessions.values()].map((app) => app.close()),
+        ]);
+        const errors = results.flatMap((result) =>
+          result.status === "rejected" ? [result.reason as unknown] : [],
+        );
+        if (errors.length > 0) throw new AggregateError(errors, "server shutdown failed");
+      } finally {
         try {
-          await appApi.close();
-          await rpcSession.shutdown(closePeer);
+          await Promise.all([...sessions.keys()].map((session) => session.shutdown()));
         } finally {
           try {
-            subagentsDefinition.resetSession();
+            subagents.resetSession();
           } finally {
             store.close();
           }
         }
-      },
+      }
     };
+    return { service, host, store, connect, close };
   } catch (error) {
-    closedDuringStartup.dispose();
     const cleanupErrors: unknown[] = [];
     try {
-      await startedAppApi?.close();
+      await startedHost?.shutdown();
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
     }
     try {
-      await startedSession?.shutdown();
-    } catch (cleanupError) {
-      cleanupErrors.push(cleanupError);
-    }
-    try {
-      subagentsDefinition.resetSession();
+      subagents.resetSession();
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
     }
@@ -219,6 +189,30 @@ export async function buildServerHarness(
       });
     }
     throw error;
+  }
+}
+
+export async function buildServerHarness(
+  connection: RpcConnection,
+  options: { signal?: AbortSignal } = {},
+): Promise<ServerHarness> {
+  const startup = new AbortController();
+  const closedDuringStartup = connection.onClose(() => startup.abort());
+  const signal = options.signal
+    ? AbortSignal.any([startup.signal, options.signal])
+    : startup.signal;
+  let composition: ServerComposition | undefined;
+  try {
+    composition = await buildServerComposition({ signal });
+    signal.throwIfAborted();
+    const rpcSession = composition.connect(connection);
+    const owner = composition;
+    return { service: owner.service, store: owner.store, rpcSession, close: () => owner.close() };
+  } catch (error) {
+    await composition?.close();
+    throw error;
+  } finally {
+    closedDuringStartup.dispose();
   }
 }
 
@@ -244,6 +238,6 @@ export async function runStdioServer(): Promise<void> {
   } finally {
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);
-    await server?.close(true);
+    await server?.close();
   }
 }

@@ -1,5 +1,7 @@
 # Harness client protocol v1
 
+Historical protocol. Current clients require [protocol v2](client-v2.md).
+
 Harness exposes one bidirectional JSON-RPC 2.0 connection. The current TUI uses
 it over an in-process queue; the desktop uses a Tauri bridge to the same bundled
 stdio server. `harness server --stdio` uses newline-delimited JSON

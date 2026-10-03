@@ -488,10 +488,10 @@ export function App({
               <Text color="magenta">{`❓ ${pending.summary} `}</Text>
               <ConfirmInput
                 onConfirm={() => {
-                  plugins.approvals.respond(pending.requestId, "allow");
+                  report(plugins.approvals.respond(pending.requestId, "allow"));
                 }}
                 onCancel={() => {
-                  plugins.approvals.respond(pending.requestId, "deny");
+                  report(plugins.approvals.respond(pending.requestId, "deny"));
                 }}
               />
             </Box>

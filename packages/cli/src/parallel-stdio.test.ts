@@ -43,7 +43,7 @@ it("runs simultaneous roots and scoped approvals/processes over a real stdio ser
       ...CLI_PLUGIN_CONTRACTS,
     ],
   });
-  const approvals = new ApprovalClient(client.peer);
+  const approvals = new ApprovalClient(client);
   const plugins = new CliPluginClient(client, approvals);
   const events: HarnessClientEvent[] = [];
   client.subscribe((event) => events.push(event));
@@ -112,7 +112,7 @@ it("runs simultaneous roots and scoped approvals/processes over a real stdio ser
     expect(bEvents.filter((event) => event.type === "resolved")).toHaveLength(0);
     expect(plugins.runningActivities(b.id as ConversationId)).toBe(1);
     const bDone = terminal(b.id);
-    approvals.respond(pendingB.requestId, "allow");
+    await approvals.respond(pendingB.requestId, "allow");
     await bDone;
     expect(bEvents.filter((event) => event.type === "resolved")).toHaveLength(1);
     await plugins.activities(b.id as ConversationId).kill(shell.id);
@@ -123,7 +123,7 @@ it("runs simultaneous roots and scoped approvals/processes over a real stdio ser
     const retryApproval = approval(a.id, retryEvents);
     const aDone = terminal(a.id);
     await client.deliver(a.id, "retry-A", "send");
-    approvals.respond((await retryApproval).requestId, "allow");
+    await approvals.respond((await retryApproval).requestId, "allow");
     await aDone;
     const historyA = JSON.stringify((await client.history({ conversationId: a.id })).entries);
     const historyB = JSON.stringify((await client.history({ conversationId: b.id })).entries);

@@ -43,6 +43,7 @@ import type {
 } from "@harness/protocol";
 import type { HarnessService } from "./service.ts";
 import { RpcServer } from "./rpc-server.ts";
+import { HarnessRpcHost } from "./rpc-host.ts";
 import {
   projectConversation,
   projectConversationConfig,
@@ -55,7 +56,7 @@ const HISTORY_READ_BATCH = 200;
 
 export interface HarnessRpcSessionOptions {
   readonly connection: RpcConnection;
-  readonly service: HarnessService;
+  readonly host: HarnessRpcHost;
   readonly server: PeerInfo;
   readonly plugins?: PluginContract[];
   readonly onError?: (error: unknown) => void;
@@ -66,7 +67,7 @@ export interface HarnessRpcSessionOptions {
 export class HarnessRpcSession {
   readonly server: RpcServer;
   readonly #service: HarnessService;
-  readonly #owned = new Set<ConversationId>();
+  readonly #host: HarnessRpcHost;
   readonly #attached = new Set<ConversationId>();
   readonly #unsubscribe: () => void;
   readonly #onError: (error: unknown) => void;
@@ -75,14 +76,12 @@ export class HarnessRpcSession {
   readonly #eventObservers = new Set<(event: HarnessEvent, rootId: ConversationId) => void>();
   readonly #clientPlugins = new Map<string, number>();
   readonly #cleanups: Array<() => void> = [];
-  readonly #closing = new Set<ConversationId>();
   readonly #attaching = new Set<ConversationId>();
-  readonly #active = new Map<ConversationId, Set<AbortController>>();
-  readonly #idleWaiters = new Map<ConversationId, Set<() => void>>();
   #shutdown: Promise<void> | undefined;
 
   constructor(options: HarnessRpcSessionOptions) {
-    this.#service = options.service;
+    this.#host = options.host;
+    this.#service = options.host.service;
     this.#defaultModel = options.defaultModel ?? { provider: "demo", model: "demo-1" };
     this.#onError = options.onError ?? (() => undefined);
     options.connection.onClose(() => {
@@ -100,6 +99,25 @@ export class HarnessRpcSession {
       },
     });
     this.#registerCoreHandlers();
+    this.#cleanups.push(
+      this.#host.onDetached((root) => {
+        if (!this.#attached.delete(root)) return;
+        void this.notify(conversationDetachedNotification, { rootConversationId: root }).catch(
+          (error: unknown) => {
+            this.#onError(error);
+            this.server.peer.terminateProtocol("failed to send conversation detachment");
+          },
+        );
+      }),
+    );
+    this.#cleanups.push(
+      this.#host.subscribeNotifications((root, definition, params) => {
+        if (!this.#attached.has(root)) return;
+        void this.notify(definition, params).catch(() =>
+          this.server.peer.terminateProtocol("failed to send a plugin event"),
+        );
+      }),
+    );
     this.#unsubscribe = this.#service.subscribe((event) => {
       const conversationId = this.#conversationIdOf(event);
       if (conversationId === undefined) return;
@@ -130,7 +148,9 @@ export class HarnessRpcSession {
     definition: RpcRequest<P, R>,
     handler: RequestHandler<P, R>,
   ): void {
-    this.server.onRequest(definition, handler);
+    this.server.onRequest(definition, (params, signal) =>
+      this.#host.request(() => handler(params, signal)),
+    );
   }
 
   onNotification<P extends JsonValue>(
@@ -152,6 +172,14 @@ export class HarnessRpcSession {
     return this.server.peer.notify(definition, params);
   }
 
+  broadcast<P extends JsonValue>(
+    root: ConversationId,
+    definition: RpcNotification<P>,
+    params: P,
+  ): void {
+    this.#host.broadcast(root, definition, params);
+  }
+
   registerSnapshot(pluginId: string, read: (rootId: ConversationId) => JsonValue): void {
     if (this.#snapshots.has(pluginId)) throw new Error(`duplicate plugin snapshot '${pluginId}'`);
     this.#snapshots.set(pluginId, read);
@@ -170,7 +198,7 @@ export class HarnessRpcSession {
 
   isAttached(conversationId: ConversationId): boolean {
     const root = this.#service.rootConversationOf(conversationId);
-    return this.#attached.has(root) && !this.#closing.has(root);
+    return this.#attached.has(root) && !this.#host.isClosing(root);
   }
 
   async runAttached<T>(
@@ -179,41 +207,10 @@ export class HarnessRpcSession {
     requestSignal?: AbortSignal,
   ): Promise<T> {
     const root = this.#service.rootConversationOf(conversationId);
-    if (!this.#attached.has(root) || this.#closing.has(root) || this.#shutdown !== undefined) {
+    if (!this.#attached.has(root) || this.#host.isClosing(root) || this.#shutdown !== undefined) {
       throw new Error(`conversation '${conversationId}' is not attached`);
     }
-    return this.#runOwned(root, operation, requestSignal);
-  }
-
-  async #runOwned<T>(
-    root: ConversationId,
-    operation: (signal: AbortSignal) => Promise<T>,
-    requestSignal?: AbortSignal,
-  ): Promise<T> {
-    const controller = new AbortController();
-    const cancel = () => controller.abort();
-    if (requestSignal?.aborted) controller.abort();
-    requestSignal?.addEventListener("abort", cancel, { once: true });
-    let active = this.#active.get(root);
-    if (active === undefined) {
-      active = new Set();
-      this.#active.set(root, active);
-    }
-    active.add(controller);
-    try {
-      if (controller.signal.aborted) throw new Error("operation cancelled");
-      const result = await operation(controller.signal);
-      if (controller.signal.aborted) throw new Error("operation cancelled");
-      return result;
-    } finally {
-      requestSignal?.removeEventListener("abort", cancel);
-      active.delete(controller);
-      if (active.size === 0) {
-        this.#active.delete(root);
-        for (const resolve of this.#idleWaiters.get(root) ?? []) resolve();
-        this.#idleWaiters.delete(root);
-      }
-    }
+    return this.#host.run(root, operation, requestSignal);
   }
 
   shutdown(closePeer = true): Promise<void> {
@@ -225,25 +222,12 @@ export class HarnessRpcSession {
   async #doShutdown(closePeer: boolean): Promise<void> {
     this.#unsubscribe();
     for (const cleanup of this.#cleanups.splice(0)) cleanup();
-    const roots = [...this.#owned];
-    for (const root of roots) this.#closing.add(root);
-    for (const root of roots) this.#cancelOperations(root);
-    await Promise.all(roots.map((root) => this.#whenOperationsIdle(root)));
-    const settled = await Promise.allSettled(
-      roots.map((root) => this.#service.deactivateSession(root, { force: true })),
-    );
-    this.#owned.clear();
     this.#attached.clear();
-    this.#closing.clear();
     if (closePeer) this.server.close();
-    const errors = settled.flatMap((result) =>
-      result.status === "rejected" ? [result.reason as unknown] : [],
-    );
-    if (errors.length > 0) throw new AggregateError(errors, "Conversation shutdown failed");
   }
 
   #registerCoreHandlers(): void {
-    this.server.onRequest(serverModelsRequest, () => ({
+    this.onRequest(serverModelsRequest, () => ({
       models: this.#service.availableModels().map(projectModelInfo),
       defaultModel: {
         provider: this.#defaultModel.provider,
@@ -252,7 +236,7 @@ export class HarnessRpcSession {
       },
     }));
 
-    this.server.onRequest(conversationCreateRequest, async ({ cwd, overrides }) =>
+    this.onRequest(conversationCreateRequest, async ({ cwd, overrides }) =>
       projectConversation(
         await this.#service.createConversation({
           ...(cwd === null ? {} : { cwd }),
@@ -261,12 +245,12 @@ export class HarnessRpcSession {
       ),
     );
 
-    this.server.onRequest(conversationGetRequest, async ({ conversationId }) => {
+    this.onRequest(conversationGetRequest, async ({ conversationId }) => {
       const conversation = await this.#service.getConversation(conversationId as ConversationId);
       return conversation === undefined ? null : projectConversation(conversation);
     });
 
-    this.server.onRequest(conversationListRequest, async ({ cursor, limit }) => {
+    this.onRequest(conversationListRequest, async ({ cursor, limit }) => {
       const records = await this.#service.listConversationPage(
         limit,
         cursor === null
@@ -288,17 +272,17 @@ export class HarnessRpcSession {
       };
     });
 
-    this.server.onRequest(conversationAttachRequest, ({ conversationId }, signal) =>
+    this.onRequest(conversationAttachRequest, ({ conversationId }, signal) =>
       this.#attach(conversationId as ConversationId, signal),
     );
 
-    this.server.onRequest(conversationCloseRequest, async ({ conversationId, force }) => {
+    this.onRequest(conversationCloseRequest, async ({ conversationId, force }) => {
       const id = conversationId as ConversationId;
       const result = await this.#deactivate(id, force);
       return { status: result.status === "deactivated" ? "closed" : "busy" };
     });
 
-    this.server.onRequest(conversationReloadRequest, async ({ conversationId, force }) => {
+    this.onRequest(conversationReloadRequest, async ({ conversationId, force }) => {
       const id = conversationId as ConversationId;
       const root = this.#service.rootConversationOf(id);
       const result = await this.#deactivate(root, force);
@@ -306,7 +290,7 @@ export class HarnessRpcSession {
       return { status: "reloaded" as const, attachment: await this.#attach(root) };
     });
 
-    this.server.onRequest(conversationDeleteEmptyRequest, async ({ conversationId }) => {
+    this.onRequest(conversationDeleteEmptyRequest, async ({ conversationId }) => {
       const id = conversationId as ConversationId;
       return this.runAttached(id, async () => {
         await this.#service.deleteConversationIfEmpty(id);
@@ -314,7 +298,7 @@ export class HarnessRpcSession {
       });
     });
 
-    this.server.onRequest(conversationDeliverRequest, async ({ conversationId, text, intent }) => {
+    this.onRequest(conversationDeliverRequest, async ({ conversationId, text, intent }) => {
       const id = conversationId as ConversationId;
       return this.runAttached(id, async () => {
         await this.#service.deliver(id, text, intent);
@@ -322,7 +306,7 @@ export class HarnessRpcSession {
       });
     });
 
-    this.server.onRequest(conversationRewindRequest, async ({ conversationId, itemId }) => {
+    this.onRequest(conversationRewindRequest, async ({ conversationId, itemId }) => {
       const id = conversationId as ConversationId;
       return this.runAttached(id, async () => {
         await this.#service.rewind(id, itemId as ItemId);
@@ -330,7 +314,7 @@ export class HarnessRpcSession {
       });
     });
 
-    this.server.onRequest(conversationCompactRequest, async ({ conversationId }, signal) => {
+    this.onRequest(conversationCompactRequest, async ({ conversationId }, signal) => {
       const id = conversationId as ConversationId;
       return this.runAttached(
         id,
@@ -341,43 +325,37 @@ export class HarnessRpcSession {
       );
     });
 
-    this.server.onRequest(conversationHistoryRequest, (params) =>
+    this.onRequest(conversationHistoryRequest, (params) =>
       this.runAttached(params.conversationId as ConversationId, () => this.#history(params)),
     );
-    this.server.onRequest(conversationItemReadRequest, (params) =>
+    this.onRequest(conversationItemReadRequest, (params) =>
       this.runAttached(params.conversationId as ConversationId, () => this.#readItem(params)),
     );
 
-    this.server.onRequest(conversationUsageRequest, async ({ conversationId }) => {
+    this.onRequest(conversationUsageRequest, async ({ conversationId }) => {
       const id = conversationId as ConversationId;
       return this.runAttached(id, async () =>
         projectUsageSummary(await this.#service.usageSummary(id)),
       );
     });
 
-    this.server.onRequest(
-      conversationModelSetRequest,
-      async ({ conversationId, provider, model }) => {
-        const id = conversationId as ConversationId;
-        return this.runAttached(id, async () => {
-          await this.#service.setModel(id, { provider, model });
-          return null;
-        });
-      },
-    );
+    this.onRequest(conversationModelSetRequest, async ({ conversationId, provider, model }) => {
+      const id = conversationId as ConversationId;
+      return this.runAttached(id, async () => {
+        await this.#service.setModel(id, { provider, model });
+        return null;
+      });
+    });
 
-    this.server.onRequest(
-      conversationPresetSetRequest,
-      async ({ conversationId, expected, preset }) => {
-        const id = conversationId as ConversationId;
-        return this.runAttached(id, async () => {
-          await this.#service.setPreset(id, expected, preset ?? undefined);
-          return null;
-        });
-      },
-    );
+    this.onRequest(conversationPresetSetRequest, async ({ conversationId, expected, preset }) => {
+      const id = conversationId as ConversationId;
+      return this.runAttached(id, async () => {
+        await this.#service.setPreset(id, expected, preset ?? undefined);
+        return null;
+      });
+    });
 
-    this.server.onRequest(
+    this.onRequest(
       conversationPluginConfigPatchRequest,
       async ({ conversationId, pluginId, patch, saveGlobal }) => {
         const id = conversationId as ConversationId;
@@ -391,30 +369,10 @@ export class HarnessRpcSession {
 
   async #deactivate(rootOrMember: ConversationId, force: boolean) {
     const root = this.#service.rootConversationOf(rootOrMember);
-    if (!this.#attached.has(root) || this.#closing.has(root)) {
+    if (!this.#attached.has(root) || this.#host.isClosing(root)) {
       throw new Error(`conversation '${rootOrMember}' is not attached`);
     }
-    this.#closing.add(root);
-    try {
-      if (force) this.#cancelOperations(root);
-      await this.#whenOperationsIdle(root);
-      const result = await this.#service.deactivateSession(root, { force });
-      return result;
-    } finally {
-      // Engine completes all disposal before reporting cleanup errors. Membership follows the
-      // surviving activation, not whether the request happened to return successfully.
-      if (this.#service.conversationTreeState(root).length === 0) {
-        this.#attached.delete(root);
-        this.#owned.delete(root);
-        void this.server.peer
-          .notify(conversationDetachedNotification, { rootConversationId: root })
-          .catch((error: unknown) => {
-            this.#onError(error);
-            this.server.peer.terminateProtocol("failed to send conversation detachment");
-          });
-      }
-      this.#closing.delete(root);
-    }
+    return this.#host.deactivate(root, force);
   }
 
   async #attach(
@@ -422,41 +380,25 @@ export class HarnessRpcSession {
     requestSignal?: AbortSignal,
   ): Promise<AttachResult> {
     const rootId = this.#service.rootConversationOf(conversationId);
-    if (this.#shutdown !== undefined || this.#closing.has(rootId)) {
+    if (this.#shutdown !== undefined || this.#host.isClosing(rootId)) {
       throw new Error("connection is shutting down");
     }
     if (this.#attaching.has(rootId))
       throw new Error(`conversation '${rootId}' is already attaching`);
-    const newlyOwned = !this.#owned.has(rootId);
-    this.#owned.add(rootId);
+    const alreadyAttached = this.#attached.has(rootId);
     this.#attaching.add(rootId);
     try {
-      const result = await this.#runOwned(
+      const result = await this.#host.run(
         rootId,
         (signal) => this.#buildAttachment(conversationId, rootId, signal),
         requestSignal,
       );
-      if (this.#shutdown !== undefined || this.#closing.has(rootId)) {
+      if (this.#shutdown !== undefined || this.#host.isClosing(rootId)) {
         throw new Error("connection closed during attachment");
       }
-      this.#attached.add(rootId);
       return result;
     } catch (error) {
-      if (newlyOwned && this.#shutdown === undefined) {
-        this.#closing.add(rootId);
-        this.#cancelOperations(rootId);
-        try {
-          await this.#whenOperationsIdle(rootId);
-          await this.#service.deactivateSession(rootId, { force: true });
-        } catch (cleanupError) {
-          throw new AggregateError([error, cleanupError], "attachment and cleanup failed", {
-            cause: cleanupError,
-          });
-        } finally {
-          this.#owned.delete(rootId);
-          this.#closing.delete(rootId);
-        }
-      }
+      if (!alreadyAttached) this.#attached.delete(rootId);
       throw error;
     } finally {
       this.#attaching.delete(rootId);
@@ -469,7 +411,7 @@ export class HarnessRpcSession {
     signal: AbortSignal,
   ): Promise<AttachResult> {
     await this.#service.prepare(conversationId);
-    if (signal.aborted || this.#shutdown !== undefined || this.#closing.has(rootId)) {
+    if (signal.aborted || this.#shutdown !== undefined || this.#host.isClosing(rootId)) {
       throw new Error("attachment cancelled");
     }
     if (this.#service.rootConversationOf(conversationId) !== rootId) {
@@ -479,7 +421,7 @@ export class HarnessRpcSession {
       this.#service.getConversation(rootId),
       this.#service.usageSummary(rootId),
     ]);
-    if (signal.aborted || this.#shutdown !== undefined || this.#closing.has(rootId)) {
+    if (signal.aborted || this.#shutdown !== undefined || this.#host.isClosing(rootId)) {
       throw new Error("attachment cancelled");
     }
     if (root === undefined) throw new Error(`unknown conversation: ${rootId}`);
@@ -509,24 +451,8 @@ export class HarnessRpcSession {
       void this.shutdown(false).catch(this.#onError);
       throw new Error("attachment snapshot exceeds its byte limit");
     }
+    this.#attached.add(rootId);
     return result;
-  }
-
-  #cancelOperations(root: ConversationId): void {
-    this.#service.cancelSession(root);
-    for (const controller of this.#active.get(root) ?? []) controller.abort();
-  }
-
-  async #whenOperationsIdle(root: ConversationId): Promise<void> {
-    if ((this.#active.get(root)?.size ?? 0) === 0) return;
-    await new Promise<void>((resolve) => {
-      let waiters = this.#idleWaiters.get(root);
-      if (waiters === undefined) {
-        waiters = new Set();
-        this.#idleWaiters.set(root, waiters);
-      }
-      waiters.add(resolve);
-    });
   }
 
   async #history(params: {

@@ -21,6 +21,14 @@ npm run test:native              # build and exercise actual Windows Tauri app
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## Shared-server delivery
+
+Public RPC regressions in server/src/shared-server.test.ts qualify multi-client
+approval decisions, disconnected accepted/queued work, fresh reconnect without
+partial stream suffixes, failed second-client attach, shared detachment and request
+drainage. Background process, provisioning, host-editor and native integration
+checks remain open in [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
+
 ## Desktop native tests
 
 `npm run test:native` requires Windows WebView2, Rust, and Visual Studio C++ build

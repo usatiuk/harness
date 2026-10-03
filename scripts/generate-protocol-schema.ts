@@ -14,7 +14,12 @@ import {
   activityKillRequest,
   activityPeekRequest,
 } from "@harness/activities";
-import { approvalDecideRequest } from "@harness/approval";
+import {
+  approvalDecideRequest,
+  approvalCreatedNotification,
+  approvalResolvedNotification,
+  approvalsSnapshotSchema,
+} from "@harness/approval";
 import {
   sandboxEventNotification,
   sandboxRebuildRequest,
@@ -36,6 +41,8 @@ const messages: readonly RpcMessage[] = [
   initializeRequest,
   ...coreRpcMessages,
   approvalDecideRequest,
+  approvalCreatedNotification,
+  approvalResolvedNotification,
   activitiesEventNotification,
   activityPeekRequest,
   activityKillRequest,
@@ -84,19 +91,25 @@ definitions.sandbox_snapshot = z.toJSONSchema(sandboxSnapshotSchema, {
   unrepresentable: "throw",
 }) as JsonValue;
 
+definitions.approval_snapshot = z.toJSONSchema(approvalsSnapshotSchema, {
+  target: "draft-2020-12",
+  unrepresentable: "throw",
+}) as JsonValue;
+
 const document = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://harness.local/protocol/client-v1.schema.json",
-  title: "Harness client protocol v1",
+  $id: "https://harness.local/protocol/client-v2.schema.json",
+  title: "Harness client protocol v2",
   $defs: definitions,
   "x-harness-messages": manifest,
   "x-harness-snapshots": {
+    approval: { $ref: "#/$defs/approval_snapshot" },
     activities: { $ref: "#/$defs/activities_snapshot" },
     sandbox: { $ref: "#/$defs/sandbox_snapshot" },
   },
 };
 
-const output = resolve("docs/protocol/client-v1.schema.json");
+const output = resolve("docs/protocol/client-v2.schema.json");
 await mkdir(resolve("docs/protocol"), { recursive: true });
 await writeFile(
   output,

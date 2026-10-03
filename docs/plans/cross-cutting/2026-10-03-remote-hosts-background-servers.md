@@ -1,0 +1,116 @@
+# Remote hosts and background servers
+
+Date: 2026-10-03. Status: Active.
+
+## Outcome and decisions
+
+Desktop and TUI are clients of one background server per execution environment,
+OS account, and canonical Harness home. Both initially select **Local** and share
+a client-side connection registry. Switching hosts leaves other hosts running.
+The accepted product discussion and code evidence are in
+[the research note](../../research/2026-10-03-remote-hosts-and-background-servers.md).
+
+Use one explicit shared RPC host around HarnessService. It owns admitted roots,
+operation draining, and shared close/reload; sessions own observer membership.
+Disconnect disposes the observer. Server shutdown drains/cancels canonical work.
+Approvals remain kernel-owned pending requests, with metadata available to attach
+and decisions delivered through client-to-server RPC. No transport-owned approval
+promise or automatic denial on disconnect remains.
+
+Reconnect constructs fresh clients and attachments. An underway response is shown
+as running until its canonical completed item arrives. Do not reconstruct missed
+partial text, add replay storage, or automatically resend a mutation whose reply
+was lost. Explicit host selection and drafts are client concerns.
+
+Host-local transport is authenticated loopback TCP with a random secret kept in a
+user-private file on POSIX and protected with current-user DPAPI on Windows.
+Authenticate before admitting a JSON-RPC session. An owner discovery record gives
+the endpoint and home/instance identities; the existing exclusive SQLite lock is
+the final ownership authority. Bounded ensure/connect handles startup contention
+and stale discovery, and never treats a PID or file as proof of liveness.
+
+Clients use a common Node connection/provisioning adapter. Local connects directly;
+WSL and SSH execute a fixed stdio bridge into the same server. WSL persistent
+execution uses an independently launched Windows WSL process, so its lifetime
+does not depend on a closed desktop transport. SSH uses OpenSSH configuration,
+host verification and agents. Protocol stdout stays separate from authentication
+interaction and diagnostic stderr.
+
+Add `client.json` alongside the controlling machine's existing global settings.
+It stores structured host routes, runtime choices and client preferences, shared
+by desktop/TUI. Each server retains its existing `settings.json`, project settings
+and credentials. No remote settings are copied into the registry.
+
+Development provisioning builds current local code into JavaScript, transfers the
+bundle and generated dependency manifest/lock, and prepares target dependencies
+with the target's Node/npm. Dependency installations are cached by manifest,
+platform and Node compatibility; source changes only replace the staged bundle.
+Managed provisioning supplies a supported portable Node runtime and the same
+target-compatible server dependencies in a user-local installation. Qualify Linux
+x64 glibc first using official pinned Node artifacts with checksum verification.
+There is no existing Harness release channel: local build transfer is required
+and does not pretend a published Harness package exists. Staging is atomic and
+new code is activated only by explicit shared-server restart.
+
+Desktop gets a host switcher above conversations and structured WSL/SSH editors,
+test/connect progress, and server controls. WSL distributions are discovered as
+available choices, without provisioning each one at startup. TUI provides equivalent
+host editing, discovery, selection and lifecycle actions. Preserve independent
+host sessions and scope views/drafts/path selection/settings by host identity.
+Default exit keeps the server running; provide explicit stop and a remembered
+desktop exit preference. Tray, notifications and login autostart remain optional.
+
+## Milestones and completion checks
+
+- [x] **Shared server authority and protocol.** Split composition/session lifetimes;
+      centralize admitted roots and operation draining; detach every affected observer
+      on explicit close/reload; retain/re-project approval metadata and accept one
+      decision; evolve protocol version. Check through two real RPC clients that one
+      disconnect/failed attach does not cancel another client's work or approval, and
+      explicit root/server stop disposes resources and drains before store close.
+- [ ] **Background discovery and common adapters.** Depends on shared authority.
+      Implement authenticated ensure/connect, exclusive startup convergence, stale
+      discovery recovery, stable home/instance identity, explicit shutdown and fixed
+      stdio bridge. Check concurrent real process starts, unauthorized connections,
+      bridge exit survival, reconnect and explicit shutdown on native Windows.
+- [ ] **Registry and provisioning.** Depends on adapters. Add validated shared
+      client.json and structured local/WSL/SSH routes; bundle deployment and cached
+      native dependency setup; portable Node managed setup; atomic activation and
+      explicit restart. Check real Ubuntu WSL and isolated SSH, source-only upload,
+      dependency reuse/invalidation, interrupted transfer, target paths, credential
+      onboarding and compatible/incompatible handshake.
+- [ ] **Desktop/TUI interaction.** Depends on registry and adapters. Implement
+      Local-first switchers, equivalent connection editors/discovery/server controls,
+      host-scoped navigation/drafts/settings and fresh reconnect, keep-running exit.
+      Check actual desktop/native bridge and TUI process behavior with multiple hosts,
+      simultaneous clients and a closed UI. Remote OAuth callback routing must be
+      exercised before claiming complete remote authentication.
+- [ ] **Validation, review and cleanup.** Run focused public regressions and full
+      npm run check, desktop build/native qualification, update README/PLAN/interface,
+      protocol and testing guidance; independent correctness, architecture/simplicity
+      and evidence reviews. Resolve required findings and verify final diff. Aim for
+      two validated feature commits followed by tied cleanup, repeating the cadence
+      when a larger delivery needs more coherent increments.
+
+## Evidence and remaining work
+
+- Shared composition/RPC host and protocol v2 implemented. Public regressions
+  qualify disconnected accepted/queued turns, approvals with no client, racing
+  decisions, failed second attachment, atomic snapshot admission, fresh response
+  convergence, real shell survival/completion broadcast, shared detachment,
+  configuration drainage and concurrent composition closure.
+- Dependencies installed with npm ci on Node 24.19.0. Full npm run check passed:
+  94 test files, 850 tests; 6 files/30 tests skipped by existing opt-in/platform
+  conditions. Fixture TEMP/TMP uses D:/Temp/harness-validation, outside both the
+  user's existing global settings and repository ancestor instructions/devcontainer
+  configuration. Earlier runs exposed those fixture ancestry assumptions; no
+  production configuration was changed to accommodate them.
+- Real WSL enumeration found Ubuntu and docker-desktop. Ubuntu is Linux x64 and
+  has no usable Linux Node/npm installation or sshd; isolated portable provisioning
+  and an SSH qualification fixture are still required.
+- Three independent read-only reviews covered correctness, architecture/simplicity,
+  and tests/docs. Fixed snapshot/admission event loss, connection admission during
+  composition closure, concurrent close drainage, and test resource cleanup.
+- Remaining milestones stay open. The current desktop/stdio launchers still own
+  their child compositions; actual background discovery, host provisioning,
+  GUI/TUI controls and native/remote integration remain required.

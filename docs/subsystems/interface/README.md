@@ -117,8 +117,9 @@ action; restart reloads durable history without resuming in-flight work.
 Switching visible roots does not stop either conversation tree. A same-root reload is blocked
 by a running turn and confirmed when background activities exist; acceptance
 closes only that root and its descendants, aborts pending work, disposes its
-plugin services, then attaches a fresh activation. Connection close force-closes
-all of its root scopes and server-owned processes. Other roots are unaffected by
+plugin services, then attaches a fresh activation. RPC connection close removes its observer; shared server ownership preserves
+accepted work. The current owned stdio launcher explicitly closes its composition
+on exit until background connection delivery is complete. Other roots are unaffected by
 closing or reloading one root.
 
 `conversation.detached` reports that an activation is gone even when cleanup or
@@ -169,11 +170,11 @@ prepared execution backend as model-issued commands.
 
 ## Client boundary
 
-The reusable boundary is the [v1 bidirectional JSON-RPC protocol](../../protocol/client-v1.md),
+The reusable boundary is the [v2 bidirectional JSON-RPC protocol](../../protocol/client-v2.md),
 authored as strict Zod schemas with committed JSON Schema for non-TypeScript
 clients. `@harness/client` coordinates initialization, attachment, bounded
 history, and presentation-domain conversion. `@harness/service` owns dispatch
-and connection-owned root-scope lifetime.
+and shared root-scope lifetime through HarnessRpcHost.
 
 Attachment returns a bounded snapshot, then ordered semantic notifications;
 history is fetched independently through anchored byte-bounded pages. Plugins use

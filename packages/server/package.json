@@ -28,6 +28,11 @@
       "development": "./src/client-protocol.ts",
       "types": "./dist/client-protocol.d.ts",
       "default": "./dist/client-protocol.js"
+    },
+    "./approvals": {
+      "development": "./src/approvals.ts",
+      "types": "./dist/approvals.d.ts",
+      "default": "./dist/approvals.js"
     }
   },
   "dependencies": {

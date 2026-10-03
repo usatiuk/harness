@@ -147,7 +147,7 @@ export function registerFeatureServer(session: HarnessRpcSession, service: Harne
           callId: shellId,
           emit: (event) => {
             if (!isActivityEvent(event)) return;
-            send(activitiesEventNotification, {
+            session.broadcast(rootConversationId, activitiesEventNotification, {
               rootConversationId,
               event:
                 event.type === "activity.started"
@@ -170,7 +170,7 @@ export function registerFeatureServer(session: HarnessRpcSession, service: Harne
         },
       );
       proc.onData((text) =>
-        send(workspaceShellEventNotification, {
+        session.broadcast(rootConversationId, workspaceShellEventNotification, {
           rootConversationId,
           conversationId,
           shellId,
@@ -178,7 +178,7 @@ export function registerFeatureServer(session: HarnessRpcSession, service: Harne
         }),
       );
       void proc.exit.then(({ code }) =>
-        send(workspaceShellEventNotification, {
+        session.broadcast(rootConversationId, workspaceShellEventNotification, {
           rootConversationId,
           conversationId,
           shellId,
