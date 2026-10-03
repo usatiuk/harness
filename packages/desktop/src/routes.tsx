@@ -190,6 +190,9 @@ export function createDesktopRouter(session: DesktopSession) {
           const inWorkspace = field(data, "inWorkspace");
           const outOfWorkspace = field(data, "outOfWorkspace");
           const sandbox = field(data, "sandbox");
+          const autoApproval = field(data, "autoApproval");
+          const [reviewerProvider, reviewerModel] = field(data, "reviewerModel").split("\u0000");
+          const reviewerPreset = reviewerModel ? field(data, "reviewerPreset") : "";
           if (
             ![inWorkspace, outOfWorkspace].every(
               (value) => value === "allow" || value === "ask" || value === "deny",
@@ -198,6 +201,8 @@ export function createDesktopRouter(session: DesktopSession) {
             throw new Error("Invalid approval policy");
           if (sandbox !== "local" && sandbox !== "native" && sandbox !== "docker")
             throw new Error("Invalid sandbox");
+          if (autoApproval !== "true" && autoApproval !== "false")
+            throw new Error("Invalid auto approver setting");
           await session.client.peer.request(appSettingsUpdateRequest, {
             model:
               provider && model
@@ -214,6 +219,17 @@ export function createDesktopRouter(session: DesktopSession) {
             approval: {
               inWorkspace: inWorkspace as "allow" | "ask" | "deny",
               outOfWorkspace: outOfWorkspace as "allow" | "ask" | "deny",
+            },
+            autoApproval: {
+              enabled: autoApproval === "true",
+              model:
+                reviewerProvider && reviewerModel
+                  ? {
+                      provider: reviewerProvider,
+                      model: reviewerModel,
+                      preset: reviewerPreset || null,
+                    }
+                  : null,
             },
             sandbox,
           });
@@ -1094,6 +1110,20 @@ export function createDesktopRouter(session: DesktopSession) {
               <option value="deny">Deny</option>
             </select>
           </label>
+          <label>
+            Auto approver
+            <select
+              name="autoApproval"
+              defaultValue={String(settings.settings.autoApproval.enabled)}
+            >
+              <option value="false">Off</option>
+              <option value="true">On</option>
+            </select>
+          </label>
+          <ReviewerFields
+            key={JSON.stringify(settings.settings.autoApproval.model)}
+            model={settings.settings.autoApproval.model}
+          />
           <Button
             className="primary"
             disabled={save.state !== "idle" || Boolean(session.disconnected)}
@@ -1101,6 +1131,10 @@ export function createDesktopRouter(session: DesktopSession) {
             Save defaults
           </Button>
         </save.Form>
+        <p className="muted">
+          Auto-review settings apply to open and new conversations. If no reviewer model is
+          selected, each review uses the conversation’s model.
+        </p>
         <ActionFeedback data={save.data} />
         <h2>Providers</h2>
         <p className="muted">
@@ -1141,6 +1175,49 @@ export function createDesktopRouter(session: DesktopSession) {
         <p className="muted">Harness home: {settings.home}</p>
         <RestartButton />
       </section>
+    );
+  }
+  function ReviewerFields({ model }: { model: AppSettings["settings"]["autoApproval"]["model"] }) {
+    const [selection, setSelection] = useState(model ? modelKey(model.provider, model.model) : "");
+    const presets =
+      session.domain
+        .availableModels()
+        .find((entry) => modelKey(entry.provider, entry.model) === selection)?.presets ?? [];
+    const initialPreset =
+      model && selection === modelKey(model.provider, model.model) ? (model.preset ?? "") : "";
+    return (
+      <>
+        <label>
+          Auto approver model
+          <select
+            name="reviewerModel"
+            value={selection}
+            onChange={(event) => setSelection(event.target.value)}
+          >
+            <option value="">Use conversation model</option>
+            <ModelOptions {...(model ? { selected: model } : {})} />
+          </select>
+        </label>
+        <label>
+          Auto approver preset
+          <select
+            name="reviewerPreset"
+            key={selection}
+            defaultValue={initialPreset}
+            disabled={!selection}
+          >
+            <option value="">Model default</option>
+            {initialPreset && !presets.some((entry) => entry.value === initialPreset) && (
+              <option value={initialPreset}>{initialPreset} — unavailable</option>
+            )}
+            {presets.map((entry) => (
+              <option key={entry.value} value={entry.value}>
+                {entry.label ?? entry.value}
+              </option>
+            ))}
+          </select>
+        </label>
+      </>
     );
   }
   function RouteError() {

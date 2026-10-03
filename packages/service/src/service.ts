@@ -319,6 +319,14 @@ export class HarnessService implements ConversationRunner {
     });
   }
 
+  /** Apply explicitly selected default slices to loaded runtimes, preserving durable overrides. */
+  async refreshPluginDefaults(pluginIds: readonly string[]): Promise<void> {
+    for (const id of pluginIds) {
+      if (!this.#schemas.has(id)) throw new Error(`unknown plugin '${id}'`);
+    }
+    await this.#serializeConfigMutation(() => this.#engine.refreshPluginDefaults(pluginIds));
+  }
+
   /**
    * Subscribes to the typed event stream. With a `conversationId`, receives only that
    * conversation's events; without one, receives every event. Returns an unsubscribe handle.

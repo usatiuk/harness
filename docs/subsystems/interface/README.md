@@ -179,6 +179,20 @@ sandbox controls, provider/default settings, and client-owned drafts/appearance
 complete v1. Unavailable configured models/backends remain explicit choices;
 creation requires an available model and a platform-supported backend.
 
+Global settings expose the auto-approval plugin's enabled flag and optional
+reviewer model/preset. An unset reviewer uses each conversation's current model.
+The Settings action writes the reviewer selection globally; creating or saving
+normal conversations does not persist a reviewer-model override.
+Saving replaces that plugin's complete slice so clearing a reviewer removes its
+model and preset. Other plugin slices and project/conversation overrides remain
+intact. After saving, the server refreshes only approval and auto-approval slices
+in loaded conversations, including children. It emits configuration changes and
+retains model selections and service-backed settings such as sandbox ownership.
+
+Vite excludes `src-tauri`, packaged `resources`, and test artifacts from its
+development watcher. Cargo owns native builds; watching locked Windows build
+executables can otherwise terminate the frontend dev server.
+
 Radix Themes provides compact controls; Harness owns its neutral desktop layout.
 Only one conversation is visible. There is no IDE, side-by-side view, tray, or
 parallel TUI presentation. External HTTP(S) transcript links open through the

@@ -512,6 +512,31 @@ export class Engine {
     return this.#runtimes.get(conversationId)?.conversation.config;
   }
 
+  /** Reconcile selected global plugin defaults without changing model or service-backed config. */
+  async refreshPluginDefaults(pluginIds: readonly string[]): Promise<void> {
+    // Already-loading activations may have read the old defaults. Failed loads retain their
+    // existing caller-owned error; successful ones must join this reconciliation snapshot.
+    await Promise.allSettled([...this.#loading.values()]);
+    for (const runtime of [...this.#runtimes.values()]) {
+      const id = runtime.conversation.id;
+      const record = await this.store.getConversation(id);
+      if (!record) throw new Error(`unknown loaded conversation: ${id}`);
+      const resolved = await this.resolveConfig(record);
+      // Resolution can overlap teardown; never update a replacement or closing activation.
+      if (this.#runtimes.get(id) !== runtime || this.#rootScopeUnavailable(id)) continue;
+      const current = runtime.conversation;
+      const plugins = { ...current.config.plugins };
+      for (const pluginId of pluginIds) {
+        if (!resolved.plugins || !Object.hasOwn(resolved.plugins, pluginId))
+          throw new Error(`missing resolved config for plugin '${pluginId}'`);
+        plugins[pluginId] = resolved.plugins[pluginId];
+      }
+      const config = { ...current.config, plugins };
+      runtime.setConversation({ ...current, config });
+      this.#emitKernel({ type: "config.changed", conversationId: id, config });
+    }
+  }
+
   /** Loads (and caches) the runtime, guarding against concurrent first-touch. */
   #runtime(conversationId: ConversationId): Promise<Runtime> {
     if (this.#rootScopeUnavailable(conversationId)) {

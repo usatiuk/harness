@@ -127,7 +127,7 @@ export async function buildServerHarness(connection: RpcConnection): Promise<Ser
     });
     startedSession = rpcSession;
     registerFeatureServer(rpcSession, service);
-    const appApi = registerAppApi(rpcSession);
+    const appApi = registerAppApi(rpcSession, service);
     startedAppApi = appApi;
     const approvalRequests = new Map<string, AbortController>();
     rpcSession.observeEvents((event, rootId) => {

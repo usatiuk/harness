@@ -40,6 +40,13 @@ observable shutdown failure. Test artifacts live under
 Credential scenarios do not record traces or screenshots. These native tests are
 separate from the ordinary Linux/Windows `npm run check` CI matrix.
 
+The auto-approver scenario saves a reviewer model/preset in the actual GUI,
+verifies that model performs review before a real shell tool executes, changes
+the global reviewer and observes the next review in the same loaded conversation
+use the new model/preset without changing its main model, then switches off auto
+approval and observes human approval.
+Restart and resetting to the conversation model establish persistence and clearing.
+
 `HARNESS_NATIVE_EXECUTABLE` can select a staged release executable for the same
 suite. It must have its packaged `server/` resources beside it.
 `HARNESS_NATIVE_PATH` overrides only the native application's PATH, leaving the

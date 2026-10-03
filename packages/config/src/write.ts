@@ -55,11 +55,12 @@ export async function updateGlobalModel(home: string, model: ModelConfig): Promi
   });
 }
 
-/** Deep-patches one global plugin slice without replacing sibling plugins or slice fields. */
+/** Deep-patches a global plugin slice, or replaces that slice explicitly; preserves siblings. */
 export async function updateGlobalPluginConfig(
   home: string,
   pluginId: string,
   patch: Record<string, unknown>,
+  options: { replace?: boolean } = {},
 ): Promise<void> {
   const path = globalPath(home);
   await mutateFile(path, async () => {
@@ -68,7 +69,7 @@ export async function updateGlobalPluginConfig(
     const current = plugins[pluginId] ?? {};
     await writeSettings(path, {
       ...existing,
-      plugins: { ...plugins, [pluginId]: deepMerge(current, patch) },
+      plugins: { ...plugins, [pluginId]: options.replace ? patch : deepMerge(current, patch) },
     });
   });
 }

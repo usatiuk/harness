@@ -92,7 +92,13 @@ export async function seedChildOnlyPages(home: string, workspace: string) {
 }
 
 /** Substitute only the model network edge; the app/server/tool/process stack is real. */
-export async function commandProvider(home: string, command: string) {
+export async function commandProvider(
+  home: string,
+  command: string,
+  options: { reviewer?: boolean } = {},
+) {
+  const reviews: Array<{ model: string; temperature?: number }> = [];
+  let invocation = 0;
   const server = createServer((request, response) => {
     let body = "";
     request.setEncoding("utf8");
@@ -100,24 +106,36 @@ export async function commandProvider(home: string, command: string) {
       body += chunk;
     });
     request.on("end", () => {
-      const data = JSON.parse(body) as { messages: Array<{ role: string }> };
+      const data = JSON.parse(body) as {
+        model: string;
+        temperature?: number;
+        messages: Array<{ role: string }>;
+      };
+      const reviewing = data.model === "reviewer" || data.model === "reviewer-fast";
+      if (reviewing) reviews.push(data);
       const toolFinished = data.messages.at(-1)?.role === "tool";
       response.writeHead(200, { "Content-Type": "text/event-stream" });
-      const delta = toolFinished
-        ? { content: "Command is running in the background." }
-        : {
-            tool_calls: [
-              {
-                index: 0,
-                id: "background-command",
-                type: "function",
-                function: {
-                  name: "powershell",
-                  arguments: JSON.stringify({ command, background: true }),
+      const delta = reviewing
+        ? { content: "YES" }
+        : toolFinished
+          ? {
+              content: options.reviewer
+                ? "Command completed."
+                : "Command is running in the background.",
+            }
+          : {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: `command-${++invocation}`,
+                  type: "function",
+                  function: {
+                    name: "powershell",
+                    arguments: JSON.stringify({ command, background: !options.reviewer }),
+                  },
                 },
-              },
-            ],
-          };
+              ],
+            };
       const emit = (value: unknown) => response.write(`data: ${JSON.stringify(value)}\n\n`);
       emit({
         id: "completion",
@@ -129,7 +147,9 @@ export async function commandProvider(home: string, command: string) {
         id: "completion",
         object: "chat.completion.chunk",
         model: "test-model",
-        choices: [{ index: 0, delta: {}, finish_reason: toolFinished ? "stop" : "tool_calls" }],
+        choices: [
+          { index: 0, delta: {}, finish_reason: toolFinished || reviewing ? "stop" : "tool_calls" },
+        ],
       });
       emit({
         id: "completion",
@@ -161,13 +181,27 @@ export async function commandProvider(home: string, command: string) {
           type: "openai-completions-compatible",
           endpoint: `http://127.0.0.1:${address.port}/v1`,
           apiKey: "test-only",
-          models: { "test-model": {} },
+          models: {
+            "test-model": {},
+            ...(options.reviewer
+              ? {
+                  reviewer: { presets: { careful: { temperature: 0.1 } } },
+                  "reviewer-fast": { presets: { quick: { temperature: 0.5 } } },
+                }
+              : {}),
+          },
         },
       },
-      plugins: { approval: { inWorkspace: "allow", outOfWorkspace: "allow" } },
+      plugins: {
+        approval: {
+          inWorkspace: options.reviewer ? "ask" : "allow",
+          outOfWorkspace: options.reviewer ? "ask" : "allow",
+        },
+      },
     }),
   );
   return {
+    reviews,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.closeAllConnections();

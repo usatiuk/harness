@@ -50,3 +50,14 @@ simple but means the database is not yet a stable user-data format.
 
 Reopen before a release promises conversation preservation across versions; from
 that point, retain migration fixtures for every supported schema.
+
+## Project discovery with a custom Harness home
+
+With `HARNESS_HOME` pointing elsewhere, an unmarked workspace below the real user
+home can mistake that user's `.harness/` directory for a project marker. Project
+validation then rejects global-only settings such as `auth`, preventing conversation
+creation. An isolated server regression reproduced this before reaching its
+settings mutation; the lifecycle test is projectless. Reopen when refining workspace
+discovery or supporting custom-profile workspaces beneath the user home; project
+discovery must exclude the actual user settings directory as well as the selected
+profile. This follow-up changes approval settings, not project-root discovery.

@@ -33,7 +33,9 @@ The desktop client uses Tauri 2, React, React Router data routes, and Radix Them
 It shows one selected conversation with live status for other open conversations,
 streaming history, approvals, tool output and edit diffs. Conversations keep
 independent turns and drafts while you navigate. Settings provide provider
-sign-in, model and sandbox defaults, approval policy, and light/dark appearance.
+sign-in, model and sandbox defaults, approval policy, auto-approver enablement and
+reviewer model/preset, and light/dark appearance. Leave the reviewer model unset
+to use each conversation's current model.
 Ctrl/Cmd+Enter sends the composer; running turns support queue, steer, and stop.
 
 Windows desktop development requires Rust, Visual Studio C++ build tools, and

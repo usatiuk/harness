@@ -71,7 +71,15 @@ describe("production server process ownership", () => {
     try {
       await writeFile(
         join(home, "settings.json"),
-        JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+        JSON.stringify({
+          model: { provider: "demo", model: "demo-1" },
+          plugins: {
+            "auto-approval": {
+              enabled: false,
+              model: { provider: "demo", model: "demo-1", preset: "low" },
+            },
+          },
+        }),
       );
       const first = start();
       await first.initialize();
@@ -79,6 +87,10 @@ describe("production server process ownership", () => {
       expect(config.home).toBe(home);
       expect(config.providers).toHaveLength(4);
       expect(JSON.stringify(config)).not.toContain("apiKey");
+      expect(config.settings.autoApproval).toEqual({
+        enabled: false,
+        model: { provider: "demo", model: "demo-1", preset: "low" },
+      });
       const second = start();
       await expect(second.client.start()).rejects.toThrow();
       expect(await second.exited).not.toBe(0);
@@ -86,6 +98,7 @@ describe("production server process ownership", () => {
       await first.client.peer.request(appSettingsUpdateRequest, {
         model: { provider: "demo", model: "demo-1", preset: "high" },
         approval: { inWorkspace: "ask", outOfWorkspace: "deny" },
+        autoApproval: { ...config.settings.autoApproval, enabled: true },
         sandbox: "local",
       });
       first.client.closeConnection();
@@ -95,6 +108,19 @@ describe("production server process ownership", () => {
       expect(
         (await reopened.client.peer.request(appSettingsRequest, {})).settings.model?.preset,
       ).toBe("high");
+      const updated = (await reopened.client.peer.request(appSettingsRequest, {})).settings;
+      expect(updated.autoApproval).toEqual({
+        enabled: true,
+        model: { provider: "demo", model: "demo-1", preset: "low" },
+      });
+      await reopened.client.peer.request(appSettingsUpdateRequest, {
+        ...updated,
+        autoApproval: { enabled: false, model: null },
+      });
+      const cleared = (await reopened.client.peer.request(appSettingsRequest, {})).settings;
+      expect(cleared.autoApproval).toEqual({ enabled: false, model: null });
+      expect(cleared.model).toEqual(updated.model);
+      expect(cleared.approval).toEqual(updated.approval);
       reopened.child.kill("SIGKILL");
       await reopened.exited;
       const afterCrash = start();

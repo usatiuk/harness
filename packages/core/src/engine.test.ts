@@ -54,6 +54,37 @@ const CONFIG = {
   model: { provider: "fake", model: "fake-1" },
 };
 
+it("refreshes defaults captured by an activation still loading", async () => {
+  const store = new InMemoryStore();
+  const record = await store.createConversation({ workspaceRoot: null, overrides: {} });
+  let markStarted!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>((resolve) => (markStarted = resolve));
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let enabled = true;
+  let initialLoad = true;
+  const engine = new Engine(
+    store,
+    new PluginHost([{ id: "fake", providers: () => [new FakeProvider([])] }]),
+    async () => {
+      const config = { ...CONFIG, plugins: { policy: { enabled } } };
+      if (initialLoad) {
+        initialLoad = false;
+        markStarted();
+        await gate;
+      }
+      return config;
+    },
+  );
+  const preparing = engine.prepare(record.id);
+  await started;
+  enabled = false;
+  const refreshing = engine.refreshPluginDefaults(["policy"]);
+  release();
+  await Promise.all([preparing, refreshing]);
+  expect(engine.configFor(record.id)?.plugins?.policy).toEqual({ enabled: false });
+});
+
 const userInput = (text: string): DeliveryInput => ({
   source: { kind: "user" },
   content: [{ type: "text", text }],

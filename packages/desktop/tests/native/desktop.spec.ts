@@ -81,6 +81,100 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
   }
 });
 
+test("auto approver model and preset drive real tool review, persist, and can be cleared", async ({}, info) => {
+  const directory = info.outputPath("profile");
+  const home = await profile(directory);
+  const provider = await commandProvider(home, "Write-Output 'approved-command'", {
+    reviewer: true,
+  });
+  let app = await NativeApplication.launch(directory, info.outputPath("first"));
+  try {
+    const page = app.page;
+    await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await expect(page.getByRole("combobox", { name: "Auto approver", exact: true })).toHaveValue(
+      "false",
+    );
+    await page
+      .getByRole("combobox", { name: "Auto approver model", exact: true })
+      .selectOption("fixture\u0000reviewer");
+    await page
+      .getByRole("combobox", { name: "Auto approver preset", exact: true })
+      .selectOption("careful");
+    await page.getByRole("combobox", { name: "Auto approver", exact: true }).selectOption("true");
+    await page.getByRole("button", { name: "Save defaults" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
+    await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
+    await page.getByRole("button", { name: "Create conversation" }).click();
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill("Run the command");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByTestId("assistant-message")).toContainText("Command completed");
+    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await page.getByTestId("tool-call").locator("summary").click();
+    await expect(page.getByTestId("tool-output")).toContainText("approved-command");
+    expect(provider.reviews).toHaveLength(1);
+    expect(provider.reviews[0]).toMatchObject({ model: "reviewer", temperature: 0.1 });
+    const conversation = page.url();
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await page
+      .getByRole("combobox", { name: "Auto approver model", exact: true })
+      .selectOption("fixture\u0000reviewer-fast");
+    await page
+      .getByRole("combobox", { name: "Auto approver preset", exact: true })
+      .selectOption("quick");
+    await page.getByRole("button", { name: "Save defaults" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
+    await page.goto(conversation);
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill("Use the new reviewer");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByTestId("assistant-message")).toHaveCount(2);
+    await expect(page.getByTestId("assistant-message").last()).toContainText("Command completed");
+    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    expect(provider.reviews).toHaveLength(2);
+    expect(provider.reviews[1]).toMatchObject({ model: "reviewer-fast", temperature: 0.5 });
+    await expect(page.getByLabel("Conversation model")).toHaveValue("fixture\u0000test-model");
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await page.getByRole("combobox", { name: "Auto approver", exact: true }).selectOption("false");
+    await page.getByRole("button", { name: "Save defaults" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
+    await page.goto(conversation);
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill("Run it again");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Allow", exact: true })).toBeVisible();
+    expect(provider.reviews).toHaveLength(2);
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    expect(app.errors).toEqual([]);
+    await app.close();
+    app = await NativeApplication.launch(directory, info.outputPath("reopened"));
+    await app.page.getByRole("link", { name: "Settings", exact: true }).click();
+    await expect(
+      app.page.getByRole("combobox", { name: "Auto approver", exact: true }),
+    ).toHaveValue("false");
+    await expect(
+      app.page.getByRole("combobox", { name: "Auto approver model", exact: true }),
+    ).toHaveValue("fixture\u0000reviewer-fast");
+    await expect(
+      app.page.getByRole("combobox", { name: "Auto approver preset", exact: true }),
+    ).toHaveValue("quick");
+    await app.page
+      .getByRole("combobox", { name: "Auto approver model", exact: true })
+      .selectOption("");
+    await app.page.getByRole("button", { name: "Save defaults" }).click();
+    await expect(app.page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
+    const saved = JSON.parse(await readFile(join(home, "settings.json"), "utf8")) as {
+      model: unknown;
+      plugins: Record<string, unknown>;
+    };
+    expect(saved.plugins["auto-approval"]).toEqual({ enabled: false });
+    expect(saved.plugins.approval).toEqual({ inWorkspace: "ask", outOfWorkspace: "ask" });
+    expect(saved.model).toEqual({ provider: "fixture", model: "test-model" });
+    expect(app.errors).toEqual([]);
+  } finally {
+    await app.close();
+    await provider.close();
+  }
+});
+
 test("paged sidebar and virtualized history retain preset, diffs and large tool output", async ({}, info) => {
   const directory = info.outputPath("profile");
   const home = await profile(directory);

@@ -2313,9 +2313,32 @@
               "required": ["inWorkspace", "outOfWorkspace"],
               "additionalProperties": false
             },
+            "autoApproval": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "model": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "provider": { "type": "string", "minLength": 1 },
+                        "model": { "type": "string", "minLength": 1 },
+                        "preset": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                      },
+                      "required": ["provider", "model", "preset"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": ["enabled", "model"],
+              "additionalProperties": false
+            },
             "sandbox": { "type": "string", "enum": ["local", "native", "docker"] }
           },
-          "required": ["model", "approval", "sandbox"],
+          "required": ["model", "approval", "autoApproval", "sandbox"],
           "additionalProperties": false
         },
         "providers": {
@@ -2365,9 +2388,32 @@
           "required": ["inWorkspace", "outOfWorkspace"],
           "additionalProperties": false
         },
+        "autoApproval": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "model": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "type": "string", "minLength": 1 },
+                    "model": { "type": "string", "minLength": 1 },
+                    "preset": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                  },
+                  "required": ["provider", "model", "preset"],
+                  "additionalProperties": false
+                },
+                { "type": "null" }
+              ]
+            }
+          },
+          "required": ["enabled", "model"],
+          "additionalProperties": false
+        },
         "sandbox": { "type": "string", "enum": ["local", "native", "docker"] }
       },
-      "required": ["model", "approval", "sandbox"],
+      "required": ["model", "approval", "autoApproval", "sandbox"],
       "additionalProperties": false
     },
     "app_settings_update_result": {

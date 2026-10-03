@@ -69,6 +69,11 @@ turns/approvals/drafts, history/diffs/output, settings/auth restart, crash recov
 database exclusion, and real process cleanup. They also suspend the server to
 prove that forced shutdown exits unsuccessfully. Only the external model network
 edge is substituted where command output needs deterministic control.
+Auto-review E2E verifies global reviewer model/preset changes in an already-loaded
+conversation, actual command output, disabling review, restart, and clearing the
+reviewer. Public service/core/server regressions cover selective policy refresh,
+pending activation, preserved model/backend selections, and settings IO drainage
+before SQLite closes.
 
 Commands, profile isolation, artifacts, and release qualification are described
 in [../../TESTING.md](../../TESTING.md). Native tests are opt-in and separate from

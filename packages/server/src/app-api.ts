@@ -6,8 +6,9 @@ import {
   updateGlobalPluginConfig,
 } from "@harness/config";
 import { approvalConfigSchema } from "@harness/approval";
+import { autoApprovalConfigSchema } from "@harness/auto-approval";
 import { sandboxConfigSchema } from "@harness/sandbox";
-import type { HarnessRpcSession } from "@harness/service";
+import type { HarnessRpcSession, HarnessService } from "@harness/service";
 import { ErrorCodes, ResponseError } from "vscode-jsonrpc";
 import { authRegistry } from "./auth.ts";
 import { credentialStoreForLogin, credentialStoreForRead } from "./credential-store.ts";
@@ -20,7 +21,10 @@ import {
 } from "./client-protocol.ts";
 
 /** Concrete application configuration/auth composition, separate from core dispatch. */
-export function registerAppApi(session: HarnessRpcSession): { close(): Promise<void> } {
+export function registerAppApi(
+  session: HarnessRpcSession,
+  service: HarnessService,
+): { close(): Promise<void> } {
   const lifetime = new AbortController();
   const operations = new Set<Promise<unknown>>();
   let signingIn = false;
@@ -48,6 +52,7 @@ export function registerAppApi(session: HarnessRpcSession): { close(): Promise<v
       }),
     );
     const approval = approvalConfigSchema.parse(doc.plugins?.["approval"] ?? {});
+    const autoApproval = autoApprovalConfigSchema.parse(doc.plugins?.["auto-approval"] ?? {});
     return {
       home: defaultHome(),
       cwd: process.cwd(),
@@ -59,22 +64,53 @@ export function registerAppApi(session: HarnessRpcSession): { close(): Promise<v
           inWorkspace: approval.inWorkspace,
           outOfWorkspace: approval.outOfWorkspace,
         },
+        autoApproval: {
+          enabled: autoApproval.enabled,
+          model: autoApproval.model
+            ? { ...autoApproval.model, preset: autoApproval.model.preset ?? null }
+            : null,
+        },
         sandbox: sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).backend,
       },
     };
   });
-  session.onRequest(appSettingsUpdateRequest, async (settings) => {
-    if (settings.model) {
-      await updateGlobalModel(defaultHome(), {
-        provider: settings.model.provider,
-        model: settings.model.model,
-        ...(settings.model.preset === null ? {} : { preset: settings.model.preset }),
-      });
-    }
-    await updateGlobalPluginConfig(defaultHome(), "approval", settings.approval);
-    await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });
-    return null;
-  });
+  session.onRequest(appSettingsUpdateRequest, (settings) =>
+    track(
+      (async () => {
+        lifetime.signal.throwIfAborted();
+        if (settings.model) {
+          await updateGlobalModel(defaultHome(), {
+            provider: settings.model.provider,
+            model: settings.model.model,
+            ...(settings.model.preset === null ? {} : { preset: settings.model.preset }),
+          });
+        }
+        await updateGlobalPluginConfig(defaultHome(), "approval", settings.approval);
+        await updateGlobalPluginConfig(
+          defaultHome(),
+          "auto-approval",
+          {
+            enabled: settings.autoApproval.enabled,
+            ...(settings.autoApproval.model
+              ? {
+                  model: {
+                    provider: settings.autoApproval.model.provider,
+                    model: settings.autoApproval.model.model,
+                    ...(settings.autoApproval.model.preset === null
+                      ? {}
+                      : { preset: settings.autoApproval.model.preset }),
+                  },
+                }
+              : {}),
+          },
+          { replace: true },
+        );
+        await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });
+        await service.refreshPluginDefaults(["approval", "auto-approval"]);
+        return null;
+      })(),
+    ),
+  );
   session.onRequest(appAuthLoginRequest, (params, requestSignal) => {
     if (signingIn) invalid("A provider sign-in is already in progress");
     signingIn = true;

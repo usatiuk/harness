@@ -83,7 +83,9 @@ As of 2026-10-03, Harness provides:
 - A Tauri/React desktop client with React Router loaders/actions/fetchers, a
   live conversation sidebar, independent turns/drafts/approvals, virtualized
   bounded history, Markdown/tool/diff/output inspection, provider/settings
-  controls, and a bundled owned server with exclusive database ownership.
+  controls including a global auto-review model/preset, and a bundled owned
+  server with exclusive database ownership. Approval defaults refresh open
+  conversations while their main model selections stay pinned.
   Native Windows tests cover actual WebView2, processes, restart, and shutdown;
   other desktop platforms remain unqualified.
 - A language-neutral JSON-RPC client/server boundary used identically in-process,
@@ -114,12 +116,18 @@ Completed the
 with full local validation, independent review, real stdio concurrency, and live
 Docker/Compose qualification. The service/protocol is ready to underpin a desktop
 client. The approved [desktop v1 delivery](docs/plans/interface/2026-10-03-desktop-v1.md)
-is complete with full local validation, three independent reviews, and ten
+is complete with full local validation, three independent reviews, and eleven
 native E2E scenarios against the staged Windows release outside the checkout
 without system Node. The NSIS installer builds; installation and other desktop
 platforms remain unqualified. TUI parallel presentation and worktrees remain outside
 scope. Existing provider reliability and native containment
 priorities below remain active follow-up.
+
+The desktop settings/model follow-up passes `npm run check` (843 tests,
+30 platform/opt-in skips) and all eleven staged Windows release E2E scenarios.
+OpenAI/Codex catalogs now include the current GPT-6/5.6 coding families and their
+backend-specific controls, limits, and cache-write accounting. Live provider
+invocations remain opt-in qualification.
 
 1. [x] Replace obsolete monolithic design documents with this product plan and
        current subsystem documentation.

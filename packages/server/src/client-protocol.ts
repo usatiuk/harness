@@ -10,6 +10,7 @@ const effect = z.enum(["allow", "ask", "deny"]);
 const settings = z.strictObject({
   model: model.nullable(),
   approval: z.strictObject({ inWorkspace: effect, outOfWorkspace: effect }),
+  autoApproval: z.strictObject({ enabled: z.boolean(), model: model.nullable() }),
   sandbox: z.enum(["local", "native", "docker"]),
 });
 const provider = z.strictObject({

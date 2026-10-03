@@ -133,10 +133,13 @@ stacks, credentials, provider bodies, or opaque provider payloads.
 `@harness/server/client-protocol` defines the composition-owned `app.*` messages,
 separate from kernel and plugin semantics:
 
-- `app.settings.get` returns global model/preset, approval and sandbox defaults,
+- `app.settings.get` returns global model/preset, approval, auto-approver enabled
+  flag and optional reviewer model/preset, and sandbox defaults,
   home/cwd/platform, and safe provider authentication metadata.
 - `app.settings.update` persists the exposed defaults through existing validated
-  config writers. Existing model selections remain pinned.
+  config writers. Approval and auto-review defaults refresh loaded conversations
+  without writing conversation overrides; existing model selections remain pinned.
+  Clearing the reviewer model restores use of each conversation's model.
 - `app.auth.login` accepts an API key or starts cancellable browser OAuth;
   `app.auth.url` supplies the external browser URL. It never returns credentials.
 - `app.auth.logout` deletes stored credentials. Auth mutations return
@@ -145,6 +148,6 @@ separate from kernel and plugin semantics:
 
 These operations carry the authority of the local server user, like existing
 stdio controls. They are not an unauthenticated network API. Request cancellation
-and server close abort OAuth and drain tracked auth mutations before releasing
+and server close abort OAuth and drain tracked auth/settings mutations before releasing
 ownership. Safe classified validation errors can be shown to users; unexpected
 internal failures retain the generic protocol error treatment.

@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { conversationOf } from "@harness/protocol";
+import { z } from "zod";
+import { updateGlobalModel, updateGlobalPluginConfig } from "@harness/config";
 import type { HarnessEvent, Store } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import { EchoTool, FakeProvider, textStep, toolStep } from "@harness/testkit";
@@ -18,6 +20,56 @@ const serviceOn = (store: Store, steps: ConstructorParameters<typeof FakeProvide
   });
 
 describe("HarnessService", () => {
+  it("refreshes policy defaults across loaded roots without changing pinned selections, backends or overrides", async () => {
+    const home = await mkdtemp(join(tmpdir(), "harness-service-defaults-"));
+    try {
+      const store = new InMemoryStore();
+      const service = new HarnessService({
+        store,
+        home,
+        defaults: { model: { provider: "fake", model: "fake-1", preset: "low" } },
+        plugins: [
+          { id: "fake", providers: () => [new FakeProvider([])] },
+          {
+            id: "policy",
+            configSchema: z.strictObject({ enabled: z.boolean().default(false) }),
+            create: () => ({ id: "policy" }),
+          },
+          {
+            id: "backend",
+            configSchema: z.strictObject({ mode: z.string().default("original") }),
+            create: () => ({ id: "backend" }),
+          },
+        ],
+      });
+      const a = await service.createConversation();
+      const b = await service.createConversation({
+        overrides: { plugins: { policy: { enabled: false } } },
+      });
+      await service.prepare(a.id);
+      await service.prepare(b.id);
+      const beforeA = await store.getConversation(a.id);
+      const beforeB = await store.getConversation(b.id);
+      await updateGlobalModel(home, { provider: "fake", model: "new-default", preset: "high" });
+      await updateGlobalPluginConfig(home, "policy", { enabled: true });
+      await updateGlobalPluginConfig(home, "backend", { mode: "new-backend" });
+      await service.refreshPluginDefaults(["policy"]);
+      const configA = service.conversationTreeState(a.id)[0]!.conversation.config;
+      const configB = service.conversationTreeState(b.id)[0]!.conversation.config;
+      expect(configA.plugins?.policy).toEqual({ enabled: true });
+      expect(configB.plugins?.policy).toEqual({ enabled: false });
+      for (const config of [configA, configB]) {
+        expect(config.model).toEqual({ provider: "fake", model: "fake-1", preset: "low" });
+        expect(config.plugins?.backend).toEqual({ mode: "original" });
+      }
+      expect((await store.getConversation(a.id))?.overrides).toEqual(beforeA?.overrides);
+      expect((await store.getConversation(b.id))?.overrides).toEqual(beforeB?.overrides);
+      await expect(service.refreshPluginDefaults(["unknown"])).rejects.toThrow("unknown plugin");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("persists model identities without inherited presets and changes presets separately", async () => {
     const home = await mkdtemp(join(tmpdir(), "harness-service-model-"));
     try {

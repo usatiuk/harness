@@ -9,7 +9,8 @@ import type {
 /**
  * Serves a plugin's resolved config slice for a conversation. Hot path reads the live runtime's
  * resolved config via `configFor`; falls back to resolving the stored record when no runtime is
- * live. Always reflects the current cascade + overrides — never a stale creation-time snapshot.
+ * live. Loaded activations change through explicit configuration mutations, policy-default
+ * refresh, or reload; a file write alone does not refresh their resolved configuration.
  */
 export class ResolvedConfigReader implements ConfigReader {
   constructor(
