@@ -115,3 +115,154 @@ lint issue and newly extracted files needing formatting; those are corrected.
 Earlier unreproduced validation
 observations stay in the preceding delivery plan; do not claim these corrections
 explain failures without a matching reproduction.
+
+## Post-delivery isolated desktop startup
+
+The user's normal-home desktop development launch failed because Node could not
+resolve `bindings` from cached `better-sqlite3`. The copied packages were present,
+but their real parent was `dependencies-<key>`, rather than `node_modules`. Node
+follows the code junction and does not search that parent for sibling packages.
+Native fixtures beneath the checkout silently resolved repository dependencies,
+so their passing results did not establish isolated cache correctness.
+
+A new actual SQLite process regression reproduced the same missing-module error
+before the correction. Dependencies now occupy a real `node_modules` directory
+beneath their immutable cache root, with the layout included in cache identity.
+No running files are changed or old cache migrated. The regression passes after
+deleting the source payload. A rebuilt native GUI with a temporary home/cwd
+outside the checkout also starts, stops, and starts a second owner from the same
+build (12.9s). This qualifies isolated cache/native startup, not standalone release
+distribution: debug resources remain checkout-owned.
+
+The desktop now preserves the first native startup failure through a later
+readiness expiry or failed physical detach, instead of displaying the generic
+pending-RPC disposal error. Review caught both diagnostic precedence interleavings;
+the gated real-RPC/controlled-native regression covers them. Its first invocation
+incorrectly disposed the remote fixture peer rather than the failing client peer,
+which did not reject the client's pending request. The corrected fixture models
+the actual adapter closure; no timeout or assertion was weakened.
+
+Merge CI on db76a69 passes Ubuntu but fails Windows: two `findProjectRoot`
+assertions returning the runner's short-path home also failed on preceding main
+0282afc; the copied-discovery test instead reports a directory-owner rejection.
+These results are separate from the cache reproduction and remain open. Do not
+claim the cache correction resolves them.
+
+Final focused correction evidence: npm run check passes TypeScript, ESLint,
+Prettier and 1000 tests (116 passing files, 36 skips; 54.85s Vitest). Three
+independent read-only reviewers and follow-ups have no remaining actionable
+finding. The isolated native cache case passed twice, including cache reuse.
+The six-case native run passed five cases but one existing Local editing case
+hit EPERM renaming staged dependencies. That exact case's focused rerun passed
+unchanged (10.1s). The transient filesystem lock/cause is unknown; no assertion,
+timeout or retry policy was changed and no fix is claimed for that observation.
+
+## Windows CI and requested exit-default follow-up
+
+- [x] Reproduce lexical/physical path mismatch through an actual account alias.
+      Canonicalize project discovery and the asynchronous global-root decision;
+      all read/write consumers await that decision. Preserve boundaries when
+      `.harness` itself is an alias and verify repository-local file contents.
+- [x] Establish the copied-discovery target's owner-private runtime directory
+      before copying. Keep its foreign-home rejection and source-owner assertions;
+      directory-owner validation remains unchanged in production.
+- [x] Verify both GitHub CI platforms after the CI correction's local validation
+      and commit.
+- [x] Default new client configuration to stopping unobserved Local on desktop
+      exit, retaining the explicit keep-running preference and shared-owner check.
+- [x] Finish the authorized two-work/cleanup cadence and local/platform validation.
+
+The physical account-alias test failed against the previous resolver, returning
+the account alias instead of the actual repository. Review identified an
+introduced leaf-home alias regression; physical marker comparisons and the
+requested home's physical parent now preserve the existing account boundary.
+Public writer/read tests cover missing settings directories and aliased homes.
+The copied-discovery setup fixes its earlier prerequisite rather than weakening
+the ownership check or expected foreign-home rejection. GitHub validation remains
+necessary for the actual elevated Windows runner; local checks are separate evidence.
+
+The CI correction's final local check passes TypeScript, ESLint, Prettier and
+1003 tests (116 passing files, 36 skips; 45.92s Vitest). All three independent
+read-only review follow-ups have no remaining actionable findings. The prior
+desktop startup correction is committed as e303dbe. GitHub validation and the
+requested exit-default correction remain open below this delivery increment.
+
+The two work increments are e303dbe (isolated cache/startup diagnostics) and
+c9df88a (physical configuration paths and the copied-discovery prerequisite).
+GitHub CI run 37196302969 passes Ubuntu and Windows on c9df88a. The cleanup
+increment defaults new registries and the checkbox to stop-on-exit, and centralizes
+explicit background opt-in for native fixtures. No server lifetime machinery or
+saved user preference is rewritten. The fresh isolated native case proves the
+default closes Local and removes discovery; the shared-client case retains the
+other client. Final cleanup-head CI and complete native validation remain open.
+
+The first complete native run passed 17 of 20 cases. The newly added preference
+opt-in used Playwright's immediate `check()` assertion against asynchronously
+persisted controlled state. Its saved file already contained `true`. The test now
+clicks and waits for both checked state and completion; the focused case passes.
+One WSL-cancellation startup failed with the previously observed cache-promotion
+EPERM; the history case lacked its expected sidebar. Both exact cases pass on
+focused rerun without timeout, retry, or production changes. The specific transient
+filesystem cause and the initial history startup outcome remain unproven.
+
+The parallel remote run passed four provisioning cases but its rendered TUI
+did not display a typed marker after the composer placeholder appeared. The
+unchanged five-case SSH/WSL/TUI rerun passes (50.23s). A reviewer found that Ink's
+frame can precede passive input-listener installation, which the test helper does
+not explicitly flush before writing; this is a possible fixture timing gap, not
+evidence of that run's cause. No product fix, input interference, or complete
+explanation is claimed for this observation.
+
+The next complete native run passes 18 of 20 cases: the bridge-before-RPC case
+reports the same dependency-promotion EPERM, and the background-command case
+times out without a captured startup outcome. This remains open rather than being
+reported as successful complete native validation. A standalone 20-copy probe
+reproduces the dependency rename denial without the GUI: the completed source
+directory exists, the destination is absent, and ACLs permit modification. The
+unchanged rename succeeds after read-only diagnostics. This establishes a
+transient Windows denial of that operation, without identifying its cause. A
+read-only reviewer agrees that one conditional retry of the same promotion is
+justified; no broad filesystem fallback or completion-receipt layout is needed.
+The default/fixture cleanup is a separate validated increment; that publication
+correction and complete native qualification remain open.
+
+## Final publication correction and handoff
+
+The completed cadence is e303dbe and c9df88a followed by b454da0 (default exit and
+explicit background fixtures). The subsequent startup correction retries only
+fresh dependency-cache promotion: Windows EPERM, completed source directory,
+absent destination, one 100 ms delay and the identical rename under the existing
+install lock. A second denial and other errors remain failures. Atomic publication,
+immutable live cache files, staging cleanup and lock release retain their existing
+ownership. No new completion receipts or general filesystem abstraction were added.
+The installed graceful-fs wrapper retries multiple Windows errors for up to 60
+seconds; that wider recovery/deadline does not fit this narrow startup operation.
+
+Controlled publication-edge tests exercise the public preparer and execute the
+actual copied Node against its cached dependency. One temporary EPERM completes;
+persistent EPERM and a first-attempt EACCES reject without a published dependency
+cache/code build, followed by clean preparation and execution. The EACCES fixture
+permits a second attempt, so an unintended retry would contradict the expected
+public rejection. Occupied/unstatable destinations and missing/non-directory
+sources are guarded but are not separately exercised. The initial native-ESM spy
+fixture failed before injecting any error; the supported Vitest module factory
+corrects that fixture limitation, without changing assertions or timeouts.
+
+Three read-only reviews report no remaining actionable finding after the EACCES
+scenario was strengthened. npm run check passes TypeScript, ESLint, formatting and
+1006 tests (116 files, 36 skipped tests; 51.60s). The strengthened runtime-file
+rerun passes all five tests (10.52s). Rebuilt Windows native qualification passes
+all 20 cases (3.9m), including default last-client stop, explicit background work,
+isolated cache reuse, early bridge shutdown and actual WSL work/cancellation.
+The unchanged SSH/WSL/rendered-TUI qualification passes five cases (50.23s).
+No required implementation or local/platform qualification remains open.
+Final branch CI and shipping status are tracked in
+[PR #29](https://github.com/usatiuk/harness/pull/29).
+
+The Windows process responsible for the transient denial remains unidentified.
+The guard and bounded retry address the reproduced temporary operation failure,
+without promising recovery from persistent denial. The earlier history/background
+timeouts had no captured startup outcome; the passing final suite does not prove
+their cause. The earlier typed-TUI-marker observation remains unexplained; no
+accidental user input or product fix is claimed for it. Temporary probes were
+removed after recording the evidence.

@@ -12,6 +12,7 @@ it("starts with Local and preserves simultaneous registry edits", async () => {
   const path = join(directory, "client.json");
   try {
     expect((await readClientConfig(path)).hosts.map((host) => host.label)).toEqual(["Local"]);
+    expect((await readClientConfig(path)).desktop.keepServerRunning).toBe(false);
     await Promise.all(
       ["workstation", "laptop", "build"].map((id) =>
         saveHost(

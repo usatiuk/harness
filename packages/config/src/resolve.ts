@@ -1,5 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ZodType } from "zod";
 import type { ConversationConfig } from "@harness/protocol";
 import { deepMerge } from "./merge.ts";
@@ -55,7 +55,7 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
     join(opts.home, "settings.json"),
     settingsDocSchema,
   );
-  if (root && !isHomeRoot(root, opts.home)) {
+  if (root && !(await isHomeRoot(root, opts.home))) {
     await pushFileLayer(
       layers,
       "project settings",
@@ -117,7 +117,7 @@ export async function loadMergedSettings(home: string, cwd?: string): Promise<Se
   const root = cwd ? await findProjectRoot(cwd, home) : undefined;
   const layers: Layer[] = [];
   await pushFileLayer(layers, "global settings", join(home, "settings.json"), settingsDocSchema);
-  if (root && !isHomeRoot(root, home)) {
+  if (root && !(await isHomeRoot(root, home))) {
     await pushFileLayer(
       layers,
       "project settings",
@@ -228,21 +228,29 @@ async function walkUp(
  * the enclosing git repo, else the start dir. Always returns a dir when `start` is given.
  */
 export async function findProjectRoot(start: string, home = defaultHome()): Promise<string> {
-  const resolvedStart = resolve(start);
-  const resolvedHome = resolve(home);
-  const homes = [resolvedHome, resolve(defaultHome())];
+  const requestedHomes = [resolve(home), resolve(defaultHome())];
+  const [resolvedStart, homes, parents] = await Promise.all([
+    canonicalPath(start),
+    Promise.all(requestedHomes.map(canonicalPath)),
+    Promise.all(
+      requestedHomes
+        .filter((candidate) => samePath(join(dirname(candidate), ".harness"), candidate))
+        .map((candidate) => canonicalPath(dirname(candidate))),
+    ),
+  ]);
   // Only `<parent>/.harness` makes its parent ambiguous with a project marker. An arbitrary
   // custom-named home inside a repository must not hide that repository from the upward walk.
-  const boundary = homes
-    .filter((candidate) => samePath(join(dirname(candidate), ".harness"), candidate))
-    .map(dirname)
+  const boundary = parents
     .filter((candidate) => containsPath(candidate, resolvedStart))
     .sort((a, b) => b.length - a.length)[0];
   const marked = await walkUp(
     resolvedStart,
-    async (d) =>
-      (await isDirectory(join(d, ".harness"))) &&
-      !homes.some((candidate) => samePath(join(d, ".harness"), candidate)),
+    async (d) => {
+      const marker = join(d, ".harness");
+      if (!(await isDirectory(marker))) return false;
+      const physical = await canonicalPath(marker);
+      return !homes.some((candidate) => samePath(physical, candidate));
+    },
     boundary,
   );
   if (marked) return marked;
@@ -260,8 +268,25 @@ export async function findProjectRoot(start: string, home = defaultHome()): Prom
  * where `<root>/.harness/*` is consumed, since that's the invariant: the home is settings storage,
  * not a project.
  */
-export function isHomeRoot(root: string, home = defaultHome()): boolean {
-  return samePath(join(root, ".harness"), home);
+export async function isHomeRoot(root: string, home = defaultHome()): Promise<boolean> {
+  const [candidate, global] = await Promise.all([
+    canonicalPath(join(root, ".harness")),
+    canonicalPath(home),
+  ]);
+  return samePath(candidate, global);
+}
+
+/** Short Windows names and junctions must not turn global settings into project settings. */
+async function canonicalPath(path: string): Promise<string> {
+  const absolute = resolve(path);
+  try {
+    return await realpath(absolute);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    // Settings directories and new workspaces need not exist yet.
+    const parent = dirname(absolute);
+    return parent === absolute ? absolute : join(await canonicalPath(parent), basename(absolute));
+  }
 }
 
 function samePath(a: string, b: string): boolean {

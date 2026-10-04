@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { cp, mkdir, readFile, rename, rm, stat, writeFile, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import lockfile from "proper-lockfile";
+import { setTimeout } from "node:timers/promises";
 import { canonicalHome, privateRuntimeDirectory } from "./local.ts";
 import type { ServerLaunch } from "./connect.ts";
 
@@ -21,6 +22,7 @@ export async function prepareLocalRuntime(
     return hash.digest("hex");
   };
   const dependencyKey = digest(
+    "node_modules\n",
     await readFile(join(payload, "packaged-dependencies.json")),
     process.platform,
     process.arch,
@@ -58,10 +60,27 @@ export async function prepareLocalRuntime(
       );
       await rename(join(staging, "node"), join(base, `node-${process.version}`));
     }
-    const dependencies = join(base, `dependencies-${dependencyKey}`);
-    if (!(await exists(dependencies))) {
-      await cp(join(payload, "node_modules"), join(staging, "dependencies"), { recursive: true });
-      await rename(join(staging, "dependencies"), dependencies);
+    const dependencyCache = join(base, `dependencies-${dependencyKey}`);
+    const dependencies = join(dependencyCache, "node_modules");
+    if (!(await exists(dependencyCache))) {
+      // Node follows the code junction to this real path. Sibling dependencies
+      // must remain inside a directory named node_modules to resolve correctly.
+      await cp(join(payload, "node_modules"), join(staging, "dependencies", "node_modules"), {
+        recursive: true,
+      });
+      const source = join(staging, "dependencies");
+      try {
+        await rename(source, dependencyCache);
+      } catch (error) {
+        if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM")
+          throw error;
+        if (!(await stat(source)).isDirectory() || (await exists(dependencyCache))) throw error;
+        // Windows can briefly deny this completed copy's promotion. Keep the
+        // install lock and retry the identical operation once; never recopy or
+        // accept another destination as our completed cache.
+        await setTimeout(100);
+        await rename(source, dependencyCache);
+      }
     }
     if (!(await exists(directory))) {
       const code = join(staging, "code");

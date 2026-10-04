@@ -57,12 +57,21 @@ survives host switching and desktop exit, restores its draft and approval, then
 completes after reattachment to the same owner. TUI tests render the command center
 with real Local/WSL owners and qualify registry edits, host selection, switching,
 client exit and fresh attachment to the pending turn.
-Local cache regression covers Windows-only dependency invalidation. SSH BatchMode
+Local cache regressions cover Windows-only dependency invalidation and execute
+real SQLite with its sibling dependencies from a temporary cache outside the
+checkout. The latter also deletes the input payload and executes the cache again.
+A native case starts the actual GUI against an isolated temporary home/cwd, stops
+its owner and starts a second owner from the same cached build. This qualifies
+isolated cache resolution; its debug executable still uses checkout-owned packaged
+resources. Earlier native homes beneath the checkout allowed repository
+`node_modules` to mask a broken transitive dependency-cache layout.
+Startup diagnostic tests retain the first native failure through later readiness
+expiry and a secondary detach failure. SSH BatchMode
 cases reject password-only and unknown-host routes without prompting. Current delivery evidence is tracked in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
-The current full check passes 998 tests (116 passing files, 36 skipped tests).
-Rebuilt native connection qualification passes five cases; actual SSH/WSL and
+The current full check passes 1006 tests (116 passing files, 36 skipped tests).
+Rebuilt native qualification passes all 20 cases; actual SSH/WSL and
 rendered TUI qualification passes five cases across two files. The native Rust
 shutdown regression passes. Three independent reviews and follow-ups report no
 remaining actionable findings in the
@@ -74,6 +83,43 @@ recorded in the preceding plan's validation observations;
 passing reruns are not evidence of a cause or fix. Fixture RPC failures include
 their server startup log before cleanup. A sandbox-blocked Vitest startup was
 retried outside the sandbox, without changing tests or timeouts.
+The post-delivery six-case native run passed five cases, including isolated cache
+startup, but one existing case hit EPERM renaming staged dependencies. Its exact
+focused rerun passed unchanged. The transient lock/cause remains unknown; no
+retry policy, timeout change or fix was claimed at that stage. The subsequent
+probe and publication correction are described below.
+Configuration regressions compare real account/home aliases, preserve repository
+discovery when `.harness` itself is a junction, and verify global versus local
+write destinations before settings directories exist. Expected fixture roots use
+physical paths. Copied-discovery tests establish the private target directory
+before copying, preserving the separate ownership and foreign-home assertions.
+GitHub CI run 37196302969 passes Ubuntu and the elevated Windows runner for those
+corrections.
+Fresh native desktop configuration asserts that keep-running is unchecked and
+normal exit removes the Local owner/discovery. Shared-client coverage leaves the
+other client usable; background-work fixtures explicitly opt in through one helper.
+Preference editing waits for persisted checked state rather than Playwright's
+immediate `check()` assertion against asynchronous controlled state.
+The first complete default-exit native run passed 17 of 20 cases; the preference
+assertion and two startup cases pass on focused rerun. One startup reported the
+previous cache-promotion EPERM; the exact transient filesystem cause remains unknown.
+The first parallel remote run did not display typed TUI input, while its unchanged
+five-case rerun passes. The frame-before-passive-input-effect timing gap is a
+possible fixture explanation; neither accidental user input nor a product fix is
+established. See the correction plan for final validation and unresolved observations.
+The subsequent complete native run passes 18 of 20 cases, with another
+dependency-promotion EPERM and an uncaptured background-case startup timeout. A
+standalone copy/promotion probe reproduces a temporary Windows rename denial:
+source exists, destination is absent, ACLs allow modification, and the unchanged
+rename succeeds after read-only diagnostics. The process responsible remains
+unknown. Fresh dependency publication now retries that unchanged rename once
+after 100 ms for Windows EPERM, under the install lock, only while its source is
+a directory and destination absent. Public preparation tests execute the copied
+Node with its cached dependency after temporary failure; persistent EPERM and
+first-attempt EACCES reject without partial publication, then recover on fresh
+preparation. Source/destination guard edge cases remain untested separately.
+The final rebuilt suite passes all 20 cases (3.9m); this does not establish the
+causes of earlier uncaptured startup timeouts or typed-TUI input loss.
 
 `npm run test:remote` requires Docker and OpenSSH on the controlling client. It
 creates a loopback-only SSH container, ephemeral key, verified known-host entry

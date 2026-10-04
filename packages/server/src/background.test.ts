@@ -11,7 +11,7 @@ import { expect, it, vi } from "vitest";
 import { HarnessClient } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { ensureLocalServer, stopServer, replaceJson } from "@harness/connections/node";
-import { canonicalHome, readDiscovery } from "@harness/connections/local";
+import { canonicalHome, privateRuntimeDirectory, readDiscovery } from "@harness/connections/local";
 import { serverInfoRequest } from "@harness/connections";
 import { ApprovalClient, APPROVAL_CLIENT_CONTRACT_VERSION } from "@harness/approval";
 import { textOf } from "@harness/protocol";
@@ -323,6 +323,7 @@ it("rejects discovery copied from another directory", async () => {
   let owner: Awaited<ReturnType<typeof ensureLocalServer>> | undefined;
   try {
     owner = await ensureLocalServer(home, launch);
+    await privateRuntimeDirectory(other);
     await cp(join(home, ".server"), join(other, ".server"), { recursive: true });
     await expect(ensureLocalServer(other, launch)).rejects.toThrow("another Harness home");
     expect((await readDiscovery(home))?.instanceId).toBe(owner.identity.instanceId);
