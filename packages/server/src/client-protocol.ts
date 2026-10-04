@@ -62,7 +62,11 @@ export const appSettingsUpdateRequest = defineRequest({
 export const appAuthLoginRequest = defineRequest({
   direction: "client-to-server",
   method: "app.auth.login",
-  params: z.strictObject({ provider: z.string(), key: z.string().nullable() }),
+  params: z.strictObject({
+    provider: z.string(),
+    key: z.string().nullable(),
+    flow: z.enum(["browser", "device"]),
+  }),
   result: z.strictObject({ restartRequired: z.literal(true) }),
 });
 export const appAuthLogoutRequest = defineRequest({
@@ -74,6 +78,9 @@ export const appAuthLogoutRequest = defineRequest({
 export const appAuthUrlNotification = defineNotification({
   direction: "server-to-client",
   method: "app.auth.url",
-  params: z.strictObject({ url: z.string().url() }),
+  params: z.strictObject({
+    url: z.string().url(),
+    userCode: z.string().min(1).max(128).nullable(),
+  }),
 });
 export type AppSettings = z.infer<typeof appSettingsRequest.result>;

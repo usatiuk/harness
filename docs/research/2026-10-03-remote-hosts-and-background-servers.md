@@ -325,9 +325,9 @@ Incompatible servers require an explicit update/restart flow with shared impact.
 
 Credentials stay on the executing host by default. Native Windows credentials do
 not automatically become WSL/SSH credentials. Existing API-key flows can be
-exposed for the selected host. Browser OAuth needs a qualified callback-forwarding
-or provider-supported remote flow; SSH transport alone does not solve localhost
-redirects. Restart-required provider changes affect every attached client.
+exposed for the selected host. Local keeps browser OAuth and also offers device-code sign-in. WSL/SSH use
+provider-hosted device authorization with URL/code presentation on the client.
+The user explicitly excluded callback forwarding. Restart-required provider changes affect every attached client.
 
 ## Desktop and TUI connection management
 

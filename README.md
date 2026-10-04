@@ -84,8 +84,9 @@ host routes, runtime choices and client preferences. Provider/model/tool setting
 and credentials remain on the selected server. Remote deployment supports Linux
 x64 glibc: managed mode obtains verified portable Node; development mode uses the
 host's existing Node/npm. Both transfer the locally built server bundle and cache
-target dependencies. Upload stages code; restart activates it. Remote browser
-OAuth routing and remaining fault-path qualification are still in progress in
+target dependencies. Upload stages code; restart activates it. Local offers browser
+and device-code ChatGPT sign-in; WSL/SSH use device codes. Remaining remote
+qualification is tracked in
 [the delivery plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
 Repository guidance lives in `AGENTS.md`. See `docs/README.md` for the roles of

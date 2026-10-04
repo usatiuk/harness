@@ -93,7 +93,7 @@ Protocol version checks identify the current wire contract and reject mismatches
       Local-first switchers, equivalent connection editors/discovery/server controls,
       host-scoped navigation/drafts/settings and fresh reconnect, keep-running exit.
       Check actual desktop/native bridge and TUI process behavior with multiple hosts,
-      simultaneous clients and a closed UI. Remote OAuth callback routing must be
+      simultaneous clients and a closed UI. Device-code sign-in must be
       exercised before claiming complete remote authentication.
 - [ ] **Validation, review and cleanup.** Run focused public regressions and full
       npm run check, desktop build/native qualification, update README/PLAN/interface,
@@ -226,8 +226,46 @@ Protocol version checks identify the current wire contract and reject mismatches
   uncancellable discovery, omitted server.release schema/docs and retained
   legacy conversation pinning. New conversations resolve and insert their model
   selection together; the service no longer rewrites older records on activation.
-- Preserve existing ChatGPT browser OAuth sign-in, including its callback and
-  cancellation behavior. Remote support must route the browser callback back to
-  the executing host and present its sign-in URL in desktop/TUI. Device-code
-  authentication is a possible additional method, not a replacement for browser
-  sign-in. Remote browser routing and qualification remain required and open.
+- The user selected both ChatGPT sign-in methods: preserve browser OAuth for
+  Local, add optional device-code sign-in for Local, and use device codes for
+  WSL/SSH. Callback forwarding is explicitly excluded. Both methods persist the
+  same instance-scoped OAuth session on the executing host. Device provisioning,
+  polling, cancellation, URL/code presentation and selected-host credentials
+  require qualification before completion.
+- Device sign-in is additive: existing browser regressions remain. Device tests
+  qualify pending authorization, cancellation during fetch/delay, expiry, safe
+  errors and reusable OAuth credentials. Public RPC verifies URL/code delivery,
+  cancelled login followed by successful retry and named-provider isolation.
+  Current protocol version is 3; older running development servers fail the
+  handshake rather than receiving incompatible auth fields.
+- The full native desktop suite passes all fourteen cases (2.6 minutes), including
+  Local browser/device choice, code display, cancel/retry and actual DPAPI storage.
+  Three rendered TUI cases pass (16.76 seconds), including both Local methods and
+  device cancellation. Only provider HTTP is substituted in sign-in scenarios;
+  live vendor-account acceptance remains credential-dependent.
+- Native fixtures now identify authenticated background owners, stop only their
+  fixture homes during teardown and wait for actual process exit before removing
+  a working directory. Route tests use the host-scoped router's sidebar links.
+  A frozen-owner scenario found the stdio bridge waiting for peer TCP closure.
+  Review then reproduced EOF starvation while outbound backpressure paused stdin.
+  Bridges now keep reading within the existing writer byte limit and discard
+  unacknowledged delivery on EOF; closing a remote transport terminates only its
+  owned SSH/WSL process. A real authenticated paused-receiver regression covers
+  detachment with a queued three-MiB frame. Accepted execution remains server-owned.
+- Full-check iteration found a TUI fixture sending input after a visible frame but
+  before React's input effect was installed. The fixture uses React act to flush
+  effects between input events; no sleeps, retries or longer timeout were added.
+  Full repository verification and real WSL/SSH credential/fault qualification
+  remain required before completion.
+- Full npm run check passes: 111 files / 974 tests, with 8 files / 35 opt-in or
+  platform skips. A run concurrent with native qualification timed out in the
+  existing multi-case QuickJS resource-limit test and a native Local-readiness
+  assertion. The full check passed alone without code/timeout changes. Native
+  connection requalification passed all four cases separately (42.6 seconds),
+  including actual WSL cancellation. Remote milestones stay open.
+- After the backpressure detach fix, full npm run check passes: 112 files / 975
+  tests, with the same 35 skips. Independent lifecycle review reran the original
+  paused-owner reproduction: the bridge exits successfully and the owner remains
+  listening. The regression also passes through the real attach-only entry point.
+  Rebuilt native shutdown/connection qualification passes five cases (51.3 seconds),
+  including the suspended owner and actual WSL cancellation.

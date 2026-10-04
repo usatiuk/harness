@@ -11,7 +11,7 @@ import { autoApprovalConfigSchema } from "@harness/auto-approval";
 import { sandboxConfigSchema } from "@harness/sandbox";
 import type { HarnessRpcSession, HarnessService } from "@harness/service";
 import { ErrorCodes, ResponseError } from "vscode-jsonrpc";
-import { ProviderCredentialError } from "@harness/protocol";
+import { ProviderCredentialError, ProviderSignInError } from "@harness/protocol";
 import {
   prepareProviderEntries,
   providerPlugins,
@@ -212,13 +212,21 @@ export function registerAppApi(
         if (issue) invalid(issue);
         await method.submit(params.key);
       } else {
-        if (params.key !== null) invalid("Browser sign-in does not accept an API key");
-        await method.login({
-          signal,
-          onUrl: (url) => {
-            void session.notify(appAuthUrlNotification, { url }).catch(() => lifetime.abort());
-          },
-        });
+        if (params.key !== null) invalid("OAuth sign-in does not accept an API key");
+        try {
+          await method.login({
+            flow: params.flow,
+            signal,
+            onUrl: (url, userCode) => {
+              void session
+                .notify(appAuthUrlNotification, { url, userCode: userCode ?? null })
+                .catch(() => lifetime.abort());
+            },
+          });
+        } catch (error) {
+          if (error instanceof ProviderSignInError) throw new ResponseError(-32000, error.message);
+          throw error;
+        }
       }
       signal.throwIfAborted();
       await setAuthStore(defaultHome(), kind);

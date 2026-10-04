@@ -3,7 +3,7 @@
   "id": 1,
   "method": "initialize",
   "params": {
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "client": { "name": "example", "version": "1.0.0" },
     "plugins": [{ "id": "approval", "version": 2 }]
   }

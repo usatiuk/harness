@@ -5,12 +5,31 @@ import { mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import {
+  attachLocalServer,
+  stopServer,
+  readDiscovery,
+  canonicalHome,
+} from "@harness/connections/node";
 
 const execute = promisify(execFile);
 const executable = resolve(
   process.env.HARNESS_NATIVE_EXECUTABLE ?? "src-tauri/target/debug/harness-desktop.exe",
 );
 const applicationOrigin = "http://tauri.localhost";
+const fixtureHomes = new Set<string>();
+
+/** Background owners outlive each GUI; teardown stops the captured test homes explicitly. */
+export async function stopNativeOwners(): Promise<void> {
+  for (const home of fixtureHomes) {
+    const owner = await readDiscovery(home);
+    if (owner) {
+      await stopServer(owner);
+      await expect.poll(() => NativeApplication.processExists(owner.pid)).toBe(false);
+    }
+    fixtureHomes.delete(home);
+  }
+}
 
 async function freePort(): Promise<number> {
   const server = createServer();
@@ -45,6 +64,7 @@ export class NativeApplication {
     private readonly exited: Promise<void>,
     readonly errors: string[],
     private readonly artifacts: string,
+    readonly home: string,
   ) {
     this.pid = child.pid!;
     this.page = page;
@@ -55,12 +75,15 @@ export class NativeApplication {
     artifacts: string,
     appProfile = join(profile, "app"),
     cwd = profile,
+    env: Record<string, string> = {},
   ) {
     if (process.platform !== "win32") {
       throw new Error("The native CDP harness currently requires Windows WebView2");
     }
     await mkdir(profile, { recursive: true });
     await mkdir(artifacts, { recursive: true });
+    appProfile = await canonicalHome(appProfile);
+    fixtureHomes.add(appProfile);
     const port = await freePort();
     const log = createWriteStream(join(artifacts, "process.log"));
     const environment = { ...process.env };
@@ -77,6 +100,7 @@ export class NativeApplication {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...environment,
+        ...env,
         HARNESS_HOME: resolve(appProfile),
         HARNESS_CLIENT_HOME: resolve(appProfile),
         APPDATA: resolve(join(profile, "appdata")),
@@ -149,7 +173,7 @@ export class NativeApplication {
         { timeout: 10_000, windowsHide: true },
       );
       await session.detach();
-      return new NativeApplication(child, browser, page!, exited, errors, artifacts);
+      return new NativeApplication(child, browser, page!, exited, errors, artifacts, appProfile);
     } catch (error) {
       try {
         await browser?.close();
@@ -182,7 +206,7 @@ export class NativeApplication {
           ],
           { timeout: 5_000, windowsHide: true },
         );
-        // Wait for server-owned conversations and commands to drain on window close.
+        // GUI shutdown detaches bridges; background owners have independent lifetime.
         await deadline(this.exited, 60_000, "Native application did not close");
       }
       expect(this.child.signalCode, "Native process was terminated").toBeNull();
@@ -205,31 +229,39 @@ export class NativeApplication {
   }
 
   async serverPid(): Promise<number> {
-    const { stdout } = await execute(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `$children = @(Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${this.pid}' | Where-Object { $_.Name -eq 'node.exe' }); if ($children.Count -ne 1) { throw 'Expected one owned Node server' }; $children[0].ProcessId`,
-      ],
-      { windowsHide: true },
-    );
-    return Number(stdout.trim());
+    const owner = await attachLocalServer(this.home);
+    try {
+      return owner.identity.pid;
+    } finally {
+      owner.close();
+    }
   }
 
   async crashServer(): Promise<number> {
-    const pid = await this.serverPid();
-    await execute(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", `Stop-Process -Id ${pid} -Force`],
-      { windowsHide: true },
-    );
-    return pid;
+    return this.controlServer("crash");
   }
 
-  async controlServer(action: "suspend" | "resume"): Promise<number> {
-    const pid = await this.serverPid();
+  private controlledOwner: { pid: number; command: string } | undefined;
+  async controlServer(action: "suspend" | "resume" | "crash"): Promise<number> {
+    let owner = this.controlledOwner;
+    if (action !== "resume") {
+      const pid = await this.serverPid();
+      const { stdout } = await execute(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}').CommandLine`,
+        ],
+        { windowsHide: true },
+      );
+      owner = { pid, command: stdout.trim() };
+      if (!owner.command.includes("--background"))
+        throw new Error("Expected authenticated background fixture owner");
+      this.controlledOwner = owner;
+    }
+    if (!owner) throw new Error("Missing suspended fixture owner");
     await execute(
       "powershell.exe",
       [
@@ -238,15 +270,15 @@ export class NativeApplication {
         "-File",
         resolve("tests/native/control-process.ps1"),
         "-TargetProcess",
-        String(pid),
-        "-OwnerProcess",
-        String(this.pid),
+        String(owner.pid),
+        "-ExpectedCommand",
+        owner.command,
         "-Action",
         action,
       ],
       { windowsHide: true },
     );
-    return pid;
+    return owner.pid;
   }
 
   static async processExists(pid: number): Promise<boolean> {

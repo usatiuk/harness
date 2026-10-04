@@ -31,16 +31,19 @@ drainage. Real-process tests in server/src/background.test.ts qualify simultaneo
 startup, unauthorized rejection, zero-client pending approval and completion,
 bridge-parent exit, crash/stale discovery, canonical-home reuse, copied-home
 isolation, unsafe existing homes, initialized-client stop and classified startup
-failure. Registry tests include concurrent edits by separate client processes.
+failure. A real bridge against an authenticated paused receiver verifies EOF
+detachment with outbound backpressure. Registry tests include concurrent edits
+by separate client processes.
 These passed on native Windows. Common provisioning/reconnect tests also pass on
 real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Four native GUI cases
 qualify Local-first editing, disconnected management, reconnect, persistent exit
 and last-client stop-on-exit, owner capture before WebView RPC, and real WSL
-provisioning cancellation including fixture process exit. TUI tests render the command center with a real
-background server and qualify registry edits, reconnect and host redirection.
+provisioning cancellation including fixture process exit. TUI tests render the
+command center with a real background server and qualify registry edits, reconnect
+and host redirection.
 Local cache regression covers Windows-only dependency invalidation. SSH BatchMode
-cases reject password-only and unknown-host routes without prompting. Remote
-client UI interaction, OAuth routing, interruption and upgrade fault paths remain open in
+cases reject password-only and unknown-host routes without prompting. Remaining
+remote UI interaction, device authentication, interruption and upgrade fault paths are tracked in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
 `npm run test:remote` requires Docker and OpenSSH on the controlling client. It
@@ -60,16 +63,17 @@ tools. It packages the real server and Node runtime, builds the production web
 assets and native executable, then runs Playwright against that executable's
 WebView2 through CDP. It verifies that the WebView process belongs to the launched
 application. Neither a browser mock nor a development HTTP server stands in for
-the native app. Only the model network edge is controlled for deterministic
-command tests; actual SQLite, credentials, shell processes, and shutdown run.
+the native app. Model and authentication HTTP edges are controlled for deterministic
+command and sign-in tests; actual SQLite, credentials, shell processes, and shutdown run.
 
 Tests isolate `HARNESS_HOME`, `APPDATA`, `LOCALAPPDATA`, and the WebView profile.
 They cover concurrent approvals/turns/drafts, queue/steer/interrupt, presets and
-settings, bounded history and large output/diffs, server crash/restart, exclusive
-database ownership, secure key validation/storage, real command cleanup, and
-observable shutdown failure. That full native suite still needs migration and
-requalification for shared-server ownership; the four connections.spec.ts cases
-are the current shared-server GUI evidence. Test artifacts live under
+settings, bounded history and large output/diffs, server crash/reconnect, shared
+owner reuse, secure key validation/storage, real command survival followed by
+explicit cleanup, and GUI exit while the owner is suspended. Local retains browser
+sign-in and qualifies device-code display, cancel/retry and DPAPI storage. The full
+desktop.spec.ts suite has fourteen passing current-owner cases; connections.spec.ts
+adds host editing, multi-client exit policy and real WSL provisioning cancellation. Test artifacts live under
 `packages/desktop/test-results/`; non-secret visual scenarios save screenshots.
 Credential scenarios do not record traces or screenshots. These native tests are
 separate from the ordinary Linux/Windows `npm run check` CI matrix.
@@ -200,7 +204,11 @@ delays, or a nearby condition that does not prove completion.
   type contributions and pre-construction validation. Codex tests cover isolated
   OAuth token records, coalesced rotation, single/final waiter cancellation, logout
   during refresh and interactive login excluding stale-account refresh. A public
-  RPC regression covers changing an API-key instance to OAuth before restart.
+  RPC regressions cover changing an API-key instance to OAuth before restart and
+  device authorization, safe disabled-device diagnostics, cancellation and selected
+  instance persistence. Device tests also qualify pending authorization, expiry and
+  reusable OAuth sessions. Rendered TUI tests qualify both Local methods, URL/code
+  display and leaving sign-in. Existing browser callback tests remain in place.
   Compatible-provider settings/SDK tests use the contributed provider types;
   removed direct factories have no remaining production or test consumers. Packaged native tests cover two keys in
   DPAPI, restart discovery, picker metadata and reopening an existing unavailable

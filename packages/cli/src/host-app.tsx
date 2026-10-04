@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Box, Text, render, useApp, useInput } from "ink";
 import { Select, Spinner, TextInput, ConfirmInput, PasswordInput } from "@inkjs/ui";
 import { randomUUID } from "node:crypto";
@@ -7,6 +7,7 @@ import { hostSchema, type Host } from "@harness/connections";
 import { discoverWsl } from "@harness/connections/node";
 import {
   appAuthLoginRequest,
+  appAuthUrlNotification,
   appAuthLogoutRequest,
   appProvidersRequest,
   appSettingsRequest,
@@ -455,23 +456,49 @@ function ProviderAuth({ view, onError }: { view: TuiHostView; onError: (error: s
   const [provider, setProvider] = useState<ProviderStatus>();
   const [notice, setNotice] = useState<string>();
   const peer = view.harness!.client.peer;
+  const pending = useRef<AbortController | null>(null);
+  const [prompt, setPrompt] = useState<{ url: string; userCode: string | null }>();
+  useEffect(() => {
+    const subscription = peer.onNotification(appAuthUrlNotification, setPrompt);
+    return () => {
+      pending.current?.abort();
+      subscription.dispose();
+    };
+  }, [peer]);
+  useInput((_input, key) => {
+    if (key.escape) pending.current?.abort();
+  });
   useEffect(() => {
     void peer
       .request(appProvidersRequest, {})
       .then(setProviders)
       .catch((cause: unknown) => onError(formatError(cause)));
   }, [peer, onError]);
-  const login = (key: string | null) => {
-    setNotice("Signing in");
+  const login = (
+    key: string | null,
+    flow: "browser" | "device" = view.host.kind === "local" ? "browser" : "device",
+  ) => {
+    setNotice("Signing in (Esc cancels)");
+    const abort = new AbortController();
+    pending.current = abort;
     void peer
-      .request(appAuthLoginRequest, { provider: provider!.id, key })
+      .request(appAuthLoginRequest, { provider: provider!.id, key, flow }, { signal: abort.signal })
       .then(() => setNotice("Signed in; restart this host to use the provider."))
-      .catch((cause: unknown) => onError(formatError(cause)));
+      .catch((cause: unknown) => {
+        if (abort.signal.aborted) return;
+        setNotice(undefined);
+        onError(formatError(cause));
+      })
+      .finally(() => {
+        pending.current = null;
+        setPrompt(undefined);
+      });
   };
   if (!providers) return <Spinner label="Reading host providers" />;
   if (!provider)
     return (
       <Select
+        key="provider"
         options={providers.map((p) => ({
           label: `${p.label} · ${p.authenticated ? "signed in" : p.kind}`,
           value: p.id,
@@ -479,10 +506,24 @@ function ProviderAuth({ view, onError }: { view: TuiHostView; onError: (error: s
         onChange={(id) => setProvider(providers.find((p) => p.id === id))}
       />
     );
-  if (notice) return <Text>{notice}</Text>;
+  if (notice)
+    return (
+      <Box flexDirection="column">
+        <Text>{notice}</Text>
+        {prompt && (
+          <>
+            <Text>{`Open ${prompt.url}`}</Text>
+            {prompt.userCode && <Text bold>{`Code: ${prompt.userCode}`}</Text>}
+          </>
+        )}
+      </Box>
+    );
+  if (!provider.canStore)
+    return <Text>Manage credentials through this host's configured environment or settings.</Text>;
   if (provider.authenticated)
     return (
       <Select
+        key="signed-in"
         options={[
           { label: "Sign out", value: "logout" },
           { label: "Sign in again", value: "login" },
@@ -493,9 +534,19 @@ function ProviderAuth({ view, onError }: { view: TuiHostView; onError: (error: s
               .request(appAuthLogoutRequest, { provider: provider.id })
               .then(() => setNotice("Signed out; restart the host."))
               .catch((cause: unknown) => onError(formatError(cause)));
-          else if (provider.kind === "oauth") login(null);
           else setProvider({ ...provider, authenticated: false });
         }}
+      />
+    );
+  if (provider.kind === "oauth" && view.host.kind === "local")
+    return (
+      <Select
+        key="flow"
+        options={[
+          { label: "Browser sign-in", value: "browser" },
+          { label: "Device code", value: "device" },
+        ]}
+        onChange={(flow) => login(null, flow as "browser" | "device")}
       />
     );
   if (provider.kind === "oauth")
@@ -503,7 +554,7 @@ function ProviderAuth({ view, onError }: { view: TuiHostView; onError: (error: s
   return (
     <>
       <Text>{`API key for ${provider.label} on ${view.host.label}:`}</Text>
-      <PasswordInput onSubmit={login} />
+      <PasswordInput onSubmit={(key) => login(key)} />
     </>
   );
 }

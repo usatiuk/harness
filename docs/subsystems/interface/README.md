@@ -95,7 +95,11 @@ back to plaintext.
 
 Desktop provider controls call composition-owned `app.auth.*` RPCs. Responses
 contain authentication status and safe validation errors, never keys or tokens.
-OAuth uses an external browser and a cancellable callback listener. Auth changes
+Local offers browser OAuth with its cancellable localhost listener and optional
+device-code sign-in. WSL/SSH use device codes: clients display the provider URL
+and one-time code while the executing server polls authorization. Neither flow
+forwards callbacks between computers. Both are cancellable; device authorization
+expires after fifteen minutes. Auth changes
 require an explicit server restart to rebuild the provider catalog. Credential
 file mutations are serialized across store instances in one process; external
 processes must not concurrently modify the same credential file.

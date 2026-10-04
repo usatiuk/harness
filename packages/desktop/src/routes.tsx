@@ -31,7 +31,6 @@ import type { Cell } from "@harness/client-features/transcript-reducer";
 import type { ClientApproval } from "@harness/approval/client";
 import { textOf, type Conversation, type ConversationId } from "@harness/protocol";
 import {
-  appAuthLoginRequest,
   appAuthLogoutRequest,
   appSettingsUpdateRequest,
   type AppSettings,
@@ -179,15 +178,14 @@ export function createDesktopRouter(
             .kill(field(data, "activityId"));
           return { ok: true };
         case "login": {
-          await session.client.peer.request(
-            appAuthLoginRequest,
+          await session.login(
             {
               provider: field(data, "provider"),
               key: data.has("key") ? field(data, "key") : null,
+              flow: field(data, "flow"),
             },
-            { signal: request.signal },
+            request.signal,
           );
-          session.authUrl = undefined;
           return {
             ok: true,
             restartRequired: true,
@@ -1124,6 +1122,22 @@ export function createDesktopRouter(
           >
             <input type="hidden" name="intent" value="login" />
             <input type="hidden" name="provider" value={provider.id} />
+            {provider.kind === "oauth" && connections.local ? (
+              <label>
+                Sign-in method
+                <select name="flow" defaultValue="browser">
+                  <option value="browser">Browser sign-in</option>
+                  <option value="device">Device code</option>
+                </select>
+              </label>
+            ) : (
+              <input
+                type="hidden"
+                name="flow"
+                value={provider.kind === "oauth" ? "device" : "browser"}
+              />
+            )}
+
             {provider.kind === "api-key" && (
               <label>
                 API key
@@ -1140,7 +1154,9 @@ export function createDesktopRouter(
               {fetcher.state !== "idle"
                 ? "Connecting…"
                 : provider.kind === "oauth"
-                  ? "Sign in with browser"
+                  ? connections.local
+                    ? "Sign in"
+                    : "Sign in with device code"
                   : "Save key"}
             </Button>
           </fetcher.Form>
@@ -1243,13 +1259,29 @@ export function createDesktopRouter(
         ))}
         {session.authUrl && (
           <div className="auth-url">
-            <p>Complete sign-in in your browser. If it did not open, copy this URL:</p>
+            <p>
+              {session.authCode
+                ? "Open this URL in your browser and enter the one-time code:"
+                : "Complete sign-in in your browser. If it did not open, copy this URL:"}
+            </p>
             <input
               readOnly
               value={session.authUrl}
               aria-label="Sign-in URL"
               onFocus={(event) => event.currentTarget.select()}
             />
+            {session.authCode && (
+              <input
+                readOnly
+                value={session.authCode}
+                aria-label="Sign-in code"
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            )}
+            <div className="button-row">
+              <Button onClick={() => void openUrl(session.authUrl!)}>Open sign-in page</Button>
+              <Button onClick={() => session.cancelLogin()}>Cancel sign-in</Button>
+            </div>
           </div>
         )}
         <h2>Appearance</h2>

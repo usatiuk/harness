@@ -7,6 +7,7 @@ import type { Socket } from "node:net";
 import { HarnessClient, type RpcConnection } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { serverStopRequest, serverReleaseRequest, type ServerIdentity } from "./contracts.ts";
+import { forwardBridgeInput } from "./bridge-input.ts";
 import {
   canonicalHome,
   connectDiscovered,
@@ -128,8 +129,8 @@ export async function runLocalBridge(
   const host = launch ? await ensureLocalServer(home, launch) : await attachLocalServer(home);
   onConnected?.(host.identity);
   const socket = host.socket;
-  process.stdin.pipe(socket);
   socket.pipe(process.stdout);
+  let disposeInput!: () => void;
   try {
     await new Promise<void>((resolve, reject) => {
       const failed = (error: Error) => {
@@ -137,14 +138,14 @@ export async function runLocalBridge(
         reject(error);
       };
       socket.once("error", failed);
-      process.stdin.once("error", failed);
       process.stdout.once("error", failed);
       socket.once("close", () => resolve());
-      process.stdin.once("end", () => socket.end());
+      // EOF abandons unacknowledged transport delivery; accepted work belongs to
+      // the server. Never wait for a frozen owner to flush or acknowledge bytes.
+      disposeInput = forwardBridgeInput(socket, () => socket.destroy(), failed);
     });
   } finally {
-    process.stdin.unpipe(socket);
-    process.stdin.pause();
+    disposeInput();
     socket.unpipe(process.stdout);
     host.close();
   }

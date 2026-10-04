@@ -2,11 +2,15 @@ import { expect, test } from "@playwright/test";
 import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NativeApplication } from "./application.ts";
+import { pathToFileURL } from "node:url";
+import { deviceAuthFixture } from "@harness/testkit";
+import { NativeApplication, stopNativeOwners } from "./application.ts";
+import { canonicalHome, readDiscovery, stopServer } from "@harness/connections/node";
 import { seedHistory, seedChildOnlyPages, commandProvider } from "./fixtures.ts";
 import { httpGateway, json, sse } from "../../../litellm/src/http-fixture.ts";
 
 test.skip(process.platform !== "win32", "Native CDP tests require Windows WebView2");
+test.afterEach(stopNativeOwners);
 
 test("code-only execution reviews concrete child calls and keeps nested history after reopening", async ({}, info) => {
   const directory = await mkdtemp(join(tmpdir(), "harness-native-code-"));
@@ -78,13 +82,13 @@ test("code-only execution reviews concrete child calls and keeps nested history 
     await app.close();
     if (previousPath === undefined) delete process.env.HARNESS_NATIVE_PATH;
     else process.env.HARNESS_NATIVE_PATH = previousPath;
+    await stopNativeOwners();
     await rm(directory, { recursive: true, force: true });
   }
 });
 
 async function profile(directory: string) {
-  const home = join(directory, "app");
-  await mkdir(home, { recursive: true });
+  const home = await canonicalHome(join(directory, "app"));
   await writeFile(
     join(home, "settings.json"),
     JSON.stringify({ model: { provider: "demo", model: "demo-1", preset: "high" } }),
@@ -200,7 +204,7 @@ test("auto approver model and preset drive real tool review, persist, and can be
       .selectOption("quick");
     await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
-    await page.goto(conversation);
+    await page.locator(`a[href='${new URL(conversation).hash.slice(1)}']`).click();
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Use the new reviewer");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByTestId("assistant-message")).toHaveCount(2);
@@ -213,7 +217,7 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await page.getByRole("combobox", { name: "Auto approver", exact: true }).selectOption("false");
     await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
-    await page.goto(conversation);
+    await page.locator(`a[href='${new URL(conversation).hash.slice(1)}']`).click();
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Run it again");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByRole("button", { name: "Allow", exact: true })).toBeVisible();
@@ -262,7 +266,7 @@ test("paged sidebar and virtualized history retain preset, diffs and large tool 
     await expect(rows).toHaveCount(50);
     await page.getByRole("button", { name: "Load more", exact: true }).click();
     await expect(rows).toHaveCount(56);
-    await page.locator(`a[href='#/conversations/${id}']`).click();
+    await page.locator(`a[href='/conversations/${id}']`).click();
     await expect(page.getByTestId("assistant-message")).toContainText("History loaded");
     await expect(page.getByLabel("Conversation preset")).toHaveValue("high");
     expect(await page.locator(".cell").count()).toBeLessThan(40);
@@ -309,7 +313,7 @@ test("child-only sidebar pages advance through revalidation until older roots ap
         ).toBeEnabled();
     }
     await expect(rows).toHaveCount(1);
-    await expect(rows).toHaveAttribute("href", `#/conversations/${id}`);
+    await expect(rows).toHaveAttribute("href", `/conversations/${id}`);
     await expect(app.page.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
     expect(app.errors).toEqual([]);
   } finally {
@@ -333,22 +337,20 @@ test("server crash is visible and restart recovers the selected conversation", a
     await page.getByRole("button", { name: "Allow", exact: true }).click();
     await expect(page.getByTestId("assistant-message")).toContainText("Done");
     await app.crashServer();
-    await expect(page.locator(".connection-error")).toContainText("server exited");
-    await page
-      .locator(".connection-error")
-      .getByRole("button", { name: "Restart Harness" })
-      .click();
+    await expect(page.getByRole("heading", { name: "Local connection" })).toBeVisible();
+    await page.getByRole("button", { name: "Reconnect", exact: true }).click();
     await expect(page.getByTestId("assistant-message")).toContainText("Done");
-    await expect(page.locator(".connection-error")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Local connection" })).toHaveCount(0);
     expect(app.errors).toEqual([]);
   } finally {
     await app.close();
   }
 });
 
-test("quitting stops a real background command and releases the owned server", async ({}, info) => {
+test("quitting keeps a real background command alive until explicit server stop", async ({}, info) => {
   const directory = info.outputPath("profile");
   const marker = join(directory, "command.pid");
+  await canonicalHome(join(directory, "app"));
   const provider = await commandProvider(
     join(directory, "app"),
     `$PID | Set-Content -LiteralPath '${marker.replace(/'/gu, "''")}'; Write-Output 'command-started'; Start-Sleep -Seconds 300`,
@@ -382,12 +384,66 @@ test("quitting stops a real background command and releases the owned server", a
     const serverPid = await app.serverPid();
     expect(await NativeApplication.processExists(commandPid)).toBe(true);
     await app.close();
+    expect(await NativeApplication.processExists(commandPid)).toBe(true);
+    expect(await NativeApplication.processExists(serverPid)).toBe(true);
+    const owner = await readDiscovery(app.home);
+    if (!owner) throw new Error("Missing fixture owner");
+    await stopServer(owner);
     await expect.poll(() => NativeApplication.processExists(commandPid)).toBe(false);
     expect(await NativeApplication.processExists(serverPid)).toBe(false);
     expect(app.errors).toEqual([]);
   } finally {
     await app.close();
     await provider.close();
+  }
+});
+
+test("Local retains browser sign-in and completes cancellable device-code sign-in", async ({}, info) => {
+  const directory = info.outputPath("profile");
+  const home = await profile(directory);
+  const network = await deviceAuthFixture(home);
+  const app = await NativeApplication.launch(directory, info.outputPath("app"), home, directory, {
+    NODE_OPTIONS: `--import=${pathToFileURL(network.preload).href}`,
+  });
+  try {
+    const page = app.page;
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    const provider = page.locator(".provider").filter({
+      has: page.getByRole("heading", {
+        name: "ChatGPT / Codex",
+        exact: true,
+      }),
+    });
+    const flow = provider.getByRole("combobox", { name: "Sign-in method" });
+    await expect(flow).toHaveValue("browser");
+    await expect(flow.locator("option")).toHaveText(["Browser sign-in", "Device code"]);
+    await flow.selectOption("device");
+    await provider.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page.getByLabel("Sign-in URL", { exact: true })).toHaveValue(
+      "https://auth.openai.com/codex/device",
+    );
+    await expect(page.getByLabel("Sign-in code", { exact: true })).toHaveValue("FIXTURE-CODE");
+    await expect.poll(() => readFile(network.polling, "utf8").catch(() => "")).toBe("polling");
+    await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
+    await expect.poll(() => readFile(network.cancelled, "utf8").catch(() => "")).toBe("cancelled");
+    await expect(page.getByLabel("Sign-in code", { exact: true })).toHaveCount(0);
+    await expect(provider.getByRole("button", { name: "Sign in", exact: true })).toBeEnabled();
+    await writeFile(network.allow, "yes");
+    await flow.selectOption("device");
+    await provider.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(provider).toContainText("Credentials available");
+    await expect(provider).toContainText("device-fixture@example.com");
+    const encrypted = await readFile(
+      join(directory, "local-appdata", "Harness", "credentials.dpapi"),
+    );
+    expect(encrypted.includes(Buffer.from(network.refreshToken))).toBe(false);
+    expect(await page.locator("body").textContent()).not.toContain(network.refreshToken);
+    expect(await readFile(info.outputPath("app", "process.log"), "utf8")).not.toContain(
+      network.refreshToken,
+    );
+    expect(app.errors).toEqual([]);
+  } finally {
+    await app.close();
   }
 });
 
@@ -534,7 +590,7 @@ test("named gateways isolate native keys and catalogs while retaining unavailabl
     await expect(work).toContainText("missing-credentials");
     await expect(personal).toContainText("Credentials available");
     await expect(personal).toContainText("ready · 1 models");
-    await page.goto(conversationUrl);
+    await page.locator(`a[href='${new URL(conversationUrl).hash.slice(1)}']`).click();
     await expect(page.getByLabel("Conversation model")).toHaveValue("work\u0000coding");
     await expect(page.getByLabel("Conversation model").locator("option:checked")).toContainText(
       "unavailable",
@@ -597,17 +653,19 @@ test("queue and steer submit through the data action while a turn waits for appr
   }
 });
 
-test("a suspended server fails quit observably instead of reporting a clean shutdown", async ({}, info) => {
+test("quitting detaches from a suspended background owner without stopping it", async ({}, info) => {
   const directory = info.outputPath("profile");
   await profile(directory);
   const app = await NativeApplication.launch(directory, info.outputPath("app"));
   await expect(app.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
   const serverPid = await app.controlServer("suspend");
-  await expect(app.close()).rejects.toThrow("Native process exited unsuccessfully");
-  expect(await NativeApplication.processExists(serverPid)).toBe(false);
-  expect(await readFile(info.outputPath("app", "process.log"), "utf8")).toContain(
-    "did not finish shutdown",
-  );
+  try {
+    await app.close();
+    expect(await NativeApplication.processExists(serverPid)).toBe(true);
+  } finally {
+    await app.controlServer("resume");
+    await app.close();
+  }
 });
 
 test("an unsupported sandbox default stays visible and requires an explicit supported choice", async ({}, info) => {
@@ -637,21 +695,23 @@ test("an unsupported sandbox default stays visible and requires an explicit supp
   }
 });
 
-test("a second app is rejected by the database lock and can retry after the owner quits", async ({}, info) => {
+test("a second app reuses the same owner and remains usable after the first quits", async ({}, info) => {
   const firstDirectory = info.outputPath("first-profile");
   const home = await profile(firstDirectory);
   const first = await NativeApplication.launch(firstDirectory, info.outputPath("first"));
   let second: NativeApplication | undefined;
   try {
     await expect(first.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+    const ownerPid = await first.serverPid();
     second = await NativeApplication.launch(
       info.outputPath("second-profile"),
       info.outputPath("second"),
       home,
     );
-    await expect(second.page.getByRole("alert")).toContainText("already running");
+    await expect(second.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+    expect(await second.serverPid()).toBe(ownerPid);
     await first.close();
-    await second.page.getByRole("button", { name: "Retry", exact: true }).click();
+    expect(await second.serverPid()).toBe(ownerPid);
     await expect(second.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
     expect(second.errors).toEqual([]);
   } finally {

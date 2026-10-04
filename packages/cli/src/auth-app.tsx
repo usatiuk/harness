@@ -130,7 +130,7 @@ function OAuthLogin({
 
   useEffect(() => {
     method
-      .login({ onUrl: setUrl })
+      .login({ flow: "browser", onUrl: setUrl })
       .then(() => persist(entry))
       .then(() => onResolve(`Signed in.${modelNotice(entry)}`))
       .catch((e: unknown) => onReject(e instanceof Error ? e : new Error(String(e))));

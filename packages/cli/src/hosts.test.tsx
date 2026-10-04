@@ -1,14 +1,24 @@
 import { randomUUID } from "node:crypto";
-import { writeFile, rm } from "node:fs/promises";
+import { writeFile, rm, readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
+import { deviceAuthFixture } from "@harness/testkit";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
+import { act } from "react";
 import { canonicalHome, readDiscovery } from "@harness/connections/local";
 import { stopServer } from "@harness/connections/node";
 import { serverInfoRequest } from "@harness/connections";
 import { TuiHosts } from "./hosts.ts";
 import { HostApp } from "./host-app.tsx";
+
+async function writeInput(ui: ReturnType<typeof render>, text: string): Promise<void> {
+  // Flush React's effects before sending the next key to a newly mounted input.
+  await act(async () => {
+    ui.stdin.write(text);
+  });
+}
 
 const launch = {
   executable: process.execPath,
@@ -58,11 +68,11 @@ it("renders Local-first command center and saves an alias-only SSH route", async
     await vi.waitFor(() => expect(hosts.selected?.presentation.activeId).toBeDefined(), {
       timeout: 20000,
     });
-    ui.stdin.write("\u0007");
+    await writeInput(ui, "\u0007");
     await vi.waitFor(() => expect(ui.lastFrame()).toContain("Add SSH"));
     // The Select menu's fourth entry is Add SSH.
-    for (let index = 0; index < 3; index++) ui.stdin.write("\u001b[B");
-    ui.stdin.write("\r");
+    for (let index = 0; index < 3; index++) await writeInput(ui, "\u001b[B");
+    await writeInput(ui, "\r");
     await vi.waitFor(() => expect(ui.lastFrame()).toContain("Edit SSH connection"));
     let step = 0;
     for (const [field, text, initial] of [
@@ -79,13 +89,13 @@ it("renders Local-first command center and saves an alias-only SSH route", async
         expect(ui.lastFrame()).toContain(field === "source" ? "Runtime source" : field);
       });
       if (initial !== text) {
-        for (let index = 0; index < initial.length; index++) ui.stdin.write("\u007f");
+        for (let index = 0; index < initial.length; index++) await writeInput(ui, "\u007f");
         if (text) {
-          ui.stdin.write(text);
+          await writeInput(ui, text);
           await vi.waitFor(() => expect(ui.lastFrame()).toContain(text));
         }
       }
-      ui.stdin.write("\r");
+      await writeInput(ui, "\r");
     }
     await vi.waitFor(() =>
       expect(hosts.config?.hosts[1]).toMatchObject({
@@ -99,10 +109,10 @@ it("renders Local-first command center and saves an alias-only SSH route", async
     expect(hosts.config?.selectedHostId).toBe("local");
     // Repeatedly unmount the conversation's nested Static output, then edit again.
     for (let iteration = 0; iteration < 3; iteration++) {
-      ui.stdin.write("\u0007");
+      await writeInput(ui, "\u0007");
       await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("Agent command center"));
       await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("Connecting"));
-      ui.stdin.write("\u0007");
+      await writeInput(ui, "\u0007");
       await vi.waitFor(() => expect(ui.lastFrame()).toContain("Add SSH"));
     }
   } finally {
@@ -144,4 +154,60 @@ it("reconnects to the same background owner and drops presentation when Local is
   expect(redirected.identity!.serverId).not.toBe(identity.serverId);
   expect(redirected.presentation.activeId).toBeUndefined();
   expect(redirected.presentation.drafts.size).toBe(0);
+}, 30000);
+
+it("renders both Local OAuth methods, displays a device code and cancels when leaving sign-in", async () => {
+  const path = await home();
+  vi.stubEnv("HARNESS_HOME", path);
+  vi.stubEnv("HARNESS_CLIENT_HOME", path);
+  vi.stubEnv("LOCALAPPDATA", join(path, "credentials"));
+  for (const name of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
+    vi.stubEnv(name, "");
+  const network = await deviceAuthFixture(path);
+  const hosts = new TuiHosts(
+    {},
+    { ...launch, env: { NODE_OPTIONS: `--import=${pathToFileURL(network.preload).href}` } },
+  );
+  clients.push(hosts);
+  await hosts.initialize();
+  const ui = render(<HostApp hosts={hosts} />);
+  const openAuth = async () => {
+    await writeInput(ui, "\u0007");
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("Select host"));
+    for (let i = 0; i < 6; i++) await writeInput(ui, "\u001b[B");
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("Provider sign-in"));
+    await writeInput(ui, "\r");
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("ChatGPT / Codex"));
+    for (let i = 0; i < 3; i++) await writeInput(ui, "\u001b[B");
+    await writeInput(ui, "\r");
+    await vi.waitFor(() => {
+      expect(ui.lastFrame()).toContain("Browser sign-in");
+      expect(ui.lastFrame()).toContain("Device code");
+    });
+    await writeInput(ui, "\u001b[B");
+    await writeInput(ui, "\r");
+  };
+  try {
+    await vi.waitFor(() => expect(hosts.selected?.presentation.activeId).toBeDefined(), {
+      timeout: 20000,
+    });
+    await openAuth();
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("Code: FIXTURE-CODE"));
+    expect(ui.lastFrame()).toContain("https://auth.openai.com/codex/device");
+    await vi.waitFor(async () => expect(await readFile(network.polling, "utf8")).toBe("polling"));
+    await writeInput(ui, "\u001b");
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("Select host"));
+    await vi.waitFor(async () =>
+      expect(await readFile(network.cancelled, "utf8")).toBe("cancelled"),
+    );
+    expect(ui.lastFrame()).not.toContain("FIXTURE-CODE");
+    await writeInput(ui, "\u0007");
+    await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("Agent command center"));
+    await writeFile(network.allow, "yes");
+    await openAuth();
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("Signed in; restart this host"));
+    expect(ui.lastFrame()).not.toContain(network.refreshToken);
+  } finally {
+    ui.unmount();
+  }
 }, 30000);

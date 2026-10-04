@@ -1,3 +1,6 @@
+import { setTimeout as delay } from "node:timers/promises";
+import { z } from "zod";
+import { ProviderSignInError } from "@harness/protocol";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
@@ -279,4 +282,117 @@ function redact(text: string): string {
     /(access_token|refresh_token|id_token|code|code_verifier)=([^&\s"]+)/giu,
     "$1=<redacted>",
   );
+}
+
+const deviceCodeSchema = z.object({
+  device_auth_id: z.string().min(1).max(512),
+  user_code: z.string().min(1).max(128),
+  interval: z
+    .union([z.number(), z.string().regex(/^\d+$/u).transform(Number)])
+    .pipe(z.number().int().positive().max(900)),
+});
+const deviceGrantSchema = z.object({
+  authorization_code: z.string().min(1),
+  code_verifier: z.string().min(1),
+});
+
+interface DeviceLoginOptions {
+  fetch: typeof fetch;
+  now: () => number;
+  onUrl?: (url: string, userCode?: string) => void;
+  signal?: AbortSignal;
+}
+
+/** Provider-hosted authorization for remote hosts; browser login remains a separate flow. */
+export async function loginWithDeviceCode(opts: DeviceLoginOptions): Promise<OAuthTokens> {
+  const lifetime = AbortSignal.timeout(15 * 60_000);
+  const signal = opts.signal ? AbortSignal.any([opts.signal, lifetime]) : lifetime;
+  try {
+    return await authorizeDevice(opts, signal);
+  } catch (error) {
+    if (opts.signal?.aborted) throw opts.signal.reason;
+    if (lifetime.aborted)
+      throw new ProviderSignInError("Device-code sign-in expired; start again.");
+    if (error instanceof DOMException && error.name === "TimeoutError")
+      throw new ProviderSignInError("Device-code sign-in request timed out; start again.");
+    if (error instanceof TypeError && error.message === "fetch failed")
+      throw new ProviderSignInError(
+        "Could not reach device-code sign-in; check connectivity and try again.",
+      );
+    throw error;
+  }
+}
+
+async function authorizeDevice(
+  opts: DeviceLoginOptions,
+  signal: AbortSignal,
+): Promise<OAuthTokens> {
+  const send: typeof fetch = (input, init) =>
+    opts.fetch(input, {
+      ...init,
+      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+    });
+  const request = (path: string, body: Record<string, string>) =>
+    send(`${CODEX_ISSUER}/api/accounts/deviceauth/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  signal.throwIfAborted();
+  const response = await request("usercode", { client_id: CODEX_CLIENT_ID });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new ProviderSignInError(
+      response.status === 404
+        ? "Device-code sign-in is unavailable. Enable device-code authentication in your ChatGPT security or workspace settings."
+        : `Device-code sign-in request failed (${response.status})`,
+    );
+  }
+  const device = await parseDeviceResponse(response, deviceCodeSchema);
+  opts.onUrl?.(`${CODEX_ISSUER}/codex/device`, device.user_code);
+  for (;;) {
+    signal.throwIfAborted();
+    const result = await request("token", {
+      device_auth_id: device.device_auth_id,
+      user_code: device.user_code,
+    });
+    if (result.ok) {
+      const grant = await parseDeviceResponse(result, deviceGrantSchema);
+      const tokens = await exchangeCode({
+        code: grant.authorization_code,
+        verifier: grant.code_verifier,
+        redirectUri: `${CODEX_ISSUER}/deviceauth/callback`,
+        now: opts.now,
+        fetch: async (input, init) => {
+          const response = await send(input, init);
+          if (!response.ok) {
+            await response.body?.cancel();
+            throw new ProviderSignInError(`Device-code token exchange failed (${response.status})`);
+          }
+          return response;
+        },
+      });
+      signal.throwIfAborted();
+      return tokens;
+    }
+    await result.body?.cancel();
+    // These are the provider's pending-authorization responses.
+    if (result.status !== 403 && result.status !== 404)
+      throw new ProviderSignInError(`Device-code authorization failed (${result.status})`);
+    await delay(device.interval * 1000, undefined, { signal });
+  }
+}
+
+async function parseDeviceResponse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError)
+      throw new ProviderSignInError("Invalid device-code sign-in response.");
+    throw error;
+  }
+  const result = schema.safeParse(json);
+  if (!result.success) throw new ProviderSignInError("Invalid device-code sign-in response.");
+  return result.data;
 }

@@ -8,6 +8,7 @@ import { pipeline } from "node:stream/promises";
 import type { Readable } from "node:stream";
 import { z } from "zod";
 import { createNdjsonMessageConnection } from "@harness/client/node";
+import { forwardBridgeInput } from "./bridge-input.ts";
 import type { RpcConnection } from "@harness/client";
 import { hostSchema, type Host } from "./contracts.ts";
 
@@ -459,21 +460,11 @@ export async function connectRemote(
     close: async () => {
       const alreadyEnded = ended || connectionClosed;
       connection.dispose();
-      child.stdin.end();
-      let timer!: ReturnType<typeof setTimeout>;
-      try {
-        await Promise.race([
-          alreadyEnded ? exited.catch(() => undefined) : exited,
-          new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(() => {
-              child.kill();
-              reject(new Error("Remote bridge did not disconnect within 20 seconds"));
-            }, 20_000);
-          }),
-        ]);
-      } finally {
-        clearTimeout(timer);
-      }
+      child.stdin.destroy();
+      // Discard unacknowledged delivery and terminate only our transport process.
+      // The independently launched owner retains every accepted operation.
+      if (!ended) child.kill();
+      await (alreadyEnded || child.killed ? exited.catch(() => undefined) : exited);
     },
   };
 }
@@ -490,19 +481,35 @@ export async function runRemoteBridge(
     options,
     0,
   );
-  process.stdin.pipe(child.stdin);
   child.stdout.pipe(process.stdout);
   child.stderr.pipe(process.stderr);
+  let disposeInput!: () => void;
+  let detaching = false;
   try {
     await new Promise<void>((resolve, reject) => {
-      child.once("error", reject);
+      const failed = (error: Error) => {
+        child.kill();
+        reject(error);
+      };
+      child.once("error", failed);
+      child.stdin.once("error", failed);
+      disposeInput = forwardBridgeInput(
+        child.stdin,
+        () => {
+          detaching = true;
+          child.stdin.destroy();
+          child.kill();
+        },
+        failed,
+      );
       child.once("close", (code) =>
-        code === 0 ? resolve() : reject(new RemoteCommandError(code, "Remote bridge disconnected")),
+        code === 0 || detaching
+          ? resolve()
+          : reject(new RemoteCommandError(code, "Remote bridge disconnected")),
       );
     });
   } finally {
-    process.stdin.unpipe(child.stdin);
-    process.stdin.pause();
+    disposeInput();
     child.stdout.unpipe(process.stdout);
     child.stderr.unpipe(process.stderr);
     if (child.exitCode === null) child.kill();

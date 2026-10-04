@@ -33,7 +33,11 @@ export interface ProviderApiKeyAuth extends ProviderAuthBase {
 
 export interface ProviderOAuth extends ProviderAuthBase {
   readonly kind: "oauth";
-  login(opts: { onUrl: (url: string) => void; signal?: AbortSignal }): Promise<void>;
+  login(opts: {
+    flow: "browser" | "device";
+    onUrl: (url: string, userCode?: string) => void;
+    signal?: AbortSignal;
+  }): Promise<void>;
 }
 
 export type ProviderAuth = ProviderApiKeyAuth | ProviderOAuth;
@@ -85,6 +89,14 @@ export class ProviderCredentialError extends Error {
   constructor() {
     super("The configured credential backend is unavailable");
     this.name = "ProviderCredentialError";
+  }
+}
+
+/** Expected sign-in failures with messages safe to display to the controlling client. */
+export class ProviderSignInError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProviderSignInError";
   }
 }
 

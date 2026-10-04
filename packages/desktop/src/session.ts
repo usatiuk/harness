@@ -22,6 +22,7 @@ import {
   type JsonValue,
 } from "@harness/protocol";
 import {
+  appAuthLoginRequest,
   appAuthUrlNotification,
   appSettingsRequest,
   type AppSettings,
@@ -50,6 +51,8 @@ export class DesktopSession {
   listCursor: { createdAt: number; id: string } | null = null;
   settings: AppSettings | undefined;
   authUrl: string | undefined;
+  authCode: string | null = null;
+  private authAttempt: AbortController | undefined;
   disconnected: string | undefined;
   revision = 0;
   private scope: string;
@@ -80,8 +83,9 @@ export class DesktopSession {
       }
       this.changed();
     });
-    this.client.peer.onNotification(appAuthUrlNotification, ({ url }) => {
+    this.client.peer.onNotification(appAuthUrlNotification, ({ url, userCode }) => {
       this.authUrl = url;
+      this.authCode = userCode;
       this.changed();
     });
     connection.onClose(() => this.disconnect(this.disconnected ?? "Harness server disconnected"));
@@ -99,6 +103,7 @@ export class DesktopSession {
     for (const listener of this.listeners) listener();
   }
   disconnect(message: string): void {
+    this.authAttempt?.abort();
     this.disconnected = message;
     this.changed();
   }
@@ -116,6 +121,29 @@ export class DesktopSession {
   async readSettings(): Promise<AppSettings> {
     this.settings = await this.client.peer.request(appSettingsRequest, {});
     return this.settings;
+  }
+
+  async login(params: unknown, signal: AbortSignal): Promise<void> {
+    if (this.authAttempt) throw new Error("A provider sign-in is already in progress");
+    const attempt = new AbortController();
+    this.authAttempt = attempt;
+    try {
+      await this.client.peer.request(
+        appAuthLoginRequest,
+        appAuthLoginRequest.params.parse(params),
+        {
+          signal: AbortSignal.any([signal, attempt.signal]),
+        },
+      );
+    } finally {
+      this.authAttempt = undefined;
+      this.authUrl = undefined;
+      this.authCode = null;
+      this.changed();
+    }
+  }
+  cancelLogin(): void {
+    this.authAttempt?.abort();
   }
   async list(more = false): Promise<void> {
     const page = await this.client.list({

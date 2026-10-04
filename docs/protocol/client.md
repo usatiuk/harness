@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first request and requires protocol version `2`. It exchanges
+`initialize` is the first request and requires protocol version `3`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -162,8 +162,10 @@ separate from kernel and plugin semantics:
   config writers. Approval and auto-review defaults refresh loaded conversations
   without writing conversation overrides; existing model selections remain pinned.
   Clearing the reviewer model restores use of each conversation's model.
-- `app.auth.login` accepts an API key or starts cancellable browser OAuth;
-  `app.auth.url` supplies the external browser URL. It never returns credentials.
+- `app.auth.login` accepts an API key or starts cancellable OAuth with an explicit
+  `flow` of `browser` or `device`. `app.auth.url` supplies the sign-in URL and
+  nullable `userCode`; device codes are displayed by the client. It never returns
+  credentials.
 - `app.auth.logout` deletes stored credentials. Auth mutations return
   `restartRequired: true`; the client explicitly restarts its owned server to
   rebuild provider composition.
