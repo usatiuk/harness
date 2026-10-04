@@ -1,18 +1,19 @@
-# Harness client protocol v1
+# Harness client protocol
 
-Harness exposes one bidirectional JSON-RPC 2.0 connection. The current TUI uses
-it over an in-process queue; the desktop uses a Tauri bridge to the same bundled
-stdio server. `harness server --stdio` uses newline-delimited JSON
-over pipes, including through SSH. Transport does not change message semantics.
+Harness exposes one bidirectional JSON-RPC 2.0 connection. Desktop and TUI
+attach to a shared background server through local, WSL, or non-interactive SSH
+adapters. Isolated stdio and in-process transports use the same current contract.
+Transport does not change message semantics. Only the current protocol and
+plugin contract versions are supported; there are no older-format adapters.
 
-The committed [JSON Schema](client-v1.schema.json) defines every core and shipped
+The committed [JSON Schema](client.schema.json) defines every core and shipped
 plugin and shipped application parameter, result, notification, and attach snapshot. Zod is the
 TypeScript authoring/runtime source. This document defines behavior schemas
 cannot express.
 
 ## Connection
 
-`initialize` is the first request and requires protocol version `1`. It exchanges
+`initialize` is the first request and requires protocol version `3`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -20,42 +21,53 @@ use the same ID concurrently. Batches are unsupported.
 Both peers may make requests. The requester may cancel with the standard
 `$/cancelRequest` notification; handlers observe an abort signal and cancelled
 work returns error `-32800` when a response has not already won the race.
-Connection closure rejects outstanding requests and closes every root scope whose
-attachment started on that connection, including failed or in-flight attachment.
+Connection closure rejects outstanding requests and removes that observer. Accepted
+work and prepared root runtimes belong to the shared server.
 Unknown requests return `Method not found`; unknown optional notifications may be
 ignored.
 
 Stdio carries one compact JSON object per UTF-8 line. A frame is at most 4 MiB and
 the serialized writer queue at most 8 MiB. Stdout is protocol-only; diagnostics
 use stderr. Frame or queue overflow closes the connection instead of parking a
-request whose response could not be written. The SSH client executes the fixed
-command:
+request whose response could not be written. WSL and SSH adapters execute a
+fixed bridge from the prepared runtime. SSH uses OpenSSH BatchMode and the user's
+configuration for aliases, keys, ports, and host verification. Workspace paths
+and other inputs remain JSON-RPC parameters. The server has the authority of the
+selected OS user.
 
-```text
-ssh -T -- <destination> harness server --stdio
-```
+`harness server --background` runs the shared owner without a client transport.
+`harness server --bridge` ensures that owner is ready and relays stdio into its
+authenticated loopback socket. Closing the bridge removes that connection;
+the owner continues with zero clients. `--stdio` owns an isolated composition
+and disposes it on EOF.
 
-Only the validated destination varies. Workspace paths and other inputs remain
-JSON-RPC parameters. The server has the authority of the remote OS user and is
-not an unauthenticated network service.
+Loopback discovery lives under the canonical Harness home's user-private `.server`
+directory. Windows protects the random token with current-user DPAPI as well as
+directory ACLs; POSIX uses owner-only permissions. The socket accepts a token line
+of at most 128 bytes within five seconds and returns one identity JSON line of at
+most 4 KiB before NDJSON RPC begins. Clients validate that identity against the
+requested canonical home and discovery record. They verify readiness rather than trusting a
+discovery file or PID. SQLite exclusive ownership arbitrates simultaneous starts.
+
+After initialization, `server.info` returns the canonical home, stable server ID,
+per-process instance ID, PID, platform, protocol version and build ID.
+`server.stop` returns acceptance and then drains the shared composition and closes
+its clients. Acceptance does not mean drainage is finished; the control adapter
+waits for connection closure. `server.release` atomically accepts shutdown only
+when its authenticated control connection is the sole remaining client, then
+closes admission. Desktop uses it for the remembered Local stop-on-exit policy.
+If another client remains, it leaves the owner running. These owner controls are provided by background
+servers, not isolated in-process compositions.
 
 ## Conversations and attachment
-
-`server.models` returns the boot catalog and default selection. Model identity
-uses the configured connection ID and public model alias. Catalog entries carry
-presets, nullable combined context and separate input/output bounds, explicit
-reasoning/thinking capabilities and effort metadata, and nullable rate cards.
-Unknown values are null on the wire; clients never fabricate capacities or
-generation controls from descriptive capabilities. Shipped server bootstrap
-bounds the projected catalog to 3 MiB before serving it.
 
 `conversation.attach` prepares a conversation and admits its root scope to
 the connection's live set. It returns a bounded authoritative snapshot of the
 root, loaded conversation-tree state, aggregate usage, and already-created plugin state. It
 does not return transcript history.
 
-Ownership begins before asynchronous preparation. Failure or connection shutdown
-force-cleans a newly prepared runtime. After preparation and store reads, the
+The shared RPC host admits preparation and owns its lifetime. Failed or cancelled
+attachments remove only their observer; they cannot dispose another client's runtime. After preparation and store reads, the
 server captures the live snapshot and admits the root scope without another await. The ordered
 connection may deliver an early notification before the request promise resumes,
 so the client coordinator buffers notifications during attach, applies the
@@ -80,8 +92,8 @@ remain freshly read from the store.
 The server does not maintain a generic UI reducer. Store owns immutable items;
 runtime owns turns and accepted pending input; each plugin owns its live objects.
 Attach reads small projections from those authorities. Anything actionable and
-long-lived, such as an approval or activity, is owned by a connection coordinator
-or included in a bounded snapshot rather than reconstructed from old events.
+long-lived, such as an approval or activity, is server-owned and
+included in a bounded snapshot rather than reconstructed from old events.
 
 ## History and live events
 
@@ -96,16 +108,18 @@ history. Clients deduplicate by item ID; a duplicate canonical text/reasoning it
 also removes its overlapping transient draft. Status, pending input, head, and
 configuration carry latest semantic values; `usage.changed` replaces the full
 aggregate rather than adding a delta. Text and reasoning deltas are transient; a
-missed delta converges when the durable item arrives. V1 has no reconnect, replay
-log, sequence cursor, or exactly-once claim.
+missed delta converges when the durable item arrives. Reconnect installs fresh attachment and history state. For a turn already running
+in that attachment, transient text/reasoning deltas are suppressed until canonical
+items arrive; future turns stream normally. There is no replay log or automatic
+mutation resubmission. A timeout or transport loss does not prove a send was rejected.
 
 The shared domain client buffers only the initial root attach/history gap;
 events for unobserved descendants do not accumulate in an unused presentation
 backlog. A client that later opens a root uses fresh history and an attach snapshot.
 
 Closing or reloading a root affects only that conversation tree. Switching the visible
-screen leaves other attached roots running. Closing the connection force-closes
-all its root scopes and server-owned processes.
+screen leaves other attached roots running. Closing the connection detaches its observer. Explicit root close/reload affects
+every client attached to that tree.
 Shutdown drains every root and reports real disposal failures after drainage
 rather than returning false success.
 
@@ -119,12 +133,12 @@ request, not the attach response.
 
 The shipped contracts cover activities, workspace shell streaming, sandbox
 control, subagent list filtering, and approval. Workspace shell IDs are allocated
-connection-wide and duplicate active activity IDs fail rather than overwrite. Approval is a server-to-client
-request owned connection-wide, so a child approval remains answerable while a
-different conversation is visible and simultaneous approvals remain queued. V1
-requires attach before work can create an approval; it does not replay requests
-during attachment. If the client did not advertise the approval contract, the
-server denies instead of leaving work parked.
+with a fresh UUID; duplicate active activity IDs fail rather than overwrite.
+The approval contract exposes pending requests in the approval attach snapshot,
+created/resolved notifications, and a client-to-server decision request. The first
+valid decision resolves the kernel-owned request; subsequent decisions return
+resolved=false. Disconnect does not decide an approval. A child approval remains
+answerable while another conversation is visible.
 
 Sandbox status includes a `warning` phase. Explicit shared Docker stop/rebuild
 warns all affected conversations and proceeds. Ordinary conversation close
@@ -148,8 +162,10 @@ separate from kernel and plugin semantics:
   config writers. Approval and auto-review defaults refresh loaded conversations
   without writing conversation overrides; existing model selections remain pinned.
   Clearing the reviewer model restores use of each conversation's model.
-- `app.auth.login` accepts an API key or starts cancellable browser OAuth;
-  `app.auth.url` supplies the external browser URL. It never returns credentials.
+- `app.auth.login` accepts an API key or starts cancellable OAuth with an explicit
+  `flow` of `browser` or `device`. `app.auth.url` supplies the sign-in URL and
+  nullable `userCode`; device codes are displayed by the client. It never returns
+  credentials.
 - `app.auth.logout` deletes stored credentials. Auth mutations return
   `restartRequired: true`; the client explicitly restarts its owned server to
   rebuild provider composition.

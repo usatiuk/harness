@@ -1,7 +1,8 @@
-param([int]$TargetProcess, [int]$OwnerProcess, [ValidateSet('suspend', 'resume')][string]$Action)
+param([int]$TargetProcess, [string]$ExpectedCommand, [ValidateSet('suspend', 'resume', 'crash')][string]$Action)
 $ErrorActionPreference = 'Stop'
 $entry = Get-CimInstance Win32_Process -Filter "ProcessId = $TargetProcess"
-if (-not $entry -or $entry.ParentProcessId -ne $OwnerProcess -or $entry.Name -ne 'node.exe') { throw 'Target is not the owned test server' }
+if (-not $entry -or $entry.Name -ne 'node.exe' -or $entry.CommandLine -cne $ExpectedCommand -or -not $ExpectedCommand.Contains('--background')) { throw 'Target is not the authenticated test server' }
+if ($Action -eq 'crash') { Stop-Process -Id $TargetProcess -Force; exit 0 }
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;

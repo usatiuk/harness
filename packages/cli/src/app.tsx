@@ -26,7 +26,7 @@ import {
   sandboxConfigSchema,
   type SandboxBackend,
   type SandboxPhase,
-} from "@harness/sandbox";
+} from "@harness/sandbox/client";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
 import { presetsFor, runCommand, type CommandContext } from "./commands.ts";
 import { ModelPicker, PresetPicker } from "./model-picker.tsx";
@@ -70,6 +70,8 @@ export interface AppProps {
   sessionOverlay?: ReactNode;
   /** A session-owner message that must survive an App remount. */
   notice?: { id: number; text: string };
+  onHosts?: () => void;
+  drafts?: Map<string, string>;
 }
 
 export interface SessionMutation {
@@ -171,6 +173,8 @@ export function App({
   transitioning,
   sessionOverlay,
   notice,
+  onHosts,
+  drafts,
 }: AppProps): ReactElement {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -421,6 +425,7 @@ export function App({
       showSandbox: () => setShowSandbox(true),
       sandbox: sandboxView,
       exit,
+      ...(onHosts ? { manageHosts: onHosts } : {}),
     }),
     [
       service,
@@ -434,6 +439,7 @@ export function App({
       busy,
       exit,
       sandboxView,
+      onHosts,
     ],
   );
 
@@ -488,10 +494,10 @@ export function App({
               <Text color="magenta">{`❓ ${pending.summary} `}</Text>
               <ConfirmInput
                 onConfirm={() => {
-                  plugins.approvals.respond(pending.requestId, "allow");
+                  report(plugins.approvals.respond(pending.requestId, "allow"));
                 }}
                 onCancel={() => {
-                  plugins.approvals.respond(pending.requestId, "deny");
+                  report(plugins.approvals.respond(pending.requestId, "deny"));
                 }}
               />
             </Box>
@@ -530,6 +536,8 @@ export function App({
               <Composer
                 ctx={ctx}
                 history={history}
+                initialValue={drafts?.get(conversation.id) ?? ""}
+                onValueChange={(value) => drafts?.set(conversation.id, value)}
                 onSubmit={submit}
                 onMenuOpenChange={setMenuOpen}
                 onInterrupt={() => {
@@ -566,7 +574,7 @@ export function App({
 export function LiveViewport({ children }: { children: ReactNode }): ReactElement {
   const { stdout } = useStdout();
   const { rows } = useWindowSize();
-  const maxHeight = stdout?.isTTY ? Math.max(0, rows - 1) : undefined;
+  const maxHeight = "isTTY" in stdout && stdout.isTTY === true ? Math.max(0, rows - 1) : undefined;
 
   return (
     <Box

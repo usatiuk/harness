@@ -1,6 +1,13 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import {
-  createHashRouter,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import {
+  createMemoryRouter,
   Form,
   Link,
   NavLink,
@@ -24,13 +31,11 @@ import type { Cell } from "@harness/client-features/transcript-reducer";
 import type { ClientApproval } from "@harness/approval/client";
 import { textOf, type Conversation, type ConversationId } from "@harness/protocol";
 import {
-  appAuthLoginRequest,
   appAuthLogoutRequest,
   appSettingsUpdateRequest,
   type AppSettings,
 } from "@harness/server/client-protocol";
 import { DesktopSession, type ConversationView } from "./session.ts";
-import { restartNative } from "./transport.ts";
 import { Button } from "./ui.tsx";
 import { applyTheme } from "./appearance.ts";
 import {
@@ -64,7 +69,10 @@ const conversationLabel = (conversation: Conversation, view?: ConversationView):
     : `${basename(conversation.workspaceRoot)} · ${new Date(conversation.createdAt).toLocaleString()}`;
 };
 
-export function createDesktopRouter(session: DesktopSession) {
+export function createDesktopRouter(
+  session: DesktopSession,
+  connections: { controls: ReactNode; local: boolean; label: string; restart(): Promise<void> },
+) {
   const useLive = (): void => {
     useSyncExternalStore(session.subscribe, session.snapshot);
   };
@@ -78,7 +86,7 @@ export function createDesktopRouter(session: DesktopSession) {
           const decision = field(data, "decision");
           if (decision !== "allow" && decision !== "deny")
             throw new Error("Invalid approval decision");
-          session.plugins.approvals.respond(field(data, "requestId"), decision);
+          await session.plugins.approvals.respond(field(data, "requestId"), decision);
           return { ok: true };
         }
         case "list-more":
@@ -94,9 +102,18 @@ export function createDesktopRouter(session: DesktopSession) {
             throw new Error("Invalid input delivery");
           const text = field(data, "text").trim();
           if (!text) throw new Error("Enter a message");
-          await session.domain.deliver(id, text, delivery);
-          if (localStorage.getItem(`draft:${id}`) === field(data, "text"))
-            localStorage.removeItem(`draft:${id}`);
+          try {
+            await session.domain.deliver(id, text, delivery);
+          } catch (error) {
+            if (!session.client.peer.ready)
+              throw new Error(
+                "Connection lost. Delivery outcome is unknown; reconnect and check the conversation before sending again.",
+                { cause: error },
+              );
+            throw error;
+          }
+          if (localStorage.getItem(session.storageKey(`draft:${id}`)) === field(data, "text"))
+            localStorage.removeItem(session.storageKey(`draft:${id}`));
           return { ok: true };
         }
         case "stop":
@@ -161,15 +178,14 @@ export function createDesktopRouter(session: DesktopSession) {
             .kill(field(data, "activityId"));
           return { ok: true };
         case "login": {
-          await session.client.peer.request(
-            appAuthLoginRequest,
+          await session.login(
             {
               provider: field(data, "provider"),
               key: data.has("key") ? field(data, "key") : null,
+              flow: field(data, "flow"),
             },
-            { signal: request.signal },
+            request.signal,
           );
-          session.authUrl = undefined;
           return {
             ok: true,
             restartRequired: true,
@@ -277,7 +293,7 @@ export function createDesktopRouter(session: DesktopSession) {
             )
               return;
             setBusy(true);
-            void restartNative().catch((cause: unknown) => {
+            void connections.restart().catch((cause: unknown) => {
               setError(errorMessage(cause));
               setBusy(false);
             });
@@ -334,6 +350,7 @@ export function createDesktopRouter(session: DesktopSession) {
             <Terminal size={19} aria-hidden="true" />
             <span>Harness</span>
           </div>
+          {connections.controls}
           <Link to="/new" className="new-conversation">
             <Plus size={15} aria-hidden="true" /> New conversation
           </Link>
@@ -466,7 +483,9 @@ export function createDesktopRouter(session: DesktopSession) {
   }
   function NewConversation() {
     const { settings } = useRouteLoaderData<RootData>("app")!;
-    const [cwd, setCwd] = useState(localStorage.getItem("last-directory") ?? settings.cwd);
+    const [cwd, setCwd] = useState(
+      localStorage.getItem(session.storageKey("last-directory")) ?? settings.cwd,
+    );
     const navigation = useNavigation();
     const defaultModel = settings.settings.model ?? session.domain.defaultModel();
     const [selection, setSelection] = useState(modelKey(defaultModel.provider, defaultModel.model));
@@ -489,18 +508,23 @@ export function createDesktopRouter(session: DesktopSession) {
               required
             />
           </label>
-          <Button
-            type="button"
-            onClick={() => {
-              void open({ directory: true, multiple: false, title: "Choose project folder" })
-                .then((path) => {
-                  if (typeof path === "string") setCwd(path);
-                })
-                .catch((cause: unknown) => setError(errorMessage(cause)));
-            }}
-          >
-            <FolderOpen size={15} aria-hidden="true" /> Choose folder…
-          </Button>
+          {connections.local && (
+            <Button
+              type="button"
+              onClick={() => {
+                void open({ directory: true, multiple: false, title: "Choose project folder" })
+                  .then((path) => {
+                    if (typeof path === "string") setCwd(path);
+                  })
+                  .catch((cause: unknown) => setError(errorMessage(cause)));
+              }}
+            >
+              <FolderOpen size={15} aria-hidden="true" /> Choose folder…
+            </Button>
+          )}
+          {!connections.local && (
+            <p className="muted">Enter a project path on {connections.label}.</p>
+          )}
           <label>
             Model
             <select
@@ -858,14 +882,14 @@ export function createDesktopRouter(session: DesktopSession) {
     const send = useFetcher<ActionResult>();
     const stop = useFetcher<ActionResult>();
     const id = view.conversation.id;
-    const [text, setText] = useState(localStorage.getItem(`draft:${id}`) ?? "");
+    const [text, setText] = useState(localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "");
     const textarea = useRef<HTMLTextAreaElement>(null);
     const handled = useRef<ActionResult | undefined>(undefined);
     const running = view.state.turn.status === "running";
     useEffect(() => {
       if (send.state === "idle" && send.data?.ok && handled.current !== send.data) {
         handled.current = send.data;
-        setText(localStorage.getItem(`draft:${id}`) ?? "");
+        setText(localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "");
         textarea.current?.focus();
       }
     }, [send.state, send.data, id]);
@@ -892,7 +916,7 @@ export function createDesktopRouter(session: DesktopSession) {
             rows={3}
             onChange={(event) => {
               setText(event.target.value);
-              localStorage.setItem(`draft:${id}`, event.target.value);
+              localStorage.setItem(session.storageKey(`draft:${id}`), event.target.value);
             }}
             onKeyDown={(event) => {
               if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -1098,6 +1122,22 @@ export function createDesktopRouter(session: DesktopSession) {
           >
             <input type="hidden" name="intent" value="login" />
             <input type="hidden" name="provider" value={provider.id} />
+            {provider.kind === "oauth" && connections.local ? (
+              <label>
+                Sign-in method
+                <select name="flow" defaultValue="browser">
+                  <option value="browser">Browser sign-in</option>
+                  <option value="device">Device code</option>
+                </select>
+              </label>
+            ) : (
+              <input
+                type="hidden"
+                name="flow"
+                value={provider.kind === "oauth" ? "device" : "browser"}
+              />
+            )}
+
             {provider.kind === "api-key" && (
               <label>
                 API key
@@ -1114,7 +1154,9 @@ export function createDesktopRouter(session: DesktopSession) {
               {fetcher.state !== "idle"
                 ? "Connecting…"
                 : provider.kind === "oauth"
-                  ? "Sign in with browser"
+                  ? connections.local
+                    ? "Sign in"
+                    : "Sign in with device code"
                   : "Save key"}
             </Button>
           </fetcher.Form>
@@ -1145,6 +1187,7 @@ export function createDesktopRouter(session: DesktopSession) {
     return (
       <section className="page settings-page">
         <h1>Settings</h1>
+        <p className="muted">Server settings · {connections.label}</p>
         <h2>Defaults</h2>
         <save.Form method="post" action="/actions" className="form-grid">
           <input type="hidden" name="intent" value="settings" />
@@ -1216,13 +1259,29 @@ export function createDesktopRouter(session: DesktopSession) {
         ))}
         {session.authUrl && (
           <div className="auth-url">
-            <p>Complete sign-in in your browser. If it did not open, copy this URL:</p>
+            <p>
+              {session.authCode
+                ? "Open this URL in your browser and enter the one-time code:"
+                : "Complete sign-in in your browser. If it did not open, copy this URL:"}
+            </p>
             <input
               readOnly
               value={session.authUrl}
               aria-label="Sign-in URL"
               onFocus={(event) => event.currentTarget.select()}
             />
+            {session.authCode && (
+              <input
+                readOnly
+                value={session.authCode}
+                aria-label="Sign-in code"
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            )}
+            <div className="button-row">
+              <Button onClick={() => void openUrl(session.authUrl!)}>Open sign-in page</Button>
+              <Button onClick={() => session.cancelLogin()}>Cancel sign-in</Button>
+            </div>
           </div>
         )}
         <h2>Appearance</h2>
@@ -1313,47 +1372,50 @@ export function createDesktopRouter(session: DesktopSession) {
       </section>
     );
   }
-  return createHashRouter([
-    {
-      id: "app",
-      path: "/",
-      Component: Layout,
-      loader: async (): Promise<RootData> => {
-        const [settings] = await Promise.all([
-          session.readSettings(),
-          session.listLoaded ? undefined : session.list(),
-        ]);
-        return { settings };
-      },
-      ErrorBoundary: RouteError,
-      HydrateFallback: () => <div className="startup">Loading Harness…</div>,
-      children: [
-        { index: true, Component: Welcome },
-        {
-          path: "new",
-          Component: NewConversation,
-          action: async ({ request }) => {
-            const data = await request.formData();
-            const cwd = field(data, "cwd");
-            const id = await session.create(
-              cwd,
-              field(data, "model"),
-              field(data, "sandbox"),
-              field(data, "toolMode"),
-            );
-            localStorage.setItem("last-directory", cwd);
-            return redirect(`/conversations/${id}`);
+  return createMemoryRouter(
+    [
+      {
+        id: "app",
+        path: "/",
+        Component: Layout,
+        loader: async (): Promise<RootData> => {
+          const [settings] = await Promise.all([
+            session.readSettings(),
+            session.listLoaded ? undefined : session.list(),
+          ]);
+          return { settings };
+        },
+        ErrorBoundary: RouteError,
+        HydrateFallback: () => <div className="startup">Loading Harness…</div>,
+        children: [
+          { index: true, Component: Welcome },
+          {
+            path: "new",
+            Component: NewConversation,
+            action: async ({ request }) => {
+              const data = await request.formData();
+              const cwd = field(data, "cwd");
+              const id = await session.create(
+                cwd,
+                field(data, "model"),
+                field(data, "sandbox"),
+                field(data, "toolMode"),
+              );
+              localStorage.setItem(session.storageKey("last-directory"), cwd);
+              return redirect(`/conversations/${id}`);
+            },
           },
-        },
-        {
-          path: "conversations/:conversationId",
-          Component: ConversationPage,
-          loader: ({ params }) => session.load(params.conversationId!),
-          ErrorBoundary: RouteError,
-        },
-        { path: "settings", Component: Settings },
-        { path: "actions", action },
-      ],
-    },
-  ]);
+          {
+            path: "conversations/:conversationId",
+            Component: ConversationPage,
+            loader: ({ params }) => session.load(params.conversationId!),
+            ErrorBoundary: RouteError,
+          },
+          { path: "settings", Component: Settings },
+          { path: "actions", action },
+        ],
+      },
+    ],
+    { initialEntries: [localStorage.getItem(session.storageKey("route")) ?? "/"] },
+  );
 }

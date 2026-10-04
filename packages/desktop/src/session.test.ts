@@ -1,3 +1,4 @@
+import { HarnessRpcHost } from "@harness/service";
 import { expect, it, vi } from "vitest";
 import { createInProcessMessageConnectionPair } from "@harness/client";
 import { HarnessService, HarnessRpcSession } from "@harness/service";
@@ -19,9 +20,10 @@ it("reattaches after failed sandbox replacement while another conversation remai
     ],
   });
   const connections = createInProcessMessageConnectionPair();
+  const host = new HarnessRpcHost(service);
   const server = new HarnessRpcSession({
     connection: connections.right,
-    service,
+    host,
     server: { name: "test", version: "1" },
   });
   const desktop = new DesktopSession(connections.left);
@@ -61,6 +63,7 @@ it("reattaches after failed sandbox replacement while another conversation remai
     );
     expect(desktop.disconnected).toBeUndefined();
   } finally {
+    await host.shutdown();
     await server.shutdown();
   }
 });

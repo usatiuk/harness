@@ -193,7 +193,17 @@ export class Engine {
    * A no-op if the request is unknown (already resolved, or cancelled by abort).
    */
   respond(conversationId: ConversationId, requestId: string, response: unknown): void {
-    this.#runtimes.get(conversationId)?.pendingRequests.get(requestId)?.(response);
+    this.#runtimes.get(conversationId)?.pendingRequests.get(requestId)?.resolve(response);
+  }
+
+  pendingRequests(rootId: ConversationId) {
+    return this.#treeRuntimes(rootId).flatMap((runtime) =>
+      [...runtime.pendingRequests].map(([requestId, pending]) => ({
+        requestId,
+        conversationId: runtime.conversation.id,
+        request: pending.request,
+      })),
+    );
   }
 
   /**
@@ -548,7 +558,6 @@ export class Engine {
     if (this.#rootScopeUnavailable(conversationId)) {
       return Promise.reject(new Error("cannot load a conversation during deactivation"));
     }
-    if (!this.#roots.has(conversationId)) this.#roots.set(conversationId, conversationId);
     const existing = this.#runtimes.get(conversationId);
     if (existing) return Promise.resolve(existing);
     let loading = this.#loading.get(conversationId);
@@ -572,6 +581,9 @@ export class Engine {
       // so settings edits and the durable overrides both reach a resumed conversation.
       const config = await this.resolveConfig(record);
       const runtime = new Runtime({ ...record, config });
+      // Failed first loads own no tree. Registered children already retain their
+      // parent mapping, and successful roots acquire ownership here.
+      if (!this.#roots.has(conversationId)) this.#roots.set(conversationId, conversationId);
       this.#runtimes.set(conversationId, runtime);
       return runtime;
     } finally {
@@ -1317,10 +1329,13 @@ export class Engine {
         reject(aborted());
       };
       signal.addEventListener("abort", onAbort, { once: true });
-      runtime.pendingRequests.set(requestId, (response) => {
-        cleanup();
-        this.#emitKernel({ type: "request.resolved", requestId, conversationId });
-        resolve(response);
+      runtime.pendingRequests.set(requestId, {
+        request,
+        resolve: (response) => {
+          cleanup();
+          this.#emitKernel({ type: "request.resolved", requestId, conversationId });
+          resolve(response);
+        },
       });
       this.#emitKernel({ type: "request.created", requestId, conversationId, request });
     });

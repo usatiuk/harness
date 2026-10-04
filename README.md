@@ -45,31 +45,49 @@ an external requirement for devcontainers, and execution tools use the host's
 installed shell/programs. The current installer and native E2E qualification
 target Windows; macOS/Linux desktop packaging is not yet qualified.
 
-Each desktop application owns one hidden background server. Closing its window
-cancels and drains all owned conversations and processes before quitting. Server
-crashes are visible and can be restarted; completed history remains durable,
-while in-flight work is not resumed. Provider credential changes require an
-explicit restart, which stops active work. There is no tray or shared daemon.
-GUI and TUI use the same Harness home, with an exclusive database lock allowing
-one server at a time. Quit one before starting the other. `HARNESS_HOME` selects
-an alternative home for isolated profiles; the default is `~/.harness`.
+Desktop and TUI attach to the same background server for each execution
+environment and OS account. Closing a client keeps accepted work running. The
+desktop's remembered exit preference can stop Local when no other client uses
+it; remote stop/restart is explicit. Provider credential changes require an
+explicit server restart. There is no tray or login autostart.
+The exclusive database lock protects the server in its normal `~/.harness`
+directory. Connections do not select alternative homes or profiles.
 
-The TUI always uses the public bidirectional JSON-RPC protocol. By default the
-client and server share one process through an in-memory transport. The same TUI
-can spawn a local stdio server or a fixed remote SSH server command:
+Both clients initially show Local. Desktop has a host switcher above conversations
+and an agent command center for adding WSL/SSH routes and managing servers.
+TUI opens its command center with Ctrl+G or `/hosts`; `--host` selects a saved route
+and `--ssh` adds/selects a destination. Switching hosts leaves other hosts running.
+SSH uses non-interactive OpenSSH authentication and host verification; configure
+custom ports, keys and aliases in `.ssh/config`. WSL discovers installed distros.
+The TUI uses the public bidirectional JSON-RPC protocol:
 
 ```sh
 harness --connect-stdio
 harness --ssh user@host --cwd /remote/project
 harness resume --ssh user@host
+harness --host saved-host-id
 ```
 
-The headless entry point is `harness server --stdio`. It emits only NDJSON
+The shared headless owner is `harness server --background`; `harness server --bridge`
+ensures it is ready and attaches stdin/stdout. Bridge EOF leaves its work running.
+The launchers reuse this owner. New Harness homes are user-private;
+background connections reject existing homes writable by other OS users.
+`harness server --stdio` remains an isolated connection-owned entry point. It emits only NDJSON
 protocol frames on stdout and diagnostics on stderr. The server owns its host's
 store, settings, credentials, workspace, execution, activities, approvals, and
 subagents; the SSH destination is therefore a trusted account boundary, not an
-unauthenticated service. See the [v1 protocol](docs/protocol/client-v1.md) and
-[generated JSON Schema](docs/protocol/client-v1.schema.json).
+unauthenticated service. See the [client protocol](docs/protocol/client.md) and
+[generated JSON Schema](docs/protocol/client.schema.json).
+
+The controlling machine's `client.json` sits alongside global settings and stores
+host routes, runtime choices and client preferences. Provider/model/tool settings
+and credentials remain on the selected server. Remote deployment supports Linux
+x64 glibc: managed mode obtains verified portable Node; development mode uses the
+host's existing Node/npm. Both transfer the locally built server bundle and cache
+target dependencies. Upload stages code; restart activates it. Local offers browser
+and device-code ChatGPT sign-in; WSL/SSH use device codes. Qualification evidence
+is recorded in
+[the delivery plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
 Repository guidance lives in `AGENTS.md`. See `docs/README.md` for the roles of
 subsystem architecture, roadmaps, decisions, research, delivery plans, testing

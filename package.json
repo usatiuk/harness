@@ -14,6 +14,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/cli/tsconfig.json && tsc --noEmit -p packages/desktop/tsconfig.json",
     "desktop:dev": "npm run desktop:dev --workspace @harness/desktop",
     "desktop:build": "npm run desktop:build --workspace @harness/desktop",
+    "prepare:remote": "node packages/connections/tools/bundle-server.mjs packages/connections/resources",
+    "test:remote": "npm run prepare:remote && node --conditions=development --import=tsx packages/connections/tools/test-remote.mjs",
     "test:native": "npm run test:native --workspace @harness/desktop",
     "test": "vitest run",
     "test:watch": "vitest",

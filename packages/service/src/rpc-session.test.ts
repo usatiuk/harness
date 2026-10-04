@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { HarnessRpcHost } from "@harness/service";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   conversationAttachRequest,
   conversationEventNotification,
@@ -15,10 +16,23 @@ import { FakeProvider, counterIdGenerator, fixedClock, textStep } from "@harness
 import { HarnessService } from "./service.ts";
 import { HarnessRpcSession } from "./rpc-session.ts";
 
+const fixtures: Array<{ host: HarnessRpcHost; session: HarnessRpcSession }> = [];
+const expectedCleanupFailures = new Set<HarnessRpcHost>();
+afterEach(async () => {
+  for (const { host, session } of fixtures.splice(0)) {
+    await session.shutdown();
+    try {
+      await host.shutdown();
+    } catch (error) {
+      if (!expectedCleanupFailures.delete(host)) throw error;
+    }
+  }
+});
+
 const createHarness = (
   steps = [textStep("done")],
   plugins: Plugin[] = [],
-  onError?: (error: unknown) => void,
+  onError?: (error: unknown, method?: string) => void,
 ) => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const service = new HarnessService({
@@ -27,9 +41,10 @@ const createHarness = (
     plugins: [{ id: "fake", providers: () => [new FakeProvider(steps)] }, ...plugins],
   });
   const connections = createInProcessMessageConnectionPair();
+  const host = new HarnessRpcHost(service);
   const session = new HarnessRpcSession({
     connection: connections.right,
-    service,
+    host,
     server: { name: "harness", version: "0.0.0" },
     ...(onError ? { onError } : {}),
   });
@@ -38,7 +53,8 @@ const createHarness = (
     client: { name: "test", version: "1" },
   });
   session.start();
-  return { store, service, session, client };
+  fixtures.push({ host, session });
+  return { store, service, host, session, client };
 };
 
 const createConversation = (client: HarnessClient) =>
@@ -50,8 +66,24 @@ const createConversation = (client: HarnessClient) =>
   });
 
 describe("HarnessRpcSession", () => {
+  it("reports failed attachment method and retains no shutdown ownership for missing roots", async () => {
+    const errors = vi.fn();
+    const { client, service, host } = createHarness([], [], errors);
+    await client.start();
+    const deactivate = vi.spyOn(service, "deactivateSession");
+    const cancel = vi.spyOn(service, "cancelSession");
+    await expect(client.attach("missing-first")).rejects.toThrow();
+    await expect(client.attach("missing-second")).rejects.toThrow();
+    expect(errors.mock.calls.map((call: unknown[]) => call[1])).toEqual([
+      conversationAttachRequest.method,
+      conversationAttachRequest.method,
+    ]);
+    await host.shutdown();
+    expect(deactivate).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
   it("fails shutdown after draining every root when a real plugin disposer fails", async () => {
-    const { client, service, session } = createHarness(
+    const { client, service, host, session } = createHarness(
       [textStep("done")],
       [
         {
@@ -72,7 +104,9 @@ describe("HarnessRpcSession", () => {
     const root = await createConversation(client);
     await client.attach(root.id);
     service.service(root.id as ConversationId, "broken");
-    await expect(session.shutdown()).rejects.toThrow("Conversation shutdown failed");
+    expectedCleanupFailures.add(host);
+    await expect(host.shutdown()).rejects.toThrow("Conversation shutdown failed");
+    await session.shutdown();
     expect(service.conversationTreeState(root.id as ConversationId)).toEqual([]);
     expect(session.isAttached(root.id as ConversationId)).toBe(false);
   });
@@ -282,8 +316,8 @@ describe("HarnessRpcSession", () => {
     expect(reconstructed.type === "message" && reconstructed.content[0]?.text).toHaveLength(8_000);
   });
 
-  it("terminates and cleans up when an authoritative attachment exceeds its bound", async () => {
-    const { client, service, session } = createHarness([]);
+  it("detaches only the observer when an authoritative attachment exceeds its bound", async () => {
+    const { client, service, host, session } = createHarness([]);
     session.registerSnapshot("huge", () => ({ value: "x".repeat(2 * 1024 * 1024) }));
     await client.start();
     const conversation = await createConversation(client);
@@ -291,12 +325,13 @@ describe("HarnessRpcSession", () => {
     await expect(client.attach(conversation.id)).rejects.toThrow();
     await session.shutdown(false);
     expect(session.isAttached(conversation.id as ConversationId)).toBe(false);
-    expect(service.conversationTreeState(conversation.id as ConversationId)).toEqual([]);
+    expect(service.conversationTreeState(conversation.id as ConversationId)).toHaveLength(1);
+    await host.shutdown();
   });
 
-  it("reports cleanup failure after rejecting an oversized attachment", async () => {
+  it("reports resource cleanup failure only on explicit server shutdown", async () => {
     const errors: unknown[] = [];
-    const { client, service, session } = createHarness(
+    const { client, service, host, session } = createHarness(
       [],
       [
         {
@@ -321,30 +356,30 @@ describe("HarnessRpcSession", () => {
     await client.start();
     const conversation = await createConversation(client);
     await expect(client.attach(conversation.id)).rejects.toThrow();
-    await vi.waitFor(() =>
-      expect(
-        errors.some(
-          (error) =>
-            error instanceof AggregateError && error.message === "Conversation shutdown failed",
-        ),
-      ).toBe(true),
-    );
+    expect(errors.some((error) => error instanceof AggregateError)).toBe(false);
+    expectedCleanupFailures.add(host);
+    await expect(host.shutdown()).rejects.toThrow("Conversation shutdown failed");
     expect(service.conversationTreeState(conversation.id as ConversationId)).toEqual([]);
   });
 
-  it("does not let an in-flight attachment outlive connection shutdown", async () => {
-    const { client, service, session } = createHarness([]);
+  it("preserves shared preparation while a disconnected observer loses its in-flight attachment", async () => {
+    const { client, service, host, session } = createHarness([]);
     await client.start();
     const conversation = await createConversation(client);
     const prepare = service.prepare.bind(service);
     let entered!: () => void;
     let release!: () => void;
+    let finished!: () => void;
+    const prepared = new Promise<void>((resolve) => {
+      finished = resolve;
+    });
     const preparing = new Promise<void>((resolve) => (entered = resolve));
     const blocked = new Promise<void>((resolve) => (release = resolve));
     vi.spyOn(service, "prepare").mockImplementation(async (id) => {
       entered();
       await blocked;
       await prepare(id);
+      finished();
     });
 
     const attaching = client.attach(conversation.id);
@@ -355,12 +390,15 @@ describe("HarnessRpcSession", () => {
 
     await expect(attaching).rejects.toThrow();
     await shutdown;
+    await prepared;
     expect(session.isAttached(conversation.id as ConversationId)).toBe(false);
+    expect(service.conversationTreeState(conversation.id as ConversationId)).toHaveLength(1);
+    await host.shutdown();
     expect(service.conversationTreeState(conversation.id as ConversationId)).toEqual([]);
   });
 
-  it("rolls back attachment when cancellation reaches its final continuation", async () => {
-    const { client, service, session } = createHarness([]);
+  it("leaves shared preparation intact when attachment is cancelled", async () => {
+    const { client, service, host, session } = createHarness([]);
     const controller = new AbortController();
     session.registerSnapshot("cancel", () => {
       controller.abort();
@@ -376,15 +414,14 @@ describe("HarnessRpcSession", () => {
         { signal: controller.signal },
       ),
     ).rejects.toThrow("request cancelled");
-    await vi.waitFor(() =>
-      expect(service.conversationTreeState(conversation.id as ConversationId)).toEqual([]),
-    );
+    expect(service.conversationTreeState(conversation.id as ConversationId)).toHaveLength(1);
     expect(session.isAttached(conversation.id as ConversationId)).toBe(false);
     await session.shutdown(false);
+    await host.shutdown();
   });
 
-  it("cancels a long semantic handler before waiting for connection teardown", async () => {
-    const { client, service, session } = createHarness([]);
+  it("cancels a long semantic handler on explicit host shutdown", async () => {
+    const { client, service, host, session } = createHarness([]);
     await client.start();
     const conversation = await createConversation(client);
     await client.attach(conversation.id);
@@ -402,17 +439,23 @@ describe("HarnessRpcSession", () => {
     });
 
     const request = client.compact(conversation.id);
+    const outcome = request.then(
+      () => null,
+      (error: unknown) => error,
+    );
     await compacting;
     client.closeConnection();
     await session.shutdown(false);
 
+    expect(operationSignal?.aborted).toBe(false);
+    await host.shutdown();
     expect(operationSignal?.aborted).toBe(true);
-    await expect(request).rejects.toThrow();
+    expect(await outcome).toBeInstanceOf(Error);
     expect(service.conversationTreeState(conversation.id as ConversationId)).toEqual([]);
   });
 
-  it("shuts down every attached root scope when the connection closes", async () => {
-    const { client, service, session } = createHarness([]);
+  it("preserves root scopes when the observer connection closes", async () => {
+    const { client, service, host, session } = createHarness([]);
     await client.start();
     const conversation = await createConversation(client);
     await client.attach(conversation.id);
@@ -420,6 +463,8 @@ describe("HarnessRpcSession", () => {
 
     client.closeConnection();
     await session.shutdown(false);
+    expect(service.conversationTreeState(conversation.id as ConversationId)).toHaveLength(1);
+    await host.shutdown();
     expect(service.conversationTreeState(conversation.id as ConversationId)).toHaveLength(0);
   });
 

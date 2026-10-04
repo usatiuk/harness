@@ -1,7 +1,7 @@
 import type { ConversationId, JsonValue, RpcNotification } from "@harness/protocol";
 import { conversationOf } from "@harness/protocol";
 
-import type { HarnessRpcSession, HarnessService } from "@harness/service";
+import type { HarnessRpcSession } from "@harness/service";
 import {
   ActivityManager,
   activitiesEventNotification,
@@ -28,7 +28,9 @@ import {
 } from "@harness/workspace";
 
 /** Register the concrete plugin messages at the server composition root. */
-export function registerFeatureServer(session: HarnessRpcSession, service: HarnessService): void {
+export function registerFeatureServer(session: HarnessRpcSession): void {
+  const host = session.host;
+  const service = host.service;
   const send = <P extends JsonValue>(definition: RpcNotification<P>, params: P): void => {
     void session.notify(definition, params).catch(() => {
       session.server.peer.terminateProtocol("failed to send a plugin event");
@@ -147,7 +149,7 @@ export function registerFeatureServer(session: HarnessRpcSession, service: Harne
           callId: shellId,
           emit: (event) => {
             if (!isActivityEvent(event)) return;
-            send(activitiesEventNotification, {
+            host.broadcast(rootConversationId, activitiesEventNotification, {
               rootConversationId,
               event:
                 event.type === "activity.started"
@@ -170,7 +172,7 @@ export function registerFeatureServer(session: HarnessRpcSession, service: Harne
         },
       );
       proc.onData((text) =>
-        send(workspaceShellEventNotification, {
+        host.broadcast(rootConversationId, workspaceShellEventNotification, {
           rootConversationId,
           conversationId,
           shellId,
@@ -178,7 +180,7 @@ export function registerFeatureServer(session: HarnessRpcSession, service: Harne
         }),
       );
       void proc.exit.then(({ code }) =>
-        send(workspaceShellEventNotification, {
+        host.broadcast(rootConversationId, workspaceShellEventNotification, {
           rootConversationId,
           conversationId,
           shellId,

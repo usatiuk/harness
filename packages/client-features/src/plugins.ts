@@ -71,7 +71,6 @@ export class HarnessPluginClient implements HarnessPlugins {
   readonly #sandbox = new Map<string, SandboxState>();
   readonly #listeners = new Map<string, Set<(event: HarnessEvent) => void>>();
   readonly #shells = new Map<string, (shellId: string, event: ShellClientEvent) => void>();
-  #shellSeq = 0;
 
   constructor(client: HarnessClient, approvals: ApprovalClient) {
     this.#client = client;
@@ -247,7 +246,7 @@ export class HarnessPluginClient implements HarnessPlugins {
     command: string,
     listener: (shellId: string, event: ShellClientEvent) => void,
   ): ShellRun {
-    const shellId = `shell-${++this.#shellSeq}`;
+    const shellId = `shell-${globalThis.crypto.randomUUID()}`;
     const key = this.#shellKey(conversationId, shellId);
     this.#shells.set(key, listener);
     const accepted = this.#client.peer

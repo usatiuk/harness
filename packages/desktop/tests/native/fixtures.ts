@@ -80,9 +80,10 @@ export async function seedChildOnlyPages(home: string, workspace: string) {
   let createdAt = 0;
   const store = new SqliteStore(join(home, "store.db"), undefined, { now: () => ++createdAt });
   try {
-    const root = await store.createConversation({ workspaceRoot: workspace, overrides: {} });
+    const overrides = { model: { provider: "demo", model: "demo-1" } };
+    const root = await store.createConversation({ workspaceRoot: workspace, overrides });
     for (let index = 0; index < 150; index++) {
-      const child = await store.createConversation({ workspaceRoot: workspace, overrides: {} });
+      const child = await store.createConversation({ workspaceRoot: workspace, overrides });
       await store.putPluginState("subagents", child.id, "spawn", { parentConversationId: root.id });
     }
     return root.id;

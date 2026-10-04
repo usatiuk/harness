@@ -11,7 +11,7 @@ import { autoApprovalConfigSchema } from "@harness/auto-approval";
 import { sandboxConfigSchema } from "@harness/sandbox";
 import type { HarnessRpcSession, HarnessService } from "@harness/service";
 import { ErrorCodes, ResponseError } from "vscode-jsonrpc";
-import { ProviderCredentialError } from "@harness/protocol";
+import { ProviderCredentialError, ProviderSignInError } from "@harness/protocol";
 import {
   prepareProviderEntries,
   providerPlugins,
@@ -31,18 +31,32 @@ import {
 } from "./client-protocol.ts";
 
 /** Concrete application configuration/auth composition, separate from core dispatch. */
-export function registerAppApi(
-  session: HarnessRpcSession,
-  service: HarnessService,
-  active: {
+export interface AppApiState {
+  signingIn: boolean;
+  settingsTail: Promise<void>;
+  readonly active: {
     kind: AuthStoreKind | null;
     entries: ReadonlyMap<string, ProviderEntry>;
     statuses: ReadonlyMap<string, ProviderStatus>;
-  },
+  };
+}
+
+export function registerAppApi(
+  session: HarnessRpcSession,
+  service: HarnessService,
+  state: AppApiState,
 ): { close(): Promise<void> } {
+  const active = state.active;
   const lifetime = new AbortController();
   const operations = new Set<Promise<unknown>>();
-  let signingIn = false;
+  const serializeSettings = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = state.settingsTail.then(operation);
+    state.settingsTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
   const invalid = (message: string): never => {
     throw new ResponseError(ErrorCodes.InvalidParams, message);
   };
@@ -135,7 +149,7 @@ export function registerAppApi(
   });
   session.onRequest(appSettingsUpdateRequest, (settings) =>
     track(
-      (async () => {
+      serializeSettings(async () => {
         lifetime.signal.throwIfAborted();
         if (settings.model) {
           await updateGlobalModel(defaultHome(), {
@@ -167,12 +181,12 @@ export function registerAppApi(
         await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });
         await service.refreshPluginDefaults(["approval", "auto-approval"]);
         return null;
-      })(),
+      }),
     ),
   );
   session.onRequest(appAuthLoginRequest, (params, requestSignal) => {
-    if (signingIn) invalid("A provider sign-in is already in progress");
-    signingIn = true;
+    if (state.signingIn) invalid("A provider sign-in is already in progress");
+    state.signingIn = true;
     const operation = (async () => {
       const signal = AbortSignal.any([requestSignal, lifetime.signal]);
       signal.throwIfAborted();
@@ -198,13 +212,21 @@ export function registerAppApi(
         if (issue) invalid(issue);
         await method.submit(params.key);
       } else {
-        if (params.key !== null) invalid("Browser sign-in does not accept an API key");
-        await method.login({
-          signal,
-          onUrl: (url) => {
-            void session.notify(appAuthUrlNotification, { url }).catch(() => lifetime.abort());
-          },
-        });
+        if (params.key !== null) invalid("OAuth sign-in does not accept an API key");
+        try {
+          await method.login({
+            flow: params.flow,
+            signal,
+            onUrl: (url, userCode) => {
+              void session
+                .notify(appAuthUrlNotification, { url, userCode: userCode ?? null })
+                .catch(() => lifetime.abort());
+            },
+          });
+        } catch (error) {
+          if (error instanceof ProviderSignInError) throw new ResponseError(-32000, error.message);
+          throw error;
+        }
       }
       signal.throwIfAborted();
       await setAuthStore(defaultHome(), kind);
@@ -213,7 +235,7 @@ export function registerAppApi(
     })();
     void operation
       .finally(() => {
-        signingIn = false;
+        state.signingIn = false;
       })
       .catch(() => undefined);
     return track(operation);
@@ -222,7 +244,7 @@ export function registerAppApi(
     track(
       (async () => {
         lifetime.signal.throwIfAborted();
-        if (signingIn) invalid("Wait for provider sign-in to finish");
+        if (state.signingIn) invalid("Wait for provider sign-in to finish");
         const { store, kind } = await credentialStoreForRead(defaultHome());
         const entry = prepareProviderEntries(await readGlobalSettings(defaultHome()))(store).get(
           provider,

@@ -1,3 +1,6 @@
+import { registerFeatureServer as registerCliPluginServer } from "@harness/server";
+import { approvalDecideRequest } from "@harness/approval";
+import { HarnessRpcHost } from "@harness/service";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,18 +15,22 @@ import { workspaceShellRunRequest } from "@harness/workspace";
 import {
   APPROVAL_CLIENT_CONTRACT_VERSION,
   ApprovalClient,
-  approvalDecideRequest,
+  approvalCreatedNotification,
 } from "@harness/approval";
-import {
-  CLI_PLUGIN_CONTRACTS,
-  CliPluginClient,
-  registerCliPluginServer,
-} from "./client-plugins.ts";
+import { CLI_PLUGIN_CONTRACTS, CliPluginClient } from "./client-plugins.ts";
 
-const openStores: SqliteStore[] = [];
 const homes: string[] = [];
+const fixtures: Array<{ host: HarnessRpcHost; session: HarnessRpcSession; store: SqliteStore }> =
+  [];
 afterEach(async () => {
-  for (const store of openStores.splice(0)) store.close();
+  for (const { host, session, store } of fixtures.splice(0)) {
+    try {
+      await host.shutdown();
+    } finally {
+      await session.shutdown();
+      store.close();
+    }
+  }
   await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
 });
 
@@ -32,7 +39,6 @@ async function createHarness() {
   homes.push(home);
   const errors: unknown[] = [];
   const store = new SqliteStore(":memory:");
-  openStores.push(store);
   const service = new HarnessService({
     home,
     store,
@@ -44,21 +50,23 @@ async function createHarness() {
     { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
     ...CLI_PLUGIN_CONTRACTS,
   ];
+  const host = new HarnessRpcHost(service);
   const session = new HarnessRpcSession({
     connection: connections.right,
-    service,
+    host,
     server: { name: "test-server", version: "1" },
     plugins: contracts,
     onError: (error) => errors.push(error),
   });
-  registerCliPluginServer(session, service);
+  fixtures.push({ host, session, store });
+  registerCliPluginServer(session);
   const client = new HarnessClient({
     connection: connections.left,
     client: { name: "test-client", version: "1" },
     plugins: contracts,
     onProtocolError: (error) => errors.push(error),
   });
-  const approvals = new ApprovalClient(client.peer);
+  const approvals = new ApprovalClient(client);
   const plugins = new CliPluginClient(client, approvals);
   session.start();
   await client.start();
@@ -173,11 +181,15 @@ describe("CLI plugin protocol", () => {
     await session.shutdown();
   });
 
-  it("keeps a server-to-client approval owned by the connection until the client answers", async () => {
+  it("projects a server-owned approval and sends a decision", async () => {
     const { conversation, plugins, session } = await createHarness();
+    session.onRequest(approvalDecideRequest, async ({ decision }) => {
+      expect(decision).toBe("allow");
+      return { resolved: true };
+    });
     const seen: string[] = [];
     plugins.approvals.subscribe(conversation.id, (event) => seen.push(event.type));
-    const response = session.request(approvalDecideRequest, {
+    await session.notify(approvalCreatedNotification, {
       requestId: "approval-1",
       rootConversationId: conversation.id,
       conversationId: conversation.id,
@@ -185,8 +197,7 @@ describe("CLI plugin protocol", () => {
       relationship: "in-workspace",
     });
     await vi.waitFor(() => expect(seen).toEqual(["created"]));
-    plugins.approvals.respond("approval-1", "allow");
-    await expect(response).resolves.toEqual({ decision: "allow" });
+    await plugins.approvals.respond("approval-1", "allow");
     expect(seen).toEqual(["created", "resolved"]);
     await session.shutdown();
   });

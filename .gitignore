@@ -4,6 +4,7 @@ coverage/
 *.tsbuildinfo
 *.log
 packages/desktop/resources/
+packages/connections/resources/
 packages/desktop/src-tauri/target/
 packages/desktop/src-tauri/gen/
 packages/desktop/test-results/

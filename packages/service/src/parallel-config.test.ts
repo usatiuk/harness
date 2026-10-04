@@ -172,21 +172,4 @@ describe("parallel conversation configuration", () => {
     expect(explicit.config.plugins?.["execution-policy"]).toEqual({ backend: "native" });
     await service.deactivateSession(parent.id);
   });
-
-  it("pins legacy records before first activation", async () => {
-    const store = new InMemoryStore();
-    const legacy = await store.createConversation({ workspaceRoot: null, overrides: {} });
-    const service = new HarnessService({
-      store,
-      home: "/nonexistent-harness-home",
-      defaults: { model: { provider: "fake", model: "current-default" } },
-      plugins: [],
-    });
-    await service.prepare(legacy.id);
-    expect((await store.getConversation(legacy.id))?.overrides.model).toEqual({
-      provider: "fake",
-      model: "current-default",
-    });
-    await service.deactivateSession(legacy.id);
-  });
 });

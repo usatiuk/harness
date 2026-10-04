@@ -1,4 +1,4 @@
-import { build } from "esbuild";
+import { bundleServer, RUNTIME_EXTERNAL } from "../../connections/tools/bundle-server.mjs";
 import { cp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
@@ -34,36 +34,10 @@ try {
   nodeLicense = await response.text();
 }
 await writeFile(join(output, "runtime", "LICENSE"), nodeLicense);
-const external = [
-  "better-sqlite3",
-  "@napi-rs/keyring",
-  "@primno/dpapi",
-  "@devcontainers/cli",
-  "quickjs-emscripten",
-];
-await build({
-  entryPoints: [join(root, "packages/server/src/bin.ts")],
-  outfile: join(output, "server.mjs"),
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  target: "node22",
-  conditions: ["development"],
-  external,
-  banner: {
-    js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
-  },
-});
-await build({
-  entryPoints: [join(root, "packages/code-mode/src/worker.mjs")],
-  outfile: join(output, "worker.mjs"),
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  target: "node22",
-  external,
-});
+await bundleServer(output);
+const external = RUNTIME_EXTERNAL;
 const copied = new Set();
+const dependencies = {};
 async function copyPackage(name, from) {
   if (copied.has(name)) return;
   let manifest;
@@ -90,6 +64,7 @@ async function copyPackage(name, from) {
   }
   const source = dirname(manifest);
   const json = JSON.parse(await readFile(manifest, "utf8"));
+  dependencies[name] = json;
   copied.add(name);
   await cp(source, join(output, "node_modules", name), { recursive: true });
   for (const dependency of Object.keys(json.dependencies ?? {}))
@@ -105,10 +80,9 @@ async function copyPackage(name, from) {
   }
 }
 for (const name of external) await copyPackage(name, root);
-await writeFile(
-  join(output, "package.json"),
-  JSON.stringify({ private: true, type: "module" }) + "\n",
-);
+// The remote install lock omits Windows-only dependencies such as DPAPI.
+// Local cache identity must describe the complete closure actually copied.
+await writeFile(join(output, "packaged-dependencies.json"), JSON.stringify(dependencies));
 console.log(
   `Packaged Node ${process.version}, Harness server and ${copied.size} native/runtime dependencies.`,
 );

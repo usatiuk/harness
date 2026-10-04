@@ -21,7 +21,11 @@ work.
    plan or no explicit plan. Keep high-level milestones and actionable tasks with
    dependencies and completion checks. Update status and evidence as work
    progresses; keep the plan, root status/index, and affected subsystem documents
-   synchronized. Distinguish implementation from verified integration.
+   synchronized. Distinguish implementation from verified integration. Before
+   adding a feature or completion gate, trace it to the user's requested outcome
+   or a demonstrated correctness requirement. Exploratory suggestions do not
+   become requirements merely because they appear in research or tests. Keep
+   test isolation at test boundaries instead of adding product controls for it.
 3. **Implement coherently.** Use the strongest existing boundary, keep ownership
    narrow, preserve the repository's one-directional package layering, remove
    superseded code, and leave unrelated worktree changes untouched.
@@ -31,15 +35,22 @@ work.
 5. **Review proportionally.** Self-review every diff. Use the independent review
    loop below when scope, risk, uncertainty, or recurring failures warrant it.
 6. **Reassess.** Treat recurring findings as evidence of a weak boundary. Simplify
-   or redesign instead of stacking guards and patches.
+   or redesign instead of stacking guards and patches. Recheck the original
+   scope as well as implementation quality: remove assumptions that generated
+   unrequested features and the extra work needed to support them.
 7. **Finish cleanly.** Rerun affected checks, inspect the final diff and status,
    update durable plans with actual evidence, and hand off concisely. Commit,
    push, deploy, or publish only when explicitly authorized. When commits are
-   authorized, commit coherent, validated increments as work progresses. Aim for
-   two feature-progress commits followed by one cleanup, simplification, or
-   focused refactoring commit. Keep cleanup tied to the work and its invariants;
-   do not manufacture churn to meet the cadence. Record completed work and
-   remaining tasks in the plan with each increment.
+   authorized, commit coherent, validated increments periodically as work
+   progresses. Use a repeating cadence of two work commits followed by one
+   simplification, reflection, refactoring, or cleanup commit. Review the affected
+   design and existing boundaries before that third increment: remove duplicate
+   state and superseded paths, tighten ownership, or record evidence-based
+   simplification decisions. Keep the increment tied to the work and its
+   invariants; do not manufacture code churn to meet the cadence. Continue the
+   cycle for larger deliveries instead of waiting until the entire goal is done.
+   Record completed work, validation, and remaining tasks in the durable plan
+   with each increment.
 
 ## Durable plans
 

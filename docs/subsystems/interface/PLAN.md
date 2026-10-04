@@ -25,9 +25,20 @@ in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 - Diagnostic state is derived from existing configuration/events/records rather
   than maintained independently by the TUI.
 
+## Remote-host delivery
+
+[The cross-package delivery plan](../../plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md)
+delivers shared background servers, the Local-first host switcher, equivalent
+desktop/TUI WSL/SSH editors, and client.json configuration. Shared RPC ownership
+and the authenticated background owner/bridge are implemented and Windows process
+regressions pass. Remote deployment passes on Ubuntu WSL and isolated OpenSSH;
+real WSL desktop/TUI conversation flows qualify host switching, client exit,
+reconnect and completion of pending work. Connection editors use the account's
+normal Harness directory, without home/profile or executable-path controls.
+
 ## Deliberately deferred
 
-- Web, daemon, ACP, remote multi-user surfaces, and parallel TUI presentation.
+- Web, ACP, remote multi-user surfaces, and parallel TUI presentation.
 - A general UI component framework shared with hypothetical clients.
 - Full branch visualization without a branch-management workflow.
 - Profile selection without an actual launch or session-switch workflow.

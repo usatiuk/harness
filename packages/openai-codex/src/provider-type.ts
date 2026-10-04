@@ -13,7 +13,8 @@ export const codexProviderType = defineProviderType({
       id: context.id,
       label: context.label,
       login: async (opts) => {
-        await codex.loginWithBrowser(opts);
+        if (opts.flow === "device") await codex.loginWithDeviceCode(opts);
+        else await codex.loginWithBrowser(opts);
       },
       status: async () => {
         const status = await codex.status();

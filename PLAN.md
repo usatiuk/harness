@@ -29,7 +29,7 @@
 - A general workflow engine, distributed scheduler, or multi-user daemon.
 - Full branch management merely because the store can represent branches.
 - Provider server state such as `previous_response_id` as conversation truth.
-- Web, ACP, shared daemons, parallel TUI presentation, and desktop side-by-side
+- Web, ACP, parallel TUI presentation, and desktop side-by-side
   views or IDE features.
 - Generic compaction pipelines, server-side compaction, or a model-capability
   framework without a concrete implementation that needs them.
@@ -56,9 +56,32 @@ root. They may depend on protocol and narrower feature contracts, but the kernel
 does not import provider, workspace, sandbox, approval, activity, or subagent
 packages.
 
+## Recent delivery
+
+Completed the [connection boundary corrections](docs/plans/cross-cutting/2026-10-04-connection-boundary-corrections.md):
+shared-registry route authority, physical/native drainage, Local cancellation,
+failed ownership, safe diagnostics and TUI client/server separation. Typed
+contracts and shared configuration sources replace loose results and implementation
+barrel imports. Three independent reviews and their follow-ups report no remaining
+actionable findings. Full validation passes 998 tests; rebuilt native and real
+SSH/WSL/TUI qualification pass five cases each. The existing Local/WSL/SSH product
+scope remains unchanged; the plan records an earlier unreproduced Windows EBUSY
+teardown observation without claiming a cause or fix.
+
+Completed shared background servers and Local/WSL/SSH connections for desktop
+and TUI in [the delivery plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
+Connection editors use the normal account directory and simple WSL/SSH routes;
+SSH uses non-interactive authentication and OS-configured aliases. Native desktop
+and rendered TUI WSL conversations survive host switching and client exit, then
+reattach to the same owner and finish pending work. Managed/development deployment
+passes on Ubuntu WSL and isolated OpenSSH. Local retains both browser and device
+sign-in; remote hosts use device codes without callback forwarding. Full local
+validation passed 976 tests at that delivery. The plan records independent review, scope cleanup,
+platform evidence and earlier unreproduced test failures.
+
 ## Current implementation status
 
-As of 2026-10-03, Harness provides:
+As of 2026-10-04, Harness provides:
 
 - An append-only conversation/item graph with one durable head, linear rewind,
   branch-preserving continuation, turn reconciliation, and resumable transcripts.
@@ -87,14 +110,14 @@ As of 2026-10-03, Harness provides:
 - A Tauri/React desktop client with React Router loaders/actions/fetchers, a
   live conversation sidebar, independent turns/drafts/approvals, virtualized
   bounded history, Markdown/tool/diff/output inspection, provider/settings
-  controls including a global auto-review model/preset, and a bundled owned
-  server with exclusive database ownership. Approval defaults refresh open
+  controls including a global auto-review model/preset, and a bundled shared
+  background server with exclusive database ownership. Approval defaults refresh open
   conversations while their main model selections stay pinned.
   Native Windows tests cover actual WebView2, processes, restart, and shutdown;
   other desktop platforms remain unqualified.
 - A language-neutral JSON-RPC client/server boundary used identically in-process,
   by a local stdio child, or through SSH. Multiple attached root conversations
-  may run concurrently; the TUI renders one while connection-owned approvals and
+  may run concurrently; the TUI renders one while server-owned approvals and
   server-owned background work remain live.
 - Durable model/preset pinning, plugin-owned child inheritance, runtime-bound
   callbacks, authoritative failed-reload detachment, and shared devcontainer
@@ -102,16 +125,16 @@ As of 2026-10-03, Harness provides:
 
 ## Subsystems
 
-| Subsystem                   | Current architecture                                    | Active plan or next priority                                                             |
-| --------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Kernel                      | [Architecture](docs/subsystems/kernel/README.md)        | No selected kernel change; add seams only for concrete plugin needs.                     |
-| Persistence                 | [Architecture](docs/subsystems/persistence/README.md)   | No selected persistence change; branch navigation and stable migrations remain deferred. |
-| Models                      | [Architecture](docs/subsystems/models/README.md)        | [Transient reliability and named gateway catalogs](docs/subsystems/models/PLAN.md)       |
-| Execution and safety        | [Architecture](docs/subsystems/execution/README.md)     | [Native mutation containment](docs/subsystems/execution/PLAN.md)                         |
-| Context and compaction      | [Architecture](docs/subsystems/context/README.md)       | Observe v1; add another strategy only for a demonstrated need.                           |
-| Orchestration               | [Architecture](docs/subsystems/orchestration/README.md) | No selected change; MCP callable tools remain a next-plugin candidate.                   |
-| Configuration and interface | [Architecture](docs/subsystems/interface/README.md)     | [Diagnostics and supportability](docs/subsystems/interface/PLAN.md)                      |
-| Testing                     | [Architecture](docs/subsystems/testing/README.md)       | [Evidence for active reliability and security work](docs/subsystems/testing/PLAN.md)     |
+| Subsystem                   | Current architecture                                    | Active plan or next priority                                                                                       |
+| --------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Kernel                      | [Architecture](docs/subsystems/kernel/README.md)        | No selected kernel change; add seams only for concrete plugin needs.                                               |
+| Persistence                 | [Architecture](docs/subsystems/persistence/README.md)   | No selected persistence change; branch navigation remains deferred; only the current database format is supported. |
+| Models                      | [Architecture](docs/subsystems/models/README.md)        | [Transient reliability and named gateway catalogs](docs/subsystems/models/PLAN.md)                                 |
+| Execution and safety        | [Architecture](docs/subsystems/execution/README.md)     | [Native mutation containment](docs/subsystems/execution/PLAN.md)                                                   |
+| Context and compaction      | [Architecture](docs/subsystems/context/README.md)       | Observe v1; add another strategy only for a demonstrated need.                                                     |
+| Orchestration               | [Architecture](docs/subsystems/orchestration/README.md) | No selected change; MCP callable tools remain a next-plugin candidate.                                             |
+| Configuration and interface | [Architecture](docs/subsystems/interface/README.md)     | [Diagnostics and supportability](docs/subsystems/interface/PLAN.md)                                                |
+| Testing                     | [Architecture](docs/subsystems/testing/README.md)       | [Evidence for active reliability and security work](docs/subsystems/testing/PLAN.md)                               |
 
 ## Near-term order
 

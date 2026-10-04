@@ -7,7 +7,7 @@ import {
   type Provisioned,
   type SandboxStatus,
 } from "./devcontainer.ts";
-import type { DockerSandboxConfig } from "./plugin.ts";
+import type { DockerSandboxConfig } from "./config.ts";
 
 export interface DockerOwner {
   readonly idleTimeoutMinutes: number;

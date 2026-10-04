@@ -1,3 +1,9 @@
+import {
+  parseConnectionCommandResult,
+  type HostConnectionTarget,
+  type ConnectionCommand,
+  type ConnectionCommandResult,
+} from "@harness/connections";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import {
   AbstractMessageReader,
@@ -60,7 +66,7 @@ class NativeWriter extends AbstractMessageWriter {
   private bytes = 0;
   private ended = false;
   constructor(
-    private readonly reader: NativeReader,
+    private readonly close: (error?: Error) => void,
     private readonly id: number,
   ) {
     super();
@@ -72,11 +78,14 @@ class NativeWriter extends AbstractMessageWriter {
     const bytes = new TextEncoder().encode(frame).byteLength;
     if (bytes > MAX_RPC_FRAME_BYTES || this.bytes + bytes > MAX_RPC_WRITER_QUEUE_BYTES) {
       const error = new Error("Desktop protocol writer limit exceeded");
-      this.reader.close(error);
+      this.close(error);
       throw error;
     }
     this.bytes += bytes;
-    const result = this.tail.then(() => invoke<void>("server_write", { id: this.id, frame }));
+    const result = this.tail.then(() => {
+      if (this.ended) throw new Error("Desktop transport is closed");
+      return invoke<void>("server_write", { id: this.id, frame });
+    });
     this.tail = result.then(
       () => undefined,
       () => undefined,
@@ -86,7 +95,7 @@ class NativeWriter extends AbstractMessageWriter {
     } catch (cause) {
       const error = new Error("Could not write to the Harness server", { cause });
       this.fireError(error);
-      this.reader.close(error);
+      this.close(error);
       throw error;
     } finally {
       this.bytes -= bytes;
@@ -94,36 +103,120 @@ class NativeWriter extends AbstractMessageWriter {
   }
 
   end(): void {
+    if (this.ended) return;
     this.ended = true;
-    this.reader.close();
+    this.close();
   }
 }
 
-export async function connectNative(onClosed: (message: string) => void) {
+export async function connectNative(
+  target: HostConnectionTarget,
+  onClosed: (message: string) => void,
+) {
   const reader = new NativeReader();
+  let writer: NativeWriter | undefined = undefined;
+  let resolveId!: (id: number | undefined) => void;
+  const ready = new Promise<number | undefined>((resolve) => {
+    resolveId = resolve;
+  });
+  let closing: Promise<void> | undefined;
+  let closedMessage: string | undefined;
+  const close = (): Promise<void> => {
+    if (!closing) {
+      closing = ready.then(async (id) => {
+        if (id !== undefined) await invoke<void>("server_disconnect", { id });
+      });
+      void closing.catch(() => onClosed("Could not detach the native Harness bridge"));
+      writer?.end();
+      reader.close();
+    }
+    return closing;
+  };
+  const fail = (error?: Error): void => {
+    if (closing) return;
+    if (error) {
+      closedMessage = error.message;
+      reader.close(error);
+      onClosed(error.message);
+    }
+    void close();
+  };
   const channel = new Channel<ServerEvent>();
   channel.onmessage = (event) => {
+    if (closing) return;
     if (event.type === "closed") {
-      onClosed(event.message);
-      reader.close(new Error(event.message));
+      fail(new Error(event.message));
     } else {
       try {
         reader.receive(event.frame);
-        void invoke("server_ack", { id: event.id }).catch(() => {
-          reader.close(new Error("Desktop stream acknowledgement failed"));
-        });
+        if (!closing)
+          void invoke("server_ack", { id: event.id }).catch(() => {
+            fail(new Error("Desktop stream acknowledgement failed"));
+          });
       } catch (error) {
-        reader.close(error instanceof Error ? error : new Error(String(error)));
-        onClosed("Invalid data from the Harness server");
+        fail(error instanceof Error ? error : new Error("Invalid data from the Harness server"));
       }
     }
   };
-  const id = await invoke<number>("server_connect", { channel });
-  const connection = createMessageConnection(reader, new NativeWriter(reader, id));
-  return connection;
+  let id: number;
+  try {
+    id = await invoke<number>("server_connect", { channel, ...target });
+    resolveId(id);
+  } catch (error) {
+    resolveId(undefined);
+    await close();
+    throw error;
+  }
+  if (closing) {
+    await close();
+    throw new Error(closedMessage ?? "Harness bridge closed during connection");
+  }
+  writer = new NativeWriter(fail, id);
+  const connection = createMessageConnection(reader, writer);
+  connection.onDispose(() => void close());
+  return { connection, close };
 }
-
-export async function restartNative(): Promise<void> {
-  await invoke("server_stop");
-  window.location.reload();
+export async function connectionCommand<C extends ConnectionCommand>(
+  command: C,
+  progress?: (message: string) => void,
+  signal?: AbortSignal,
+): Promise<ConnectionCommandResult<C>> {
+  signal?.throwIfAborted();
+  let id: number | undefined;
+  let canceling: Promise<void> | undefined;
+  let cancellationError: Error | undefined;
+  const cancel = () => {
+    if (id === undefined || canceling) return;
+    canceling = invoke<void>("cancel_connection_command", { id }).catch((error: unknown) => {
+      cancellationError = new Error("Could not cancel the connection attempt", { cause: error });
+    });
+  };
+  const channel = new Channel<
+    { type: "started"; id: number } | { type: "progress"; message: string }
+  >();
+  channel.onmessage = (event) => {
+    if (event.type === "progress") progress?.(event.message);
+    else {
+      id = event.id;
+      if (signal?.aborted) cancel();
+    }
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+  let result: unknown;
+  let failure: unknown;
+  try {
+    result = await invoke("connection_command", { command, channel });
+  } catch (error) {
+    failure = error;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+    await canceling;
+  }
+  if (cancellationError) throw cancellationError;
+  if (failure instanceof Error) throw failure;
+  if (failure !== undefined)
+    throw new Error(typeof failure === "string" ? failure : "Connection command failed", {
+      cause: failure,
+    });
+  return parseConnectionCommandResult(command, result);
 }

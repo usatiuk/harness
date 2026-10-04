@@ -1,4 +1,10 @@
-import type { Conversation, DeliveryInput, DeliveryIntent, TurnId } from "@harness/protocol";
+import type {
+  Conversation,
+  DeliveryInput,
+  DeliveryIntent,
+  TurnId,
+  InteractionRequest,
+} from "@harness/protocol";
 
 /** One unit of accepted input plus how it wants to join the loop. */
 export interface Delivery {
@@ -32,7 +38,10 @@ export class Runtime {
    * Ephemeral: a parked request that outlives the process is recovered by crash
    * reconciliation (its tool_call has no result), so nothing here is durable.
    */
-  readonly pendingRequests = new Map<string, (response: unknown) => void>();
+  readonly pendingRequests = new Map<
+    string,
+    { request: InteractionRequest; resolve(response: unknown): void }
+  >();
   #idleWaiters: Array<() => void> = [];
 
   constructor(conversation: Conversation) {

@@ -22,7 +22,7 @@ request mappings, compaction-window selection, estimates, parsers, and reducers.
 ### Store contracts
 
 The same conversation/store behavior runs against in-memory and SQLite
-implementations. SQLite-specific tests add migrations, transactions, constraints,
+implementations. SQLite-specific tests add schema initialization and unsupported-format rejection, transactions, constraints,
 duplicate-tool-result rejection, reopen behavior, and crash-reconciliation
 prerequisites.
 

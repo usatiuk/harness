@@ -5,6 +5,7 @@ import {
   decodeEmail,
   exchangeCode,
   generatePkce,
+  loginWithDeviceCode,
   openBrowser,
   randomState,
   refreshTokens,
@@ -35,7 +36,7 @@ export interface CodexStatus {
 export interface LoginOptions {
   signal?: AbortSignal;
   /** Receives the authorize URL so a caller can print it as a manual fallback. */
-  onUrl?: (url: string) => void;
+  onUrl?: (url: string, userCode?: string) => void;
 }
 
 interface TokenRefresh {
@@ -123,6 +124,22 @@ export class CodexAuth {
     } finally {
       if (abort) opts.signal?.removeEventListener("abort", abort);
       await server.close();
+    }
+  }
+
+  /** Runs device authorization while keeping credentials on this executing host. */
+  async loginWithDeviceCode(opts: LoginOptions = {}): Promise<CodexSession> {
+    if (this.#authChange) throw new Error("Codex authentication change is already in progress");
+    this.#authChange = "login";
+    try {
+      const epoch = ++this.#epoch;
+      this.#refresh?.abort.abort(new Error("Codex authentication changed"));
+      await this.#refresh?.promise.catch(() => undefined);
+      const tokens = await loginWithDeviceCode({ fetch: this.#fetch, now: this.#now, ...opts });
+      opts.signal?.throwIfAborted();
+      return await this.#persist(tokens, epoch);
+    } finally {
+      this.#authChange = undefined;
     }
   }
 

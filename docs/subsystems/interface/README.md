@@ -26,9 +26,27 @@ service defaults
 < durable conversation overrides
 ```
 
-`HARNESS_HOME` overrides `~/.harness` for an isolated profile. The shared shipped
-server acquires exclusive SQLite ownership before migrations and runtime startup;
-GUI and TUI therefore use a profile separately rather than share a running daemon.
+`HARNESS_HOME` is an existing installation/test override for `~/.harness`;
+connection entries do not choose homes or expose multiple server profiles. The shared shipped
+server acquires exclusive SQLite ownership before schema initialization and runtime startup.
+The background owner now supports authenticated multi-client attachment through
+loopback TCP and a disposable stdio bridge. GUI/TUI default launchers reuse that
+owner; explicit stdio mode retains its isolated composition.
+
+The controlling machine's `client.json` registry is separate from server settings.
+It initially contains only Local and stores structured WSL/SSH routes, selected
+host and desktop keep-running preference. Browser-safe contracts live in
+`@harness/connections`; Node adapters atomically replace the registry under a
+cross-process filesystem lock. The registry stays beside the controlling machine's
+existing settings. Both clients offer host editors and lifecycle controls. SSH
+accepts a destination/alias and uses OpenSSH BatchMode; advanced SSH configuration
+belongs in .ssh/config. WSL distributions are discovered as editor choices.
+Runtime choice is managed or development; development finds Node on the target's
+PATH. Installation paths are internal. Each saved connection owns an independent
+client session, including two routes that reach the same background owner.
+The isolated stdio launcher rejects host flags. Local auth/sandbox utility
+subcommands also reject host flags; selected-host controls live in the command
+center. Created TUI conversations persist when that client exits.
 
 The project root is the nearest `.harness` directory, then Git root, then starting
 directory, while the Harness home itself is never treated as a project. Shared and
@@ -38,8 +56,7 @@ opaque after central validation.
 
 Conversation records persist workspace root and overrides. The complete model
 and preset selection is pinned there at creation and survives resume/reload.
-Legacy records without a selection are pinned once on first activation using
-the current cascade. Explicit model/preset changes update that conversation and
+Explicit model/preset changes update that conversation and
 the global default for new conversations; other existing pinned conversations
 keep their selection. Other settings retain the cascade, including intentionally
 global approval policy. Configuration mutations are serialized by the service;
@@ -82,7 +99,11 @@ back to plaintext.
 
 Desktop provider controls call composition-owned `app.auth.*` RPCs. Responses
 contain authentication status and safe validation errors, never keys or tokens.
-OAuth uses an external browser and a cancellable callback listener. Auth changes
+Local offers browser OAuth with its cancellable localhost listener and optional
+device-code sign-in. WSL/SSH use device codes: clients display the provider URL
+and one-time code while the executing server polls authorization. Neither flow
+forwards callbacks between computers. Both are cancellable; device authorization
+expires after fifteen minutes. Auth changes
 require an explicit server restart to rebuild the provider catalog. Credential
 file mutations are serialized across store instances in one process; external
 processes must not concurrently modify the same credential file.
@@ -105,20 +126,45 @@ separate input/output claims. Server bootstrap bounds the actual wire catalog.
 The client can create, attach, resume, reload, close, or list conversations. One
 connection may keep multiple root scopes active while the TUI
 shows one. A new conversation records its server-side workspace root and resolved
-overrides. Empty conversations created by the client are removed on exit;
-non-empty history remains durable.
+overrides. Background-connected clients retain created conversations across exit.
+The isolated stdio TUI removes its own empty conversations when it exits.
 
-The desktop owns its bundled Node child and stdio bridge. Native close cancels
-blocked writes, closes server input, and waits for root/process disposal. A
-20-second shutdown timeout terminates the child and exits unsuccessfully. A new
-child cannot start until its predecessor has exited. Crashes surface a restart
-action; restart reloads durable history without resuming in-flight work.
+The desktop owns one disposable bundled Node bridge per connected entry.
+Native close blocks new admission, cancels blocked writes, and closes every
+bridge concurrently. A 20-second bridge deadline terminates that child and exits
+unsuccessfully. Each server persists independently. Local packaged execution
+uses a private immutable Node/code/dependency cache, including the complete
+packaged native dependency closure. The keep-running preference defaults true;
+stop-on-exit releases Local only when another client is not attached.
+
+Logical desktop RPC closure shares one awaited physical bridge close with manager
+teardown. Protocol, writer and acknowledgement failures release that observer;
+discarded frames receive no credit. Native shutdown includes already-draining
+bridges and waits for their shared completion before conditional Local release.
+Local discovery/authentication/readiness and contention waits are cancellable.
+A bridge observes EOF before readiness while holding early RPC input within the
+transport bound; cancellation closes the observer and leaves launched owners
+independent.
+
+The shared headless owner (`server --background`) outlives clients, including
+the `server --bridge` process that started it. Its private discovery directory
+contains atomic stable-home identity, per-instance endpoint metadata and an
+authentication secret. A bounded preamble authenticates before RPC and returns
+the owner identity; connections reject a different canonical home or instance.
+`server.info` reports that identity and `server.stop` acknowledges explicit shared
+shutdown. Control uses a separate connection and a bounded drainage wait.
+Only classified SQLite startup contention permits bounded staggered starts;
+broken packages and inaccessible or unsafe existing homes fail visibly. New
+Windows homes use an ACL applied atomically at creation; existing homes are
+validated without rewriting their ACLs. POSIX homes must be user-owned and not
+writable by other users. Discovery is removed before releasing SQLite ownership.
 
 Switching visible roots does not stop either conversation tree. A same-root reload is blocked
 by a running turn and confirmed when background activities exist; acceptance
 closes only that root and its descendants, aborts pending work, disposes its
-plugin services, then attaches a fresh activation. Connection close force-closes
-all of its root scopes and server-owned processes. Other roots are unaffected by
+plugin services, then attaches a fresh activation. RPC connection close removes its observer; shared server ownership preserves
+accepted work. The explicitly selected isolated stdio launcher closes its composition
+on exit. Other roots are unaffected by
 closing or reloading one root.
 
 `conversation.detached` reports that an activation is gone even when cleanup or
@@ -169,19 +215,33 @@ prepared execution backend as model-issued commands.
 
 ## Client boundary
 
-The reusable boundary is the [v1 bidirectional JSON-RPC protocol](../../protocol/client-v1.md),
+The reusable boundary is the [bidirectional JSON-RPC protocol](../../protocol/client.md),
 authored as strict Zod schemas with committed JSON Schema for non-TypeScript
 clients. `@harness/client` coordinates initialization, attachment, bounded
 history, and presentation-domain conversion. `@harness/service` owns dispatch
-and connection-owned root-scope lifetime.
+and shared root-scope lifetime through HarnessRpcHost.
 
 Attachment returns a bounded snapshot, then ordered semantic notifications;
 history is fetched independently through anchored byte-bounded pages. Plugins use
 ordinary namespaced requests/notifications and optional bounded snapshots. The
 TUI receives no service, runtime, process, activity-manager, sandbox, or raw
 plugin-state object. Desktop uses the same contract over Tauri channels and
-bounded native pipes. Web/mobile/IDE clients and reconnecting daemons remain
-unimplemented rather than simulated.
+bounded native pipes. Both shipped clients reconnect to the background owner.
+
+Every adopted shared connection registry reconciles execution targets before
+publishing new metadata. Changed/removed routes cancel and detach their observers;
+label/runtime-source changes preserve valid observers and drafts. Connect/upload
+requests are cancellable while waiting for registry adoption. Stop completion
+closes its captured observer, so a replacement under the same saved ID survives.
+Command results and Local/remote prerequisites have typed, validated contracts.
+
+TUI screens and session helpers live separately from the launcher and server
+entrypoint. Presentation imports sandbox/approval client contracts; shared sandbox
+configuration has one Node-independent schema source. RPC handler diagnostics
+retain the registered method and fixed error class without arbitrary exception
+names or content. Failed first runtime loads acquire no tree ownership; host
+bookkeeping is pruned after the last active operation leaves no runtime.
+Web/mobile/IDE clients remain unimplemented.
 
 ## Desktop model
 
@@ -236,14 +296,26 @@ scoped OS opener instead of navigating the application WebView.
 ## Source map
 
 - `packages/config`: settings schema, merge, discovery, resolution, and writes.
+- `packages/connections`: client.json registry, authenticated background discovery,
+  local/WSL/SSH adapters, immutable built-bundle deployment and target dependencies.
 - `packages/server`: shipped composition, authentication, app RPCs, and stdio entry.
 - `packages/cli`: auth commands, terminal lifecycle, and TUI.
 - `packages/client-features`: shared plugin clients and pure transcript/edit presentation.
 - `packages/desktop`: React Router UI/session, Tauri process bridge, packaging, and native E2E.
 - `packages/client`: transport-neutral peer, client coordinator, domain helper,
   in-process transport, and Node NDJSON transport.
-- `packages/service`: server dispatch and connection-scoped runtime ownership.
+- `packages/service`: shared runtime ownership, server dispatch and client observers.
 - `packages/auth`, `packages/secrets`: login methods and credential stores.
+
+The common connection layer is now qualified with actual Ubuntu WSL and isolated
+OpenSSH Linux x64 glibc. It uses Node already on the target in development mode or
+verified portable Node in managed mode, plus current locally bundled Harness code.
+Desktop packaging shares this server/worker bundler. Code and target dependency
+caches are immutable; refresh stages a build and activation requires explicit
+server restart. Native desktop and rendered TUI WSL conversation flows qualify
+host switching, client exit and fresh attachment to the same owner. Local retains
+browser and device-code sign-in; WSL/SSH use device codes without callback
+forwarding. See the [delivery evidence](../../plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
 ## Verification
 

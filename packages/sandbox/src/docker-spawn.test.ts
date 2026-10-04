@@ -25,7 +25,7 @@ vi.mock("./devcontainer.ts", async (importOriginal) => ({
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
-const { dockerSandboxConfigSchema } = await import("./plugin.ts");
+const { dockerSandboxConfigSchema } = await import("./config.ts");
 
 describe("DockerExecutionContext spawn", () => {
   it("ignores kill after the Docker client has exited but before stdio closes", async () => {

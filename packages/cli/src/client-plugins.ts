@@ -5,4 +5,3 @@ export {
   type ShellRun,
   type ShellClientEvent,
 } from "@harness/client-features";
-export { registerFeatureServer as registerCliPluginServer } from "@harness/server";

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://harness.local/protocol/client-v1.schema.json",
-  "title": "Harness client protocol v1",
+  "$id": "https://harness.local/protocol/client.schema.json",
+  "title": "Harness client protocol",
   "$defs": {
     "initialize_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 1 },
+        "protocolVersion": { "type": "number", "const": 3 },
         "client": {
           "type": "object",
           "properties": {
@@ -37,7 +37,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 1 },
+        "protocolVersion": { "type": "number", "const": 3 },
         "server": {
           "type": "object",
           "properties": {
@@ -2293,7 +2293,88 @@
       "required": ["rootConversationId"],
       "additionalProperties": false
     },
+    "server_info_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "server_info_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "serverId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "instanceId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "protocolVersion": { "type": "number", "const": 3 },
+        "home": { "type": "string", "minLength": 1 },
+        "pid": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+        "platform": { "type": "string", "enum": ["win32", "darwin", "linux"] },
+        "buildId": { "type": "string", "minLength": 1 }
+      },
+      "required": [
+        "serverId",
+        "instanceId",
+        "protocolVersion",
+        "home",
+        "pid",
+        "platform",
+        "buildId"
+      ],
+      "additionalProperties": false
+    },
+    "server_stop_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "server_stop_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "accepted": { "type": "boolean", "const": true } },
+      "required": ["accepted"],
+      "additionalProperties": false
+    },
+    "server_release_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "server_release_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "stopping": { "type": "boolean" } },
+      "required": ["stopping"],
+      "additionalProperties": false
+    },
     "plugin_approval_decide_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "conversationId": { "type": "string" },
+        "requestId": { "type": "string" },
+        "decision": { "type": "string", "enum": ["allow", "deny"] }
+      },
+      "required": ["conversationId", "requestId", "decision"],
+      "additionalProperties": false
+    },
+    "plugin_approval_decide_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "resolved": { "type": "boolean" } },
+      "required": ["resolved"],
+      "additionalProperties": false
+    },
+    "plugin_approval_created_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
@@ -2334,11 +2415,14 @@
         }
       }
     },
-    "plugin_approval_decide_result": {
+    "plugin_approval_resolved_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
-      "properties": { "decision": { "type": "string", "enum": ["allow", "deny"] } },
-      "required": ["decision"],
+      "properties": {
+        "rootConversationId": { "type": "string" },
+        "requestId": { "type": "string" }
+      },
+      "required": ["rootConversationId", "requestId"],
       "additionalProperties": false
     },
     "plugin_activities_event_params": {
@@ -2810,9 +2894,10 @@
       "type": "object",
       "properties": {
         "provider": { "type": "string" },
-        "key": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        "key": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "flow": { "type": "string", "enum": ["browser", "device"] }
       },
-      "required": ["provider", "key"],
+      "required": ["provider", "key", "flow"],
       "additionalProperties": false
     },
     "app_auth_login_result": {
@@ -2839,8 +2924,13 @@
     "app_auth_url_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
-      "properties": { "url": { "type": "string", "format": "uri" } },
-      "required": ["url"],
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "userCode": {
+          "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 128 }, { "type": "null" }]
+        }
+      },
+      "required": ["url", "userCode"],
       "additionalProperties": false
     },
     "activities_snapshot": {
@@ -2889,6 +2979,63 @@
       },
       "required": ["members"],
       "additionalProperties": false
+    },
+    "approval_snapshot": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "requestId": { "type": "string" },
+              "rootConversationId": { "type": "string" },
+              "conversationId": { "type": "string" },
+              "call": {
+                "type": "object",
+                "properties": {
+                  "callId": { "type": "string" },
+                  "name": { "type": "string" },
+                  "args": { "$ref": "#/$defs/__schema0" }
+                },
+                "required": ["callId", "name", "args"],
+                "additionalProperties": false
+              },
+              "relationship": {
+                "type": "string",
+                "enum": ["in-workspace", "out-of-workspace", "unknown"]
+              }
+            },
+            "required": [
+              "requestId",
+              "rootConversationId",
+              "conversationId",
+              "call",
+              "relationship"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["pending"],
+      "additionalProperties": false,
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "boolean" },
+            { "type": "number" },
+            { "type": "string" },
+            { "type": "array", "items": { "$ref": "#/$defs/__schema0" } },
+            {
+              "type": "object",
+              "propertyNames": { "type": "string" },
+              "additionalProperties": { "$ref": "#/$defs/__schema0" }
+            }
+          ]
+        }
+      }
     }
   },
   "x-harness-messages": [
@@ -3031,11 +3178,44 @@
       "params": { "$ref": "#/$defs/conversation_detached_params" }
     },
     {
+      "method": "server.info",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/server_info_params" },
+      "result": { "$ref": "#/$defs/server_info_result" }
+    },
+    {
+      "method": "server.stop",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/server_stop_params" },
+      "result": { "$ref": "#/$defs/server_stop_result" }
+    },
+    {
+      "method": "server.release",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/server_release_params" },
+      "result": { "$ref": "#/$defs/server_release_result" }
+    },
+    {
       "method": "plugin.approval.decide",
       "kind": "request",
-      "direction": "server-to-client",
+      "direction": "client-to-server",
       "params": { "$ref": "#/$defs/plugin_approval_decide_params" },
       "result": { "$ref": "#/$defs/plugin_approval_decide_result" }
+    },
+    {
+      "method": "plugin.approval.created",
+      "kind": "notification",
+      "direction": "server-to-client",
+      "params": { "$ref": "#/$defs/plugin_approval_created_params" }
+    },
+    {
+      "method": "plugin.approval.resolved",
+      "kind": "notification",
+      "direction": "server-to-client",
+      "params": { "$ref": "#/$defs/plugin_approval_resolved_params" }
     },
     {
       "method": "plugin.activities.event",
@@ -3140,6 +3320,7 @@
     }
   ],
   "x-harness-snapshots": {
+    "approval": { "$ref": "#/$defs/approval_snapshot" },
     "activities": { "$ref": "#/$defs/activities_snapshot" },
     "sandbox": { "$ref": "#/$defs/sandbox_snapshot" }
   }

@@ -18,8 +18,74 @@ npm run lint                     # ESLint
 npm run format:check             # Prettier verification
 npm run check                    # complete local and CI validation
 npm run test:native              # build and exercise actual Windows Tauri app
+npm run test:remote              # bundle and exercise isolated real SSH; WSL is opt-in
 npm run desktop:build            # release executable and NSIS installer
 ```
+
+## Shared-server delivery
+
+Public RPC regressions in server/src/shared-server.test.ts qualify multi-client
+approval decisions, disconnected accepted/queued work, fresh reconnect without
+partial stream suffixes, failed second-client attach, shared detachment and request
+drainage. Real-process tests in server/src/background.test.ts qualify simultaneous
+startup, unauthorized rejection, zero-client pending approval and completion,
+bridge-parent exit, crash/stale discovery, canonical-home reuse, copied-home
+isolation, unsafe existing homes, initialized-client stop and classified startup
+failure. A real bridge against an authenticated paused receiver verifies EOF
+detachment with outbound backpressure. Registry tests include concurrent edits
+by separate client processes.
+
+Architecture-correction regressions exercise shared-registry route replacement,
+removal and metadata retention through real in-process RPC peers. Native-adapter
+tests substitute Tauri to verify normal/protocol/malformed/oversized/write/ack
+closure, early admission failure, failed detach and discarded-frame credit.
+Paired desktop/TUI manager gates qualify cancellation before registry adoption
+and a replacement observer surviving an old stop request. These are adapter and
+manager evidence; rebuilt native Local cases establish actual process detachment
+and owner/exit behavior. The native Rust completion-gate regression verifies app
+shutdown waits for an already-draining bridge. Actual Local process gates cancel
+before readiness, then establish the captured owner's independent completion.
+Public RPC and engine tests cover failed first ownership, preserved registered
+children and redacted method/class diagnostics. The TUI workspace runtime graph
+contains 91 modules, with no cycles or execution implementation imports.
+These passed on native Windows. Common provisioning/reconnect tests also pass on
+real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Five native GUI cases
+qualify Local-first editing, disconnected management, reconnect, persistent exit
+and last-client stop-on-exit, native bridge exit before RPC initialization, and real WSL
+provisioning cancellation including fixture process exit. A real WSL conversation
+survives host switching and desktop exit, restores its draft and approval, then
+completes after reattachment to the same owner. TUI tests render the command center
+with real Local/WSL owners and qualify registry edits, host selection, switching,
+client exit and fresh attachment to the pending turn.
+Local cache regression covers Windows-only dependency invalidation. SSH BatchMode
+cases reject password-only and unknown-host routes without prompting. Current delivery evidence is tracked in
+[the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
+
+The current full check passes 998 tests (116 passing files, 36 skipped tests).
+Rebuilt native connection qualification passes five cases; actual SSH/WSL and
+rendered TUI qualification passes five cases across two files. The native Rust
+shutdown regression passes. Three independent reviews and follow-ups report no
+remaining actionable findings in the
+[correction plan](plans/cross-cutting/2026-10-04-connection-boundary-corrections.md).
+An earlier full run had a stdio fixture directory removal fail with Windows EBUSY;
+its focused rerun and final full check pass, but the transient lock owner/cause
+remains unknown. Earlier unreproduced RPC errors and a QuickJS test timeout remain
+recorded in the preceding plan's validation observations;
+passing reruns are not evidence of a cause or fix. Fixture RPC failures include
+their server startup log before cleanup. A sandbox-blocked Vitest startup was
+retried outside the sandbox, without changing tests or timeouts.
+
+`npm run test:remote` requires Docker and OpenSSH on the controlling client. It
+creates a loopback-only SSH container, ephemeral key, verified known-host entry
+and private client configuration, then removes the fixture. Set
+`HARNESS_REMOTE_WSL=Ubuntu` to also qualify that installed distribution. Each case
+uses a unique remote home/runtime directory and explicitly shuts down its existing
+owner before cleanup. The target needs network access for the initial Node/dependency
+installation. Fixture HOME/PATH are substituted at the process edge; production
+connection entries expose no home or executable override. These tests exercise real managed deployment, development bundle
+changes, cache reuse, target Node resolution and reconnect. With WSL enabled they
+also run the rendered TUI conversation flow. GUI interaction is qualified by the
+native suite; provider sign-in and every interrupted-install path are separate.
 
 ## Desktop native tests
 
@@ -28,14 +94,18 @@ tools. It packages the real server and Node runtime, builds the production web
 assets and native executable, then runs Playwright against that executable's
 WebView2 through CDP. It verifies that the WebView process belongs to the launched
 application. Neither a browser mock nor a development HTTP server stands in for
-the native app. Only the model network edge is controlled for deterministic
-command tests; actual SQLite, credentials, shell processes, and shutdown run.
+the native app. Model and authentication HTTP edges are controlled for deterministic
+command and sign-in tests; actual SQLite, credentials, shell processes, and shutdown run.
 
 Tests isolate `HARNESS_HOME`, `APPDATA`, `LOCALAPPDATA`, and the WebView profile.
 They cover concurrent approvals/turns/drafts, queue/steer/interrupt, presets and
-settings, bounded history and large output/diffs, server crash/restart, exclusive
-database ownership, secure key validation/storage, real command cleanup, and
-observable shutdown failure. Test artifacts live under
+settings, bounded history and large output/diffs, server crash/reconnect, shared
+owner reuse, secure key validation/storage, real command survival followed by
+explicit cleanup, and GUI exit while the owner is suspended. Local retains browser
+sign-in and qualifies device-code display, cancel/retry and DPAPI storage. The full
+desktop.spec.ts suite has fourteen passing current-owner cases; connections.spec.ts
+adds host editing, multi-client exit policy, real WSL provisioning cancellation
+and a remote conversation surviving switching/exit/reconnect. Test artifacts live under
 `packages/desktop/test-results/`; non-secret visual scenarios save screenshots.
 Credential scenarios do not record traces or screenshots. These native tests are
 separate from the ordinary Linux/Windows `npm run check` CI matrix.
@@ -166,7 +236,11 @@ delays, or a nearby condition that does not prove completion.
   type contributions and pre-construction validation. Codex tests cover isolated
   OAuth token records, coalesced rotation, single/final waiter cancellation, logout
   during refresh and interactive login excluding stale-account refresh. A public
-  RPC regression covers changing an API-key instance to OAuth before restart.
+  RPC regressions cover changing an API-key instance to OAuth before restart and
+  device authorization, safe disabled-device diagnostics, cancellation and selected
+  instance persistence. Device tests also qualify pending authorization, expiry and
+  reusable OAuth sessions. Rendered TUI tests qualify both Local methods, URL/code
+  display and leaving sign-in. Existing browser callback tests remain in place.
   Compatible-provider settings/SDK tests use the contributed provider types;
   removed direct factories have no remaining production or test consumers. Packaged native tests cover two keys in
   DPAPI, restart discovery, picker metadata and reopening an existing unavailable

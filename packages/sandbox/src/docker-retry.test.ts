@@ -31,7 +31,7 @@ vi.mock("./docker-cli.ts", async (importOriginal) => ({
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
-const { dockerSandboxConfigSchema } = await import("./plugin.ts");
+const { dockerSandboxConfigSchema } = await import("./config.ts");
 
 // Idle reaping off — these tests are about the exec retry path, not the timer.
 const make = () =>

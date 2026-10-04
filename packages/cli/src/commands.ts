@@ -45,6 +45,7 @@ export interface CommandContext {
   sandbox: SandboxView;
   /** Quit the app. */
   exit: () => void;
+  manageHosts?: () => void;
 }
 
 export interface Command {
@@ -58,6 +59,14 @@ export interface Command {
 // Whitespace-split args suffice while commands take at most a bare id; defer a
 // quote-aware tokenizer + schema until one needs structured arguments.
 export const commands: Command[] = [
+  {
+    name: "hosts",
+    summary: "open the agent command center",
+    run: (ctx) =>
+      ctx.manageHosts
+        ? ctx.manageHosts()
+        : ctx.note("Host management is available in the shared-server TUI"),
+  },
   { name: "help", summary: "list commands", run: (ctx) => ctx.note(helpText()) },
   { name: "clear", summary: "clear the transcript", run: (ctx) => ctx.clear() },
   {

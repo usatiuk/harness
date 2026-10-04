@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ConfigReader, Conversation } from "@harness/protocol";
 import { LocalExecutionContext } from "@harness/execution";
-import { sandboxConfigSchema, sandboxPlugin } from "./plugin.ts";
+import { sandboxPlugin } from "./plugin.ts";
+import { sandboxConfigSchema } from "./config.ts";
 import { DockerExecutionContext } from "./docker.ts";
 
 const readerStub: ConfigReader = { get: <C>() => Promise.resolve({} as C) };

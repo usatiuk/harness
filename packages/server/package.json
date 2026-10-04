@@ -4,6 +4,15 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./entry": {
+      "development": "./src/bin.ts",
+      "default": "./dist/bin.js"
+    },
+    "./background": {
+      "development": "./src/background.ts",
+      "types": "./dist/background.d.ts",
+      "default": "./dist/background.js"
+    },
     ".": {
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
@@ -28,6 +37,11 @@
       "development": "./src/client-protocol.ts",
       "types": "./dist/client-protocol.d.ts",
       "default": "./dist/client-protocol.js"
+    },
+    "./approvals": {
+      "development": "./src/approvals.ts",
+      "types": "./dist/approvals.d.ts",
+      "default": "./dist/approvals.js"
     }
   },
   "dependencies": {
@@ -56,6 +70,7 @@
     "@harness/client-features": "*",
     "zod": "^4.4.3",
     "vscode-jsonrpc": "^8.2.0",
-    "@harness/litellm": "*"
+    "@harness/litellm": "*",
+    "@harness/connections": "*"
   }
 }

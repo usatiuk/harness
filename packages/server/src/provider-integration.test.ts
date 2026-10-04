@@ -14,6 +14,7 @@ import * as nodeTransport from "@harness/client/node";
 import {
   appAuthLoginRequest,
   appAuthLogoutRequest,
+  appAuthUrlNotification,
   appProvidersRequest,
   appSettingsRequest,
 } from "./client-protocol.ts";
@@ -23,6 +24,114 @@ import { httpGateway, json } from "../../litellm/src/http-fixture.ts";
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+it("displays device authorization over RPC, cancels it, then stores only the selected provider's session", async () => {
+  const home = await mkdtemp(join(tmpdir(), "harness-device-rpc-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  const store = new MemorySecretStore();
+  vi.spyOn(credentials, "credentialStoreForRead").mockResolvedValue({ store, kind: "dpapi" });
+  vi.spyOn(credentials, "credentialStoreForLogin").mockResolvedValue({ store, kind: "dpapi" });
+  await writeFile(
+    join(home, "settings.json"),
+    JSON.stringify({
+      providers: {
+        work: { type: "openai-codex", config: {} },
+        personal: { type: "openai-codex", config: {} },
+      },
+    }),
+  );
+  let authorize = false;
+  let disabled = true;
+  let stopped!: () => void;
+  const cancelled = new Promise<void>((resolve) => {
+    stopped = resolve;
+  });
+  const jwt = (value: unknown) =>
+    `header.${Buffer.from(JSON.stringify(value)).toString("base64url")}.signature`;
+  vi.stubGlobal("fetch", (async (input, init) => {
+    const url = input as string;
+    if (url.endsWith("/deviceauth/usercode") && disabled)
+      return new Response('private token response: {"access_token":"secret"}', { status: 404 });
+    if (url.endsWith("/deviceauth/usercode"))
+      return Response.json({ device_auth_id: "request", user_code: "RPC-CODE", interval: "1" });
+    if (url.endsWith("/deviceauth/token")) {
+      if (authorize)
+        return Response.json({ authorization_code: "code", code_verifier: "verifier" });
+      return new Promise<Response>((_resolve, reject) => {
+        init!.signal!.addEventListener(
+          "abort",
+          () => {
+            stopped();
+            reject(init!.signal!.reason as Error);
+          },
+          { once: true },
+        );
+      });
+    }
+    expect(url).toBe("https://auth.openai.com/oauth/token");
+    return Response.json({
+      access_token: jwt({ "https://api.openai.com/auth": { chatgpt_account_id: "rpc-account" } }),
+      id_token: jwt({ email: "rpc@example.com" }),
+      refresh_token: "rpc-refresh",
+      expires_in: 3600,
+    });
+  }) satisfies typeof fetch);
+  const pair = createInProcessMessageConnectionPair();
+  const harness = await buildServerHarness(pair.right);
+  const client = new HarnessClient({
+    connection: pair.left,
+    client: { name: "device-rpc", version: "1" },
+  });
+  const controller = new AbortController();
+  const prompts: unknown[] = [];
+  let shown!: () => void;
+  const displayed = new Promise<void>((resolve) => {
+    shown = resolve;
+  });
+  client.peer.onNotification(appAuthUrlNotification, (prompt) => {
+    prompts.push(prompt);
+    shown();
+  });
+  try {
+    await client.start();
+    await expect(
+      client.peer.request(appAuthLoginRequest, { provider: "work", key: null, flow: "device" }),
+    ).rejects.toThrow("Enable device-code authentication");
+    disabled = false;
+    const login = client.peer.request(
+      appAuthLoginRequest,
+      { provider: "work", key: null, flow: "device" },
+      { signal: controller.signal },
+    );
+    const failed = expect(login).rejects.toThrow();
+    await displayed;
+    controller.abort();
+    await failed;
+    await cancelled;
+    expect(prompts).toEqual([
+      { url: "https://auth.openai.com/codex/device", userCode: "RPC-CODE" },
+    ]);
+    expect(await store.get("provider-instance:work:oauth")).toBeNull();
+    // A provider-list request reconciles the server after the cancelled operation drains.
+    await client.peer.request(appProvidersRequest, {});
+    authorize = true;
+    await expect(
+      client.peer.request(appAuthLoginRequest, { provider: "work", key: null, flow: "device" }),
+    ).resolves.toEqual({ restartRequired: true });
+    expect(await store.get("provider-instance:work:oauth")).toContain("rpc-refresh");
+    expect(await store.get("provider-instance:personal:oauth")).toBeNull();
+    expect(
+      (await client.peer.request(appProvidersRequest, {})).find(
+        (provider) => provider.id === "work",
+      ),
+    ).toMatchObject({ authenticated: true });
+  } finally {
+    await harness.close();
+    client.closeConnection();
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 it("uses the newly configured OAuth type when a named API-key connection changes before restart", async () => {
@@ -62,7 +171,7 @@ it("uses the newly configured OAuth type when a named API-key connection changes
       (await client.peer.request(appProvidersRequest, {})).find(({ id }) => id === "work"),
     ).toMatchObject({ type: "openai-codex", kind: "oauth", registered: false, modelCount: 0 });
     await expect(
-      client.peer.request(appAuthLoginRequest, { provider: "work", key: null }),
+      client.peer.request(appAuthLoginRequest, { provider: "work", key: null, flow: "browser" }),
     ).resolves.toEqual({ restartRequired: true });
     expect(login).toHaveBeenCalledOnce();
     expect(await store.get("provider-instance:work:api-key")).toBe("old-key");
@@ -209,9 +318,17 @@ it("manages two named gateway keys over RPC, preserves global selection, and dis
       (await rpc.peer.request(appProvidersRequest, {})).find((provider) => provider.id === "work"),
     ).toMatchObject({ label: "Work gateway", catalog: "missing-credentials", registered: false });
     expect(
-      await rpc.peer.request(appAuthLoginRequest, { provider: "work", key: "work-key" }),
+      await rpc.peer.request(appAuthLoginRequest, {
+        provider: "work",
+        key: "work-key",
+        flow: "browser",
+      }),
     ).toEqual({ restartRequired: true });
-    await rpc.peer.request(appAuthLoginRequest, { provider: "personal", key: "personal-key" });
+    await rpc.peer.request(appAuthLoginRequest, {
+      provider: "personal",
+      key: "personal-key",
+      flow: "browser",
+    });
     expect(await secrets.get("provider-instance:work:api-key")).toBe("work-key");
     expect(await secrets.get("provider-instance:personal:api-key")).toBe("personal-key");
     expect(JSON.parse(await readFile(join(home, "settings.json"), "utf8"))).toMatchObject({
@@ -268,7 +385,7 @@ it("manages two named gateway keys over RPC, preserves global selection, and dis
     await writeFile(join(home, "settings.json"), JSON.stringify(invalid));
     loginBackend.mockClear();
     await expect(
-      rpc.peer.request(appAuthLoginRequest, { provider: "work", key: "new-key" }),
+      rpc.peer.request(appAuthLoginRequest, { provider: "work", key: "new-key", flow: "browser" }),
     ).rejects.toThrow(
       `in ${join(home, "settings.json")}: providers.work.config.baseUrl: Invalid URL`,
     );

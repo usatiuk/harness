@@ -31,7 +31,7 @@ import type {
 } from "@harness/protocol";
 import { addUsage, itemSchema, usageSchema, zeroUsage } from "@harness/protocol";
 import { systemClock, uuidIdGenerator } from "@harness/store";
-import { migrate, type Database } from "./schema.ts";
+import { initializeSchema, type Database } from "./schema.ts";
 
 type ItemRow = Database["items"];
 type AppendParams = {
@@ -65,7 +65,7 @@ export class SqliteStore implements Store {
     try {
       this.#db.pragma(`busy_timeout = ${options.exclusive ? 0 : 5000}`);
       if (options.exclusive) {
-        // Acquire before migrations or starting runtime resources; the OS releases
+        // Acquire before schema initialization or starting runtime resources; the OS releases
         // SQLite's lock even if the owning process crashes.
         this.#db.pragma("locking_mode = EXCLUSIVE");
         this.#db.exec("BEGIN EXCLUSIVE; COMMIT;");
@@ -73,7 +73,7 @@ export class SqliteStore implements Store {
       this.#db.pragma("foreign_keys = ON");
       this.#db.pragma("journal_mode = WAL");
       this.#db.pragma("synchronous = NORMAL");
-      migrate(this.#db);
+      initializeSchema(this.#db);
     } catch (error) {
       this.#db.close();
       if (options.exclusive && (error as { code?: string }).code === "SQLITE_BUSY") {
