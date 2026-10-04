@@ -156,3 +156,32 @@ The six-case native run passed five cases but one existing Local editing case
 hit EPERM renaming staged dependencies. That exact case's focused rerun passed
 unchanged (10.1s). The transient filesystem lock/cause is unknown; no assertion,
 timeout or retry policy was changed and no fix is claimed for that observation.
+
+## Windows CI and requested exit-default follow-up
+
+- [x] Reproduce lexical/physical path mismatch through an actual account alias.
+      Canonicalize project discovery and the asynchronous global-root decision;
+      all read/write consumers await that decision. Preserve boundaries when
+      `.harness` itself is an alias and verify repository-local file contents.
+- [x] Establish the copied-discovery target's owner-private runtime directory
+      before copying. Keep its foreign-home rejection and source-owner assertions;
+      directory-owner validation remains unchanged in production.
+- [ ] Verify both GitHub CI platforms after local validation and commit.
+- [ ] Default new client configuration to stopping unobserved Local on desktop
+      exit, retaining the explicit keep-running preference and shared-owner check.
+- [ ] Finish the authorized two-work/cleanup cadence and clean handoff.
+
+The physical account-alias test failed against the previous resolver, returning
+the account alias instead of the actual repository. Review identified an
+introduced leaf-home alias regression; physical marker comparisons and the
+requested home's physical parent now preserve the existing account boundary.
+Public writer/read tests cover missing settings directories and aliased homes.
+The copied-discovery setup fixes its earlier prerequisite rather than weakening
+the ownership check or expected foreign-home rejection. GitHub validation remains
+necessary for the actual elevated Windows runner; local checks are separate evidence.
+
+The CI correction's final local check passes TypeScript, ESLint, Prettier and
+1003 tests (116 passing files, 36 skips; 45.92s Vitest). All three independent
+read-only review follow-ups have no remaining actionable findings. The prior
+desktop startup correction is committed as e303dbe. GitHub validation and the
+requested exit-default correction remain open below this delivery increment.

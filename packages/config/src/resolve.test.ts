@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { findProjectRoot, resolveSettings } from "./resolve.ts";
+import { findProjectRoot, isHomeRoot, resolveSettings } from "./resolve.ts";
+import { updateLocalSettings } from "./write.ts";
 
 const schemas = new Map<string, z.ZodType>([
   [
@@ -22,7 +23,7 @@ const created: string[] = [];
 async function tmp(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "hcfg-"));
   created.push(dir);
-  return dir;
+  return realpath(dir);
 }
 async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
@@ -322,6 +323,71 @@ describe("findProjectRoot", () => {
     await mkdir(sub, { recursive: true });
 
     expect(await findProjectRoot(sub, home)).toBe(repo);
+  });
+
+  it("recognizes the global home through a physical path alias", async () => {
+    const directory = await tmp();
+    const account = join(directory, "account");
+    const home = join(account, ".harness");
+    const repo = join(account, "repo");
+    const sub = join(repo, "packages", "cli");
+    const alias = join(directory, "alias");
+    await mkdir(home, { recursive: true });
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await mkdir(sub, { recursive: true });
+    await symlink(account, alias, process.platform === "win32" ? "junction" : "dir");
+
+    expect(await findProjectRoot(join(alias, "repo", "packages", "cli"), home)).toBe(repo);
+    expect(await isHomeRoot(alias, home)).toBe(true);
+    expect(await isHomeRoot(account, join(alias, ".harness"))).toBe(true);
+  });
+
+  it("preserves the physical home boundary before settings directories exist", async () => {
+    const directory = await tmp();
+    const account = join(directory, "account");
+    const alias = join(directory, "alias");
+    await mkdir(account);
+    await symlink(account, alias, process.platform === "win32" ? "junction" : "dir");
+    expect(await isHomeRoot(account, join(alias, ".harness"))).toBe(true);
+    expect(await findProjectRoot(join(alias, "new-project"), join(account, ".harness"))).toBe(
+      join(account, "new-project"),
+    );
+    const home = join(account, ".harness");
+    const written = await updateLocalSettings(
+      alias,
+      (doc) => ({ ...doc, auth: { store: "file" } }),
+      home,
+    );
+    expect(written).toBe(join(home, "settings.json"));
+    expect(JSON.parse(await readFile(written, "utf8"))).toEqual({ auth: { store: "file" } });
+    await expect(
+      resolveSettings({ home: join(alias, ".harness"), cwd: alias, defaults: { model }, schemas }),
+    ).resolves.toMatchObject({ model });
+  });
+
+  it("keeps repository-local writes local when the home directory itself is an alias", async () => {
+    const directory = await tmp();
+    const account = join(directory, "account");
+    const home = join(account, ".harness");
+    const storage = join(directory, "settings-storage");
+    const repo = join(account, "repo");
+    const sub = join(repo, "packages", "cli");
+    await mkdir(storage);
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await mkdir(sub, { recursive: true });
+    await symlink(storage, home, process.platform === "win32" ? "junction" : "dir");
+
+    expect(await findProjectRoot(sub, home)).toBe(repo);
+    const written = await updateLocalSettings(
+      sub,
+      (doc) => ({ ...doc, instructions: "project" }),
+      home,
+    );
+    expect(written).toBe(join(repo, ".harness", "settings.local.json"));
+    expect(JSON.parse(await readFile(written, "utf8"))).toEqual({ instructions: "project" });
+    await expect(readFile(join(storage, "settings.json"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("finds a repository whose root also contains a custom-named Harness home", async () => {

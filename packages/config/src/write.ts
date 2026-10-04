@@ -115,7 +115,7 @@ export async function updateLocalSettings(
   home = defaultHome(),
 ): Promise<string> {
   const root = await findProjectRoot(cwd, home);
-  const isGlobal = isHomeRoot(root, home);
+  const isGlobal = await isHomeRoot(root, home);
   const path = isGlobal ? globalPath(home) : join(root, ".harness", "settings.local.json");
   await mutateFile(path, async () => {
     const existing = (await readSettings(path)) as SettingsDoc;

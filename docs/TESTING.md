@@ -70,7 +70,7 @@ expiry and a secondary detach failure. SSH BatchMode
 cases reject password-only and unknown-host routes without prompting. Current delivery evidence is tracked in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
-The current full check passes 1000 tests (116 passing files, 36 skipped tests).
+The current full check passes 1003 tests (116 passing files, 36 skipped tests).
 Rebuilt native connection qualification includes six cases; actual SSH/WSL and
 rendered TUI qualification passes five cases across two files. The native Rust
 shutdown regression passes. Three independent reviews and follow-ups report no
@@ -87,6 +87,12 @@ The post-delivery six-case native run passed five cases, including isolated cach
 startup, but one existing case hit EPERM renaming staged dependencies. Its exact
 focused rerun passed unchanged. The transient lock/cause remains unknown; no
 retry policy, timeout change or fix is claimed for it.
+Configuration regressions compare real account/home aliases, preserve repository
+discovery when `.harness` itself is a junction, and verify global versus local
+write destinations before settings directories exist. Expected fixture roots use
+physical paths. Copied-discovery tests establish the private target directory
+before copying, preserving the separate ownership and foreign-home assertions.
+Actual elevated Windows-runner CI validation follows the local passing check.
 
 `npm run test:remote` requires Docker and OpenSSH on the controlling client. It
 creates a loopback-only SSH container, ephemeral key, verified known-host entry

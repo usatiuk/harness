@@ -54,6 +54,11 @@ local project settings remain separate layers. Plugin definitions contribute
 their own Zod schemas and defaults; core configuration code treats their values as
 opaque after central validation.
 
+Project discovery and the global-root decision compare physical paths, including
+Windows short-name aliases and junctions. Existing ancestors establish identity
+before a new workspace/settings directory exists. A `.harness` directory alias
+retains its account-parent boundary; repository-local writes remain local.
+
 Conversation records persist workspace root and overrides. The complete model
 and preset selection is pinned there at creation and survives resume/reload.
 Explicit model/preset changes update that conversation and
