@@ -143,10 +143,11 @@ describe("HarnessService", () => {
       "turn.status",
       "item.appended",
       "item.appended",
-      "item.appended",
       "usage.changed",
+      "item.appended",
       "text_delta",
       "item.appended",
+      "usage.changed",
       "usage.changed",
       "turn.status",
     ]);

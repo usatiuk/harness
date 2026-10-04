@@ -29,14 +29,21 @@ npm run check        # typecheck + lint + format:check + test (also runs in CI)
 
 ## Client/server modes
 
-The desktop client uses Tauri 2, React, React Router data routes, and Radix Themes.
+The desktop client uses Tauri 2, React, React Router data routes, Radix Primitives,
+Tailwind v4, and Lucide. Shared typed controls use neutral surfaces, shallow
+button bases, customizable pastel accents, and light/dark/system appearance.
 It shows one selected conversation with live status for other open conversations,
 streaming history, approvals, tool output and edit diffs. Conversations keep
 independent turns and drafts while you navigate. Settings provide provider
 sign-in, model and sandbox defaults, approval policy, auto-approver enablement and
 reviewer model/preset, and light/dark appearance. Leave the reviewer model unset
 to use each conversation's current model.
-Ctrl/Cmd+Enter sends the composer; running turns support queue, steer, and stop.
+Model/preset and sandbox controls open from compact composer chips. Enter sends;
+Shift+Enter inserts a newline. Composer settings can swap those two and choose
+Queue or Steer while working; Ctrl/Cmd+Enter uses the other delivery action.
+The context ring opens reported request accounting. Optional last-turn token
+counts and request throughput appear above the composer. Appearance and composer
+preferences stay on the client, across hosts and restarts.
 
 Windows desktop development requires Rust, Visual Studio C++ build tools, and
 WebView2. `desktop:build` bundles Node, the shared server, and its native/runtime

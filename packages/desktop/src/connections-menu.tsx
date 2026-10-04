@@ -1,9 +1,18 @@
-import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
-import { Dialog } from "@radix-ui/themes";
+import { useRef, useState, useSyncExternalStore, type FormEvent, type RefObject } from "react";
 import { hostSchema, type Host } from "@harness/connections";
 import { connectionCommand } from "./transport.ts";
 import { DesktopHosts } from "./hosts.ts";
-import { Button } from "./ui.tsx";
+import {
+  Button,
+  Dialog,
+  Input,
+  Select,
+  Checkbox,
+  PopoverControl,
+  Confirmation,
+  Disclosure,
+} from "./ui.tsx";
+import { ChevronDown, Monitor } from "lucide-react";
 
 const message = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -19,10 +28,12 @@ export function ConnectionEditor({
   hosts,
   open,
   setOpen,
+  returnFocusRef,
 }: {
   hosts: DesktopHosts;
   open: boolean;
   setOpen: (open: boolean) => void;
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
   useSyncExternalStore(hosts.subscribe, hosts.snapshot);
 
@@ -30,8 +41,13 @@ export function ConnectionEditor({
   const [distributions, setDistributions] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [confirmation, setConfirmation] = useState<{
+    hostId: string;
+    operation: "stop" | "restart";
+  }>();
   const current = hosts.selected;
   const active = useRef<AbortController | null>(null);
+  const done = useRef<HTMLButtonElement>(null);
   const act = (operation: (signal: AbortSignal) => Promise<void>): void => {
     const abort = new AbortController();
     active.current = abort;
@@ -113,18 +129,23 @@ export function ConnectionEditor({
           }
         }}
       >
-        <Dialog.Content maxWidth="700px">
-          <Dialog.Title>Agent command center</Dialog.Title>
+        <Dialog.Content
+          maxWidth="740px"
+          className="connections-dialog"
+          returnFocusRef={returnFocusRef}
+        >
+          <Dialog.Title>Connections</Dialog.Title>
           <Dialog.Description>
-            Connections are shared by this computer’s desktop and TUI. Each host runs its own agents
-            and settings.
+            Choose where your agents run. Each host keeps its own conversations and settings.
           </Dialog.Description>
           <div className="connections-layout">
             <nav aria-label="Saved connections" className="saved-connections">
               {hosts.config?.hosts.map((host) => (
-                <Button
+                <button
                   key={host.id}
                   type="button"
+                  className="selection-item"
+                  aria-pressed={(editing?.id ?? current?.host.id) === host.id}
                   disabled={busy}
                   onClick={() => {
                     setEditing(host);
@@ -132,14 +153,16 @@ export function ConnectionEditor({
                   }}
                 >
                   {host.label}
-                </Button>
+                </button>
               ))}
-              <Button type="button" disabled={busy} onClick={() => create("wsl")}>
-                Add WSL
-              </Button>
-              <Button type="button" disabled={busy} onClick={() => create("ssh")}>
-                Add SSH
-              </Button>
+              <div className="connection-additions">
+                <Button type="button" size="sm" disabled={busy} onClick={() => create("wsl")}>
+                  Add WSL
+                </Button>
+                <Button type="button" size="sm" disabled={busy} onClick={() => create("ssh")}>
+                  Add SSH
+                </Button>
+              </div>
             </nav>
             {editing ? (
               <form key={editing.id} onSubmit={save} className="connection-editor">
@@ -152,13 +175,13 @@ export function ConnectionEditor({
                 </h3>
                 <label>
                   Name
-                  <input name="label" required maxLength={100} defaultValue={editing.label} />
+                  <Input name="label" required maxLength={100} defaultValue={editing.label} />
                 </label>
                 {editing.kind === "wsl" && (
                   <>
                     <label>
                       Distribution
-                      <input
+                      <Input
                         name="distribution"
                         list="wsl-distributions"
                         required
@@ -175,7 +198,7 @@ export function ConnectionEditor({
                     </Button>
                     <label>
                       Linux user (optional)
-                      <input name="user" defaultValue={editing.user ?? ""} />
+                      <Input name="user" defaultValue={editing.user ?? ""} />
                     </label>
                   </>
                 )}
@@ -183,7 +206,7 @@ export function ConnectionEditor({
                   <>
                     <label>
                       SSH destination
-                      <input
+                      <Input
                         name="destination"
                         required
                         placeholder="user@workstation or SSH alias"
@@ -199,10 +222,10 @@ export function ConnectionEditor({
                 {editing.kind !== "local" && (
                   <label>
                     Runtime
-                    <select name="source" defaultValue={editing.runtime.source}>
+                    <Select name="source" defaultValue={editing.runtime.source}>
                       <option value="managed">Managed portable runtime</option>
                       <option value="development">Use host’s Node (development)</option>
-                    </select>
+                    </Select>
                   </label>
                 )}
                 <div className="button-row">
@@ -212,12 +235,13 @@ export function ConnectionEditor({
                   <Button type="submit" value="test" disabled={busy}>
                     Save & test
                   </Button>
-                  <Button type="submit" value="connect" className="primary" disabled={busy}>
+                  <Button type="submit" value="connect" variant="accent" disabled={busy}>
                     Save & connect
                   </Button>
                   {editing.kind !== "local" && (
                     <Button
                       type="button"
+                      variant="danger"
                       disabled={busy}
                       onClick={() =>
                         act(async () => {
@@ -241,9 +265,18 @@ export function ConnectionEditor({
               </form>
             ) : (
               <div className="connection-editor">
-                <h3>{current?.host.label}</h3>
-                <p>
-                  {current?.session && !current.session.disconnected ? "Connected" : "Disconnected"}
+                <div className="connection-overview-heading">
+                  <h3>{current?.host.label}</h3>
+                  <p className="connection-state">
+                    {current?.session && !current.session.disconnected
+                      ? "Connected"
+                      : "Disconnected"}
+                  </p>
+                </div>
+                <p className="muted">
+                  {current?.host.kind === "local"
+                    ? "Run agents on this computer."
+                    : "A separate host for your agents and projects."}
                 </p>
                 <div className="button-row">
                   <Button
@@ -258,40 +291,43 @@ export function ConnectionEditor({
                   >
                     Disconnect
                   </Button>
-                  {current?.host.kind !== "local" && (
-                    <Button
-                      disabled={busy}
-                      onClick={() => act(() => hosts.refresh(hosts.config!.selectedHostId))}
-                    >
-                      Upload current build
-                    </Button>
-                  )}
-                  <Button
-                    disabled={busy || !current?.identity}
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          "Stop this host’s server and its agents for every connected client?",
-                        )
-                      )
-                        act(() => hosts.stop(hosts.config!.selectedHostId));
-                    }}
-                  >
-                    Stop server
-                  </Button>
-                  <Button
-                    disabled={busy || !current?.identity}
-                    onClick={() => {
-                      if (window.confirm("Restart this host’s server for every connected client?"))
-                        act(() => hosts.restart(hosts.config!.selectedHostId));
-                    }}
-                  >
-                    Restart server
-                  </Button>
                 </div>
-                {current?.runtime && current.identity?.buildId !== current.runtime.buildId && (
-                  <p>New build ready. Restart the server to use it.</p>
-                )}
+                <Disclosure title="Server actions" className="server-actions">
+                  <p className="muted">These actions affect every client connected to this host.</p>
+                  <div className="button-row">
+                    {current?.host.kind !== "local" && (
+                      <Button
+                        disabled={busy}
+                        onClick={() => act(() => hosts.refresh(hosts.config!.selectedHostId))}
+                      >
+                        Upload current build
+                      </Button>
+                    )}
+                    <Button
+                      variant="danger"
+                      disabled={busy || !current?.identity}
+                      onClick={() =>
+                        setConfirmation({ hostId: hosts.config!.selectedHostId, operation: "stop" })
+                      }
+                    >
+                      Stop server
+                    </Button>
+                    <Button
+                      disabled={busy || !current?.identity}
+                      onClick={() =>
+                        setConfirmation({
+                          hostId: hosts.config!.selectedHostId,
+                          operation: "restart",
+                        })
+                      }
+                    >
+                      Restart server
+                    </Button>
+                  </div>
+                  {current?.runtime && current.identity?.buildId !== current.runtime.buildId && (
+                    <p>New build ready. Restart the server to use it.</p>
+                  )}
+                </Disclosure>
               </div>
             )}
           </div>
@@ -305,48 +341,85 @@ export function ConnectionEditor({
               Cancel connection
             </Button>
           )}
-          <label className="background-preference">
-            <input
-              type="checkbox"
-              checked={hosts.config?.desktop.keepServerRunning ?? false}
-              disabled={busy}
-              onChange={(event) =>
-                act(() =>
-                  hosts.edit({ type: "preferences", keepServerRunning: event.target.checked }),
-                )
-              }
-            />
-            Keep the local server running after desktop exit
-          </label>
           {error && (
             <p role="alert" className="error">
               {error}
             </p>
           )}
-          <Dialog.Close>
-            <Button type="button">Done</Button>
-          </Dialog.Close>
+          <div className="connections-footer">
+            <label className="background-preference">
+              <Checkbox
+                checked={hosts.config?.desktop.keepServerRunning ?? false}
+                disabled={busy}
+                onChange={(event) =>
+                  act(() =>
+                    hosts.edit({ type: "preferences", keepServerRunning: event.target.checked }),
+                  )
+                }
+              />
+              Keep the local server running after desktop exit
+            </label>
+            <Dialog.Close>
+              <Button ref={done} type="button">
+                Done
+              </Button>
+            </Dialog.Close>
+          </div>
         </Dialog.Content>
       </Dialog.Root>
+      <Confirmation
+        acceptedFocusRef={done}
+        open={Boolean(confirmation)}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(undefined);
+        }}
+        title={confirmation?.operation === "stop" ? "Stop server?" : "Restart server?"}
+        description="This affects agents and work for every client connected to this host. Conversation history is saved."
+        confirmLabel={confirmation?.operation === "stop" ? "Stop server" : "Restart server"}
+        onConfirm={() => {
+          if (!confirmation) throw new Error("Missing server confirmation intent");
+          const intent = confirmation;
+          act(() =>
+            intent.operation === "stop" ? hosts.stop(intent.hostId) : hosts.restart(intent.hostId),
+          );
+        }}
+      />
     </>
   );
 }
 
-export function HostControls({ hosts, onManage }: { hosts: DesktopHosts; onManage: () => void }) {
+export function HostControls({
+  hosts,
+  onManage,
+  triggerRef,
+}: {
+  hosts: DesktopHosts;
+  onManage: () => void;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+}) {
   useSyncExternalStore(hosts.subscribe, hosts.snapshot);
   const [error, setError] = useState<string>();
   return (
     <div className="host-controls">
-      <label className="host-selector">
-        Host
-        <select
-          aria-label="Selected host"
-          value={hosts.config?.selectedHostId ?? "local"}
-          onChange={(event) => {
-            setError(undefined);
-            void hosts.select(event.target.value).catch((cause) => setError(message(cause)));
-          }}
-        >
+      <PopoverControl
+        label="Hosts"
+        align="start"
+        trigger={
+          <Button
+            ref={triggerRef}
+            disabled={!hosts.config}
+            variant="ghost"
+            className="host-trigger"
+            aria-label={`Switch host: ${hosts.selected?.host.label ?? "Local"}`}
+          >
+            <Monitor size={14} aria-hidden="true" />
+            <span className="host-label">{hosts.selected?.host.label ?? "Local"}</span>
+            <ChevronDown size={12} aria-hidden="true" />
+          </Button>
+        }
+      >
+        <h3>Hosts</h3>
+        <div className="host-options">
           {hosts.config?.hosts.map((host) => {
             const view = hosts.views.get(host.id);
             const pending = [...(view?.session?.views.values() ?? [])].some(
@@ -356,23 +429,34 @@ export function HostControls({ hosts, onManage }: { hosts: DesktopHosts; onManag
               (item) => item.state.turn.status === "running",
             );
             return (
-              <option key={host.id} value={host.id}>
+              <button
+                key={host.id}
+                type="button"
+                className="host-option selection-item"
+                aria-pressed={hosts.config?.selectedHostId === host.id}
+                onClick={() => {
+                  setError(undefined);
+                  void hosts.select(host.id).catch((cause) => setError(message(cause)));
+                }}
+              >
                 {host.label}
-                {pending
-                  ? " · Approval"
-                  : running
-                    ? " · Running"
-                    : view?.session && !view.session.disconnected
-                      ? " · Connected"
-                      : ""}
-              </option>
+                <small className="muted">
+                  {pending
+                    ? "Approval"
+                    : running
+                      ? "Running"
+                      : view?.session && !view.session.disconnected
+                        ? "Connected"
+                        : ""}
+                </small>
+              </button>
             );
           })}
-        </select>
-      </label>
-      <Button type="button" onClick={onManage}>
-        Manage connections
-      </Button>
+        </div>
+        <Button size="sm" onClick={onManage}>
+          Manage connections
+        </Button>
+      </PopoverControl>
       {hosts.selected?.progress && <small role="status">{hosts.selected.progress}</small>}
       {error && (
         <p role="alert" className="error">

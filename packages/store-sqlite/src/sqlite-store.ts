@@ -29,7 +29,13 @@ import type {
   TurnStatus,
   Usage,
 } from "@harness/protocol";
-import { addUsage, itemSchema, usageSchema, zeroUsage } from "@harness/protocol";
+import {
+  addUsage,
+  itemSchema,
+  usageSchema,
+  zeroUsage,
+  summarizeTurnUsage,
+} from "@harness/protocol";
 import { systemClock, uuidIdGenerator } from "@harness/store";
 import { initializeSchema, type Database } from "./schema.ts";
 
@@ -349,6 +355,8 @@ export class SqliteStore implements Store {
         context_build_id: input.contextBuildId,
         provider: input.provider,
         model: input.model,
+        purpose: input.purpose ?? null,
+        request_duration_ms: input.requestDurationMs ?? null,
         usage: JSON.stringify(input.usage),
         cost: input.cost,
         created_at: record.createdAt,
@@ -390,11 +398,41 @@ export class SqliteStore implements Store {
         lastInputTokens = parsed.inputTokens;
       }
     }
+    const agent = this.#db
+      .prepare<
+        [string],
+        Database["model_usage"]
+      >(`SELECT * FROM model_usage WHERE conversation_id = ? AND purpose = 'agent' ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+      .get(conversationId);
+    const terminal = this.#db
+      .prepare<
+        [string],
+        Database["turns"]
+      >(`SELECT * FROM turns WHERE conversation_id = ? AND status <> 'running' ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+      .get(conversationId);
+    const turnRows = terminal
+      ? this.#db
+          .prepare<[string], Database["model_usage"]>(`SELECT * FROM model_usage WHERE turn_id = ?`)
+          .all(terminal.id)
+          .map(rowToModelUsage)
+      : [];
     return {
       usage,
       incomplete,
       cost,
       ...(lastInputTokens === undefined ? {} : { lastInputTokens }),
+      ...(agent
+        ? {
+            agentContext: {
+              provider: agent.provider,
+              model: agent.model,
+              turnId: agent.turn_id as TurnId,
+              usage: rowToModelUsage(agent).usage,
+              createdAt: agent.created_at,
+            },
+          }
+        : {}),
+      ...(terminal ? { lastTurn: summarizeTurnUsage(rowToTurn(terminal), turnRows) } : {}),
     };
   }
 
@@ -570,6 +608,8 @@ function rowToModelUsage(row: Database["model_usage"]): ModelUsage {
     contextBuildId: row.context_build_id,
     provider: row.provider,
     model: row.model,
+    ...(row.purpose === null ? {} : { purpose: row.purpose }),
+    ...(row.request_duration_ms === null ? {} : { requestDurationMs: row.request_duration_ms }),
     usage: usageSchema.nullable().parse(JSON.parse(row.usage)) as Usage | null,
     cost: row.cost,
     createdAt: row.created_at,

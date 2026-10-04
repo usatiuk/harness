@@ -150,6 +150,26 @@ export const wireUsageSummarySchema = z.strictObject({
   incomplete: z.boolean(),
   cost: z.number().nonnegative(),
   lastInputTokens: nonnegativeInteger.nullable(),
+  agentContext: z
+    .strictObject({
+      provider: z.string().min(1),
+      model: z.string().min(1),
+      turnId: idSchema,
+      usage: wireUsageSchema.nullable(),
+      createdAt: nonnegativeInteger,
+    })
+    .nullable(),
+  lastTurn: z
+    .strictObject({
+      turnId: idSchema,
+      status: z.enum(["completed", "failed", "aborted"]),
+      usage: wireUsageSchema,
+      incomplete: z.boolean(),
+      cost: z.number().nonnegative(),
+      agentOutputTokens: nonnegativeInteger.nullable(),
+      agentDurationMs: z.number().nonnegative().nullable(),
+    })
+    .nullable(),
 });
 export type WireUsageSummary = z.infer<typeof wireUsageSummarySchema>;
 

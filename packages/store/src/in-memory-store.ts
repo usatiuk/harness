@@ -23,7 +23,7 @@ import type {
   TurnId,
   TurnStatus,
 } from "@harness/protocol";
-import { addUsage, zeroUsage } from "@harness/protocol";
+import { addUsage, zeroUsage, summarizeTurnUsage } from "@harness/protocol";
 import { systemClock, uuidIdGenerator } from "./defaults.ts";
 
 const pluginStateKey = (plugin: string, conversationId: ConversationId, key: string): string =>
@@ -237,8 +237,10 @@ export class InMemoryStore implements Store {
     let incomplete = false;
     let cost = 0;
     let lastInputTokens: number | undefined;
+    let agent: ModelUsage | undefined;
     for (const row of this.#modelUsage) {
       if (row.conversationId !== conversationId) continue;
+      if (row.purpose === "agent") agent = row;
       cost += row.cost ?? 0;
       if (row.usage === null) {
         incomplete = true;
@@ -247,11 +249,33 @@ export class InMemoryStore implements Store {
         lastInputTokens = row.usage.inputTokens;
       }
     }
+    const terminal = [...this.#turns.values()].findLast(
+      (turn) => turn.conversationId === conversationId && turn.status !== "running",
+    );
     return {
       usage,
       incomplete,
       cost,
       ...(lastInputTokens === undefined ? {} : { lastInputTokens }),
+      ...(agent
+        ? {
+            agentContext: {
+              provider: agent.provider,
+              model: agent.model,
+              turnId: agent.turnId,
+              usage: agent.usage,
+              createdAt: agent.createdAt,
+            },
+          }
+        : {}),
+      ...(terminal
+        ? {
+            lastTurn: summarizeTurnUsage(
+              terminal,
+              this.#modelUsage.filter((row) => row.turnId === terminal.id),
+            ),
+          }
+        : {}),
     };
   }
 

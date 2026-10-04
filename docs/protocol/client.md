@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first request and requires protocol version `3`. It exchanges
+`initialize` is the first request and requires protocol version `4`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -112,6 +112,17 @@ missed delta converges when the durable item arrives. Reconnect installs fresh a
 in that attachment, transient text/reasoning deltas are suppressed until canonical
 items arrive; future turns stream normally. There is no replay log or automatic
 mutation resubmission. A timeout or transport loss does not prove a send was rejected.
+
+Usage summaries include nullable `agentContext` and `lastTurn`. The checkpoint
+contains the latest agent request attempt's provider/model, turn, timestamp and
+nullable reported usage. It is published before tools/approval waits; a newer
+unknown attempt clears the reported count instead of retaining a stale value.
+The latest terminal turn includes aggregate usage/cost, incomplete accounting and
+nullable agent output/duration facts. Request duration includes provider latency
+and stream consumption, excluding tools and approval waits. Unknown accounting,
+historical purpose or duration makes throughput unavailable. Terminal publication
+follows accounting settlement. Attachment restores the same authoritative facts.
+Version 4 requires these fields, so older peers fail exact-version initialization.
 
 The shared domain client buffers only the initial root attach/history gap;
 events for unobserved descendants do not accumulate in an unused presentation

@@ -150,7 +150,7 @@ describe("custom provider public boundary", () => {
     );
   });
 
-  it("propagates interruption to the custom provider SDK signal without recording usage", async () => {
+  it("propagates interruption to the custom provider SDK and records unknown accounting", async () => {
     const home = await mkdtemp(join(tmpdir(), "harness-custom-provider-"));
     homes.push(home);
     await writeFile(
@@ -188,7 +188,9 @@ describe("custom provider public boundary", () => {
     await service.whenIdle(conversation.id);
 
     expect(fake.calls[0]?.signal.aborted).toBe(true);
-    expect(await service.usage(conversation.id)).toEqual([]);
+    expect(await service.usage(conversation.id)).toMatchObject([
+      { provider: "local", model: "m", purpose: "agent", usage: null, cost: null },
+    ]);
     expect(events).toContainEqual(
       expect.objectContaining({ type: "turn.status", status: "aborted" }),
     );

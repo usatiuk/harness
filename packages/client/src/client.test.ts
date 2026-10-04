@@ -65,6 +65,8 @@ const attachment: AttachResult = {
     incomplete: false,
     cost: 0,
     lastInputTokens: null,
+    agentContext: null,
+    lastTurn: null,
   },
   plugins: { test: { value: "snapshot" } },
 };

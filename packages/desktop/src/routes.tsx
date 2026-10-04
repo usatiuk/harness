@@ -19,6 +19,7 @@ import {
   useRouteError,
   useRouteLoaderData,
   useRevalidator,
+  useSearchParams,
   type ActionFunctionArgs,
 } from "react-router";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -36,16 +37,30 @@ import {
   type AppSettings,
 } from "@harness/server/client-protocol";
 import { DesktopSession, type ConversationView } from "./session.ts";
-import { Button } from "./ui.tsx";
-import { applyTheme } from "./appearance.ts";
+import {
+  Button,
+  Input,
+  Select,
+  Textarea,
+  IconButton,
+  PopoverControl,
+  Confirmation,
+  Disclosure,
+  Tabs,
+} from "./ui.tsx";
+import { useComposerPreferences } from "./appearance.ts";
+import { composerKey } from "./preferences.ts";
+import { ContextUsage, LastTurnStats } from "./components/usage-inspector.tsx";
+import { AppearanceControls, ComposerSettings } from "./components/appearance-controls.tsx";
 import {
   ArrowDown,
   FolderOpen,
   Plus,
   Settings as SettingsIcon,
-  Terminal,
   Send,
   Square,
+  ChevronDown,
+  Settings2,
 } from "lucide-react";
 
 type ActionResult =
@@ -270,28 +285,27 @@ export function createDesktopRouter(
     ) : null;
   }
   function RestartButton() {
+    const returnFocus = useRef<HTMLDivElement>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string>();
+    const [confirmRestart, setConfirmRestart] = useState(false);
     const running = [...session.views.values()].some(
       (view) =>
         view.state.turn.status === "running" ||
         session.plugins.runningActivities(view.conversation.id) > 0,
     );
     return (
-      <div className="restart">
+      <div className="restart" ref={returnFocus} tabIndex={-1}>
         <p className="muted">
           Restart saves history and stops all conversations, commands and pending approvals.
         </p>
         <Button
           disabled={busy}
           onClick={() => {
-            if (
-              running &&
-              !window.confirm(
-                "Restart Harness and stop all running work? Conversation history is saved.",
-              )
-            )
+            if (running) {
+              setConfirmRestart(true);
               return;
+            }
             setBusy(true);
             void connections.restart().catch((cause: unknown) => {
               setError(errorMessage(cause));
@@ -301,6 +315,21 @@ export function createDesktopRouter(
         >
           {busy ? "Restarting…" : "Restart Harness"}
         </Button>
+        <Confirmation
+          acceptedFocusRef={returnFocus}
+          open={confirmRestart}
+          onOpenChange={setConfirmRestart}
+          title="Restart Harness?"
+          description="Restart saves history and stops all conversations, commands and pending approvals."
+          confirmLabel="Restart Harness"
+          onConfirm={() => {
+            setBusy(true);
+            void connections.restart().catch((cause: unknown) => {
+              setError(errorMessage(cause));
+              setBusy(false);
+            });
+          }}
+        />
         {error && (
           <p role="alert" className="error">
             {error}
@@ -321,13 +350,14 @@ export function createDesktopRouter(
             : JSON.stringify(approval.call.args, null, 2)}
         </pre>
         <fetcher.Form method="post" action="/actions" className="button-row">
-          <input type="hidden" name="intent" value="approval" />
-          <input type="hidden" name="requestId" value={approval.requestId} />
-          <Button name="decision" value="deny" disabled={fetcher.state !== "idle"}>
+          <Input type="hidden" name="intent" value="approval" />
+          <Input type="hidden" name="requestId" value={approval.requestId} />
+          <Button type="submit" name="decision" value="deny" disabled={fetcher.state !== "idle"}>
             Deny
           </Button>
           <Button
-            className="primary"
+            type="submit"
+            variant="accent"
             name="decision"
             value="allow"
             disabled={fetcher.state !== "idle"}
@@ -346,14 +376,18 @@ export function createDesktopRouter(
     return (
       <div className="app">
         <aside className="sidebar">
-          <div className="brand">
-            <Terminal size={19} aria-hidden="true" />
-            <span>Harness</span>
+          <div className="brand">Harness</div>
+          <div className="sidebar-heading">
+            {connections.controls}
+            <Link
+              to="/new"
+              className="new-conversation"
+              aria-label="New conversation"
+              title="New conversation"
+            >
+              <Plus size={15} aria-hidden="true" />
+            </Link>
           </div>
-          {connections.controls}
-          <Link to="/new" className="new-conversation">
-            <Plus size={15} aria-hidden="true" /> New conversation
-          </Link>
           <nav aria-label="Conversations" className="conversation-list">
             {session.conversations.map((conversation) => {
               const view = session.views.get(conversation.id);
@@ -373,16 +407,22 @@ export function createDesktopRouter(
                   <span className="conversation-title">
                     {conversationLabel(conversation, view)}
                   </span>
-                  <small className={view?.approvals.size ? "approval-status" : "muted"}>
-                    {status || basename(conversation.workspaceRoot)}
-                  </small>
+                  {status && (
+                    <span
+                      className={`conversation-status-mark ${view?.approvals.size ? "approval-status" : view?.state.turn.status === "failed" ? "failed-status" : ""}`}
+                      aria-label={status}
+                      title={status}
+                    />
+                  )}
                 </NavLink>
               );
             })}
             {session.listCursor && (
               <more.Form method="post" action="/actions">
-                <input type="hidden" name="intent" value="list-more" />
-                <Button disabled={more.state !== "idle"}>Load more</Button>
+                <Input type="hidden" name="intent" value="list-more" />
+                <Button type="submit" disabled={more.state !== "idle"}>
+                  Load more
+                </Button>
               </more.Form>
             )}
             <ActionFeedback data={more.data} />
@@ -490,6 +530,7 @@ export function createDesktopRouter(
     const defaultModel = settings.settings.model ?? session.domain.defaultModel();
     const [selection, setSelection] = useState(modelKey(defaultModel.provider, defaultModel.model));
     const [backend, setBackend] = useState<string>(settings.settings.sandbox);
+    const [toolMode, setToolMode] = useState("direct");
     const backendAvailable = backend !== "native" || settings.platform === "linux";
     const available = session.domain
       .availableModels()
@@ -497,73 +538,109 @@ export function createDesktopRouter(
     const [error, setError] = useState<string>();
     return (
       <section className="page new-page">
-        <h1>New conversation</h1>
-        <Form method="post" className="form-grid">
-          <label>
-            Project folder
-            <input
-              name="cwd"
-              value={cwd}
-              onChange={(event) => setCwd(event.target.value)}
-              required
-            />
-          </label>
-          {connections.local && (
+        <div className="page-heading">
+          <h1>New conversation</h1>
+        </div>
+        <p className="page-lead">
+          Choose a project folder to give your conversation a place to work.
+        </p>
+        <Form method="post" className="creation-form">
+          <div className="folder-field">
+            <label>
+              Project folder
+              <Input
+                name="cwd"
+                value={cwd}
+                onChange={(event) => setCwd(event.target.value)}
+                required
+              />
+            </label>
+            {connections.local && (
+              <Button
+                type="button"
+                onClick={() => {
+                  void open({ directory: true, multiple: false, title: "Choose project folder" })
+                    .then((path) => {
+                      if (typeof path === "string") setCwd(path);
+                    })
+                    .catch((cause: unknown) => setError(errorMessage(cause)));
+                }}
+              >
+                <FolderOpen size={15} aria-hidden="true" /> Choose folder…
+              </Button>
+            )}
+            {!connections.local && (
+              <p className="muted">Enter a project path on {connections.label}.</p>
+            )}
+          </div>
+          <Input type="hidden" name="model" value={selection} />
+          <Input type="hidden" name="sandbox" value={backend} />
+          <Input type="hidden" name="toolMode" value={toolMode} />
+          <div className="creation-footer">
+            <div className="creation-options">
+              <PopoverControl
+                label="New conversation model"
+                align="start"
+                trigger={
+                  <Button variant="ghost" size="sm" aria-label="Choose model">
+                    <span>
+                      {session.domain
+                        .availableModels()
+                        .find((model) => modelKey(model.provider, model.model) === selection)
+                        ?.label ?? selection.split("\u0000")[1]}
+                    </span>
+                    <ChevronDown size={12} aria-hidden="true" />
+                  </Button>
+                }
+              >
+                <label>
+                  Model
+                  <Select value={selection} onChange={(event) => setSelection(event.target.value)}>
+                    <ModelOptions selected={defaultModel} />
+                  </Select>
+                </label>
+              </PopoverControl>
+              <PopoverControl
+                label="New conversation execution"
+                align="start"
+                trigger={
+                  <Button variant="ghost" size="sm" aria-label="Choose execution options">
+                    {backend === "docker" ? "Docker" : backend === "native" ? "Native" : "Local"}
+                    <ChevronDown size={12} aria-hidden="true" />
+                  </Button>
+                }
+              >
+                <div className="form-grid">
+                  <label>
+                    Sandbox
+                    <Select value={backend} onChange={(event) => setBackend(event.target.value)}>
+                      <SandboxOptions selected={backend} />
+                    </Select>
+                  </label>
+                  <label>
+                    Tool interface
+                    <Select value={toolMode} onChange={(event) => setToolMode(event.target.value)}>
+                      <option value="direct">Direct</option>
+                      <option value="hybrid">Direct and code</option>
+                      <option value="code-only">Code only</option>
+                    </Select>
+                  </label>
+                </div>
+              </PopoverControl>
+            </div>
             <Button
-              type="button"
-              onClick={() => {
-                void open({ directory: true, multiple: false, title: "Choose project folder" })
-                  .then((path) => {
-                    if (typeof path === "string") setCwd(path);
-                  })
-                  .catch((cause: unknown) => setError(errorMessage(cause)));
-              }}
+              type="submit"
+              variant="accent"
+              disabled={
+                !available ||
+                !backendAvailable ||
+                navigation.state !== "idle" ||
+                Boolean(session.disconnected)
+              }
             >
-              <FolderOpen size={15} aria-hidden="true" /> Choose folder…
+              {navigation.state !== "idle" ? "Creating…" : "Create conversation"}
             </Button>
-          )}
-          {!connections.local && (
-            <p className="muted">Enter a project path on {connections.label}.</p>
-          )}
-          <label>
-            Model
-            <select
-              name="model"
-              value={selection}
-              onChange={(event) => setSelection(event.target.value)}
-            >
-              <ModelOptions selected={defaultModel} />
-            </select>
-          </label>
-          <label>
-            Sandbox
-            <select
-              name="sandbox"
-              value={backend}
-              onChange={(event) => setBackend(event.target.value)}
-            >
-              <SandboxOptions selected={backend} />
-            </select>
-          </label>
-          <label>
-            Tool interface
-            <select name="toolMode" defaultValue="direct">
-              <option value="direct">Direct</option>
-              <option value="hybrid">Direct and code</option>
-              <option value="code-only">Code only</option>
-            </select>
-          </label>
-          <Button
-            className="primary"
-            disabled={
-              !available ||
-              !backendAvailable ||
-              navigation.state !== "idle" ||
-              Boolean(session.disconnected)
-            }
-          >
-            {navigation.state !== "idle" ? "Creating…" : "Create conversation"}
-          </Button>
+          </div>
         </Form>
         {!available && (
           <p role="status" className="muted">
@@ -581,7 +658,9 @@ export function createDesktopRouter(
             {error}
           </p>
         )}
-        <p className="muted">Docker uses this folder’s devcontainer configuration.</p>
+        {backend === "docker" && (
+          <p className="muted">Docker uses this folder’s devcontainer configuration.</p>
+        )}
       </section>
     );
   }
@@ -591,109 +670,185 @@ export function createDesktopRouter(
     const preset = useFetcher<ActionResult>();
     const sandbox = useFetcher<ActionResult>();
     const control = useFetcher<ActionResult>();
+    const [pendingSandbox, setPendingSandbox] = useState<FormData>();
+    const sandboxTrigger = useRef<HTMLButtonElement>(null);
     const id = view.conversation.id;
     const selected = view.conversation.config.model;
-    const presets =
-      session.domain
-        .availableModels()
-        .find((entry) => entry.provider === selected.provider && entry.model === selected.model)
-        ?.presets ?? [];
+    const catalog = session.domain
+      .availableModels()
+      .find((entry) => entry.provider === selected.provider && entry.model === selected.model);
+    const presets = catalog?.presets ?? [];
     const backend =
       (view.conversation.config.plugins?.["sandbox"] as { backend?: string } | undefined)
         ?.backend ?? "local";
     const running = view.state.turn.status === "running";
     const disabled = Boolean(session.disconnected);
     return (
-      <div className="conversation-controls">
-        <model.Form method="post" action="/actions">
-          <input type="hidden" name="intent" value="model" />
-          <input type="hidden" name="conversationId" value={id} />
-          <label>
-            Model
-            <select
-              aria-label="Conversation model"
-              name="model"
-              value={modelKey(selected.provider, selected.model)}
-              disabled={disabled || model.state !== "idle"}
-              onChange={(event) => {
-                void model.submit(event.currentTarget.form);
-              }}
-            >
-              <ModelOptions selected={selected} />
-            </select>
-          </label>
-        </model.Form>
-        {presets.length > 0 && (
-          <preset.Form method="post" action="/actions">
-            <input type="hidden" name="intent" value="preset" />
-            <input type="hidden" name="conversationId" value={id} />
-            <label>
-              Preset
-              <select
-                aria-label="Conversation preset"
-                name="preset"
-                value={selected.preset ?? ""}
-                disabled={disabled || preset.state !== "idle"}
-                onChange={(event) => {
-                  void preset.submit(event.currentTarget.form);
-                }}
+      <>
+        <div className="conversation-controls">
+          <PopoverControl
+            label="Model and preset"
+            align="start"
+            trigger={
+              <Button
+                variant="ghost"
+                className="composer-chip"
+                aria-label={`Model and preset: ${catalog?.label ?? selected.model}${selected.preset ? ` · ${selected.preset}` : ""}`}
               >
-                <option value="">Default</option>
-                {presets.map((entry) => (
-                  <option key={entry.value} value={entry.value}>
-                    {entry.label ?? entry.value}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </preset.Form>
-        )}
-        <sandbox.Form method="post" action="/actions">
-          <input type="hidden" name="intent" value="sandbox" />
-          <input type="hidden" name="conversationId" value={id} />
-          <label>
-            Sandbox
-            <select
-              aria-label="Conversation sandbox"
-              name="sandbox"
-              value={backend}
-              disabled={running || disabled || sandbox.state !== "idle"}
-              onChange={(event) => {
-                if (
-                  session.plugins.runningActivities(id) > 0 &&
-                  !window.confirm(
-                    "Changing sandbox stops this conversation's background work. Continue?",
-                  )
-                )
-                  return;
-                void sandbox.submit(event.currentTarget.form);
-              }}
-            >
-              <SandboxOptions selected={backend} />
-            </select>
-          </label>
-        </sandbox.Form>
-        {backend === "docker" && (
-          <control.Form method="post" action="/actions">
-            <input type="hidden" name="conversationId" value={id} />
-            <Button name="intent" value="rebuild" disabled={disabled || control.state !== "idle"}>
-              Rebuild
-            </Button>
-            <Button
-              name="intent"
-              value="sandbox-stop"
-              disabled={disabled || control.state !== "idle"}
-            >
-              Stop container
-            </Button>
-            <span className="muted">Affects conversations sharing this container.</span>
-          </control.Form>
-        )}
-        <ActionFeedback data={model.data} />
-        <ActionFeedback data={preset.data} />
-        <ActionFeedback data={sandbox.data} />
-        <ActionFeedback data={control.data} />
-      </div>
+                <span>
+                  {catalog?.label ?? selected.model}
+                  {selected.preset
+                    ? ` · ${presets.find((entry) => entry.value === selected.preset)?.label ?? selected.preset}`
+                    : ""}
+                </span>
+                <ChevronDown size={12} aria-hidden="true" />
+              </Button>
+            }
+          >
+            <h3>Model and preset</h3>
+            <model.Form method="post" action="/actions" className="picker-form">
+              <Input type="hidden" name="intent" value="model" />
+              <Input type="hidden" name="conversationId" value={id} />
+              <label>
+                Model
+                <Select
+                  aria-label="Conversation model"
+                  name="model"
+                  value={modelKey(selected.provider, selected.model)}
+                  disabled={disabled || model.state !== "idle"}
+                  onChange={(event) => {
+                    void model.submit(event.currentTarget.form);
+                  }}
+                >
+                  <ModelOptions selected={selected} />
+                </Select>
+              </label>
+            </model.Form>
+            {(presets.length > 0 || selected.preset) && (
+              <preset.Form method="post" action="/actions" className="picker-form">
+                <Input type="hidden" name="intent" value="preset" />
+                <Input type="hidden" name="conversationId" value={id} />
+                <label>
+                  Preset
+                  <Select
+                    aria-label="Conversation preset"
+                    name="preset"
+                    value={selected.preset ?? ""}
+                    disabled={disabled || preset.state !== "idle"}
+                    onChange={(event) => {
+                      void preset.submit(event.currentTarget.form);
+                    }}
+                  >
+                    <option value="">Default</option>
+                    {selected.preset &&
+                      !presets.some((entry) => entry.value === selected.preset) && (
+                        <option value={selected.preset}>{selected.preset} — unavailable</option>
+                      )}
+                    {presets.map((entry) => (
+                      <option key={entry.value} value={entry.value}>
+                        {entry.label ?? entry.value}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              </preset.Form>
+            )}
+            <p className="muted">
+              {catalog?.contextWindow
+                ? `${catalog.contextWindow.toLocaleString()} context`
+                : "Context capacity unknown"}
+              {catalog?.reasoning?.supported ? " · Reasoning supported" : ""}
+            </p>
+            <ActionFeedback data={model.data} />
+            <ActionFeedback data={preset.data} />
+          </PopoverControl>
+          <PopoverControl
+            label="Sandbox controls"
+            align="start"
+            trigger={
+              <Button
+                ref={sandboxTrigger}
+                variant="ghost"
+                className="composer-chip"
+                aria-label={`Sandbox: ${backend}`}
+              >
+                {backend === "docker" ? "Docker" : backend === "native" ? "Native" : "Local"}
+                <ChevronDown size={12} aria-hidden="true" />
+              </Button>
+            }
+          >
+            <h3>Execution sandbox</h3>
+            <sandbox.Form method="post" action="/actions" className="picker-form">
+              <Input type="hidden" name="intent" value="sandbox" />
+              <Input type="hidden" name="conversationId" value={id} />
+              <label>
+                Sandbox
+                <Select
+                  aria-label="Conversation sandbox"
+                  name="sandbox"
+                  value={backend}
+                  disabled={running || disabled || sandbox.state !== "idle"}
+                  onChange={(event) => {
+                    const data = new FormData(event.currentTarget.form!);
+                    if (session.plugins.runningActivities(id) > 0) setPendingSandbox(data);
+                    else void sandbox.submit(data, { method: "post", action: "/actions" });
+                  }}
+                >
+                  <SandboxOptions selected={backend} />
+                </Select>
+              </label>
+            </sandbox.Form>
+            {running && <p className="muted">Stop the running turn before changing sandbox.</p>}
+            {backend === "docker" && (
+              <control.Form method="post" action="/actions" className="picker-form">
+                <Input type="hidden" name="conversationId" value={id} />
+                <div className="button-row">
+                  <Button
+                    type="submit"
+                    name="intent"
+                    value="rebuild"
+                    disabled={disabled || control.state !== "idle"}
+                  >
+                    Rebuild
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="danger"
+                    name="intent"
+                    value="sandbox-stop"
+                    disabled={disabled || control.state !== "idle"}
+                  >
+                    Stop container
+                  </Button>
+                </div>
+                <p className="muted">Affects conversations sharing this container.</p>
+              </control.Form>
+            )}
+            <ActionFeedback data={sandbox.data} />
+            <ActionFeedback data={control.data} />
+          </PopoverControl>
+        </div>
+        <Confirmation
+          returnFocusRef={sandboxTrigger}
+          open={Boolean(pendingSandbox)}
+          onOpenChange={(open) => {
+            if (!open) setPendingSandbox(undefined);
+          }}
+          title="Change sandbox?"
+          description="Changing sandbox stops this conversation’s background work."
+          confirmLabel="Change sandbox"
+          onConfirm={() => {
+            if (!pendingSandbox) throw new Error("Missing sandbox confirmation intent");
+            void sandbox.submit(pendingSandbox, { method: "post", action: "/actions" });
+          }}
+        />
+        <div className="control-feedback">
+          <ActionFeedback data={model.data?.ok === false ? model.data : undefined} />
+          <ActionFeedback data={preset.data?.ok === false ? preset.data : undefined} />
+          <ActionFeedback data={sandbox.data?.ok === false ? sandbox.data : undefined} />
+          <ActionFeedback data={control.data?.ok === false ? control.data : undefined} />
+        </div>
+      </>
     );
   }
 
@@ -701,29 +856,31 @@ export function createDesktopRouter(
     if (cell.kind === "tool") {
       const edit = editPresentation(cell);
       return (
-        <details
+        <Disclosure
           className={`cell tool ${cell.status === "error" ? "failed" : ""}`}
           data-testid="tool-call"
+          title={
+            <>
+              <strong>
+                {edit
+                  ? cell.status === "ok"
+                    ? edit.labels.succeeded
+                    : cell.status === "error"
+                      ? edit.labels.failed
+                      : edit.labels.running
+                  : cell.name}
+              </strong>
+              <span className="muted">
+                {cell.approvalProgress?.status === "reviewing"
+                  ? "awaiting approval"
+                  : (cell.status ?? "running")}
+              </span>
+              {children.length > 0 && (
+                <span className="muted">{children.length} nested operations</span>
+              )}
+            </>
+          }
         >
-          <summary>
-            <strong>
-              {edit
-                ? cell.status === "ok"
-                  ? edit.labels.succeeded
-                  : cell.status === "error"
-                    ? edit.labels.failed
-                    : edit.labels.running
-                : cell.name}
-            </strong>
-            <span className="muted">
-              {cell.approvalProgress?.status === "reviewing"
-                ? "awaiting approval"
-                : (cell.status ?? "running")}
-            </span>
-            {children.length > 0 && (
-              <span className="muted">{children.length} nested operations</span>
-            )}
-          </summary>
           {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
           {children.length > 0 && (
             <div className="nested-tools">
@@ -758,31 +915,31 @@ export function createDesktopRouter(
               {cell.approval.responder}
             </p>
           )}
-        </details>
+        </Disclosure>
       );
     }
     if (cell.kind === "reasoning")
       return (
-        <details className="cell reasoning">
-          <summary>Reasoning {cell.streaming ? "…" : ""}</summary>
+        <Disclosure className="cell reasoning" title={<>Reasoning {cell.streaming ? "…" : ""}</>}>
           <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
             {cell.text}
           </Markdown>
-        </details>
+        </Disclosure>
       );
     if (cell.kind === "compaction" || cell.kind === "context")
       return (
-        <details className="cell">
-          <summary>{cell.kind === "compaction" ? "Compacted context" : "Context"}</summary>
+        <Disclosure
+          className="cell"
+          title={<>{cell.kind === "compaction" ? "Compacted context" : "Context"}</>}
+        >
           <pre>{cell.text}</pre>
-        </details>
+        </Disclosure>
       );
     if (cell.kind === "worked")
       return <div className="cell muted">Worked for {Math.round(cell.duration / 1000)}s</div>;
     if (cell.kind === "user")
       return (
         <article className="cell user">
-          <small>You</small>
           <div className="user-text">{cell.text}</div>
         </article>
       );
@@ -803,10 +960,9 @@ export function createDesktopRouter(
       );
     if (cell.kind === "shell")
       return (
-        <details className="cell">
-          <summary>{cell.command}</summary>
+        <Disclosure className="cell" title={<>{cell.command}</>}>
           <pre>{cell.text}</pre>
-        </details>
+        </Disclosure>
       );
     return <div className="cell muted">{cell.text}</div>;
   }
@@ -853,14 +1009,23 @@ export function createDesktopRouter(
     const output = useFetcher<ActionResult>();
     const kill = useFetcher<ActionResult>();
     return (
-      <details className="activity">
-        <summary>
-          {title} · {running ? "running" : "finished"}
-        </summary>
+      <Disclosure
+        className="activity"
+        title={
+          <>
+            {title} · {running ? "running" : "finished"}
+          </>
+        }
+      >
         <output.Form method="post" action="/actions">
-          <input type="hidden" name="conversationId" value={view.conversation.id} />
-          <input type="hidden" name="activityId" value={id} />
-          <Button name="intent" value="activity-output" disabled={output.state !== "idle"}>
+          <Input type="hidden" name="conversationId" value={view.conversation.id} />
+          <Input type="hidden" name="activityId" value={id} />
+          <Button
+            type="submit"
+            name="intent"
+            value="activity-output"
+            disabled={output.state !== "idle"}
+          >
             Refresh output
           </Button>
         </output.Form>
@@ -868,14 +1033,19 @@ export function createDesktopRouter(
         {output.data && !output.data.ok && <ActionFeedback data={output.data} />}
         {running && (
           <kill.Form method="post" action="/actions">
-            <input type="hidden" name="conversationId" value={view.conversation.id} />
-            <input type="hidden" name="activityId" value={id} />
-            <Button name="intent" value="activity-kill" disabled={kill.state !== "idle"}>
+            <Input type="hidden" name="conversationId" value={view.conversation.id} />
+            <Input type="hidden" name="activityId" value={id} />
+            <Button
+              type="submit"
+              name="intent"
+              value="activity-kill"
+              disabled={kill.state !== "idle"}
+            >
               Stop activity
             </Button>
           </kill.Form>
         )}
-      </details>
+      </Disclosure>
     );
   }
   function Composer({ view }: { view: ConversationView }) {
@@ -886,6 +1056,9 @@ export function createDesktopRouter(
     const textarea = useRef<HTMLTextAreaElement>(null);
     const handled = useRef<ActionResult | undefined>(undefined);
     const running = view.state.turn.status === "running";
+    const preferences = useComposerPreferences();
+    const defaultDelivery = running ? preferences.delivery : "send";
+    const disabled = !text.trim() || send.state !== "idle" || Boolean(session.disconnected);
     useEffect(() => {
       if (send.state === "idle" && send.data?.ok && handled.current !== send.data) {
         handled.current = send.data;
@@ -893,84 +1066,118 @@ export function createDesktopRouter(
         textarea.current?.focus();
       }
     }, [send.state, send.data, id]);
+    const submit = (delivery: "send" | "queue" | "steer") => {
+      if (disabled) return;
+      const data = new FormData();
+      data.set("intent", "send");
+      data.set("conversationId", id);
+      data.set("text", text);
+      data.set("delivery", delivery);
+      void send.submit(data, { method: "post", action: "/actions" });
+    };
     return (
-      <div className="composer">
-        {view.state.pendingInput.length > 0 && (
-          <div className="pending-input">
-            {view.state.pendingInput.map((input, index) => (
-              <div key={index}>
-                {input.intent}: {input.text}
-              </div>
-            ))}
-          </div>
-        )}
-        <send.Form method="post" action="/actions">
-          <input type="hidden" name="intent" value="send" />
-          <input type="hidden" name="conversationId" value={id} />
-          <textarea
-            ref={textarea}
-            name="text"
-            aria-label="Message"
-            placeholder="Ask Harness to work on something…"
-            value={text}
-            rows={3}
-            onChange={(event) => {
-              setText(event.target.value);
-              localStorage.setItem(session.storageKey(`draft:${id}`), event.target.value);
+      <div className="composer-wrap">
+        {preferences.showStats && <LastTurnStats state={view.state} />}
+        <div className="composer">
+          {view.state.pendingInput.length > 0 && (
+            <div className="pending-input">
+              {view.state.pendingInput.map((input, index) => (
+                <div key={index}>
+                  {input.intent}: {input.text}
+                </div>
+              ))}
+            </div>
+          )}
+          <send.Form
+            method="post"
+            action="/actions"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submit(defaultDelivery);
             }}
-            onKeyDown={(event) => {
-              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+          >
+            <Input type="hidden" name="intent" value="send" />
+            <Input type="hidden" name="conversationId" value={id} />
+            <Input type="hidden" name="delivery" value={defaultDelivery} />
+            <Textarea
+              ref={textarea}
+              name="text"
+              aria-label="Message"
+              placeholder="Ask a follow-up…"
+              value={text}
+              rows={2}
+              onChange={(event) => {
+                setText(event.target.value);
+                localStorage.setItem(session.storageKey(`draft:${id}`), event.target.value);
+              }}
+              onKeyDown={(event) => {
+                const action = composerKey(
+                  {
+                    ...event,
+                    isComposing: event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229,
+                  },
+                  preferences,
+                  running,
+                );
+                if (!action || action === "newline") return;
                 event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
+                submit(action);
+              }}
+            />
+          </send.Form>
           <div className="composer-actions">
-            <label>
-              Delivery
-              <select
-                name="delivery"
-                key={running ? "running" : "idle"}
-                defaultValue={running ? "steer" : "send"}
+            <ConversationControls view={view} />
+            <PopoverControl
+              label="Composer settings"
+              trigger={<IconButton label="Composer settings" icon={Settings2} />}
+            >
+              <h3>Composer settings</h3>
+              <ComposerSettings />
+            </PopoverControl>
+            <div className="composer-send">
+              {running && (
+                <stop.Form method="post" action="/actions">
+                  <Input type="hidden" name="intent" value="stop" />
+                  <Input type="hidden" name="conversationId" value={id} />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={stop.state !== "idle" || Boolean(session.disconnected)}
+                  >
+                    <Square size={12} aria-hidden="true" /> Stop
+                  </Button>
+                </stop.Form>
+              )}
+              <ContextUsage state={view.state} models={session.domain.availableModels()} />
+              <Button
+                variant="accent"
+                size="sm"
+                disabled={disabled}
+                onClick={() => submit(defaultDelivery)}
               >
-                {running ? (
-                  <>
-                    <option value="steer">Steer now</option>
-                    <option value="queue">Queue next</option>
-                  </>
-                ) : (
-                  <option value="send">Send</option>
-                )}
-              </select>
-            </label>
-            <small className="muted">Ctrl / ⌘ Enter</small>
-            <Button
-              className="primary"
-              disabled={!text.trim() || send.state !== "idle" || Boolean(session.disconnected)}
-            >
-              <Send size={14} aria-hidden="true" />
-              {send.state !== "idle" ? "Sending…" : running ? "Submit" : "Send"}
-            </Button>
+                <Send size={14} aria-hidden="true" />
+                {send.state !== "idle"
+                  ? "Sending…"
+                  : running
+                    ? preferences.delivery === "queue"
+                      ? "Queue"
+                      : "Steer"
+                    : "Send"}
+              </Button>
+            </div>
           </div>
-        </send.Form>
-        {running && (
-          <stop.Form method="post" action="/actions">
-            <input type="hidden" name="intent" value="stop" />
-            <input type="hidden" name="conversationId" value={id} />
-            <Button
-              className="stop-turn"
-              disabled={stop.state !== "idle" || Boolean(session.disconnected)}
-            >
-              <Square size={12} aria-hidden="true" />
-              Stop
-            </Button>
-          </stop.Form>
-        )}
-        <ActionFeedback data={send.data} />
-        <ActionFeedback data={stop.data} />
+          <ActionFeedback data={send.data} />
+          <ActionFeedback data={stop.data} />
+        </div>
+        <small className="composer-hint">
+          {preferences.sendWith} {running ? preferences.delivery : "send"} ·{" "}
+          {preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} newline
+          {running ? ` · Ctrl/⌘+Enter ${preferences.delivery === "queue" ? "steer" : "queue"}` : ""}
+        </small>
       </div>
     );
   }
+
   function ConversationPage() {
     useLive();
     const view = useLoaderData<ConversationView>();
@@ -991,11 +1198,12 @@ export function createDesktopRouter(
     return (
       <div className="conversation-page" key={view.conversation.id}>
         <header className="conversation-header">
-          <h1>{conversationLabel(view.conversation, view)}</h1>
-          <div className="workspace-path" title={view.conversation.workspaceRoot ?? undefined}>
-            {view.conversation.workspaceRoot}
+          <div className="conversation-heading">
+            <h1>{conversationLabel(view.conversation, view)}</h1>
+            <div className="workspace-path" title={view.conversation.workspaceRoot ?? undefined}>
+              {view.conversation.workspaceRoot}
+            </div>
           </div>
-          <ConversationControls view={view} />
         </header>
         <div className="transcript" data-testid="transcript">
           <Virtuoso
@@ -1015,9 +1223,11 @@ export function createDesktopRouter(
               Header: () =>
                 view.cursor ? (
                   <older.Form method="post" action="/actions">
-                    <input type="hidden" name="intent" value="older" />
-                    <input type="hidden" name="conversationId" value={view.conversation.id} />
-                    <Button disabled={older.state !== "idle"}>Load earlier messages</Button>
+                    <Input type="hidden" name="intent" value="older" />
+                    <Input type="hidden" name="conversationId" value={view.conversation.id} />
+                    <Button type="submit" disabled={older.state !== "idle"}>
+                      Load earlier messages
+                    </Button>
                     <ActionFeedback data={older.data} />
                   </older.Form>
                 ) : null,
@@ -1028,7 +1238,7 @@ export function createDesktopRouter(
               className="jump-latest"
               onClick={() =>
                 scroller.current?.scrollToIndex({
-                  index: view.state.cells.length - 1,
+                  index: cells.length - 1,
                   align: "end",
                 })
               }
@@ -1045,11 +1255,6 @@ export function createDesktopRouter(
                 ? "Working…"
                 : "Ready"}
           </span>
-          <span className="muted">
-            {view.state.usage.inputTokens.toLocaleString()} input ·{" "}
-            {view.state.usage.outputTokens.toLocaleString()} output
-            {view.state.usageIncomplete ? " · incomplete" : ""} · ${view.state.cost.toFixed(4)}
-          </span>
         </div>
         {view.state.sandbox?.message && (
           <p
@@ -1062,12 +1267,16 @@ export function createDesktopRouter(
           </p>
         )}
         {view.state.activities.length > 0 && (
-          <details className="activities">
-            <summary>
-              Activities (
-              {view.state.activities.filter((activity) => activity.status === undefined).length}{" "}
-              running)
-            </summary>
+          <Disclosure
+            className="activities"
+            title={
+              <>
+                Activities (
+                {view.state.activities.filter((activity) => activity.status === undefined).length}{" "}
+                running)
+              </>
+            }
+          >
             {view.state.activities.map((activity) => (
               <Activity
                 key={activity.id}
@@ -1077,7 +1286,7 @@ export function createDesktopRouter(
                 running={activity.status === undefined}
               />
             ))}
-          </details>
+          </Disclosure>
         )}
         <div className="approvals">
           {[...view.approvals.values()].map((approval) => (
@@ -1099,20 +1308,24 @@ export function createDesktopRouter(
     };
     return (
       <section className="provider">
-        <h3>{provider.label}</h3>
-        <p className="muted">
-          {provider.authenticated
-            ? `Credentials available${provider.detail ? ` · ${provider.detail}` : ""}`
-            : "No credentials"}
-        </p>
-        <p className="muted">
-          {provider.id} · {provider.type} · {provider.catalog} · {provider.modelCount} models
-        </p>
-        {provider.diagnostics.map((diagnostic, index) => (
-          <p className="muted" key={index}>
-            {diagnostic}
+        <div className="provider-summary">
+          <h3>{provider.label}</h3>
+          <p className="muted">
+            {provider.authenticated
+              ? `Credentials available${provider.detail ? ` · ${provider.detail}` : ""}`
+              : "No credentials"}
           </p>
-        ))}
+        </div>
+        <Disclosure title="Connection details" className="provider-details">
+          <p className="muted">
+            {provider.id} · {provider.type} · {provider.catalog} · {provider.modelCount} models
+          </p>
+          {provider.diagnostics.map((diagnostic, index) => (
+            <p className="muted" key={index}>
+              {diagnostic}
+            </p>
+          ))}
+        </Disclosure>
         {provider.canStore && (
           <fetcher.Form
             method="post"
@@ -1120,18 +1333,18 @@ export function createDesktopRouter(
             {...(provider.kind === "api-key" ? { onSubmit: submitKey } : {})}
             className="button-row"
           >
-            <input type="hidden" name="intent" value="login" />
-            <input type="hidden" name="provider" value={provider.id} />
+            <Input type="hidden" name="intent" value="login" />
+            <Input type="hidden" name="provider" value={provider.id} />
             {provider.kind === "oauth" && connections.local ? (
               <label>
                 Sign-in method
-                <select name="flow" defaultValue="browser">
+                <Select name="flow" defaultValue="browser">
                   <option value="browser">Browser sign-in</option>
                   <option value="device">Device code</option>
-                </select>
+                </Select>
               </label>
             ) : (
-              <input
+              <Input
                 type="hidden"
                 name="flow"
                 value={provider.kind === "oauth" ? "device" : "browser"}
@@ -1141,7 +1354,7 @@ export function createDesktopRouter(
             {provider.kind === "api-key" && (
               <label>
                 API key
-                <input
+                <Input
                   name="key"
                   type="password"
                   autoComplete="off"
@@ -1150,7 +1363,7 @@ export function createDesktopRouter(
                 />
               </label>
             )}
-            <Button disabled={fetcher.state !== "idle"}>
+            <Button type="submit" disabled={fetcher.state !== "idle"}>
               {fetcher.state !== "idle"
                 ? "Connecting…"
                 : provider.kind === "oauth"
@@ -1168,9 +1381,11 @@ export function createDesktopRouter(
         )}
         {provider.authenticated && provider.canStore && (
           <fetcher.Form method="post" action="/actions">
-            <input type="hidden" name="intent" value="logout" />
-            <input type="hidden" name="provider" value={provider.id} />
-            <Button disabled={fetcher.state !== "idle"}>Disconnect stored credentials</Button>
+            <Input type="hidden" name="intent" value="logout" />
+            <Input type="hidden" name="provider" value={provider.id} />
+            <Button type="submit" disabled={fetcher.state !== "idle"}>
+              Disconnect stored credentials
+            </Button>
           </fetcher.Form>
         )}
         <ActionFeedback data={fetcher.data} />
@@ -1182,127 +1397,166 @@ export function createDesktopRouter(
     useLive();
     const { settings } = useRouteLoaderData<RootData>("app")!;
     const save = useFetcher<ActionResult>();
+    const [search, setSearch] = useSearchParams();
+    const sections = ["Appearance", "Composer", "Defaults", "Providers", "Application"] as const;
+    const requested = search.get("section");
+    const section =
+      sections.find((label) => label.toLowerCase() === requested)?.toLowerCase() ?? "appearance";
     const selected = settings.settings.model ?? session.domain.defaultModel();
-    const [theme, setTheme] = useState(localStorage.getItem("theme") ?? "system");
     return (
       <section className="page settings-page">
-        <h1>Settings</h1>
-        <p className="muted">Server settings · {connections.label}</p>
-        <h2>Defaults</h2>
-        <save.Form method="post" action="/actions" className="form-grid">
-          <input type="hidden" name="intent" value="settings" />
-          <label>
-            Model for new conversations
-            <select
-              name="model"
-              key={modelKey(selected.provider, selected.model)}
-              defaultValue={modelKey(selected.provider, selected.model)}
-            >
-              <ModelOptions selected={selected} />
-            </select>
-          </label>
-          <label>
-            Sandbox for new conversations
-            <select name="sandbox" defaultValue={settings.settings.sandbox}>
-              <SandboxOptions selected={settings.settings.sandbox} />
-            </select>
-          </label>
-          <label>
-            Tools inside the workspace
-            <select name="inWorkspace" defaultValue={settings.settings.approval.inWorkspace}>
-              <option value="allow">Allow</option>
-              <option value="ask">Ask</option>
-              <option value="deny">Deny</option>
-            </select>
-          </label>
-          <label>
-            Tools outside or with unknown scope
-            <select name="outOfWorkspace" defaultValue={settings.settings.approval.outOfWorkspace}>
-              <option value="allow">Allow</option>
-              <option value="ask">Ask</option>
-              <option value="deny">Deny</option>
-            </select>
-          </label>
-          <label>
-            Auto approver
-            <select
-              name="autoApproval"
-              defaultValue={String(settings.settings.autoApproval.enabled)}
-            >
-              <option value="false">Off</option>
-              <option value="true">On</option>
-            </select>
-          </label>
-          <ReviewerFields
-            key={JSON.stringify(settings.settings.autoApproval.model)}
-            model={settings.settings.autoApproval.model}
-          />
-          <Button
-            className="primary"
-            disabled={save.state !== "idle" || Boolean(session.disconnected)}
-          >
-            Save defaults
-          </Button>
-        </save.Form>
-        <p className="muted">
-          Auto-review settings apply to open and new conversations. If no reviewer model is
-          selected, each review uses the conversation’s model.
-        </p>
-        <ActionFeedback data={save.data} />
-        <h2>Providers</h2>
-        <p className="muted">
-          Credentials use Harness’s existing credential store. Provider changes take effect after a
-          restart.
-        </p>
-        {settings.providers.map((provider) => (
-          <Provider key={provider.id} provider={provider} />
-        ))}
-        {session.authUrl && (
-          <div className="auth-url">
-            <p>
-              {session.authCode
-                ? "Open this URL in your browser and enter the one-time code:"
-                : "Complete sign-in in your browser. If it did not open, copy this URL:"}
-            </p>
-            <input
-              readOnly
-              value={session.authUrl}
-              aria-label="Sign-in URL"
-              onFocus={(event) => event.currentTarget.select()}
-            />
-            {session.authCode && (
-              <input
-                readOnly
-                value={session.authCode}
-                aria-label="Sign-in code"
-                onFocus={(event) => event.currentTarget.select()}
-              />
-            )}
-            <div className="button-row">
-              <Button onClick={() => void openUrl(session.authUrl!)}>Open sign-in page</Button>
-              <Button onClick={() => session.cancelLogin()}>Cancel sign-in</Button>
+        <div className="page-heading">
+          <h1>Settings</h1>
+        </div>
+        <Tabs.Root
+          value={section}
+          onValueChange={(section) => {
+            void setSearch({ section }, { replace: true });
+          }}
+          className="settings-sections"
+        >
+          <Tabs.List aria-label="Settings sections" className="settings-section-nav">
+            {sections.map((label) => (
+              <Tabs.Trigger key={label} value={label.toLowerCase()} className="settings-tab">
+                {label}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+          <Tabs.Content value="appearance" forceMount className="settings-panel">
+            <div className="section-heading">
+              <h2>Appearance</h2>
+              <p className="muted">Make this app feel like yours.</p>
             </div>
-          </div>
-        )}
-        <h2>Appearance</h2>
-        <label>
-          Theme
-          <select
-            value={theme}
-            onChange={(event) => {
-              setTheme(event.target.value);
-              localStorage.setItem("theme", event.target.value);
-              applyTheme(event.target.value);
-            }}
-          >
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
-        <h2>Application</h2>
-        <p className="muted">Harness home: {settings.home}</p>
-        <RestartButton />
+            <AppearanceControls />
+          </Tabs.Content>
+          <Tabs.Content value="composer" forceMount className="settings-panel">
+            <div className="section-heading">
+              <h2>Composer</h2>
+              <p className="muted">Keyboard shortcuts and optional turn statistics.</p>
+            </div>
+            <ComposerSettings />
+          </Tabs.Content>
+          <Tabs.Content value="defaults" forceMount className="settings-panel">
+            <div className="section-heading">
+              <h2>Conversation defaults</h2>
+              <p className="muted">Used for new conversations on {connections.label}.</p>
+            </div>
+            <save.Form method="post" action="/actions" className="form-grid">
+              <Input type="hidden" name="intent" value="settings" />
+              <label>
+                Model for new conversations
+                <Select
+                  name="model"
+                  key={modelKey(selected.provider, selected.model)}
+                  defaultValue={modelKey(selected.provider, selected.model)}
+                >
+                  <ModelOptions selected={selected} />
+                </Select>
+              </label>
+              <label>
+                Sandbox for new conversations
+                <Select name="sandbox" defaultValue={settings.settings.sandbox}>
+                  <SandboxOptions selected={settings.settings.sandbox} />
+                </Select>
+              </label>
+              <label>
+                Tools inside the workspace
+                <Select name="inWorkspace" defaultValue={settings.settings.approval.inWorkspace}>
+                  <option value="allow">Allow</option>
+                  <option value="ask">Ask</option>
+                  <option value="deny">Deny</option>
+                </Select>
+              </label>
+              <label>
+                Tools outside or with unknown scope
+                <Select
+                  name="outOfWorkspace"
+                  defaultValue={settings.settings.approval.outOfWorkspace}
+                >
+                  <option value="allow">Allow</option>
+                  <option value="ask">Ask</option>
+                  <option value="deny">Deny</option>
+                </Select>
+              </label>
+              <label>
+                Auto approver
+                <Select
+                  name="autoApproval"
+                  defaultValue={String(settings.settings.autoApproval.enabled)}
+                >
+                  <option value="false">Off</option>
+                  <option value="true">On</option>
+                </Select>
+              </label>
+              <ReviewerFields
+                key={JSON.stringify(settings.settings.autoApproval.model)}
+                model={settings.settings.autoApproval.model}
+              />
+              <Button
+                type="submit"
+                variant="accent"
+                disabled={save.state !== "idle" || Boolean(session.disconnected)}
+              >
+                Save defaults
+              </Button>
+            </save.Form>
+            <p className="muted">
+              Auto-review settings apply to open and new conversations. If no reviewer model is
+              selected, each review uses the conversation’s model.
+            </p>
+            <ActionFeedback data={save.data} />
+          </Tabs.Content>
+          <Tabs.Content value="providers" forceMount className="settings-panel">
+            <div className="section-heading">
+              <h2>Providers</h2>
+              <p className="muted">
+                Credentials use Harness’s existing credential store. Provider changes take effect
+                after a restart.
+              </p>
+            </div>
+            {settings.providers.map((provider) => (
+              <Provider key={provider.id} provider={provider} />
+            ))}
+            {session.authUrl && (
+              <div className="auth-url">
+                <p>
+                  {session.authCode
+                    ? "Open this URL in your browser and enter the one-time code:"
+                    : "Complete sign-in in your browser. If it did not open, copy this URL:"}
+                </p>
+                <Input
+                  readOnly
+                  value={session.authUrl}
+                  aria-label="Sign-in URL"
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                {session.authCode && (
+                  <Input
+                    readOnly
+                    value={session.authCode}
+                    aria-label="Sign-in code"
+                    onFocus={(event) => event.currentTarget.select()}
+                  />
+                )}
+                <div className="button-row">
+                  <Button onClick={() => void openUrl(session.authUrl!)}>Open sign-in page</Button>
+                  <Button onClick={() => session.cancelLogin()}>Cancel sign-in</Button>
+                </div>
+              </div>
+            )}
+          </Tabs.Content>
+          <Tabs.Content value="application" forceMount className="settings-panel">
+            <div className="section-heading">
+              <h2>Application</h2>
+              <p className="muted">Server lifecycle and local storage.</p>
+            </div>
+            <div className="storage-location">
+              <h3>Harness home</h3>
+              <p className="muted">{settings.home}</p>
+            </div>
+            <RestartButton />
+          </Tabs.Content>
+        </Tabs.Root>
       </section>
     );
   }
@@ -1318,18 +1572,18 @@ export function createDesktopRouter(
       <>
         <label>
           Auto approver model
-          <select
+          <Select
             name="reviewerModel"
             value={selection}
             onChange={(event) => setSelection(event.target.value)}
           >
             <option value="">Use conversation model</option>
             <ModelOptions {...(model ? { selected: model } : {})} />
-          </select>
+          </Select>
         </label>
         <label>
           Auto approver preset
-          <select
+          <Select
             name="reviewerPreset"
             key={selection}
             defaultValue={initialPreset}
@@ -1344,7 +1598,7 @@ export function createDesktopRouter(
                 {entry.label ?? entry.value}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       </>
     );

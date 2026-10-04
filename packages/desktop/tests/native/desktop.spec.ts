@@ -13,6 +13,7 @@ import {
   keepLocalServerRunning,
 } from "./fixtures.ts";
 import { httpGateway, json, sse } from "../../../litellm/src/http-fixture.ts";
+import { settingsSection, showModelControls, showSandboxControls } from "./controls.ts";
 
 test.skip(process.platform !== "win32", "Native CDP tests require Windows WebView2");
 test.afterEach(stopNativeOwners);
@@ -38,6 +39,7 @@ test("code-only execution reviews concrete child calls and keeps nested history 
     const page = app.page;
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
     await page.getByLabel("Project folder").fill(directory);
+    await page.getByRole("button", { name: "Choose execution options" }).click();
     await page.getByLabel("Tool interface").selectOption("code-only");
     await page.getByRole("button", { name: "Create conversation" }).click();
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
@@ -123,14 +125,18 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await expect(page).toHaveURL(/#\/conversations\/[^/]+$/u);
     const b = page.url();
     expect(b).not.toBe(a);
+    await showModelControls(page);
     await expect(page.getByLabel("Conversation preset")).toHaveValue("high");
+    await showModelControls(page);
     await page.getByLabel("Conversation preset").selectOption("low");
+    await showModelControls(page);
     await expect(page.getByLabel("Conversation preset")).toHaveValue("low");
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("beta");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByRole("button", { name: "Allow", exact: true })).toBeVisible();
     await expect(page.locator(".approval-status")).toHaveCount(2);
     await page.locator(".conversation-list").getByRole("link").filter({ hasText: "alpha" }).click();
+    await showModelControls(page);
     await expect(page.getByLabel("Conversation preset")).toHaveValue("high");
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(
       "draft kept for alpha",
@@ -146,9 +152,10 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await expect(page.locator(".conversation-status")).toContainText("Ready");
     await page.screenshot({ path: info.outputPath("conversation.png") });
     await page.getByRole("link", { name: "Settings", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Providers", exact: true })).toBeVisible();
-    await page.getByRole("combobox", { name: /^Theme/u }).selectOption("dark");
+    await expect(page.getByRole("heading", { name: "Appearance", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Dark", exact: true }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await settingsSection(page, "Defaults");
     await page.getByLabel("Tools inside the workspace").selectOption("ask");
     await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
@@ -178,6 +185,7 @@ test("auto approver model and preset drive real tool review, persist, and can be
     const page = app.page;
     await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
     await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(page, "Defaults");
     await expect(page.getByRole("combobox", { name: "Auto approver", exact: true })).toHaveValue(
       "false",
     );
@@ -202,6 +210,7 @@ test("auto approver model and preset drive real tool review, persist, and can be
     expect(provider.reviews[0]).toMatchObject({ model: "reviewer", temperature: 0.1 });
     const conversation = page.url();
     await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(page, "Defaults");
     await page
       .getByRole("combobox", { name: "Auto approver model", exact: true })
       .selectOption("fixture\u0000reviewer-fast");
@@ -218,8 +227,10 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await expect(page.locator(".conversation-status")).toContainText("Ready");
     expect(provider.reviews).toHaveLength(2);
     expect(provider.reviews[1]).toMatchObject({ model: "reviewer-fast", temperature: 0.5 });
+    await showModelControls(page);
     await expect(page.getByLabel("Conversation model")).toHaveValue("fixture\u0000test-model");
     await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(page, "Defaults");
     await page.getByRole("combobox", { name: "Auto approver", exact: true }).selectOption("false");
     await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
@@ -233,6 +244,7 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await app.close();
     app = await NativeApplication.launch(directory, info.outputPath("reopened"));
     await app.page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(app.page, "Defaults");
     await expect(
       app.page.getByRole("combobox", { name: "Auto approver", exact: true }),
     ).toHaveValue("false");
@@ -274,6 +286,7 @@ test("paged sidebar and virtualized history retain preset, diffs and large tool 
     await expect(rows).toHaveCount(56);
     await page.locator(`a[href='/conversations/${id}']`).click();
     await expect(page.getByTestId("assistant-message")).toContainText("History loaded");
+    await showModelControls(page);
     await expect(page.getByLabel("Conversation preset")).toHaveValue("high");
     expect(await page.locator(".cell").count()).toBeLessThan(40);
     const tool = page.getByTestId("tool-call");
@@ -416,6 +429,7 @@ test("Local retains browser sign-in and completes cancellable device-code sign-i
   try {
     const page = app.page;
     await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(page, "Providers");
     const provider = page.locator(".provider").filter({
       has: page.getByRole("heading", {
         name: "ChatGPT / Codex",
@@ -430,6 +444,10 @@ test("Local retains browser sign-in and completes cancellable device-code sign-i
     await expect(page.getByLabel("Sign-in URL", { exact: true })).toHaveValue(
       "https://auth.openai.com/codex/device",
     );
+    await expect(page.getByLabel("Sign-in code", { exact: true })).toHaveValue("FIXTURE-CODE");
+    await settingsSection(page, "Appearance");
+    await expect(page.getByLabel("Sign-in code", { exact: true })).not.toBeVisible();
+    await settingsSection(page, "Providers");
     await expect(page.getByLabel("Sign-in code", { exact: true })).toHaveValue("FIXTURE-CODE");
     await expect.poll(() => readFile(network.polling, "utf8").catch(() => "")).toBe("polling");
     await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
@@ -462,6 +480,7 @@ test("provider keys stay in isolated native storage and configured defaults awai
   try {
     const page = app.page;
     await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(page, "Providers");
     const provider = page
       .locator(".provider")
       .filter({ has: page.getByRole("heading", { name: "OpenAI (API key)", exact: true }) });
@@ -482,12 +501,16 @@ test("provider keys stay in isolated native storage and configured defaults awai
       .getByRole("complementary")
       .getByRole("link", { name: "New conversation", exact: true })
       .click();
+    await page.getByRole("button", { name: "Choose model", exact: true }).click();
     await expect(
       page.getByRole("combobox", { name: "Model", exact: true }).locator("option:checked"),
     ).toContainText("unavailable");
     await expect(page.getByRole("button", { name: "Create conversation" })).toBeDisabled();
     await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(page, "Providers");
+    await settingsSection(page, "Application");
     await page.getByRole("button", { name: "Restart Harness", exact: true }).click();
+    await settingsSection(page, "Providers");
     // Credential presence already changed before restart; a populated boot catalog proves completion.
     await expect(provider).toContainText(/ready · [1-9]\d* models/u);
     await expect(provider).toContainText("Credentials available");
@@ -542,6 +565,7 @@ test("named gateways isolate native keys and catalogs while retaining unavailabl
   try {
     const page = app.page;
     await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(page, "Providers");
     const work = page
       .locator(".provider")
       .filter({ has: page.getByRole("heading", { name: "Work gateway", exact: true }) });
@@ -570,10 +594,12 @@ test("named gateways isolate native keys and catalogs while retaining unavailabl
       expect(await page.locator("body").textContent()).not.toContain(key);
     }
     await work.getByRole("button", { name: "Restart Harness", exact: true }).click();
+    await settingsSection(page, "Providers");
     await expect(work).toContainText("ready · 1 models");
     await expect(personal).toContainText("ready · 1 models");
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
     const picker = page.getByRole("combobox", { name: "Model", exact: true });
+    await page.getByRole("button", { name: "Choose model", exact: true }).click();
     await expect(picker.locator("option:checked")).toContainText("Work gateway");
     await expect(picker.locator("option:checked")).toContainText("200,000 input");
     await expect(picker.locator("option:checked")).toContainText("32,000 output");
@@ -592,19 +618,24 @@ test("named gateways isolate native keys and catalogs while retaining unavailabl
     ).toBe(true);
     expect(gateway.requests.some((req) => req.body.model === "coding")).toBe(true);
     await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(page, "Providers");
     await work.getByRole("button", { name: "Disconnect stored credentials" }).click();
     await expect(work).toContainText("Stored credentials removed");
     await work.getByRole("button", { name: "Restart Harness", exact: true }).click();
+    await settingsSection(page, "Providers");
     await expect(work).toContainText("missing-credentials");
     await expect(personal).toContainText("Credentials available");
     await expect(personal).toContainText("ready · 1 models");
     await page.locator(`a[href='${new URL(conversationUrl).hash.slice(1)}']`).click();
+    await showModelControls(page);
     await expect(page.getByLabel("Conversation model")).toHaveValue("work\u0000coding");
+    await showModelControls(page);
     await expect(page.getByLabel("Conversation model").locator("option:checked")).toContainText(
       "unavailable",
     );
     await expect(page.getByTestId("assistant-message")).toContainText("Named gateway completed");
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
+    await page.getByRole("button", { name: "Choose model", exact: true }).click();
     await expect(picker).toHaveValue("work\u0000coding");
     await expect(picker.locator("option:checked")).toContainText("unavailable");
     await expect(page.getByRole("button", { name: "Create conversation" })).toBeDisabled();
@@ -636,12 +667,11 @@ test("queue and steer submit through the data action while a turn waits for appr
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByRole("button", { name: "Allow", exact: true })).toBeVisible();
     await message.fill("steering input");
-    await page.getByRole("combobox", { name: "Delivery" }).selectOption("steer");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await message.press("Control+Enter");
     await expect(page.locator(".pending-input")).toContainText("steering input");
     await message.fill("queued input");
-    await page.getByRole("combobox", { name: "Delivery" }).selectOption("queue");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Queue", exact: true })).toBeEnabled();
+    await message.press("Enter");
     await expect(page.locator(".pending-input")).toContainText("queued input");
     for (let count = 0; count < 3; count++) {
       await page.getByRole("button", { name: "Allow", exact: true }).click();
@@ -692,10 +722,12 @@ test("an unsupported sandbox default stays visible and requires an explicit supp
       .getByRole("complementary")
       .getByRole("link", { name: "New conversation" })
       .click();
+    await app.page.getByRole("button", { name: "Choose execution options" }).click();
     await expect(app.page.getByRole("combobox", { name: /^Sandbox/u })).toHaveValue("native");
     await expect(app.page.getByRole("button", { name: "Create conversation" })).toBeDisabled();
     await app.page.getByRole("combobox", { name: /^Sandbox/u }).selectOption("local");
     await app.page.getByRole("button", { name: "Create conversation" }).click();
+    await showSandboxControls(app.page);
     await expect(app.page.getByLabel("Conversation sandbox")).toHaveValue("local");
     expect(app.errors).toEqual([]);
   } finally {

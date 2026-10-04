@@ -47,6 +47,24 @@ export const decodeUsageSummary = (summary: WireUsageSummary): ModelUsageSummary
   incomplete: summary.incomplete,
   cost: summary.cost,
   ...(summary.lastInputTokens === null ? {} : { lastInputTokens: summary.lastInputTokens }),
+  ...(summary.agentContext
+    ? {
+        agentContext: {
+          ...summary.agentContext,
+          turnId: summary.agentContext.turnId as TurnId,
+          usage: summary.agentContext.usage ? decodeUsage(summary.agentContext.usage) : null,
+        },
+      }
+    : {}),
+  ...(summary.lastTurn
+    ? {
+        lastTurn: {
+          ...summary.lastTurn,
+          turnId: summary.lastTurn.turnId as TurnId,
+          usage: decodeUsage(summary.lastTurn.usage),
+        },
+      }
+    : {}),
 });
 
 export const decodeConversationConfig = (config: WireConversationConfig): ConversationConfig => ({
