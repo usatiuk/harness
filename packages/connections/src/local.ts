@@ -164,17 +164,23 @@ export async function authenticateSocket(socket: Socket, sendToken?: string): Pr
 export async function connectDiscovered(
   home: string,
   discovery: ServerDiscovery,
+  signal?: AbortSignal,
 ): Promise<{ socket: Socket; identity: z.infer<typeof serverIdentitySchema> }> {
   if (!sameHome(home, discovery.home))
     throw new Error(
       "Server discovery belongs to another Harness home; remove the copied discovery record before connecting",
     );
+  signal?.throwIfAborted();
   const token = await serverSecretStore(join(home, ".server")).get("token");
   if (token === null) throw new Error("Server authentication secret is missing");
+  signal?.throwIfAborted();
   const socket = createConnection({ host: "127.0.0.1", port: discovery.port });
+  const cancel = () => socket.destroy(new Error("Server connection cancelled"));
+  signal?.addEventListener("abort", cancel, { once: true });
   socket.setTimeout(3000, () => socket.destroy(new Error("Server connection timed out")));
   try {
     await once(socket, "connect");
+    signal?.throwIfAborted();
     const identity = serverIdentitySchema.parse(
       JSON.parse(await authenticateSocket(socket, token)),
     );
@@ -187,6 +193,9 @@ export async function connectDiscovered(
     return { socket, identity };
   } catch (error) {
     socket.destroy();
+    signal?.throwIfAborted();
     throw error;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
   }
 }

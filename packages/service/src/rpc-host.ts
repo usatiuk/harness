@@ -83,6 +83,7 @@ export class HarnessRpcHost {
       active.delete(controller);
       if (active.size === 0) {
         this.#active.delete(root);
+        if (this.service.conversationTreeState(root).length === 0) this.#roots.delete(root);
         for (const resolve of this.#idleWaiters.get(root) ?? []) resolve();
         this.#idleWaiters.delete(root);
       }

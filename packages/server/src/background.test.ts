@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { once } from "node:events";
 import { createConnection } from "node:net";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { HarnessClient } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { ensureLocalServer, stopServer } from "@harness/connections/node";
@@ -20,6 +20,75 @@ const entry = resolve("packages/server/src/bin.ts");
 const args = ["--conditions=development", "--import=tsx", entry];
 const launch = { executable: process.execPath, args: [...args, "--background"] };
 const exec = promisify(execFile);
+
+it.each(["waiter", "bridge"])(
+  "cancels a Local %s before readiness without killing its launched owner",
+  async (mode) => {
+    const home = await canonicalHome(join(tmpdir(), `harness-cancel-start-${randomUUID()}`));
+    const fixture = join(home, "delayed.mjs");
+    const marker = join(home, "started");
+    const gate = join(home, "release");
+    const delayedLaunch = {
+      executable: process.execPath,
+      args: ["--conditions=development", "--import=tsx", fixture, "--background"],
+    };
+    let bridge: ReturnType<typeof spawn> | undefined;
+    try {
+      await writeFile(
+        fixture,
+        `import {watch,existsSync,writeFileSync} from 'node:fs';
+const gate=${JSON.stringify(gate)};
+await new Promise(resolve=>{const watcher=watch(${JSON.stringify(home)},()=>{if(existsSync(gate)){watcher.close();resolve()}});writeFileSync(${JSON.stringify(marker)},String(process.pid));});
+await import(${JSON.stringify(pathToFileURL(entry).href)});`,
+      );
+      const abort = new AbortController();
+      let cancelled: Promise<unknown>;
+      if (mode === "waiter") {
+        cancelled = ensureLocalServer(home, delayedLaunch, abort.signal);
+        // Register rejection observation before cancellation.
+        void cancelled.catch(() => undefined);
+      } else {
+        const runner = join(home, "bridge.mjs");
+        await writeFile(
+          runner,
+          `const {runLocalBridge}=await import(${JSON.stringify(pathToFileURL(resolve("packages/connections/src/connect.ts")).href)});await runLocalBridge(${JSON.stringify(home)},${JSON.stringify(delayedLaunch)});`,
+        );
+        bridge = spawn(process.execPath, ["--conditions=development", "--import=tsx", runner], {
+          stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true,
+        });
+        cancelled = once(bridge, "close");
+      }
+      await vi.waitFor(async () => expect(await readFile(marker, "utf8")).toMatch(/^\d+$/u), {
+        timeout: 10_000,
+      });
+      const pid = Number(await readFile(marker, "utf8"));
+      if (bridge) bridge.stdin!.end();
+      else abort.abort();
+      if (mode === "waiter") await expect(cancelled).rejects.toThrow();
+      else expect(await cancelled).toEqual([0, null]);
+      // The owner is still gated when the observer has already left.
+      expect(await readDiscovery(home)).toBeNull();
+      await writeFile(gate, "release");
+      await vi.waitFor(async () => expect((await readDiscovery(home))?.pid).toBe(pid), {
+        timeout: 10_000,
+      });
+      const fresh = await ensureLocalServer(home, launch);
+      expect(fresh.identity.pid).toBe(pid);
+      fresh.close();
+    } finally {
+      if (bridge?.exitCode === null) bridge.kill();
+      await writeFile(gate, "release");
+      if (await readFile(marker, "utf8").catch(() => null))
+        await vi.waitFor(async () => expect(await readDiscovery(home)).not.toBeNull(), {
+          timeout: 10_000,
+        });
+      await stopHome(home);
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+  30_000,
+);
 async function stopHome(home: string): Promise<void> {
   const discovery = await readDiscovery(home);
   if (discovery === null) return;

@@ -6,6 +6,39 @@ import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/cl
 import { buildServerHarness, buildServerComposition } from "./index.ts";
 import { appSettingsUpdateRequest } from "./client-protocol.ts";
 
+it("logs the failed RPC method and error class without exception content", async () => {
+  const home = await mkdtemp(join(tmpdir(), "harness-diagnostic-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  vi.stubEnv("OPENAI_API_KEY", "");
+  vi.stubEnv("ANTHROPIC_API_KEY", "");
+  vi.stubEnv("OPENCODE_API_KEY", "");
+  const pair = createInProcessMessageConnectionPair();
+  const harness = await buildServerHarness(pair.right);
+  const client = new HarnessClient({
+    connection: pair.left,
+    client: { name: "diagnostic-test", version: "1" },
+  });
+  const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    await client.start();
+    const conversation = await client.create({ overrides: {} });
+    const secretError = new TypeError("private provider exception content");
+    secretError.name = "private exception name";
+    vi.spyOn(harness.service, "prepare").mockRejectedValueOnce(secretError);
+    await expect(client.attach(conversation.id)).rejects.toThrow();
+    expect(log).toHaveBeenCalledWith(
+      JSON.stringify({ event: "server.failure", method: "conversation.attach", kind: "TypeError" }),
+    );
+    expect(JSON.stringify(log.mock.calls)).not.toContain("private");
+  } finally {
+    client.closeConnection();
+    await harness.close();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 it("drains an admitted settings refresh before closing the database", async () => {
   const home = await mkdtemp(join(tmpdir(), "harness-app-settings-close-"));
   vi.stubEnv("HARNESS_HOME", home);

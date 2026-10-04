@@ -54,6 +54,21 @@ const CONFIG = {
   model: { provider: "fake", model: "fake-1" },
 };
 
+it("a failed first load does not become a parent but registered children retain their root", async () => {
+  const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+  const engine = new Engine(store, new PluginHost([]), testConfigResolver());
+  const missing = "missing" as import("@harness/protocol").ConversationId;
+  const child = "child" as import("@harness/protocol").ConversationId;
+  await expect(engine.prepare(missing)).rejects.toThrow("unknown conversation");
+  expect(() => engine.registerChild(missing, child)).toThrow("inactive parent");
+  const root = await store.createConversation(newConversationInput(CONFIG));
+  await engine.prepare(root.id);
+  engine.registerChild(root.id, child);
+  await expect(engine.prepare(child)).rejects.toThrow("unknown conversation");
+  expect(engine.rootConversationOf(child)).toBe(root.id);
+  await engine.deactivate(root.id, { force: true });
+});
+
 it("refreshes defaults captured by an activation still loading", async () => {
   const store = new InMemoryStore();
   const record = await store.createConversation({ workspaceRoot: null, overrides: {} });

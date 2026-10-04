@@ -59,7 +59,7 @@ export interface HarnessRpcSessionOptions {
   readonly host: HarnessRpcHost;
   readonly server: PeerInfo;
   readonly plugins?: PluginContract[];
-  readonly onError?: (error: unknown) => void;
+  readonly onError?: (error: unknown, method?: string) => void;
   readonly defaultModel?: ModelConfig;
 }
 
@@ -70,7 +70,7 @@ export class HarnessRpcSession {
   readonly host: HarnessRpcHost;
   readonly #attached = new Set<ConversationId>();
   readonly #unsubscribe: () => void;
-  readonly #onError: (error: unknown) => void;
+  readonly #onError: (error: unknown, method?: string) => void;
   readonly #defaultModel: ModelConfig;
   readonly #snapshots = new Map<string, (rootId: ConversationId) => JsonValue>();
   readonly #eventObservers = new Set<(event: HarnessEvent, rootId: ConversationId) => void>();
@@ -91,7 +91,7 @@ export class HarnessRpcSession {
       connection: options.connection,
       server: options.server,
       ...(options.plugins === undefined ? {} : { plugins: options.plugins }),
-      onHandlerError: (error) => this.#onError(error),
+      onHandlerError: (error, method) => this.#onError(error, method),
       onProtocolError: (error) => this.#onError(error),
       onInitialize: (params) => {
         this.#clientPlugins.clear();

@@ -4,6 +4,7 @@ import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { Socket } from "node:net";
+import { PassThrough } from "node:stream";
 import { HarnessClient, type RpcConnection } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { serverStopRequest, serverReleaseRequest, type ServerIdentity } from "./contracts.ts";
@@ -29,8 +30,12 @@ export interface HostConnection {
   close(): void;
 }
 
-async function attachDiscovered(home: string, discovery: ServerDiscovery): Promise<HostConnection> {
-  const { socket, identity } = await connectDiscovered(home, discovery);
+async function attachDiscovered(
+  home: string,
+  discovery: ServerDiscovery,
+  signal?: AbortSignal,
+): Promise<HostConnection> {
+  const { socket, identity } = await connectDiscovered(home, discovery, signal);
   const connection = createNdjsonMessageConnection(socket, socket);
   return {
     identity,
@@ -43,11 +48,15 @@ async function attachDiscovered(home: string, discovery: ServerDiscovery): Promi
   };
 }
 
-export async function attachLocalServer(requestedHome: string): Promise<HostConnection> {
+export async function attachLocalServer(
+  requestedHome: string,
+  signal?: AbortSignal,
+): Promise<HostConnection> {
+  signal?.throwIfAborted();
   const home = await canonicalHome(requestedHome);
   const discovery = await readDiscovery(home);
   if (discovery === null) throw new Error("Server discovery is unavailable; reconnect explicitly");
-  return attachDiscovered(home, discovery);
+  return attachDiscovered(home, discovery, signal);
 }
 
 const unavailable = (error: unknown): boolean =>
@@ -57,13 +66,15 @@ const unavailable = (error: unknown): boolean =>
 export async function ensureLocalServer(
   requestedHome: string,
   launch: ServerLaunch,
+  signal?: AbortSignal,
 ): Promise<HostConnection> {
+  signal?.throwIfAborted();
   const home = await canonicalHome(requestedHome);
   const directory = await privateRuntimeDirectory(home);
   const existing = await readDiscovery(home);
   if (existing !== null) {
     try {
-      return await attachDiscovered(home, existing);
+      return await attachDiscovered(home, existing, signal);
     } catch (error) {
       if (!unavailable(error)) throw error;
     }
@@ -72,10 +83,12 @@ export async function ensureLocalServer(
   let spawnError: Error | undefined;
   let attempts = 0;
   const start = async () => {
+    signal?.throwIfAborted();
     const log = await open(join(directory, "startup.log"), "a", 0o600);
     exited = undefined;
     attempts++;
     try {
+      signal?.throwIfAborted();
       const child = spawn(launch.executable, launch.args, {
         env: { ...process.env, ...launch.env, HARNESS_HOME: home },
         stdio: ["ignore", log.fd, log.fd],
@@ -96,6 +109,7 @@ export async function ensureLocalServer(
   const deadline = Date.now() + 20_000;
   await start();
   while (Date.now() < deadline) {
+    signal?.throwIfAborted();
     if (spawnError !== undefined) throw spawnError;
     if (exited !== undefined && exited !== 76)
       throw new Error(
@@ -104,7 +118,7 @@ export async function ensureLocalServer(
     const discovery = await readDiscovery(home);
     if (discovery !== null) {
       try {
-        return await attachDiscovered(home, discovery);
+        return await attachDiscovered(home, discovery, signal);
       } catch (error) {
         if (!unavailable(error)) throw error;
       }
@@ -112,10 +126,10 @@ export async function ensureLocalServer(
     // Two new SQLite openers may both lose their SHARED -> EXCLUSIVE upgrade.
     // Stagger only this classified failure, with finite starts and readiness time.
     if (exited === 76 && attempts < 8) {
-      await delay(randomInt(50, 201));
+      await delay(randomInt(50, 201), undefined, { signal });
       await start();
     }
-    await delay(50);
+    await delay(50, undefined, { signal });
   }
   throw new Error(`Server did not become ready; see ${join(directory, "startup.log")}`);
 }
@@ -126,12 +140,36 @@ export async function runLocalBridge(
   launch?: ServerLaunch,
   onConnected?: (identity: ServerIdentity) => void,
 ): Promise<void> {
-  const host = launch ? await ensureLocalServer(home, launch) : await attachLocalServer(home);
-  onConnected?.(host.identity);
-  const socket = host.socket;
-  socket.pipe(process.stdout);
-  let disposeInput!: () => void;
+  const attempt = new AbortController();
+  let host: HostConnection | undefined;
+  let inputEnded = false;
+  // Start observing EOF before readiness. A tiny high-water mark holds early
+  // protocol input behind the existing bounded writer queue until attachment.
+  const input = new PassThrough({ highWaterMark: 1 });
+  const disposeInput = forwardBridgeInput(
+    input,
+    () => {
+      inputEnded = true;
+      attempt.abort();
+      host?.close();
+    },
+    (error) => {
+      attempt.abort(error);
+      host?.socket.destroy(error);
+    },
+  );
+  if (process.stdin.readableEnded) {
+    inputEnded = true;
+    attempt.abort();
+  }
   try {
+    host = launch
+      ? await ensureLocalServer(home, launch, attempt.signal)
+      : await attachLocalServer(home, attempt.signal);
+    attempt.signal.throwIfAborted();
+    onConnected?.(host.identity);
+    const socket = host.socket;
+    socket.pipe(process.stdout);
     await new Promise<void>((resolve, reject) => {
       const failed = (error: Error) => {
         socket.destroy();
@@ -142,12 +180,15 @@ export async function runLocalBridge(
       socket.once("close", () => resolve());
       // EOF abandons unacknowledged transport delivery; accepted work belongs to
       // the server. Never wait for a frozen owner to flush or acknowledge bytes.
-      disposeInput = forwardBridgeInput(socket, () => socket.destroy(), failed);
+      input.pipe(socket);
     });
+  } catch (error) {
+    if (!inputEnded) throw error;
   } finally {
     disposeInput();
-    socket.unpipe(process.stdout);
-    host.close();
+    input.destroy();
+    host?.socket.unpipe(process.stdout);
+    host?.close();
   }
 }
 

@@ -558,7 +558,6 @@ export class Engine {
     if (this.#rootScopeUnavailable(conversationId)) {
       return Promise.reject(new Error("cannot load a conversation during deactivation"));
     }
-    if (!this.#roots.has(conversationId)) this.#roots.set(conversationId, conversationId);
     const existing = this.#runtimes.get(conversationId);
     if (existing) return Promise.resolve(existing);
     let loading = this.#loading.get(conversationId);
@@ -582,6 +581,9 @@ export class Engine {
       // so settings edits and the durable overrides both reach a resumed conversation.
       const config = await this.resolveConfig(record);
       const runtime = new Runtime({ ...record, config });
+      // Failed first loads own no tree. Registered children already retain their
+      // parent mapping, and successful roots acquire ownership here.
+      if (!this.#roots.has(conversationId)) this.#roots.set(conversationId, conversationId);
       this.#runtimes.set(conversationId, runtime);
       return runtime;
     } finally {

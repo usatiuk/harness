@@ -32,7 +32,7 @@ afterEach(async () => {
 const createHarness = (
   steps = [textStep("done")],
   plugins: Plugin[] = [],
-  onError?: (error: unknown) => void,
+  onError?: (error: unknown, method?: string) => void,
 ) => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const service = new HarnessService({
@@ -66,6 +66,22 @@ const createConversation = (client: HarnessClient) =>
   });
 
 describe("HarnessRpcSession", () => {
+  it("reports failed attachment method and retains no shutdown ownership for missing roots", async () => {
+    const errors = vi.fn();
+    const { client, service, host } = createHarness([], [], errors);
+    await client.start();
+    const deactivate = vi.spyOn(service, "deactivateSession");
+    const cancel = vi.spyOn(service, "cancelSession");
+    await expect(client.attach("missing-first")).rejects.toThrow();
+    await expect(client.attach("missing-second")).rejects.toThrow();
+    expect(errors.mock.calls.map((call: unknown[]) => call[1])).toEqual([
+      conversationAttachRequest.method,
+      conversationAttachRequest.method,
+    ]);
+    await host.shutdown();
+    expect(deactivate).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
   it("fails shutdown after draining every root when a real plugin disposer fails", async () => {
     const { client, service, host, session } = createHarness(
       [textStep("done")],

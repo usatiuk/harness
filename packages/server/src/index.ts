@@ -116,11 +116,19 @@ export async function buildServerComposition(
         server: { name: "harness", version: "0.0.0" },
         plugins: CLIENT_CONTRACTS,
         defaultModel: resolvedFallback,
-        onError: (error) =>
+        onError: (error, method) =>
           console.error(
             JSON.stringify({
               event: "server.failure",
-              kind: error instanceof Error ? error.name : "UnknownError",
+              method,
+              kind:
+                error instanceof TypeError
+                  ? "TypeError"
+                  : error instanceof RangeError
+                    ? "RangeError"
+                    : error instanceof Error
+                      ? "Error"
+                      : "UnknownError",
             }),
           ),
       });

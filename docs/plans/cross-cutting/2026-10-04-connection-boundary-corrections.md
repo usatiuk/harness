@@ -23,7 +23,7 @@ features, profiles, compatibility paths or universal client controller.
     edit, removed entries, metadata edits, pending connection replacement and
     normal/protocol/write/ack transport closure. A rebuilt native check qualifies
     actual bridge detachment while the server remains independent.
-- [ ] **2. Cancellation, failed ownership and diagnostics.** Depends on 1.
+- [x] **2. Cancellation, failed ownership and diagnostics.** Depends on 1.
   - Propagate Local startup cancellation through readiness and contention waits,
     including bridge EOF before readiness. An already launched owner remains
     independent; cancellation prevents subsequent launch attempts.
@@ -66,6 +66,16 @@ independent owner survival, shared-owner exit and pre-initialization bridge clos
 The first native invocation found no tests due to npm argument escaping; direct
 Playwright invocation passed. Type/lint checks accompany the increment.
 
-Milestones 2–4 remain open. Earlier unreproduced validation
+Milestone 2: 116 tests pass across actual Local startup/background processes,
+engine, RPC session and TUI scenarios; all three server app API tests pass. New
+process gates qualify cancellation before readiness for both direct Local callers
+and a bridge's EOF, while the captured already launched owner later becomes ready.
+Failed first loads cannot become parents; registered children retain their root.
+Public RPC failures leave no shutdown ownership, while existing concurrent
+attachment/preparation coverage passes. Composition diagnostics include the method
+and fixed error class and exclude injected private exception content and names.
+TypeScript and targeted ESLint pass.
+
+Milestones 3–4 remain open. Earlier unreproduced validation
 observations stay in the preceding delivery plan; do not claim these corrections
 explain failures without a matching reproduction.

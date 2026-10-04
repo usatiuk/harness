@@ -196,10 +196,14 @@ export class TuiHosts {
     let transport: RemoteConnection | undefined;
     try {
       if (host.kind === "local") {
-        const local = await ensureLocalServer(defaultHome(), {
-          ...this.localLaunch,
-          env: { ...this.localLaunch.env, ...this.env },
-        });
+        const local = await ensureLocalServer(
+          defaultHome(),
+          {
+            ...this.localLaunch,
+            env: { ...this.localLaunch.env, ...this.env },
+          },
+          signal,
+        );
         transport = {
           connection: local.connection,
           failure: undefined,
