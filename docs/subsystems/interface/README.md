@@ -26,7 +26,8 @@ service defaults
 < durable conversation overrides
 ```
 
-`HARNESS_HOME` overrides `~/.harness` for an isolated profile. The shared shipped
+`HARNESS_HOME` is an existing installation/test override for `~/.harness`;
+connection entries do not choose homes or expose multiple server profiles. The shared shipped
 server acquires exclusive SQLite ownership before schema initialization and runtime startup.
 The background owner now supports authenticated multi-client attachment through
 loopback TCP and a disposable stdio bridge. GUI/TUI default launchers reuse that
@@ -36,10 +37,13 @@ The controlling machine's `client.json` registry is separate from server setting
 It initially contains only Local and stores structured WSL/SSH routes, selected
 host and desktop keep-running preference. Browser-safe contracts live in
 `@harness/connections`; Node adapters atomically replace the registry under a
-cross-process filesystem lock. Configured remote homes do not change this
-client-side path. Both clients offer host editors and lifecycle controls. SSH
+cross-process filesystem lock. The registry stays beside the controlling machine's
+existing settings. Both clients offer host editors and lifecycle controls. SSH
 accepts a destination/alias and uses OpenSSH BatchMode; advanced SSH configuration
 belongs in .ssh/config. WSL distributions are discovered as editor choices.
+Runtime choice is managed or development; development finds Node on the target's
+PATH. Installation paths are internal. Each saved connection owns an independent
+client session, including two routes that reach the same background owner.
 The isolated stdio launcher rejects host flags. Local auth/sandbox utility
 subcommands also reject host flags; selected-host controls live in the command
 center. Created TUI conversations persist when that client exits.

@@ -3,7 +3,7 @@ import { readFile, mkdir, open, rename, rm } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { defaultHome } from "@harness/config";
 import { pipeline } from "node:stream/promises";
 import type { Readable } from "node:stream";
 import { z } from "zod";
@@ -205,10 +205,7 @@ export interface PreparedRuntime {
 }
 
 async function cachedNodeArchive(signal?: AbortSignal): Promise<string> {
-  const cache = join(
-    process.env["HARNESS_CLIENT_HOME"] ?? join(homedir(), ".harness"),
-    "downloads",
-  );
+  const cache = join(defaultHome(), "downloads");
   await mkdir(cache, { recursive: true });
   const path = join(cache, NODE_ARCHIVE);
   const valid = async () =>
@@ -262,8 +259,8 @@ export async function prepareRemoteRuntime(
       ).then((output) => {
         const [userHome, machine, libc] = output.split("\n");
         return JSON.stringify({
-          home: host.home ?? `${userHome}/.harness`,
-          base: host.runtime.directory ?? `${userHome}/.harness/runtimes`,
+          home: `${userHome}/.harness`,
+          base: `${userHome}/.harness/runtimes`,
           machine,
           libc,
         });
@@ -282,7 +279,7 @@ export async function prepareRemoteRuntime(
   const contents = await Promise.all(files.map((file) => readFile(join(payload, file))));
   const digests = contents.map((bytes) => createHash("sha256").update(bytes).digest("hex"));
   const buildId = createHash("sha256").update(digests.join("\n")).digest("hex");
-  let node = host.runtime.node ?? "node";
+  let node = "node";
   if (host.runtime.source === "managed") {
     node = `${base}/node-v${NODE_VERSION}/bin/node`;
     const archivePath = `${base}/node-download-${randomUUID()}.tar.gz`;

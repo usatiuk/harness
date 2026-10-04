@@ -102,7 +102,6 @@ export class NativeApplication {
         ...environment,
         ...env,
         HARNESS_HOME: resolve(appProfile),
-        HARNESS_CLIENT_HOME: resolve(appProfile),
         APPDATA: resolve(join(profile, "appdata")),
         LOCALAPPDATA: resolve(join(profile, "local-appdata")),
         OPENAI_API_KEY: "",

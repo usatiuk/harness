@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 import { writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { pathToFileURL } from "node:url";
+import { remoteProcessFixture } from "@harness/testkit";
 import { canonicalHome, readDiscovery } from "@harness/connections/local";
 import { stopServer, runRemote, shellQuote } from "@harness/connections/node";
 import type { Host } from "@harness/connections";
@@ -105,15 +107,13 @@ test("stop-on-exit keeps another client alive and stops only the last local owne
   }
 });
 
-test("stop-on-exit captures Local startup before any WebView RPC initialization", async ({}, info) => {
+test("stop-on-exit closes a native bridge before its RPC initialization", async ({}, info) => {
   const profile = info.outputPath("profile");
   const home = await canonicalHome(join(profile, "app"));
-  const startingHome = await canonicalHome(info.outputPath("starting-home"));
-  for (const path of [home, startingHome])
-    await writeFile(
-      join(path, "settings.json"),
-      JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
-    );
+  await writeFile(
+    join(home, "settings.json"),
+    JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+  );
   const app = await NativeApplication.launch(profile, info.outputPath("application"), home);
   try {
     await expect(app.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
@@ -122,7 +122,7 @@ test("stop-on-exit captures Local startup before any WebView RPC initialization"
     await expect(
       app.page.getByLabel("Keep the local server running after desktop exit"),
     ).toBeEnabled();
-    await app.page.evaluate(async (path) => {
+    await app.page.evaluate(async () => {
       const api = (
         window as unknown as {
           __TAURI_INTERNALS__: {
@@ -134,21 +134,19 @@ test("stop-on-exit captures Local startup before any WebView RPC initialization"
       const channel = api.transformCallback(() => undefined);
       await api.invoke("server_connect", {
         channel: `__CHANNEL__:${channel}`,
-        host: { id: "local", label: "Local", kind: "local", home: path },
+        host: { id: "local", label: "Local", kind: "local" },
         runtime: null,
       });
-    }, startingHome);
-    await expect.poll(() => readDiscovery(startingHome)).not.toBeNull();
-    const owner = (await readDiscovery(startingHome))!;
+    });
+    await expect.poll(() => readDiscovery(home)).not.toBeNull();
+    const owner = (await readDiscovery(home))!;
     await app.close();
     expect(await NativeApplication.processExists(owner.pid)).toBe(false);
-    expect(await readDiscovery(startingHome)).toBeNull();
+    expect(await readDiscovery(home)).toBeNull();
   } finally {
     await app.close();
-    for (const path of [home, startingHome]) {
-      const owner = await readDiscovery(path);
-      if (owner) await stopServer(owner);
-    }
+    const owner = await readDiscovery(home);
+    if (owner) await stopServer(owner);
   }
 });
 
@@ -163,11 +161,8 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
     kind: "wsl",
     distribution: distribution!,
     user: null,
-    home: `${remoteRoot}/home`,
     runtime: {
       source: "development",
-      node: `${remoteRoot}/node`,
-      directory: `${remoteRoot}/runtime`,
     },
   };
   const script = `#!/bin/sh\nexport HARNESS_FIXTURE_ROOT=${q(remoteRoot)}\nprintf '%s' "$$" > ${q(`${remoteRoot}/pid`)}\nexec sleep 300\n`;
@@ -176,7 +171,7 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
     () =>
       runRemote(
         host,
-        `umask 077; mkdir ${q(remoteRoot)}; printf '%s' ${q(script)} > ${q(host.runtime.node!)}; chmod 700 ${q(host.runtime.node!)}`,
+        `umask 077; mkdir ${q(remoteRoot)}; printf '%s' ${q(script)} > ${q(`${remoteRoot}/node`)}; chmod 700 ${q(`${remoteRoot}/node`)}`,
         { signal: AbortSignal.timeout(10_000) },
       ),
     { timeout: 12_000 },
@@ -188,11 +183,18 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
     join(home, "settings.json"),
     JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
   );
+  const preload = await remoteProcessFixture(
+    home,
+    `export HOME=${q(remoteRoot)}; export PATH=${q(remoteRoot)}:"$PATH"; `,
+  );
   let app: NativeApplication | undefined;
   try {
     app = await test.step(
       "Launch native application",
-      () => NativeApplication.launch(profile, info.outputPath("application"), home),
+      () =>
+        NativeApplication.launch(profile, info.outputPath("application"), home, profile, {
+          NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`,
+        }),
       { timeout: 25_000 },
     );
 
@@ -226,12 +228,6 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
     await dialog
       .getByRole("combobox", { name: "Runtime", exact: true })
       .selectOption("development", { timeout: 5000 });
-
-    await dialog.getByText("Advanced", { exact: true }).click({ timeout: 5000 });
-
-    await dialog.getByLabel("Node executable (development)").fill(host.runtime.node!);
-    await dialog.getByLabel("Runtime directory (optional)").fill(host.runtime.directory!);
-    await dialog.getByLabel("Harness home (optional)").fill(host.home!);
 
     await dialog.getByRole("button", { name: "Save & test", exact: true }).click();
     await expect

@@ -65,8 +65,10 @@ are implemented and qualified with Windows process tests. Common remote adapters
 and managed/development deployment are qualified on Ubuntu WSL and isolated SSH;
 desktop/TUI host editors, selection and background exit are implemented. Native
 Local/editor/shared-exit cases and rendered TUI/real-owner cases are qualified;
-remote client interaction, device-code sign-in and fault-path qualification
-remain in progress. SSH is non-interactive and uses OS-configured aliases.
+Local browser and device-code sign-in are qualified; representative remote client
+interaction remains in progress. Connection forms use the normal account directory
+and expose no home, executable or installation-path controls. SSH is
+non-interactive and uses OS-configured aliases.
 
 ## Current implementation status
 

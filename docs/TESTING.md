@@ -37,13 +37,11 @@ by separate client processes.
 These passed on native Windows. Common provisioning/reconnect tests also pass on
 real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Four native GUI cases
 qualify Local-first editing, disconnected management, reconnect, persistent exit
-and last-client stop-on-exit, owner capture before WebView RPC, and real WSL
+and last-client stop-on-exit, native bridge exit before RPC initialization, and real WSL
 provisioning cancellation including fixture process exit. TUI tests render the
-command center with a real background server and qualify registry edits, reconnect
-and host redirection.
+command center with a real background server and qualify registry edits and reconnect.
 Local cache regression covers Windows-only dependency invalidation. SSH BatchMode
-cases reject password-only and unknown-host routes without prompting. Remaining
-remote UI interaction, device authentication, interruption and upgrade fault paths are tracked in
+cases reject password-only and unknown-host routes without prompting. Remaining representative remote client interaction is tracked in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
 `npm run test:remote` requires Docker and OpenSSH on the controlling client. It
@@ -52,7 +50,8 @@ and private client configuration, then removes the fixture. Set
 `HARNESS_REMOTE_WSL=Ubuntu` to also qualify that installed distribution. Each case
 uses a unique remote home/runtime directory and explicitly shuts down its existing
 owner before cleanup. The target needs network access for the initial Node/dependency
-installation. These tests exercise real managed deployment, development bundle
+installation. Fixture HOME/PATH are substituted at the process edge; production
+connection entries expose no home or executable override. These tests exercise real managed deployment, development bundle
 changes, cache reuse, target Node resolution and reconnect; they do not establish
 GUI interaction, provider sign-in or every interrupted-install path.
 

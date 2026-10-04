@@ -20,10 +20,7 @@ try {
       .parse(JSON.parse(process.argv[bridgeIndex + 1]!));
     const host = value.host;
     if (host.kind === "local") {
-      const runtime = await prepareLocalRuntime(
-        dirname(process.argv[1]!),
-        host.home ?? defaultHome(),
-      );
+      const runtime = await prepareLocalRuntime(dirname(process.argv[1]!), defaultHome());
       await runLocalBridge(runtime.home, runtime.launch, (identity) => {
         process.stderr.write(JSON.stringify({ type: "localOwner", identity }) + "\n");
       });

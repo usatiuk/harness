@@ -58,7 +58,6 @@ afterEach(async () => {
 it("renders Local-first command center and saves an alias-only SSH route", async () => {
   const path = await home();
   vi.stubEnv("HARNESS_HOME", path);
-  vi.stubEnv("HARNESS_CLIENT_HOME", path);
   const hosts = manager();
   await hosts.initialize();
   expect(hosts.config?.hosts.map((host) => host.kind)).toEqual(["local"]);
@@ -79,13 +78,10 @@ it("renders Local-first command center and saves an alias-only SSH route", async
       ["label", "Workstation", "SSH"],
       ["destination", "workstation", ""],
       ["source", "managed", "managed"],
-      ["node", "", ""],
-      ["directory", "", ""],
-      ["home", "", ""],
     ] as const) {
       step++;
       await vi.waitFor(() => {
-        expect(ui.lastFrame()).toMatch(new RegExp(`Edit SSH connection.*${step}/6`));
+        expect(ui.lastFrame()).toMatch(new RegExp(`Edit SSH connection.*${step}/3`));
         expect(ui.lastFrame()).toContain(field === "source" ? "Runtime source" : field);
       });
       if (initial !== text) {
@@ -120,11 +116,9 @@ it("renders Local-first command center and saves an alias-only SSH route", async
   }
 }, 30000);
 
-it("reconnects to the same background owner and drops presentation when Local is redirected", async () => {
+it("reconnects to the same background owner and preserves drafts and another client", async () => {
   const firstHome = await home();
-  const secondHome = await home();
   vi.stubEnv("HARNESS_HOME", firstHome);
-  vi.stubEnv("HARNESS_CLIENT_HOME", firstHome);
   const hosts = manager();
   await hosts.initialize();
   const first = await hosts.connect("local");
@@ -132,7 +126,7 @@ it("reconnects to the same background owner and drops presentation when Local is
   const conversation = await first.harness!.service.createConversation({ cwd: firstHome });
   hosts.setActive("local", conversation.id);
   first.presentation.drafts.set(conversation.id, "unsent text");
-  await hosts.disconnect("local");
+  await hosts.edit({ type: "host.save", host: { ...first.host, label: "My computer" } });
   const fresh = await hosts.connect("local");
   expect(fresh.identity).toEqual(identity);
   expect(fresh.presentation.activeId).toBe(conversation.id);
@@ -146,20 +140,11 @@ it("reconnects to the same background owner and drops presentation when Local is
   expect(await second.selected!.harness!.client.peer.request(serverInfoRequest, {})).toEqual(
     identity,
   );
-  await second.edit({
-    type: "host.save",
-    host: { id: "local", kind: "local", label: "Local", home: secondHome },
-  });
-  const redirected = await second.connect("local");
-  expect(redirected.identity!.serverId).not.toBe(identity.serverId);
-  expect(redirected.presentation.activeId).toBeUndefined();
-  expect(redirected.presentation.drafts.size).toBe(0);
 }, 30000);
 
 it("renders both Local OAuth methods, displays a device code and cancels when leaving sign-in", async () => {
   const path = await home();
   vi.stubEnv("HARNESS_HOME", path);
-  vi.stubEnv("HARNESS_CLIENT_HOME", path);
   vi.stubEnv("LOCALAPPDATA", join(path, "credentials"));
   for (const name of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
     vi.stubEnv(name, "");

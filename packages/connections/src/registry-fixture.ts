@@ -7,10 +7,9 @@ await saveHost(
     kind: "ssh",
     id,
     label: id,
-    home: null,
     destination: id,
 
-    runtime: { source: "development", node: null, directory: null },
+    runtime: { source: "development" },
   },
   path,
 );

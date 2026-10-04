@@ -6,11 +6,18 @@ import { tmpdir } from "node:os";
 import { writeFile, rm } from "node:fs/promises";
 import process from "node:process";
 import console from "node:console";
+import { pathToFileURL } from "node:url";
+import { remoteProcessFixture } from "@harness/testkit";
 
 const exec = promisify(execFile);
 const { canonicalHome } = await import("../src/local.ts");
 const directory = await canonicalHome(join(tmpdir(), `harness-ssh-${randomUUID()}`));
 const container = `harness-ssh-${randomUUID()}`;
+const fixtureHome = `/tmp/harness-remote-${randomUUID()}`;
+const preload = await remoteProcessFixture(
+  directory,
+  `export HOME='${fixtureHome}'; export PATH='${fixtureHome}/bin':"$PATH"; `,
+);
 let running = false;
 try {
   await exec(
@@ -63,7 +70,13 @@ try {
     ],
     {
       stdio: "inherit",
-      env: { ...process.env, HARNESS_REMOTE_SSH_CONFIG: join(directory, "config") },
+      env: {
+        ...process.env,
+        HARNESS_HOME: directory,
+        HARNESS_REMOTE_SSH_CONFIG: join(directory, "config"),
+        HARNESS_REMOTE_FIXTURE_HOME: fixtureHome,
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preload).href}`,
+      },
     },
   );
   process.exitCode = await new Promise((resolve, reject) => {

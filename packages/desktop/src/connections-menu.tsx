@@ -54,8 +54,7 @@ export function ConnectionEditor({
     const common = {
       id: crypto.randomUUID(),
       label: kind === "wsl" ? "WSL" : "SSH",
-      home: null,
-      runtime: { source: "managed" as const, node: null, directory: null },
+      runtime: { source: "managed" as const },
     };
     setEditing(
       kind === "wsl"
@@ -72,11 +71,9 @@ export function ConnectionEditor({
     const test = submitter?.getAttribute("value") === "test";
     act(async () => {
       if (!editing) throw new Error("No connection selected");
-      const common = { id: editing.id, label: value(form, "label"), home: optional(form, "home") };
+      const common = { id: editing.id, label: value(form, "label") };
       const runtime = {
         source: value(form, "source"),
-        node: optional(form, "node"),
-        directory: optional(form, "directory"),
       };
       const host = hostSchema.parse(
         editing.kind === "local"
@@ -210,29 +207,6 @@ export function ConnectionEditor({
                     </select>
                   </label>
                 )}
-                <details>
-                  <summary>Advanced</summary>
-                  <label>
-                    Harness home (optional)
-                    <input name="home" defaultValue={editing.home ?? ""} />
-                  </label>
-                  {editing.kind !== "local" && (
-                    <>
-                      <label>
-                        Node executable (development)
-                        <input
-                          name="node"
-                          placeholder="node"
-                          defaultValue={editing.runtime.node ?? ""}
-                        />
-                      </label>
-                      <label>
-                        Runtime directory (optional)
-                        <input name="directory" defaultValue={editing.runtime.directory ?? ""} />
-                      </label>
-                    </>
-                  )}
-                </details>
                 <div className="button-row">
                   <Button type="submit" value="save" disabled={busy}>
                     Save

@@ -1,7 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { cp, appendFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve, join, posix } from "node:path";
+import { resolve, join } from "node:path";
 import { HarnessClient } from "@harness/client";
 import { expect, it } from "vitest";
 import { discoverySchema } from "./local.ts";
@@ -29,9 +28,8 @@ for (const [destination, diagnostic] of [
         kind: "ssh",
         id: destination,
         label: destination,
-        home: null,
         destination,
-        runtime: { source: "managed", node: null, directory: null },
+        runtime: { source: "managed" },
       };
       const attempt = runRemote(host, "printf connected", {
         sshConfigFile: sshConfig!,
@@ -46,12 +44,12 @@ for (const kind of ["wsl", "ssh"] as const)
   it.skipIf(kind === "wsl" ? !distribution : !sshConfig)(
     `provisions a real ${kind} host, caches dependencies and reconnects after all bridges exit`,
     async () => {
-      const root = `/tmp/harness-remote-${randomUUID()}`;
+      const root = process.env["HARNESS_REMOTE_FIXTURE_HOME"];
+      if (!root) throw new Error("Run npm run test:remote for an isolated remote environment");
       const common = {
         id: "fixture",
         label: `${kind} fixture`,
-        home: `${root}/home`,
-        runtime: { source: "managed" as const, directory: `${root}/runtime`, node: null },
+        runtime: { source: "managed" as const },
       };
       const host: RemoteHost =
         kind === "wsl"
@@ -81,21 +79,18 @@ for (const kind of ["wsl", "ssh"] as const)
         );
         const development: RemoteHost = {
           ...host,
-          runtime: { ...host.runtime, source: "development", node: runtime.node },
+          runtime: { source: "development" },
         };
+        await runRemote(
+          host,
+          `mkdir -p ${shellQuote(`${root}/bin`)}; ln -s ${shellQuote(runtime.node)} ${shellQuote(`${root}/bin/node`)}`,
+          options,
+        );
         const changed = await prepareRemoteRuntime(development, changedPayload, options);
         expect(changed.buildId).not.toBe(runtime.buildId);
         expect(changed.dependencyKey).toBe(runtime.dependencyKey);
         expect(changed.transferred).toBe(true);
-        // A relative explicit Node path resolves once into absolute launch metadata.
-        const relative: RemoteHost = {
-          ...development,
-          runtime: {
-            ...development.runtime,
-            node: `./${posix.relative(await runRemote(host, "pwd", options), runtime.node)}`,
-          },
-        };
-        const repeated = await prepareRemoteRuntime(relative, changedPayload, options);
+        const repeated = await prepareRemoteRuntime(development, changedPayload, options);
         expect(repeated).toEqual({ ...changed, transferred: false });
         const first = await connectRemote(host, runtime, options);
         const client = new HarnessClient({

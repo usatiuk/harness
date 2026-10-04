@@ -5,7 +5,11 @@ Date: 2026-10-03. Status: product and architecture research, selected for delive
 records implementation choices and current qualification evidence. The foundation
 section below describes the pre-change code that motivated the design.
 
-## Confirmed product direction
+Scope was narrowed on 2026-10-04 after implementation drift. This research is
+context, not a checklist of required features. The [delivery plan](../plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md)
+records the current selected scope.
+
+## Product direction
 
 - Desktop starts with a built-in `Local` host and initially shows one selected
   host, with a switcher above the conversation list. Other hosts keep running when
@@ -74,25 +78,18 @@ The database is disposable and only its current format is supported. Unsupported
 databases require a manual reset; no migration or older-format compatibility
 is part of remote provisioning.
 
-## Proposed server and host model
+## Server and host model
 
-A host represents an execution environment, an OS account, and a Harness home.
-Examples are native Windows, Ubuntu under WSL as a particular Linux user, and an
-SSH account on a Linux workstation. Each owns its conversations, workspace paths,
-settings, credentials, and execution backends. Client appearance, drafts, saved
-connection entries, and selected host are client concerns.
+A host is an execution environment and OS account: native Windows, a WSL
+Linux user in a distribution, or an SSH account. Desktop and TUI reuse one
+background owner in that account's normal Harness directory. Windows and WSL
+remain separate execution environments even on one physical PC.
 
-Recommend at most one running server per environment/account/canonical Harness
-home. Desktop and TUI attach to the same owner instead of fighting over SQLite.
-Different explicit `HARNESS_HOME` values remain isolated profiles. Windows and
-each WSL distro need distinct servers even on one physical PC. A physical-machine
-singleton would prevent the requested Windows/WSL workflow.
-
-Saved connection labels and addresses are routes to a server, not its identity.
-Two SSH aliases reaching the same account/home should discover the same server
-and avoid duplicate UI sessions. A stable home/server identity and a per-process
-instance identity would distinguish that case from a restarted server. Do not
-assume matching hostnames or directory strings prove matching authority.
+Scope correction (2026-10-04): configurable homes/profiles and client alias
+coalescing were unrequested additions. Connection entries do not select homes.
+Two routes reaching the same owner keep independent client observers, supported
+by the server's existing multi-client boundary. Internal authenticated instance
+identity protects explicit stop/restart without making profiles a product feature.
 
 Clients perform an ensure-and-connect operation: discover and authenticate the
 existing server, or start one and wait for explicit readiness. Simultaneous starts
@@ -179,14 +176,12 @@ machine's existing global `settings.json`:
 
 | Configuration                                                       | Read/written by                                                | Owns                                                                                                                        |
 | ------------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `<client-home>/client.json`                                         | Local desktop/TUI connection management.                       | Saved WSL/SSH entries, labels, launch/runtime choices, optional target Harness homes, and client preferences.               |
+| `<client-home>/client.json`                                         | Local desktop/TUI connection management.                       | Saved WSL/SSH entries, labels, runtime mode and client preferences.                                                         |
 | `<server-home>/settings.json`                                       | The server on its own host, including the native local server. | Existing model/provider defaults, approval and auto-review policy, sandbox/plugin settings, and credential-store selection. |
 | Project `.harness/settings.json` and `.harness/settings.local.json` | The selected server's existing settings cascade.               | Existing project and project-local execution settings.                                                                      |
 
 The default directory is `~/.harness` on each respective host. Client config stays
-on the controlling machine when selecting a different server; a target Harness
-home in a connection entry selects the remote profile, not the client config
-directory. Do not merge local server settings into remote settings. Provider
+on the controlling machine when selecting a different server. Do not merge local server settings into remote settings. Provider
 secrets continue to use the selected server's credential store; connection config
 references OpenSSH aliases/identity paths rather than storing SSH passwords or
 private-key contents.
@@ -280,11 +275,8 @@ must be prepared for the target. A prepared dependency cache can also support
 hosts without package-network access; otherwise dependency installation needs that
 access. Dependency setup failures remain explicit.
 
-A development connection selects the current local build, a user-local remote
-installation directory, and optionally a Node executable. An existing installation
-can still be reused as an advanced launch choice. Keep inputs structured and
-validated instead of adding arbitrary remote shell-command templates. Exact UI
-labels and launch syntax remain open.
+Development uses the current local build and Node on the target's PATH.
+Installation paths are internal defaults, not connection-editor choices.
 
 Development changes how the runtime is supplied, not how work runs. It uses the
 same singleton discovery, compatibility handshake, shared service, background
@@ -292,8 +284,7 @@ lifetime, and reconnect behavior. Connecting or refreshing transfers the current
 build automatically, staging a complete bundle before making it available. The
 running server keeps its current code until an explicit restart, which affects
 attached clients; show when a newer development build is ready. Do not mutate live
-dependency files or start a second server merely to use the new build. Developers
-can use an explicit separate Harness home for isolation.
+dependency files or start a second server merely to use the new build. Do not add profile controls to support development.
 
 This mode can establish real WSL/SSH connections before a portable release channel
 exists. It still needs automatic bundle transfer and target dependency preparation,
@@ -341,8 +332,8 @@ or conversation view by accident.
 
 Use a GUI connection manager next to the switcher with add/edit forms, test/save,
 rename/remove, connect/reconnect/disconnect, and explicit server stop/restart.
-Basic forms show meaningful host choices; launch/runtime overrides belong in
-advanced controls. Removing a saved entry is configuration editing and must not
+Forms show the host address and managed/development mode; there are no
+home, executable or installation-directory controls. Removing a saved entry is configuration editing and must not
 implicitly stop its server. Editing an entry takes effect on its next connection,
 without changing the transport under active work.
 
@@ -350,13 +341,13 @@ On Windows, discover installed WSL distributions automatically and offer them as
 available choices in **Add WSL connection** or an **Available WSL** picker section.
 Discovery does not add saved entries or start/provision every distro. Selecting a
 distro supplies defaults for a quick connect/save flow; the editor remains useful
-for its user, display label, optional Harness home, and runtime mode. A single
+for its user, display label and runtime mode. A single
 default distro shortcut can use the same flow rather than a separate connection
 type. Do not assume one WSL distro per PC.
 
 The SSH editor accepts an existing OpenSSH host alias or a destination with
-optional user prefix. Custom ports and keys belong in .ssh/config. Provide a display label and the same optional target-home and
-runtime controls. Reuse SSH configuration and authentication instead of exposing
+optional user prefix. Custom ports and keys belong in .ssh/config. Provide a display label and
+managed/development runtime choice. Reuse SSH configuration and authentication instead of exposing
 arbitrary shell-command templates in the ordinary connection form.
 
 TUI provides a host picker and connection-management forms/commands for the same
@@ -398,12 +389,11 @@ implementation, turn the selected choices into a dependency-based delivery plan.
 3. Development WSL/SSH connections: use existing Node installations with automatic
    built-bundle transfer and cached target dependencies. Exercise an actual distro
    and SSH host, uncommitted source changes without manual synchronization,
-   dependency reuse/invalidation, authentication, host paths, credential setup,
-   reconnect, work after desktop exit, logout lifetime, and network loss during
-   transfer, acceptance, and execution.
+   dependency reuse, host paths, reconnect and work after client exit. Broader
+   credential/install/failure experiments are optional research, not delivery gates.
 4. Managed remote provisioning: qualify portable packages for the selected
-   platforms, clean onboarding, both download paths, interrupted installation,
-   and compatible/incompatible server versions. This follows the development
+   platforms and clean onboarding. Keep focused regressions for concrete failures;
+   do not require an exhaustive installation or update matrix. This follows the development
    connections rather than blocking them.
 5. Optional tray, notifications, and autostart: define their independent lifetimes
    and validate the chosen exit policy on supported desktop platforms.
@@ -413,8 +403,8 @@ the existing `server --stdio` entry cannot establish background/reconnect behavi
 
 ## Decisions to settle next
 
-- Confirm singleton scope: environment/account/home, with separate explicit homes
-  allowed, rather than a physical-PC limit.
+- Use one background owner per execution environment/account; do not add
+  configurable homes or profiles.
 - Confirm simultaneous desktop/TUI control of one conversation.
 - Choose local exit and zero-client idle policies; keep remote stopping explicit.
 - Select the first qualified remote platform and package distribution route.

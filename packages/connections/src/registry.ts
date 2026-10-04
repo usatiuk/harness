@@ -1,6 +1,6 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { defaultHome } from "@harness/config";
 import lockfile from "proper-lockfile";
 import {
   clientConfigSchema,
@@ -12,15 +12,7 @@ import {
 import { replaceJson } from "./local.ts";
 
 /** This path belongs to the controlling client; remote HARNESS_HOME never changes it. */
-export const clientConfigPath = (): string =>
-  join(
-    process.env["HARNESS_CLIENT_HOME"]
-      ? resolve(process.env["HARNESS_CLIENT_HOME"])
-      : process.env["HARNESS_HOME"]
-        ? resolve(process.env["HARNESS_HOME"])
-        : join(homedir(), ".harness"),
-    "client.json",
-  );
+export const clientConfigPath = (): string => join(defaultHome(), "client.json");
 
 export async function readClientConfig(path = clientConfigPath()): Promise<ClientConfig> {
   try {

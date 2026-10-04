@@ -53,15 +53,14 @@ export class DesktopSession {
   authUrl: string | undefined;
   authCode: string | null = null;
   private authAttempt: AbortController | undefined;
+  private serverScope: string | undefined;
   disconnected: string | undefined;
   revision = 0;
-  private scope: string;
 
   constructor(
     connection: RpcConnection,
     readonly hostScope = "local",
   ) {
-    this.scope = hostScope;
     this.client = new HarnessClient({
       connection,
       client: { name: "harness-desktop", version: "0.1.0" },
@@ -108,11 +107,13 @@ export class DesktopSession {
     this.changed();
   }
 
-  storageKey(key: string): string {
-    return `host:${this.scope}:${key}`;
+  setServerScope(serverId: string): void {
+    this.serverScope = serverId;
   }
-  setIdentityScope(serverId: string, home: string): void {
-    this.scope = `${this.hostScope}:${serverId}:${encodeURIComponent(home)}`;
+
+  storageKey(key: string): string {
+    if (this.serverScope === undefined) throw new Error("Server identity is not established");
+    return `host:${this.hostScope}:${this.serverScope}:${key}`;
   }
 
   async start(): Promise<void> {

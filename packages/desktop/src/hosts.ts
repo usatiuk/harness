@@ -18,7 +18,6 @@ export interface HostView {
   runtime?: ReturnType<typeof preparedRuntimeSchema.parse>;
   progress?: string;
   error?: string;
-  aliasOf?: string;
 }
 /** Selection owns presentation. Each connected host retains its own RPC session. */
 export class DesktopHosts {
@@ -126,27 +125,9 @@ export class DesktopHosts {
       } finally {
         ready.removeEventListener("abort", cancel);
       }
-      session.setIdentityScope(identity.serverId, identity.home);
-      const shared = [...this.views.values()].find(
-        (other) =>
-          other !== view &&
-          other.session &&
-          !other.session.disconnected &&
-          other.identity?.instanceId === identity.instanceId &&
-          other.identity.serverId === identity.serverId &&
-          other.identity.home === identity.home,
-      );
-      if (shared) {
-        session.client.closeConnection();
-        await disconnectNative(transport.id);
-        delete view.nativeId;
-        view.aliasOf = shared.aliasOf ?? shared.host.id;
-        view.session = shared.session!;
-      } else {
-        view.session = session;
-        delete view.aliasOf;
-        session.subscribe(() => this.changed());
-      }
+      session.setServerScope(identity.serverId);
+      view.session = session;
+      session.subscribe(() => this.changed());
       view.identity = identity;
       return view;
     } catch (error) {
@@ -168,19 +149,10 @@ export class DesktopHosts {
     }
     const view = this.views.get(id);
     if (!view) return;
-    // An alias shares its canonical connection. Removing the route leaves that observer intact.
-    if (!view.aliasOf) {
-      view.session?.client.closeConnection();
-      if (view.nativeId !== undefined) await disconnectNative(view.nativeId);
-      for (const other of this.views.values())
-        if (other.aliasOf === id) {
-          delete other.aliasOf;
-          delete other.session;
-        }
-    }
+    view.session?.client.closeConnection();
+    if (view.nativeId !== undefined) await disconnectNative(view.nativeId);
     delete view.nativeId;
     delete view.session;
-    delete view.aliasOf;
     this.changed();
   }
   async reconnect(id: string): Promise<void> {
@@ -230,7 +202,7 @@ export class DesktopHosts {
       identity: view.identity,
       runtime: view.runtime ?? null,
     });
-    await this.disconnect(view.aliasOf ?? id);
+    await this.disconnect(id);
   }
   async restart(id: string): Promise<void> {
     await this.refresh(id);

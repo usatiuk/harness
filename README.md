@@ -46,12 +46,12 @@ installed shell/programs. The current installer and native E2E qualification
 target Windows; macOS/Linux desktop packaging is not yet qualified.
 
 Desktop and TUI attach to the same background server for each environment, OS
-account and Harness home. Closing a client keeps accepted work running. The
+account. Closing a client keeps accepted work running. The
 desktop's remembered exit preference can stop Local when no other client uses
 it; remote stop/restart is explicit. Provider credential changes require an
 explicit server restart. There is no tray or login autostart.
-The exclusive database lock allows one server per home. `HARNESS_HOME` selects
-an alternative home for isolated profiles; the default is `~/.harness`.
+The exclusive database lock protects the server in its normal `~/.harness`
+directory. Connections do not select alternative homes or profiles.
 
 Both clients initially show Local. Desktop has a host switcher above conversations
 and an agent command center for adding WSL/SSH routes and managing servers.

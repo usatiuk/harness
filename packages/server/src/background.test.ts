@@ -246,9 +246,9 @@ it("retries classified startup contention but never retries a broken entry point
   }
 }, 30000);
 
-it("rejects discovery copied from another home instead of attaching to that profile", async () => {
-  const home = join(tmpdir(), `harness-background-profile-${randomUUID()}`);
-  const other = await canonicalHome(join(tmpdir(), `harness-background-profile-${randomUUID()}`));
+it("rejects discovery copied from another directory", async () => {
+  const home = join(tmpdir(), `harness-background-copy-${randomUUID()}`);
+  const other = await canonicalHome(join(tmpdir(), `harness-background-copy-${randomUUID()}`));
   let owner: Awaited<ReturnType<typeof ensureLocalServer>> | undefined;
   try {
     owner = await ensureLocalServer(home, launch);

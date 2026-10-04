@@ -29,6 +29,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@harness/testkit": "*",
     "@types/proper-lockfile": "^4.1.4"
   }
 }

@@ -33,8 +33,6 @@ export interface TuiHostView {
   progress?: string;
   error?: string;
   presentation: { activeId?: string; workspace?: string; drafts: Map<string, string> };
-  aliasOf?: string;
-  connectedRoute?: string;
   disconnected?: boolean;
 }
 export class TuiHosts {
@@ -104,11 +102,10 @@ export class TuiHosts {
         const host: Host = {
           id: randomUUID(),
           label: destination,
-          home: null,
           kind: "ssh",
           destination,
 
-          runtime: { source: "managed", node: null, directory: null },
+          runtime: { source: "managed" },
         };
         await this.edit({ type: "host.save", host });
         selectedId = host.id;
@@ -124,8 +121,12 @@ export class TuiHosts {
   async edit(
     command: Extract<ConnectionCommand, { type: "host.save" | "host.remove" | "preferences" }>,
   ): Promise<void> {
-    if (command.type === "host.save" && this.views.has(command.host.id))
-      await this.disconnect(command.host.id);
+    if (command.type === "host.save") {
+      const current = this.views.get(command.host.id);
+      if (current && JSON.stringify(current.host) !== JSON.stringify(command.host)) {
+        await this.disconnect(command.host.id);
+      }
+    }
     if (command.type === "host.remove") await this.disconnect(command.id);
     this.accept(clientConfigSchema.parse(await runConnectionCommand(command, "")));
     if (command.type === "host.remove") this.views.delete(command.id);
@@ -180,7 +181,7 @@ export class TuiHosts {
     const view = this.views.get(id);
     if (!view) throw new Error("Unknown host");
     if (view.harness?.client.peer.ready) return view;
-    if (!view.aliasOf) await view.harness?.close();
+    await view.harness?.close();
     delete view.harness;
     delete view.error;
     const host = view.host;
@@ -189,7 +190,7 @@ export class TuiHosts {
     let transport: RemoteConnection | undefined;
     try {
       if (host.kind === "local") {
-        const local = await ensureLocalServer(host.home ?? defaultHome(), {
+        const local = await ensureLocalServer(defaultHome(), {
           ...this.localLaunch,
           env: { ...this.localLaunch.env, ...this.env },
         });
@@ -215,46 +216,15 @@ export class TuiHosts {
       } finally {
         ready.removeEventListener("abort", cancel);
       }
-      // Route edits may point at a new authority. Presentation follows the
-      // authenticated home, and a copied server UUID alone proves no identity.
-      const route = JSON.stringify(
-        host.kind === "local"
-          ? [host.kind, host.home]
-          : host.kind === "wsl"
-            ? [host.kind, host.distribution, host.user, host.home]
-            : [host.kind, host.destination, host.home],
-      );
-      const shared = [...this.views.values()].find(
-        (other) =>
-          other !== view &&
-          other.harness?.client.peer.ready &&
-          other.identity?.instanceId === identity.instanceId &&
-          other.identity.serverId === identity.serverId &&
-          other.identity.home === identity.home,
-      );
-      if (shared) {
-        await harness.close();
-        view.harness = shared.harness!;
-        view.aliasOf = shared.aliasOf ?? shared.host.id;
-        view.presentation = shared.presentation;
-      } else {
-        if (
-          view.identity &&
-          (view.connectedRoute !== route ||
-            view.identity.serverId !== identity.serverId ||
-            view.identity.home !== identity.home)
-        )
-          view.presentation = { drafts: new Map() };
-        delete view.aliasOf;
-        view.harness = harness;
-        transport.connection.onClose(() => {
-          view.error =
-            "Connection lost. Reconnect for fresh server state; a last submission may have been accepted.";
-          this.changed();
-        });
-      }
+      if (view.identity && view.identity.serverId !== identity.serverId)
+        view.presentation = { drafts: new Map() };
+      view.harness = harness;
+      transport.connection.onClose(() => {
+        view.error =
+          "Connection lost. Reconnect for fresh server state; a last submission may have been accepted.";
+        this.changed();
+      });
       view.identity = identity;
-      view.connectedRoute = route;
       delete view.disconnected;
       return view;
     } catch (error) {
@@ -278,24 +248,9 @@ export class TuiHosts {
       await pending.result.catch(() => undefined);
     }
     const view = this.views.get(id);
-    if (view && !view.aliasOf) {
-      await view.harness?.close();
-      for (const other of this.views.values())
-        if (other.aliasOf === id) {
-          other.presentation = {
-            ...other.presentation,
-            drafts: new Map(other.presentation.drafts),
-          };
-          delete other.aliasOf;
-          delete other.harness;
-          other.disconnected = true;
-        }
-    }
     if (view) {
-      if (view.aliasOf)
-        view.presentation = { ...view.presentation, drafts: new Map(view.presentation.drafts) };
+      await view.harness?.close();
       delete view.harness;
-      delete view.aliasOf;
       view.disconnected = true;
     }
     this.changed();
@@ -339,7 +294,7 @@ export class TuiHosts {
       "",
       { env: this.env },
     );
-    await this.disconnect(view.aliasOf ?? id);
+    await this.disconnect(id);
   }
   async restart(id: string): Promise<void> {
     await this.refresh(id);

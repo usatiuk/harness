@@ -198,8 +198,7 @@ function CommandCenter({
     const common = {
       id: randomUUID(),
       label: kind === "wsl" ? `WSL: ${distribution}` : "SSH",
-      home: null,
-      runtime: { source: "managed" as const, node: null, directory: null },
+      runtime: { source: "managed" as const },
     };
     setEditing(
       kind === "wsl"
@@ -376,10 +375,10 @@ function CommandCenter({
 function HostEditor({ host, onSave }: { host: Host; onSave: (host: Host) => void }) {
   const fields =
     host.kind === "local"
-      ? ["label", "home"]
+      ? ["label"]
       : host.kind === "wsl"
-        ? ["label", "distribution", "user", "source", "node", "directory", "home"]
-        : ["label", "destination", "source", "node", "directory", "home"];
+        ? ["label", "distribution", "user", "source"]
+        : ["label", "destination", "source"];
   const [index, setIndex] = useState(0);
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -413,11 +412,9 @@ function HostEditor({ host, onSave }: { host: Host; onSave: (host: Host) => void
             return;
           }
           try {
-            const common = { id: host.id, label: next["label"], home: next["home"] || null };
+            const common = { id: host.id, label: next["label"] };
             const runtime = {
               source: next["source"],
-              node: next["node"] || null,
-              directory: next["directory"] || null,
             };
             onSave(
               hostSchema.parse(

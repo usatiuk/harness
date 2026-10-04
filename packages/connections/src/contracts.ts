@@ -3,13 +3,10 @@ import { defineRequest, HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
 
 const remoteRuntimeSchema = z.strictObject({
   source: z.enum(["managed", "development"]),
-  node: z.string().min(1).nullable(),
-  directory: z.string().min(1).nullable(),
 });
 const common = {
   id: z.string().min(1),
   label: z.string().trim().min(1).max(100),
-  home: z.string().min(1).nullable(),
 };
 export const hostSchema = z.discriminatedUnion("kind", [
   z.strictObject({ ...common, kind: z.literal("local"), id: z.literal("local") }),
@@ -31,7 +28,7 @@ export const hostSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type Host = z.infer<typeof hostSchema>;
-export const LOCAL_HOST: Host = { kind: "local", id: "local", label: "Local", home: null };
+export const LOCAL_HOST: Host = { kind: "local", id: "local", label: "Local" };
 export const clientConfigSchema = z
   .strictObject({
     version: z.literal(1),
