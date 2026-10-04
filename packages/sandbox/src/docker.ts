@@ -16,7 +16,7 @@ import {
   type DockerEnvironment,
   type DockerOwner,
 } from "./docker-environment.ts";
-import type { DockerSandboxConfig } from "./plugin.ts";
+import type { DockerSandboxConfig } from "./config.ts";
 
 /**
  * Runs the conversation's IO and commands inside the workspace's dev container. Every method goes

@@ -6,8 +6,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { captureText } from "./docker-cli.ts";
 
-/** Default devcontainer config path (relative to the project root); the CLI auto-discovers it. */
-export const DEFAULT_DEVCONTAINER_CONFIG = ".devcontainer/devcontainer.json";
+import { DEFAULT_DEVCONTAINER_CONFIG } from "./config.ts";
 
 /**
  * The root the sandbox keys, provisions, and tears down on: the nearest ancestor with a

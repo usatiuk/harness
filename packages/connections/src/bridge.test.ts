@@ -12,9 +12,9 @@ import {
   canonicalHome,
   createServerToken,
   privateRuntimeDirectory,
-  replaceJson,
   serverSecretStore,
 } from "./local.ts";
+import { replaceJson } from "./json-file.ts";
 
 it("detaches a real bridge with a bounded frame queued against an owner that stops reading", async () => {
   const home = await canonicalHome(join(tmpdir(), `harness-bridge-${randomUUID()}`));

@@ -36,7 +36,7 @@ vi.mock("node:child_process", async (importOriginal) => ({
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
-const { dockerSandboxConfigSchema } = await import("./plugin.ts");
+const { dockerSandboxConfigSchema } = await import("./config.ts");
 
 const make = (over: Record<string, unknown> = {}) =>
   new DockerExecutionContext("/work", dockerSandboxConfigSchema.parse(over));

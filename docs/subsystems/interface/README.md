@@ -137,6 +137,15 @@ uses a private immutable Node/code/dependency cache, including the complete
 packaged native dependency closure. The keep-running preference defaults true;
 stop-on-exit releases Local only when another client is not attached.
 
+Logical desktop RPC closure shares one awaited physical bridge close with manager
+teardown. Protocol, writer and acknowledgement failures release that observer;
+discarded frames receive no credit. Native shutdown includes already-draining
+bridges and waits for their shared completion before conditional Local release.
+Local discovery/authentication/readiness and contention waits are cancellable.
+A bridge observes EOF before readiness while holding early RPC input within the
+transport bound; cancellation closes the observer and leaves launched owners
+independent.
+
 The shared headless owner (`server --background`) outlives clients, including
 the `server --bridge` process that started it. Its private discovery directory
 contains atomic stable-home identity, per-instance endpoint metadata and an
@@ -218,6 +227,20 @@ ordinary namespaced requests/notifications and optional bounded snapshots. The
 TUI receives no service, runtime, process, activity-manager, sandbox, or raw
 plugin-state object. Desktop uses the same contract over Tauri channels and
 bounded native pipes. Both shipped clients reconnect to the background owner.
+
+Every adopted shared connection registry reconciles execution targets before
+publishing new metadata. Changed/removed routes cancel and detach their observers;
+label/runtime-source changes preserve valid observers and drafts. Connect/upload
+requests are cancellable while waiting for registry adoption. Stop completion
+closes its captured observer, so a replacement under the same saved ID survives.
+Command results and Local/remote prerequisites have typed, validated contracts.
+
+TUI screens and session helpers live separately from the launcher and server
+entrypoint. Presentation imports sandbox/approval client contracts; shared sandbox
+configuration has one Node-independent schema source. RPC handler diagnostics
+retain the registered method and fixed error class without arbitrary exception
+names or content. Failed first runtime loads acquire no tree ownership; host
+bookkeeping is pruned after the last active operation leaves no runtime.
 Web/mobile/IDE clients remain unimplemented.
 
 ## Desktop model

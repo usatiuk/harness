@@ -18,9 +18,9 @@ import {
   canonicalHome,
   createServerToken,
   privateRuntimeDirectory,
-  replaceJson,
   serverSecretStore,
 } from "@harness/connections/local";
+import { replaceJson } from "@harness/connections/node";
 import { buildServerComposition, type ServerComposition } from "./index.ts";
 
 /** The SQLite owner alone publishes or removes discovery. Network peers only observe it. */

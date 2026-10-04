@@ -31,8 +31,7 @@ struct Server {
     cancel: watch::Sender<bool>,
     input: Arc<Mutex<Option<ChildStdin>>>,
     stop: Option<oneshot::Sender<()>>,
-    finished: Arc<AtomicBool>,
-    done: oneshot::Receiver<Result<(), String>>,
+    done: watch::Receiver<Option<Result<(), String>>>,
 }
 
 struct ConnectionCommand {
@@ -51,18 +50,27 @@ struct Bridge {
 
 impl Bridge {
     async fn close(&self, id: u64) -> Result<(), String> {
-        let Some(mut server) = self.servers.lock().await.remove(&id) else {
-            return Ok(());
+        let (already_exited, mut done) = {
+            let mut servers = self.servers.lock().await;
+            let Some(server) = servers.get_mut(&id) else {
+                return Ok(());
+            };
+            let already_exited = server.done.borrow().is_some();
+            let _ = server.cancel.send(true);
+            if let Some(stop) = server.stop.take() {
+                let _ = stop.send(());
+            }
+            (already_exited, server.done.clone())
         };
-        let already_exited = server.finished.load(Ordering::Acquire);
-        let _ = server.cancel.send(true);
-        if let Some(stop) = server.stop.take() {
-            let _ = stop.send(());
-        }
-        let result = server
-            .done
+        // Keep closing bridges visible to app shutdown. Every caller waits for
+        // the same completion before conditional release of the Local owner.
+        let result = done
+            .wait_for(|result| result.is_some())
             .await
-            .map_err(|_| "Bridge owner task failed".to_string())?;
+            .map(|result| result.as_ref().expect("completed bridge result").clone())
+            .map_err(|_| "Bridge owner task failed".to_string());
+        self.servers.lock().await.remove(&id);
+        let result = result?;
         if already_exited { Ok(()) } else { result }
     }
     async fn close_all(self: &Arc<Self>) -> Result<(), String> {
@@ -96,6 +104,49 @@ impl Bridge {
         } else {
             Err(failures.join("; "))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn app_shutdown_waits_for_an_already_closing_bridge() {
+        let bridge = Arc::new(Bridge::default());
+        let (cancel, mut canceled) = watch::channel(false);
+        let (stop, stopped) = oneshot::channel();
+        let (complete, done) = watch::channel(None);
+        bridge.servers.lock().await.insert(
+            1,
+            Server {
+                id: 1,
+                credit: Arc::new(Notify::new()),
+                cancel,
+                input: Arc::new(Mutex::new(None)),
+                stop: Some(stop),
+                done,
+            },
+        );
+        let observer = bridge.clone();
+        let detach = tokio::spawn(async move { observer.close(1).await });
+        stopped.await.expect("disconnect began");
+        canceled.borrow_and_update();
+        let owner = bridge.clone();
+        let mut shutdown = tokio::spawn(async move { owner.close_all().await });
+        // A second cancellation signal establishes that shutdown has found the
+        // draining observer. Completion must still belong to the bridge owner.
+        tokio::select! {
+            result = &mut shutdown => panic!("shutdown missed the draining bridge: {result:?}"),
+            result = canceled.changed() => result.expect("shutdown found bridge"),
+        }
+        complete.send(Some(Ok(()))).expect("bridge completion");
+        detach.await.expect("detach task").expect("detach result");
+        shutdown
+            .await
+            .expect("shutdown task")
+            .expect("shutdown result");
+        assert!(bridge.servers.lock().await.is_empty());
     }
 }
 
@@ -361,14 +412,12 @@ async fn server_connect(
     let output = child.stdout.take().expect("spawned piped stdout");
     let error = child.stderr.take().expect("spawned piped stderr");
     let (stop, stopped) = oneshot::channel();
-    let (complete, done) = oneshot::channel();
+    let (complete, done) = watch::channel(None);
     let owner_input = input.clone();
     let id = bridge.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let credit = Arc::new(Notify::new());
     let (cancel, canceled) = watch::channel(false);
     let owner_cancel = cancel.clone();
-    let finished = Arc::new(AtomicBool::new(false));
-    let owner_finished = finished.clone();
     let reader_credit = credit.clone();
     let local_owner = (host["kind"] == "local").then(|| bridge.inner().clone());
     tauri::async_runtime::spawn(async move {
@@ -408,13 +457,9 @@ async fn server_connect(
         let diagnostics = diagnostics.await;
         let result = match (status, stream_result, diagnostics) {
             (Ok(status), Ok(Ok(())), Ok(Ok(_))) if status.success() => Ok(()),
-            (Ok(status), _, Ok(Ok(diagnostics))) if !status.success() => Err(
-                if diagnostics.contains("already in use by another server") {
-                    "Harness is already running with this database. Close the other GUI or TUI and retry.".into()
-                } else {
-                    format!("Harness server exited with {status}. {diagnostics}")
-                },
-            ),
+            (Ok(status), _, Ok(Ok(diagnostics))) if !status.success() => Err(format!(
+                "Harness server exited with {status}. {diagnostics}"
+            )),
             (Err(error), _, _) => Err(error),
             (_, Ok(Err(error)), _) => Err(error),
             (_, Err(error), _) => Err(format!("Protocol reader failed: {error}")),
@@ -424,9 +469,8 @@ async fn server_connect(
             Ok(()) => "Harness server disconnected".into(),
             Err(error) => error.clone(),
         };
-        owner_finished.store(true, Ordering::Release);
+        let _ = complete.send(Some(result));
         let _ = channel.send(ServerEvent::Closed { message });
-        let _ = complete.send(result);
     });
     servers.insert(
         id,
@@ -437,7 +481,6 @@ async fn server_connect(
             input,
             stop: Some(stop),
             done,
-            finished,
         },
     );
     Ok(id)

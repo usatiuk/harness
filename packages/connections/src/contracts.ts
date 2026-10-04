@@ -8,8 +8,12 @@ const common = {
   id: z.string().min(1),
   label: z.string().trim().min(1).max(100),
 };
-export const hostSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ ...common, kind: z.literal("local"), id: z.literal("local") }),
+export const localHostSchema = z.strictObject({
+  ...common,
+  kind: z.literal("local"),
+  id: z.literal("local"),
+});
+export const remoteHostSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     ...common,
     kind: z.literal("wsl"),
@@ -27,7 +31,12 @@ export const hostSchema = z.discriminatedUnion("kind", [
     runtime: remoteRuntimeSchema,
   }),
 ]);
+export const hostSchema = z.discriminatedUnion("kind", [
+  localHostSchema,
+  ...remoteHostSchema.options,
+]);
 export type Host = z.infer<typeof hostSchema>;
+export type RemoteHost = z.infer<typeof remoteHostSchema>;
 /** Display metadata and staged runtime choices do not change the execution account. */
 export function sameExecutionTarget(left: Host, right: Host): boolean {
   if (left.kind === "local") return right.kind === "local";
@@ -36,7 +45,7 @@ export function sameExecutionTarget(left: Host, right: Host): boolean {
     right.kind === "wsl" && left.distribution === right.distribution && left.user === right.user
   );
 }
-export const LOCAL_HOST: Host = { kind: "local", id: "local", label: "Local" };
+export const LOCAL_HOST = { kind: "local", id: "local", label: "Local" } satisfies Host;
 export const clientConfigSchema = z
   .strictObject({
     version: z.literal(1),
@@ -98,7 +107,13 @@ export const preparedRuntimeSchema = z.strictObject({
   dependencyKey: z.string().regex(/^[a-f0-9]{64}$/u),
   transferred: z.boolean(),
 });
-export const connectionCommandSchema = z.discriminatedUnion("type", [
+export type PreparedRuntime = z.infer<typeof preparedRuntimeSchema>;
+export const hostConnectionTargetSchema = z.union([
+  z.strictObject({ host: localHostSchema, runtime: z.null() }),
+  z.strictObject({ host: remoteHostSchema, runtime: preparedRuntimeSchema }),
+]);
+export type HostConnectionTarget = z.infer<typeof hostConnectionTargetSchema>;
+export const connectionCommandSchema = z.union([
   z.strictObject({ type: z.literal("config.read") }),
   z.strictObject({ type: z.literal("host.save"), host: hostSchema }),
   z.strictObject({ type: z.literal("host.remove"), id: z.string() }),
@@ -106,12 +121,45 @@ export const connectionCommandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("preferences"), keepServerRunning: z.boolean() }),
   z.strictObject({ type: z.literal("wsl.list") }),
   z.strictObject({ type: z.literal("desktop.exit"), identity: serverIdentitySchema }),
-  z.strictObject({ type: z.literal("runtime.prepare"), host: hostSchema }),
+  z.strictObject({ type: z.literal("runtime.prepare"), host: remoteHostSchema }),
   z.strictObject({
     type: z.literal("server.stop"),
-    host: hostSchema,
+    host: localHostSchema,
     identity: serverIdentitySchema,
-    runtime: preparedRuntimeSchema.nullable(),
+    runtime: z.null(),
+  }),
+  z.strictObject({
+    type: z.literal("server.stop"),
+    host: remoteHostSchema,
+    identity: serverIdentitySchema,
+    runtime: preparedRuntimeSchema,
   }),
 ]);
 export type ConnectionCommand = z.infer<typeof connectionCommandSchema>;
+export type ClientConfigCommand = Extract<
+  ConnectionCommand,
+  {
+    type: "config.read" | "host.save" | "host.remove" | "host.select" | "preferences";
+  }
+>;
+const commandResults = {
+  "config.read": clientConfigSchema,
+  "host.save": clientConfigSchema,
+  "host.remove": clientConfigSchema,
+  "host.select": clientConfigSchema,
+  preferences: clientConfigSchema,
+  "wsl.list": z.array(z.string()),
+  "runtime.prepare": preparedRuntimeSchema,
+  "server.stop": z.null(),
+  "desktop.exit": z.null(),
+} satisfies Record<ConnectionCommand["type"], z.ZodType>;
+export type ConnectionCommandResult<C extends ConnectionCommand> = z.infer<
+  (typeof commandResults)[C["type"]]
+>;
+/** The native IPC boundary validates a result once before callers use it. */
+export function parseConnectionCommandResult<C extends ConnectionCommand>(
+  command: C,
+  value: unknown,
+): ConnectionCommandResult<C> {
+  return commandResults[command.type].parse(value) as ConnectionCommandResult<C>;
+}

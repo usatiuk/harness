@@ -10,7 +10,8 @@ import { z } from "zod";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { forwardBridgeInput } from "./bridge-input.ts";
 import type { RpcConnection } from "@harness/client";
-import { hostSchema, type Host } from "./contracts.ts";
+import { hostSchema, type RemoteHost, type PreparedRuntime } from "./contracts.ts";
+export type { RemoteHost, PreparedRuntime } from "./contracts.ts";
 
 async function cleanupAfter<T>(work: Promise<T>, cleanup: () => Promise<void>): Promise<T> {
   const [result] = await Promise.allSettled([work]);
@@ -27,7 +28,6 @@ async function cleanupAfter<T>(work: Promise<T>, cleanup: () => Promise<void>): 
   return result.value;
 }
 
-export type RemoteHost = Exclude<Host, { kind: "local" }>;
 export interface RemoteOptions {
   /** Process-edge override for isolated OpenSSH qualification, never a saved host setting. */
   sshConfigFile?: string;
@@ -194,15 +194,6 @@ const NODE_URL = `https://nodejs.org/dist/v${NODE_VERSION}/${NODE_ARCHIVE}`;
 /** Every mutable installation directory is private to the executing OS user. */
 const privateDirectory = (path: string): string =>
   `mkdir -p ${q(path)}; cursor=$(readlink -f ${q(path)}); leafMode=$(stat -c %a "$cursor"); test $((0$leafMode & 0022)) = 0 || { echo 'Runtime directory is writable by other users' >&2; exit 1; }; uid=$(id -u); while :; do owner=$(stat -c %u "$cursor"); mode=$(stat -c %a "$cursor"); test "$owner" = "$uid" || test "$owner" = 0 || { echo 'Runtime ancestry belongs to another user' >&2; exit 1; }; if test $((0$mode & 0022)) != 0 && test $((0$mode & 01000)) = 0; then echo 'Runtime ancestry is writable by other users' >&2; exit 1; fi; test "$cursor" = / && break; cursor=$(dirname "$cursor"); done; test "$(stat -c %u ${q(path)})" = "$uid" || { echo 'Runtime directory belongs to another user' >&2; exit 1; };`;
-
-export interface PreparedRuntime {
-  node: string;
-  directory: string;
-  home: string;
-  buildId: string;
-  dependencyKey: string;
-  transferred: boolean;
-}
 
 async function cachedNodeArchive(signal?: AbortSignal): Promise<string> {
   const cache = join(defaultHome(), "downloads");

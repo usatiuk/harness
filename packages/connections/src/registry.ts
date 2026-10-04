@@ -9,7 +9,7 @@ import {
   type ClientConfig,
   type Host,
 } from "./contracts.ts";
-import { replaceJson } from "./local.ts";
+import { replaceJson } from "./json-file.ts";
 
 /** This path belongs to the controlling client; remote HARNESS_HOME never changes it. */
 export const clientConfigPath = (): string => join(defaultHome(), "client.json");

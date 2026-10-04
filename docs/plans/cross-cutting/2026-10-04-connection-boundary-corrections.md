@@ -1,6 +1,6 @@
 # Connection boundary corrections
 
-Date: 2026-10-04. Status: Active.
+Date: 2026-10-04. Status: Complete.
 
 ## Outcome
 
@@ -34,7 +34,7 @@ features, profiles, compatibility paths or universal client controller.
   - Completion: actual process/public RPC regressions establish prompt Local
     cancellation, retained server ownership, clean failed attachment bookkeeping,
     concurrent attachment safety and useful redacted diagnostics.
-- [ ] **3. Narrow contracts and remove client/server coupling.** Depends on 2.
+- [x] **3. Narrow contracts and remove client/server coupling.** Depends on 2.
   - Keep TUI session UI/helpers separate from launch entrypoints; remove server
     implementation re-exports from client modules and the launcher/screen cycle.
   - Derive provisioning types from their contract; type command results at the
@@ -43,7 +43,7 @@ features, profiles, compatibility paths or universal client controller.
     policy and classification in the common Node layer.
   - Completion: types, affected tests, runtime module graph and browser build
     verify the boundaries. No new generic orchestration framework.
-- [ ] **4. Validation, independent review and handoff.** Depends on 1–3.
+- [x] **4. Validation, independent review and handoff.** Depends on 1–3.
   - Run affected tests and npm run check; rerun actual native/remote qualification
     where lifecycle or launch changes require it.
   - Obtain three read-only reviews for authority/correctness, lifetime/failures,
@@ -76,6 +76,42 @@ attachment/preparation coverage passes. Composition diagnostics include the meth
 and fixed error class and exclude injected private exception content and names.
 TypeScript and targeted ESLint pass.
 
-Milestones 3–4 remain open. Earlier unreproduced validation
+Milestone 3: typed Local/remote prerequisites, schema-derived provisioning and
+command results, separate TUI screen/session/launch modules, and a neutral JSON
+file helper remove the reported leaks and duplicates. Sandbox configuration now
+has one Node-independent source; approval/sandbox presentation imports use their
+existing client subpaths. Esbuild's workspace graph contains 91 modules, no runtime
+cycles and no server composition or execution implementation imports. Focused
+cleanup checks pass 32 tests, and review-driven manager/sandbox/TUI checks pass 20.
+TypeScript and ESLint pass; the desktop browser/native build succeeds.
+
+Three independent read-only reviews found additional queued-admission,
+already-draining native closure and captured stop-resource races, plus two client
+barrel import leaks. These are fixed within existing owners/contracts. New paired
+manager tests cover queued connect/upload cancellation and replacement survival;
+the deterministic Rust regression passes and gates shutdown on actual shared
+bridge completion. All three review follow-ups report no remaining actionable
+findings. No implementation delegation was used.
+
+Final evidence: npm run check passes TypeScript, ESLint, Prettier and 998 tests
+(116 passing files, 9 skipped files, 36 skipped tests; 58.31s Vitest execution).
+Rebuilt Windows native application: all five connection/exit/actual WSL tests
+pass (1.5m). Actual Ubuntu WSL and isolated Docker/OpenSSH plus rendered TUI:
+five tests across two files pass (60.42s). Rust's deterministic shared-drainage
+regression passes. Esbuild's 91-module TUI workspace graph is cycle-free and
+contains no server composition or agent execution implementation imports.
+No platform claim is inferred from substituted adapter tests. No required scoped
+behavior remains open. The two work increments are 97f0e98 and 1f00a2b; the tied
+third increment removes module/type/config duplication and incorporates the
+review-driven ownership corrections.
+
+Validation observation: the first full check passed 993 tests but one stdio test's
+temporary directory removal failed with Windows EBUSY. Its focused rerun passes.
+No remaining fixture descendants were found when subsequently inspected. The
+specific transient lock owner/cause is unknown; no retries, timeout changes or
+product fix are claimed. Subsequent checks first caught a typed cancellation-error
+lint issue and newly extracted files needing formatting; those are corrected.
+
+Earlier unreproduced validation
 observations stay in the preceding delivery plan; do not claim these corrections
 explain failures without a matching reproduction.

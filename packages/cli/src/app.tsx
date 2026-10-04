@@ -26,7 +26,7 @@ import {
   sandboxConfigSchema,
   type SandboxBackend,
   type SandboxPhase,
-} from "@harness/sandbox";
+} from "@harness/sandbox/client";
 import { init, reduce, type Cell, type State } from "./transcript-reducer.ts";
 import { presetsFor, runCommand, type CommandContext } from "./commands.ts";
 import { ModelPicker, PresetPicker } from "./model-picker.tsx";

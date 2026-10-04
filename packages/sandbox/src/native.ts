@@ -13,7 +13,7 @@ import {
   type Relationship,
   type SpawnedProcess,
 } from "@harness/execution";
-import type { NativeSandboxConfig } from "./plugin.ts";
+import type { NativeSandboxConfig } from "./config.ts";
 
 function denied(operation: string, path: string): Error {
   return Object.assign(new Error(`${operation} denied by native sandbox: ${path}`), {

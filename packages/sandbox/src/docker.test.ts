@@ -23,7 +23,7 @@ vi.mock("./devcontainer.ts", async (importOriginal) => ({
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
-const { dockerSandboxConfigSchema } = await import("./plugin.ts");
+const { dockerSandboxConfigSchema } = await import("./config.ts");
 
 const te = new TextEncoder();
 const td = new TextDecoder();

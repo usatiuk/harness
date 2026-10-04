@@ -1,6 +1,6 @@
 import { type ReactElement } from "react";
 import { Box, Text, useInput } from "ink";
-import type { SandboxBackend, SandboxPhase } from "@harness/sandbox";
+import type { SandboxBackend, SandboxPhase } from "@harness/sandbox/client";
 
 /** Imperative handles + state snapshot the overlay renders; actions report their result via notes. */
 export interface SandboxView {

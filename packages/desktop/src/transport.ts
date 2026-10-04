@@ -1,4 +1,9 @@
-import type { Host, ConnectionCommand } from "@harness/connections";
+import {
+  parseConnectionCommandResult,
+  type HostConnectionTarget,
+  type ConnectionCommand,
+  type ConnectionCommandResult,
+} from "@harness/connections";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import {
   AbstractMessageReader,
@@ -105,8 +110,7 @@ class NativeWriter extends AbstractMessageWriter {
 }
 
 export async function connectNative(
-  host: Host,
-  runtime: unknown,
+  target: HostConnectionTarget,
   onClosed: (message: string) => void,
 ) {
   const reader = new NativeReader();
@@ -156,7 +160,7 @@ export async function connectNative(
   };
   let id: number;
   try {
-    id = await invoke<number>("server_connect", { channel, host, runtime });
+    id = await invoke<number>("server_connect", { channel, ...target });
     resolveId(id);
   } catch (error) {
     resolveId(undefined);
@@ -172,11 +176,11 @@ export async function connectNative(
   connection.onDispose(() => void close());
   return { connection, close };
 }
-export async function connectionCommand(
-  command: ConnectionCommand,
+export async function connectionCommand<C extends ConnectionCommand>(
+  command: C,
   progress?: (message: string) => void,
   signal?: AbortSignal,
-): Promise<unknown> {
+): Promise<ConnectionCommandResult<C>> {
   signal?.throwIfAborted();
   let id: number | undefined;
   let canceling: Promise<void> | undefined;
@@ -214,5 +218,5 @@ export async function connectionCommand(
     throw new Error(typeof failure === "string" ? failure : "Connection command failed", {
       cause: failure,
     });
-  return result;
+  return parseConnectionCommandResult(command, result);
 }

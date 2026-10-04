@@ -1,5 +1,5 @@
-import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath, rename, writeFile, chmod, stat, rm } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdir, readFile, realpath, chmod, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -91,16 +91,6 @@ export function serverSecretStore(directory: string) {
   return process.platform === "win32"
     ? new DpapiSecretStore(join(directory, "auth.dpapi"))
     : new FileSecretStore(join(directory, "auth.json"));
-}
-
-export async function replaceJson(path: string, value: unknown): Promise<void> {
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    await rename(temporary, path);
-  } finally {
-    await rm(temporary, { force: true });
-  }
 }
 
 export async function readDiscovery(home: string): Promise<ServerDiscovery | null> {

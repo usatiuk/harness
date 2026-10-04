@@ -1,16 +1,11 @@
+import { ACTIVITY_APPROVAL_DEFAULTS } from "@harness/server";
+import { launch } from "./index.tsx";
+import type { CliService } from "./client-harness.ts";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
 import type { Conversation, ConversationId } from "@harness/protocol";
 import { ActivityManager, type Activity, type ActivityResult } from "@harness/activities";
-import {
-  ACTIVITY_APPROVAL_DEFAULTS,
-  launch,
-  launchOverrides,
-  loadSession,
-  Root,
-  type Session,
-  type CliService,
-} from "./index.tsx";
+import { launchOverrides, loadSession, Root, type Session } from "./session-app.tsx";
 import { testPlugins } from "./test-plugins.ts";
 import type { CliPlugins } from "./client-plugins.ts";
 

@@ -56,14 +56,17 @@ root. They may depend on protocol and narrower feature contracts, but the kernel
 does not import provider, workspace, sandbox, approval, activity, or subagent
 packages.
 
-## Active delivery
-
-The [connection boundary corrections](docs/plans/cross-cutting/2026-10-04-connection-boundary-corrections.md)
-resolve the architecture audit's authority, native closure, cancellation,
-bookkeeping, diagnostics and client/server coupling findings. The existing
-Local/WSL/SSH product scope remains unchanged.
-
 ## Recent delivery
+
+Completed the [connection boundary corrections](docs/plans/cross-cutting/2026-10-04-connection-boundary-corrections.md):
+shared-registry route authority, physical/native drainage, Local cancellation,
+failed ownership, safe diagnostics and TUI client/server separation. Typed
+contracts and shared configuration sources replace loose results and implementation
+barrel imports. Three independent reviews and their follow-ups report no remaining
+actionable findings. Full validation passes 998 tests; rebuilt native and real
+SSH/WSL/TUI qualification pass five cases each. The existing Local/WSL/SSH product
+scope remains unchanged; the plan records an earlier unreproduced Windows EBUSY
+teardown observation without claiming a cause or fix.
 
 Completed shared background servers and Local/WSL/SSH connections for desktop
 and TUI in [the delivery plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
@@ -73,7 +76,7 @@ and rendered TUI WSL conversations survive host switching and client exit, then
 reattach to the same owner and finish pending work. Managed/development deployment
 passes on Ubuntu WSL and isolated OpenSSH. Local retains both browser and device
 sign-in; remote hosts use device codes without callback forwarding. Full local
-validation passes 976 tests. The plan records independent review, scope cleanup,
+validation passed 976 tests at that delivery. The plan records independent review, scope cleanup,
 platform evidence and earlier unreproduced test failures.
 
 ## Current implementation status

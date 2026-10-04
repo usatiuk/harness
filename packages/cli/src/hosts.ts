@@ -7,13 +7,13 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { defaultHome } from "@harness/config";
 import {
-  clientConfigSchema,
   serverInfoRequest,
   sameExecutionTarget,
   type ClientConfig,
   type Host,
   type ServerIdentity,
   type ConnectionCommand,
+  type ClientConfigCommand,
 } from "@harness/connections";
 import {
   ensureLocalServer,
@@ -102,9 +102,9 @@ export class TuiHosts {
     }
     this.changed();
   }
-  private updateConfig(command: ConnectionCommand): Promise<void> {
+  private updateConfig(command: ClientConfigCommand): Promise<void> {
     const result = this.configTail.then(async () =>
-      this.accept(clientConfigSchema.parse(await runConnectionCommand(command, ""))),
+      this.accept(await runConnectionCommand(command, "")),
     );
     this.configTail = result.catch(() => undefined);
     return result;
@@ -141,9 +141,6 @@ export class TuiHosts {
     await this.connect(id);
   }
   connect(id: string): Promise<TuiHostView> {
-    return this.configTail.then(() => this.connectReady(id));
-  }
-  private connectReady(id: string): Promise<TuiHostView> {
     if (this.stopping) return Promise.reject(new Error("TUI is shutting down"));
     const pending = this.operations.get(id);
     if (pending) {
@@ -152,10 +149,23 @@ export class TuiHosts {
       return pending.result;
     }
     const abort = new AbortController();
-    const result = this.open(id, abort.signal);
+    const result = this.configReady(abort.signal).then(() => {
+      if (this.stopping) throw new Error("TUI is shutting down");
+      return this.open(id, abort.signal);
+    });
     this.operations.set(id, { kind: "connect", abort, result });
     void result.finally(() => this.operations.delete(id)).catch(() => undefined);
     return result;
+  }
+  private configReady(signal: AbortSignal): Promise<void> {
+    let cancel!: () => void;
+    const ready = new Promise<void>((resolve, reject) => {
+      cancel = () => reject(new DOMException("Connection attempt cancelled", "AbortError"));
+      signal.addEventListener("abort", cancel, { once: true });
+      this.configTail.then(resolve, reject);
+      if (signal.aborted) cancel();
+    });
+    return ready.finally(() => signal.removeEventListener("abort", cancel));
   }
   private async prepare(view: TuiHostView, signal: AbortSignal): Promise<PreparedRuntime> {
     const host = view.host;
@@ -270,13 +280,14 @@ export class TuiHosts {
     await this.connect(id);
   }
   async refresh(id: string): Promise<void> {
-    await this.configTail;
     if (this.stopping) throw new Error("TUI is shutting down");
-    const view = this.views.get(id);
-    if (!view || view.host.kind === "local") return;
     if (this.operations.has(id)) throw new Error("Host operation is in progress");
     const abort = new AbortController();
-    const result = (async () => {
+    const result = this.configReady(abort.signal).then(async () => {
+      if (this.stopping) throw new Error("TUI is shutting down");
+      const view = this.views.get(id);
+      if (!view) throw new Error("Unknown host");
+      if (view.host.kind === "local") return view;
       try {
         view.runtime = await this.prepare(view, abort.signal);
         return view;
@@ -284,7 +295,7 @@ export class TuiHosts {
         delete view.progress;
         this.changed();
       }
-    })();
+    });
     this.operations.set(id, { kind: "refresh", abort, result });
     try {
       await result;
@@ -295,17 +306,26 @@ export class TuiHosts {
   async stop(id: string): Promise<void> {
     const view = this.views.get(id);
     if (!view?.identity) throw new Error("Connect before stopping this host");
+    const harness = view.harness;
+    if (view.host.kind !== "local" && !view.runtime)
+      throw new Error("Missing prepared remote runtime");
     await runConnectionCommand(
       {
         type: "server.stop",
-        host: view.host,
+        ...(view.host.kind === "local"
+          ? { host: view.host, runtime: null }
+          : { host: view.host, runtime: view.runtime! }),
         identity: view.identity,
-        runtime: view.runtime ?? null,
       },
       "",
       { env: this.env },
     );
-    await this.disconnect(id);
+    await harness?.close();
+    if (view.harness === harness) {
+      delete view.harness;
+      view.disconnected = true;
+      this.changed();
+    }
   }
   async restart(id: string): Promise<void> {
     await this.refresh(id);

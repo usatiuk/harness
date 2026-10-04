@@ -37,7 +37,7 @@ it("adopts external route edits and removals before reusing a saved connection",
   let config = { ...defaultClientConfig(), hosts: [...defaultClientConfig().hosts, remote] };
   native.command.mockImplementation(async () => config);
   native.disconnect.mockResolvedValue(undefined);
-  native.connect.mockImplementation(async (host: Host) => {
+  native.connect.mockImplementation(async ({ host }: { host: Host }) => {
     const pair = createInProcessMessageConnectionPair();
     connections.push(pair.left, pair.right);
     const server = new RpcPeer({ role: "server", connection: pair.right });
@@ -96,7 +96,7 @@ it("adopts external route edits and removals before reusing a saved connection",
   await hosts.select("remote");
   expect(previous.client.peer.ready).toBe(false);
   expect(hosts.selected!.session).not.toBe(previous);
-  expect(native.connect.mock.lastCall?.[0]).toMatchObject({ destination: "second" });
+  expect(native.connect.mock.lastCall?.[0]).toMatchObject({ host: { destination: "second" } });
   const second = hosts.selected!.session!;
   config = defaultClientConfig();
   await hosts.edit({ type: "preferences", keepServerRunning: true });
@@ -113,16 +113,14 @@ function stalledPeer() {
     connected = resolve;
   });
   native.command.mockResolvedValue(defaultClientConfig());
-  native.connect.mockImplementation(
-    async (_host, _runtime, onClosed: (message: string) => void) => {
-      native.disconnect.mockImplementation(async () => {
-        onClosed("Harness server disconnected");
-        pair.right.dispose();
-      });
-      connected();
-      return { connection: pair.left, close: () => native.disconnect(1) };
-    },
-  );
+  native.connect.mockImplementation(async (_target, onClosed: (message: string) => void) => {
+    native.disconnect.mockImplementation(async () => {
+      onClosed("Harness server disconnected");
+      pair.right.dispose();
+    });
+    connected();
+    return { connection: pair.left, close: () => native.disconnect(1) };
+  });
   return started;
 }
 

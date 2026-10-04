@@ -58,7 +58,7 @@ afterEach(() => vi.resetAllMocks());
 
 it("RPC closure and manager teardown detach the same native observer exactly once", async () => {
   const owner = fixture();
-  const transport = await connectNative(LOCAL_HOST, null, vi.fn());
+  const transport = await connectNative({ host: LOCAL_HOST, runtime: null }, vi.fn());
   const client = new HarnessClient({
     connection: transport.connection,
     client: { name: "test", version: "1" },
@@ -75,7 +75,7 @@ it.each(["protocol", "malformed", "oversized", "write-limit", "write", "ack"])(
   "%s failure releases the physical observer and stops crediting discarded frames",
   async (failure) => {
     const owner = fixture();
-    const transport = await connectNative(LOCAL_HOST, null, vi.fn());
+    const transport = await connectNative({ host: LOCAL_HOST, runtime: null }, vi.fn());
     const client = new HarnessClient({
       connection: transport.connection,
       client: { name: "test", version: "1" },
@@ -128,7 +128,7 @@ it("failure before native admission returns still detaches the admitted bridge",
     if (command === "server_connect") await ready;
     return result;
   });
-  const connecting = connectNative(LOCAL_HOST, null, vi.fn());
+  const connecting = connectNative({ host: LOCAL_HOST, runtime: null }, vi.fn());
   const rejected = expect(connecting).rejects.toThrow();
   owner.emit("{");
   admit();
@@ -145,7 +145,7 @@ it("reports physical teardown failure instead of hiding it behind logical closur
     return invoke(command, args);
   });
   const onClosed = vi.fn();
-  const transport = await connectNative(LOCAL_HOST, null, onClosed);
+  const transport = await connectNative({ host: LOCAL_HOST, runtime: null }, onClosed);
   await expect(transport.close()).rejects.toThrow("Fixture detach failure");
   expect(onClosed).toHaveBeenCalledWith("Could not detach the native Harness bridge");
 });

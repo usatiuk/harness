@@ -1,3 +1,4 @@
+import { registerFeatureServer as registerCliPluginServer } from "@harness/server";
 import { registerApprovalServer } from "@harness/server/approvals";
 import { HarnessRpcHost } from "@harness/service";
 // A separate server process with real protocol/plugin composition and an isolated database.
@@ -8,7 +9,7 @@ import { activitiesPlugin } from "@harness/activities";
 import { sandboxPlugin } from "@harness/sandbox";
 import { workspacePlugin } from "@harness/workspace";
 import { APPROVAL_CLIENT_CONTRACT_VERSION, approvalPlugin } from "@harness/approval";
-import { CLI_PLUGIN_CONTRACTS, registerCliPluginServer } from "./client-plugins.ts";
+import { CLI_PLUGIN_CONTRACTS } from "./client-plugins.ts";
 import { DemoProvider } from "./demo-provider.ts";
 
 const connection = createNdjsonMessageConnection(process.stdin, process.stdout);

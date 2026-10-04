@@ -1,3 +1,4 @@
+import { registerFeatureServer as registerCliPluginServer } from "@harness/server";
 import { approvalDecideRequest } from "@harness/approval";
 import { HarnessRpcHost } from "@harness/service";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,11 +17,7 @@ import {
   ApprovalClient,
   approvalCreatedNotification,
 } from "@harness/approval";
-import {
-  CLI_PLUGIN_CONTRACTS,
-  CliPluginClient,
-  registerCliPluginServer,
-} from "./client-plugins.ts";
+import { CLI_PLUGIN_CONTRACTS, CliPluginClient } from "./client-plugins.ts";
 
 const homes: string[] = [];
 const fixtures: Array<{ host: HarnessRpcHost; session: HarnessRpcSession; store: SqliteStore }> =

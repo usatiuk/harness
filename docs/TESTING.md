@@ -34,6 +34,20 @@ isolation, unsafe existing homes, initialized-client stop and classified startup
 failure. A real bridge against an authenticated paused receiver verifies EOF
 detachment with outbound backpressure. Registry tests include concurrent edits
 by separate client processes.
+
+Architecture-correction regressions exercise shared-registry route replacement,
+removal and metadata retention through real in-process RPC peers. Native-adapter
+tests substitute Tauri to verify normal/protocol/malformed/oversized/write/ack
+closure, early admission failure, failed detach and discarded-frame credit.
+Paired desktop/TUI manager gates qualify cancellation before registry adoption
+and a replacement observer surviving an old stop request. These are adapter and
+manager evidence; rebuilt native Local cases establish actual process detachment
+and owner/exit behavior. The native Rust completion-gate regression verifies app
+shutdown waits for an already-draining bridge. Actual Local process gates cancel
+before readiness, then establish the captured owner's independent completion.
+Public RPC and engine tests cover failed first ownership, preserved registered
+children and redacted method/class diagnostics. The TUI workspace runtime graph
+contains 91 modules, with no cycles or execution implementation imports.
 These passed on native Windows. Common provisioning/reconnect tests also pass on
 real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Five native GUI cases
 qualify Local-first editing, disconnected management, reconnect, persistent exit
@@ -47,8 +61,16 @@ Local cache regression covers Windows-only dependency invalidation. SSH BatchMod
 cases reject password-only and unknown-host routes without prompting. Current delivery evidence is tracked in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
-The final full check passes 976 tests. Earlier unreproduced RPC errors and a
-QuickJS test timeout remain recorded in the plan's validation observations;
+The current full check passes 998 tests (116 passing files, 36 skipped tests).
+Rebuilt native connection qualification passes five cases; actual SSH/WSL and
+rendered TUI qualification passes five cases across two files. The native Rust
+shutdown regression passes. Three independent reviews and follow-ups report no
+remaining actionable findings in the
+[correction plan](plans/cross-cutting/2026-10-04-connection-boundary-corrections.md).
+An earlier full run had a stdio fixture directory removal fail with Windows EBUSY;
+its focused rerun and final full check pass, but the transient lock owner/cause
+remains unknown. Earlier unreproduced RPC errors and a QuickJS test timeout remain
+recorded in the preceding plan's validation observations;
 passing reruns are not evidence of a cause or fix. Fixture RPC failures include
 their server startup log before cleanup. A sandbox-blocked Vitest startup was
 retried outside the sandbox, without changing tests or timeouts.

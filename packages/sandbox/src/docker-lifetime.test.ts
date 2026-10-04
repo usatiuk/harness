@@ -46,7 +46,7 @@ vi.mock("node:child_process", async (original) => ({
 }));
 
 const { DockerExecutionContext } = await import("./docker.ts");
-const { dockerSandboxConfigSchema } = await import("./plugin.ts");
+const { dockerSandboxConfigSchema } = await import("./config.ts");
 const { capture } = await import("./docker-cli.ts");
 const created: string[] = [];
 beforeEach(() => {

@@ -1,5 +1,6 @@
 import { Command } from "commander";
-import { launch, runStdioServer } from "./index.tsx";
+import { launch } from "./index.tsx";
+import { runStdioServer } from "@harness/server";
 import { runLogin, runLogout, runStatus } from "./auth-app.tsx";
 import { runSandboxShell, runSandboxStop } from "./sandbox-cli.ts";
 import { runBackgroundServer } from "@harness/server/background";

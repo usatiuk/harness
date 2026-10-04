@@ -46,8 +46,6 @@ export function ConnectionEditor({
   };
   const discover = async (signal: AbortSignal): Promise<void> => {
     const result = await connectionCommand({ type: "wsl.list" }, undefined, signal);
-    if (!Array.isArray(result) || !result.every((item) => typeof item === "string"))
-      throw new Error("Invalid WSL discovery result");
     setDistributions(result);
   };
   const create = (kind: "ssh" | "wsl"): void => {

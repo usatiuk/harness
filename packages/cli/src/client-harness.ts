@@ -12,7 +12,7 @@ import {
   type HarnessClientService,
   type RpcConnection,
 } from "@harness/client";
-import { APPROVAL_CLIENT_CONTRACT_VERSION, ApprovalClient } from "@harness/approval";
+import { APPROVAL_CLIENT_CONTRACT_VERSION, ApprovalClient } from "@harness/approval/client";
 import { appProvidersRequest, type ProviderStatus } from "@harness/server/client-protocol";
 import { CLI_PLUGIN_CONTRACTS, CliPluginClient } from "./client-plugins.ts";
 export interface CliService extends HarnessClientService {

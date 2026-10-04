@@ -16,7 +16,8 @@ import {
 } from "@harness/server/client-protocol";
 import { formatError } from "@harness/protocol";
 import { TuiHosts, type TuiHostView } from "./hosts.ts";
-import { loadSession, Root, launchOverrides, type Start, type LaunchOptions } from "./index.tsx";
+import { loadSession, Root, launchOverrides, type Start } from "./session-app.tsx";
+import type { LaunchOptions } from "./launch-options.ts";
 
 export async function launchConnected(options: LaunchOptions): Promise<void> {
   if (options.host && options.ssh) throw new Error("Choose --host or --ssh");

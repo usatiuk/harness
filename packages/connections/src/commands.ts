@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { connectionCommandSchema } from "./contracts.ts";
+import { type ConnectionCommand, type ConnectionCommandResult } from "./contracts.ts";
 export { connectionCommandSchema, preparedRuntimeSchema } from "./contracts.ts";
 export type { ConnectionCommand } from "./contracts.ts";
 import { HarnessClient } from "@harness/client";
@@ -21,12 +21,16 @@ import {
 } from "./remote.ts";
 
 /** Native and terminal clients use this same validated registry/provisioning boundary. */
+export function runConnectionCommand<C extends ConnectionCommand>(
+  value: C,
+  payload: string,
+  options?: RemoteOptions,
+): Promise<ConnectionCommandResult<C>>;
 export async function runConnectionCommand(
-  value: unknown,
+  command: ConnectionCommand,
   payload: string,
   options: RemoteOptions = {},
-): Promise<unknown> {
-  const command = connectionCommandSchema.parse(value);
+): Promise<ConnectionCommandResult<ConnectionCommand>> {
   switch (command.type) {
     case "config.read":
       return readClientConfig();
@@ -60,15 +64,13 @@ export async function runConnectionCommand(
       return null;
     }
     case "runtime.prepare": {
-      if (command.host.kind === "local") throw new Error("Local uses the bundled runtime");
       return prepareRemoteRuntime(command.host, payload, options);
     }
     case "server.stop": {
-      if (command.host.kind === "local") {
+      if (command.runtime === null) {
         await stopServer(command.identity);
         return null;
       }
-      if (!command.runtime) throw new Error("Missing prepared remote runtime");
       await stopRemoteServer(command.host, command.runtime, command.identity, options);
       return null;
     }
