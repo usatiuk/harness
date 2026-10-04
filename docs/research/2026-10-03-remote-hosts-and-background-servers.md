@@ -39,7 +39,7 @@ and delivery requirements.
 ## Existing foundation and constraints
 
 The [current interface architecture](../subsystems/interface/README.md) and
-[protocol v1](../protocol/client-v1.md) already put both clients on the same
+[client protocol](../protocol/client.md) already put both clients on the same
 bidirectional JSON-RPC boundary. The TUI can run the fixed SSH command
 `ssh -T -- <destination> harness server --stdio`; the remote installation must
 already exist. The previous [transport delivery](../plans/cross-cutting/2026-08-15-transport-agnostic-client-server.md)
@@ -70,10 +70,9 @@ Important source boundaries:
 
 The existing database lock should remain the final exclusion authority. Discovery
 and attachment must complement it rather than introduce a second canonical lock.
-Completed conversation history survives normal restart; in-flight work does not
-resume. The database is currently a disposable pre-release format, so remote
-upgrades cannot promise transcript preservation without addressing the existing
-schema-compatibility policy.
+The database is disposable and only its current format is supported. Unsupported
+databases require a manual reset; no migration or older-format compatibility
+is part of remote provisioning.
 
 ## Proposed server and host model
 
@@ -169,8 +168,8 @@ server state without automatically resubmitting mutations. Fresh history/pending
 input/status shows the current conversation; it need not prove which identical
 message belonged to an unacknowledged request. Any resend remains an explicit user
 decision. Automatic mutation retry and its delivery-deduplication machinery are
-outside the initial scope. Changed closure/approval semantics still require
-explicit protocol evolution rather than silently changing the v1 contract.
+outside the initial scope. There is one current closure/approval contract;
+older protocol implementations and schemas are removed.
 
 ## Client and server configuration
 
@@ -356,7 +355,7 @@ default distro shortcut can use the same flow rather than a separate connection
 type. Do not assume one WSL distro per PC.
 
 The SSH editor accepts an existing OpenSSH host alias or a destination with
-user/port options. Provide a display label and the same optional target-home and
+optional user prefix. Custom ports and keys belong in .ssh/config. Provide a display label and the same optional target-home and
 runtime controls. Reuse SSH configuration and authentication instead of exposing
 arbitrary shell-command templates in the ordinary connection form.
 
@@ -420,5 +419,5 @@ the existing `server --stdio` entry cannot establish background/reconnect behavi
 - Choose local exit and zero-client idle policies; keep remote stopping explicit.
 - Select the first qualified remote platform and package distribution route.
 - Select authenticated host-local IPC after platform evidence.
-- Define remote OAuth and update/data-compatibility behavior before claiming
+- Define remote OAuth and explicit update/restart behavior before claiming
   complete onboarding and unattended upgrades.

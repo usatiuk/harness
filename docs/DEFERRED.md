@@ -56,13 +56,11 @@ Harness tool dispatcher.
 
 ## Stable database compatibility
 
-Harness is pre-release and the SQLite store is disposable. Schema migrations may
-clear conversation-scoped data when preserving an obsolete shape would add
-compatibility machinery or weaken invariants. This keeps current development
-simple but means the database is not yet a stable user-data format.
+The user explicitly selected one current protocol and database format. Harness
+is pre-release with no users; unsupported databases require a manual reset.
+There are no migration fixtures or older-format compatibility adapters.
 
-Reopen before a release promises conversation preservation across versions; from
-that point, retain migration fixtures for every supported schema.
+Reopen only when the product explicitly promises preservation across versions.
 
 ## Project discovery with a custom Harness home
 

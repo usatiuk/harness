@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://harness.local/protocol/client-v2.schema.json",
-  "title": "Harness client protocol v2",
+  "$id": "https://harness.local/protocol/client.schema.json",
+  "title": "Harness client protocol",
   "$defs": {
     "initialize_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2343,6 +2343,19 @@
       "required": ["accepted"],
       "additionalProperties": false
     },
+    "server_release_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "server_release_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "stopping": { "type": "boolean" } },
+      "required": ["stopping"],
+      "additionalProperties": false
+    },
     "plugin_approval_decide_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -3171,6 +3184,13 @@
       "direction": "client-to-server",
       "params": { "$ref": "#/$defs/server_stop_params" },
       "result": { "$ref": "#/$defs/server_stop_result" }
+    },
+    {
+      "method": "server.release",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/server_release_params" },
+      "result": { "$ref": "#/$defs/server_release_result" }
     },
     {
       "method": "plugin.approval.decide",

@@ -36,13 +36,14 @@ import {
   appAuthLogoutRequest,
   appAuthUrlNotification,
 } from "@harness/server/client-protocol";
-import { serverInfoRequest, serverStopRequest } from "@harness/connections";
+import { serverInfoRequest, serverStopRequest, serverReleaseRequest } from "@harness/connections";
 
 const messages: readonly RpcMessage[] = [
   initializeRequest,
   ...coreRpcMessages,
   serverInfoRequest,
   serverStopRequest,
+  serverReleaseRequest,
   approvalDecideRequest,
   approvalCreatedNotification,
   approvalResolvedNotification,
@@ -101,8 +102,8 @@ definitions.approval_snapshot = z.toJSONSchema(approvalsSnapshotSchema, {
 
 const document = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://harness.local/protocol/client-v2.schema.json",
-  title: "Harness client protocol v2",
+  $id: "https://harness.local/protocol/client.schema.json",
+  title: "Harness client protocol",
   $defs: definitions,
   "x-harness-messages": manifest,
   "x-harness-snapshots": {
@@ -112,7 +113,7 @@ const document = {
   },
 };
 
-const output = resolve("docs/protocol/client-v2.schema.json");
+const output = resolve("docs/protocol/client.schema.json");
 await mkdir(resolve("docs/protocol"), { recursive: true });
 await writeFile(
   output,

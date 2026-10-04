@@ -27,7 +27,7 @@ service defaults
 ```
 
 `HARNESS_HOME` overrides `~/.harness` for an isolated profile. The shared shipped
-server acquires exclusive SQLite ownership before migrations and runtime startup.
+server acquires exclusive SQLite ownership before schema initialization and runtime startup.
 The background owner now supports authenticated multi-client attachment through
 loopback TCP and a disposable stdio bridge. GUI/TUI default launchers reuse that
 owner; explicit stdio mode retains its isolated composition.
@@ -40,7 +40,7 @@ cross-process filesystem lock. Configured remote homes do not change this
 client-side path. Both clients offer host editors and lifecycle controls. SSH
 accepts a destination/alias and uses OpenSSH BatchMode; advanced SSH configuration
 belongs in .ssh/config. WSL distributions are discovered as editor choices.
-The isolated stdio launcher rejects host flags. Legacy local auth/sandbox utility
+The isolated stdio launcher rejects host flags. Local auth/sandbox utility
 subcommands also reject host flags; selected-host controls live in the command
 center. Created TUI conversations persist when that client exits.
 
@@ -52,8 +52,7 @@ opaque after central validation.
 
 Conversation records persist workspace root and overrides. The complete model
 and preset selection is pinned there at creation and survives resume/reload.
-Legacy records without a selection are pinned once on first activation using
-the current cascade. Explicit model/preset changes update that conversation and
+Explicit model/preset changes update that conversation and
 the global default for new conversations; other existing pinned conversations
 keep their selection. Other settings retain the cascade, including intentionally
 global approval policy. Configuration mutations are serialized by the service;
@@ -199,7 +198,7 @@ prepared execution backend as model-issued commands.
 
 ## Client boundary
 
-The reusable boundary is the [v2 bidirectional JSON-RPC protocol](../../protocol/client-v2.md),
+The reusable boundary is the [bidirectional JSON-RPC protocol](../../protocol/client.md),
 authored as strict Zod schemas with committed JSON Schema for non-TypeScript
 clients. `@harness/client` coordinates initialization, attachment, bounded
 history, and presentation-domain conversion. `@harness/service` owns dispatch

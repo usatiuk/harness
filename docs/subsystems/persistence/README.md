@@ -59,15 +59,16 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-Schema changes use ordered `user_version` migrations. Harness is pre-release and
-the database is currently disposable: migrations may intentionally clear
-conversation-scoped data instead of carrying compatibility machinery when the
-new invariant is simpler.
+Only the current SQLite format is supported. A fresh database receives the
+complete schema atomically. An existing database must carry the current
+`user_version`; an unsupported version or an unversioned populated database
+fails with a reset instruction. No migrations, old schemas, or automatic data
+rewrites are retained. Stop the server before resetting its disposable database.
 
 ## Configuration boundary
 
 The shipped server opens SQLite in exclusive mode with no busy retry before
-migrations or runtime/provider startup. A second server for the same database
+schema initialization or runtime/provider startup. A second server for the same database
 fails with a safe ownership error. The owner keeps its connection for the whole
 server lifetime and closes it after runtime shutdown; process exit/crash also
 releases the OS-managed SQLite lock. No separate PID lock or stale-lock recovery
@@ -97,14 +98,14 @@ resume.
 
 - `packages/protocol/src/store.ts`: persistence contract.
 - `packages/store`: in-memory implementation and defaults.
-- `packages/store-sqlite`: production schema, migrations, and implementation.
+- `packages/store-sqlite`: current production schema and implementation.
 - `packages/testkit`: shared store contract and fixtures.
 
 ## Verification
 
 The shared store contract exercises conversation creation, append/head behavior,
 active lineage, turns, payloads, usage, context builds, plugin state, blobs, and
-range reads against both stores. SQLite-specific tests cover migrations,
+range reads against both stores. SQLite-specific tests cover fresh-schema initialization, unsupported-format rejection,
 constraints, transactions, reopen behavior, and reconciliation prerequisites.
 Real stdio-server process tests establish exclusive contention, normal release,
 and reopen after a crash; native desktop tests additionally exercise rejection

@@ -4,7 +4,7 @@ import type BetterSqlite3 from "better-sqlite3";
  * Kysely row types. JSON columns (`overrides`/`body`/`payload`/`value`) are TEXT;
  * `blobs.data` is a real BLOB. `items.call_id` is denormalized out of `body` so the
  * `tool_result` partial unique index needs no JSON expression. The types describe the
- * CURRENT (post-migration) schema, which is what every query sees.
+ * current schema, which is what every query sees.
  */
 export interface Database {
   conversations: ConversationsTable;
@@ -94,7 +94,8 @@ interface ModelUsageTable {
 const SCHEMA = `
 CREATE TABLE conversations (
   id TEXT PRIMARY KEY,
-  config TEXT NOT NULL,
+  workspace_root TEXT,
+  overrides TEXT NOT NULL DEFAULT '{}',
   head TEXT REFERENCES items(id),
   created_at INTEGER NOT NULL
 );
@@ -151,9 +152,7 @@ CREATE TABLE context_builds (
   created_at INTEGER NOT NULL,
   data TEXT NOT NULL
 );
-`;
 
-const MODEL_USAGE = `
 CREATE TABLE model_usage (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversations(id),
@@ -168,40 +167,23 @@ CREATE TABLE model_usage (
 CREATE INDEX model_usage_conv ON model_usage(conversation_id);
 `;
 
-// v2 → v3: store `workspace_root` (identity) + an `overrides` layer; config is re-resolved from the
-// cascade on load. The store is disposable, so conversation-scoped data is WIPED, not backfilled from
-// old `config` blobs (reset chosen over migration). FKs are toggled off for the conversations
-// drop/recreate so no delete-ordering is needed, then restored — the connection retains the pragma
-// and the schema relies on FK enforcement.
-const CONVERSATIONS_OVERRIDES = `
-PRAGMA foreign_keys = OFF;
-DROP TABLE IF EXISTS conversations;
-CREATE TABLE conversations (
-  id TEXT PRIMARY KEY,
-  workspace_root TEXT,
-  overrides TEXT NOT NULL DEFAULT '{}',
-  head TEXT REFERENCES items(id),
-  created_at INTEGER NOT NULL
-);
-DELETE FROM items;
-DELETE FROM turns;
-DELETE FROM provider_payloads;
-DELETE FROM plugin_state;
-DELETE FROM context_builds;
-DELETE FROM model_usage;
-PRAGMA foreign_keys = ON;
-`;
+const SCHEMA_VERSION = 3;
 
-// Index i migrates user_version i → i+1; a fresh DB replays the whole list. Historical entries are
-// immutable (existing DBs already ran them); shape changes are appended, never edited.
-const MIGRATIONS = [SCHEMA, MODEL_USAGE, CONVERSATIONS_OVERRIDES];
-
-/** Idempotent bootstrap: applies pending migrations, gated on `user_version`. */
-export function migrate(db: BetterSqlite3.Database): void {
-  const version = db.pragma("user_version", { simple: true }) as number;
-  for (const [i, migration] of MIGRATIONS.entries()) {
-    if (i < version) continue;
-    db.exec(migration);
-    db.pragma(`user_version = ${i + 1}`);
-  }
+/** Open only the current format; fresh databases receive its complete schema atomically. */
+export function initializeSchema(db: BetterSqlite3.Database): void {
+  db.transaction(() => {
+    const version = db.pragma("user_version", { simple: true }) as number;
+    if (version === SCHEMA_VERSION) return;
+    const populated = db
+      .prepare(
+        "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1",
+      )
+      .get();
+    if (version !== 0 || populated)
+      throw new Error(
+        `Unsupported Harness database format (${version}). Stop the server and reset ${db.name}; database migrations are not supported.`,
+      );
+    db.exec(SCHEMA);
+    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  }).exclusive();
 }

@@ -114,16 +114,16 @@ As of 2026-10-03, Harness provides:
 
 ## Subsystems
 
-| Subsystem                   | Current architecture                                    | Active plan or next priority                                                             |
-| --------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Kernel                      | [Architecture](docs/subsystems/kernel/README.md)        | No selected kernel change; add seams only for concrete plugin needs.                     |
-| Persistence                 | [Architecture](docs/subsystems/persistence/README.md)   | No selected persistence change; branch navigation and stable migrations remain deferred. |
-| Models                      | [Architecture](docs/subsystems/models/README.md)        | [Transient reliability and named gateway catalogs](docs/subsystems/models/PLAN.md)       |
-| Execution and safety        | [Architecture](docs/subsystems/execution/README.md)     | [Native mutation containment](docs/subsystems/execution/PLAN.md)                         |
-| Context and compaction      | [Architecture](docs/subsystems/context/README.md)       | Observe v1; add another strategy only for a demonstrated need.                           |
-| Orchestration               | [Architecture](docs/subsystems/orchestration/README.md) | No selected change; MCP callable tools remain a next-plugin candidate.                   |
-| Configuration and interface | [Architecture](docs/subsystems/interface/README.md)     | [Diagnostics and supportability](docs/subsystems/interface/PLAN.md)                      |
-| Testing                     | [Architecture](docs/subsystems/testing/README.md)       | [Evidence for active reliability and security work](docs/subsystems/testing/PLAN.md)     |
+| Subsystem                   | Current architecture                                    | Active plan or next priority                                                                                       |
+| --------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Kernel                      | [Architecture](docs/subsystems/kernel/README.md)        | No selected kernel change; add seams only for concrete plugin needs.                                               |
+| Persistence                 | [Architecture](docs/subsystems/persistence/README.md)   | No selected persistence change; branch navigation remains deferred; only the current database format is supported. |
+| Models                      | [Architecture](docs/subsystems/models/README.md)        | [Transient reliability and named gateway catalogs](docs/subsystems/models/PLAN.md)                                 |
+| Execution and safety        | [Architecture](docs/subsystems/execution/README.md)     | [Native mutation containment](docs/subsystems/execution/PLAN.md)                                                   |
+| Context and compaction      | [Architecture](docs/subsystems/context/README.md)       | Observe v1; add another strategy only for a demonstrated need.                                                     |
+| Orchestration               | [Architecture](docs/subsystems/orchestration/README.md) | No selected change; MCP callable tools remain a next-plugin candidate.                                             |
+| Configuration and interface | [Architecture](docs/subsystems/interface/README.md)     | [Diagnostics and supportability](docs/subsystems/interface/PLAN.md)                                                |
+| Testing                     | [Architecture](docs/subsystems/testing/README.md)       | [Evidence for active reliability and security work](docs/subsystems/testing/PLAN.md)                               |
 
 ## Near-term order
 

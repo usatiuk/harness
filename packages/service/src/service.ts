@@ -1,5 +1,6 @@
 import type {
-  ConfigResolver,
+  ConversationConfig,
+  NewConversationRecord,
   CodeEvaluator,
   Conversation,
   ConversationId,
@@ -74,7 +75,7 @@ export class HarnessService implements ConversationRunner {
   readonly #schemas = new Map<string, ZodType>();
   readonly #inheritedPlugins = new Set<string>();
   #configMutation: Promise<void> = Promise.resolve();
-  readonly #resolveConfig: ConfigResolver;
+  readonly #resolveConfig: (record: NewConversationRecord) => Promise<ConversationConfig>;
 
   constructor(options: HarnessServiceOptions) {
     this.#store = options.store;
@@ -134,27 +135,19 @@ export class HarnessService implements ConversationRunner {
         overrides,
       ) as Record<string, unknown>;
     }
+    const input = { workspaceRoot: options.cwd ?? null, overrides };
+    const config = await this.#resolveConfig(input);
+    // Insert the complete selection atomically; global model defaults only select new records.
     const record = await this.#store.createConversation({
-      workspaceRoot: options.cwd ?? null,
-      overrides,
+      ...input,
+      overrides: { ...overrides, model: config.model },
     });
     try {
-      const conversation = await this.#resolve(record);
-      // Persist the selection, not a second copy of resolved configuration. Other settings keep
-      // their cascade; model defaults only select newly created conversations.
-      await this.#store.updateConversationOverrides(record.id, {
-        model: conversation.config.model,
-      });
-      conversation.overrides = { ...record.overrides, model: conversation.config.model };
-      if (options.parentId !== undefined) {
-        this.#engine.registerChild(options.parentId, record.id);
-      }
-      return conversation;
-    } catch (e) {
-      // Resolve can fail (bad project settings, unknown plugin in `overrides`); roll back so a failed
-      // create leaves nothing. The record has no head/turns yet, so deleteConversationIfEmpty always reaps.
+      if (options.parentId !== undefined) this.#engine.registerChild(options.parentId, record.id);
+      return { ...record, config };
+    } catch (error) {
       await this.#store.deleteConversationIfEmpty(record.id);
-      throw e;
+      throw error;
     }
   }
 
@@ -168,7 +161,6 @@ export class HarnessService implements ConversationRunner {
    * `!cmd`/`/sandbox` work and lazy sandbox provisioning can stream progress. Idempotent.
    */
   async prepare(conversationId: ConversationId): Promise<void> {
-    await this.#pinLegacyModel(conversationId);
     return this.#engine.prepare(conversationId);
   }
 
@@ -182,7 +174,6 @@ export class HarnessService implements ConversationRunner {
     text: string,
     intent: DeliveryIntent,
   ): Promise<void> {
-    await this.#pinLegacyModel(conversationId);
     return this.#engine.deliver(
       conversationId,
       { source: { kind: "user" }, content: text ? [{ type: "text", text }] : [] },
@@ -274,22 +265,6 @@ export class HarnessService implements ConversationRunner {
       () => undefined,
     );
     return result;
-  }
-
-  /** Pre-selection records adopt the current default once, before entering an activation. */
-  async #pinLegacyModel(conversationId: ConversationId): Promise<void> {
-    // Turns and interrupts on loaded roots never wait behind another root's settings IO.
-    if (this.#engine.configFor(conversationId) !== undefined) return;
-    const existing = await this.#store.getConversation(conversationId);
-    if (!existing) throw new Error(`unknown conversation: ${conversationId}`);
-    if (existing.overrides.model !== undefined) return;
-    return this.#serializeConfigMutation(async () => {
-      const record = await this.#store.getConversation(conversationId);
-      if (!record) throw new Error(`unknown conversation: ${conversationId}`);
-      if (record.overrides.model !== undefined) return;
-      const config = await this.#resolveConfig(record);
-      await this.#store.updateConversationOverrides(conversationId, { model: config.model });
-    });
   }
 
   /**
