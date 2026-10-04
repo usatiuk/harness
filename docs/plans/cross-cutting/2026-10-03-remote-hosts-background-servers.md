@@ -226,8 +226,8 @@ Protocol version checks identify the current wire contract and reject mismatches
   uncancellable discovery, omitted server.release schema/docs and retained
   legacy conversation pinning. New conversations resolve and insert their model
   selection together; the service no longer rewrites older records on activation.
-- Remote ChatGPT sign-in will use the provider-supported device-code flow documented
-  by [the official Codex implementation](https://github.com/openai/codex/blob/main/codex-rs/login/src/device_code_auth.rs).
-  It supplies a browser URL and code while credentials are exchanged and stored
-  on the executing host. This satisfies remote sign-in without adding callback
-  port tunnels; implementation and qualification remain open.
+- Preserve existing ChatGPT browser OAuth sign-in, including its callback and
+  cancellation behavior. Remote support must route the browser callback back to
+  the executing host and present its sign-in URL in desktop/TUI. Device-code
+  authentication is a possible additional method, not a replacement for browser
+  sign-in. Remote browser routing and qualification remain required and open.
