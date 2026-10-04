@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { canonicalHome, readDiscovery } from "@harness/connections/local";
-import { stopServer } from "@harness/connections/node";
+import { stopServer, runRemote, shellQuote } from "@harness/connections/node";
+import type { Host } from "@harness/connections";
 import { NativeApplication } from "./application.ts";
 
 test.skip(process.platform !== "win32", "Native CDP requires Windows WebView2");
@@ -147,5 +149,122 @@ test("stop-on-exit captures Local startup before any WebView RPC initialization"
       const owner = await readDiscovery(path);
       if (owner) await stopServer(owner);
     }
+  }
+});
+
+test("desktop cancels a stalled real WSL provisioning process and keeps Local usable", async ({}, info) => {
+  const distribution = process.env.HARNESS_REMOTE_WSL;
+  test.skip(!distribution, "Set HARNESS_REMOTE_WSL to qualify actual WSL cancellation");
+  const remoteRoot = `/tmp/harness-native-cancel-${randomUUID()}`;
+  const q = shellQuote;
+  const host: Host & { kind: "wsl" } = {
+    id: "fixture",
+    label: "WSL cancellation",
+    kind: "wsl",
+    distribution: distribution!,
+    user: null,
+    home: `${remoteRoot}/home`,
+    runtime: {
+      source: "development",
+      node: `${remoteRoot}/node`,
+      directory: `${remoteRoot}/runtime`,
+    },
+  };
+  const script = `#!/bin/sh\nexport HARNESS_FIXTURE_ROOT=${q(remoteRoot)}\nprintf '%s' "$$" > ${q(`${remoteRoot}/pid`)}\nexec sleep 300\n`;
+  await test.step(
+    "Create isolated WSL process edge",
+    () =>
+      runRemote(
+        host,
+        `umask 077; mkdir ${q(remoteRoot)}; printf '%s' ${q(script)} > ${q(host.runtime.node!)}; chmod 700 ${q(host.runtime.node!)}`,
+        { signal: AbortSignal.timeout(10_000) },
+      ),
+    { timeout: 12_000 },
+  );
+
+  const profile = info.outputPath("profile");
+  const home = await canonicalHome(join(profile, "app"));
+  await writeFile(
+    join(home, "settings.json"),
+    JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+  );
+  let app: NativeApplication | undefined;
+  try {
+    app = await test.step(
+      "Launch native application",
+      () => NativeApplication.launch(profile, info.outputPath("application"), home),
+      { timeout: 25_000 },
+    );
+
+    const page = app.page;
+    await test.step(
+      "Wait for Local readiness",
+      async () => {
+        await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+      },
+      { timeout: 10_000 },
+    );
+
+    const owner = (await readDiscovery(home))!;
+    await page.getByRole("button", { name: "Manage connections" }).click({ timeout: 5000 });
+
+    const dialog = page.getByRole("dialog", { name: "Agent command center" });
+    await test.step(
+      "Discover WSL in editor",
+      async () => {
+        await dialog.getByRole("button", { name: "Add WSL" }).click({ timeout: 5000 });
+
+        await dialog
+          .getByLabel("Distribution", { exact: true })
+          .fill(distribution!, { timeout: 5000 });
+
+        await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+      },
+      { timeout: 10_000 },
+    );
+
+    await dialog
+      .getByRole("combobox", { name: "Runtime", exact: true })
+      .selectOption("development", { timeout: 5000 });
+
+    await dialog.getByText("Advanced", { exact: true }).click({ timeout: 5000 });
+
+    await dialog.getByLabel("Node executable (development)").fill(host.runtime.node!);
+    await dialog.getByLabel("Runtime directory (optional)").fill(host.runtime.directory!);
+    await dialog.getByLabel("Harness home (optional)").fill(host.home!);
+
+    await dialog.getByRole("button", { name: "Save & test", exact: true }).click();
+    await expect
+      .poll(() =>
+        runRemote(host, `test -f ${q(`${remoteRoot}/pid`)} && printf started || true`, {
+          signal: AbortSignal.timeout(5_000),
+        }),
+      )
+      .toBe("started");
+    await dialog.getByRole("button", { name: "Cancel connection", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await expect(dialog.getByRole("alert")).toContainText("cancelled");
+    await expect
+      .poll(() =>
+        runRemote(
+          host,
+          `pid=$(cat ${q(`${remoteRoot}/pid`)}); if test -r /proc/$pid/environ && tr '\\0' '\\n' < /proc/$pid/environ | grep -Fx ${q(`HARNESS_FIXTURE_ROOT=${remoteRoot}`)} >/dev/null; then printf running; else printf stopped; fi`,
+          { signal: AbortSignal.timeout(5_000) },
+        ),
+      )
+      .toBe("stopped");
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    await page.getByRole("link", { name: "New conversation", exact: true }).first().click();
+    await expect(page.getByRole("heading", { name: "New conversation" })).toBeVisible();
+    expect((await readDiscovery(home))?.instanceId).toBe(owner.instanceId);
+  } finally {
+    await app?.close();
+    const owner = await readDiscovery(home);
+    if (owner) await stopServer(owner);
+    // The fake executable is an isolated process edge; stop only its recorded fixture PID.
+    await runRemote(
+      host,
+      `if test -f ${q(`${remoteRoot}/pid`)}; then pid=$(cat ${q(`${remoteRoot}/pid`)}); if test -r /proc/$pid/environ && tr '\\0' '\\n' < /proc/$pid/environ | grep -Fx ${q(`HARNESS_FIXTURE_ROOT=${remoteRoot}`)} >/dev/null; then kill "$pid"; fi; fi; rm -rf ${q(remoteRoot)}`,
+    );
   }
 });

@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore, type FormEvent } from "react";
+import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { Dialog } from "@radix-ui/themes";
 import { hostSchema, type Host } from "@harness/connections";
 import { connectionCommand } from "./transport.ts";
@@ -31,15 +31,21 @@ export function ConnectionEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const current = hosts.selected;
-  const act = (operation: () => Promise<void>): void => {
+  const active = useRef<AbortController | null>(null);
+  const act = (operation: (signal: AbortSignal) => Promise<void>): void => {
+    const abort = new AbortController();
+    active.current = abort;
     setBusy(true);
     setError(undefined);
-    void operation()
+    void operation(abort.signal)
       .catch((cause) => setError(message(cause)))
-      .finally(() => setBusy(false));
+      .finally(() => {
+        active.current = null;
+        setBusy(false);
+      });
   };
-  const discover = async (): Promise<void> => {
-    const result = await connectionCommand({ type: "wsl.list" });
+  const discover = async (signal: AbortSignal): Promise<void> => {
+    const result = await connectionCommand({ type: "wsl.list" }, undefined, signal);
     if (!Array.isArray(result) || !result.every((item) => typeof item === "string"))
       throw new Error("Invalid WSL discovery result");
     setDistributions(result);
@@ -317,6 +323,16 @@ export function ConnectionEditor({
               </div>
             )}
           </div>
+          {busy && (
+            <Button
+              onClick={() => {
+                active.current?.abort();
+                hosts.cancel(editing?.id ?? hosts.config!.selectedHostId);
+              }}
+            >
+              Cancel connection
+            </Button>
+          )}
           <label className="background-preference">
             <input
               type="checkbox"

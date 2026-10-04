@@ -91,7 +91,10 @@ function Desktop() {
             </p>
           )}
           {view?.progress ? (
-            <p role="status">{view.progress}</p>
+            <>
+              <p role="status">{view.progress}</p>
+              <Button onClick={() => hosts.cancel(view.host.id)}>Cancel connection</Button>
+            </>
           ) : (
             hosts.config && (
               <Button

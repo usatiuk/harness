@@ -35,9 +35,15 @@ struct Server {
     done: oneshot::Receiver<Result<(), String>>,
 }
 
+struct ConnectionCommand {
+    cancel: watch::Sender<bool>,
+    done: oneshot::Receiver<()>,
+}
+
 #[derive(Default)]
 struct Bridge {
     servers: Mutex<HashMap<u64, Server>>,
+    commands: Mutex<HashMap<u64, ConnectionCommand>>,
     next_id: AtomicU64,
     exit_owner: Mutex<Option<serde_json::Value>>,
     stopping: AtomicBool,
@@ -61,9 +67,19 @@ impl Bridge {
     }
     async fn close_all(self: &Arc<Self>) -> Result<(), String> {
         self.stopping.store(true, Ordering::Release);
+        let commands = std::mem::take(&mut *self.commands.lock().await);
         let ids: Vec<u64> = self.servers.lock().await.keys().copied().collect();
         let mut failures = Vec::new();
         let mut tasks = tokio::task::JoinSet::new();
+        for (_, command) in commands {
+            let _ = command.cancel.send(true);
+            tasks.spawn(async move {
+                command
+                    .done
+                    .await
+                    .map_err(|_| "Connection command owner failed".to_string())
+            });
+        }
         for id in ids {
             let bridge = self.clone();
             tasks.spawn(async move { bridge.close(id).await });
@@ -170,15 +186,56 @@ fn resources(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 #[derive(Clone, serde::Serialize)]
-struct ConnectionProgress {
-    message: String,
+#[serde(tag = "type", rename_all = "camelCase")]
+enum ConnectionProgress {
+    Started { id: u64 },
+    Progress { message: String },
 }
 
 #[tauri::command]
 async fn connection_command(
     app: tauri::AppHandle,
+    bridge: tauri::State<'_, Arc<Bridge>>,
     command: serde_json::Value,
     channel: Channel<ConnectionProgress>,
+) -> Result<serde_json::Value, String> {
+    let mut commands = bridge.commands.lock().await;
+    if bridge.stopping.load(Ordering::Acquire) {
+        return Err("Desktop is shutting down".into());
+    }
+    let id = bridge.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+    let (cancel, canceled) = watch::channel(false);
+    let (complete, done) = oneshot::channel();
+    commands.insert(id, ConnectionCommand { cancel, done });
+    drop(commands);
+    let result = async {
+        channel
+            .send(ConnectionProgress::Started { id })
+            .map_err(|error| error.to_string())?;
+        execute_connection_command(app, command, channel, canceled).await
+    }
+    .await;
+    let _ = complete.send(());
+    bridge.commands.lock().await.remove(&id);
+    result
+}
+
+#[tauri::command]
+async fn cancel_connection_command(
+    bridge: tauri::State<'_, Arc<Bridge>>,
+    id: u64,
+) -> Result<(), String> {
+    if let Some(command) = bridge.commands.lock().await.get(&id) {
+        let _ = command.cancel.send(true);
+    }
+    Ok(())
+}
+
+async fn execute_connection_command(
+    app: tauri::AppHandle,
+    command: serde_json::Value,
+    channel: Channel<ConnectionProgress>,
+    mut canceled: watch::Receiver<bool>,
 ) -> Result<serde_json::Value, String> {
     let directory = resources(&app)?;
     let node = directory
@@ -189,7 +246,7 @@ async fn connection_command(
         .arg(directory.join("server.mjs"))
         .arg("--connection-command")
         .arg(command.to_string())
-        .stdin(std::process::Stdio::null())
+        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
@@ -219,7 +276,7 @@ async fn connection_command(
                 if event["type"] == "progress" {
                     if let Some(message) = event["message"].as_str() {
                         channel
-                            .send(ConnectionProgress {
+                            .send(ConnectionProgress::Progress {
                                 message: message.to_owned(),
                             })
                             .map_err(|error| error.to_string())?;
@@ -241,11 +298,21 @@ async fn connection_command(
         }
     });
     let mut data = Vec::new();
-    output
-        .take((MAX_FRAME + 1) as u64)
-        .read_to_end(&mut data)
-        .await
-        .map_err(|error| error.to_string())?;
+    let mut bounded_output = output.take((MAX_FRAME + 1) as u64);
+    tokio::select! {
+        result = bounded_output.read_to_end(&mut data) => {
+            result.map_err(|error| error.to_string())?;
+        },
+        _ = canceled.changed() => {
+            child.stdin.take();
+            match tokio::time::timeout(Duration::from_secs(20), child.wait()).await {
+                Ok(result) => { result.map_err(|error| error.to_string())?; },
+                Err(_) => { child.kill().await.map_err(|error| error.to_string())?; }
+            }
+            errors.await.map_err(|error| error.to_string())??;
+            return Err("Connection attempt cancelled".into());
+        }
+    }
     if data.len() > MAX_FRAME {
         return Err("Connection command output exceeds limit".into());
     }
@@ -459,7 +526,8 @@ fn main() {
             server_write,
             server_ack,
             server_disconnect,
-            connection_command
+            connection_command,
+            cancel_connection_command
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

@@ -32,12 +32,21 @@ try {
       await runRemoteBridge(host, value.runtime);
     }
   } else if (commandIndex !== -1) {
-    const value: unknown = JSON.parse(process.argv[commandIndex + 1]!);
-    const result = await runConnectionCommand(value, dirname(process.argv[1]!), {
-      progress: (message) =>
-        process.stderr.write(JSON.stringify({ type: "progress", message }) + "\n"),
-    });
-    process.stdout.write(JSON.stringify(result) + "\n");
+    const cancel = new AbortController();
+    process.stdin.once("end", () => cancel.abort());
+    process.stdin.resume();
+    try {
+      const value: unknown = JSON.parse(process.argv[commandIndex + 1]!);
+      const result = await runConnectionCommand(value, dirname(process.argv[1]!), {
+        signal: cancel.signal,
+        progress: (message) =>
+          process.stderr.write(JSON.stringify({ type: "progress", message }) + "\n"),
+      });
+      process.stdout.write(JSON.stringify(result) + "\n");
+    } finally {
+      // A paused pipe can retain a pending Windows read and keep this helper alive.
+      process.stdin.destroy();
+    }
   } else if (process.argv.includes("--attach-only")) await runLocalBridge(defaultHome());
   else if (process.argv.includes("--background")) await runBackgroundServer();
   else if (process.argv.includes("--bridge"))

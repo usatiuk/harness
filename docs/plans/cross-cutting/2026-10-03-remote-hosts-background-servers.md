@@ -64,6 +64,12 @@ host sessions and scope views/drafts/path selection/settings by host identity.
 Default exit keeps the server running; provide explicit stop and a remembered
 desktop exit preference. Tray, notifications and login autostart remain optional.
 
+Only the current protocol, plugin contracts and database format are supported.
+The user explicitly authorized resetting the disposable database and removing
+all older formats. Fresh databases get the complete current schema; unsupported
+databases fail with a reset instruction instead of migrating or rewriting data.
+Protocol version checks identify the current wire contract and reject mismatches.
+
 ## Milestones and completion checks
 
 - [x] **Shared server authority and protocol.** Split composition/session lifetimes;
@@ -205,3 +211,23 @@ desktop exit preference. Tray, notifications and login autostart remain optional
   Isolated stdio rejects both --host and --ssh before launching. Existing local
   auth/sandbox utilities reject host flags and direct selected-host operations to
   the command center, rather than silently executing against the wrong machine.
+
+- Desktop attempts now have native admission, cancellation and quit drainage.
+  A finite initialize deadline closes a stalled peer, preserving its initiating
+  diagnostic after bridge cleanup. WSL enumeration uses bounded, cancellable
+  OS process execution. Four native connection cases pass (42.5 seconds),
+  including actual WSL stalled provisioning cancellation, remote fixture process
+  exit and continued Local usability. The initial cancellation test used an
+  incorrect exact label selector; the accessible combobox selector fixes the
+  test, without changing its timeout or cancellation assertion.
+- Full npm run check passes: 110 files/963 tests; 8 files/35 existing opt-in/platform
+  skips. Three independent reviewers checked cancellation ownership, format
+  handling and evidence. Fixed native cleanup replacing readiness diagnostics,
+  uncancellable discovery, omitted server.release schema/docs and retained
+  legacy conversation pinning. New conversations resolve and insert their model
+  selection together; the service no longer rewrites older records on activation.
+- Remote ChatGPT sign-in will use the provider-supported device-code flow documented
+  by [the official Codex implementation](https://github.com/openai/codex/blob/main/codex-rs/login/src/device_code_auth.rs).
+  It supplies a browser URL and code while credentials are exchanged and stored
+  on the executing host. This satisfies remote sign-in without adding callback
+  port tunnels; implementation and qualification remain open.

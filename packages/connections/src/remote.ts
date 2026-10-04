@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFile, mkdir, open, rename, rm } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
@@ -147,31 +147,32 @@ export async function runRemote(
   return result;
 }
 
-export async function discoverWsl(): Promise<string[]> {
+export async function discoverWsl(signal?: AbortSignal): Promise<string[]> {
   if (process.platform !== "win32") return [];
+  signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
-    const child = spawn("wsl.exe", ["--list", "--quiet"], { windowsHide: true });
-    const chunks: Buffer[] = [];
-    child.stdout.on("data", (chunk) => chunks.push(chunk as Buffer));
-    let diagnostic = "";
-    child.stderr.on("data", (chunk: Buffer) => {
-      diagnostic += chunk.toString();
-    });
-    child.once("error", (error) =>
-      (error as NodeJS.ErrnoException).code === "ENOENT" ? resolve([]) : reject(error),
-    );
-    child.once("close", (code) =>
-      code === 0
-        ? resolve(
-            Buffer.concat(chunks)
-              .toString("utf16le")
+    execFile(
+      "wsl.exe",
+      ["--list", "--quiet"],
+      {
+        windowsHide: true,
+        encoding: "utf16le",
+        timeout: 15_000,
+        maxBuffer: 1024 * 1024,
+        ...(signal ? { signal } : {}),
+      },
+      (error, stdout) => {
+        if (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") resolve([]);
+          else reject(new Error(error.message, { cause: error }));
+        } else
+          resolve(
+            stdout
               .split(/\r?\n/u)
-              .map((s) => s.trim())
+              .map((entry) => entry.trim())
               .filter(Boolean),
-          )
-        : reject(
-            new RemoteCommandError(code, diagnostic || "Could not enumerate WSL distributions"),
-          ),
+          );
+      },
     );
   });
 }

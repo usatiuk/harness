@@ -25,7 +25,10 @@ export class DesktopHosts {
   config: ClientConfig | undefined;
   readonly views = new Map<string, HostView>();
   private readonly listeners = new Set<() => void>();
-  private readonly connecting = new Map<string, Promise<HostView>>();
+  private readonly operations = new Map<
+    string,
+    { kind: "connect" | "refresh"; result: Promise<HostView>; abort: AbortController }
+  >();
   revision = 0;
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -73,14 +76,19 @@ export class DesktopHosts {
     await this.connect(id);
   }
   connect(id: string): Promise<HostView> {
-    const pending = this.connecting.get(id);
-    if (pending) return pending;
-    const result = this.open(id);
-    this.connecting.set(id, result);
-    void result.finally(() => this.connecting.delete(id)).catch(() => undefined);
+    const pending = this.operations.get(id);
+    if (pending) {
+      if (pending.kind !== "connect")
+        return Promise.reject(new Error("Host upload is in progress"));
+      return pending.result;
+    }
+    const abort = new AbortController();
+    const result = this.open(id, abort.signal);
+    this.operations.set(id, { kind: "connect", abort, result });
+    void result.finally(() => this.operations.delete(id)).catch(() => undefined);
     return result;
   }
-  private async open(id: string): Promise<HostView> {
+  private async open(id: string, signal: AbortSignal): Promise<HostView> {
     const view = this.views.get(id);
     if (!view) throw new Error("Unknown host");
     if (view.session && !view.session.disconnected) return view;
@@ -89,23 +97,35 @@ export class DesktopHosts {
     view.progress = "Connecting…";
     this.changed();
     try {
-      if (view.host.kind !== "local")
-        view.runtime = preparedRuntimeSchema.parse(
-          await connectionCommand({ type: "runtime.prepare", host: view.host }, (message) => {
-            view.progress = message;
-            this.changed();
-          }),
-        );
+      if (view.host.kind !== "local") await this.prepare(view, signal);
+      signal.throwIfAborted();
+      view.progress = "Connecting…";
+      this.changed();
       let session: DesktopSession | undefined = undefined;
       const transport = await connectNative(view.host, view.runtime ?? null, (message) => {
         session?.disconnect(message);
-        view.error = message;
-        this.changed();
+        if (view.session === session) {
+          view.error = message;
+          this.changed();
+        }
       });
       view.nativeId = transport.id;
       session = new DesktopSession(transport.connection, id);
-      await session.start();
-      const identity = await session.client.peer.request(serverInfoRequest, {});
+      const ready = AbortSignal.any([signal, AbortSignal.timeout(20_000)]);
+      const cancel = () => session.client.closeConnection();
+      ready.addEventListener("abort", cancel, { once: true });
+      let identity: ServerIdentity;
+      try {
+        ready.throwIfAborted();
+        await session.start();
+        identity = await session.client.peer.request(serverInfoRequest, {});
+        ready.throwIfAborted();
+      } catch (error) {
+        ready.throwIfAborted();
+        throw error;
+      } finally {
+        ready.removeEventListener("abort", cancel);
+      }
       session.setIdentityScope(identity.serverId, identity.home);
       const shared = [...this.views.values()].find(
         (other) =>
@@ -130,8 +150,8 @@ export class DesktopHosts {
       view.identity = identity;
       return view;
     } catch (error) {
-      view.error = error instanceof Error ? error.message : String(error);
       if (view.nativeId !== undefined) await disconnectNative(view.nativeId);
+      view.error = error instanceof Error ? error.message : String(error);
       delete view.nativeId;
       delete view.session;
       throw error;
@@ -141,7 +161,11 @@ export class DesktopHosts {
     }
   }
   async disconnect(id: string): Promise<void> {
-    await this.connecting.get(id)?.catch(() => undefined);
+    const pending = this.operations.get(id);
+    if (pending) {
+      pending.abort.abort();
+      await pending.result.catch(() => undefined);
+    }
     const view = this.views.get(id);
     if (!view) return;
     // An alias shares its canonical connection. Removing the route leaves that observer intact.
@@ -166,13 +190,32 @@ export class DesktopHosts {
   async refresh(id: string): Promise<void> {
     const view = this.views.get(id);
     if (!view || view.host.kind === "local") return;
+    if (this.operations.has(id)) throw new Error("Host operation is in progress");
+    const abort = new AbortController();
+    const result = this.prepare(view, abort.signal);
+    this.operations.set(id, { kind: "refresh", result, abort });
+    try {
+      await result;
+    } finally {
+      this.operations.delete(id);
+    }
+  }
+  cancel(id: string): void {
+    this.operations.get(id)?.abort.abort();
+  }
+  private async prepare(view: HostView, signal: AbortSignal): Promise<HostView> {
     try {
       view.runtime = preparedRuntimeSchema.parse(
-        await connectionCommand({ type: "runtime.prepare", host: view.host }, (message) => {
-          view.progress = message;
-          this.changed();
-        }),
+        await connectionCommand(
+          { type: "runtime.prepare", host: view.host },
+          (message) => {
+            view.progress = message;
+            this.changed();
+          },
+          signal,
+        ),
       );
+      return view;
     } finally {
       delete view.progress;
       this.changed();

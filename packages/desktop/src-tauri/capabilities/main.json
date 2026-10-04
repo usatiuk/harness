@@ -13,6 +13,7 @@
     "allow-server-write",
     "allow-server-ack",
     "allow-server-disconnect",
-    "allow-connection-command"
+    "allow-connection-command",
+    "allow-cancel-connection-command"
   ]
 }

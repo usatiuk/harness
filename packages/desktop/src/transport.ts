@@ -134,8 +134,44 @@ export async function disconnectNative(id: number): Promise<void> {
 export async function connectionCommand(
   command: ConnectionCommand,
   progress?: (message: string) => void,
+  signal?: AbortSignal,
 ): Promise<unknown> {
-  const channel = new Channel<{ message: string }>();
-  channel.onmessage = (event) => progress?.(event.message);
-  return invoke("connection_command", { command, channel });
+  signal?.throwIfAborted();
+  let id: number | undefined;
+  let canceling: Promise<void> | undefined;
+  let cancellationError: Error | undefined;
+  const cancel = () => {
+    if (id === undefined || canceling) return;
+    canceling = invoke<void>("cancel_connection_command", { id }).catch((error: unknown) => {
+      cancellationError = new Error("Could not cancel the connection attempt", { cause: error });
+    });
+  };
+  const channel = new Channel<
+    { type: "started"; id: number } | { type: "progress"; message: string }
+  >();
+  channel.onmessage = (event) => {
+    if (event.type === "progress") progress?.(event.message);
+    else {
+      id = event.id;
+      if (signal?.aborted) cancel();
+    }
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+  let result: unknown;
+  let failure: unknown;
+  try {
+    result = await invoke("connection_command", { command, channel });
+  } catch (error) {
+    failure = error;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+    await canceling;
+  }
+  if (cancellationError) throw cancellationError;
+  if (failure instanceof Error) throw failure;
+  if (failure !== undefined)
+    throw new Error(typeof failure === "string" ? failure : "Connection command failed", {
+      cause: failure,
+    });
+  return result;
 }

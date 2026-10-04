@@ -6,6 +6,7 @@ fn main() {
             "server_ack",
             "server_disconnect",
             "connection_command",
+            "cancel_connection_command",
         ]),
     ))
     .expect("Could not generate desktop permissions")

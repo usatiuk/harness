@@ -33,9 +33,10 @@ bridge-parent exit, crash/stale discovery, canonical-home reuse, copied-home
 isolation, unsafe existing homes, initialized-client stop and classified startup
 failure. Registry tests include concurrent edits by separate client processes.
 These passed on native Windows. Common provisioning/reconnect tests also pass on
-real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Two native GUI cases
+real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Four native GUI cases
 qualify Local-first editing, disconnected management, reconnect, persistent exit
-and last-client stop-on-exit. TUI tests render the command center with a real
+and last-client stop-on-exit, owner capture before WebView RPC, and real WSL
+provisioning cancellation including fixture process exit. TUI tests render the command center with a real
 background server and qualify registry edits, reconnect and host redirection.
 Local cache regression covers Windows-only dependency invalidation. SSH BatchMode
 cases reject password-only and unknown-host routes without prompting. Remote
@@ -66,7 +67,9 @@ Tests isolate `HARNESS_HOME`, `APPDATA`, `LOCALAPPDATA`, and the WebView profile
 They cover concurrent approvals/turns/drafts, queue/steer/interrupt, presets and
 settings, bounded history and large output/diffs, server crash/restart, exclusive
 database ownership, secure key validation/storage, real command cleanup, and
-observable shutdown failure. Test artifacts live under
+observable shutdown failure. That full native suite still needs migration and
+requalification for shared-server ownership; the four connections.spec.ts cases
+are the current shared-server GUI evidence. Test artifacts live under
 `packages/desktop/test-results/`; non-secret visual scenarios save screenshots.
 Credential scenarios do not record traces or screenshots. These native tests are
 separate from the ordinary Linux/Windows `npm run check` CI matrix.

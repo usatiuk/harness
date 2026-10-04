@@ -42,7 +42,7 @@ export async function runConnectionCommand(
         desktop: { keepServerRunning: command.keepServerRunning },
       }));
     case "wsl.list":
-      return discoverWsl();
+      return discoverWsl(options.signal);
     case "desktop.exit": {
       if ((await readClientConfig()).desktop.keepServerRunning) return null;
       const current = await readDiscovery(command.identity.home);
