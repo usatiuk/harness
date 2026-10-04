@@ -3,6 +3,7 @@ import { createInProcessMessageConnectionPair, RpcPeer, type RpcConnection } fro
 import {
   defaultClientConfig,
   serverInfoRequest,
+  type Host,
   type ConnectionCommand,
 } from "@harness/connections";
 import { HARNESS_PROTOCOL_VERSION, serverModelsRequest } from "@harness/protocol";
@@ -12,18 +13,96 @@ import { DesktopHosts } from "./hosts.ts";
 const native = vi.hoisted(() => ({
   command: vi.fn(),
   connect: vi.fn(),
-  disconnect: vi.fn(),
+  disconnect: vi.fn<(id: unknown) => Promise<void>>(),
 }));
 vi.mock("./transport.ts", () => ({
   connectionCommand: native.command,
   connectNative: native.connect,
-  disconnectNative: native.disconnect,
 }));
 const connections: RpcConnection[] = [];
 afterEach(() => {
   for (const connection of connections.splice(0)) connection.dispose();
   vi.restoreAllMocks();
   vi.resetAllMocks();
+});
+
+it("adopts external route edits and removals before reusing a saved connection", async () => {
+  const remote: Host = {
+    id: "remote",
+    label: "Work",
+    kind: "ssh",
+    destination: "first",
+    runtime: { source: "development" },
+  };
+  let config = { ...defaultClientConfig(), hosts: [...defaultClientConfig().hosts, remote] };
+  native.command.mockImplementation(async () => config);
+  native.disconnect.mockResolvedValue(undefined);
+  native.connect.mockImplementation(async (host: Host) => {
+    const pair = createInProcessMessageConnectionPair();
+    connections.push(pair.left, pair.right);
+    const server = new RpcPeer({ role: "server", connection: pair.right });
+    server.onInitialize(() => ({
+      protocolVersion: HARNESS_PROTOCOL_VERSION,
+      server: { name: "fixture", version: "1" },
+      plugins: [],
+    }));
+    server.onRequest(serverInfoRequest, () => ({
+      serverId: randomUUID(),
+      instanceId: randomUUID(),
+      protocolVersion: HARNESS_PROTOCOL_VERSION,
+      home: "/home/fixture/.harness",
+      pid: 1,
+      platform: "linux" as const,
+      buildId: "fixture",
+    }));
+    server.onRequest(serverModelsRequest, () => ({
+      models: [],
+      defaultModel: { provider: "demo", model: "demo-1", preset: null },
+    }));
+    server.listen();
+    return {
+      connection: pair.left,
+      close: async () => {
+        await native.disconnect(host);
+        pair.right.dispose();
+      },
+    };
+  });
+  // Provisioning is an OS boundary; the authenticated RPC peers above remain real.
+  const runtime = {
+    node: "node",
+    directory: "/runtime",
+    home: "/home/fixture/.harness",
+    buildId: "a".repeat(64),
+    dependencyKey: "b".repeat(64),
+    transferred: false,
+  };
+  native.command.mockImplementation(async (command: ConnectionCommand) => {
+    if (command.type === "host.select") config = { ...config, selectedHostId: command.id };
+    return command.type === "runtime.prepare" ? runtime : config;
+  });
+  const hosts = new DesktopHosts();
+  await hosts.initialize();
+  await hosts.select("remote");
+  const previous = hosts.selected!.session!;
+  config = {
+    ...config,
+    hosts: [config.hosts[0]!, { ...remote, label: "Renamed", runtime: { source: "managed" } }],
+  };
+  await hosts.edit({ type: "preferences", keepServerRunning: true });
+  await hosts.connect("remote");
+  expect(hosts.selected!.session).toBe(previous);
+  config = { ...config, hosts: [config.hosts[0]!, { ...remote, destination: "second" }] };
+  await hosts.select("remote");
+  expect(previous.client.peer.ready).toBe(false);
+  expect(hosts.selected!.session).not.toBe(previous);
+  expect(native.connect.mock.lastCall?.[0]).toMatchObject({ destination: "second" });
+  const second = hosts.selected!.session!;
+  config = defaultClientConfig();
+  await hosts.edit({ type: "preferences", keepServerRunning: true });
+  expect(second.client.peer.ready).toBe(false);
+  expect(hosts.views.has("remote")).toBe(false);
+  await hosts.disconnect("local");
 });
 
 function stalledPeer() {
@@ -41,7 +120,7 @@ function stalledPeer() {
         pair.right.dispose();
       });
       connected();
-      return { connection: pair.left, id: 1 };
+      return { connection: pair.left, close: () => native.disconnect(1) };
     },
   );
   return started;
@@ -103,7 +182,7 @@ it("restores presentation for the same server and isolates a changed target unde
       defaultModel: { provider: "demo", model: "demo-1", preset: null },
     }));
     server.listen();
-    return { connection: pair.left, id: connections.length };
+    return { connection: pair.left, close: () => native.disconnect(connections.length) };
   });
   native.disconnect.mockResolvedValue(undefined);
   const hosts = new DesktopHosts();

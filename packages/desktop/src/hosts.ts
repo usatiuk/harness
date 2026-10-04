@@ -2,18 +2,19 @@ import {
   clientConfigSchema,
   preparedRuntimeSchema,
   serverInfoRequest,
+  sameExecutionTarget,
   type ClientConfig,
   type Host,
   type ConnectionCommand,
   type ServerIdentity,
 } from "@harness/connections";
 import { DesktopSession } from "./session.ts";
-import { connectionCommand, connectNative, disconnectNative } from "./transport.ts";
+import { connectionCommand, connectNative } from "./transport.ts";
 
 export interface HostView {
   host: Host;
   session?: DesktopSession;
-  nativeId?: number;
+  closeTransport?: () => Promise<void>;
   identity?: ServerIdentity;
   runtime?: ReturnType<typeof preparedRuntimeSchema.parse>;
   progress?: string;
@@ -29,6 +30,7 @@ export class DesktopHosts {
     { kind: "connect" | "refresh"; result: Promise<HostView>; abort: AbortController }
   >();
   revision = 0;
+  private configTail: Promise<void> = Promise.resolve();
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
@@ -44,10 +46,20 @@ export class DesktopHosts {
     return this.views.get(this.config?.selectedHostId ?? "local");
   }
   async initialize(): Promise<void> {
-    this.acceptConfig(clientConfigSchema.parse(await connectionCommand({ type: "config.read" })));
+    await this.updateConfig({ type: "config.read" });
     await this.connect(this.config!.selectedHostId).catch(() => undefined);
   }
-  private acceptConfig(config: ClientConfig): void {
+  private async acceptConfig(config: ClientConfig): Promise<void> {
+    const entries = new Map(config.hosts.map((host) => [host.id, host]));
+    for (const [id, view] of this.views) {
+      const next = entries.get(id);
+      if (!next || !sameExecutionTarget(view.host, next)) {
+        await this.disconnect(id);
+        delete view.identity;
+        delete view.runtime;
+        if (!next) this.views.delete(id);
+      }
+    }
     this.config = config;
     for (const host of config.hosts) {
       const view = this.views.get(host.id);
@@ -56,25 +68,26 @@ export class DesktopHosts {
     }
     this.changed();
   }
+  private updateConfig(command: ConnectionCommand): Promise<void> {
+    const result = this.configTail.then(async () =>
+      this.acceptConfig(clientConfigSchema.parse(await connectionCommand(command))),
+    );
+    this.configTail = result.catch(() => undefined);
+    return result;
+  }
   async edit(
     command: Extract<ConnectionCommand, { type: "host.save" | "host.remove" | "preferences" }>,
   ): Promise<void> {
-    if (command.type === "host.save") {
-      const current = this.views.get(command.host.id);
-      if (current && JSON.stringify(current.host) !== JSON.stringify(command.host))
-        await this.disconnect(command.host.id);
-    } else if (command.type === "host.remove") await this.disconnect(command.id);
-    this.acceptConfig(clientConfigSchema.parse(await connectionCommand(command)));
-    if (command.type === "host.remove") this.views.delete(command.id);
-    this.changed();
+    await this.updateConfig(command);
   }
   async select(id: string): Promise<void> {
-    this.acceptConfig(
-      clientConfigSchema.parse(await connectionCommand({ type: "host.select", id })),
-    );
+    await this.updateConfig({ type: "host.select", id });
     await this.connect(id);
   }
   connect(id: string): Promise<HostView> {
+    return this.configTail.then(() => this.connectReady(id));
+  }
+  private connectReady(id: string): Promise<HostView> {
     const pending = this.operations.get(id);
     if (pending) {
       if (pending.kind !== "connect")
@@ -91,7 +104,7 @@ export class DesktopHosts {
     const view = this.views.get(id);
     if (!view) throw new Error("Unknown host");
     if (view.session && !view.session.disconnected) return view;
-    if (view.nativeId !== undefined) await disconnectNative(view.nativeId);
+    await view.closeTransport?.();
     delete view.error;
     view.progress = "Connecting…";
     this.changed();
@@ -108,7 +121,7 @@ export class DesktopHosts {
           this.changed();
         }
       });
-      view.nativeId = transport.id;
+      view.closeTransport = transport.close;
       session = new DesktopSession(transport.connection, id);
       const ready = AbortSignal.any([signal, AbortSignal.timeout(20_000)]);
       const cancel = () => session.client.closeConnection();
@@ -131,9 +144,9 @@ export class DesktopHosts {
       view.identity = identity;
       return view;
     } catch (error) {
-      if (view.nativeId !== undefined) await disconnectNative(view.nativeId);
+      await view.closeTransport?.();
       view.error = error instanceof Error ? error.message : String(error);
-      delete view.nativeId;
+      delete view.closeTransport;
       delete view.session;
       throw error;
     } finally {
@@ -150,8 +163,8 @@ export class DesktopHosts {
     const view = this.views.get(id);
     if (!view) return;
     view.session?.client.closeConnection();
-    if (view.nativeId !== undefined) await disconnectNative(view.nativeId);
-    delete view.nativeId;
+    await view.closeTransport?.();
+    delete view.closeTransport;
     delete view.session;
     this.changed();
   }
@@ -160,6 +173,7 @@ export class DesktopHosts {
     await this.connect(id);
   }
   async refresh(id: string): Promise<void> {
+    await this.configTail;
     const view = this.views.get(id);
     if (!view || view.host.kind === "local") return;
     if (this.operations.has(id)) throw new Error("Host operation is in progress");

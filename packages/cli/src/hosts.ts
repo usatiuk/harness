@@ -9,6 +9,7 @@ import { defaultHome } from "@harness/config";
 import {
   clientConfigSchema,
   serverInfoRequest,
+  sameExecutionTarget,
   type ClientConfig,
   type Host,
   type ServerIdentity,
@@ -45,6 +46,7 @@ export class TuiHosts {
   >();
   private revision = 0;
   private stopping = false;
+  private configTail: Promise<void> = Promise.resolve();
   constructor(
     readonly env: NodeJS.ProcessEnv = {},
     readonly localLaunch: ServerLaunch = {
@@ -80,7 +82,18 @@ export class TuiHosts {
     delete view.presentation.activeId;
     if (workspace !== undefined) view.presentation.workspace = workspace;
   }
-  accept(config: ClientConfig): void {
+  private async accept(config: ClientConfig): Promise<void> {
+    const entries = new Map(config.hosts.map((host) => [host.id, host]));
+    for (const [id, view] of this.views) {
+      const next = entries.get(id);
+      if (!next || !sameExecutionTarget(view.host, next)) {
+        await this.disconnect(id);
+        delete view.identity;
+        delete view.runtime;
+        view.presentation = { drafts: new Map() };
+        if (!next) this.views.delete(id);
+      }
+    }
     this.config = config;
     for (const host of config.hosts) {
       const view = this.views.get(host.id);
@@ -89,10 +102,15 @@ export class TuiHosts {
     }
     this.changed();
   }
-  async initialize(destination?: string, selectedId?: string): Promise<void> {
-    this.accept(
-      await clientConfigSchema.parseAsync(await runConnectionCommand({ type: "config.read" }, "")),
+  private updateConfig(command: ConnectionCommand): Promise<void> {
+    const result = this.configTail.then(async () =>
+      this.accept(clientConfigSchema.parse(await runConnectionCommand(command, ""))),
     );
+    this.configTail = result.catch(() => undefined);
+    return result;
+  }
+  async initialize(destination?: string, selectedId?: string): Promise<void> {
+    await this.updateConfig({ type: "config.read" });
     if (destination) {
       const existing = this.config!.hosts.find(
         (host) => host.kind === "ssh" && host.destination === destination,
@@ -111,33 +129,21 @@ export class TuiHosts {
         selectedId = host.id;
       }
     }
-    if (selectedId)
-      this.accept(
-        clientConfigSchema.parse(
-          await runConnectionCommand({ type: "host.select", id: selectedId }, ""),
-        ),
-      );
+    if (selectedId) await this.updateConfig({ type: "host.select", id: selectedId });
   }
   async edit(
     command: Extract<ConnectionCommand, { type: "host.save" | "host.remove" | "preferences" }>,
   ): Promise<void> {
-    if (command.type === "host.save") {
-      const current = this.views.get(command.host.id);
-      if (current && JSON.stringify(current.host) !== JSON.stringify(command.host)) {
-        await this.disconnect(command.host.id);
-      }
-    }
-    if (command.type === "host.remove") await this.disconnect(command.id);
-    this.accept(clientConfigSchema.parse(await runConnectionCommand(command, "")));
-    if (command.type === "host.remove") this.views.delete(command.id);
+    await this.updateConfig(command);
   }
   async select(id: string): Promise<void> {
-    this.accept(
-      clientConfigSchema.parse(await runConnectionCommand({ type: "host.select", id }, "")),
-    );
+    await this.updateConfig({ type: "host.select", id });
     await this.connect(id);
   }
   connect(id: string): Promise<TuiHostView> {
+    return this.configTail.then(() => this.connectReady(id));
+  }
+  private connectReady(id: string): Promise<TuiHostView> {
     if (this.stopping) return Promise.reject(new Error("TUI is shutting down"));
     const pending = this.operations.get(id);
     if (pending) {
@@ -260,6 +266,7 @@ export class TuiHosts {
     await this.connect(id);
   }
   async refresh(id: string): Promise<void> {
+    await this.configTail;
     if (this.stopping) throw new Error("TUI is shutting down");
     const view = this.views.get(id);
     if (!view || view.host.kind === "local") return;

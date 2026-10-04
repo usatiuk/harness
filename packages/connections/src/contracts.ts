@@ -28,6 +28,14 @@ export const hostSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type Host = z.infer<typeof hostSchema>;
+/** Display metadata and staged runtime choices do not change the execution account. */
+export function sameExecutionTarget(left: Host, right: Host): boolean {
+  if (left.kind === "local") return right.kind === "local";
+  if (left.kind === "ssh") return right.kind === "ssh" && left.destination === right.destination;
+  return (
+    right.kind === "wsl" && left.distribution === right.distribution && left.user === right.user
+  );
+}
 export const LOCAL_HOST: Host = { kind: "local", id: "local", label: "Local" };
 export const clientConfigSchema = z
   .strictObject({

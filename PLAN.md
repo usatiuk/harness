@@ -56,6 +56,13 @@ root. They may depend on protocol and narrower feature contracts, but the kernel
 does not import provider, workspace, sandbox, approval, activity, or subagent
 packages.
 
+## Active delivery
+
+The [connection boundary corrections](docs/plans/cross-cutting/2026-10-04-connection-boundary-corrections.md)
+resolve the architecture audit's authority, native closure, cancellation,
+bookkeeping, diagnostics and client/server coupling findings. The existing
+Local/WSL/SSH product scope remains unchanged.
+
 ## Recent delivery
 
 Completed shared background servers and Local/WSL/SSH connections for desktop
