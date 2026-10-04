@@ -116,6 +116,8 @@ export class DesktopHosts {
     delete view.error;
     view.progress = "Connecting…";
     this.changed();
+    let transportError: string | undefined;
+    let ready: AbortSignal | undefined;
     try {
       if (view.host.kind !== "local") await this.prepare(view, signal);
       signal.throwIfAborted();
@@ -123,6 +125,7 @@ export class DesktopHosts {
       this.changed();
       let session: DesktopSession | undefined = undefined;
       const transport = await connectNative(this.target(view), (message) => {
+        transportError ??= message;
         session?.disconnect(message);
         if (view.session === session) {
           view.error = message;
@@ -131,7 +134,7 @@ export class DesktopHosts {
       });
       view.closeTransport = transport.close;
       session = new DesktopSession(transport.connection, id);
-      const ready = AbortSignal.any([signal, AbortSignal.timeout(20_000)]);
+      ready = AbortSignal.any([signal, AbortSignal.timeout(20_000)]);
       const cancel = () => session.client.closeConnection();
       ready.addEventListener("abort", cancel, { once: true });
       let identity: ServerIdentity;
@@ -152,10 +155,15 @@ export class DesktopHosts {
       view.identity = identity;
       return view;
     } catch (error) {
-      await view.closeTransport?.();
-      view.error = error instanceof Error ? error.message : String(error);
-      delete view.closeTransport;
-      delete view.session;
+      const cancelled = ready?.aborted;
+      try {
+        await view.closeTransport?.();
+      } finally {
+        const message = error instanceof Error ? error.message : String(error);
+        view.error = cancelled ? message : (transportError ?? message);
+        delete view.closeTransport;
+        delete view.session;
+      }
       throw error;
     } finally {
       delete view.progress;

@@ -21,6 +21,7 @@ export async function prepareLocalRuntime(
     return hash.digest("hex");
   };
   const dependencyKey = digest(
+    "node_modules\n",
     await readFile(join(payload, "packaged-dependencies.json")),
     process.platform,
     process.arch,
@@ -58,10 +59,15 @@ export async function prepareLocalRuntime(
       );
       await rename(join(staging, "node"), join(base, `node-${process.version}`));
     }
-    const dependencies = join(base, `dependencies-${dependencyKey}`);
-    if (!(await exists(dependencies))) {
-      await cp(join(payload, "node_modules"), join(staging, "dependencies"), { recursive: true });
-      await rename(join(staging, "dependencies"), dependencies);
+    const dependencyCache = join(base, `dependencies-${dependencyKey}`);
+    const dependencies = join(dependencyCache, "node_modules");
+    if (!(await exists(dependencyCache))) {
+      // Node follows the code junction to this real path. Sibling dependencies
+      // must remain inside a directory named node_modules to resolve correctly.
+      await cp(join(payload, "node_modules"), join(staging, "dependencies", "node_modules"), {
+        recursive: true,
+      });
+      await rename(join(staging, "dependencies"), dependencyCache);
     }
     if (!(await exists(directory))) {
       const code = join(staging, "code");

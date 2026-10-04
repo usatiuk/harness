@@ -57,12 +57,21 @@ survives host switching and desktop exit, restores its draft and approval, then
 completes after reattachment to the same owner. TUI tests render the command center
 with real Local/WSL owners and qualify registry edits, host selection, switching,
 client exit and fresh attachment to the pending turn.
-Local cache regression covers Windows-only dependency invalidation. SSH BatchMode
+Local cache regressions cover Windows-only dependency invalidation and execute
+real SQLite with its sibling dependencies from a temporary cache outside the
+checkout. The latter also deletes the input payload and executes the cache again.
+A native case starts the actual GUI against an isolated temporary home/cwd, stops
+its owner and starts a second owner from the same cached build. This qualifies
+isolated cache resolution; its debug executable still uses checkout-owned packaged
+resources. Earlier native homes beneath the checkout allowed repository
+`node_modules` to mask a broken transitive dependency-cache layout.
+Startup diagnostic tests retain the first native failure through later readiness
+expiry and a secondary detach failure. SSH BatchMode
 cases reject password-only and unknown-host routes without prompting. Current delivery evidence is tracked in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
-The current full check passes 998 tests (116 passing files, 36 skipped tests).
-Rebuilt native connection qualification passes five cases; actual SSH/WSL and
+The current full check passes 1000 tests (116 passing files, 36 skipped tests).
+Rebuilt native connection qualification includes six cases; actual SSH/WSL and
 rendered TUI qualification passes five cases across two files. The native Rust
 shutdown regression passes. Three independent reviews and follow-ups report no
 remaining actionable findings in the
@@ -74,6 +83,10 @@ recorded in the preceding plan's validation observations;
 passing reruns are not evidence of a cause or fix. Fixture RPC failures include
 their server startup log before cleanup. A sandbox-blocked Vitest startup was
 retried outside the sandbox, without changing tests or timeouts.
+The post-delivery six-case native run passed five cases, including isolated cache
+startup, but one existing case hit EPERM renaming staged dependencies. Its exact
+focused rerun passed unchanged. The transient lock/cause remains unknown; no
+retry policy, timeout change or fix is claimed for it.
 
 `npm run test:remote` requires Docker and OpenSSH on the controlling client. It
 creates a loopback-only SSH container, ephemeral key, verified known-host entry

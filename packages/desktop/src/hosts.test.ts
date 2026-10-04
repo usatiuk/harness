@@ -135,6 +135,40 @@ it("disconnect cancels a desktop peer that never initializes", async () => {
   expect(hosts.selected?.progress).toBeUndefined();
 });
 
+it("retains the native startup failure instead of the pending RPC disposal error", async () => {
+  const started = stalledPeer();
+  const deadline = new AbortController();
+  vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
+  const hosts = new DesktopHosts();
+  const loading = hosts.initialize();
+  await started;
+  const onClosed = native.connect.mock.lastCall![1] as (message: string) => void;
+  const diagnostic = "Server startup failed (exit 1); see /home/.harness/.server/startup.log";
+  onClosed(diagnostic);
+  let draining!: () => void;
+  const closing = new Promise<void>((resolve) => {
+    draining = resolve;
+  });
+  let finish!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  native.disconnect.mockImplementation(async () => {
+    draining();
+    await closed;
+    onClosed("Could not detach the native Harness bridge");
+    throw new Error("Bridge exited before initialization");
+  });
+  connections.at(-2)!.dispose();
+  await closing;
+  deadline.abort(new DOMException("Connection readiness timed out", "TimeoutError"));
+  finish();
+  await expect(loading).resolves.toBeUndefined();
+  expect(hosts.selected?.error).toBe(diagnostic);
+  expect(hosts.selected?.session).toBeUndefined();
+  expect(hosts.selected?.progress).toBeUndefined();
+});
+
 it("readiness expiry closes the stalled peer and reports the deadline", async () => {
   const started = stalledPeer();
   const deadline = new AbortController();

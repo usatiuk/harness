@@ -67,6 +67,9 @@ actionable findings. Full validation passes 998 tests; rebuilt native and real
 SSH/WSL/TUI qualification pass five cases each. The existing Local/WSL/SSH product
 scope remains unchanged; the plan records an earlier unreproduced Windows EBUSY
 teardown observation without claiming a cause or fix.
+Post-delivery desktop startup exposed a dependency-cache layout defect hidden by
+checkout-local native fixtures. The focused correction and standalone cache
+regressions are recorded in the same plan; the final full check passes 1000 tests.
 
 Completed shared background servers and Local/WSL/SSH connections for desktop
 and TUI in [the delivery plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).

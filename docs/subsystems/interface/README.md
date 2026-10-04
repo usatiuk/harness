@@ -134,7 +134,12 @@ Native close blocks new admission, cancels blocked writes, and closes every
 bridge concurrently. A 20-second bridge deadline terminates that child and exits
 unsuccessfully. Each server persists independently. Local packaged execution
 uses a private immutable Node/code/dependency cache, including the complete
-packaged native dependency closure. The keep-running preference defaults true;
+packaged native dependency closure. The dependency cache keeps a real
+`node_modules` directory beneath its content-addressed root: Node follows the code
+junction and resolves transitive dependencies from that real directory. Layout
+participates in cache identity so an obsolete layout cannot be reused. Startup
+failure diagnostics take precedence over subsequent transport/teardown errors.
+The keep-running preference defaults true;
 stop-on-exit releases Local only when another client is not attached.
 
 Logical desktop RPC closure shares one awaited physical bridge close with manager

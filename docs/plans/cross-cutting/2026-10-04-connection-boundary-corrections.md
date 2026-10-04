@@ -115,3 +115,44 @@ lint issue and newly extracted files needing formatting; those are corrected.
 Earlier unreproduced validation
 observations stay in the preceding delivery plan; do not claim these corrections
 explain failures without a matching reproduction.
+
+## Post-delivery isolated desktop startup
+
+The user's normal-home desktop development launch failed because Node could not
+resolve `bindings` from cached `better-sqlite3`. The copied packages were present,
+but their real parent was `dependencies-<key>`, rather than `node_modules`. Node
+follows the code junction and does not search that parent for sibling packages.
+Native fixtures beneath the checkout silently resolved repository dependencies,
+so their passing results did not establish isolated cache correctness.
+
+A new actual SQLite process regression reproduced the same missing-module error
+before the correction. Dependencies now occupy a real `node_modules` directory
+beneath their immutable cache root, with the layout included in cache identity.
+No running files are changed or old cache migrated. The regression passes after
+deleting the source payload. A rebuilt native GUI with a temporary home/cwd
+outside the checkout also starts, stops, and starts a second owner from the same
+build (12.9s). This qualifies isolated cache/native startup, not standalone release
+distribution: debug resources remain checkout-owned.
+
+The desktop now preserves the first native startup failure through a later
+readiness expiry or failed physical detach, instead of displaying the generic
+pending-RPC disposal error. Review caught both diagnostic precedence interleavings;
+the gated real-RPC/controlled-native regression covers them. Its first invocation
+incorrectly disposed the remote fixture peer rather than the failing client peer,
+which did not reject the client's pending request. The corrected fixture models
+the actual adapter closure; no timeout or assertion was weakened.
+
+Merge CI on db76a69 passes Ubuntu but fails Windows: two `findProjectRoot`
+assertions returning the runner's short-path home also failed on preceding main
+0282afc; the copied-discovery test instead reports a directory-owner rejection.
+These results are separate from the cache reproduction and remain open. Do not
+claim the cache correction resolves them.
+
+Final focused correction evidence: npm run check passes TypeScript, ESLint,
+Prettier and 1000 tests (116 passing files, 36 skips; 54.85s Vitest). Three
+independent read-only reviewers and follow-ups have no remaining actionable
+finding. The isolated native cache case passed twice, including cache reuse.
+The six-case native run passed five cases but one existing Local editing case
+hit EPERM renaming staged dependencies. That exact case's focused rerun passed
+unchanged (10.1s). The transient filesystem lock/cause is unknown; no assertion,
+timeout or retry policy was changed and no fix is claimed for that observation.
