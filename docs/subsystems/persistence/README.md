@@ -43,9 +43,11 @@ errors retaining their invocation association; no computation resumes.
 - **Context builds** record the exact stable instructions, selected items, tool
   roster, prompt, tool choice, output request, and purpose for model invocations.
 - **Model usage** records provider/model token usage, optional context-build link,
-  calculated cost, and turn ownership. A durable `null` usage value distinguishes
-  a completed invocation whose compatible backend omitted accounting from a real
-  zero-token report.
+  calculated cost, turn ownership, optional request purpose and duration. A durable
+  `null` usage distinguishes omitted/unobserved accounting from a real zero-token
+  report, including interrupted and failed provider attempts. Agent request rows
+  are recorded before tool dispatch. Model-backed approval accounting settles
+  before terminal publication and activation teardown.
 - **Plugin state** gives plugins durable namespaced metadata without widening
   conversation or item schemas.
 - **Blobs** preserve complete tool output or binary data behind range-readable
@@ -59,11 +61,18 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-Only the current SQLite format is supported. A fresh database receives the
-complete schema atomically. An existing database must carry the current
-`user_version`; an unsupported version or an unversioned populated database
-fails with a reset instruction. No migrations, old schemas, or automatic data
-rewrites are retained. Stop the server before resetting its disposable database.
+The current SQLite format is version 4. Fresh databases receive the complete
+schema atomically. Version 3 receives one explicit additive upgrade for nullable
+request purpose/duration and indexed latest-agent, terminal-turn and turn-usage
+lookups. Historical rows remain unchanged; unclassified purpose/timing cannot
+establish historical throughput or an agent checkpoint. Other versions and
+unversioned populated databases fail with a reset instruction.
+
+The usage summary retains conversation totals and adds the latest agent attempt's
+model-bound checkpoint plus the latest terminal turn's aggregate. New lookups
+use indexes and aggregate only that selected turn. Terminal totals cover every
+purpose; speed inputs cover known agent requests only and become unavailable if
+any relevant accounting/timing or historical purpose is unknown.
 
 ## Configuration boundary
 

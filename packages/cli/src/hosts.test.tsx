@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { writeFile, rm, readFile } from "node:fs/promises";
+import { writeFile, rm, readFile, mkdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { deviceAuthFixture } from "@harness/testkit";
 import { join, resolve } from "node:path";
@@ -118,13 +118,16 @@ it("renders Local-first command center and saves an alias-only SSH route", async
 
 it("reconnects to the same background owner and preserves drafts and another client", async () => {
   const firstHome = await home();
+  const workspace = join(firstHome, "workspace");
+  // Bound project discovery so this fixture cannot inherit the developer's settings.
+  await mkdir(join(workspace, ".harness"), { recursive: true });
   vi.stubEnv("HARNESS_HOME", firstHome);
   const hosts = manager();
   try {
     await hosts.initialize();
     const first = await hosts.connect("local");
     const identity = first.identity!;
-    const conversation = await first.harness!.service.createConversation({ cwd: firstHome });
+    const conversation = await first.harness!.service.createConversation({ cwd: workspace });
     hosts.setActive("local", conversation.id);
     first.presentation.drafts.set(conversation.id, "unsent text");
     await hosts.edit({ type: "host.save", host: { ...first.host, label: "My computer" } });

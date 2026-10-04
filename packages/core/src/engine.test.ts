@@ -615,10 +615,11 @@ describe("Engine — turn cycle", () => {
       "turn.status",
       "item.appended",
       "item.appended",
-      "item.appended",
       "usage.changed",
+      "item.appended",
       "text_delta",
       "item.appended",
+      "usage.changed",
       "usage.changed",
       "turn.status",
     ]);
@@ -2642,6 +2643,144 @@ describe("Engine — model switching", () => {
 });
 
 describe("Engine — usage recording", () => {
+  it("publishes the agent checkpoint before a tool waits and excludes tool time", async () => {
+    const gate = new GateTool();
+    const usage = { inputTokens: 100, outputTokens: 10, cachedReadTokens: 20 };
+    const { store, engine } = setup([toolStep("call", "gate", {}, usage), textStep("done")], {
+      tools: () => [gate],
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("go"));
+    await gate.started;
+    const checkpoint = await store.summarizeModelUsage(conv.id);
+    expect(checkpoint.agentContext).toMatchObject({ provider: "fake", model: "fake-1", usage });
+    expect(checkpoint.lastTurn).toBeUndefined();
+    const [request] = await store.listModelUsage(conv.id);
+    expect(request?.requestDurationMs).toBeGreaterThanOrEqual(0);
+    gate.release();
+    await engine.whenIdle(conv.id);
+    const rows = await store.listModelUsage(conv.id);
+    expect((await store.summarizeModelUsage(conv.id)).lastTurn?.agentDurationMs).toBe(
+      rows.reduce((sum, row) => sum + row.requestDurationMs!, 0),
+    );
+  });
+
+  it.each([false, true])(
+    "settles interrupted approval accounting before terminal status (deactivate=%s)",
+    async (deactivate) => {
+      const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+      const reviewer = new GateProvider("partial review");
+      const agent = new FakeProvider([
+        toolStep("call", "echo", {}, { inputTokens: 10, outputTokens: 1, cachedReadTokens: 0 }),
+      ]);
+      const provider: ModelProvider = {
+        provider: "fake",
+        validateConfig() {},
+        capabilities: () => agent.capabilities(),
+        listModels: () => [],
+        stream: (request, signal) =>
+          request.modelConfig.model === "reviewer"
+            ? reviewer.stream(request, signal)
+            : agent.stream(),
+      };
+      let markWriteEntered!: () => void;
+      let releaseWrite!: () => void;
+      const writeEntered = new Promise<void>((resolve) => {
+        markWriteEntered = resolve;
+      });
+      const writeGate = new Promise<void>((resolve) => {
+        releaseWrite = resolve;
+      });
+      const record = store.recordModelUsage.bind(store);
+      let written = false;
+      store.recordModelUsage = async (input) => {
+        if (input.purpose === "auto-approval") {
+          markWriteEntered();
+          await writeGate;
+        }
+        const row = await record(input);
+        if (input.purpose === "auto-approval") written = true;
+        return row;
+      };
+      const { engine, events } = setup(
+        [],
+        {
+          providers: () => [provider],
+          toolMiddleware: () => [approvalMiddleware(() => true)],
+          requestMiddleware: () => [
+            {
+              id: "review",
+              async wrap(_request, ctx) {
+                await ctx.models.invoke(
+                  {
+                    instructions: [],
+                    items: [],
+                    modelConfig: { provider: "fake", model: "reviewer" },
+                  },
+                  { purpose: "auto-approval" },
+                );
+                return { decision: "allow" };
+              },
+            },
+          ],
+        },
+        store,
+      );
+      const terminalWrites: boolean[] = [];
+      engine.subscribe({
+        onEvent(event) {
+          if (isKernelEvent(event) && event.type === "turn.status" && event.status !== "running")
+            terminalWrites.push(written);
+        },
+      });
+      const conv = await store.createConversation(newConversationInput(CONFIG));
+      await engine.deliver(conv.id, userInput("go"));
+      await reviewer.started;
+      const stopping = deactivate
+        ? engine.deactivate(conv.id, { force: true })
+        : engine.deliver(conv.id, noContent, "interrupt");
+      await writeEntered;
+      // A store read observes the public state while the accounting write is explicitly gated.
+      expect(await store.getActiveTurn(conv.id)).toBeDefined();
+      releaseWrite();
+      await stopping;
+      await engine.whenIdle(conv.id);
+      expect(terminalWrites).toEqual([true]);
+      expect(turnStatuses(events)).toEqual(["running", "aborted"]);
+      expect(
+        (await store.listModelUsage(conv.id)).filter((row) => row.purpose === "auto-approval"),
+      ).toMatchObject([{ usage: null }]);
+      expect((await store.summarizeModelUsage(conv.id)).lastTurn).toMatchObject({
+        status: "aborted",
+        incomplete: true,
+      });
+    },
+  );
+
+  it("records unknown accounting when a provider throws before returning its stream", async () => {
+    const provider: ModelProvider = {
+      provider: "fake",
+      capabilities: () => new FakeProvider([]).capabilities(),
+      listModels: () => [],
+      validateConfig() {},
+      stream() {
+        throw new Error("request setup failed");
+      },
+    };
+    const { store, engine, events } = setup([], { providers: () => [provider] });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+    expect(await store.listModelUsage(conv.id)).toMatchObject([
+      { provider: "fake", model: "fake-1", purpose: "agent", usage: null },
+    ]);
+    expect((await store.summarizeModelUsage(conv.id)).lastTurn).toMatchObject({
+      status: "failed",
+      incomplete: true,
+      agentOutputTokens: null,
+    });
+    expect(turnStatuses(events)).toEqual(["running", "failed"]);
+  });
   it("records one model_usage row per provider request and emits usage events", async () => {
     const u1: Usage = { inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 };
     const u2: Usage = { inputTokens: 250, outputTokens: 20, cachedReadTokens: 120 };
@@ -2664,10 +2803,24 @@ describe("Engine — usage recording", () => {
       expect(row.cost).toBeNull(); // FakeProvider publishes no rate card
     }
     const usageEvents = events.filter(isKernelEvent).filter((e) => e.type === "usage.changed");
-    expect(usageEvents.map((e) => e.summary.usage)).toEqual([u1, addUsage(u1, u2)]);
+    expect(usageEvents.map((e) => e.summary.usage)).toEqual([
+      u1,
+      addUsage(u1, u2),
+      addUsage(u1, u2),
+    ]);
+    expect(usageEvents.at(-1)?.summary.lastTurn).toMatchObject({
+      status: "completed",
+      usage: addUsage(u1, u2),
+      agentOutputTokens: 30,
+    });
+    expect(usageEvents.at(-1)?.summary.agentContext).toMatchObject({
+      provider: "fake",
+      model: "fake-1",
+      usage: u2,
+    });
   });
 
-  it("records no usage for a step aborted mid-stream (no completed event)", async () => {
+  it("records unknown accounting for a step aborted mid-stream (no completed event)", async () => {
     const provider = new GateProvider("hel");
     const { store, engine } = setup([], { providers: () => [provider] });
     const conv = await store.createConversation(newConversationInput(CONFIG));
@@ -2676,7 +2829,19 @@ describe("Engine — usage recording", () => {
     await engine.deliver(conv.id, noContent, "interrupt");
     await engine.whenIdle(conv.id);
 
-    expect(await store.listModelUsage(conv.id)).toEqual([]);
+    expect(await store.listModelUsage(conv.id)).toMatchObject([
+      { purpose: "agent", usage: null, cost: null },
+    ]);
+    expect(await store.summarizeModelUsage(conv.id)).toMatchObject({
+      incomplete: true,
+      agentContext: { usage: null },
+      lastTurn: {
+        status: "aborted",
+        incomplete: true,
+        agentOutputTokens: null,
+        agentDurationMs: null,
+      },
+    });
   });
 
   it("records a completed invocation whose backend omitted usage", async () => {

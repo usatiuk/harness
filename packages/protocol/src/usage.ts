@@ -1,5 +1,6 @@
 import type { ConversationId, TurnId } from "./ids.ts";
 import type { ModelPricing, Usage } from "./model.ts";
+import type { Turn } from "./conversation.ts";
 
 /** One provider request's spend. A sidecar fact, never an item: it stays out of the transcript. */
 export interface ModelUsage {
@@ -11,7 +12,11 @@ export interface ModelUsage {
   provider: string;
   /** Snapshotted — conversations can switch models mid-life. */
   model: string;
-  /** `null` records a completed provider invocation whose backend omitted accounting. */
+  /** Stable invocation role. Older records may lack it. */
+  purpose?: string;
+  /** Server-measured request consumption time; excludes subsequent tool dispatch. */
+  requestDurationMs?: number;
+  /** `null` records an attempt whose backend omitted accounting or whose end was not observed. */
   usage: Usage | null;
   /** USD, priced once at record time; null = unknown usage or no rate card. */
   cost: number | null;
@@ -27,6 +32,56 @@ export interface ModelUsageSummary {
   incomplete: boolean;
   cost: number;
   lastInputTokens?: number;
+  agentContext?: AgentContextCheckpoint;
+  lastTurn?: TurnUsageSummary;
+}
+
+export type AgentContextCheckpoint = Pick<
+  ModelUsage,
+  "provider" | "model" | "turnId" | "usage" | "createdAt"
+>;
+export interface TurnUsageSummary {
+  turnId: TurnId;
+  status: Exclude<Turn["status"], "running">;
+  usage: Usage;
+  incomplete: boolean;
+  cost: number;
+  /** Both null if any agent request omitted accounting or timing, or none exists. */
+  agentOutputTokens: number | null;
+  agentDurationMs: number | null;
+}
+export function summarizeTurnUsage(turn: Turn, rows: readonly ModelUsage[]): TurnUsageSummary {
+  if (turn.status === "running") throw new Error("Cannot summarize a terminal turn while running");
+  let usage = zeroUsage(),
+    cost = 0,
+    incomplete = false;
+  let agentOutputTokens = 0,
+    agentDurationMs = 0,
+    agentCount = 0,
+    speedKnown = true;
+  for (const row of rows) {
+    cost += row.cost ?? 0;
+    if (row.purpose === undefined) speedKnown = false;
+    if (row.usage) usage = addUsage(usage, row.usage);
+    else incomplete = true;
+    if (row.purpose === "agent") {
+      agentCount++;
+      if (row.usage === null || row.requestDurationMs === undefined) speedKnown = false;
+      else {
+        agentOutputTokens += row.usage.outputTokens;
+        agentDurationMs += row.requestDurationMs;
+      }
+    }
+  }
+  return {
+    turnId: turn.id,
+    status: turn.status,
+    usage,
+    incomplete,
+    cost,
+    agentOutputTokens: speedKnown && agentCount > 0 ? agentOutputTokens : null,
+    agentDurationMs: speedKnown && agentCount > 0 ? agentDurationMs : null,
+  };
 }
 
 export const zeroUsage = (): Usage => ({

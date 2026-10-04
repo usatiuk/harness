@@ -9,6 +9,7 @@ import { canonicalHome, readDiscovery, discoverySchema } from "@harness/connecti
 import { stopServer, runRemote, shellQuote } from "@harness/connections/node";
 import { clientConfigSchema, type Host } from "@harness/connections";
 import { NativeApplication } from "./application.ts";
+import { manageConnections, switchHost } from "./controls.ts";
 
 test.skip(process.platform !== "win32", "Native CDP requires Windows WebView2");
 test("packaged Local starts outside the checkout and reuses its standalone cache", async ({}, info) => {
@@ -27,7 +28,7 @@ test("packaged Local starts outside the checkout and reuses its standalone cache
       directory,
     );
     await expect(app.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await app.page.getByRole("button", { name: "Manage connections" }).click();
+    await manageConnections(app.page);
     await expect(
       app.page.getByLabel("Keep the local server running after desktop exit"),
     ).not.toBeChecked();
@@ -72,9 +73,11 @@ test("host switcher starts with Local and connection editing survives a disconne
   try {
     const page = app.page;
     await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await expect(page.getByRole("combobox", { name: "Selected host" })).toHaveValue("local");
-    await page.getByRole("button", { name: "Manage connections" }).click();
-    const dialog = page.getByRole("dialog", { name: "Agent command center" });
+    await expect(
+      page.getByRole("button", { name: "Switch host: Local", exact: true }),
+    ).toBeVisible();
+    await manageConnections(page);
+    const dialog = page.getByRole("dialog", { name: "Connections" });
     await dialog.getByLabel("Keep the local server running after desktop exit").click();
     await expect(
       dialog.getByLabel("Keep the local server running after desktop exit"),
@@ -99,11 +102,11 @@ test("host switcher starts with Local and connection editing survives a disconne
         ],
       });
     await dialog.getByRole("button", { name: "Done", exact: true }).click();
-    await page.getByRole("button", { name: "Manage connections" }).click();
+    await manageConnections(page);
     await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
     await dialog.getByRole("button", { name: "Done", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Local connection" })).toBeVisible();
-    await page.getByRole("button", { name: "Manage connections" }).click();
+    await manageConnections(page);
     await expect(dialog.getByRole("button", { name: "Workstation", exact: true })).toBeVisible();
     await dialog.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("button", { name: "Reconnect", exact: true }).click();
@@ -139,8 +142,8 @@ test("stop-on-exit keeps another client alive and stops only the last local owne
       home,
     );
     await expect(second.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await first.page.getByRole("button", { name: "Manage connections" }).click();
-    const dialog = first.page.getByRole("dialog", { name: "Agent command center" });
+    await manageConnections(first.page);
+    const dialog = first.page.getByRole("dialog", { name: "Connections" });
     await expect(
       dialog.getByLabel("Keep the local server running after desktop exit"),
     ).not.toBeChecked();
@@ -174,7 +177,7 @@ test("stop-on-exit closes a native bridge before its RPC initialization", async 
   const app = await NativeApplication.launch(profile, info.outputPath("application"), home);
   try {
     await expect(app.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await app.page.getByRole("button", { name: "Manage connections" }).click();
+    await manageConnections(app.page);
     await expect(
       app.page.getByLabel("Keep the local server running after desktop exit"),
     ).not.toBeChecked();
@@ -267,9 +270,9 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
     );
 
     const owner = (await readDiscovery(home))!;
-    await page.getByRole("button", { name: "Manage connections" }).click({ timeout: 5000 });
+    await manageConnections(page);
 
-    const dialog = page.getByRole("dialog", { name: "Agent command center" });
+    const dialog = page.getByRole("dialog", { name: "Connections" });
     await test.step(
       "Discover WSL in editor",
       async () => {
@@ -365,8 +368,8 @@ test("a real WSL conversation keeps its approval across host switching and deskt
     app = await NativeApplication.launch(profile, info.outputPath("first"), home, profile, env);
     const page = app.page;
     await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await page.getByRole("button", { name: "Manage connections" }).click();
-    const dialog = page.getByRole("dialog", { name: "Agent command center" });
+    await manageConnections(page);
+    const dialog = page.getByRole("dialog", { name: "Connections" });
     await dialog.getByRole("button", { name: "Add WSL" }).click();
     await dialog.getByLabel("Name", { exact: true }).fill("WSL work");
     await dialog.getByLabel("Distribution", { exact: true }).fill(distribution!);
@@ -390,9 +393,9 @@ test("a real WSL conversation keeps its approval across host switching and deskt
     );
     const conversationUrl = page.url();
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("remote draft");
-    await page.getByRole("combobox", { name: "Selected host" }).selectOption("local");
+    await switchHost(page, "Local");
     await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await page.getByRole("combobox", { name: "Selected host" }).selectOption(remoteId);
+    await switchHost(page, "WSL work");
     await expect(page.getByRole("region", { name: "Approval request" })).toBeVisible();
     await expect(page).toHaveURL(conversationUrl);
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(

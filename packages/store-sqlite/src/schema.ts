@@ -82,6 +82,8 @@ interface ModelUsageTable {
   context_build_id: string | null;
   provider: string;
   model: string;
+  purpose: string | null;
+  request_duration_ms: number | null;
   usage: string;
   cost: number | null;
   created_at: number;
@@ -160,20 +162,34 @@ CREATE TABLE model_usage (
   context_build_id TEXT REFERENCES context_builds(id),
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
+  purpose TEXT,
+  request_duration_ms REAL CHECK(request_duration_ms >= 0),
   usage TEXT NOT NULL,
   cost REAL,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX model_usage_conv ON model_usage(conversation_id);
+CREATE INDEX model_usage_agent ON model_usage(conversation_id, created_at DESC) WHERE purpose = 'agent';
+CREATE INDEX model_usage_turn ON model_usage(turn_id);
+CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
-/** Open only the current format; fresh databases receive its complete schema atomically. */
+/** Fresh schema or the single additive v3 upgrade; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
   db.transaction(() => {
     const version = db.pragma("user_version", { simple: true }) as number;
     if (version === SCHEMA_VERSION) return;
+    if (version === 3) {
+      db.exec(`ALTER TABLE model_usage ADD COLUMN purpose TEXT;
+        ALTER TABLE model_usage ADD COLUMN request_duration_ms REAL CHECK(request_duration_ms >= 0);
+        CREATE INDEX model_usage_agent ON model_usage(conversation_id, created_at DESC) WHERE purpose = 'agent';
+        CREATE INDEX model_usage_turn ON model_usage(turn_id);
+        CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';`);
+      db.pragma(`user_version = ${SCHEMA_VERSION}`);
+      return;
+    }
     const populated = db
       .prepare(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1",

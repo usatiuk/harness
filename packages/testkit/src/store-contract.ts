@@ -336,6 +336,71 @@ export function storeContract(name: string, makeStore: () => Store): void {
       });
     });
 
+    it("keeps model-specific agent checkpoints and terminal-turn usage separate from other requests", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation(sampleRecord());
+      const turn = await store.createTurn(conv.id);
+      const request = {
+        conversationId: conv.id,
+        turnId: turn.id,
+        contextBuildId: null,
+        provider: "fake",
+        model: "agent",
+        purpose: "agent",
+        requestDurationMs: 1000,
+        usage: { inputTokens: 200, outputTokens: 30, cachedReadTokens: 100 },
+        cost: 0.01,
+      };
+      await store.recordModelUsage(request);
+      await store.recordModelUsage({
+        ...request,
+        purpose: "auto-approval",
+        model: "reviewer",
+        usage: { inputTokens: 7, outputTokens: 2, cachedReadTokens: 0 },
+      });
+      expect((await store.summarizeModelUsage(conv.id)).agentContext).toMatchObject({
+        provider: "fake",
+        model: "agent",
+        usage: request.usage,
+      });
+      expect((await store.summarizeModelUsage(conv.id)).lastTurn).toBeUndefined();
+      await store.recordModelUsage({
+        ...request,
+        model: "unknown-accounting",
+        usage: null,
+        cost: null,
+      });
+      expect((await store.summarizeModelUsage(conv.id)).agentContext).toMatchObject({
+        model: "unknown-accounting",
+        usage: null,
+      });
+      await store.updateTurn(turn.id, "completed");
+      expect((await store.summarizeModelUsage(conv.id)).lastTurn).toMatchObject({
+        turnId: turn.id,
+        status: "completed",
+        incomplete: true,
+        usage: { inputTokens: 207, outputTokens: 32 },
+        agentOutputTokens: null,
+        agentDurationMs: null,
+      });
+      const next = await store.createTurn(conv.id);
+      await store.recordModelUsage({
+        ...request,
+        turnId: next.id,
+        model: "next-model",
+        usage: { inputTokens: 12, outputTokens: 50, cachedReadTokens: 0 },
+      });
+      expect((await store.summarizeModelUsage(conv.id)).lastTurn?.turnId).toBe(turn.id);
+      await store.updateTurn(next.id, "aborted");
+      expect((await store.summarizeModelUsage(conv.id)).lastTurn).toMatchObject({
+        turnId: next.id,
+        status: "aborted",
+        incomplete: false,
+        agentOutputTokens: 50,
+        agentDurationMs: 1000,
+      });
+    });
+
     it("namespaces plugin state by plugin + conversation + key", async () => {
       const store = makeStore();
       const conv = await store.createConversation(sampleRecord());

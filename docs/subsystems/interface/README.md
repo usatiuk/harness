@@ -291,7 +291,45 @@ Vite excludes `src-tauri`, packaged `resources`, and test artifacts from its
 development watcher. Cargo owns native builds; watching locked Windows build
 executables can otherwise terminate the frontend dev server.
 
-Radix Themes provides compact controls; Harness owns its neutral desktop layout.
+The desktop-local `ui.tsx` boundary provides typed native Button/Input/Select/
+Textarea/Checkbox controls and Radix Popover/Dialog/AlertDialog/Tooltip/Tab wrappers.
+Semantic CSS tokens define canvas, sidebar, panel, fields, navigation and button
+states; Tailwind v4 supplies layout utilities. Navigation stays flat and compact.
+Buttons use neutral faces and shallow neutral/accented bases; a generic tinted
+recipe derives face, border, base and states from one color. Destructive buttons
+reuse it with an independent danger tint. Lucide supplies icons.
+
+Model/preset and sandbox chips reveal complete forms in popovers. Router fetchers
+remain mounted above those portals. Destructive confirmations capture the
+operation's form data or host identity before opening. The transcript remains
+virtualized and uses the same centered measure as composer/support rows. Secondary
+tool details use native disclosures with Lucide chevrons. Settings displays one
+focused section through force-mounted tab panels, preserving form and sign-in
+lifetimes. Its selected section belongs to the existing per-host router location,
+so restarting the server restores that section. Appearance is available only in Settings. Creation is folder-first;
+Connections separates saved-host editing from current-host actions and collapses
+rare server controls. Startup/disconnected states center status, errors and actions.
+Settings, providers, connections, startup and route errors consume the
+same controls and tokens. The playground consumes those production recipes while
+its sample conversation/host state remains isolated.
+
+Appearance is applied at the document root before render, including portals.
+The old `theme` preference is retained when no new appearance preference exists.
+Client storage owns System/Light/Dark, pastel/custom accent, button depth/radius,
+send/newline mapping, running delivery default and statistics visibility. System
+theme follows OS changes. Enter sends and Shift+Enter inserts a newline by default;
+settings can swap them. Ctrl/Cmd+Enter uses the alternative Queue/Steer action while
+working. Composition events never submit, and keyboard/button submission share
+the disconnected/empty/pending guard. Drafts remain keyed by host and conversation.
+
+The context ring shows the latest agent request attempt against that exact
+model's advertised window. Missing usage or capacity is unavailable. Last-turn
+totals include all model attempts owned by that turn, excluding separate
+child-conversation turns; throughput uses agent output divided by
+server-measured agent request time, including latency and excluding tool/approval
+waits. Missing accounting/timing is unavailable, and incomplete totals are lower
+bounds. Reattachment restores these facts from the existing usage summary.
+
 Only one conversation is visible. There is no IDE, side-by-side view, tray, or
 parallel TUI presentation. External HTTP(S) transcript links open through the
 scoped OS opener instead of navigating the application WebView.

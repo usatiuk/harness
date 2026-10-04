@@ -6,6 +6,20 @@ Keep dependable local TUI and desktop clients over one reusable service/event
 boundary. Improve diagnosis and daily operation. Desktop v1 delivery is tracked
 in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 
+## Desktop design refactor
+
+The [conversation-first desktop design plan](../../plans/interface/2026-10-04-desktop-design-system.md)
+is complete: reusable accessible components,
+neutral light/dark surfaces, customizable pastel accents, shallow button depth,
+and composer-triggered configuration. The user requested less density and more
+focus on chat and accepted the playground direction. Production pages now share
+chat bounds, focused retained Settings sections, folder-first creation and aligned
+Connections/startup states. Root validation passes 1016 tests; rebuilt native
+qualification passes 23 ordinary cases plus two real Ubuntu WSL cases separately.
+Three independent reviews report no remaining material findings. Existing
+client/server ownership and behavior remain intact. Separate UI-package extraction
+and release-installer/other-platform qualification remain deferred.
+
 ## Diagnostics and supportability
 
 - [ ] Add a focused diagnostic view/export for resolved model, provider limits,

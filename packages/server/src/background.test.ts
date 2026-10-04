@@ -1,4 +1,4 @@
-import { chmod, cp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile, spawn } from "node:child_process";
@@ -138,7 +138,7 @@ it("converges simultaneous starters, rejects unauthenticated peers and survives 
     await client.start();
     expect(await client.peer.request(serverInfoRequest, {})).toEqual(first.identity);
     const conversation = await client.create({
-      cwd: home,
+      cwd: await isolatedWorkspace(home),
       overrides: { model: { provider: "demo", model: "demo-1" } },
     });
     await client.attach(conversation.id);
@@ -215,6 +215,13 @@ it("converges simultaneous starters, rejects unauthenticated peers and survives 
     await rm(home, { recursive: true, force: true });
   }
 }, 30000);
+
+async function isolatedWorkspace(home: string): Promise<string> {
+  const workspace = join(home, "workspace");
+  // A project marker bounds discovery before it can reach real account settings.
+  await mkdir(join(workspace, ".harness"), { recursive: true });
+  return workspace;
+}
 
 it("does not claim shutdown succeeded when a live server's discovery disappears", async () => {
   const home = join(tmpdir(), `harness-background-missing-${randomUUID()}`);

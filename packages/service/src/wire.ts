@@ -37,6 +37,15 @@ export const projectUsageSummary = (summary: ModelUsageSummary): WireUsageSummar
     incomplete: summary.incomplete,
     cost: summary.cost,
     lastInputTokens: summary.lastInputTokens ?? null,
+    agentContext: summary.agentContext
+      ? {
+          ...summary.agentContext,
+          usage: summary.agentContext.usage ? projectUsage(summary.agentContext.usage) : null,
+        }
+      : null,
+    lastTurn: summary.lastTurn
+      ? { ...summary.lastTurn, usage: projectUsage(summary.lastTurn.usage) }
+      : null,
   });
 
 export const projectConversationConfig = (

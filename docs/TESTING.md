@@ -70,7 +70,7 @@ expiry and a secondary detach failure. SSH BatchMode
 cases reject password-only and unknown-host routes without prompting. Current delivery evidence is tracked in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
-The current full check passes 1006 tests (116 passing files, 36 skipped tests).
+That delivery's full check passed 1006 tests (116 passing files, 36 skipped tests).
 Rebuilt native qualification passes all 20 cases; actual SSH/WSL and
 rendered TUI qualification passes five cases across two files. The native Rust
 shutdown regression passes. Three independent reviews and follow-ups report no
@@ -135,6 +135,19 @@ native suite; provider sign-in and every interrupted-install path are separate.
 
 ## Desktop native tests
 
+### Design playground
+
+The [desktop design playground](../packages/desktop/playground/README.md) consumes
+production controls/tokens with isolated sample state. Its own `npm run check`
+covers formatting, JavaScript syntax and frontend build,
+while root lint/formatting also include its source. Browser inspection exercises
+its controls, portals, themes, narrow layouts and preview states. It does not
+connect to the server and does not qualify production or native desktop behavior.
+The [design plan](plans/interface/2026-10-04-desktop-design-system.md) records
+browser evidence, production qualification and remaining checks.
+
+### Actual native application
+
 `npm run test:native` requires Windows WebView2, Rust, and Visual Studio C++ build
 tools. It packages the real server and Node runtime, builds the production web
 assets and native executable, then runs Playwright against that executable's
@@ -155,6 +168,27 @@ and a remote conversation surviving switching/exit/reconnect. Test artifacts liv
 `packages/desktop/test-results/`; non-secret visual scenarios save screenshots.
 Credential scenarios do not record traces or screenshots. These native tests are
 separate from the ordinary Linux/Windows `npm run check` CI matrix.
+
+`design.spec.ts` qualifies legacy theme migration, appearance/composer preferences
+across reopening, IME/send/newline handling, focused settings panels, popup/dialog
+focus and containment, cancellation/acceptance, accent presets and black/white
+extremes, and authoritative context/turn usage restored through actual SQLite/RPC.
+Rendered axe text-contrast audits scope visible controls and reject violations or
+unmeasurable results. They do not establish nontext boundary contrast or complete
+accessibility conformance. System changes, forced colors and reduced motion use
+CDP media emulation. Minimum CDP viewport and measured 200% CSS zoom qualify
+reachability/overflow, not actual OS resizing/browser zoom. Native screenshots
+support visual review. Run native end-to-end checks at the end of layout work:
+they launch visible application windows. The delivery plan records final evidence.
+
+The 2026-10-04 design refactor's final repository check passes typecheck, lint,
+formatting and 1016 tests (117 files; 36 skipped). Its rebuilt ordinary native
+suite passes 23 cases with the two WSL opt-ins skipped (4.3m). A separate final
+`HARNESS_REMOTE_WSL=Ubuntu` run passes both real WSL cases (42s). Frontend and
+playground builds pass, and three independent reviews report no remaining material
+findings. The plan records failure investigation, correction reruns and native
+screenshots; release installers, other native platforms, screen readers and live
+credentialed OAuth remain separate qualifications.
 
 The auto-approver scenario saves a reviewer model/preset in the actual GUI,
 verifies that model performs review before a real shell tool executes, changes

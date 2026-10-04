@@ -269,6 +269,7 @@ export class Engine {
           (await this.#contextCapacity(conversation, build)).compactionOutputLimit,
         );
         await this.store.updateTurn(turn.id, "completed");
+        await this.#publishUsage(conversation.id);
         this.#emitKernel({
           type: "turn.status",
           conversationId: conversation.id,
@@ -279,6 +280,7 @@ export class Engine {
       } catch (error) {
         const aborted = error instanceof TurnAborted || controller.signal.aborted;
         await this.store.updateTurn(turn.id, aborted ? "aborted" : "failed");
+        await this.#publishUsage(conversation.id);
         this.#emitKernel({
           type: "turn.status",
           conversationId: conversation.id,
@@ -674,6 +676,7 @@ export class Engine {
       await this.#runSteps(conversation, turn.id, controller.signal, runtime);
       if (controller.signal.aborted) throw new TurnAborted();
       await this.store.updateTurn(turn.id, "completed");
+      await this.#publishUsage(conversation.id);
       this.#emitKernel({
         type: "turn.status",
         conversationId: conversation.id,
@@ -683,6 +686,7 @@ export class Engine {
     } catch (error) {
       if (error instanceof TurnAborted || controller.signal.aborted) {
         await this.store.updateTurn(turn.id, "aborted");
+        await this.#publishUsage(conversation.id);
         this.#emitKernel({
           type: "turn.status",
           conversationId: conversation.id,
@@ -691,6 +695,7 @@ export class Engine {
         });
       } else {
         await this.store.updateTurn(turn.id, "failed");
+        await this.#publishUsage(conversation.id);
         this.#emitKernel({
           type: "turn.status",
           conversationId: conversation.id,
@@ -703,6 +708,15 @@ export class Engine {
       runtime.currentTurnId = undefined;
       runtime.controller = undefined;
     }
+  }
+
+  /** Publish before the terminal event, so an attachment during this await observes completion. */
+  async #publishUsage(conversationId: ConversationId): Promise<void> {
+    this.#emitKernel({
+      type: "usage.changed",
+      conversationId,
+      summary: await this.store.summarizeModelUsage(conversationId),
+    });
   }
 
   /**
@@ -782,8 +796,25 @@ export class Engine {
       };
 
       // --- Consume phase: assistant content, in emission order. ---
-      const stream = this.#streamModel(conversation.id, request, signal, provider, toolSet);
+      const requestStarted = performance.now();
+      let requestDurationMs: number | undefined;
+      const recordUsage = async (): Promise<void> => {
+        const usage = completed?.usage ?? null;
+        await this.store.recordModelUsage({
+          conversationId: conversation.id,
+          turnId,
+          contextBuildId: build.id,
+          provider: conversation.config.model.provider,
+          model: conversation.config.model.model,
+          purpose: "agent",
+          requestDurationMs: requestDurationMs ?? performance.now() - requestStarted,
+          usage,
+          cost: pricing && usage ? costOf(usage, pricing) : null,
+        });
+        await this.#publishUsage(conversation.id);
+      };
       try {
+        const stream = this.#streamModel(conversation.id, request, signal, provider, toolSet);
         for await (const event of stream) {
           if (signal.aborted) break;
           switch (event.type) {
@@ -821,13 +852,16 @@ export class Engine {
             }
             case "completed":
               completed = event;
+              requestDurationMs = performance.now() - requestStarted;
               break;
             default:
               assertNever(event);
           }
         }
       } catch (error) {
+        requestDurationMs ??= performance.now() - requestStarted;
         await flushText();
+        await recordUsage();
         if (
           error instanceof ContextWindowExceededError &&
           !sawOutput &&
@@ -860,29 +894,14 @@ export class Engine {
         }
         throw error;
       }
+      requestDurationMs ??= performance.now() - requestStarted;
       await flushText(); // trailing text segment (saves partial output on abort)
+      await recordUsage();
 
       if (!completed) {
         if (signal.aborted) throw new TurnAborted();
         throw new Error("provider stream ended without a 'completed' event");
       }
-      const { provider: providerName, model } = conversation.config.model;
-      const recordUsage = async (): Promise<void> => {
-        await this.store.recordModelUsage({
-          conversationId: conversation.id,
-          turnId,
-          contextBuildId: build.id,
-          provider: providerName,
-          model,
-          usage: completed.usage,
-          cost: pricing && completed.usage ? costOf(completed.usage, pricing) : null,
-        });
-        this.#emitKernel({
-          type: "usage.changed",
-          conversationId: conversation.id,
-          summary: await this.store.summarizeModelUsage(conversation.id),
-        });
-      };
       if (completed.error) {
         await this.#dispatchCalls(
           calls,
@@ -894,7 +913,6 @@ export class Engine {
           completed.error,
         );
         if (lastMessageId) await bindPayload(lastMessageId, completed.payload);
-        await recordUsage();
         if (signal.aborted) throw new TurnAborted();
         throw new Error(completed.error);
       }
@@ -904,7 +922,6 @@ export class Engine {
 
       // --- Finalize. ---
       if (lastMessageId) await bindPayload(lastMessageId, completed.payload);
-      await recordUsage();
       if (signal.aborted) throw new TurnAborted();
       if (calls.length === 0) {
         return; // final, non-tool response: the turn is done
@@ -1102,6 +1119,7 @@ export class Engine {
     const controller = new AbortController();
     const callSignal = AbortSignal.any([signal, controller.signal]);
     const children: Promise<ToolResult>[] = [];
+    const modelInvocations: Promise<ModelInvocationResult>[] = [];
     const annotations: Record<string, unknown> = {};
     const finalize = (result: ToolResult): ToolResult =>
       Object.keys(annotations).length === 0
@@ -1128,6 +1146,7 @@ export class Engine {
       annotations,
       pendingContexts,
       children,
+      modelInvocations,
     ).then((result) => ({ result: finalize(result), completed: true }));
     try {
       // Evaluator cancellation must terminate its worker and preserve emitted content.
@@ -1138,6 +1157,9 @@ export class Engine {
       callSignal.removeEventListener("abort", onAbort);
       controller.abort();
       // Recorded descendants must be paired before the outer result/turn can finish.
+      // Accounting started by a model-backed approval belongs to this turn even when
+      // the outer tool is abandoned. Settle it before terminal publication/teardown.
+      await Promise.allSettled(modelInvocations);
       await Promise.all(children);
     }
   }
@@ -1158,6 +1180,7 @@ export class Engine {
     resultAnnotations: Record<string, unknown>,
     pendingContexts: PendingContext[],
     children: Promise<ToolResult>[],
+    modelInvocations: Promise<ModelInvocationResult>[],
   ): Promise<ToolResult> {
     type ParsedCall = ReturnType<typeof parseToolArgs> | undefined;
     const parsedCalls = new Map<ToolCall, ParsedCall>();
@@ -1227,7 +1250,8 @@ export class Engine {
         this.#ensureRunning(runtime);
       },
       putBlob: (bytes) => this.store.putBlob(bytes),
-      request: (request) => this.#request(request, conversation, turnId, signal, runtime),
+      request: (request) =>
+        this.#request(request, conversation, turnId, signal, runtime, modelInvocations),
       active: async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
       appendContext: async (key, content) => {
         if (signal.aborted) throw new Error("interrupted: turn aborted");
@@ -1264,6 +1288,7 @@ export class Engine {
     turnId: TurnId,
     signal: AbortSignal,
     runtime: Runtime,
+    modelInvocations: Promise<ModelInvocationResult>[],
   ): Promise<unknown> {
     if (
       this.#runtimes.get(conversation.id) !== runtime ||
@@ -1292,7 +1317,7 @@ export class Engine {
           this.#emitPlugin({ conversationId: conversation.id, ...event });
         }
       },
-      models: this.#modelInvoker(conversation, turnId, signal),
+      models: this.#modelInvoker(conversation, turnId, signal, undefined, modelInvocations),
     };
     return runRequestChain(this.host.requestMiddleware, request, ctx, (req) =>
       this.#parkRequest(req, conversation.id, signal, runtime),
@@ -1367,39 +1392,58 @@ export class Engine {
     turnId: TurnId,
     turnSignal: AbortSignal,
     modelMiddlewareTools?: ToolSet,
+    pending?: Promise<ModelInvocationResult>[],
   ): ModelInvoker {
-    return {
-      invoke: async (draft, options = {}): Promise<ModelInvocationResult> => {
-        const modelConfig = draft.modelConfig ?? conversation.config.model;
-        const provider = this.host.providers.get(modelConfig.provider);
-        provider.validateConfig(modelConfig);
-        const signal = options.signal ? AbortSignal.any([turnSignal, options.signal]) : turnSignal;
-        const request: ModelRequest = {
-          instructions: draft.instructions,
-          items: draft.items,
-          modelConfig,
-          ...(draft.tools ? { tools: draft.tools } : {}),
-          ...(draft.prompt ? { prompt: draft.prompt } : {}),
-          ...(draft.toolChoice ? { toolChoice: draft.toolChoice } : {}),
-          ...(draft.maxOutputTokens !== undefined
-            ? { maxOutputTokens: draft.maxOutputTokens }
-            : {}),
-        };
-        const build = await this.store.recordContextBuild({
+    const invoke: ModelInvoker["invoke"] = async (draft, options = {}) => {
+      turnSignal.throwIfAborted();
+      const modelConfig = draft.modelConfig ?? conversation.config.model;
+      const provider = this.host.providers.get(modelConfig.provider);
+      provider.validateConfig(modelConfig);
+      const signal = options.signal ? AbortSignal.any([turnSignal, options.signal]) : turnSignal;
+      const request: ModelRequest = {
+        instructions: draft.instructions,
+        items: draft.items,
+        modelConfig,
+        ...(draft.tools ? { tools: draft.tools } : {}),
+        ...(draft.prompt ? { prompt: draft.prompt } : {}),
+        ...(draft.toolChoice ? { toolChoice: draft.toolChoice } : {}),
+        ...(draft.maxOutputTokens !== undefined ? { maxOutputTokens: draft.maxOutputTokens } : {}),
+      };
+      const build = await this.store.recordContextBuild({
+        conversationId: conversation.id,
+        purpose: options.purpose ?? "plugin",
+        instructions: request.instructions,
+        tools: request.tools ?? [],
+        items: request.items,
+        ...(request.prompt ? { prompt: request.prompt } : {}),
+        ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
+        ...(request.maxOutputTokens !== undefined
+          ? { maxOutputTokens: request.maxOutputTokens }
+          : {}),
+      });
+      signal.throwIfAborted();
+      const outputItems: ModelOutputItem[] = [];
+      const requestStarted = performance.now();
+      let text = "";
+      let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
+      let requestDurationMs: number | undefined;
+      const pricing = this.#pricingFor(modelConfig);
+      const recordUsage = async (): Promise<void> => {
+        const usage = completed?.usage ?? null;
+        await this.store.recordModelUsage({
           conversationId: conversation.id,
+          turnId,
+          contextBuildId: build.id,
+          provider: modelConfig.provider,
+          model: modelConfig.model,
           purpose: options.purpose ?? "plugin",
-          instructions: request.instructions,
-          tools: request.tools ?? [],
-          items: request.items,
-          ...(request.prompt ? { prompt: request.prompt } : {}),
-          ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
-          ...(request.maxOutputTokens !== undefined
-            ? { maxOutputTokens: request.maxOutputTokens }
-            : {}),
+          requestDurationMs: requestDurationMs ?? performance.now() - requestStarted,
+          usage,
+          cost: pricing && usage ? costOf(usage, pricing) : null,
         });
-        const outputItems: ModelOutputItem[] = [];
-        let text = "";
-        let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
+        await this.#publishUsage(conversation.id);
+      };
+      try {
         const stream = this.#streamModel(
           conversation.id,
           request,
@@ -1407,60 +1451,56 @@ export class Engine {
           provider,
           modelMiddlewareTools,
         );
-        try {
-          for await (const event of stream) {
-            if (signal.aborted) break;
-            if (event.type === "text_delta") {
-              text += event.text;
-            } else if (event.type === "tool_call") {
-              outputItems.push({
-                type: "tool_call",
-                callId: event.callId,
-                name: event.name,
-                args: event.args,
-                ...(event.payload ? { payload: event.payload } : {}),
-              });
-            } else if (event.type === "reasoning") {
-              outputItems.push({
-                type: "reasoning",
-                content: event.content,
-                ...(event.payload ? { payload: event.payload } : {}),
-              });
-            } else if (event.type === "completed") {
-              completed = event;
-            }
+        for await (const event of stream) {
+          if (signal.aborted) break;
+          if (event.type === "text_delta") {
+            text += event.text;
+          } else if (event.type === "tool_call") {
+            outputItems.push({
+              type: "tool_call",
+              callId: event.callId,
+              name: event.name,
+              args: event.args,
+              ...(event.payload ? { payload: event.payload } : {}),
+            });
+          } else if (event.type === "reasoning") {
+            outputItems.push({
+              type: "reasoning",
+              content: event.content,
+              ...(event.payload ? { payload: event.payload } : {}),
+            });
+          } else if (event.type === "completed") {
+            completed = event;
+            requestDurationMs = performance.now() - requestStarted;
           }
-        } catch (error) {
-          if (signal.aborted) throw new TurnAborted();
-          throw error;
         }
-        if (!completed) {
-          if (signal.aborted) throw new TurnAborted();
-          throw new Error("provider stream ended without a 'completed' event");
-        }
-        const pricing = this.#pricingFor(modelConfig);
-        await this.store.recordModelUsage({
-          conversationId: conversation.id,
-          turnId,
-          contextBuildId: build.id,
-          provider: modelConfig.provider,
-          model: modelConfig.model,
-          usage: completed.usage,
-          cost: pricing && completed.usage ? costOf(completed.usage, pricing) : null,
-        });
-        this.#emitKernel({
-          type: "usage.changed",
-          conversationId: conversation.id,
-          summary: await this.store.summarizeModelUsage(conversation.id),
-        });
+      } catch (error) {
+        requestDurationMs ??= performance.now() - requestStarted;
+        await recordUsage();
         if (signal.aborted) throw new TurnAborted();
-        if (completed.error) throw new Error(completed.error);
-        return {
-          content: text ? [{ type: "text", text }] : [],
-          outputItems,
-          usage: completed.usage,
-          modelConfig,
-        };
+        throw error;
+      }
+      if (!completed) {
+        requestDurationMs ??= performance.now() - requestStarted;
+        await recordUsage();
+        if (signal.aborted) throw new TurnAborted();
+        throw new Error("provider stream ended without a 'completed' event");
+      }
+      await recordUsage();
+      if (signal.aborted) throw new TurnAborted();
+      if (completed.error) throw new Error(completed.error);
+      return {
+        content: text ? [{ type: "text", text }] : [],
+        outputItems,
+        usage: completed.usage,
+        modelConfig,
+      };
+    };
+    return {
+      invoke: (draft, options) => {
+        const invocation = invoke(draft, options);
+        pending?.push(invocation);
+        return invocation;
       },
     };
   }

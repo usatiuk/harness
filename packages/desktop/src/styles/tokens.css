@@ -1,0 +1,76 @@
+:root {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  color-scheme: light;
+  --neutral-0: #ffffff;
+  --neutral-1: #fdfdfc;
+  --neutral-2: #f3f3f1;
+  --neutral-3: #eeeeec;
+  --neutral-4: #e5e5e2;
+  --neutral-5: #d9d9d6;
+  --surface-canvas: var(--neutral-1);
+  --surface-sidebar: var(--neutral-2);
+  --surface-panel: var(--neutral-0);
+  --surface-subtle: var(--neutral-3);
+  --field-face: var(--surface-panel);
+  --navigation-selected-face: var(--surface-panel);
+  --navigation-hover-face: var(--surface-subtle);
+  --button-face: var(--neutral-0);
+  --button-ink: var(--ink);
+  --button-border: var(--line);
+  --button-hover-face: var(--neutral-2);
+  --button-selected-face: var(--neutral-3);
+  --button-selected-hover-face: var(--neutral-4);
+  --ink: #252527;
+  --muted-ink: #68686c;
+  --line: var(--neutral-5);
+  --control-border: #85858a;
+  --neutral-edge: #d3d3d1;
+  --accent: #c8b8e8;
+  --edge: 3px;
+  --control-radius: 9px;
+  --danger-ink: #ac3434;
+  --danger-face: #fbefee;
+  --success-ink: #386448;
+  --success-face: #edf4ed;
+  --warning-ink: #805719;
+  --warning-face: #faf4e7;
+  --overlay: #00000038;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --neutral-0: #141416;
+  --neutral-1: #19191b;
+  --neutral-2: #242426;
+  --neutral-3: #2c2c2f;
+  --neutral-4: #343438;
+  --neutral-5: #3e3e42;
+  --surface-canvas: var(--neutral-1);
+  --surface-sidebar: var(--neutral-0);
+  --surface-panel: var(--neutral-2);
+  --surface-subtle: var(--neutral-3);
+  --button-face: var(--neutral-2);
+  --button-hover-face: var(--neutral-3);
+  --button-selected-face: var(--neutral-4);
+  --button-selected-hover-face: var(--neutral-5);
+  --ink: #ededeb;
+  --muted-ink: #aaaaae;
+  --line: var(--neutral-5);
+  --control-border: #7e7e84;
+  --neutral-edge: #4a4a50;
+  --danger-ink: #e7aaaa;
+  --danger-face: #3a272a;
+  --success-ink: #accdb1;
+  --success-face: #253229;
+  --warning-ink: #ddc18a;
+  --warning-face: #373022;
+  --overlay: #00000080;
+}
+@theme inline {
+  --color-canvas: var(--surface-canvas);
+  --color-face: var(--surface-panel);
+  --color-soft: var(--surface-subtle);
+  --color-ink: var(--ink);
+  --color-muted-ink: var(--muted-ink);
+  --color-line: var(--line);
+}

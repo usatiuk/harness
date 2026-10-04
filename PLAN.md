@@ -58,6 +58,18 @@ packages.
 
 ## Recent delivery
 
+Completed the desktop presentation refactor tracked in the
+[conversation-first design-system plan](docs/plans/interface/2026-10-04-desktop-design-system.md).
+The design prioritizes chat, reveals configuration from composer
+chips, and uses reusable controls with neutral surfaces and customizable pastel
+accents, including shared tinted button recipes. Settings presents one retained
+section at a time; creation, Connections and startup use aligned, focused layouts.
+Protocol/SQLite v4 supply authoritative context and last-turn accounting. Root
+validation passes 1016 tests; rebuilt native qualification passes 23 ordinary
+cases plus both opt-in real Ubuntu WSL cases in a separate run. Three independent
+reviews report no remaining material findings. Separate UI-package extraction and
+release-installer/other-platform qualification remain deferred.
+
 Completed the [connection boundary corrections](docs/plans/cross-cutting/2026-10-04-connection-boundary-corrections.md):
 shared-registry route authority, physical/native drainage, Local cancellation,
 failed ownership, safe diagnostics and TUI client/server separation. Typed

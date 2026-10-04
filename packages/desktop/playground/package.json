@@ -1,0 +1,24 @@
+{
+  "name": "harness-desktop-design-playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1430 --strictPort",
+    "build": "vite build",
+    "check": "prettier --check . && node --check src/main.mjs && node --check src/ui.mjs && node --check vite.config.mjs && vite build"
+  },
+  "dependencies": {
+    "lucide-react": "^1.51.0",
+    "radix-ui": "1.6.7",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "axe-core": "4.13.0",
+    "prettier": "^3.8.3",
+    "tailwindcss": "4.3.3",
+    "vite": "8.3.2"
+  }
+}

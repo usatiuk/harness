@@ -12,6 +12,29 @@ const echo = defineRequest({
 });
 
 describe("RpcServer", () => {
+  it("rejects a previous protocol version before admitting application requests", async () => {
+    const connection = createInProcessMessageConnectionPair();
+    const server = new RpcServer({
+      connection: connection.right,
+      server: { name: "harness", version: "0.0.0" },
+    });
+    server.start();
+    connection.left.listen();
+    try {
+      await expect(
+        connection.left.sendRequest("initialize", {
+          protocolVersion: HARNESS_PROTOCOL_VERSION - 1,
+          client: { name: "previous-client", version: "0.0.0" },
+          plugins: [],
+        }),
+      ).rejects.toMatchObject({ code: -32602 });
+      await expect(connection.left.sendRequest(echo.method, { text: "early" })).rejects.toThrow();
+    } finally {
+      connection.left.dispose();
+      server.close();
+    }
+  });
+
   it("owns initialization and dispatches validated handlers", async () => {
     const connection = createInProcessMessageConnectionPair();
     const server = new RpcServer({
