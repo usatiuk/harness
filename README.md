@@ -45,8 +45,8 @@ an external requirement for devcontainers, and execution tools use the host's
 installed shell/programs. The current installer and native E2E qualification
 target Windows; macOS/Linux desktop packaging is not yet qualified.
 
-Desktop and TUI attach to the same background server for each environment, OS
-account. Closing a client keeps accepted work running. The
+Desktop and TUI attach to the same background server for each execution
+environment and OS account. Closing a client keeps accepted work running. The
 desktop's remembered exit preference can stop Local when no other client uses
 it; remote stop/restart is explicit. Provider credential changes require an
 explicit server restart. There is no tray or login autostart.
@@ -85,8 +85,8 @@ and credentials remain on the selected server. Remote deployment supports Linux
 x64 glibc: managed mode obtains verified portable Node; development mode uses the
 host's existing Node/npm. Both transfer the locally built server bundle and cache
 target dependencies. Upload stages code; restart activates it. Local offers browser
-and device-code ChatGPT sign-in; WSL/SSH use device codes. Remaining remote
-qualification is tracked in
+and device-code ChatGPT sign-in; WSL/SSH use device codes. Qualification evidence
+is recorded in
 [the delivery plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
 Repository guidance lives in `AGENTS.md`. See `docs/README.md` for the roles of

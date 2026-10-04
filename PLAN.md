@@ -56,23 +56,22 @@ root. They may depend on protocol and narrower feature contracts, but the kernel
 does not import provider, workspace, sandbox, approval, activity, or subagent
 packages.
 
-## Active delivery
+## Recent delivery
 
-Shared background servers and Local/WSL/SSH connections for desktop and TUI are
-selected for delivery in [the active plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
-The shared server/session ownership boundary and authenticated background discovery
-are implemented and qualified with Windows process tests. Common remote adapters
-and managed/development deployment are qualified on Ubuntu WSL and isolated SSH;
-desktop/TUI host editors, selection and background exit are implemented. Native
-Local/editor/shared-exit cases and rendered TUI/real-owner cases are qualified;
-Local browser and device-code sign-in are qualified; representative remote client
-interaction remains in progress. Connection forms use the normal account directory
-and expose no home, executable or installation-path controls. SSH is
-non-interactive and uses OS-configured aliases.
+Completed shared background servers and Local/WSL/SSH connections for desktop
+and TUI in [the delivery plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
+Connection editors use the normal account directory and simple WSL/SSH routes;
+SSH uses non-interactive authentication and OS-configured aliases. Native desktop
+and rendered TUI WSL conversations survive host switching and client exit, then
+reattach to the same owner and finish pending work. Managed/development deployment
+passes on Ubuntu WSL and isolated OpenSSH. Local retains both browser and device
+sign-in; remote hosts use device codes without callback forwarding. Full local
+validation passes 976 tests. The plan records independent review, scope cleanup,
+platform evidence and earlier unreproduced test failures.
 
 ## Current implementation status
 
-As of 2026-10-03, Harness provides:
+As of 2026-10-04, Harness provides:
 
 - An append-only conversation/item graph with one durable head, linear rewind,
   branch-preserving continuation, turn reconciliation, and resumable transcripts.
@@ -101,8 +100,8 @@ As of 2026-10-03, Harness provides:
 - A Tauri/React desktop client with React Router loaders/actions/fetchers, a
   live conversation sidebar, independent turns/drafts/approvals, virtualized
   bounded history, Markdown/tool/diff/output inspection, provider/settings
-  controls including a global auto-review model/preset, and a bundled owned
-  server with exclusive database ownership. Approval defaults refresh open
+  controls including a global auto-review model/preset, and a bundled shared
+  background server with exclusive database ownership. Approval defaults refresh open
   conversations while their main model selections stay pinned.
   Native Windows tests cover actual WebView2, processes, restart, and shutdown;
   other desktop platforms remain unqualified.

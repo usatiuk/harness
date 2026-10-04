@@ -120,26 +120,32 @@ it("reconnects to the same background owner and preserves drafts and another cli
   const firstHome = await home();
   vi.stubEnv("HARNESS_HOME", firstHome);
   const hosts = manager();
-  await hosts.initialize();
-  const first = await hosts.connect("local");
-  const identity = first.identity!;
-  const conversation = await first.harness!.service.createConversation({ cwd: firstHome });
-  hosts.setActive("local", conversation.id);
-  first.presentation.drafts.set(conversation.id, "unsent text");
-  await hosts.edit({ type: "host.save", host: { ...first.host, label: "My computer" } });
-  const fresh = await hosts.connect("local");
-  expect(fresh.identity).toEqual(identity);
-  expect(fresh.presentation.activeId).toBe(conversation.id);
-  expect(fresh.presentation.drafts.get(conversation.id)).toBe("unsent text");
-  const second = manager();
-  await second.initialize();
-  await second.connect("local");
-  await hosts.close();
-  await expect(hosts.connect("local")).rejects.toThrow("shutting down");
-  await expect(hosts.refresh("local")).rejects.toThrow("shutting down");
-  expect(await second.selected!.harness!.client.peer.request(serverInfoRequest, {})).toEqual(
-    identity,
-  );
+  try {
+    await hosts.initialize();
+    const first = await hosts.connect("local");
+    const identity = first.identity!;
+    const conversation = await first.harness!.service.createConversation({ cwd: firstHome });
+    hosts.setActive("local", conversation.id);
+    first.presentation.drafts.set(conversation.id, "unsent text");
+    await hosts.edit({ type: "host.save", host: { ...first.host, label: "My computer" } });
+    const fresh = await hosts.connect("local");
+    expect(fresh.identity).toEqual(identity);
+    expect(fresh.presentation.activeId).toBe(conversation.id);
+    expect(fresh.presentation.drafts.get(conversation.id)).toBe("unsent text");
+    const second = manager();
+    await second.initialize();
+    await second.connect("local");
+    await hosts.close();
+    await expect(hosts.connect("local")).rejects.toThrow("shutting down");
+    await expect(hosts.refresh("local")).rejects.toThrow("shutting down");
+    expect(await second.selected!.harness!.client.peer.request(serverInfoRequest, {})).toEqual(
+      identity,
+    );
+  } catch (error) {
+    throw new Error(await readFile(join(firstHome, ".server", "startup.log"), "utf8"), {
+      cause: error,
+    });
+  }
 }, 30000);
 
 it("renders both Local OAuth methods, displays a device code and cancels when leaving sign-in", async () => {

@@ -67,6 +67,8 @@ try {
       resolve("node_modules/vitest/vitest.mjs"),
       "run",
       "packages/connections/src/remote.integration.test.ts",
+      "packages/cli/src/hosts-remote.test.tsx",
+      "--no-file-parallelism",
     ],
     {
       stdio: "inherit",
@@ -75,6 +77,7 @@ try {
         HARNESS_HOME: directory,
         HARNESS_REMOTE_SSH_CONFIG: join(directory, "config"),
         HARNESS_REMOTE_FIXTURE_HOME: fixtureHome,
+        HARNESS_SERVER_PAYLOAD: resolve("packages/connections/resources"),
         NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preload).href}`,
       },
     },

@@ -139,6 +139,8 @@ it("converges simultaneous starters, rejects unauthenticated peers and survives 
     const restarted = await ensureLocalServer(home, launch);
     expect(restarted.identity.serverId).toBe(first.identity.serverId);
     expect(restarted.identity.instanceId).not.toBe(first.identity.instanceId);
+  } catch (error) {
+    throw new Error(await readFile(join(home, ".server", "startup.log"), "utf8"), { cause: error });
   } finally {
     await stopHome(home);
     await rm(home, { recursive: true, force: true });

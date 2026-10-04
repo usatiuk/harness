@@ -1,7 +1,7 @@
 # Remote hosts and background servers
 
-Date: 2026-10-03. Status: product and architecture research, selected for delivery.
-[The active delivery plan](../plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md)
+Date: 2026-10-03. Status: historical product and architecture research.
+[The completed delivery plan](../plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md)
 records implementation choices and current qualification evidence. The foundation
 section below describes the pre-change code that motivated the design.
 

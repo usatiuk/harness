@@ -1,6 +1,6 @@
 # Remote hosts and background servers
 
-Date: 2026-10-03. Status: Active. Scope corrected: 2026-10-04.
+Date: 2026-10-03. Status: Complete. Scope corrected and delivered: 2026-10-04.
 
 ## Outcome and scope
 
@@ -50,20 +50,20 @@ preference. Tray, notifications and autostart are not required for this delivery
       routes, built-bundle deployment, dependency reuse, managed Node and explicit
       update/restart. Representative real WSL and SSH flows pass after removing
       the home/path controls.
-- [ ] **Desktop/TUI host interaction.** Equivalent editors, selection, server
+- [x] **Desktop/TUI host interaction.** Equivalent editors, selection, server
       controls, host-scoped conversation state and selected-host settings/auth.
-      Local native/TUI flows are verified. Complete one representative remote
-      client selection/conversation flow, including work continuing after a host
-      switch or client exit.
-- [ ] **Final validation and handoff.** Run npm run check and affected native/
-      remote checks; reconcile docs; resolve independent correctness and
-      simplicity findings; commit validated increments. Required failures stay
-      open. Do not make a broader hypothetical test matrix a completion gate.
+      Local and real WSL native/rendered-TUI flows verify conversation selection,
+      host switching, client exit and fresh attachment to the same owner.
+      A pending turn completes after a decision from the reattached client.
+- [x] **Final validation and handoff.** Full local checks, affected native/remote
+      checks, documentation and independent correctness/simplicity review pass.
+      Coherent implementation and scope-cleanup increments are committed.
+      Earlier unreproduced validation observations remain recorded below.
 
 ## Evidence
 
-- Latest committed work is 2f31ca0, additive device sign-in alongside browser
-  OAuth. Earlier increments implement shared authority, discovery, deployment,
+- Scope cleanup is committed as 3f042d7. Additive device sign-in alongside browser
+  OAuth is 2f31ca0. Earlier increments implement shared authority, discovery, deployment,
   client interaction and current-format cleanup. The branch was rebased on
   latest primary branch main, 0282afc, after both user rebase requests.
 - Before scope cleanup, npm run check passed 112 files / 975 tests, with 35
@@ -108,4 +108,29 @@ Scope cleanup passes typecheck, lint, formatting and the full Vitest suite
 four real WSL/SSH cases and four rebuilt native desktop connection cases
 (39.0 seconds), including actual WSL cancellation. Existing meaningful
 regressions stay; profile-specific assertions and speculative completion
-requirements are removed. Representative remote client interaction remains open.
+requirements are removed. Final real WSL interaction qualifies desktop and TUI:
+remote turns and approvals survive host switching and client exit, fresh
+attachment keeps the same server, and the turn completes after approval. Five
+native connection tests passed in 1.1 minutes; five actual WSL/SSH/TUI cases
+passed in 48.9 seconds. The final refreshed remote run also passes all five cases
+(48.5 seconds), including the TUI's canonical turn completion and owner cleanup.
+Final npm run check passes typecheck, lint, formatting and 112 files / 976 tests,
+with 36 platform/opt-in skips. Temporary diagnostic logging is removed. Three
+independent reviewers inspected behavior, lifecycle and qualification/simplicity;
+their actionable findings are resolved. The ship-change skill now requires scope
+reflection and the requested two-work/one-cleanup commit cadence.
+
+## Unresolved validation observations
+
+An earlier full run returned generic RPC internal errors in the first background
+process scenario and the TUI same-owner/draft scenario. The original exceptions
+were not retained. Focused reruns passed all ten tests, and three later full suites
+passed all 976 tests. Fixture failures now include the startup log before cleanup.
+Independent review found no reproducible ownership race. The cause remains open;
+these passing runs do not establish a fix. An unchanged QuickJS limits test also
+hit its default test timeout once during a parallel full run and passed later;
+no timeout or assertion was weakened.
+
+A separate final run was blocked before test execution by Vite's Windows path
+initialization spawning a subprocess (EPERM). Retrying outside the sandbox passed
+the full check. This explains that runner failure, not the earlier RPC errors.

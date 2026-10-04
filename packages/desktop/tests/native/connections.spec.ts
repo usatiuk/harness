@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { remoteProcessFixture } from "@harness/testkit";
-import { canonicalHome, readDiscovery } from "@harness/connections/local";
+import { canonicalHome, readDiscovery, discoverySchema } from "@harness/connections/local";
 import { stopServer, runRemote, shellQuote } from "@harness/connections/node";
-import type { Host } from "@harness/connections";
+import { clientConfigSchema, type Host } from "@harness/connections";
 import { NativeApplication } from "./application.ts";
 
 test.skip(process.platform !== "win32", "Native CDP requires Windows WebView2");
@@ -262,5 +262,123 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
       host,
       `if test -f ${q(`${remoteRoot}/pid`)}; then pid=$(cat ${q(`${remoteRoot}/pid`)}); if test -r /proc/$pid/environ && tr '\\0' '\\n' < /proc/$pid/environ | grep -Fx ${q(`HARNESS_FIXTURE_ROOT=${remoteRoot}`)} >/dev/null; then kill "$pid"; fi; fi; rm -rf ${q(remoteRoot)}`,
     );
+  }
+});
+
+test("a real WSL conversation keeps its approval across host switching and desktop exit", async ({}, info) => {
+  test.setTimeout(120_000);
+  const distribution = process.env.HARNESS_REMOTE_WSL;
+  test.skip(!distribution, "Set HARNESS_REMOTE_WSL to qualify remote conversation interaction");
+  const remoteRoot = `/tmp/harness-native-work-${randomUUID()}`;
+  const remoteHome = `${remoteRoot}/.harness`;
+  const host: Host & { kind: "wsl" } = {
+    id: "fixture",
+    label: "WSL work",
+    kind: "wsl",
+    distribution: distribution!,
+    user: null,
+    runtime: { source: "managed" },
+  };
+  const q = shellQuote;
+  const settings = JSON.stringify({ model: { provider: "demo", model: "demo-1" } });
+  await runRemote(
+    host,
+    `umask 077; mkdir -p ${q(remoteHome)} ${q(`${remoteRoot}/project`)}; printf '%s' ${q(settings)} > ${q(`${remoteHome}/settings.json`)}`,
+  );
+  const owner = async () =>
+    discoverySchema
+      .nullable()
+      .parse(
+        JSON.parse(
+          await runRemote(
+            host,
+            `if test -f ${q(`${remoteHome}/.server/discovery.json`)}; then cat ${q(`${remoteHome}/.server/discovery.json`)}; else printf null; fi`,
+          ),
+        ),
+      );
+  const profile = info.outputPath("profile");
+  const home = await canonicalHome(join(profile, "app"));
+  await writeFile(join(home, "settings.json"), settings);
+  const preload = await remoteProcessFixture(home, `export HOME=${q(remoteRoot)}; `);
+  const env = { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` };
+  let app: NativeApplication | undefined;
+  try {
+    app = await NativeApplication.launch(profile, info.outputPath("first"), home, profile, env);
+    const page = app.page;
+    await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+    await page.getByRole("button", { name: "Manage connections" }).click();
+    const dialog = page.getByRole("dialog", { name: "Agent command center" });
+    await dialog.getByRole("button", { name: "Add WSL" }).click();
+    await dialog.getByLabel("Name", { exact: true }).fill("WSL work");
+    await dialog.getByLabel("Distribution", { exact: true }).fill(distribution!);
+    await dialog.getByRole("button", { name: "Save & connect", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible({
+      timeout: 60_000,
+    });
+    const config = clientConfigSchema.parse(
+      JSON.parse(await readFile(join(home, "client.json"), "utf8")),
+    );
+    const remoteId = config.selectedHostId;
+    expect(remoteId).not.toBe("local");
+    const originalOwner = (await owner())!;
+    await page.getByRole("link", { name: "New conversation", exact: true }).first().click();
+    await page.getByLabel("Project folder").fill(`${remoteRoot}/project`);
+    await page.getByRole("button", { name: "Create conversation", exact: true }).click();
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill("remote-work-marker");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Approval request" })).toContainText(
+      "Allow bash?",
+    );
+    const conversationUrl = page.url();
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill("remote draft");
+    await page.getByRole("combobox", { name: "Selected host" }).selectOption("local");
+    await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+    await page.getByRole("combobox", { name: "Selected host" }).selectOption(remoteId);
+    await expect(page.getByRole("region", { name: "Approval request" })).toBeVisible();
+    await expect(page).toHaveURL(conversationUrl);
+    await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(
+      "remote draft",
+    );
+    await app.close();
+    expect((await owner())?.instanceId).toBe(originalOwner.instanceId);
+    await expect
+      .poll(() => runRemote(host, `kill -0 ${originalOwner.pid} && printf running`))
+      .toBe("running");
+    app = await NativeApplication.launch(profile, info.outputPath("reopened"), home, profile, env);
+    await expect(app.page.getByRole("region", { name: "Approval request" })).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(app.page).toHaveURL(conversationUrl);
+    await expect(app.page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(
+      "remote draft",
+    );
+    expect((await owner())?.instanceId).toBe(originalOwner.instanceId);
+    await app.page.getByRole("button", { name: "Allow", exact: true }).click();
+    await expect(app.page.getByTestId("assistant-message")).toContainText("Done");
+    await expect(app.page.locator(".conversation-status")).toContainText("Ready");
+    await app.page.getByTestId("tool-call").locator("summary").click();
+    await expect(app.page.getByTestId("tool-output")).toContainText("remote-work-marker");
+    expect(app.errors).toEqual([]);
+  } finally {
+    await app?.close();
+    const local = await readDiscovery(home);
+    if (local) await stopServer(local);
+    const current = await owner();
+    if (current) {
+      // Stop only the owner whose process environment names this unique fixture.
+      await runRemote(
+        host,
+        `tr '\\0' '\\n' < /proc/${current.pid}/environ | grep -Fx ${q(`HARNESS_HOME=${remoteHome}`)} >/dev/null && kill ${current.pid}`,
+      );
+      await expect
+        .poll(() =>
+          runRemote(
+            host,
+            `if kill -0 ${current.pid} 2>/dev/null; then printf running; else printf stopped; fi`,
+          ),
+        )
+        .toBe("stopped");
+    }
+    await runRemote(host, `rm -rf ${q(remoteRoot)}`);
   }
 });

@@ -35,14 +35,23 @@ failure. A real bridge against an authenticated paused receiver verifies EOF
 detachment with outbound backpressure. Registry tests include concurrent edits
 by separate client processes.
 These passed on native Windows. Common provisioning/reconnect tests also pass on
-real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Four native GUI cases
+real Ubuntu WSL and isolated Docker/OpenSSH Linux x64 glibc. Five native GUI cases
 qualify Local-first editing, disconnected management, reconnect, persistent exit
 and last-client stop-on-exit, native bridge exit before RPC initialization, and real WSL
-provisioning cancellation including fixture process exit. TUI tests render the
-command center with a real background server and qualify registry edits and reconnect.
+provisioning cancellation including fixture process exit. A real WSL conversation
+survives host switching and desktop exit, restores its draft and approval, then
+completes after reattachment to the same owner. TUI tests render the command center
+with real Local/WSL owners and qualify registry edits, host selection, switching,
+client exit and fresh attachment to the pending turn.
 Local cache regression covers Windows-only dependency invalidation. SSH BatchMode
-cases reject password-only and unknown-host routes without prompting. Remaining representative remote client interaction is tracked in
+cases reject password-only and unknown-host routes without prompting. Current delivery evidence is tracked in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
+
+The final full check passes 976 tests. Earlier unreproduced RPC errors and a
+QuickJS test timeout remain recorded in the plan's validation observations;
+passing reruns are not evidence of a cause or fix. Fixture RPC failures include
+their server startup log before cleanup. A sandbox-blocked Vitest startup was
+retried outside the sandbox, without changing tests or timeouts.
 
 `npm run test:remote` requires Docker and OpenSSH on the controlling client. It
 creates a loopback-only SSH container, ephemeral key, verified known-host entry
@@ -52,8 +61,9 @@ uses a unique remote home/runtime directory and explicitly shuts down its existi
 owner before cleanup. The target needs network access for the initial Node/dependency
 installation. Fixture HOME/PATH are substituted at the process edge; production
 connection entries expose no home or executable override. These tests exercise real managed deployment, development bundle
-changes, cache reuse, target Node resolution and reconnect; they do not establish
-GUI interaction, provider sign-in or every interrupted-install path.
+changes, cache reuse, target Node resolution and reconnect. With WSL enabled they
+also run the rendered TUI conversation flow. GUI interaction is qualified by the
+native suite; provider sign-in and every interrupted-install path are separate.
 
 ## Desktop native tests
 
@@ -72,7 +82,8 @@ owner reuse, secure key validation/storage, real command survival followed by
 explicit cleanup, and GUI exit while the owner is suspended. Local retains browser
 sign-in and qualifies device-code display, cancel/retry and DPAPI storage. The full
 desktop.spec.ts suite has fourteen passing current-owner cases; connections.spec.ts
-adds host editing, multi-client exit policy and real WSL provisioning cancellation. Test artifacts live under
+adds host editing, multi-client exit policy, real WSL provisioning cancellation
+and a remote conversation surviving switching/exit/reconnect. Test artifacts live under
 `packages/desktop/test-results/`; non-secret visual scenarios save screenshots.
 Credential scenarios do not record traces or screenshots. These native tests are
 separate from the ordinary Linux/Windows `npm run check` CI matrix.

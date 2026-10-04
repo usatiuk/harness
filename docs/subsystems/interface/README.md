@@ -126,10 +126,10 @@ separate input/output claims. Server bootstrap bounds the actual wire catalog.
 The client can create, attach, resume, reload, close, or list conversations. One
 connection may keep multiple root scopes active while the TUI
 shows one. A new conversation records its server-side workspace root and resolved
-overrides. Empty conversations created by the client are removed on exit;
-non-empty history remains durable.
+overrides. Background-connected clients retain created conversations across exit.
+The isolated stdio TUI removes its own empty conversations when it exits.
 
-The desktop owns one disposable bundled Node bridge per connected authority.
+The desktop owns one disposable bundled Node bridge per connected entry.
 Native close blocks new admission, cancels blocked writes, and closes every
 bridge concurrently. A 20-second bridge deadline terminates that child and exits
 unsuccessfully. Each server persists independently. Local packaged execution
@@ -217,8 +217,8 @@ history is fetched independently through anchored byte-bounded pages. Plugins us
 ordinary namespaced requests/notifications and optional bounded snapshots. The
 TUI receives no service, runtime, process, activity-manager, sandbox, or raw
 plugin-state object. Desktop uses the same contract over Tauri channels and
-bounded native pipes. Web/mobile/IDE clients and reconnecting daemons remain
-unimplemented rather than simulated.
+bounded native pipes. Both shipped clients reconnect to the background owner.
+Web/mobile/IDE clients remain unimplemented.
 
 ## Desktop model
 
@@ -281,7 +281,7 @@ scoped OS opener instead of navigating the application WebView.
 - `packages/desktop`: React Router UI/session, Tauri process bridge, packaging, and native E2E.
 - `packages/client`: transport-neutral peer, client coordinator, domain helper,
   in-process transport, and Node NDJSON transport.
-- `packages/service`: server dispatch and connection-scoped runtime ownership.
+- `packages/service`: shared runtime ownership, server dispatch and client observers.
 - `packages/auth`, `packages/secrets`: login methods and credential stores.
 
 The common connection layer is now qualified with actual Ubuntu WSL and isolated
@@ -289,8 +289,10 @@ OpenSSH Linux x64 glibc. It uses Node already on the target in development mode 
 verified portable Node in managed mode, plus current locally bundled Harness code.
 Desktop packaging shares this server/worker bundler. Code and target dependency
 caches are immutable; refresh stages a build and activation requires explicit
-server restart. GUI/TUI integration and human authentication routing remain active
-delivery work, tracked in the remote-host plan.
+server restart. Native desktop and rendered TUI WSL conversation flows qualify
+host switching, client exit and fresh attachment to the same owner. Local retains
+browser and device-code sign-in; WSL/SSH use device codes without callback
+forwarding. See the [delivery evidence](../../plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
 ## Verification
 
