@@ -70,8 +70,8 @@ expiry and a secondary detach failure. SSH BatchMode
 cases reject password-only and unknown-host routes without prompting. Current delivery evidence is tracked in
 [the delivery plan](plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
 
-The current full check passes 1003 tests (116 passing files, 36 skipped tests).
-Rebuilt native connection qualification includes six cases; actual SSH/WSL and
+The current full check passes 1006 tests (116 passing files, 36 skipped tests).
+Rebuilt native qualification passes all 20 cases; actual SSH/WSL and
 rendered TUI qualification passes five cases across two files. The native Rust
 shutdown regression passes. Three independent reviews and follow-ups report no
 remaining actionable findings in the
@@ -86,7 +86,8 @@ retried outside the sandbox, without changing tests or timeouts.
 The post-delivery six-case native run passed five cases, including isolated cache
 startup, but one existing case hit EPERM renaming staged dependencies. Its exact
 focused rerun passed unchanged. The transient lock/cause remains unknown; no
-retry policy, timeout change or fix is claimed for it.
+retry policy, timeout change or fix was claimed at that stage. The subsequent
+probe and publication correction are described below.
 Configuration regressions compare real account/home aliases, preserve repository
 discovery when `.harness` itself is a junction, and verify global versus local
 write destinations before settings directories exist. Expected fixture roots use
@@ -111,8 +112,14 @@ dependency-promotion EPERM and an uncaptured background-case startup timeout. A
 standalone copy/promotion probe reproduces a temporary Windows rename denial:
 source exists, destination is absent, ACLs allow modification, and the unchanged
 rename succeeds after read-only diagnostics. The process responsible remains
-unknown; complete native qualification and the narrow publication correction
-remain open in the plan.
+unknown. Fresh dependency publication now retries that unchanged rename once
+after 100 ms for Windows EPERM, under the install lock, only while its source is
+a directory and destination absent. Public preparation tests execute the copied
+Node with its cached dependency after temporary failure; persistent EPERM and
+first-attempt EACCES reject without partial publication, then recover on fresh
+preparation. Source/destination guard edge cases remain untested separately.
+The final rebuilt suite passes all 20 cases (3.9m); this does not establish the
+causes of earlier uncaptured startup timeouts or typed-TUI input loss.
 
 `npm run test:remote` requires Docker and OpenSSH on the controlling client. It
 creates a loopback-only SSH container, ephemeral key, verified known-host entry

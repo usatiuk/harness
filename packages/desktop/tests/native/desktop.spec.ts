@@ -365,6 +365,7 @@ test("quitting keeps a real background command alive until explicit server stop"
   const app = await NativeApplication.launch(directory, info.outputPath("app"));
   try {
     const page = app.page;
+    await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
     await page
       .getByRole("complementary")
       .getByRole("link", { name: "New conversation", exact: true })

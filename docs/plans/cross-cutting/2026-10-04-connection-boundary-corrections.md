@@ -170,7 +170,7 @@ timeout or retry policy was changed and no fix is claimed for that observation.
       and commit.
 - [x] Default new client configuration to stopping unobserved Local on desktop
       exit, retaining the explicit keep-running preference and shared-owner check.
-- [ ] Finish the authorized two-work/cleanup cadence and clean handoff.
+- [x] Finish the authorized two-work/cleanup cadence and local/platform validation.
 
 The physical account-alias test failed against the previous resolver, returning
 the account alias instead of the actual repository. Review identified an
@@ -225,3 +225,44 @@ read-only reviewer agrees that one conditional retry of the same promotion is
 justified; no broad filesystem fallback or completion-receipt layout is needed.
 The default/fixture cleanup is a separate validated increment; that publication
 correction and complete native qualification remain open.
+
+## Final publication correction and handoff
+
+The completed cadence is e303dbe and c9df88a followed by b454da0 (default exit and
+explicit background fixtures). The subsequent startup correction retries only
+fresh dependency-cache promotion: Windows EPERM, completed source directory,
+absent destination, one 100 ms delay and the identical rename under the existing
+install lock. A second denial and other errors remain failures. Atomic publication,
+immutable live cache files, staging cleanup and lock release retain their existing
+ownership. No new completion receipts or general filesystem abstraction were added.
+The installed graceful-fs wrapper retries multiple Windows errors for up to 60
+seconds; that wider recovery/deadline does not fit this narrow startup operation.
+
+Controlled publication-edge tests exercise the public preparer and execute the
+actual copied Node against its cached dependency. One temporary EPERM completes;
+persistent EPERM and a first-attempt EACCES reject without a published dependency
+cache/code build, followed by clean preparation and execution. The EACCES fixture
+permits a second attempt, so an unintended retry would contradict the expected
+public rejection. Occupied/unstatable destinations and missing/non-directory
+sources are guarded but are not separately exercised. The initial native-ESM spy
+fixture failed before injecting any error; the supported Vitest module factory
+corrects that fixture limitation, without changing assertions or timeouts.
+
+Three read-only reviews report no remaining actionable finding after the EACCES
+scenario was strengthened. npm run check passes TypeScript, ESLint, formatting and
+1006 tests (116 files, 36 skipped tests; 51.60s). The strengthened runtime-file
+rerun passes all five tests (10.52s). Rebuilt Windows native qualification passes
+all 20 cases (3.9m), including default last-client stop, explicit background work,
+isolated cache reuse, early bridge shutdown and actual WSL work/cancellation.
+The unchanged SSH/WSL/rendered-TUI qualification passes five cases (50.23s).
+No required implementation or local/platform qualification remains open.
+Final branch CI and shipping status are tracked in
+[PR #29](https://github.com/usatiuk/harness/pull/29).
+
+The Windows process responsible for the transient denial remains unidentified.
+The guard and bounded retry address the reproduced temporary operation failure,
+without promising recovery from persistent denial. The earlier history/background
+timeouts had no captured startup outcome; the passing final suite does not prove
+their cause. The earlier typed-TUI-marker observation remains unexplained; no
+accidental user input or product fix is claimed for it. Temporary probes were
+removed after recording the evidence.

@@ -144,6 +144,10 @@ packaged native dependency closure. The dependency cache keeps a real
 junction and resolves transitive dependencies from that real directory. Layout
 participates in cache identity so an obsolete layout cannot be reused. Startup
 failure diagnostics take precedence over subsequent transport/teardown errors.
+Fresh dependency promotion may retry a Windows `EPERM` once after 100 ms, while
+holding the install lock and only if the completed source directory still exists
+and the destination is absent. The same rename is retried; other errors and a
+second denial propagate without publishing a code build or changing live files.
 The keep-running preference defaults false; stop-on-exit releases Local only when
 another client is not attached. Local background execution after desktop exit is
 an explicit remembered preference. Remote observers detach without stopping their owner.

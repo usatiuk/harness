@@ -5,9 +5,15 @@ import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import * as fs from "node:fs/promises";
 import { canonicalHome } from "./local.ts";
 import { prepareLocalRuntime } from "./local-runtime.ts";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof fs>();
+  return { ...actual, rename: vi.fn(actual.rename) };
+});
 
 it("runs SQLite and its sibling dependencies from an isolated packaged cache", async () => {
   const root = await canonicalHome(join(tmpdir(), `harness-runtime-${randomUUID()}`));
@@ -44,6 +50,59 @@ it("runs SQLite and its sibling dependencies from an isolated packaged cache", a
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
+
+it.skipIf(process.platform !== "win32").each(["temporary", "persistent", "other-error"] as const)(
+  "handles %s Windows dependency publication failure without exposing an incomplete build",
+  async (failure) => {
+    const root = await canonicalHome(join(tmpdir(), `harness-publication-${randomUUID()}`));
+    const payload = join(root, "payload");
+    const home = join(root, "home");
+    const originalRename = (await vi.importActual<typeof fs>("node:fs/promises")).rename;
+    const denied = Object.assign(new Error("Controlled publication denial"), {
+      code: failure === "other-error" ? "EACCES" : "EPERM",
+    });
+    let attempted = false;
+    const publication = vi.mocked(fs.rename).mockImplementation(async (source, destination) => {
+      if (String(source).endsWith("dependencies")) {
+        if (!attempted || failure === "persistent") {
+          attempted = true;
+          throw denied;
+        }
+      }
+      return originalRename(source, destination);
+    });
+    try {
+      await mkdir(join(payload, "node_modules", "fixture"), { recursive: true });
+      await writeFile(join(payload, "node_modules", "fixture", "index.js"), "module.exports = 42;");
+      await writeFile(join(payload, "packaged-dependencies.json"), '{"fixture":"1"}');
+      await writeFile(join(payload, "package.json"), '{"type":"module"}');
+      await writeFile(join(payload, "package-lock.json"), "{}");
+      await writeFile(join(payload, "worker.mjs"), "export {};");
+      await writeFile(
+        join(payload, "server.mjs"),
+        'import value from "fixture"; console.log(value);',
+      );
+      if (failure !== "temporary") {
+        await expect(prepareLocalRuntime(payload, home)).rejects.toBe(denied);
+        expect(await fs.readdir(join(home, ".server", "runtime"))).toEqual([
+          `node-${process.version}`,
+        ]);
+        publication.mockImplementation(originalRename);
+      }
+      const runtime = await prepareLocalRuntime(payload, home);
+      const result = await promisify(execFile)(runtime.launch.executable, runtime.launch.args, {
+        cwd: root,
+        windowsHide: true,
+        env: { ...process.env, NODE_PATH: "" },
+      });
+      expect(result.stdout.trim()).toBe("42");
+    } finally {
+      publication.mockImplementation(originalRename);
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  15000,
+);
 
 it("invalidates the packaged dependency cache when a Windows-only dependency changes", async () => {
   const root = await canonicalHome(join(tmpdir(), `harness-runtime-${randomUUID()}`));

@@ -71,8 +71,10 @@ Post-delivery desktop startup exposed a dependency-cache layout defect hidden by
 checkout-local native fixtures. The focused correction and standalone cache
 regressions are recorded in the same plan. Windows configuration discovery now
 resolves physical account/home aliases; both GitHub CI platforms pass the cache
-and configuration corrections. The full local check passes 1003 tests. Desktop
-stops Local on exit when no other client uses it; keeping Local running is opt-in.
+and configuration corrections. The full local check passes 1006 tests and the
+rebuilt Windows native suite passes all 20 cases. A reproduced transient Windows
+dependency-promotion denial permits one bounded retry of that unchanged operation.
+Desktop stops Local on exit when no other client uses it; keeping Local running is opt-in.
 
 Completed shared background servers and Local/WSL/SSH connections for desktop
 and TUI in [the delivery plan](docs/plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
