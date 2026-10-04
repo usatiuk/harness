@@ -46,9 +46,10 @@ installed shell/programs. The current installer and native E2E qualification
 target Windows; macOS/Linux desktop packaging is not yet qualified.
 
 Desktop and TUI attach to the same background server for each execution
-environment and OS account. Closing a client keeps accepted work running. The
-desktop's remembered exit preference can stop Local when no other client uses
-it; remote stop/restart is explicit. Provider credential changes require an
+environment and OS account. Switching hosts or disconnecting preserves accepted
+work. Desktop exit defaults to stopping Local when no other client uses it;
+enable the remembered keep-running preference for Local background work.
+Remote stop/restart is explicit. Provider credential changes require an
 explicit server restart. There is no tray or login autostart.
 The exclusive database lock protects the server in its normal `~/.harness`
 directory. Connections do not select alternative homes or profiles.

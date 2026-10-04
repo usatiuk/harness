@@ -34,9 +34,10 @@ or resubmitting a mutation whose response was lost.
 
 Keep both Local browser OAuth and device-code sign-in. WSL/SSH use device codes.
 Do not forward browser callbacks. Use only the current protocol and disposable
-database format; no compatibility adapters or migrations. Default desktop exit
-keeps the owner alive, with an explicit stop action and remembered Local exit
-preference. Tray, notifications and autostart are not required for this delivery.
+database format; no compatibility adapters or migrations. Per the subsequent
+user correction, default desktop exit stops Local only when no other client is
+attached; keeping it alive is an explicit remembered preference. Remote stopping
+is explicit. Tray, notifications and autostart are not required for this delivery.
 
 ## Milestones and completion checks
 

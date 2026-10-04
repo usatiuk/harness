@@ -6,7 +6,12 @@ import { pathToFileURL } from "node:url";
 import { deviceAuthFixture } from "@harness/testkit";
 import { NativeApplication, stopNativeOwners } from "./application.ts";
 import { canonicalHome, readDiscovery, stopServer } from "@harness/connections/node";
-import { seedHistory, seedChildOnlyPages, commandProvider } from "./fixtures.ts";
+import {
+  seedHistory,
+  seedChildOnlyPages,
+  commandProvider,
+  keepLocalServerRunning,
+} from "./fixtures.ts";
 import { httpGateway, json, sse } from "../../../litellm/src/http-fixture.ts";
 
 test.skip(process.platform !== "win32", "Native CDP tests require Windows WebView2");
@@ -89,6 +94,7 @@ test("code-only execution reviews concrete child calls and keeps nested history 
 
 async function profile(directory: string) {
   const home = await canonicalHome(join(directory, "app"));
+  await keepLocalServerRunning(home);
   await writeFile(
     join(home, "settings.json"),
     JSON.stringify({ model: { provider: "demo", model: "demo-1", preset: "high" } }),
@@ -350,7 +356,8 @@ test("server crash is visible and restart recovers the selected conversation", a
 test("quitting keeps a real background command alive until explicit server stop", async ({}, info) => {
   const directory = info.outputPath("profile");
   const marker = join(directory, "command.pid");
-  await canonicalHome(join(directory, "app"));
+  const home = await canonicalHome(join(directory, "app"));
+  await keepLocalServerRunning(home);
   const provider = await commandProvider(
     join(directory, "app"),
     `$PID | Set-Content -LiteralPath '${marker.replace(/'/gu, "''")}'; Write-Output 'command-started'; Start-Sleep -Seconds 300`,

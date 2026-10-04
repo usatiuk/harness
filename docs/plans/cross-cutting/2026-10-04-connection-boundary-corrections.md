@@ -166,8 +166,9 @@ timeout or retry policy was changed and no fix is claimed for that observation.
 - [x] Establish the copied-discovery target's owner-private runtime directory
       before copying. Keep its foreign-home rejection and source-owner assertions;
       directory-owner validation remains unchanged in production.
-- [ ] Verify both GitHub CI platforms after local validation and commit.
-- [ ] Default new client configuration to stopping unobserved Local on desktop
+- [x] Verify both GitHub CI platforms after the CI correction's local validation
+      and commit.
+- [x] Default new client configuration to stopping unobserved Local on desktop
       exit, retaining the explicit keep-running preference and shared-owner check.
 - [ ] Finish the authorized two-work/cleanup cadence and clean handoff.
 
@@ -185,3 +186,42 @@ The CI correction's final local check passes TypeScript, ESLint, Prettier and
 read-only review follow-ups have no remaining actionable findings. The prior
 desktop startup correction is committed as e303dbe. GitHub validation and the
 requested exit-default correction remain open below this delivery increment.
+
+The two work increments are e303dbe (isolated cache/startup diagnostics) and
+c9df88a (physical configuration paths and the copied-discovery prerequisite).
+GitHub CI run 37196302969 passes Ubuntu and Windows on c9df88a. The cleanup
+increment defaults new registries and the checkbox to stop-on-exit, and centralizes
+explicit background opt-in for native fixtures. No server lifetime machinery or
+saved user preference is rewritten. The fresh isolated native case proves the
+default closes Local and removes discovery; the shared-client case retains the
+other client. Final cleanup-head CI and complete native validation remain open.
+
+The first complete native run passed 17 of 20 cases. The newly added preference
+opt-in used Playwright's immediate `check()` assertion against asynchronously
+persisted controlled state. Its saved file already contained `true`. The test now
+clicks and waits for both checked state and completion; the focused case passes.
+One WSL-cancellation startup failed with the previously observed cache-promotion
+EPERM; the history case lacked its expected sidebar. Both exact cases pass on
+focused rerun without timeout, retry, or production changes. The specific transient
+filesystem cause and the initial history startup outcome remain unproven.
+
+The parallel remote run passed four provisioning cases but its rendered TUI
+did not display a typed marker after the composer placeholder appeared. The
+unchanged five-case SSH/WSL/TUI rerun passes (50.23s). A reviewer found that Ink's
+frame can precede passive input-listener installation, which the test helper does
+not explicitly flush before writing; this is a possible fixture timing gap, not
+evidence of that run's cause. No product fix, input interference, or complete
+explanation is claimed for this observation.
+
+The next complete native run passes 18 of 20 cases: the bridge-before-RPC case
+reports the same dependency-promotion EPERM, and the background-command case
+times out without a captured startup outcome. This remains open rather than being
+reported as successful complete native validation. A standalone 20-copy probe
+reproduces the dependency rename denial without the GUI: the completed source
+directory exists, the destination is absent, and ACLs permit modification. The
+unchanged rename succeeds after read-only diagnostics. This establishes a
+transient Windows denial of that operation, without identifying its cause. A
+read-only reviewer agrees that one conditional retry of the same promotion is
+justified; no broad filesystem fallback or completion-receipt layout is needed.
+The default/fixture cleanup is a separate validated increment; that publication
+correction and complete native qualification remain open.

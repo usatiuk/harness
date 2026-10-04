@@ -308,7 +308,7 @@ export function ConnectionEditor({
           <label className="background-preference">
             <input
               type="checkbox"
-              checked={hosts.config?.desktop.keepServerRunning ?? true}
+              checked={hosts.config?.desktop.keepServerRunning ?? false}
               disabled={busy}
               onChange={(event) =>
                 act(() =>

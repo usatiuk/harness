@@ -92,7 +92,27 @@ discovery when `.harness` itself is a junction, and verify global versus local
 write destinations before settings directories exist. Expected fixture roots use
 physical paths. Copied-discovery tests establish the private target directory
 before copying, preserving the separate ownership and foreign-home assertions.
-Actual elevated Windows-runner CI validation follows the local passing check.
+GitHub CI run 37196302969 passes Ubuntu and the elevated Windows runner for those
+corrections.
+Fresh native desktop configuration asserts that keep-running is unchecked and
+normal exit removes the Local owner/discovery. Shared-client coverage leaves the
+other client usable; background-work fixtures explicitly opt in through one helper.
+Preference editing waits for persisted checked state rather than Playwright's
+immediate `check()` assertion against asynchronous controlled state.
+The first complete default-exit native run passed 17 of 20 cases; the preference
+assertion and two startup cases pass on focused rerun. One startup reported the
+previous cache-promotion EPERM; the exact transient filesystem cause remains unknown.
+The first parallel remote run did not display typed TUI input, while its unchanged
+five-case rerun passes. The frame-before-passive-input-effect timing gap is a
+possible fixture explanation; neither accidental user input nor a product fix is
+established. See the correction plan for final validation and unresolved observations.
+The subsequent complete native run passes 18 of 20 cases, with another
+dependency-promotion EPERM and an uncaptured background-case startup timeout. A
+standalone copy/promotion probe reproduces a temporary Windows rename denial:
+source exists, destination is absent, ACLs allow modification, and the unchanged
+rename succeeds after read-only diagnostics. The process responsible remains
+unknown; complete native qualification and the narrow publication correction
+remain open in the plan.
 
 `npm run test:remote` requires Docker and OpenSSH on the controlling client. It
 creates a loopback-only SSH container, ephemeral key, verified known-host entry

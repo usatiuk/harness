@@ -144,8 +144,9 @@ packaged native dependency closure. The dependency cache keeps a real
 junction and resolves transitive dependencies from that real directory. Layout
 participates in cache identity so an obsolete layout cannot be reused. Startup
 failure diagnostics take precedence over subsequent transport/teardown errors.
-The keep-running preference defaults true;
-stop-on-exit releases Local only when another client is not attached.
+The keep-running preference defaults false; stop-on-exit releases Local only when
+another client is not attached. Local background execution after desktop exit is
+an explicit remembered preference. Remote observers detach without stopping their owner.
 
 Logical desktop RPC closure shares one awaited physical bridge close with manager
 teardown. Protocol, writer and acknowledgement failures release that observer;

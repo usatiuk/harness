@@ -66,7 +66,7 @@ export const defaultClientConfig = (): ClientConfig => ({
   version: 1,
   hosts: [{ ...LOCAL_HOST }],
   selectedHostId: "local",
-  desktop: { keepServerRunning: true },
+  desktop: { keepServerRunning: false },
 });
 
 export const serverIdentitySchema = z.strictObject({
