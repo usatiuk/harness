@@ -2,7 +2,6 @@ import { createElement as h, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Checkbox, Dialog, DropdownMenu, Popover, Switch, Tooltip } from "radix-ui";
 import {
-  ArrowDown,
   ArrowUp,
   Check,
   ChevronDown,
@@ -78,7 +77,7 @@ const hosts = [
   { id: "ubuntu", label: "Ubuntu", detail: "SSH · development" },
   { id: "build", label: "Build server", detail: "SSH · builds" },
 ];
-const composerDefaults = { delivery: "Queue", sendWith: "Enter", showStats: true };
+const composerDefaults = { sendWith: "Enter", showStats: true };
 function readComposerPreferences() {
   const raw = localStorage.getItem("harness-design-composer");
   if (!raw) return composerDefaults;
@@ -89,7 +88,6 @@ function readComposerPreferences() {
     return composerDefaults;
   }
   return {
-    delivery: ["Queue", "Steer"].includes(value?.delivery) ? value.delivery : "Queue",
     sendWith: ["Enter", "Shift+Enter"].includes(value?.sendWith) ? value.sendWith : "Enter",
     showStats: typeof value?.showStats === "boolean" ? value.showStats : true,
   };
@@ -334,14 +332,6 @@ function ComposerSettings({ value, setValue }) {
       ),
     },
     h("h3", null, "Composer settings"),
-    h(Field, { label: "Send while working" }, (props) =>
-      h(Select, {
-        ...props,
-        options: ["Queue", "Steer"],
-        value: value.delivery,
-        onChange: (event) => setValue({ ...value, delivery: event.target.value }),
-      }),
-    ),
     h(
       "div",
       { className: "mt-4" },
@@ -357,7 +347,7 @@ function ComposerSettings({ value, setValue }) {
     h(
       "p",
       { className: "field-hint mt-3" },
-      "Enter and Shift+Enter swap send and newline. Ctrl/Cmd+Enter uses the other Queue/Steer action while working.",
+      "Enter and Shift+Enter swap send and newline. Ctrl/Cmd+Enter queues while working. Ctrl/Cmd+. stops without clearing the draft.",
     ),
     h(
       "label",
@@ -579,7 +569,6 @@ function ActionMenu({ onAction }) {
         { className: "menu", sideOffset: 8, collisionPadding: 12 },
         [
           [Copy, "Copy conversation"],
-          [ArrowDown, "Jump to latest"],
           [Palette, "View appearance"],
         ].map(([icon, label]) =>
           h(
@@ -602,9 +591,9 @@ function ChatPreview({ conversation, update, composerPreferences, setComposerPre
   const setState = (state) => update({ state });
   const setFeedback = (feedback) => update({ feedback });
   const setApproval = (approval) => update({ approval });
-  const intent = composerPreferences.delivery;
-  const alternative = intent === "Queue" ? "Steer" : "Queue";
-  const running = state === "Running";
+  const intent = "Steer";
+  const alternative = "Queue";
+  const running = state === "Running" || state === "Approval";
   function send(useAlternative = false) {
     if (!text.trim()) return;
     const delivery = running ? (useAlternative ? alternative : intent) : "Send";
@@ -726,16 +715,25 @@ function ChatPreview({ conversation, update, composerPreferences, setComposerPre
     h(
       "div",
       { className: "composer-wrap" },
-      composerPreferences.showStats &&
-        stats &&
+      h(
+        "div",
+        { className: "composer-status" },
         h(
-          "div",
-          { className: "turn-stats", "aria-label": "Last turn stats (sample)" },
-          h("span", null, "Last turn"),
-          h("span", null, `${stats.input.toLocaleString()} in`),
-          h("span", null, `${stats.output.toLocaleString()} out`),
-          h("span", null, `${stats.speed} tok/s`),
+          "span",
+          { role: "status" },
+          state === "Approval" ? "Waiting for approval" : running ? "Working…" : "Ready",
         ),
+        composerPreferences.showStats &&
+          stats &&
+          h(
+            "div",
+            { className: "turn-stats", "aria-label": "Last turn stats (sample)" },
+            h("span", null, "Last turn"),
+            h("span", null, `${stats.input.toLocaleString()} in`),
+            h("span", null, `${stats.output.toLocaleString()} out`),
+            h("span", null, `${stats.speed} tok/s`),
+          ),
+      ),
       h(
         "div",
         { className: "composer" },
@@ -745,7 +743,17 @@ function ChatPreview({ conversation, update, composerPreferences, setComposerPre
           value: text,
           onChange: (event) => update({ text: event.target.value }),
           onKeyDown: (event) => {
-            if (event.key !== "Enter" || event.nativeEvent.isComposing || event.altKey) return;
+            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.altKey)
+              return;
+            if (event.key === "." && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
+              if (running) {
+                event.preventDefault();
+                setState("Idle");
+                setFeedback("Preview turn stopped.");
+              }
+              return;
+            }
+            if (event.key !== "Enter") return;
             if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
               event.preventDefault();
               send(true);
@@ -795,30 +803,21 @@ function ChatPreview({ conversation, update, composerPreferences, setComposerPre
           h(
             "div",
             { className: "ml-auto flex items-center gap-2" },
-            running &&
-              h(
-                Button,
-                {
-                  variant: "ghost",
-                  size: "sm",
-                  "aria-label": "Stop turn",
-                  onClick: () => {
-                    setState("Idle");
-                    setFeedback("Preview turn stopped.");
-                  },
-                },
-                "Stop",
-              ),
             h(ContextIndicator, { context: conversation.context }),
             h(
               Button,
               {
                 variant: "accent",
-                onClick: () => send(),
-                title: running ? `Ctrl/Cmd+Enter: ${alternative}` : undefined,
+                onClick: () => {
+                  if (running && !text.trim()) {
+                    setState("Idle");
+                    setFeedback("Preview turn stopped.");
+                  } else send();
+                },
+                disabled: !running && !text.trim(),
               },
               h(Icon, { component: ArrowUp }),
-              running ? intent : "Send",
+              running && !text.trim() ? "Stop" : running ? intent : "Send",
             ),
           ),
         ),
@@ -829,7 +828,7 @@ function ChatPreview({ conversation, update, composerPreferences, setComposerPre
         h(
           "span",
           null,
-          `${composerPreferences.sendWith} send · ${composerPreferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} newline${running ? ` · Ctrl+Enter ${alternative}` : ""}`,
+          `${composerPreferences.sendWith} ${running ? "steer" : "send"} · ${composerPreferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} newline${running ? " · Ctrl+Enter queue · Ctrl+. stop" : ""}`,
         ),
         h("span", { role: "status", "aria-live": "polite" }, feedback),
       ),

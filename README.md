@@ -39,10 +39,14 @@ sign-in, model and sandbox defaults, approval policy, auto-approver enablement a
 reviewer model/preset, and light/dark appearance. Leave the reviewer model unset
 to use each conversation's current model.
 Model/preset and sandbox controls open from compact composer chips. Enter sends;
-Shift+Enter inserts a newline. Composer settings can swap those two and choose
-Queue or Steer while working; Ctrl/Cmd+Enter uses the other delivery action.
+Shift+Enter inserts a newline; composer settings can swap those two. While working,
+Steer is the default and Ctrl/Cmd+Enter queues. One primary button shows Send when
+idle, Stop when working with an empty draft, and Steer when working with text.
+Ctrl/Cmd+. stops while retaining the draft.
 The context ring opens reported request accounting. Optional last-turn token
-counts and request throughput appear above the composer. Appearance and composer
+counts and request throughput share the current-status row above the floating
+composer. A full-height conversation scrollbar supports reading earlier output;
+three dots return to latest while working. Appearance and composer
 preferences stay on the client, across hosts and restarts.
 
 Windows desktop development requires Rust, Visual Studio C++ build tools, and

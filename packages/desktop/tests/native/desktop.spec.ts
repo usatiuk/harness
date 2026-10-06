@@ -10,6 +10,7 @@ import {
   seedHistory,
   seedChildOnlyPages,
   commandProvider,
+  streamingProvider,
   keepLocalServerRunning,
 } from "./fixtures.ts";
 import { httpGateway, json, sse } from "../../../litellm/src/http-fixture.ts";
@@ -104,6 +105,69 @@ async function profile(directory: string) {
   return home;
 }
 
+test("floating composer follows a real stream, pauses for reading and resumes from three dots", async ({}, info) => {
+  const directory = info.outputPath("profile");
+  const home = await profile(directory);
+  const provider = await streamingProvider(home);
+  const app = await NativeApplication.launch(directory, info.outputPath("app"));
+  try {
+    const page = app.page;
+    await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
+    await page.getByLabel("Project folder").fill(directory);
+    await page.getByRole("button", { name: "Create conversation" }).click();
+    const message = page.getByRole("textbox", { name: "Message", exact: true });
+    await message.fill("Stream a long answer");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByTestId("assistant-message")).toContainText("Native stream start");
+    const scroll = page.locator(".conversation-scroll");
+    const gap = () =>
+      scroll.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
+    await expect.poll(gap).toBeLessThanOrEqual(4);
+    await expect(page.locator(".composer-primary")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
+    const canvas = await page.locator(".conversation-page").boundingBox();
+    expect(await scroll.boundingBox()).toEqual(canvas);
+    const content = await page.getByTestId("assistant-message").boundingBox();
+    const dock = await page.locator(".conversation-dock").boundingBox();
+    expect(content!.y + content!.height).toBeLessThanOrEqual(dock!.y);
+    await scroll.evaluate((element) => {
+      element.scrollTop -= 350;
+    });
+    const jump = page.getByRole("button", { name: "Jump to latest" });
+    await expect(jump).toBeVisible();
+    const top = await scroll.evaluate((element) => element.scrollTop);
+    const fade = await page
+      .locator(".conversation-dock")
+      .evaluate((element) => getComputedStyle(element, "::before").top);
+    provider.append("Growth while reading.\n\n".repeat(8));
+    await expect(page.getByTestId("assistant-message")).toContainText("Growth while reading");
+    expect(await scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(top, 0);
+    await jump.click();
+    await expect.poll(gap).toBeLessThanOrEqual(4);
+    await expect(jump).toHaveCount(0);
+    expect(await page.locator(".conversation-dock").boundingBox()).toEqual(dock);
+    expect(
+      await page
+        .locator(".conversation-dock")
+        .evaluate((element) => getComputedStyle(element, "::before").top),
+    ).toBe(fade);
+    provider.append("Growth after jump.\n\n".repeat(8));
+    await expect(page.getByTestId("assistant-message")).toContainText("Growth after jump");
+    await expect.poll(gap).toBeLessThanOrEqual(4);
+    await page.screenshot({ path: info.outputPath("floating-composer.png") });
+    provider.finish();
+    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await scroll.evaluate((element) => {
+      element.scrollTop -= 350;
+    });
+    await expect(jump).toHaveCount(0);
+    expect(app.errors).toEqual([]);
+  } finally {
+    await app.close();
+    await provider.close();
+  }
+});
+
 test("two conversations keep independent turns, approvals and drafts; quit resumes history", async ({}, info) => {
   const directory = info.outputPath("profile");
   await profile(directory);
@@ -141,7 +205,10 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(
       "draft kept for alpha",
     );
-    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await page.getByRole("textbox", { name: "Message", exact: true }).press("Control+.");
+    await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(
+      "draft kept for alpha",
+    );
     await expect(page.getByRole("button", { name: "Allow", exact: true })).toHaveCount(0);
     await expect(page.locator(".approval-status")).toHaveCount(1);
     await page.locator(".conversation-list").getByRole("link").filter({ hasText: "beta" }).click();
@@ -295,17 +362,28 @@ test("paged sidebar and virtualized history retain preset, diffs and large tool 
     await expect(tool.locator(".diff-add")).toContainText("after");
     await expect(tool.getByTestId("tool-output")).toContainText("large-output-end");
     await page.screenshot({ path: info.outputPath("diff.png") });
-    const scroller = page.locator("[data-virtuoso-scroller]");
+    const scroller = page.locator(".conversation-scroll");
     await scroller.evaluate((element) => {
       element.scrollTop = 0;
     });
     const earlier = page.getByRole("button", { name: "Load earlier messages" });
     await expect(earlier).toBeVisible();
     const original = await page.locator(".user-text").first().textContent();
+    const anchor = page.getByText(original!, { exact: true });
+    const anchorTop = (await anchor.boundingBox())!.y;
+    const height = await scroller.evaluate((element) => element.scrollHeight);
     await earlier.click();
-    await expect.poll(() => page.locator(".user-text").first().textContent()).not.toBe(original);
+    await expect
+      .poll(() => scroller.evaluate((element) => element.scrollHeight))
+      .toBeGreaterThan(height);
+    await expect
+      .poll(async () => Math.abs((await anchor.boundingBox())!.y - anchorTop))
+      .toBeLessThanOrEqual(1.5);
     expect(await page.locator(".cell").count()).toBeLessThan(40);
-    await page.getByRole("button", { name: "Jump to latest" }).click();
+    await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
+    await scroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
     await expect(page.getByTestId("assistant-message")).toContainText("History loaded");
     await expect(rows).toHaveCount(56);
     expect(app.errors).toEqual([]);
@@ -666,13 +744,17 @@ test("queue and steer submit through the data action while a turn waits for appr
     await message.fill("original input");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByRole("button", { name: "Allow", exact: true })).toBeVisible();
-    await message.fill("steering input");
-    await message.press("Control+Enter");
-    await expect(page.locator(".pending-input")).toContainText("steering input");
-    await message.fill("queued input");
-    await expect(page.getByRole("button", { name: "Queue", exact: true })).toBeEnabled();
+    await expect(page.locator(".composer-primary")).toHaveText("Stop");
     await message.press("Enter");
-    await expect(page.locator(".pending-input")).toContainText("queued input");
+    await expect(page.getByRole("button", { name: "Allow", exact: true })).toBeVisible();
+    await message.fill("steering input");
+    await expect(page.locator(".composer-primary")).toHaveText("Steer");
+    await page.getByRole("button", { name: "Steer", exact: true }).click();
+    await expect(page.locator(".pending-input")).toContainText("steer: steering input");
+    await message.fill("queued input");
+    await expect(page.getByRole("button", { name: "Steer", exact: true })).toBeEnabled();
+    await message.press("Control+Enter");
+    await expect(page.locator(".pending-input")).toContainText("queue: queued input");
     for (let count = 0; count < 3; count++) {
       await page.getByRole("button", { name: "Allow", exact: true }).click();
       if (count < 2)

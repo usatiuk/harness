@@ -146,6 +146,34 @@ connect to the server and does not qualify production or native desktop behavior
 The [design plan](plans/interface/2026-10-04-desktop-design-system.md) records
 browser evidence, production qualification and remaining checks.
 
+### Conversation browser regressions
+
+`npm run test:browser --workspace @harness/desktop` runs headless Playwright against
+an in-memory Vite build of the production ConversationCanvas, desktop row identities,
+controls and styles. The isolated fixture controls history, streaming and support
+growth without opening application windows. It checks physical latest-edge
+alignment (including fast output during initial empty-chat alignment), same-item
+growth, expansion of the latest production Disclosure, reading pause, jump
+re-entry without dock/fade movement,
+earlier-history anchors with tool regrouping, bounded rendered items and support
+growth without stealing the reader's position. Anchor tolerance is 1.5 CSS pixels:
+Virtuoso rounds its header measurement to nearest pixel, then rounds the scroll
+target upward. A reproduced 61.5px header and 55.75px anchor land at 54.5px, a 1.25px
+difference with one correct scroll call. Tests wait for the actual initial
+latest position before simulating reading.
+
+The canvas fixture substitutes conversation/dock state. A second fixture uses
+the production router, actions and Composer with a controlled session/data edge:
+it defers or rejects delivery to verify duplicate suppression, edited drafts,
+independent interruption, primary labels, IME guards and disconnected behavior.
+Neither fixture establishes RPC or native behavior. A controlled HTTP streaming edge
+also exercises follow/pause/jump through the actual native app. Synthetic 200% CSS
+zoom checks control reachability and app-owned layout-unit clearance. Installed
+Virtuoso mixes bounding-rectangle and scroll coordinates internally under CSS
+zoom, so follow and pagination at that synthetic scale are unqualified; these
+checks do not establish real OS/browser zoom behavior. See the
+[follow-up delivery plan](plans/interface/2026-10-06-floating-composer-scroll.md).
+
 ### Actual native application
 
 `npm run test:native` requires Windows WebView2, Rust, and Visual Studio C++ build
@@ -162,7 +190,7 @@ settings, bounded history and large output/diffs, server crash/reconnect, shared
 owner reuse, secure key validation/storage, real command survival followed by
 explicit cleanup, and GUI exit while the owner is suspended. Local retains browser
 sign-in and qualifies device-code display, cancel/retry and DPAPI storage. The full
-desktop.spec.ts suite has fourteen passing current-owner cases; connections.spec.ts
+desktop.spec.ts suite has fifteen passing current-owner cases; connections.spec.ts
 adds host editing, multi-client exit policy, real WSL provisioning cancellation
 and a remote conversation surviving switching/exit/reconnect. Test artifacts live under
 `packages/desktop/test-results/`; non-secret visual scenarios save screenshots.
@@ -189,6 +217,15 @@ playground builds pass, and three independent reviews report no remaining materi
 findings. The plan records failure investigation, correction reruns and native
 screenshots; release installers, other native platforms, screen readers and live
 credentialed OAuth remain separate qualifications.
+
+The 2026-10-06 floating-composer follow-up passes the full repository check with
+1,018 tests (118 passing files; 36 skipped tests), production/playground builds and
+ten headless Edge regressions. Its rebuilt native suite passes 24 ordinary
+Windows cases, with two WSL opt-ins skipped (4.2m). A separate final
+`HARNESS_REMOTE_WSL=Ubuntu` run passes both real WSL cases (37.6s). Three independent
+reviews found no remaining material issue. The follow-up plan records the
+reproduced initial-scroll race, unchanged assertions passing after correction,
+anchor quantization and synthetic zoom limits.
 
 The auto-approver scenario saves a reviewer model/preset in the actual GUI,
 verifies that model performs review before a real shell tool executes, changes

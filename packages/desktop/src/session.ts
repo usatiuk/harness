@@ -27,10 +27,12 @@ import {
   appSettingsRequest,
   type AppSettings,
 } from "@harness/server/client-protocol";
+import { DesktopTranscript } from "./transcript.ts";
 
 export interface ConversationView {
   conversation: Conversation;
   state: State;
+  transcript: DesktopTranscript;
   approvals: Map<string, ClientApproval>;
   items: Item[];
   anchor: string | null;
@@ -190,6 +192,7 @@ export class DesktopSession {
     const view: ConversationView = {
       conversation,
       state: init([]),
+      transcript: new DesktopTranscript(),
       approvals: new Map(),
       items: [],
       anchor: null,
@@ -215,6 +218,7 @@ export class DesktopSession {
       view.cursor = page.nextCursor;
       view.items = await this.decodeHistory(id, page.entries);
       view.state = init(view.items, decodeUsageSummary(attachment.usage));
+      view.transcript.update(view.state.cells);
       subscriptions.push(
         this.domain.subscribe(id, (event) => {
           if (isKernelEvent(event) && event.type === "config.changed")
@@ -224,12 +228,14 @@ export class DesktopSession {
             if (!view.items.some((current) => current.id === item.id)) view.items.push(item);
           }
           view.state = reduce(view.state, event, Date.now());
+          view.transcript.update(view.state.cells);
           this.changed();
         }),
       );
       subscriptions.push(
         this.plugins.subscribe(id, (event) => {
           view.state = reduce(view.state, event, Date.now());
+          view.transcript.update(view.state.cells);
           this.changed();
         }),
       );
@@ -282,6 +288,7 @@ export class DesktopSession {
       ],
       itemIds: seed.itemIds,
     };
+    view.transcript.update(view.state.cells);
     this.changed();
   }
 

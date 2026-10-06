@@ -115,23 +115,9 @@ export function ComposerSettings() {
       </label>
       <p className="muted">
         {preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} inserts a newline. Ctrl/⌘+Enter
-        uses the other delivery action while working.
+        queues while working. Messages normally steer the current turn. Ctrl/⌘+. stops it without
+        clearing your draft.
       </p>
-      <label>
-        While working, default to
-        <Select
-          value={preferences.delivery}
-          onChange={(event) =>
-            setComposerPreferences({
-              ...preferences,
-              delivery: event.target.value as "queue" | "steer",
-            })
-          }
-        >
-          <option value="queue">Queue</option>
-          <option value="steer">Steer</option>
-        </Select>
-      </label>
       <label className="check-label">
         <Checkbox
           checked={preferences.showStats}

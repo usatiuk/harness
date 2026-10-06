@@ -29,10 +29,12 @@ current theme and reports failures and cases requiring manual review. This is
 a snapshot audit of visible text, not a full accessibility qualification or a
 measurement of button boundaries/selection prominence.
 
-The composer uses Enter to send, Shift+Enter for a newline, and Ctrl/Cmd+Enter
-for the other Queue/Steer action while working. Composer settings let you swap
-Enter and Shift+Enter, choose the default delivery mode, and toggle last-turn
-stats. The context ring opens a token breakdown. Context and turn metrics are
+The composer uses Enter to send, Shift+Enter for a newline, and Steer by default
+while working. Ctrl/Cmd+Enter queues; Ctrl/Cmd+. stops while retaining a draft.
+One primary button shows Send, Stop or Steer according to work and draft state.
+Composer settings let you swap Enter and Shift+Enter and toggle last-turn stats.
+The floating preview aligns current status with those stats above the composer.
+The context ring opens a token breakdown. Context and turn metrics are
 sample values; this study does not measure or execute a real turn. All icons
 use Lucide; the context ring is a CSS data indicator.
 
@@ -40,4 +42,6 @@ use Lucide; the context ring is a CSS data indicator.
 The specimen imports `../../src/ui.tsx` and the production token/control styles;
 Vite deduplicates React/Radix/Lucide across the two installation roots. Sample
 application state and browser preference keys stay isolated from the real desktop.
-See the delivery plan for production/native verification evidence and limits.
+The preview does not exercise production virtualization or scroll ownership.
+See the [floating composer plan](../../../docs/plans/interface/2026-10-06-floating-composer-scroll.md)
+for production/native verification evidence and limits.

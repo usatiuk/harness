@@ -7,6 +7,7 @@
     "dev": "vite --port 1420 --strictPort",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
+    "test:browser": "playwright test -c playwright.browser.config.ts",
     "prepare:server": "node tools/package-server.mjs",
     "tauri": "node tools/native.mjs tauri",
     "desktop:dev": "npm run prepare:server && node tools/native.mjs tauri dev",

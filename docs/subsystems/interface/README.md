@@ -313,13 +313,30 @@ Settings, providers, connections, startup and route errors consume the
 same controls and tokens. The playground consumes those production recipes while
 its sample conversation/host state remains isolated.
 
+The conversation canvas owns one full-height scroll parent. A floating dock holds
+bounded approvals/activities and the composer over a short neutral fade. Current
+status and optional last-turn statistics share a row. A measured footer keeps the
+last transcript content clear of that dock; measured items contain their margins.
+The virtualizer opens at the latest edge, follows while at bottom, and pauses when
+the reader scrolls away. Three dots return to latest only during a running turn;
+their visibility does not change dock/fade geometry. Earlier-history prepend
+preserves a surviving visible row and offset, with the newly available tool parent
+as a fallback when grouping absorbs that row. Desktop-local row identities are
+updated with each reduced event, preserving streaming blocks through durable
+commit; the server and shared reducer continue to own canonical transcript facts.
+
 Appearance is applied at the document root before render, including portals.
 The old `theme` preference is retained when no new appearance preference exists.
 Client storage owns System/Light/Dark, pastel/custom accent, button depth/radius,
-send/newline mapping, running delivery default and statistics visibility. System
+send/newline mapping and statistics visibility. System
 theme follows OS changes. Enter sends and Shift+Enter inserts a newline by default;
-settings can swap them. Ctrl/Cmd+Enter uses the alternative Queue/Steer action while
-working. Composition events never submit, and keyboard/button submission share
+settings can swap them. Steer is the default while working; Ctrl/Cmd+Enter queues.
+The retired delivery preference is ignored. One primary button shows Send while
+idle, Stop while working with an empty/whitespace draft, and Steer with text.
+Empty Enter never stops; Ctrl/Cmd+. stops without discarding a draft. Send and
+interrupt retain independent pending lifetimes, so an outstanding delivery
+acknowledgement cannot block interruption. Composition events never submit, and
+keyboard/button submission share
 the disconnected/empty/pending guard. Drafts remain keyed by host and conversation.
 
 The context ring shows the latest agent request attempt against that exact

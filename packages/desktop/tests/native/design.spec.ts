@@ -68,7 +68,6 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
     );
     await settingsSection(page, "Composer");
     await page.getByLabel("Send message with").selectOption("Shift+Enter");
-    await page.getByLabel("While working, default to").selectOption("steer");
     await page.getByLabel("Show last-turn statistics").check();
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
     await page.screenshot({ path: info.outputPath("dark-create.png") });
@@ -87,7 +86,7 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
     await expect(message).toHaveValue("First line\n");
     await message.press("Shift+Enter");
     await expect(page.getByRole("button", { name: "Allow", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Steer", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
     await expect(page.getByLabel("Last turn statistics")).toContainText("Input unavailable");
     await showModelControls(page);
     await expect(page.getByLabel("Conversation model")).toBeFocused();
@@ -163,7 +162,7 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
     );
     await settingsSection(app.page, "Composer");
     await expect(app.page.getByLabel("Send message with")).toHaveValue("Shift+Enter");
-    await expect(app.page.getByLabel("While working, default to")).toHaveValue("steer");
+    await expect(app.page.getByLabel("While working, default to")).toHaveCount(0);
     await expect(app.page.getByLabel("Show last-turn statistics")).toBeChecked();
     await manageConnections(app.page);
     await app.page

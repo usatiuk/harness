@@ -19,9 +19,9 @@ describe("desktop client preferences", () => {
     expect(readAppearance("broken", "invalid")).toEqual(defaultAppearance);
     expect(readComposer('{"sendWith":"Shift+Enter","delivery":"steer","showStats":true}')).toEqual({
       sendWith: "Shift+Enter",
-      delivery: "steer",
       showStats: true,
     });
+    expect(readComposer('{"delivery":"queue"}')).toEqual(defaultComposer);
   });
   it("maps send, newline and alternate delivery without intercepting composition", () => {
     const enter = {
@@ -34,16 +34,24 @@ describe("desktop client preferences", () => {
     };
     expect(composerKey(enter, defaultComposer, false)).toBe("send");
     expect(composerKey({ ...enter, shiftKey: true }, defaultComposer, false)).toBe("newline");
-    expect(composerKey(enter, defaultComposer, true)).toBe("queue");
-    expect(composerKey({ ...enter, ctrlKey: true }, defaultComposer, true)).toBe("steer");
+    expect(composerKey(enter, defaultComposer, true)).toBe("steer");
+    expect(composerKey({ ...enter, ctrlKey: true }, defaultComposer, true)).toBe("queue");
     const swapped = {
       ...defaultComposer,
       sendWith: "Shift+Enter" as const,
-      delivery: "steer" as const,
     };
     expect(composerKey(enter, swapped, true)).toBe("newline");
     expect(composerKey({ ...enter, shiftKey: true }, swapped, true)).toBe("steer");
     expect(composerKey({ ...enter, metaKey: true }, swapped, true)).toBe("queue");
+    expect(composerKey({ ...enter, key: ".", ctrlKey: true }, defaultComposer, true)).toBe(
+      "interrupt",
+    );
+    expect(
+      composerKey({ ...enter, key: ".", metaKey: true }, defaultComposer, false),
+    ).toBeUndefined();
+    expect(
+      composerKey({ ...enter, key: ".", metaKey: true, isComposing: true }, defaultComposer, true),
+    ).toBeUndefined();
     for (const event of [
       { ...enter, isComposing: true },
       { ...enter, altKey: true },

@@ -26,7 +26,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { editPresentation } from "@harness/client-features/edit-presentation";
 import type { Cell } from "@harness/client-features/transcript-reducer";
 import type { ClientApproval } from "@harness/approval/client";
@@ -51,9 +50,9 @@ import {
 import { useComposerPreferences } from "./appearance.ts";
 import { composerKey } from "./preferences.ts";
 import { ContextUsage, LastTurnStats } from "./components/usage-inspector.tsx";
+import { ConversationCanvas } from "./components/conversation-canvas.tsx";
 import { AppearanceControls, ComposerSettings } from "./components/appearance-controls.tsx";
 import {
-  ArrowDown,
   FolderOpen,
   Plus,
   Settings as SettingsIcon,
@@ -1057,8 +1056,10 @@ export function createDesktopRouter(
     const handled = useRef<ActionResult | undefined>(undefined);
     const running = view.state.turn.status === "running";
     const preferences = useComposerPreferences();
-    const defaultDelivery = running ? preferences.delivery : "send";
-    const disabled = !text.trim() || send.state !== "idle" || Boolean(session.disconnected);
+    const defaultDelivery = running ? "steer" : "send";
+    const busy = send.state !== "idle" || stop.state !== "idle";
+    const disabled = !text.trim() || busy || Boolean(session.disconnected);
+    const stopping = running && !text.trim();
     useEffect(() => {
       if (send.state === "idle" && send.data?.ok && handled.current !== send.data) {
         handled.current = send.data;
@@ -1075,9 +1076,21 @@ export function createDesktopRouter(
       data.set("delivery", delivery);
       void send.submit(data, { method: "post", action: "/actions" });
     };
+    const interrupt = () => {
+      if (!running || stop.state !== "idle" || session.disconnected) return;
+      const data = new FormData();
+      data.set("intent", "stop");
+      data.set("conversationId", id);
+      void stop.submit(data, { method: "post", action: "/actions" });
+    };
     return (
       <div className="composer-wrap">
-        {preferences.showStats && <LastTurnStats state={view.state} />}
+        <div className="conversation-status">
+          <span role="status">
+            {view.approvals.size ? "Waiting for approval" : running ? "Working…" : "Ready"}
+          </span>
+          {preferences.showStats && <LastTurnStats state={view.state} />}
+        </div>
         <div className="composer">
           {view.state.pendingInput.length > 0 && (
             <div className="pending-input">
@@ -1121,7 +1134,8 @@ export function createDesktopRouter(
                 );
                 if (!action || action === "newline") return;
                 event.preventDefault();
-                submit(action);
+                if (action === "interrupt") interrupt();
+                else submit(action);
               }}
             />
           </send.Form>
@@ -1135,34 +1149,30 @@ export function createDesktopRouter(
               <ComposerSettings />
             </PopoverControl>
             <div className="composer-send">
-              {running && (
-                <stop.Form method="post" action="/actions">
-                  <Input type="hidden" name="intent" value="stop" />
-                  <Input type="hidden" name="conversationId" value={id} />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={stop.state !== "idle" || Boolean(session.disconnected)}
-                  >
-                    <Square size={12} aria-hidden="true" /> Stop
-                  </Button>
-                </stop.Form>
-              )}
               <ContextUsage state={view.state} models={session.domain.availableModels()} />
               <Button
                 variant="accent"
                 size="sm"
-                disabled={disabled}
-                onClick={() => submit(defaultDelivery)}
+                className="composer-primary"
+                disabled={
+                  stopping ? stop.state !== "idle" || Boolean(session.disconnected) : disabled
+                }
+                onClick={() => (stopping ? interrupt() : submit(defaultDelivery))}
               >
-                <Send size={14} aria-hidden="true" />
-                {send.state !== "idle"
-                  ? "Sending…"
-                  : running
-                    ? preferences.delivery === "queue"
-                      ? "Queue"
-                      : "Steer"
-                    : "Send"}
+                {stopping || stop.state !== "idle" ? (
+                  <Square size={12} aria-hidden="true" />
+                ) : (
+                  <Send size={14} aria-hidden="true" />
+                )}
+                {stop.state !== "idle"
+                  ? "Stopping…"
+                  : send.state !== "idle" && !stopping
+                    ? "Sending…"
+                    : stopping
+                      ? "Stop"
+                      : running
+                        ? "Steer"
+                        : "Send"}
               </Button>
             </div>
           </div>
@@ -1170,9 +1180,9 @@ export function createDesktopRouter(
           <ActionFeedback data={stop.data} />
         </div>
         <small className="composer-hint">
-          {preferences.sendWith} {running ? preferences.delivery : "send"} ·{" "}
+          {preferences.sendWith} {running ? "steer" : "send"} ·{" "}
           {preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} newline
-          {running ? ` · Ctrl/⌘+Enter ${preferences.delivery === "queue" ? "steer" : "queue"}` : ""}
+          {running ? " · Ctrl/⌘+Enter queue · Ctrl/⌘+. stop" : ""}
         </small>
       </div>
     );
@@ -1182,119 +1192,84 @@ export function createDesktopRouter(
     useLive();
     const view = useLoaderData<ConversationView>();
     const older = useFetcher<ActionResult>();
-    const scroller = useRef<VirtuosoHandle>(null);
-    const [atBottom, setAtBottom] = useState(true);
-    const calls = new Set(
-      view.state.cells.flatMap((cell) => (cell.kind === "tool" ? [cell.callId] : [])),
-    );
-    const children = new Map<string, Cell[]>();
-    const cells = view.state.cells.filter((cell) => {
-      if (cell.kind !== "tool" || !cell.parentCallId || !calls.has(cell.parentCallId)) return true;
-      const siblings = children.get(cell.parentCallId) ?? [];
-      siblings.push(cell);
-      children.set(cell.parentCallId, siblings);
-      return false;
-    });
     return (
-      <div className="conversation-page" key={view.conversation.id}>
-        <header className="conversation-header">
-          <div className="conversation-heading">
-            <h1>{conversationLabel(view.conversation, view)}</h1>
-            <div className="workspace-path" title={view.conversation.workspaceRoot ?? undefined}>
-              {view.conversation.workspaceRoot}
+      <ConversationCanvas
+        key={view.conversation.id}
+        rows={view.transcript.rows}
+        running={view.state.turn.status === "running"}
+        header={
+          <header className="conversation-header">
+            <div className="conversation-heading">
+              <h1>{conversationLabel(view.conversation, view)}</h1>
+              <div className="workspace-path" title={view.conversation.workspaceRoot ?? undefined}>
+                {view.conversation.workspaceRoot}
+              </div>
             </div>
-          </div>
-        </header>
-        <div className="transcript" data-testid="transcript">
-          <Virtuoso
-            ref={scroller}
-            key={view.conversation.id}
-            data={cells}
-            initialTopMostItemIndex={Math.max(0, cells.length - 1)}
-            followOutput={(bottom) => (bottom ? "auto" : false)}
-            atBottomStateChange={setAtBottom}
-            itemContent={(_index, cell) => (
-              <TranscriptCell
-                cell={cell}
-                children={cell.kind === "tool" ? children.get(cell.callId) : undefined}
-              />
-            )}
-            components={{
-              Header: () =>
-                view.cursor ? (
-                  <older.Form method="post" action="/actions">
-                    <Input type="hidden" name="intent" value="older" />
-                    <Input type="hidden" name="conversationId" value={view.conversation.id} />
-                    <Button type="submit" disabled={older.state !== "idle"}>
-                      Load earlier messages
-                    </Button>
-                    <ActionFeedback data={older.data} />
-                  </older.Form>
-                ) : null,
-            }}
-          />
-          {!atBottom && (
-            <Button
-              className="jump-latest"
-              onClick={() =>
-                scroller.current?.scrollToIndex({
-                  index: cells.length - 1,
-                  align: "end",
-                })
-              }
-            >
-              <ArrowDown size={14} aria-hidden="true" /> Jump to latest
-            </Button>
-          )}
-        </div>
-        <div className="conversation-status">
-          <span role="status">
-            {view.approvals.size
-              ? "Waiting for approval"
-              : view.state.turn.status === "running"
-                ? "Working…"
-                : "Ready"}
-          </span>
-        </div>
-        {view.state.sandbox?.message && (
-          <p
-            role="status"
-            className={
-              view.state.sandbox.phase === "error" ? "error sandbox-status" : "sandbox-status muted"
-            }
-          >
-            {view.state.sandbox.message}
-          </p>
-        )}
-        {view.state.activities.length > 0 && (
-          <Disclosure
-            className="activities"
-            title={
-              <>
-                Activities (
-                {view.state.activities.filter((activity) => activity.status === undefined).length}{" "}
-                running)
-              </>
-            }
-          >
-            {view.state.activities.map((activity) => (
-              <Activity
-                key={activity.id}
-                view={view}
-                id={activity.id}
-                title={activity.title}
-                running={activity.status === undefined}
-              />
-            ))}
-          </Disclosure>
-        )}
-        <div className="approvals">
-          {[...view.approvals.values()].map((approval) => (
-            <Approval key={approval.requestId} approval={approval} />
-          ))}
-        </div>
-        <Composer key={view.conversation.id} view={view} />
-      </div>
+          </header>
+        }
+        history={
+          view.cursor ? (
+            <older.Form method="post" action="/actions">
+              <Input type="hidden" name="intent" value="older" />
+              <Input type="hidden" name="conversationId" value={view.conversation.id} />
+              <Button type="submit" disabled={older.state !== "idle"}>
+                Load earlier messages
+              </Button>
+              <ActionFeedback data={older.data} />
+            </older.Form>
+          ) : null
+        }
+        renderRow={({ cell, children }) => <TranscriptCell cell={cell} children={children} />}
+        dock={
+          <>
+            <div className="conversation-support">
+              {view.state.sandbox?.message && (
+                <p
+                  role="status"
+                  className={
+                    view.state.sandbox.phase === "error"
+                      ? "error sandbox-status"
+                      : "sandbox-status muted"
+                  }
+                >
+                  {view.state.sandbox.message}
+                </p>
+              )}
+              {view.state.activities.length > 0 && (
+                <Disclosure
+                  className="activities"
+                  title={
+                    <>
+                      Activities (
+                      {
+                        view.state.activities.filter((activity) => activity.status === undefined)
+                          .length
+                      }{" "}
+                      running)
+                    </>
+                  }
+                >
+                  {view.state.activities.map((activity) => (
+                    <Activity
+                      key={activity.id}
+                      view={view}
+                      id={activity.id}
+                      title={activity.title}
+                      running={activity.status === undefined}
+                    />
+                  ))}
+                </Disclosure>
+              )}
+              <div className="approvals">
+                {[...view.approvals.values()].map((approval) => (
+                  <Approval key={approval.requestId} approval={approval} />
+                ))}
+              </div>
+            </div>
+            <Composer key={view.conversation.id} view={view} />
+          </>
+        }
+      />
     );
   }
 

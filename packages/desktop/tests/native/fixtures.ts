@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { SqliteStore } from "@harness/store-sqlite";
@@ -214,6 +214,66 @@ export async function commandProvider(
   );
   return {
     reviews,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.closeAllConnections();
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
+}
+
+/** Hold the real provider stream open so tests control growth without timers. */
+export async function streamingProvider(home: string) {
+  let active: ServerResponse | undefined;
+  const emit = (delta: unknown, finishReason: string | null = null) => {
+    if (!active) throw new Error("Model stream is not active");
+    active.write(
+      `data: ${JSON.stringify({
+        id: "stream",
+        object: "chat.completion.chunk",
+        model: "test-model",
+        choices: [{ index: 0, delta, finish_reason: finishReason }],
+      })}\n\n`,
+    );
+  };
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      if (active) throw new Error("Unexpected concurrent fixture invocation");
+      active = response;
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      emit({ content: "Native stream start.\n\n" + "Representative paragraph.\n\n".repeat(60) });
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Model fixture did not listen");
+  await writeFile(
+    join(home, "settings.json"),
+    JSON.stringify({
+      model: { provider: "fixture", model: "test-model" },
+      providers: {
+        fixture: {
+          type: "openai-completions-compatible",
+          config: {
+            endpoint: `http://127.0.0.1:${address.port}/v1`,
+            apiKey: "test-only",
+            models: { "test-model": {} },
+          },
+        },
+      },
+    }),
+  );
+  return {
+    append: (text: string) => emit({ content: text }),
+    finish() {
+      emit({}, "stop");
+      active!.end("data: [DONE]\n\n");
+      active = undefined;
+    },
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.closeAllConnections();

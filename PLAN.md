@@ -58,6 +58,13 @@ packages.
 
 ## Recent delivery
 
+The [floating composer and scroll follow-up](docs/plans/interface/2026-10-06-floating-composer-scroll.md)
+is complete. It keeps the accepted design while
+giving conversations a full-height scrollbar, aligned status/statistics and one
+dynamic Send/Stop/Steer action. Steer is the default while working; Ctrl/Cmd+Enter
+queues. Ten headless regressions, 24 ordinary native Windows cases and two real
+Ubuntu WSL cases pass, alongside repository checks and independent review.
+
 Completed the desktop presentation refactor tracked in the
 [conversation-first design-system plan](docs/plans/interface/2026-10-04-desktop-design-system.md).
 The design prioritizes chat, reveals configuration from composer

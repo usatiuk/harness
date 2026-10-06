@@ -1,0 +1,379 @@
+import { test, expect, type Page } from "@playwright/test";
+import { build } from "vite";
+import { createServer, type Server } from "node:http";
+import { fileURLToPath } from "node:url";
+
+let server: Server;
+let url: string;
+test.beforeAll(async () => {
+  const result = await build({
+    root: fileURLToPath(new URL("../../", import.meta.url)),
+    configFile: fileURLToPath(new URL("../../vite.config.ts", import.meta.url)),
+    logLevel: "error",
+    build: {
+      write: false,
+      rollupOptions: { input: fileURLToPath(new URL("fixture.ts", import.meta.url)) },
+    },
+  });
+  if (Array.isArray(result) || !("output" in result))
+    throw new Error("Unexpected fixture build output");
+  const assets = new Map(
+    result.output.map((asset) => [
+      "/" + asset.fileName,
+      asset.type === "chunk" ? asset.code : asset.source,
+    ]),
+  );
+  const entry = result.output.find((asset) => asset.type === "chunk" && asset.isEntry);
+  if (!entry) throw new Error("Fixture entry is missing");
+  const css = result.output
+    .filter((asset) => asset.fileName.endsWith(".css"))
+    .map((asset) => `<link rel="stylesheet" href="/${asset.fileName}">`)
+    .join("");
+  server = createServer((request, response) => {
+    const path = request.url?.split("?")[0] ?? "/";
+    if (path === "/") {
+      response.setHeader("Content-Type", "text/html");
+      response.end(
+        `<html><head>${css}</head><body><div id="root"></div><script type="module" src="/${entry.fileName}"></script></body></html>`,
+      );
+    } else {
+      response.setHeader("Content-Type", path.endsWith(".css") ? "text/css" : "text/javascript");
+      response.end(assets.get(path));
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Fixture server did not listen");
+  url = `http://127.0.0.1:${address.port}`;
+});
+test.afterAll(async () => {
+  await new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+});
+test.beforeEach(async ({ page }) => {
+  await page.goto(url);
+  await expect.poll(() => page.evaluate(() => window.canvasFixture.ready)).toBe(true);
+  await expect(page.locator(".cell.assistant")).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator(".conversation-scroll")
+        .evaluate((element) => element.scrollHeight > 2 * element.clientHeight),
+    )
+    .toBe(true);
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+});
+const gap = (page: Page) =>
+  page
+    .locator(".conversation-scroll")
+    .evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
+
+test("a new tall stream follows from an initially empty conversation", async ({ page }) => {
+  await page.goto(url + "?empty");
+  await expect.poll(() => page.evaluate(() => window.canvasFixture.ready)).toBe(true);
+  await expect
+    .poll(() => page.locator(".transcript-clearance").evaluate((element) => element.clientHeight))
+    .toBeGreaterThan(0);
+  await page.evaluate(() => window.canvasFixture.start());
+  // The first user row is attached while the virtualizer's initial alignment is
+  // pending; a fast provider can already stream the next row in that interval.
+  await expect(page.locator(".user-text")).toBeAttached();
+  await page.evaluate(() => window.canvasFixture.appendAssistant());
+  await expect(page.locator(".cell.assistant")).toContainText("Latest");
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+});
+
+test("opens at the real bottom of a tall final message and follows same-item growth", async ({
+  page,
+}) => {
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  const content = await page.locator(".cell.assistant").boundingBox();
+  const dock = await page.locator(".conversation-dock").boundingBox();
+  expect(content!.y + content!.height).toBeLessThanOrEqual(dock!.y);
+  await page.screenshot({ path: test.info().outputPath("floating-light.png") });
+  await page.evaluate(() => window.canvasFixture.grow());
+  await expect(page.locator(".cell.assistant")).toContainText("Additional streaming paragraph");
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+});
+
+test("reading pauses follow, three-dot jump resumes it without changing dock/fade geometry", async ({
+  page,
+}) => {
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await page.locator(".conversation-scroll").evaluate((element) => {
+    element.scrollTop -= 450;
+  });
+  const jump = page.getByRole("button", { name: "Jump to latest" });
+  await expect(jump).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("floating-reading.png") });
+  const top = await page.locator(".conversation-scroll").evaluate((element) => element.scrollTop);
+  const dock = await page.locator(".conversation-dock").boundingBox();
+  const fade = await page
+    .locator(".conversation-dock")
+    .evaluate((element) => getComputedStyle(element, "::before").top);
+  await page.evaluate(() => window.canvasFixture.grow());
+  await expect(page.locator(".cell.assistant")).toContainText("Additional streaming paragraph");
+  expect(
+    await page.locator(".conversation-scroll").evaluate((element) => element.scrollTop),
+  ).toBeCloseTo(top, 0);
+  await jump.click();
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect(jump).toHaveCount(0);
+  expect(await page.locator(".conversation-dock").boundingBox()).toEqual(dock);
+  expect(
+    await page
+      .locator(".conversation-dock")
+      .evaluate((element) => getComputedStyle(element, "::before").top),
+  ).toBe(fade);
+  await page.evaluate(() => window.canvasFixture.grow());
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+});
+
+test("expanding the latest tool retains follow and keeps its output clear of the dock", async ({
+  page,
+}) => {
+  await page.evaluate(() => window.canvasFixture.appendTool());
+  const tool = page.locator("details").filter({ hasText: "Latest tool" });
+  await expect(tool.locator("summary")).toBeVisible();
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await tool.locator("summary").click();
+  await expect(tool).toHaveAttribute("open", "");
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  const output = await tool.locator("pre").boundingBox();
+  const dock = await page.locator(".conversation-dock").boundingBox();
+  expect(output!.y + output!.height).toBeLessThanOrEqual(dock!.y);
+});
+
+test("idle conversations hide jump and history regrouping preserves a visible reading anchor", async ({
+  page,
+}) => {
+  await page.locator(".conversation-scroll").evaluate((element) => {
+    element.scrollTop = 400;
+  });
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  await page.evaluate(() => window.canvasFixture.setRunning(false));
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
+  const text = await page.locator(".conversation-scroll").evaluate((element) => {
+    const top = element.querySelector(".conversation-header")!.getBoundingClientRect().bottom;
+    const visible = [...element.querySelectorAll(".user-text")].find(
+      (row) => row.getBoundingClientRect().top >= top,
+    );
+    if (!visible?.textContent) throw new Error("No visible user message to anchor");
+    return visible.textContent;
+  });
+  const anchor = page.getByText(text, { exact: true });
+  await expect(anchor).toBeVisible();
+  const before = await anchor.boundingBox();
+  await page.evaluate(() => window.canvasFixture.prepend());
+  // Header measurement rounds to nearest pixel, then scroll targets round upward.
+  await expect
+    .poll(async () => Math.abs((await anchor.boundingBox())!.y - before!.y))
+    .toBeLessThanOrEqual(1.5);
+  expect(await page.locator(".transcript-item").count()).toBeLessThan(40);
+});
+
+test("support and composer growth keep controls reachable and latest clear of the dock", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 720, height: 520 });
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await page.evaluate(() => window.canvasFixture.setSupport(true));
+  await expect(page.getByRole("button", { name: "Allow" })).toBeVisible();
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await page.getByRole("textbox", { name: "Message" }).fill("A long draft\n".repeat(20));
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  const content = await page.locator(".cell.assistant").boundingBox();
+  const dock = await page.locator(".conversation-dock").boundingBox();
+  expect(content!.y + content!.height).toBeLessThanOrEqual(dock!.y);
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "dark";
+  });
+  await page.screenshot({ path: test.info().outputPath("floating-dark-minimum.png") });
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "2";
+  });
+  await page.getByRole("button", { name: "Stop", exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeInViewport();
+  // Synthetic CSS zoom qualifies reachability, not Virtuoso's scroll coordinates.
+  const clearance = await page
+    .locator(".conversation-dock-content")
+    .evaluate((element: HTMLElement) => element.offsetHeight + 12);
+  expect(
+    await page.locator(".transcript-clearance").evaluate((element) => element.clientHeight),
+  ).toBe(clearance);
+});
+
+test("support growth while reading does not resume follow", async ({ page }) => {
+  await page.locator(".conversation-scroll").evaluate((element) => {
+    element.scrollTop -= 450;
+  });
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  const top = await page.locator(".conversation-scroll").evaluate((element) => element.scrollTop);
+  await page.setViewportSize({ width: 720, height: 520 });
+  await page.evaluate(() => window.canvasFixture.setSupport(true));
+  await expect(page.getByRole("button", { name: "Allow" })).toBeVisible();
+  await page.evaluate(() => window.canvasFixture.grow());
+  await expect(page.locator(".cell.assistant")).toContainText("Additional streaming paragraph");
+  expect(
+    await page.locator(".conversation-scroll").evaluate((element) => element.scrollTop),
+  ).toBeCloseTo(top, 0);
+});
+
+test("a visible standalone child anchors to its newly loaded parent", async ({ page }) => {
+  await page.goto(url + "?children");
+  await expect.poll(() => page.evaluate(() => window.canvasFixture.ready)).toBe(true);
+  await expect(
+    page.getByText("History 79: representative discussion", { exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator(".conversation-scroll")
+        .evaluate((element) => element.scrollHeight > 2 * element.clientHeight),
+    )
+    .toBe(true);
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await page.locator(".conversation-scroll").evaluate((element) => {
+    element.scrollTop = 300;
+  });
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  await expect(page.locator(".cell.tool").first()).toBeVisible();
+  await page.locator(".conversation-scroll").evaluate((element) => {
+    const top = element.querySelector(".conversation-header")!.getBoundingClientRect().bottom;
+    const child = [...element.querySelectorAll(".transcript-item")].find(
+      (row) => row.querySelector(".cell.tool") && row.getBoundingClientRect().bottom > top,
+    );
+    if (!child) throw new Error("No child to read");
+    element.scrollTop += child.getBoundingClientRect().top - top + 4;
+  });
+  await expect
+    .poll(() =>
+      page.locator(".conversation-scroll").evaluate((element) => {
+        const top = element.querySelector(".conversation-header")!.getBoundingClientRect().bottom;
+        const bottom = document.querySelector(".conversation-dock")!.getBoundingClientRect().top;
+        const visible = [...element.querySelectorAll(".transcript-item")].filter(
+          (row) =>
+            row.getBoundingClientRect().bottom > top && row.getBoundingClientRect().top < bottom,
+        );
+        return (
+          visible.length > 0 && visible.every((row) => Boolean(row.querySelector(".cell.tool")))
+        );
+      }),
+    )
+    .toBe(true);
+  const anchor = await page.locator(".conversation-scroll").evaluate((element) => {
+    const top = element.querySelector(".conversation-header")!.getBoundingClientRect().bottom;
+    const visible = [...element.querySelectorAll(".transcript-item")].find(
+      (row) => row.querySelector(".cell.tool") && row.getBoundingClientRect().bottom > top,
+    );
+    if (!visible) throw new Error("No visible child to anchor");
+    // A parent at index zero cannot be placed below the list's start without
+    // a negative scrollTop. Preserve the offset within that real scroll bound.
+    const start =
+      element.getBoundingClientRect().top +
+      (element.querySelector(".conversation-header-wrap") as HTMLElement).offsetHeight +
+      (element.querySelector(".transcript-history") as HTMLElement).offsetHeight;
+    return {
+      name: visible.querySelector("summary")!.textContent,
+      y: Math.min(visible.getBoundingClientRect().top, start),
+    };
+  });
+  expect(anchor.name).toMatch(/^Child /);
+  await page.evaluate(() => window.canvasFixture.prepend());
+  const parent = page.getByText("eval", { exact: true });
+  await expect(parent).toBeVisible();
+  await expect(parent).toBeInViewport();
+  await expect
+    .poll(async () => Math.abs((await parent.locator("../..").boundingBox())!.y - anchor.y))
+    .toBeLessThanOrEqual(1.5);
+});
+
+test("production composer retains new drafts and permits Stop during delivery acknowledgement", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  const primary = page.locator(".composer-primary");
+  await expect(primary).toHaveCount(1);
+  await expect(primary).toHaveText("Stop");
+  await message.fill("   ");
+  await message.press("Enter");
+  expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([]);
+  await message.fill("First steering input");
+  await primary.click();
+  await expect(primary).toHaveText("Sending…");
+  await expect(primary).toBeDisabled();
+  await message.press("Enter");
+  await message.press("Control+Enter");
+  expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([
+    { text: "First steering input", intent: "steer" },
+  ]);
+  await message.fill("Replacement draft");
+  await page.evaluate(() => window.composerFixture.settle());
+  await expect(primary).toHaveText("Steer");
+  await expect(message).toHaveValue("Replacement draft");
+  await expect(message).toBeFocused();
+  await primary.click();
+  await expect(primary).toHaveText("Sending…");
+  await message.press("Control+.");
+  await expect(primary).toHaveText("Stopping…");
+  await expect(primary).toBeDisabled();
+  await message.press("Control+.");
+  expect(
+    (await page.evaluate(() => window.composerFixture.calls)).map((call) => call.intent),
+  ).toEqual(["steer", "steer", "interrupt"]);
+  await expect(message).toHaveValue("Replacement draft");
+  await message.fill("Draft after interrupt");
+  await page.evaluate(() => window.composerFixture.settleStop());
+  await page.evaluate(() => window.composerFixture.settle());
+  await expect(primary).toHaveText("Send");
+  await expect(primary).toBeEnabled();
+  await expect(message).toHaveValue("Draft after interrupt");
+});
+
+test("production composer queues alternatively and keeps rejected drafts with disconnected guards", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  const primary = page.locator(".composer-primary");
+  await message.fill("Keep rejected input");
+  for (const event of [{ isComposing: true }, { keyCode: 229 }])
+    await message.dispatchEvent("keydown", {
+      key: "Enter",
+      ctrlKey: true,
+      bubbles: true,
+      ...event,
+    });
+  expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([]);
+  await message.press("Control+Enter");
+  await expect(primary).toHaveText("Sending…");
+  expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([
+    { text: "Keep rejected input", intent: "queue" },
+  ]);
+  await page.evaluate(() => window.composerFixture.settle(true));
+  await expect(page.getByRole("alert")).toContainText("Delivery rejected");
+  await expect(message).toHaveValue("Keep rejected input");
+  await expect(primary).toHaveText("Steer");
+  await primary.click();
+  await expect(primary).toHaveText("Sending…");
+  await message.fill("");
+  await expect(primary).toHaveText("Stop");
+  await expect(primary).toBeEnabled();
+  await page.evaluate(() => window.composerFixture.settle());
+  await expect(primary).toHaveText("Stop");
+  await message.fill("Retained disconnected draft");
+  await expect(primary).toHaveText("Steer");
+  await expect(primary).toBeEnabled();
+  await page.evaluate(() => window.composerFixture.disconnect());
+  await expect(primary).toBeDisabled();
+  await message.press("Enter");
+  await message.press("Control+Enter");
+  await expect(message).toHaveValue("Retained disconnected draft");
+  await message.press("Control+.");
+  await message.fill("");
+  await expect(primary).toHaveText("Stop");
+  await expect(primary).toBeDisabled();
+  expect((await page.evaluate(() => window.composerFixture.calls)).length).toBe(2);
+});

@@ -367,12 +367,55 @@ main {
   z-index: 2;
 }
 .conversation-page {
-  display: flex;
-  flex-direction: column;
+  position: relative;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
   --chat-width: 820px;
   --chat-inset: 38px;
+}
+.conversation-scroll {
+  height: 100%;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.conversation-header-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-canvas);
+}
+.conversation-dock {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  max-width: var(--chat-width);
+  max-height: calc(100% - 84px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  z-index: 3;
+  pointer-events: none;
+}
+.conversation-dock::before {
+  content: "";
+  position: absolute;
+  inset: -48px 0 0;
+  background: linear-gradient(to bottom, transparent, var(--surface-canvas) 48px);
+  pointer-events: none;
+}
+.conversation-dock-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  pointer-events: auto;
+}
+.conversation-support {
+  min-height: 0;
+  max-height: min(30vh, 260px);
+  overflow: auto;
 }
 .conversation-header {
   display: flex;
@@ -443,9 +486,19 @@ main {
   margin: 5px 0;
 }
 .transcript {
-  flex: 1;
-  min-height: 120px;
   position: relative;
+}
+.transcript-item {
+  /* Virtualizer measurements must include user/tool spacing. */
+  display: flow-root;
+}
+.transcript-history {
+  max-width: var(--chat-width);
+  margin: 0 auto;
+  padding: 12px var(--chat-inset);
+}
+.transcript-history:empty {
+  display: none;
 }
 .cell {
   overflow-wrap: anywhere;
@@ -569,12 +622,12 @@ main {
 .conversation-status {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 6px 12px;
   align-items: center;
   width: 100%;
-  max-width: var(--chat-width);
-  margin: 0 auto;
-  padding: 4px var(--chat-inset);
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 4px 14px;
   font-size: 11px;
   color: var(--muted-ink);
 }
@@ -586,8 +639,6 @@ main {
   font-size: 12px;
 }
 .approvals {
-  max-height: 35%;
-  overflow: auto;
   width: 100%;
   max-width: var(--chat-width);
   margin: 0 auto;
@@ -609,6 +660,7 @@ main {
   overflow: auto;
 }
 .composer-wrap {
+  flex-shrink: 0;
   width: 100%;
   max-width: var(--chat-width);
   margin: 0 auto;
@@ -649,6 +701,9 @@ main {
   gap: 8px;
   align-items: center;
 }
+.composer-primary {
+  min-width: 90px;
+}
 .composer-hint {
   display: block;
   margin: 8px auto 0;
@@ -658,11 +713,11 @@ main {
 }
 .turn-stats {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   font-size: 11px;
   color: var(--muted-ink);
-  margin: 0 auto 8px;
-  max-width: 960px;
+  margin: 0 0 0 auto;
+  flex: 1;
   flex-wrap: wrap;
   justify-content: flex-end;
   font-variant-numeric: tabular-nums;
@@ -674,18 +729,23 @@ main {
   margin-bottom: 8px;
   font-size: 12px;
 }
-.jump-latest {
+.control.jump-latest {
   position: absolute;
-  bottom: 12px;
-  right: 20px;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 34px;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-panel);
+  pointer-events: auto;
 }
 .activities {
   width: 100%;
   max-width: var(--chat-width);
   padding: 0 var(--chat-inset);
   margin: 6px auto;
-  max-height: 140px;
-  overflow: auto;
 }
 .activity {
   margin: 10px 0;

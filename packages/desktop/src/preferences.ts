@@ -15,7 +15,6 @@ export interface Appearance {
 }
 export interface ComposerPreferences {
   sendWith: "Enter" | "Shift+Enter";
-  delivery: "queue" | "steer";
   showStats: boolean;
 }
 export const defaultAppearance: Appearance = {
@@ -26,7 +25,6 @@ export const defaultAppearance: Appearance = {
 };
 export const defaultComposer: ComposerPreferences = {
   sendWith: "Enter",
-  delivery: "queue",
   showStats: false,
 };
 
@@ -75,11 +73,10 @@ export function readComposer(raw: string | null): ComposerPreferences {
   const value = storedObject(raw);
   return {
     sendWith: value.sendWith === "Shift+Enter" ? "Shift+Enter" : "Enter",
-    delivery: value.delivery === "steer" ? "steer" : "queue",
     showStats: typeof value.showStats === "boolean" ? value.showStats : defaultComposer.showStats,
   };
 }
-/** Only textarea Enter is handled; composition and unrelated modifiers stay native. */
+/** Composer delivery and interrupt shortcuts leave composition/native editing alone. */
 export function composerKey(
   event: {
     key: string;
@@ -91,12 +88,15 @@ export function composerKey(
   },
   preferences: ComposerPreferences,
   running: boolean,
-): "newline" | "send" | "queue" | "steer" | undefined {
-  if (event.key !== "Enter" || event.isComposing || event.altKey) return undefined;
+): "newline" | "send" | "queue" | "steer" | "interrupt" | undefined {
+  if (event.isComposing || event.altKey) return undefined;
+  if (event.key === "." && (event.ctrlKey || event.metaKey) && !event.shiftKey)
+    return running ? "interrupt" : undefined;
+  if (event.key !== "Enter") return undefined;
   if (event.ctrlKey || event.metaKey) {
     if (event.shiftKey) return undefined;
-    return running ? (preferences.delivery === "queue" ? "steer" : "queue") : "send";
+    return running ? "queue" : "send";
   }
   const send = preferences.sendWith === "Shift+Enter" ? event.shiftKey : !event.shiftKey;
-  return send ? (running ? preferences.delivery : "send") : "newline";
+  return send ? (running ? "steer" : "send") : "newline";
 }
