@@ -266,6 +266,12 @@ passed/41 skipped. CI also passes typecheck, lint and formatting. Platform and
 environment skips account for the different totals; no additional native GUI
 qualification was needed for this process/RPC follow-up.
 
+The final documentation-only push later exposes the Local waiter cancellation
+test's unchanged 30-second deadline on Windows; Ubuntu passes. The follow-up is
+reopened. Failure-only parent and child phase records capture prerequisite,
+attachment and cleanup states before changing any timing or product behavior.
+The exact phase of that final CI failure is not yet known.
+
 The auto-approver scenario saves a reviewer model/preset in the actual GUI,
 verifies that model performs review before a real shell tool executes, changes
 the global reviewer and observes the next review in the same loaded conversation

@@ -59,9 +59,10 @@ packages.
 ## Recent delivery
 
 The [Windows CI reliability follow-up](docs/plans/cross-cutting/2026-10-07-windows-ci-reliability.md)
-is complete and pushed directly to `main`. It corrects stale discovery publication,
-RPC completion at shutdown/EOF and test prerequisites. The full Node 22 check,
-constrained process qualification and Windows/Ubuntu CI pass.
+corrects stale discovery publication, RPC completion at shutdown/EOF and test
+prerequisites. Local and source CI qualification pass, but the final documentation
+push exposes a remaining Windows cancellation deadline failure; diagnosis and
+final qualification remain open.
 
 The [floating composer and scroll follow-up](docs/plans/interface/2026-10-06-floating-composer-scroll.md)
 is complete. It keeps the accepted design while

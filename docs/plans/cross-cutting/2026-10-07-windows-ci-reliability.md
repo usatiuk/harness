@@ -1,6 +1,6 @@
 # Windows CI reliability
 
-Status: Complete
+Status: Active
 
 ## Goal and scope
 
@@ -114,7 +114,11 @@ failure and client response/close interleavings are covered through public peers
 - [x] **Review and validation.** Three read-only lenses cover correctness,
       architecture/simplicity and evidence/scope. Check: findings resolved, root
       `npm run check` and focused regressions pass; no unrelated changes.
-- [x] **Direct delivery.** Commit coherent validated increments, merge/push
+- [ ] **Remaining cancellation qualification.** Capture the final-main timeout
+      phase, preserve primary and cleanup evidence, correct only an established
+      fixture or product cause. Check: original cancellation contract and unchanged
+      deadline pass under representative startup load and final Windows CI.
+- [ ] **Direct delivery.** Commit coherent validated increments, merge/push
       directly to `main`, and check Windows/Ubuntu CI on the resulting revision.
       Check: actual results and remaining limits recorded, checkout clean.
 
@@ -176,4 +180,22 @@ demonstrated transport lifetimes. It adds no parallel queue, polling, retry or
 timeout increase. Test controls remain at input/process boundaries; cold owner
 and shutdown qualification still uses real processes. The final documentation
 increment records this evidence and closes the plan; no implementation work
-remains open.
+remains open at that source qualification point.
+
+The documentation-only `98a2993` push exposes a remaining failure in
+[the final-main run](https://github.com/usatiuk/harness/actions/runs/37661610696):
+Windows cancels-a-Local-waiter exceeds its unchanged 30-second test deadline;
+all other 1,022 tests pass, with 47 skipped. Ubuntu passes. Source is identical
+to the successful run. Reopen completion and diagnose the phase before any
+correction; neither a passing source run nor a documentation-only diff proves
+this cancellation qualification reliable. Raw failure logs are preserved.
+
+Three read-only reviews agree that cleanup can mask an earlier prerequisite
+failure and that an early-failure waiter lacks guaranteed abort. No product
+cause is established. Temporary parent phase probes show a one-CPU/four-worker
+run with cold TypeScript loading can exceed the bridge's 10-second marker wait;
+its waiter completes in 14.14s, while unrelated multi-start scenarios exceed
+their deadlines. This stronger load is diagnostic, not final qualification or
+proof of the final CI timeout's phase. On ordinary verified Node 22, both
+cancellation cases pass (7.96s total). Failure-only parent/child phase records
+will capture the actual hosted-run boundary; assertions and deadlines remain.

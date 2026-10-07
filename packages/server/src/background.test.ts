@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { once } from "node:events";
 import { createConnection } from "node:net";
-import { expect, it, vi } from "vitest";
+import { expect, it, vi, onTestFailed } from "vitest";
 import { HarnessClient } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { ensureLocalServer, stopServer, replaceJson } from "@harness/connections/node";
@@ -34,7 +34,33 @@ const exec = promisify(execFile);
 it.each(["waiter", "bridge"])(
   "cancels a Local %s before readiness without killing its launched owner",
   async (mode) => {
-    const home = await canonicalHome(join(tmpdir(), `harness-cancel-start-${randomUUID()}`));
+    const started = performance.now();
+    const phases: { phase: string; ms: number }[] = [];
+    const phase = (phase: string) => phases.push({ phase, ms: performance.now() - started });
+    const requestedHome = join(tmpdir(), `harness-cancel-start-${randomUUID()}`);
+    const fixtureState = join(requestedHome, "fixture-state.json");
+    const describeError = (error: unknown) =>
+      error instanceof Error
+        ? { name: error.name, message: error.message }
+        : { type: typeof error };
+    const diagnose = async (event: string, error?: unknown) => {
+      const child = await readFile(fixtureState, "utf8").catch((error) => ({
+        readError: describeError(error),
+      }));
+      console.error(
+        JSON.stringify({
+          event,
+          mode,
+          phases,
+          child,
+          ...(error === undefined ? {} : { error: describeError(error) }),
+        }),
+      );
+    };
+    onTestFailed(() => diagnose("cancellation.diagnostic"));
+    phase("prepare-home");
+    const home = await canonicalHome(requestedHome);
+    phase("prepared-home");
     const fixture = join(home, "delayed.mjs");
     const marker = join(home, "started");
     const gate = join(home, "release");
@@ -47,13 +73,20 @@ it.each(["waiter", "bridge"])(
       await writeFile(
         fixture,
         `import {watch,existsSync,writeFileSync} from 'node:fs';
+const start=performance.now(),phases=[];
+const phase=phase=>{phases.push({phase,ms:performance.now()-start});writeFileSync(${JSON.stringify(fixtureState)},JSON.stringify({pid:process.pid,phases}));};
+phase('import-background');
 await import(${JSON.stringify(pathToFileURL(resolve("packages/server/src/background.ts")).href)});
+phase('imported-background');
 const gate=${JSON.stringify(gate)};
-await new Promise(resolve=>{const check=()=>{if(existsSync(gate)){watcher.close();resolve()}};const watcher=watch(${JSON.stringify(home)},check);writeFileSync(${JSON.stringify(marker)},String(process.pid));check();});
-await import(${JSON.stringify(pathToFileURL(entry).href)});`,
+await new Promise(resolve=>{const check=()=>{if(existsSync(gate)){watcher.close();phase('gate-open');resolve()}};const watcher=watch(${JSON.stringify(home)},check);phase('gate-installed');writeFileSync(${JSON.stringify(marker)},String(process.pid));check();});
+phase('import-entry');
+await import(${JSON.stringify(pathToFileURL(entry).href)});
+phase('entry-returned');`,
       );
       const abort = new AbortController();
       let cancelled: Promise<unknown>;
+      phase("launch-observer");
       if (mode === "waiter") {
         cancelled = ensureLocalServer(home, delayedLaunch, abort.signal);
         // Register rejection observation before cancellation.
@@ -70,32 +103,46 @@ await import(${JSON.stringify(pathToFileURL(entry).href)});`,
         });
         cancelled = once(bridge, "close");
       }
+      phase("await-marker");
       await vi.waitFor(async () => expect(await readFile(marker, "utf8")).toMatch(/^\d+$/u), {
         timeout: 10_000,
       });
       const pid = Number(await readFile(marker, "utf8"));
+      phase("cancel-observer");
       if (bridge) bridge.stdin!.end();
       else abort.abort();
       if (mode === "waiter") await expect(cancelled).rejects.toThrow();
       else expect(await cancelled).toEqual([0, null]);
+      phase("cancelled-observer");
       // The owner is still gated when the observer has already left.
       expect(await readDiscovery(home)).toBeNull();
       await writeFile(gate, "release");
+      phase("await-discovery");
       await vi.waitFor(async () => expect((await readDiscovery(home))?.pid).toBe(pid), {
         timeout: 10_000,
       });
+      phase("attach-fresh");
       const fresh = await ensureLocalServer(home, launch);
       expect(fresh.identity.pid).toBe(pid);
       fresh.close();
+      phase("fresh-closed");
+    } catch (error) {
+      phase("primary-failure");
+      await diagnose("cancellation.primary", error);
+      throw error;
     } finally {
+      phase("cleanup-release");
       if (bridge?.exitCode === null) bridge.kill();
       await writeFile(gate, "release");
       if (await readFile(marker, "utf8").catch(() => null))
         await vi.waitFor(async () => expect(await readDiscovery(home)).not.toBeNull(), {
           timeout: 10_000,
         });
+      phase("cleanup-stop");
       await stopHome(home);
+      phase("cleanup-remove");
       await rm(home, { recursive: true, force: true });
+      phase("complete");
     }
   },
   30_000,
