@@ -1,6 +1,6 @@
 # Windows CI reliability
 
-Status: Active
+Status: Complete
 
 ## Goal and scope
 
@@ -114,7 +114,7 @@ failure and client response/close interleavings are covered through public peers
 - [x] **Review and validation.** Three read-only lenses cover correctness,
       architecture/simplicity and evidence/scope. Check: findings resolved, root
       `npm run check` and focused regressions pass; no unrelated changes.
-- [ ] **Direct delivery.** Commit coherent validated increments, merge/push
+- [x] **Direct delivery.** Commit coherent validated increments, merge/push
       directly to `main`, and check Windows/Ubuntu CI on the resulting revision.
       Check: actual results and remaining limits recorded, checkout clean.
 
@@ -129,12 +129,11 @@ A minimal asynchronous Select mount reproduced the exact lost first Down key:
 three keys focus OpenCode instead of Codex. A pre-input React effect drain fixes
 that reproduction. The corrected hosts fixture and its added regression pass all
 four cases (11.88s), including real Local OAuth/cancellation. Verified Node 22 and
-its matching official SQLite prebuild are used for final validation; the normal
-Node 24 SQLite binary is backed up for restoration. Temporary timing instrumentation
-and probe files are removed. All 45 cases in the evaluator, service and process
+its matching official SQLite prebuild were used for final validation. Temporary
+timing instrumentation and probe files are removed. All 45 cases in the evaluator, service and process
 ownership files pass normally (8.72s) and under the same one-CPU restriction that
-reproduced the old timeout (22.27s), with original deadlines unchanged. The first full check passes static
-checks but fails one further fixture readiness case; a diagnostic full test run
+reproduced the old timeout (22.27s), with original deadlines unchanged. The first
+full check passes static checks but fails one further fixture readiness case; a diagnostic full test run
 passes 1,024 cases (36 skipped). This passing run does not establish a fix.
 The later four-file constrained run exposes the shutdown response loss and
 another compound evaluator transfer case; the latter is now separated into
@@ -159,10 +158,22 @@ an in-memory database smoke test passes on Node 24.19.0.
 Raw failed logs are preserved locally; the linked run retains both attempts.
 No desktop presentation changed in this follow-up; actual process/RPC tests
 qualify the affected boundary without opening additional native app windows.
-Commit, direct push and Windows/Ubuntu CI on the delivered revision remain open.
 
-The first validated increment is
-[`19a3552`](https://github.com/usatiuk/harness/commit/19a3552): stale publication,
-RPC closure/drainage and terminal initialization, with their regressions. The
-remaining fixture corrections are the next coherent increment; main delivery
-and remote CI still block completion.
+The validated increments are
+[`19a3552`](https://github.com/usatiuk/harness/commit/19a3552) (stale publication,
+RPC closure/drainage and terminal initialization, with their regressions) and
+[`d51afe7`](https://github.com/usatiuk/harness/commit/d51afe72eea70c90f6cbb2f34f1520bd343af9c7)
+(test prerequisites and scenario boundaries). Both are fast-forwarded and pushed
+directly to `main`, without a PR. The
+[resulting Windows/Ubuntu run](https://github.com/usatiuk/harness/actions/runs/37660099019)
+passes on `d51afe7`: Windows passes 1,023 tests with 47 skipped (314.98s), and
+Ubuntu passes 1,029 with 41 skipped (141.48s). Both pass typecheck, lint and
+formatting. The source checkout is clean and synchronized with origin afterward.
+
+Final reassessment keeps stale-record retirement with the exclusive owner and
+uses the maintained RPC dispatch queue plus Node writable completion for the two
+demonstrated transport lifetimes. It adds no parallel queue, polling, retry or
+timeout increase. Test controls remain at input/process boundaries; cold owner
+and shutdown qualification still uses real processes. The final documentation
+increment records this evidence and closes the plan; no implementation work
+remains open.

@@ -259,7 +259,12 @@ No timeout or assertion was weakened.
 The final follow-up passes `npm run check` on CI's Node 22.23.3: typecheck, lint,
 formatting and 1,034 tests, with 36 skipped. All 64 cases in five affected files
 also pass under one CPU and four workers, including real owner shutdown. Three
-independent review lenses are resolved; pushed-revision CI remains to qualify.
+independent review lenses are resolved. The
+[pushed source revision's CI](https://github.com/usatiuk/harness/actions/runs/37660099019)
+passes both platforms: Windows has 1,023 passed/47 skipped and Ubuntu has 1,029
+passed/41 skipped. CI also passes typecheck, lint and formatting. Platform and
+environment skips account for the different totals; no additional native GUI
+qualification was needed for this process/RPC follow-up.
 
 The auto-approver scenario saves a reviewer model/preset in the actual GUI,
 verifies that model performs review before a real shell tool executes, changes
