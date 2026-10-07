@@ -281,7 +281,13 @@ cases in five files under that same one-CPU/four-worker cold-transform load
 failure evidence. The exact phase of the original hosted timeout remains unknown;
 failure diagnostics stay in place. The final fixture passes the full Node
 22.23.3 check (1,034 passed, 36 skipped; test phase 45.82s) and all three review
-lenses. Hosted qualification remains pending in the linked plan.
+lenses. The
+[final source run](https://github.com/usatiuk/harness/actions/runs/37668957576)
+also passes both platforms and static checks: Windows has 1,023 passed/47 skipped
+(300.93s) and Ubuntu has 1,029 passed/41 skipped (110.42s). Both Windows
+cancellation cases complete within eight seconds; both Ubuntu cases within two.
+This qualifies the corrected fixture without establishing the original hosted
+timeout's uncaptured phase.
 
 The auto-approver scenario saves a reviewer model/preset in the actual GUI,
 verifies that model performs review before a real shell tool executes, changes

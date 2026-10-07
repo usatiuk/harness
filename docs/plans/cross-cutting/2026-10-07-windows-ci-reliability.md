@@ -1,6 +1,6 @@
 # Windows CI reliability
 
-Status: Active
+Status: Complete
 
 ## Goal and scope
 
@@ -116,12 +116,12 @@ failure and client response/close interleavings are covered through public peers
 - [x] **Review and validation.** Three read-only lenses cover correctness,
       architecture/simplicity and evidence/scope. Check: findings resolved, root
       `npm run check` and focused regressions pass; no unrelated changes.
-- [ ] **Remaining cancellation qualification.** Preserve failure-phase evidence
+- [x] **Remaining cancellation qualification.** Preserve failure-phase evidence
       and correct reproduced fixture defects; distinguish those defects from the
       uncaptured original hosted timeout. Check: exact cancellation and original
       owner attachment pass under cold startup load and final Windows CI, within
       the unchanged overall deadline; retained diagnostics expose future failures.
-- [ ] **Direct delivery.** Commit coherent validated increments, merge/push
+- [x] **Direct delivery.** Commit coherent validated increments, merge/push
       directly to `main`, and check Windows/Ubuntu CI on the resulting revision.
       Check: actual results and remaining limits recorded, checkout clean.
 
@@ -239,5 +239,24 @@ marker failure. It does not establish the phase of the original hosted 30s
 timeout. Failure-only phase diagnostics remain; temporary success probes are
 removed. The final Node 22.23.3 `npm run check` passes typecheck, lint, formatting
 and 1,034 tests with 36 skipped (test phase 45.82s). All three independent final
-review lenses report no actionable findings. Hosted qualification of this
-revision remains open.
+review lenses report no actionable findings.
+
+The final fixture correction is committed and pushed directly to `main` as
+[`44b2e8d`](https://github.com/usatiuk/harness/commit/44b2e8dcf6c05ee5a9efdc1228028160bede3c02).
+Its [hosted run](https://github.com/usatiuk/harness/actions/runs/37668957576)
+passes both platforms and all static checks: Windows passes 1,023 tests with 47
+skipped (test phase 300.93s); Ubuntu passes 1,029 with 41 skipped (110.42s).
+Windows waiter/bridge cancellation cases complete in 7.84s/6.40s, and Ubuntu in
+1.80s/1.88s. The local Node 24 SQLite binary is restored byte-for-byte and its
+in-memory smoke test passes. The source checkout is clean and synchronized with
+origin.
+
+Final reassessment keeps every new fixture control at the test boundary. There
+is no additional product state, transport coordination, retry or overall timeout
+increase. The reproduced marker and diagnostic-file defects are corrected and
+qualified under their failing load. The original hosted timeout's phase remains
+an unresolved observation, not an established cause attributed to these fixes;
+retained failure diagnostics support investigation if it recurs. Required
+cancellation, owner survival, attachment and shutdown qualification now pass
+locally and on both hosted platforms. The closing increment synchronizes these
+results without changing source, and its final-main run is checked at handoff.
