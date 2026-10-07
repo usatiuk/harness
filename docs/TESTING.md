@@ -244,8 +244,13 @@ before output/exit; actual shell capture and tree termination remain qualified
 separately. Ownership contention, graceful settings restart and crash restart
 retain real cold servers in independent cases. CLI input drains passive effects
 before writing, with a regression for an asynchronously mounted provider menu.
-The delayed-owner marker now follows module loading and gate installation, and
-an early teardown release is observed after subscribing. Real-process load also
+The delayed-owner marker follows gate installation before the actual entry's cold
+imports, and an early teardown release is observed after subscribing. Cancellation
+asserts `AbortError` and attachment to the captured PID without a replacement
+launch. Teardown always aborts the original observer. The post-release readiness
+wait uses the existing 20-second Local startup allowance, replacing its artificial
+10-second sub-budget; the overall 30-second test deadline is unchanged.
+Real-process load also
 exposed a dropped Stop acknowledgement; public NDJSON RPC coverage holds an
 initial write, queues Stop behind it, closes the peer and verifies delivery before
 destruction. Abort-controlled writable drainage qualifies its bounded lifetime.
@@ -254,9 +259,10 @@ both accepted-frame delivery and unanswered-request rejection when read EOF and
 physical output closure coincide. The existing RPC dispatch queue owns closure
 ordering; there is no extra queue or timing delay. Public initialization cases
 also verify that closure remains terminal after asynchronous success or failure.
-No timeout or assertion was weakened.
+Production timers and overall test deadlines are unchanged; assertions are retained
+or strengthened.
 
-The final follow-up passes `npm run check` on CI's Node 22.23.3: typecheck, lint,
+The initial source follow-up passes `npm run check` on CI's Node 22.23.3: typecheck, lint,
 formatting and 1,034 tests, with 36 skipped. All 64 cases in five affected files
 also pass under one CPU and four workers, including real owner shutdown. Three
 independent review lenses are resolved. The
@@ -266,11 +272,16 @@ passed/41 skipped. CI also passes typecheck, lint and formatting. Platform and
 environment skips account for the different totals; no additional native GUI
 qualification was needed for this process/RPC follow-up.
 
-The final documentation-only push later exposes the Local waiter cancellation
-test's unchanged 30-second deadline on Windows; Ubuntu passes. The follow-up is
-reopened. Failure-only parent and child phase records capture prerequisite,
-attachment and cleanup states before changing any timing or product behavior.
-The exact phase of that final CI failure is not yet known.
+The documentation-only push later exposes the Local waiter cancellation test's
+unchanged 30-second deadline on Windows; Ubuntu passes. Reopened investigation
+reproduces an artificial preloaded-marker timeout under cold transforms and a
+late-file diagnostic write during cleanup. The corrected fixture passes all 62
+cases in five files under that same one-CPU/four-worker cold-transform load
+(88.53s). Child diagnostics use the existing log stream and preserve primary
+failure evidence. The exact phase of the original hosted timeout remains unknown;
+failure diagnostics stay in place. The final fixture passes the full Node
+22.23.3 check (1,034 passed, 36 skipped; test phase 45.82s) and all three review
+lenses. Hosted qualification remains pending in the linked plan.
 
 The auto-approver scenario saves a reviewer model/preset in the actual GUI,
 verifies that model performs review before a real shell tool executes, changes

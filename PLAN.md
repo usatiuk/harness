@@ -60,9 +60,10 @@ packages.
 
 The [Windows CI reliability follow-up](docs/plans/cross-cutting/2026-10-07-windows-ci-reliability.md)
 corrects stale discovery publication, RPC completion at shutdown/EOF and test
-prerequisites. Local and source CI qualification pass, but the final documentation
-push exposes a remaining Windows cancellation deadline failure; diagnosis and
-final qualification remain open.
+prerequisites. A later Windows cancellation deadline failure exposed additional
+fixture qualification gaps. The corrected gate, observer cleanup and attachment
+pass cold-start load and full local checks; final hosted qualification remains open. The
+original hosted timeout phase remains unknown and failure diagnostics are retained.
 
 The [floating composer and scroll follow-up](docs/plans/interface/2026-10-06-floating-composer-scroll.md)
 is complete. It keeps the accepted design while
