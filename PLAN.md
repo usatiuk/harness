@@ -58,6 +58,11 @@ packages.
 
 ## Recent delivery
 
+The [Windows CI reliability follow-up](docs/plans/cross-cutting/2026-10-07-windows-ci-reliability.md)
+corrects stale discovery publication, RPC completion at shutdown/EOF and test
+prerequisites seen after direct delivery. The full Node 22 check and constrained
+process qualification pass; direct shipping and pushed-revision CI remain open.
+
 The [floating composer and scroll follow-up](docs/plans/interface/2026-10-06-floating-composer-scroll.md)
 is complete. It keeps the accepted design while
 giving conversations a full-height scrollbar, aligned status/statistics and one

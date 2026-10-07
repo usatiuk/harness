@@ -1,13 +1,138 @@
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import type { Message } from "vscode-jsonrpc";
-import { MAX_RPC_FRAME_BYTES } from "@harness/protocol";
-import { NdjsonMessageReader, NdjsonMessageWriter } from "./node.ts";
+import { Trace, TraceFormat, type Message } from "vscode-jsonrpc";
+import { MAX_RPC_FRAME_BYTES, HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
+import { RpcPeer } from "./peer.ts";
+import {
+  createNdjsonMessageConnection,
+  createNdjsonTransport,
+  NdjsonMessageReader,
+  NdjsonMessageWriter,
+} from "./node.ts";
 
 const notification = (method: string, params?: unknown): Message =>
   ({ jsonrpc: "2.0", method, ...(params === undefined ? {} : { params }) }) as Message;
 
 describe("NDJSON transport", () => {
+  it.each([
+    ["a final response", true],
+    ["an unanswered request", false],
+  ])("settles %s and preceding frames before EOF closes the peer", async (_name, responds) => {
+    const input = new PassThrough(),
+      output = new PassThrough();
+    const connection = createNdjsonMessageConnection(input, output);
+    const peer = new RpcPeer({ role: "client", connection });
+    let closed!: () => void;
+    const closure = new Promise<void>((resolve) => {
+      closed = resolve;
+    });
+    connection.onClose(closed);
+    const notifications: string[] = [];
+    connection.onNotification("preceding", () => notifications.push("preceding"));
+    peer.listen();
+    let sent!: (id: number) => void;
+    const requestSent = new Promise<number>((resolve) => {
+      sent = resolve;
+    });
+    output.once("data", (chunk: Buffer) =>
+      sent((JSON.parse(chunk.toString("utf8")) as { id: number }).id),
+    );
+    const initializing = peer.initialize({
+      protocolVersion: HARNESS_PROTOCOL_VERSION,
+      client: { name: "EOF test", version: "1" },
+      plugins: [],
+    });
+    const id = await requestSent;
+    const result = {
+      protocolVersion: HARNESS_PROTOCOL_VERSION,
+      server: { name: "server", version: "1" },
+      plugins: [],
+    };
+    input.end(
+      `${JSON.stringify(notification("preceding"))}\n${responds ? `${JSON.stringify({ jsonrpc: "2.0", id, result })}\n` : ""}`,
+    );
+    output.destroy();
+    if (responds) await expect(initializing).resolves.toEqual(result);
+    else await expect(initializing).rejects.toThrow("connection got disposed");
+    expect(notifications).toEqual(["preceding"]);
+    await closure;
+    expect(peer.ready).toBe(false);
+    output.destroy();
+  });
+  it("drains an accepted RPC response after peer closure before destroying output", async () => {
+    const input = new PassThrough();
+    const clientInput = new PassThrough();
+    let started!: () => void;
+    const writing = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let release!: () => void;
+    let first = true;
+    const output = new Writable({
+      write: (chunk: Buffer, _encoding, done) => {
+        const deliver = () => {
+          clientInput.write(chunk);
+          done();
+        };
+        if (first) {
+          first = false;
+          release = deliver;
+          started();
+        } else deliver();
+      },
+    });
+    const transport = createNdjsonTransport(input, output);
+    const connection = transport.connection;
+    const client = createNdjsonMessageConnection(clientInput, input);
+    let queued!: () => void;
+    const responseQueued = new Promise<void>((resolve) => {
+      queued = resolve;
+    });
+    await connection.trace(
+      Trace.Messages,
+      {
+        log: (event: unknown) => {
+          if (
+            typeof event === "object" &&
+            event !== null &&
+            "type" in event &&
+            event.type === "send-response"
+          )
+            queued();
+        },
+      },
+      { traceFormat: TraceFormat.JSON },
+    );
+    connection.onRequest("stop", () => ({ accepted: true }));
+    connection.listen();
+    client.listen();
+    const firstFrame = connection.sendNotification("preceding");
+    await writing;
+    let received = false;
+    const response = client.sendRequest("stop", {}).then((result) => {
+      received = true;
+      return result;
+    });
+    await responseQueued;
+    connection.end();
+    connection.dispose();
+    const cancellation = new AbortController();
+    const abandoned = transport.drain(cancellation.signal);
+    cancellation.abort();
+    await expect(abandoned).rejects.toMatchObject({ name: "AbortError" });
+    const drained = transport.drain(new AbortController().signal);
+    expect(output.writableFinished).toBe(false);
+    expect(received).toBe(false);
+    release();
+    await drained;
+    await firstFrame;
+    expect(await response).toEqual({ accepted: true });
+    expect(output.writableFinished).toBe(true);
+    output.destroy();
+    input.destroy();
+    client.dispose();
+    clientInput.destroy();
+  });
   it("reads split frames and writes compact one-line JSON", async () => {
     const stream = new PassThrough();
     const reader = new NdjsonMessageReader(stream);

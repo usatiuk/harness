@@ -1,4 +1,14 @@
-import { chmod, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  cp,
+  mkdir,
+  open,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+  type FileHandle,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile, spawn } from "node:child_process";
@@ -37,8 +47,9 @@ it.each(["waiter", "bridge"])(
       await writeFile(
         fixture,
         `import {watch,existsSync,writeFileSync} from 'node:fs';
+await import(${JSON.stringify(pathToFileURL(resolve("packages/server/src/background.ts")).href)});
 const gate=${JSON.stringify(gate)};
-await new Promise(resolve=>{const watcher=watch(${JSON.stringify(home)},()=>{if(existsSync(gate)){watcher.close();resolve()}});writeFileSync(${JSON.stringify(marker)},String(process.pid));});
+await new Promise(resolve=>{const check=()=>{if(existsSync(gate)){watcher.close();resolve()}};const watcher=watch(${JSON.stringify(home)},check);writeFileSync(${JSON.stringify(marker)},String(process.pid));check();});
 await import(${JSON.stringify(pathToFileURL(entry).href)});`,
       );
       const abort = new AbortController();
@@ -344,8 +355,9 @@ it("rejects discovery copied from another directory", async () => {
   }
 }, 30000);
 
-it("recovers stale discovery after a crashed owner and canonicalizes equivalent home routes", async () => {
+it("recovers stale discovery with an active reader after a crash and canonicalizes home routes", async () => {
   const home = join(tmpdir(), `harness-background-crash-${randomUUID()}`);
+  let staleDiscovery: FileHandle | undefined;
   try {
     const first = await ensureLocalServer(home, launch);
     const client = new HarnessClient({
@@ -357,6 +369,7 @@ it("recovers stale discovery after a crashed owner and canonicalizes equivalent 
     process.kill(first.identity.pid, "SIGKILL");
     await closed;
     expect((await readDiscovery(home))?.instanceId).toBe(first.identity.instanceId);
+    staleDiscovery = await open(join(home, ".server", "discovery.json"), "r");
     const replacement = await ensureLocalServer(join(home, "."), launch).catch(
       async (error: unknown) => {
         throw new Error(await readFile(join(home, ".server", "startup.log"), "utf8"), {
@@ -366,6 +379,9 @@ it("recovers stale discovery after a crashed owner and canonicalizes equivalent 
     );
     expect(replacement.identity.serverId).toBe(first.identity.serverId);
     expect(replacement.identity.instanceId).not.toBe(first.identity.instanceId);
+    expect(JSON.parse(await staleDiscovery.readFile("utf8"))).toMatchObject({
+      instanceId: first.identity.instanceId,
+    });
     const alias = await ensureLocalServer(join(home, "..", home.split(/[\\/]/u).at(-1)!), launch);
     expect(alias.identity).toEqual(replacement.identity);
     alias.close();
@@ -377,6 +393,7 @@ it("recovers stale discovery after a crashed owner and canonicalizes equivalent 
     await stopServer(replacement.identity);
     expect(active.peer.ready).toBe(false);
   } finally {
+    await staleDiscovery?.close();
     await stopHome(home);
     await rm(home, { recursive: true, force: true });
   }

@@ -6,7 +6,7 @@ import { once } from "node:events";
 import { z } from "zod";
 import { defaultHome } from "@harness/config";
 import { HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
-import { createNdjsonMessageConnection } from "@harness/client/node";
+import { createNdjsonTransport, type NdjsonTransport } from "@harness/client/node";
 import {
   serverIdentitySchema,
   serverInfoRequest,
@@ -29,7 +29,7 @@ export async function runBackgroundServer(): Promise<void> {
   process.env["HARNESS_HOME"] = home;
   let composition: ServerComposition | undefined;
   const startup = new AbortController();
-  const sockets = new Set<Socket>();
+  const sockets = new Map<Socket, NdjsonTransport | null>();
   let stopping = false;
   let listenerFailure: Error | undefined;
   let stop!: () => void;
@@ -83,7 +83,7 @@ export async function runBackgroundServer(): Promise<void> {
         socket.destroy();
         return;
       }
-      sockets.add(socket);
+      sockets.set(socket, null);
       socket.once("close", () => sockets.delete(socket));
       // Authentication failures are classified external failures, before any RPC admission.
       void authenticateSocket(socket).then(
@@ -95,7 +95,9 @@ export async function runBackgroundServer(): Promise<void> {
           }
           try {
             socket.write(identityFrame);
-            const session = owner.connect(createNdjsonMessageConnection(socket, socket));
+            const transport = createNdjsonTransport(socket, socket);
+            const session = owner.connect(transport.connection);
+            sockets.set(socket, transport);
             session.onRequest(serverInfoRequest, () => identity);
             session.onRequest(serverStopRequest, () => {
               // Shutdown cannot await the request that admitted it. Return acceptance first.
@@ -128,6 +130,10 @@ export async function runBackgroundServer(): Promise<void> {
     if (address === null || typeof address === "string")
       throw new Error("Background server did not bind TCP");
     published = join(directory, "discovery.json");
+    // SQLite ownership makes any previous record stale. Retire its name before
+    // publication: Windows replacement rename can be denied by an ordinary
+    // reader of that old file, even though unlink preserves the reader's handle.
+    await rm(published, { force: true });
     await replaceJson(published, { ...identity, port: address.port });
     await stopped;
     if (listenerFailure !== undefined) throw listenerFailure;
@@ -149,8 +155,32 @@ export async function runBackgroundServer(): Promise<void> {
     } finally {
       try {
         await composition?.close();
+        // Peer closure schedules each writer's end behind accepted RPC responses.
+        // Destroying the socket first can discard the Stop acknowledgement.
+        const drainage = AbortSignal.timeout(20_000);
+        await Promise.all(
+          [...sockets].map(async ([socket, connection]) => {
+            if (connection === null) {
+              socket.destroy();
+              return;
+            }
+            try {
+              await connection.drain(drainage);
+            } catch (error) {
+              const code = (error as NodeJS.ErrnoException).code;
+              // A peer may leave while its output is draining; its RPC transport
+              // already observes closure. Other failures still fail shutdown.
+              if (
+                code !== "ERR_STREAM_PREMATURE_CLOSE" &&
+                code !== "ECONNRESET" &&
+                code !== "EPIPE"
+              )
+                throw error;
+            }
+          }),
+        );
       } finally {
-        for (const socket of sockets) socket.destroy();
+        for (const socket of sockets.keys()) socket.destroy();
         await closed;
       }
     }

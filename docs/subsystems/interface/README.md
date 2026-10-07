@@ -168,11 +168,23 @@ authentication secret. A bounded preamble authenticates before RPC and returns
 the owner identity; connections reject a different canonical home or instance.
 `server.info` reports that identity and `server.stop` acknowledges explicit shared
 shutdown. Control uses a separate connection and a bounded drainage wait.
+On normal teardown after RPC peer closure, the owner awaits admitted connections' writable
+completion before destroying sockets, preserving queued Stop acknowledgements.
+Pending authentication sockets close immediately; stalled output drainage is
+bounded, while peer departure remains an ordinary transport closure.
+NDJSON transport closure follows already accepted frames through the RPC
+library's dispatch queue, so a final response received with EOF is delivered
+before pending unanswered requests are rejected. Its internal closure marker is
+recognized by object identity and is never a wire method. Peer closure remains
+terminal even when an initialization handler or response finishes afterward.
 Only classified SQLite startup contention permits bounded staggered starts;
 broken packages and inaccessible or unsafe existing homes fail visibly. New
 Windows homes use an ACL applied atomically at creation; existing homes are
 validated without rewriting their ACLs. POSIX homes must be user-owned and not
-writable by other users. Discovery is removed before releasing SQLite ownership.
+writable by other users. After acquiring SQLite ownership, the new owner removes
+any stale discovery name before publishing its atomic replacement. This permits
+Windows recovery while ordinary readers still hold the old file open; clients
+never remove discovery. Discovery is removed before releasing SQLite ownership.
 
 Switching visible roots does not stop either conversation tree. A same-root reload is blocked
 by a running turn and confirmed when background activities exist; acceptance

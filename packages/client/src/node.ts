@@ -1,10 +1,17 @@
 import type { Readable, Writable } from "node:stream";
+import { finished } from "node:stream/promises";
 import {
   AbstractMessageReader,
   AbstractMessageWriter,
   createMessageConnection,
 } from "vscode-jsonrpc";
-import type { DataCallback, Disposable, Message, MessageConnection } from "vscode-jsonrpc";
+import type {
+  DataCallback,
+  Disposable,
+  Message,
+  MessageConnection,
+  NotificationMessage,
+} from "vscode-jsonrpc";
 import { MAX_RPC_FRAME_BYTES, MAX_RPC_WRITER_QUEUE_BYTES } from "@harness/protocol";
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
@@ -150,8 +157,74 @@ export class NdjsonMessageWriter extends AbstractMessageWriter {
   }
 }
 
+/** Keep EOF behind accepted frames in vscode-jsonrpc's own asynchronous dispatch queue. */
+class RpcMessageReader extends NdjsonMessageReader {
+  readonly closeMessage: NotificationMessage = {
+    jsonrpc: "2.0",
+    method: "$/harness/transportClosed",
+  };
+  #callback: DataCallback | undefined;
+  #closing = false;
+
+  override listen(callback: DataCallback): Disposable {
+    this.#callback = callback;
+    return super.listen(callback);
+  }
+
+  protected override fireClose(): void {
+    this.queueClose();
+  }
+
+  queueClose(): void {
+    if (this.#closing) return;
+    this.#closing = true;
+    if (this.#callback === undefined) super.fireClose();
+    else this.#callback(this.closeMessage);
+  }
+
+  completeClose(): void {
+    super.fireClose();
+  }
+}
+
+class RpcMessageWriter extends NdjsonMessageWriter {
+  constructor(
+    output: Writable,
+    private readonly notifyClose: () => void,
+  ) {
+    super(output);
+  }
+
+  protected override fireClose(): void {
+    this.notifyClose();
+  }
+}
+
+export interface NdjsonTransport {
+  readonly connection: MessageConnection;
+  /** After end(), await accepted output and writable completion before destroying the transport. */
+  drain(signal: AbortSignal): Promise<void>;
+}
+
+export const createNdjsonTransport = (input: Readable, output: Writable): NdjsonTransport => {
+  const reader = new RpcMessageReader(input);
+  const writer = new RpcMessageWriter(output, () => reader.queueClose());
+  const connection = createMessageConnection(reader, writer, undefined, {
+    messageStrategy: {
+      handleMessage: (message, next) => {
+        // Identity makes this an internal queue marker, never a wire method.
+        if (message === reader.closeMessage) reader.completeClose();
+        else next(message);
+      },
+    },
+  });
+  return {
+    connection,
+    drain: (signal: AbortSignal) => finished(output, { readable: false, cleanup: true, signal }),
+  };
+};
+
 export const createNdjsonMessageConnection = (
   input: Readable,
   output: Writable,
-): MessageConnection =>
-  createMessageConnection(new NdjsonMessageReader(input), new NdjsonMessageWriter(output));
+): MessageConnection => createNdjsonTransport(input, output).connection;

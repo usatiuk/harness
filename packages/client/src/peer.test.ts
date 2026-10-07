@@ -9,7 +9,7 @@ import {
   initializeRequest,
 } from "@harness/protocol";
 import type { InitializeParams, InitializeResult } from "@harness/protocol";
-import { ErrorCodes, ResponseError } from "vscode-jsonrpc";
+import { ErrorCodes, ResponseError, Trace, TraceFormat } from "vscode-jsonrpc";
 import { createInProcessMessageConnectionPair } from "./in-process.ts";
 import { ProtocolError, RpcPeer } from "./peer.ts";
 
@@ -60,6 +60,81 @@ const initialize = async (client: RpcPeer): Promise<void> => {
 };
 
 describe("RpcPeer", () => {
+  it.each(["success", "failure"])(
+    "preserves server closure after asynchronous initialization %s",
+    async (outcome) => {
+      const connections = createInProcessMessageConnectionPair();
+      const client = new RpcPeer({ role: "client", connection: connections.left });
+      const server = new RpcPeer({ role: "server", connection: connections.right });
+      let started!: () => void, release!: () => void, completed!: () => void;
+      const starting = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const completion = new Promise<void>((resolve) => {
+        completed = resolve;
+      });
+      await connections.right.trace(
+        Trace.Messages,
+        {
+          log: (event: unknown) => {
+            if (
+              typeof event === "object" &&
+              event !== null &&
+              "type" in event &&
+              event.type === "send-response"
+            )
+              completed();
+          },
+        },
+        { traceFormat: TraceFormat.JSON },
+      );
+      server.onInitialize(async () => {
+        started();
+        await gate;
+        if (outcome === "failure") throw new Error("Initialization failed");
+        return initializeResult;
+      });
+      client.listen();
+      server.listen();
+      const initializing = client.initialize(initializeParams);
+      void initializing.catch(() => undefined);
+      await starting;
+      server.close();
+      await expect(initializing).rejects.toThrow("connection got disposed");
+      release();
+      await completion;
+      expect(server.ready).toBe(false);
+      expect(client.ready).toBe(false);
+      client.close();
+    },
+  );
+
+  it("preserves client closure after receiving its initialization response", async () => {
+    const { client, server, connections } = createPeers();
+    await connections.left.trace(
+      Trace.Messages,
+      {
+        log: (event: unknown) => {
+          if (
+            typeof event === "object" &&
+            event !== null &&
+            "type" in event &&
+            event.type === "receive-response"
+          )
+            queueMicrotask(() => client.close());
+        },
+      },
+      { traceFormat: TraceFormat.JSON },
+    );
+    await expect(client.initialize(initializeParams)).resolves.toEqual(initializeResult);
+    expect(client.ready).toBe(false);
+    expect(server.ready).toBe(false);
+    server.close();
+  });
+
   it("requires one successful initialization before ordinary traffic", async () => {
     const { client, server, connections } = createPeers();
     server.onRequest(clientEcho, (params) => params);

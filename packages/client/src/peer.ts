@@ -96,6 +96,8 @@ export class RpcPeer {
 
         this.state = "initializing";
         const result = await this.invokeHandler(initializeRequest, params.data, token, handler);
+        // Initialization may finish after transport closure; closed is terminal.
+        if (this.isClosed()) return result;
         if (result instanceof ResponseError) {
           this.state = "listening";
           return result;
@@ -122,7 +124,7 @@ export class RpcPeer {
     this.state = "initializing";
     try {
       const result = await this.send(initializeRequest, params, options);
-      this.state = "ready";
+      if (!this.isClosed()) this.state = "ready";
       return result;
     } catch (error) {
       if (!this.isClosed()) this.state = "listening";
