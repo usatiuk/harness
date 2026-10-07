@@ -166,6 +166,84 @@ async function stopHome(home: string): Promise<void> {
   }
 }
 
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+it("retires its pending candidate before adopting another Local owner", async () => {
+  const home = await canonicalHome(join(tmpdir(), `harness-superseded-${randomUUID()}`));
+  const { phase, failure } = backgroundPhases(home);
+  const marker = join(home, "candidate-pid");
+  const gate = join(home, "release");
+  const fixture = join(home, "gated.mjs");
+  let pid: number | undefined;
+  let winner: Awaited<ReturnType<typeof ensureLocalServer>> | undefined;
+  let selected: Awaited<ReturnType<typeof ensureLocalServer>> | undefined;
+  let pending: ReturnType<typeof ensureLocalServer> | undefined;
+  const abort = new AbortController();
+  try {
+    await writeFile(
+      fixture,
+      `import {watch,existsSync,writeFileSync} from 'node:fs';
+await new Promise(resolve=>{const check=()=>{if(existsSync(${JSON.stringify(gate)})){watcher.close();resolve()}};const watcher=watch(${JSON.stringify(home)},check);writeFileSync(${JSON.stringify(marker)},String(process.pid));check();});
+await import(${JSON.stringify(pathToFileURL(entry).href)});`,
+    );
+    phase("launch-gated-candidate");
+    pending = ensureLocalServer(
+      home,
+      {
+        executable: process.execPath,
+        args: ["--conditions=development", "--import=tsx", fixture, "--background"],
+      },
+      abort.signal,
+    );
+    void pending.catch(() => undefined);
+    await vi.waitFor(async () => expect(await readFile(marker, "utf8")).toMatch(/^\d+$/u), {
+      timeout: 10_000,
+    });
+    pid = Number(await readFile(marker, "utf8"));
+    phase("launch-winner");
+    winner = await ensureLocalServer(home, launch);
+    expect(winner.identity.pid).not.toBe(pid);
+    phase("adopt-winner");
+    selected = await pending;
+    expect(selected.identity).toEqual(winner.identity);
+    expect(processAlive(pid)).toBe(false);
+    selected.close();
+    winner.close();
+    phase("stop-selected-owner");
+    await stopHome(home);
+    expect(await readDiscovery(home)).toBeNull();
+  } catch (error) {
+    await failure(error);
+    throw error;
+  } finally {
+    phase("cleanup-candidate");
+    abort.abort();
+    // Release a failing old implementation while the winner still holds SQLite,
+    // so the test's cleanup cannot accidentally promote the unselected child.
+    if (winner === undefined && pid !== undefined && processAlive(pid))
+      process.kill(pid, "SIGKILL");
+    await writeFile(gate, "release");
+    const candidatePid = pid;
+    if (candidatePid !== undefined)
+      await vi.waitFor(() => expect(processAlive(candidatePid)).toBe(false), { timeout: 20_000 });
+    if (pending) (await pending.catch(() => undefined))?.close();
+    selected?.close();
+    winner?.close();
+    phase("cleanup-stop");
+    await stopHome(home);
+    phase("cleanup-remove");
+    await rm(home, { recursive: true, force: true });
+  }
+}, 30_000);
+
 function backgroundPhases(home: string) {
   const started = performance.now();
   const phases: { phase: string; ms: number }[] = [];

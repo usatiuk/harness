@@ -317,6 +317,18 @@ cleanup. The final full Node 22.23.3 check passes static checks and 1,036 tests
 with 36 skipped (45.08s), with all three review lenses resolved. Hosted
 qualification is tracked in the linked plan.
 
+A subsequent real-process regression gates one candidate before import, starts
+another owner and verifies that successful adoption has already retired the
+unselected child. This catches late discovery recreation after Stop that a
+passing startup/convergence case alone missed. Complementary cancellation cases
+still establish independent completion of an abandoned waiter's own launch.
+Candidate retirement targets the retained ChildProcess and waits for departure
+within the existing startup allowance; ordinary pre-selection abort preserves it.
+The final full Node 22.23.3 check passes typecheck, lint, formatting and 1,037
+tests with 36 skipped (57.71s). No task-owned CI Node processes remain after that
+check. All three final review lenses are resolved. Hosted qualification of this
+last lifetime correction is pending at handoff.
+
 The auto-approver scenario saves a reviewer model/preset in the actual GUI,
 verifies that model performs review before a real shell tool executes, changes
 the global reviewer and observes the next review in the same loaded conversation

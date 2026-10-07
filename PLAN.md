@@ -65,7 +65,9 @@ pass cold-start load, full local checks and final source CI on Windows and Ubunt
 A final documentation push exposes another Windows compound owner-case deadline;
 its aggregate cold-start cost is reproduced and its independent scenarios are
 separated. A real TCP self-connection regression corrects admission to an absent
-listener before authentication. Final qualification remains open. The original hosted
+listener before authentication. Their Windows and Ubuntu CI pass. A late-candidate
+startup lifetime correction also passes full local qualification and process
+cleanup; its final hosted run is pending at handoff. The original hosted
 cancellation timeout phase remains unknown; failure diagnostics are retained.
 
 The [floating composer and scroll follow-up](docs/plans/interface/2026-10-06-floating-composer-scroll.md)

@@ -1,6 +1,6 @@
 # Windows CI reliability
 
-Status: Active
+Status: Delivered; final hosted qualification pending
 
 ## Goal and scope
 
@@ -121,7 +121,7 @@ failure and client response/close interleavings are covered through public peers
       uncaptured original hosted timeout. Check: exact cancellation and original
       owner attachment pass under cold startup load and final Windows CI, within
       the unchanged overall deadline; retained diagnostics expose future failures.
-- [ ] **Final compound-owner qualification.** Capture the new convergence case's
+- [x] **Final compound-owner qualification.** Capture the new convergence case's
       startup, bridge, conversation, restart and cleanup phases before changing
       its boundaries. Check: correct a reproduced cause with original assertions
       and deadlines, then pass full local checks and final hosted qualification.
@@ -130,6 +130,11 @@ failure and client response/close interleavings are covered through public peers
       endpoints as unavailable before authentication. Check: the original
       regression fails before the guard and passes afterward, with no token bytes
       written and no recovery of ordinary malformed identities.
+- [x] **Superseded launch lifetime.** Preserve a detached launch when its waiter
+      cancels before owner selection; retire and join that call's exact candidate
+      when it instead adopts another authenticated owner. Check: a gated losing
+      child has exited at successful return, complementary cancellation cases
+      still publish their captured PID, full checks pass and no task owners remain.
 - [ ] **Direct delivery.** Commit coherent validated increments, merge/push
       directly to `main`, and check Windows/Ubuntu CI on the resulting revision.
       Check: actual results and remaining limits recorded, checkout clean.
@@ -319,5 +324,36 @@ regression also positively verifies matching connected endpoints on Windows/Linu
 other native kernels remain unqualified for that reproduction. All three final
 review lenses are resolved. The final CI-Node 22.23.3 `npm run check` passes
 typecheck, lint, formatting and 1,036 tests with 36 skipped (test phase 45.08s).
-The local Node 24 SQLite binary is restored byte-for-byte and its smoke test
-passes afterward. Hosted qualification of this correction remains open.
+The attempted local runtime restoration reveals surviving task-owned processes;
+restoration remains pending while the following lifetime correction is validated.
+The correction is pushed as `04080b3`; its
+[Windows/Ubuntu run](https://github.com/usatiuk/harness/actions/runs/37674182674)
+passes both platforms.
+
+Runtime cleanup finds new owners for two successful convergence fixtures after
+their final Stop and directory removal. Their exact temporary homes/PIDs identify
+task-owned late starters, not the user's server. `ensureLocalServer` can return
+another authenticated process while its own candidate is still importing; once
+the chosen owner stops, that candidate can acquire SQLite and recreate discovery.
+A gated real candidate reproduces the defect deterministically: the call returns
+the winner's complete identity while its own marked PID remains alive. The old
+regression fails at that assertion in 4.69s; its cleanup releases the gate while
+the winner still holds SQLite, avoiding another orphan.
+
+Retain only the current directly launched ChildProcess and its close completion.
+After authenticating a different PID, retire that exact superseded candidate and
+join its departure within the existing startup window before returning. Close
+the selected connection on failure or cancellation. An aborted waiter before
+selection still leaves its independent launch alive. The direct-owner PID
+assumption is explicit in `ServerLaunch`; no discovery deletion, extra queue,
+polling, new retry or production deadline increase is introduced. The gated
+regression passes in 3.64s, and both existing waiter/bridge cancellation cases
+pass (3.24s/3.64s). The final Node 22.23.3 `npm run check` passes typecheck, lint,
+formatting and 1,037 tests with 36 skipped (57.71s). All three narrow review lenses
+report no remaining findings. A process audit confirms no task-owned CI Node
+processes remain; the original Node 24 SQLite binary is restored byte-for-byte
+and its in-memory smoke test passes. The final correction is delivered directly
+to `main`; its automatically triggered hosted run remains pending at handoff.
+After the user's request to wrap up, no further documentation-only CI cycle is
+started. The completed source CI above qualifies the original timeout and
+self-connection corrections; it is not evidence for the new launch lifetime.

@@ -39,6 +39,11 @@ self-connect to a stale listener port, echoing the client's own preamble. This
 exact absent-peer condition uses the existing connection-unavailable path;
 ordinary authentication and identity failures remain fatal to that connection.
 
+Launchers execute the background owner directly. If startup adopts another
+authenticated owner, it retires and joins its own superseded candidate before
+returning, preventing that child from becoming a late replacement after Stop.
+Cancellation before owner selection leaves the detached candidate independent.
+
 The controlling machine's `client.json` registry is separate from server settings.
 It initially contains only Local and stores structured WSL/SSH routes, selected
 host and desktop keep-running preference. Browser-safe contracts live in

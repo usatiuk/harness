@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
@@ -18,6 +18,7 @@ import {
   type ServerDiscovery,
 } from "./local.ts";
 
+/** Execute the owner directly: its process PID is the published identity PID. */
 export interface ServerLaunch {
   executable: string;
   args: string[];
@@ -80,7 +81,8 @@ export async function ensureLocalServer(
     }
   }
   let exited: number | null | undefined;
-  let spawnError: Error | undefined;
+  let childError: Error | undefined;
+  let candidate: { child: ChildProcess; closed: Promise<void> } | undefined;
   let attempts = 0;
   const start = async () => {
     signal?.throwIfAborted();
@@ -95,8 +97,12 @@ export async function ensureLocalServer(
         detached: true,
         windowsHide: true,
       });
+      candidate = {
+        child,
+        closed: new Promise<void>((resolve) => child.once("close", () => resolve())),
+      };
       child.once("error", (error) => {
-        spawnError = error;
+        childError = error;
       });
       child.once("exit", (code) => {
         exited = code;
@@ -110,7 +116,7 @@ export async function ensureLocalServer(
   await start();
   while (Date.now() < deadline) {
     signal?.throwIfAborted();
-    if (spawnError !== undefined) throw spawnError;
+    if (childError !== undefined) throw childError;
     if (exited !== undefined && exited !== 76)
       throw new Error(
         `Server startup failed (exit ${String(exited)}); see ${join(directory, "startup.log")}`,
@@ -118,7 +124,47 @@ export async function ensureLocalServer(
     const discovery = await readDiscovery(home);
     if (discovery !== null) {
       try {
-        return await attachDiscovered(home, discovery, signal);
+        const host = await attachDiscovered(home, discovery, signal);
+        try {
+          signal?.throwIfAborted();
+          if (candidate !== undefined && candidate.child.pid !== host.identity.pid) {
+            // Successful owner selection supersedes our own pending launch. Join
+            // it before returning, so it cannot claim SQLite after that owner stops.
+            if (exited === undefined) candidate.child.kill("SIGKILL");
+            if (childError !== undefined)
+              throw new Error("Failed to retire superseded Local startup candidate", {
+                cause: childError,
+              });
+            const completed = new AbortController();
+            try {
+              await Promise.race([
+                candidate.closed,
+                delay(Math.max(0, deadline - Date.now()), undefined, {
+                  signal:
+                    signal === undefined
+                      ? completed.signal
+                      : AbortSignal.any([signal, completed.signal]),
+                  ref: false,
+                }).then(() => {
+                  throw new Error(
+                    "Superseded Local startup candidate did not exit within startup window",
+                  );
+                }),
+              ]);
+            } finally {
+              completed.abort();
+            }
+            if (childError !== undefined)
+              throw new Error("Failed to retire superseded Local startup candidate", {
+                cause: childError,
+              });
+          }
+          signal?.throwIfAborted();
+          return host;
+        } catch (error) {
+          host.close();
+          throw error;
+        }
       } catch (error) {
         if (!unavailable(error)) throw error;
       }
