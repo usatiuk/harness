@@ -166,3 +166,23 @@ Avoiding a private library fork or custom virtualizer preserves this work's scop
 
 Release installers, other native platforms, screen readers and live credentialed
 OAuth remain outside existing Windows qualification.
+
+## Direct delivery and CI observations (2026-10-07)
+
+Committed the validated implementation as
+[`f43afcd`](https://github.com/usatiuk/harness/commit/f43afcda229b29ad6f00b357288aca4d9c79be2a)
+and fast-forwarded/pushed `main` directly at the user's request, without a pull
+request. The checkout was clean after that delivery.
+
+The [push CI run](https://github.com/usatiuk/harness/actions/runs/37541418215)
+passes Ubuntu. Its first Windows attempt fails three unchanged tests: evaluator
+resource bounds and code-mode background waiting reach their 5-second test
+timeouts, and stale-owner recovery encounters `EPERM` replacing `discovery.json`.
+The affected code-mode, service, server and connections packages are unchanged
+from `b529e87`. All 48 tests in those three files pass locally without changes
+(39.36s). The exact timeout and file-denial causes remain unknown; no product fix,
+assertion change, timeout increase or retry policy was claimed at that stage.
+The unchanged Windows rerun passes those three cases but fails different CLI
+OAuth navigation and server process ownership cases. The user authorized
+investigation and correction in the
+[Windows CI reliability follow-up](../cross-cutting/2026-10-07-windows-ci-reliability.md).

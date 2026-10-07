@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { errorResult, okResult, textOf, type CodeToolBridge } from "@harness/protocol";
-import { QuickJsEvaluator } from "./evaluator.ts";
+import { CODE_LIMITS, QuickJsEvaluator } from "./evaluator.ts";
 
 const bridge: CodeToolBridge = {
   call: async (name, args) =>
@@ -45,14 +45,21 @@ describe("QuickJS evaluator", () => {
       expect(textOf(result.forModel)).toMatch(/interrupt|computation/);
     }
   });
-  it("bounds memory, output, unresolved promises, and submissions", async () => {
-    for (const code of [
-      "const a = []; while (true) a.push(new Array(100000).fill(1));",
-      'return "x".repeat(100000);',
-      "await new Promise(() => {});",
+  it.each([
+    // A retained allocation at the limit exceeds the heap's remaining capacity.
+    // Filling giant arrays instead can hit computation limits before memory.
+    ["memory", `return new ArrayBuffer(${CODE_LIMITS.memoryBytes});`, "out of memory"],
+    ["output", 'return "x".repeat(100000);', "output limit"],
+    ["unresolved promises", "await new Promise(() => {});", "no host operation"],
+    [
+      "submissions",
       'await Promise.all(Array.from({length: 30}, () => tools.call("a", {})));',
-    ])
-      expect((await evaluate(code)).status).toBe("error");
+      "submission limit",
+    ],
+  ])("bounds %s", async (_boundary, code, message) => {
+    const result = await evaluate(code);
+    expect(result.status).toBe("error");
+    expect(textOf(result.forModel)).toContain(message);
   });
   it("cancels while awaiting a host promise", async () => {
     const controller = new AbortController();
@@ -86,18 +93,18 @@ describe("QuickJS evaluator", () => {
       expect(textOf(result.forModel)).toMatch(/interrupt|computation/);
     }
   });
-  it("bounds arguments, names, results, aggregate transfer, and total submissions", async () => {
-    for (const code of [
-      'await tools.call("a", "x".repeat(1100000));',
-      'await tools.call("x".repeat(1100000), {});',
-      'for (let i=0; i<129; i++) await tools.call("a", {});',
-      'for (let i=0; i<12; i++) await tools.call("a", "x".repeat(400000));',
-    ]) {
-      const result = await evaluate(`emit("before"); ${code}`);
-      expect(result.status).toBe("error");
-      expect(textOf(result.forModel)).toContain('"before"');
-      expect(textOf(result.forModel)).toMatch(/limit/);
-    }
+  it.each([
+    ["arguments", 'await tools.call("a", "x".repeat(1100000));'],
+    ["names", 'await tools.call("x".repeat(1100000), {});'],
+    ["total submissions", 'for (let i=0; i<129; i++) await tools.call("a", {});'],
+    ["aggregate transfer", 'for (let i=0; i<12; i++) await tools.call("a", "x".repeat(400000));'],
+  ])("bounds %s and preserves partial output", async (_boundary, code) => {
+    const result = await evaluate(`emit("before"); ${code}`);
+    expect(result.status).toBe("error");
+    expect(textOf(result.forModel)).toContain('"before"');
+    expect(textOf(result.forModel)).toMatch(/limit/);
+  });
+  it("bounds structured tool results", async () => {
     const result = await new QuickJsEvaluator().evaluate(
       'await tools.call("huge", {});',
       {

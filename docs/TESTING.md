@@ -31,7 +31,9 @@ drainage. Real-process tests in server/src/background.test.ts qualify simultaneo
 startup, unauthorized rejection, zero-client pending approval and completion,
 bridge-parent exit, crash/stale discovery, canonical-home reuse, copied-home
 isolation, unsafe existing homes, initialized-client stop and classified startup
-failure. A real bridge against an authenticated paused receiver verifies EOF
+failure. Stale-owner recovery retains an ordinary open discovery reader while
+the new SQLite owner retires the stale name and publishes a new instance; the
+old handle remains readable. A real bridge against an authenticated paused receiver verifies EOF
 detachment with outbound backpressure. Registry tests include concurrent edits
 by separate client processes.
 
@@ -226,6 +228,38 @@ Windows cases, with two WSL opt-ins skipped (4.2m). A separate final
 reviews found no remaining material issue. The follow-up plan records the
 reproduced initial-scroll race, unchanged assertions passing after correction,
 anchor quantization and synthetic zoom limits.
+
+The direct 2026-10-07 push passes Ubuntu CI. Its first Windows attempt hits two
+5-second timeouts in unchanged evaluator/background-activity cases and `EPERM`
+replacing discovery during stale-owner recovery. All 48 tests in the affected
+files pass locally without changes; that passing run alone establishes no cause.
+The [delivery plan](plans/interface/2026-10-06-floating-composer-scroll.md)
+records the unchanged Windows rerun, which passes those cases but fails different
+CLI OAuth navigation and server ownership cases. The
+[Windows CI follow-up](plans/cross-cutting/2026-10-07-windows-ci-reliability.md)
+tracks causal corrections. Named resource cases assert the actual rejected
+boundary; the former array-fill "memory" workload hit computation instead.
+Activity/evaluator integration controls only spawn and verifies running/waiting
+before output/exit; actual shell capture and tree termination remain qualified
+separately. Ownership contention, graceful settings restart and crash restart
+retain real cold servers in independent cases. CLI input drains passive effects
+before writing, with a regression for an asynchronously mounted provider menu.
+The delayed-owner marker now follows module loading and gate installation, and
+an early teardown release is observed after subscribing. Real-process load also
+exposed a dropped Stop acknowledgement; public NDJSON RPC coverage holds an
+initial write, queues Stop behind it, closes the peer and verifies delivery before
+destruction. Abort-controlled writable drainage qualifies its bounded lifetime.
+Separate public peer cases reproduce final-response-plus-EOF loss and qualify
+both accepted-frame delivery and unanswered-request rejection when read EOF and
+physical output closure coincide. The existing RPC dispatch queue owns closure
+ordering; there is no extra queue or timing delay. Public initialization cases
+also verify that closure remains terminal after asynchronous success or failure.
+No timeout or assertion was weakened.
+
+The final follow-up passes `npm run check` on CI's Node 22.23.3: typecheck, lint,
+formatting and 1,034 tests, with 36 skipped. All 64 cases in five affected files
+also pass under one CPU and four workers, including real owner shutdown. Three
+independent review lenses are resolved; pushed-revision CI remains to qualify.
 
 The auto-approver scenario saves a reviewer model/preset in the actual GUI,
 verifies that model performs review before a real shell tool executes, changes

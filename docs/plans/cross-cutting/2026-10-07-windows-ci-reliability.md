@@ -160,3 +160,9 @@ Raw failed logs are preserved locally; the linked run retains both attempts.
 No desktop presentation changed in this follow-up; actual process/RPC tests
 qualify the affected boundary without opening additional native app windows.
 Commit, direct push and Windows/Ubuntu CI on the delivered revision remain open.
+
+The first validated increment is
+[`19a3552`](https://github.com/usatiuk/harness/commit/19a3552): stale publication,
+RPC closure/drainage and terminal initialization, with their regressions. The
+remaining fixture corrections are the next coherent increment; main delivery
+and remote CI still block completion.

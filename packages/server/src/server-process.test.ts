@@ -59,16 +59,44 @@ function launch(home: string) {
   };
 }
 
+async function withServers(
+  run: (home: string, start: () => ReturnType<typeof launch>) => Promise<void>,
+): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "harness-server-ownership-"));
+  const launched: ReturnType<typeof launch>[] = [];
+  const start = () => {
+    const server = launch(home);
+    launched.push(server);
+    return server;
+  };
+  try {
+    await run(home, start);
+  } finally {
+    for (const server of launched) {
+      server.client.closeConnection();
+      if (server.child.exitCode === null && server.child.signalCode === null) server.child.kill();
+      await server.exited;
+    }
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
 describe("production server process ownership", () => {
-  it("excludes another server, releases after quit and crash, and serves safe settings", async () => {
-    const home = await mkdtemp(join(tmpdir(), "harness-server-ownership-"));
-    const launched: ReturnType<typeof launch>[] = [];
-    const start = () => {
-      const server = launch(home);
-      launched.push(server);
-      return server;
-    };
-    try {
+  it("excludes another server while the first owns the home", async () => {
+    await withServers(async (_home, start) => {
+      const first = start();
+      await first.initialize();
+      const second = start();
+      await expect(second.client.start()).rejects.toThrow();
+      expect(await second.exited).not.toBe(0);
+      expect(second.diagnostics()).toContain("already in use by another server");
+      first.client.closeConnection();
+      expect(await first.exited).toBe(0);
+    });
+  }, 20_000);
+
+  it("serves safe settings and preserves updates after graceful quit", async () => {
+    await withServers(async (home, start) => {
       await writeFile(
         join(home, "settings.json"),
         JSON.stringify({
@@ -91,10 +119,6 @@ describe("production server process ownership", () => {
         enabled: false,
         model: { provider: "demo", model: "demo-1", preset: "low" },
       });
-      const second = start();
-      await expect(second.client.start()).rejects.toThrow();
-      expect(await second.exited).not.toBe(0);
-      expect(second.diagnostics()).toContain("already in use by another server");
       await first.client.peer.request(appSettingsUpdateRequest, {
         model: { provider: "demo", model: "demo-1", preset: "high" },
         approval: { inWorkspace: "ask", outOfWorkspace: "deny" },
@@ -121,8 +145,17 @@ describe("production server process ownership", () => {
       expect(cleared.autoApproval).toEqual({ enabled: false, model: null });
       expect(cleared.model).toEqual(updated.model);
       expect(cleared.approval).toEqual(updated.approval);
-      reopened.child.kill("SIGKILL");
-      await reopened.exited;
+      reopened.client.closeConnection();
+      expect(await reopened.exited).toBe(0);
+    });
+  }, 20_000);
+
+  it("releases the home after a crash", async () => {
+    await withServers(async (_home, start) => {
+      const first = start();
+      await first.initialize();
+      first.child.kill("SIGKILL");
+      await first.exited;
       const afterCrash = start();
       await afterCrash.initialize();
       expect(
@@ -130,13 +163,6 @@ describe("production server process ownership", () => {
       ).toBe(true);
       afterCrash.client.closeConnection();
       expect(await afterCrash.exited).toBe(0);
-    } finally {
-      for (const server of launched) {
-        server.client.closeConnection();
-        if (server.child.exitCode === null && server.child.signalCode === null) server.child.kill();
-        await server.exited;
-      }
-      await rm(home, { recursive: true, force: true });
-    }
+    });
   }, 20_000);
 });

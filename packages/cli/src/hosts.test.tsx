@@ -6,7 +6,9 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
-import { act } from "react";
+import { act, useEffect, useState } from "react";
+import { Select } from "@inkjs/ui";
+import { Text } from "ink";
 import { canonicalHome, readDiscovery } from "@harness/connections/local";
 import { stopServer } from "@harness/connections/node";
 import { serverInfoRequest } from "@harness/connections";
@@ -15,10 +17,58 @@ import { HostApp } from "./host-app.tsx";
 
 async function writeInput(ui: ReturnType<typeof render>, text: string): Promise<void> {
   // Flush React's effects before sending the next key to a newly mounted input.
+  await act(async () => {});
   await act(async () => {
     ui.stdin.write(text);
   });
 }
+
+it("retains the first navigation key after an asynchronous provider menu appears", async () => {
+  let release!: () => void;
+  const loaded = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const selected: string[] = [];
+  function Menu() {
+    const [ready, setReady] = useState(false);
+    useEffect(() => {
+      void loaded.then(() => setReady(true));
+    }, []);
+    return ready ? (
+      <Select
+        options={["OpenAI", "Anthropic", "OpenCode", "Codex"].map((label) => ({
+          label,
+          value: label,
+        }))}
+        onChange={(value) => selected.push(value)}
+      />
+    ) : (
+      <Text>Loading providers</Text>
+    );
+  }
+  const ui = render(<Menu />);
+  let visible!: () => void;
+  const frame = new Promise<void>((resolve) => {
+    visible = resolve;
+  });
+  const write = ui.stdout.write;
+  ui.stdout.write = (text) => {
+    write(text);
+    if (text.includes("Codex")) visible();
+  };
+  try {
+    release();
+    await frame;
+    for (const label of ["Anthropic", "OpenCode", "Codex"]) {
+      await writeInput(ui, "\u001b[B");
+      expect(ui.lastFrame()).toMatch(new RegExp(`[>❯].*${label}`));
+    }
+    await writeInput(ui, "\r");
+    expect(selected).toEqual(["Codex"]);
+  } finally {
+    ui.unmount();
+  }
+});
 
 const launch = {
   executable: process.execPath,
@@ -172,7 +222,10 @@ it("renders both Local OAuth methods, displays a device code and cancels when le
     await vi.waitFor(() => expect(ui.lastFrame()).toContain("Provider sign-in"));
     await writeInput(ui, "\r");
     await vi.waitFor(() => expect(ui.lastFrame()).toContain("ChatGPT / Codex"));
-    for (let i = 0; i < 3; i++) await writeInput(ui, "\u001b[B");
+    for (const label of ["Anthropic", "OpenCode Go", "ChatGPT / Codex"]) {
+      await writeInput(ui, "\u001b[B");
+      await vi.waitFor(() => expect(ui.lastFrame()).toMatch(new RegExp(`[>❯].*${label}`)));
+    }
     await writeInput(ui, "\r");
     await vi.waitFor(() => {
       expect(ui.lastFrame()).toContain("Browser sign-in");

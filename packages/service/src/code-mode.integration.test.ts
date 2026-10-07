@@ -810,12 +810,62 @@ describe("recorded code-mode execution", () => {
 
   it("keeps ordinary background activity meaning and waiting available inside code", async () => {
     const shell = process.platform === "win32" ? "powershell" : "bash";
-    const fixture = await setup([
-      evalStep(`const activity = await tools.call(${JSON.stringify(shell)}, {command:${JSON.stringify(process.platform === "win32" ? "Write-Output 'activity output'" : "printf 'activity output'")}, background:true});
+    const waiting = gate(),
+      release = gate();
+    let output!: (chunk: string) => void;
+    class ControlledCommand extends LocalExecutionContext {
+      override spawn() {
+        return {
+          pid: undefined,
+          exit: release.promise.then(() => ({ code: 0, signal: null })),
+          onData: (listener: (chunk: string) => void) => {
+            output = listener;
+          },
+          kill: () => release.resolve(),
+        };
+      }
+    }
+    const fixture = await setup(
+      [
+        evalStep(`const activity = await tools.call(${JSON.stringify(shell)}, {command:"activity fixture", background:true});
       emit(activity.state); return await tools.call("activity_wait", {id:activity.activityId});`),
-      textStep("done"),
-    ]);
-    const items = await fixture.run();
+        textStep("done"),
+      ],
+      [],
+      "code-only",
+      {},
+      {
+        execution: {
+          id: "controlled-background-command",
+          services: () => [
+            {
+              key: "execution",
+              for: (conversation) => new ControlledCommand(conversation.workspaceRoot),
+            },
+          ],
+        },
+      },
+    );
+    fixture.svc.subscribe((event) => {
+      if (
+        isKernelEvent(event) &&
+        event.type === "item.appended" &&
+        event.item.type === "tool_call" &&
+        event.item.name === "activity_wait" &&
+        event.item.parentCallId === "outer"
+      )
+        waiting.resolve();
+    });
+    const running = fixture.run();
+    await waiting.promise;
+    const pending = results(await fixture.store.listActiveItems(fixture.conversation.id));
+    expect(pending.find((item) => item.parentCallId === "outer")?.structured).toMatchObject({
+      state: "running",
+    });
+    expect(pending.some((item) => item.callId === "outer")).toBe(false);
+    output("activity output");
+    release.resolve();
+    const items = await running;
     expect(textOf(results(items).at(-1)!.content)).toContain('"running"');
     expect(textOf(results(items).at(-1)!.content)).toContain("activity output");
     await fixture.svc.deactivateSession(fixture.conversation.id, { force: true });
