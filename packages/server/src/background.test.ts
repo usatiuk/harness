@@ -166,121 +166,104 @@ async function stopHome(home: string): Promise<void> {
   }
 }
 
-it("converges simultaneous starters, rejects unauthenticated peers and survives bridge exit", async () => {
+function backgroundPhases(home: string) {
+  const started = performance.now();
+  const phases: { phase: string; ms: number }[] = [];
+  const phase = (phase: string) => phases.push({ phase, ms: performance.now() - started });
+  const describe = (error: unknown) =>
+    error instanceof Error ? { name: error.name, message: error.message } : { type: typeof error };
+  const report = async (event: string, error?: unknown) => {
+    const observedPhases = phases.slice();
+    const child = await open(join(home, ".server", "startup.log"), "r")
+      .then(async (log) => {
+        try {
+          const { size } = await log.stat();
+          const bytes = Buffer.alloc(Math.min(size, 16_384));
+          const { bytesRead } = await log.read(bytes, 0, bytes.length, size - bytes.length);
+          return bytes.subarray(0, bytesRead).toString("utf8");
+        } finally {
+          await log.close();
+        }
+      })
+      .catch((error: unknown) => ({ readError: describe(error) }));
+    console.error(
+      JSON.stringify({
+        event,
+        phases: observedPhases,
+        child,
+        ...(error === undefined ? {} : { error: describe(error) }),
+      }),
+    );
+  };
+  onTestFailed(() => report("background.diagnostic"));
+  return { phase, failure: (error: unknown) => report("background.primary", error) };
+}
+
+it("converges simultaneous starters and rejects unauthenticated peers", async () => {
   const home = join(tmpdir(), `harness-background-${randomUUID()}`);
+  const { phase, failure } = backgroundPhases(home);
+  const hosts: Awaited<ReturnType<typeof ensureLocalServer>>[] = [];
+  let unauthorized: ReturnType<typeof createConnection> | undefined;
   try {
-    const [first, second] = await Promise.all([
+    phase("launch-starters");
+    const results = await Promise.allSettled([
       ensureLocalServer(home, launch),
       ensureLocalServer(home, launch),
-    ]).catch(async (error: unknown) => {
-      throw new Error(await readFile(join(home, ".server", "startup.log"), "utf8"), {
-        cause: error,
-      });
-    });
-    expect(second.identity).toEqual(first.identity);
-    second.close();
+    ]);
+    for (const result of results) if (result.status === "fulfilled") hosts.push(result.value);
+    const first = results[0];
+    const second = results[1];
+    if (first.status === "rejected") throw first.reason;
+    if (second.status === "rejected") throw second.reason;
+    expect(second.value.identity).toEqual(first.value.identity);
+    phase("reject-unauthenticated");
     const discovery = await readDiscovery(home);
     if (discovery === null) throw new Error("Missing discovery");
-    const unauthorized = createConnection({ host: "127.0.0.1", port: discovery.port });
+    unauthorized = createConnection({ host: "127.0.0.1", port: discovery.port });
     await once(unauthorized, "connect");
     unauthorized.write("wrong-token\n");
     await once(unauthorized, "close");
-    const bridge = spawn(process.execPath, [...args, "--bridge"], {
-      env: { ...process.env, HARNESS_HOME: home },
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    let diagnostics = "";
-    bridge.stderr.on("data", (chunk: Buffer) => {
-      diagnostics += chunk.toString();
-    });
-    const closed = once(bridge, "close");
-    const client = new HarnessClient({
-      connection: createNdjsonMessageConnection(bridge.stdout, bridge.stdin),
-      client: { name: "process-test", version: "1" },
-      plugins: [{ id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION }],
-    });
-    const approvals = new ApprovalClient(client);
-    await client.start();
-    expect(await client.peer.request(serverInfoRequest, {})).toEqual(first.identity);
-    const conversation = await client.create({
-      cwd: await isolatedWorkspace(home),
-      overrides: { model: { provider: "demo", model: "demo-1" } },
-    });
-    await client.attach(conversation.id);
-    let pendingId: string | undefined;
-    let approvalReady!: () => void;
-    const pending = new Promise<void>((resolve) => {
-      approvalReady = resolve;
-    });
-    approvals.subscribe(conversation.id, (event) => {
-      if (event.type === "created") {
-        pendingId = event.approval.requestId;
-        approvalReady();
-      }
-    });
-    await client.deliver(conversation.id, "survive the last client", "send");
-    await pending;
+  } catch (error) {
+    await failure(error);
+    throw error;
+  } finally {
+    phase("cleanup-stop");
+    unauthorized?.destroy();
+    for (const host of hosts) host.close();
+    await stopHome(home);
+    phase("cleanup-remove");
+    await rm(home, { recursive: true, force: true });
+  }
+}, 30_000);
+
+it("retires discovery on Local Stop and preserves server identity after restart", async () => {
+  const home = join(tmpdir(), `harness-background-restart-${randomUUID()}`);
+  const { phase, failure } = backgroundPhases(home);
+  let first: Awaited<ReturnType<typeof ensureLocalServer>> | undefined;
+  let restarted: Awaited<ReturnType<typeof ensureLocalServer>> | undefined;
+  try {
+    phase("launch-owner");
+    first = await ensureLocalServer(home, launch);
     first.close();
-    client.closeConnection();
-    const result: unknown[] = await closed;
-    expect(diagnostics).toBe("");
-    expect(result[0]).toBe(0);
-    const fresh = await ensureLocalServer(home, launch);
-    expect(fresh.identity).toEqual(first.identity);
-    const reconnect = new HarnessClient({
-      connection: fresh.connection,
-      client: { name: "reconnected", version: "1" },
-      plugins: [{ id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION }],
-    });
-    const restored = new ApprovalClient(reconnect);
-    let restoredId: string | undefined;
-    restored.subscribe(conversation.id, (event) => {
-      if (event.type === "created") restoredId = event.approval.requestId;
-    });
-    await reconnect.start();
-    expect((await reconnect.get(conversation.id))?.id).toBe(conversation.id);
-    await reconnect.attach(conversation.id);
-    expect(restoredId).toBe(pendingId);
-    let turnDone!: (status: string) => void;
-    const completed = new Promise<string>((resolve) => {
-      turnDone = resolve;
-    });
-    reconnect.subscribe((event) => {
-      if (
-        event.type === "conversation" &&
-        event.event.type === "turn.changed" &&
-        event.event.status !== "running"
-      )
-        turnDone(event.event.status);
-    });
-    await restored.respond(restoredId!, "allow");
-    expect(await completed).toBe("completed");
-    const history = await reconnect.history({ conversationId: conversation.id });
-    const items = history.entries.flatMap((entry) => (entry.kind === "item" ? [entry.item] : []));
-    const assistant = items.find((item) => item.type === "message" && item.role === "assistant");
-    expect(assistant?.type === "message" ? textOf(assistant.content) : undefined).toBe(
-      "Done — ran your message through the command tool.",
-    );
-    const resultItem = items.find((item) => item.type === "tool_result");
-    expect(resultItem).toMatchObject({ status: "ok" });
-    expect(resultItem?.type === "tool_result" ? textOf(resultItem.content) : undefined).toContain(
-      "survive the last client",
-    );
-    reconnect.closeConnection();
-    fresh.close();
+    phase("stop-owner");
     await stopHome(home);
     expect(await readDiscovery(home)).toBeNull();
-    const restarted = await ensureLocalServer(home, launch);
+    phase("restart-owner");
+    restarted = await ensureLocalServer(home, launch);
     expect(restarted.identity.serverId).toBe(first.identity.serverId);
     expect(restarted.identity.instanceId).not.toBe(first.identity.instanceId);
   } catch (error) {
-    throw new Error(await readFile(join(home, ".server", "startup.log"), "utf8"), { cause: error });
+    await failure(error);
+    throw error;
   } finally {
+    phase("cleanup-stop");
+    first?.close();
+    restarted?.close();
     await stopHome(home);
+    phase("cleanup-remove");
     await rm(home, { recursive: true, force: true });
   }
-}, 30000);
+}, 30_000);
 
 async function isolatedWorkspace(home: string): Promise<string> {
   const workspace = join(home, "workspace");
@@ -312,36 +295,121 @@ it("does not claim shutdown succeeded when a live server's discovery disappears"
   }
 }, 30000);
 
-it("keeps the daemon alive after its bridge parent process exits", async () => {
+it("preserves a pending conversation after its last observers and bridge parent exit", async () => {
   const home = join(tmpdir(), `harness-background-parent-${randomUUID()}`);
+  const { phase, failure } = backgroundPhases(home);
+  phase("launch-bridge-owner");
   const bridge = spawn(process.execPath, [...args, "--bridge"], {
     env: { ...process.env, HARNESS_HOME: home },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
+  let diagnostics = "";
+  bridge.stderr.on("data", (chunk: Buffer) => {
+    diagnostics += chunk.toString();
+  });
   const exited = once(bridge, "close");
   const client = new HarnessClient({
     connection: createNdjsonMessageConnection(bridge.stdout, bridge.stdin),
     client: { name: "parent-exit-test", version: "1" },
+    plugins: [{ id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION }],
   });
-  let identity: Awaited<ReturnType<typeof ensureLocalServer>>["identity"] | undefined;
+  let first: Awaited<ReturnType<typeof attachLocalServer>> | undefined;
+  let fresh: Awaited<ReturnType<typeof attachLocalServer>> | undefined;
+  let reconnect: HarnessClient | undefined;
   try {
     await client.start();
-    identity = await client.peer.request(serverInfoRequest, {});
+    const identity = await client.peer.request(serverInfoRequest, {});
+    phase("attach-observer");
+    first = await attachLocalServer(home);
+    expect(first.identity).toEqual(identity);
+    const approvals = new ApprovalClient(client);
+    const conversation = await client.create({
+      cwd: await isolatedWorkspace(home),
+      overrides: { model: { provider: "demo", model: "demo-1" } },
+    });
+    await client.attach(conversation.id);
+    let pendingId: string | undefined;
+    let approvalReady!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      approvalReady = resolve;
+    });
+    approvals.subscribe(conversation.id, (event) => {
+      if (event.type === "created") {
+        pendingId = event.approval.requestId;
+        approvalReady();
+      }
+    });
+    phase("await-approval");
+    await client.deliver(conversation.id, "survive the last client", "send");
+    await pending;
+    phase("leave-last-observers");
+    first.close();
     client.closeConnection();
     const result: unknown[] = await exited;
+    expect(diagnostics).toBe("");
     expect(result[0]).toBe(0);
-    const fresh = await ensureLocalServer(home, launch);
+    phase("reattach-owner");
+    fresh = await attachLocalServer(home);
     expect(fresh.identity).toEqual(identity);
-    fresh.close();
+    reconnect = new HarnessClient({
+      connection: fresh.connection,
+      client: { name: "reconnected", version: "1" },
+      plugins: [{ id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION }],
+    });
+    const restored = new ApprovalClient(reconnect);
+    let restoredId: string | undefined;
+    restored.subscribe(conversation.id, (event) => {
+      if (event.type === "created") restoredId = event.approval.requestId;
+    });
+    await reconnect.start();
+    expect((await reconnect.get(conversation.id))?.id).toBe(conversation.id);
+    await reconnect.attach(conversation.id);
+    expect(restoredId).toBe(pendingId);
+    let turnDone!: (status: string) => void;
+    const completed = new Promise<string>((resolve) => {
+      turnDone = resolve;
+    });
+    reconnect.subscribe((event) => {
+      if (
+        event.type === "conversation" &&
+        event.event.type === "turn.changed" &&
+        event.event.status !== "running"
+      )
+        turnDone(event.event.status);
+    });
+    phase("complete-restored-turn");
+    await restored.respond(restoredId!, "allow");
+    expect(await completed).toBe("completed");
+    phase("verify-history");
+    const history = await reconnect.history({ conversationId: conversation.id });
+    const items = history.entries.flatMap((entry) => (entry.kind === "item" ? [entry.item] : []));
+    const assistant = items.find((item) => item.type === "message" && item.role === "assistant");
+    expect(assistant?.type === "message" ? textOf(assistant.content) : undefined).toBe(
+      "Done — ran your message through the command tool.",
+    );
+    const resultItem = items.find((item) => item.type === "tool_result");
+    expect(resultItem).toMatchObject({ status: "ok" });
+    expect(resultItem?.type === "tool_result" ? textOf(resultItem.content) : undefined).toContain(
+      "survive the last client",
+    );
+  } catch (error) {
+    await failure(error);
+    throw error;
   } finally {
+    phase("cleanup-bridge");
+    first?.close();
+    reconnect?.closeConnection();
+    fresh?.close();
     client.closeConnection();
     if (bridge.exitCode === null) bridge.kill();
     await exited;
+    phase("cleanup-stop");
     await stopHome(home);
+    phase("cleanup-remove");
     await rm(home, { recursive: true, force: true });
   }
-}, 30000);
+}, 30_000);
 
 it("rejects an existing home writable by other users without starting or changing it", async () => {
   const home = await canonicalHome(join(tmpdir(), `harness-background-unsafe-${randomUUID()}`));

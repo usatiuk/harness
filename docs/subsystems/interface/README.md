@@ -33,6 +33,12 @@ The background owner now supports authenticated multi-client attachment through
 loopback TCP and a disposable stdio bridge. GUI/TUI default launchers reuse that
 owner; explicit stdio mode retains its isolated composition.
 
+Local connection admission rejects a TCP socket whose connected local and remote
+address/port pairs are identical before sending authentication. Some kernels can
+self-connect to a stale listener port, echoing the client's own preamble. This
+exact absent-peer condition uses the existing connection-unavailable path;
+ordinary authentication and identity failures remain fatal to that connection.
+
 The controlling machine's `client.json` registry is separate from server settings.
 It initially contains only Local and stores structured WSL/SSH routes, selected
 host and desktop keep-running preference. Browser-safe contracts live in

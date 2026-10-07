@@ -289,6 +289,34 @@ cancellation cases complete within eight seconds; both Ubuntu cases within two.
 This qualifies the corrected fixture without establishing the original hosted
 timeout's uncaptured phase.
 
+The final documentation push's Windows run passes cancellation but times out the
+compound convergence/authentication/bridge-survival/restart case at 30s. Its
+exact phase is not captured. Qualification is reopened in the linked plan;
+all other Windows tests and Ubuntu pass.
+
+Phase instrumentation reproduces the compound fixture's cumulative cold-start
+cost exceeding its overall deadline. Convergence/authentication and graceful
+Local Stop/restart are now independent cases; the full zero-observer pending
+approval, bridge-parent exit, same-owner reattachment, completion and persisted
+output chain stays together. The existing idle bridge-parent case is folded into
+that stronger scenario, retaining real process coverage without extra aggregate
+cold launches. Fixture handles are closed during teardown, and failure phases
+remain visible. All three retain 30-second deadlines.
+
+A real loopback regression also forces a TCP self-connection to an absent
+listener's port. It reproduces echoed authentication bytes being parsed as server
+identity before correction. Connection admission now classifies only identical
+connected endpoints as unavailable before sending authentication; the regression
+verifies zero bytes written and socket cleanup. Socket and credential edges are
+controlled, while the TCP connection is real. Ordinary authentication/identity
+failures are not recovered by this guard. The reproduction runs on Windows/Linux
+and positively verifies matching connected endpoints; other kernels are not
+qualified for self-connection. All 63 cases in the five-file cold-start comparison
+pass (89.35s); failure-only phase records retain a bounded startup-log tail before
+cleanup. The final full Node 22.23.3 check passes static checks and 1,036 tests
+with 36 skipped (45.08s), with all three review lenses resolved. Hosted
+qualification is tracked in the linked plan.
+
 The auto-approver scenario saves a reviewer model/preset in the actual GUI,
 verifies that model performs review before a real shell tool executes, changes
 the global reviewer and observes the next review in the same loaded conversation

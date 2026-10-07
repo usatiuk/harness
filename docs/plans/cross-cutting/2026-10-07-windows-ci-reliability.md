@@ -1,6 +1,6 @@
 # Windows CI reliability
 
-Status: Complete
+Status: Active
 
 ## Goal and scope
 
@@ -121,7 +121,16 @@ failure and client response/close interleavings are covered through public peers
       uncaptured original hosted timeout. Check: exact cancellation and original
       owner attachment pass under cold startup load and final Windows CI, within
       the unchanged overall deadline; retained diagnostics expose future failures.
-- [x] **Direct delivery.** Commit coherent validated increments, merge/push
+- [ ] **Final compound-owner qualification.** Capture the new convergence case's
+      startup, bridge, conversation, restart and cleanup phases before changing
+      its boundaries. Check: correct a reproduced cause with original assertions
+      and deadlines, then pass full local checks and final hosted qualification.
+- [x] **TCP endpoint qualification.** Reproduce the malformed authentication
+      response with a real self-connected socket; classify only identical live
+      endpoints as unavailable before authentication. Check: the original
+      regression fails before the guard and passes afterward, with no token bytes
+      written and no recovery of ordinary malformed identities.
+- [ ] **Direct delivery.** Commit coherent validated increments, merge/push
       directly to `main`, and check Windows/Ubuntu CI on the resulting revision.
       Check: actual results and remaining limits recorded, checkout clean.
 
@@ -260,3 +269,55 @@ retained failure diagnostics support investigation if it recurs. Required
 cancellation, owner survival, attachment and shutdown qualification now pass
 locally and on both hosted platforms. The closing increment synchronizes these
 results without changing source, and its final-main run is checked at handoff.
+
+The closing documentation push `e69aa61` exposes a different failure in
+[final-main CI](https://github.com/usatiuk/harness/actions/runs/37670391452).
+Both cancellation cases pass on Windows (6.93s/9.30s), but the compound
+convergence/authentication/bridge-survival/restart case exceeds 30s (30,031ms).
+All other 1,022 tests pass, with 47 skipped; Ubuntu passes. Its exact phase is not
+captured in the hosted log. Reopen delivery, retain the raw failure log and
+diagnose that case's actual phase before correction. No unchanged CI rerun is
+requested.
+
+An unchanged-boundary local Node 22 phase probe reproduces the compound 30s
+failure under one CPU, four workers and cold transforms. Converging starters take
+14.15s; the bridge then takes 10.26s to initialize. Approval, bridge exit,
+reattachment, command completion, history and Stop all complete normally. Restart
+adds 3.95s; the entire case finishes in 31.10s, after its 30s deadline. That
+establishes an aggregate fixture-budget failure in the probe, not the exact
+uncaptured hosted phase. Separate convergence/authentication and graceful Local
+Stop/restart. Move the intact approval-paused last-observer chain into the existing
+bridge-parent exit case, so it now establishes survival of real work as well as
+its launched owner. This retains approximately six cold launches across these
+cases and their 30s deadlines; it avoids an extra idle survival case. Retain
+failure-only phase records, close fixture handles in teardown, and reattach
+through the attach-only boundary instead of a replacement-capable launcher.
+
+The same probe reveals a separate crash-recovery authentication `SyntaxError`
+at position 3. A real Windows Node socket experiment proves that an absent
+listener plus matching local/destination ports can self-connect and echo bytes.
+A public `connectDiscovered` regression controls only the real socket's local port
+and credential edge; unchanged code echoes the synthetic token and reproduces
+that exact syntax error in 21ms. Reject identical connected address/port pairs
+before authentication with the existing unavailable classification
+(`ECONNREFUSED`). The regression then passes in 16ms, with zero bytes written and
+the socket destroyed. Do not catch general identity or authentication errors as
+unavailable. The exact endpoints of the first incidental crash failure were not
+captured; its compatible syntax error alone does not prove that connection was
+self-connected.
+
+The stronger probe also exceeds the foreground settings/restart case's existing
+20s deadline. That is not a newly observed hosted failure or a product cause;
+this cold-transform overload remains diagnostic. All 11 focused real
+background/self-connection cases pass normally (36.66s). The same cold-transform
+comparison now passes all 63 cases in five files (89.35s). Convergence completes
+in 13.15s, Local Stop/restart in 17.91s and the complete last-observer/bridge-parent
+survival chain in 7.39s, each within its unchanged 30s deadline. Review retains a
+bounded 16KiB startup-log tail before cleanup so phase reporting does not discard
+child failure evidence or mask the original exception. The self-connection
+regression also positively verifies matching connected endpoints on Windows/Linux;
+other native kernels remain unqualified for that reproduction. All three final
+review lenses are resolved. The final CI-Node 22.23.3 `npm run check` passes
+typecheck, lint, formatting and 1,036 tests with 36 skipped (test phase 45.08s).
+The local Node 24 SQLite binary is restored byte-for-byte and its smoke test
+passes afterward. Hosted qualification of this correction remains open.

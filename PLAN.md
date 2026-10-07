@@ -62,8 +62,11 @@ The [Windows CI reliability follow-up](docs/plans/cross-cutting/2026-10-07-windo
 corrects stale discovery publication, RPC completion at shutdown/EOF and test
 prerequisites. The corrected cancellation gate, observer cleanup and attachment
 pass cold-start load, full local checks and final source CI on Windows and Ubuntu.
-The delivery is complete. The original hosted timeout phase remains unknown;
-failure diagnostics are retained without attributing that failure to an unproved cause.
+A final documentation push exposes another Windows compound owner-case deadline;
+its aggregate cold-start cost is reproduced and its independent scenarios are
+separated. A real TCP self-connection regression corrects admission to an absent
+listener before authentication. Final qualification remains open. The original hosted
+cancellation timeout phase remains unknown; failure diagnostics are retained.
 
 The [floating composer and scroll follow-up](docs/plans/interface/2026-10-06-floating-composer-scroll.md)
 is complete. It keeps the accepted design while

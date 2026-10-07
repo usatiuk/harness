@@ -171,6 +171,16 @@ export async function connectDiscovered(
   try {
     await once(socket, "connect");
     signal?.throwIfAborted();
+    // A stale listener port can equal the client's ephemeral port. Some kernels
+    // connect that socket to itself, which would echo the authentication token.
+    if (
+      socket.localPort !== undefined &&
+      socket.localAddress === socket.remoteAddress &&
+      socket.localPort === socket.remotePort
+    )
+      throw Object.assign(new Error("Server is unavailable: TCP connected to its own socket"), {
+        code: "ECONNREFUSED",
+      });
     const identity = serverIdentitySchema.parse(
       JSON.parse(await authenticateSocket(socket, token)),
     );
