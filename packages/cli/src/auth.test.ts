@@ -14,6 +14,8 @@ describe("authRegistry", () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENCODE_API_KEY;
+    delete process.env.MISTRAL_API_KEY;
+    delete process.env.MISTRAL_VIBE_API_KEY;
   });
   afterEach(() => {
     process.env = { ...saved };
@@ -25,6 +27,8 @@ describe("authRegistry", () => {
       "anthropic",
       "opencode-go",
       "openai-codex",
+      "mistral-api",
+      "mistral-vibe",
     ]);
   });
 

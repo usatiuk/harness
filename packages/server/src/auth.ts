@@ -15,6 +15,7 @@ import { openCodeGoProviderType } from "@harness/opencode-go";
 import { codexProviderType } from "@harness/openai-codex";
 import { liteLLMPlugin } from "@harness/litellm";
 import { customProvidersPlugin } from "@harness/custom-providers";
+import { mistralPlugin } from "@harness/mistral";
 
 export interface AuthEntry {
   method: AuthMethod;
@@ -34,6 +35,7 @@ export interface ProviderEntry {
 export const providerPlugins: PluginEntry[] = [
   liteLLMPlugin,
   customProvidersPlugin,
+  mistralPlugin,
   { id: "openai-api", providerTypes: () => [openAIProviderType] },
   { id: "anthropic-api", providerTypes: () => [anthropicProviderType] },
   { id: "opencode-go", providerTypes: () => [openCodeGoProviderType] },
@@ -68,6 +70,20 @@ const defaults = () => [
     label: "ChatGPT / Codex",
     config: {},
     model: "gpt-6.1-sol",
+  },
+  {
+    id: "mistral-api",
+    type: "mistral-api",
+    label: "Mistral API (API key)",
+    config: { apiKey: { env: "MISTRAL_API_KEY", stored: true } },
+    model: "mistral-medium-latest",
+  },
+  {
+    id: "mistral-vibe",
+    type: "mistral-vibe",
+    label: "Mistral Vibe (API key)",
+    config: { apiKey: { env: "MISTRAL_VIBE_API_KEY", stored: true } },
+    model: "mistral-vibe-cli-latest",
   },
 ];
 

@@ -26,6 +26,8 @@ function launch(home: string) {
         OPENAI_API_KEY: "",
         ANTHROPIC_API_KEY: "",
         OPENCODE_API_KEY: "",
+        MISTRAL_API_KEY: "",
+        MISTRAL_VIBE_API_KEY: "",
       },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
@@ -113,7 +115,14 @@ describe("production server process ownership", () => {
       await first.initialize();
       const config = await first.client.peer.request(appSettingsRequest, {});
       expect(config.home).toBe(home);
-      expect(config.providers).toHaveLength(4);
+      expect(config.providers.map(({ id }) => id)).toEqual([
+        "openai",
+        "anthropic",
+        "opencode-go",
+        "openai-codex",
+        "mistral-api",
+        "mistral-vibe",
+      ]);
       expect(JSON.stringify(config)).not.toContain("apiKey");
       expect(config.settings.autoApproval).toEqual({
         enabled: false,
