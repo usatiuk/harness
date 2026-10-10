@@ -66,6 +66,12 @@ native bootstrap downloads the pinned Node distribution into the shared cache.
 The release build entry uses on-demand verified server and Node payloads without
 requiring system Node. Public installers, publication and updates remain in progress
 under the [release plan](docs/plans/cross-cutting/2026-10-10-release-installation-updates.md).
+Installed launchers expose `harness cache prune` to preview cached downloads and
+`harness cache prune --apply` to remove them. Stop installed CLI, desktop and server
+processes first; cleanup refuses while any consumer is running. Conversations,
+settings, credentials and the saved server selection remain. The next launch
+downloads missing payloads again, so it requires internet after pruning.
+Pruned development server builds need redeployment from their source checkout.
 Docker remains
 an external requirement for devcontainers, and execution tools use the host's
 installed shell/programs. The current installer and native E2E qualification
@@ -132,7 +138,7 @@ uses this checkout's `.harness-dev/source` home by default, keeping data and set
 separate from ordinary app use. A manual GitHub workflow bumps the version,
 builds the platform artifacts, signs them and creates a draft release.
 License collection and custom publication tooling are removed. Public installation,
-updates and explicit cache pruning remain open; no release is published yet.
+and updates remain open; no release is published yet.
 
 On Windows, local command execution is exposed to models as `powershell`; Linux,
 macOS, and Linux dev containers expose `bash`. Windows sign-in uses DPAPI-encrypted

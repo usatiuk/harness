@@ -193,6 +193,10 @@ acquire it before launching helpers; helpers return captured paths and exit.
 The caller retains the lease through actual child completion. Detached owners
 acquire their own lease before the initiating manager retires. The desktop
 retains its prepared control runtime between calls and through shutdown.
+The installed native launcher handles `harness cache prune [--apply]` before
+acquiring its normal consumer lease. It previews/removes disposable payloads and
+staging only under exclusive cache ownership, retaining persistent data and the
+server selection. Missing releases download again; source builds need redeployment.
 Cooperative cancellation drains final pipe writes while awaiting cleanup;
 startup failure diagnostics take precedence over transport/teardown errors.
 The release simplification and platform qualification remain in progress under

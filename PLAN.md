@@ -59,9 +59,9 @@ packages.
 ## Release delivery in progress
 
 The [release plan](docs/plans/cross-cutting/2026-10-10-release-installation-updates.md)
-now tracks a strict simplification: at least 50% fewer added code/test/workflow
-lines than checkpoint `6d59a40` (13,864 to at most 6,932, relative to MCP main
-`97eea03`). The source/license inventory, custom publisher/sealer and per-artifact
+records the completed one-time halving audit (13,864 to 6,374 added code/test/workflow
+lines, relative to MCP main `97eea03`). This is historical evidence, not a permanent
+line budget. The source/license inventory, custom publisher/sealer and per-artifact
 retention graph are removed. GNU GPLv3 remains the product license.
 
 Installed CLI, desktop and remote hosts share verified downloaded Node and a small
@@ -69,8 +69,9 @@ native bootstrap. Ordinary source development uses local Node/npm; source remote
 deployment always uses managed Node on the target. Local traffic uses sockets/named
 pipes. The replacement uses a simple
 GitHub version-bump/build/sign/draft workflow and one cache-use lock for running
-consumers. Immutable deployed payloads preserve safe rebuilds. Explicit updates
-and pruning, hosted qualification and public installation remain open.
+consumers. Immutable deployed payloads preserve safe rebuilds. Explicit cache
+pruning previews/removes inactive downloads and preserves data. Explicit updates,
+hosted qualification and public installation remain open.
 
 The simplified implementation passes the ordinary full check with 1,214 tests
 (36 skipped), 17 headless Rust cases and a fresh outside-checkout managed-server

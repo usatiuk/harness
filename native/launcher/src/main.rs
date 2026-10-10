@@ -17,6 +17,29 @@ fn run() -> Result<i32> {
         println!("{}", env!("HARNESS_PRODUCT_VERSION"));
         return Ok(0);
     }
+    if command == "cache" {
+        if text_arg(&args, 1)? != "prune"
+            || !(args.len() == 2 || (args.len() == 3 && args[2] == "--apply"))
+        {
+            bail!("Usage: harness cache prune [--apply]");
+        }
+        let apply = args.len() == 3;
+        let directories = harness_bootstrap::prune_cache(&default_home()?, apply)?;
+        for directory in &directories {
+            println!("{}", directory.display());
+        }
+        println!(
+            "{} {} cached directories.{}",
+            if apply { "Removed" } else { "Would remove" },
+            directories.len(),
+            if apply {
+                ""
+            } else {
+                " Run with --apply to remove them."
+            }
+        );
+        return Ok(0);
+    }
     let helper = matches!(
         command.as_str(),
         "--prepare-server" | "--inspect-cached-server" | "--install-development-server"

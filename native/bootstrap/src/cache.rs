@@ -86,6 +86,60 @@ pub struct Cache {
     _usage: FileUse,
 }
 
+/// Run outside `Cache`: the invoking launcher must not hold a shared lease itself.
+pub fn prune_cache(home: &Path, apply: bool) -> Result<Vec<PathBuf>> {
+    let home = canonical_home(home)?;
+    let _usage = FileUse::try_exclusive(&home, "cache-use")?
+        .context("Cache is in use; stop installed desktop, CLI and server processes first")?;
+    let canonical_home = home.canonicalize()?;
+    let mut directories = Vec::new();
+    for relative in ["runtime/node", "server", "cli", "staging"] {
+        let root = home.join(relative);
+        let entries = match std::fs::read_dir(&root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error).context("Cannot inspect download cache"),
+        };
+        if root.symlink_metadata()?.file_type().is_symlink()
+            || root
+                .parent()
+                .context("Cache has no parent")?
+                .symlink_metadata()?
+                .file_type()
+                .is_symlink()
+            || !root.canonicalize()?.starts_with(&canonical_home)
+        {
+            bail!("Cache directory escapes Harness home: {}", root.display());
+        }
+        let canonical_root = root.canonicalize()?;
+        for entry in entries {
+            let entry = entry?;
+            if entry.file_type()?.is_symlink() {
+                bail!(
+                    "Unexpected link in download cache: {}",
+                    entry.path().display()
+                );
+            }
+            // Selection and server identity are files, not disposable payloads.
+            if entry.file_type()?.is_dir() {
+                let path = entry.path();
+                if !path.canonicalize()?.starts_with(&canonical_root) {
+                    bail!("Cache entry escapes its directory: {}", path.display());
+                }
+                directories.push(path);
+            }
+        }
+    }
+    directories.sort();
+    if apply {
+        for directory in &directories {
+            std::fs::remove_dir_all(directory)
+                .with_context(|| format!("Cannot remove {}", directory.display()))?;
+        }
+    }
+    Ok(directories)
+}
+
 impl Cache {
     pub fn new(home: &Path) -> Result<Self> {
         let home = canonical_home(home)?;
@@ -274,6 +328,34 @@ pub(crate) fn copy_verified(
 mod tests {
     use super::*;
     use crate::ArchiveFormat;
+
+    #[test]
+    fn pruning_rejects_redirected_cache_without_deleting_external_data() {
+        let temporary = tempfile::tempdir().unwrap();
+        let home = canonical_home(&temporary.path().join("home")).unwrap();
+        let outside = temporary.path().join("outside");
+        std::fs::create_dir_all(outside.join("node/version")).unwrap();
+        std::fs::write(outside.join("node/version/data"), b"keep").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, home.join("runtime")).unwrap();
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let linked = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command",
+                    "New-Item -ItemType Junction -Path $env:HARNESS_TEST_LINK -Target $env:HARNESS_TEST_TARGET -ErrorAction Stop | Out-Null"])
+                .env("HARNESS_TEST_LINK", home.join("runtime"))
+                .env("HARNESS_TEST_TARGET", &outside)
+                .creation_flags(0x08000000)
+                .output().unwrap();
+            assert!(linked.status.success(), "{:?}", linked);
+        }
+        assert!(prune_cache(&home, true).is_err());
+        assert_eq!(
+            std::fs::read(outside.join("node/version/data")).unwrap(),
+            b"keep"
+        );
+    }
 
     fn fixture(bytes: &[u8]) -> Artifact {
         Artifact {

@@ -6,7 +6,7 @@ mod manifest;
 mod payload;
 mod preparation;
 
-pub use cache::{Cache, ExclusiveLock, FileUse, InstalledArtifact};
+pub use cache::{Cache, ExclusiveLock, FileUse, InstalledArtifact, prune_cache};
 pub use development::PreparedDevelopmentServer;
 pub use home::{canonical_home, default_home};
 pub use manifest::{

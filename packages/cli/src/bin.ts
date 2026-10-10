@@ -18,6 +18,10 @@ const program = new Command();
 program
   .name("harness")
   .description("an agent harness with an Ink TUI")
+  .addHelpText(
+    "after",
+    "\nInstalled launcher: harness cache prune [--apply] previews or removes unused downloads.",
+  )
   .version(PRODUCT_VERSION)
   .option("--model <id>", "model id override")
   .option("--cwd <dir>", "working directory for the session")

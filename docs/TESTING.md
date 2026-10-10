@@ -84,6 +84,13 @@ Discarded license/source inventory, sealing and custom publisher suites are not
 qualification requirements. Retained tests should exercise signature/hash
 rejection, atomic installation, one shared cache-use gate, helper cancellation
 and physical exit, shared socket/pipe ownership and an actual CLI/server RPC turn.
+The native launcher cleanup regression exercises `harness cache prune [--apply]`
+without downloading Node: preview, refusal under a live shared cache lease,
+removal across all cache locations, persistent files and repeat invocation.
+The bootstrap test rejects redirected runtime directories (Windows junction or
+Unix symlink). Windows passes; the Unix variant still needs a Unix execution.
+The regular Windows/Ubuntu workflow now runs these headless Rust tests as well
+as `npm run check`; it opens no native UI.
 
 Source SSH/WSL qualification uses `HARNESS_DEVELOPMENT_REMOTE_PAYLOAD` from
 `npm run prepare:remote`; WSL also uses `HARNESS_REMOTE_WSL`. A remote target needs

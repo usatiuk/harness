@@ -29,6 +29,71 @@ fn await_exit(child: &mut std::process::Child) -> std::process::ExitStatus {
     }
 }
 #[test]
+fn cache_pruning_previews_refuses_running_consumers_and_preserves_data() {
+    let temporary = tempfile::tempdir().unwrap();
+    let cache = Cache::new(&temporary.path().join("home")).unwrap();
+    let home = cache.home.clone();
+    let directories = [
+        "runtime/node/version",
+        "server/version",
+        "cli/version",
+        "staging/abandoned",
+    ];
+    for directory in directories {
+        fs::create_dir_all(home.join(directory)).unwrap();
+        fs::write(home.join(directory).join("payload"), b"download").unwrap();
+    }
+    for file in [
+        "conversations.db",
+        "settings.json",
+        "client.json",
+        "credentials.json",
+        "server/current.json",
+        "server/identity.json",
+    ] {
+        fs::write(home.join(file), b"persistent").unwrap();
+    }
+    let prune = |apply: bool| {
+        let mut process = command();
+        process.args(["cache", "prune"]).env("HARNESS_HOME", &home);
+        if apply {
+            process.arg("--apply");
+        }
+        process.output().unwrap()
+    };
+    let blocked = prune(true);
+    assert!(!blocked.status.success());
+    assert!(String::from_utf8_lossy(&blocked.stderr).contains("Cache is in use"));
+    drop(cache);
+    let preview = prune(false);
+    assert!(preview.status.success(), "{:?}", preview);
+    assert!(String::from_utf8_lossy(&preview.stdout).contains("Would remove 4"));
+    for directory in directories {
+        assert_eq!(
+            fs::read(home.join(directory).join("payload")).unwrap(),
+            b"download"
+        );
+    }
+    let removed = prune(true);
+    assert!(removed.status.success(), "{:?}", removed);
+    assert!(String::from_utf8_lossy(&removed.stdout).contains("Removed 4"));
+    for directory in directories {
+        assert!(!home.join(directory).exists());
+    }
+    for file in [
+        "conversations.db",
+        "settings.json",
+        "client.json",
+        "credentials.json",
+        "server/current.json",
+        "server/identity.json",
+    ] {
+        assert_eq!(fs::read(home.join(file)).unwrap(), b"persistent");
+    }
+    assert!(prune(true).status.success());
+}
+
+#[test]
 fn remote_eof_retires_unfinished_preparation() {
     let temporary = tempfile::tempdir().unwrap();
     let cache = Cache::new(&temporary.path().join("home")).unwrap();

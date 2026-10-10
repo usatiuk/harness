@@ -29,6 +29,11 @@ One shared
 cache-use lock covers a running CLI, desktop helper and server. Explicit pruning
 requires exclusive ownership and refuses while a consumer is running. There is no
 installed-client registry, dependency-use graph or cleanup daemon.
+`harness cache prune` previews disposable payload and staging directories;
+`--apply` removes them only when the cache is unused. Persistent data and the saved
+selection remain. Missing selected or client-pinned versions download on the next
+launch; cleanup does not track installed clients or retain historical downloads.
+Pruned development server selections need redeployment from their source checkout.
 
 A manual GitHub workflow accepts a patch/minor/major bump, commits the new version,
 builds the platform artifacts, signs them, and creates a draft release. Standard
@@ -38,16 +43,14 @@ The exact GNU GPLv3 text stays in `LICENSE`; license collection/export tooling i
 explicitly outside this work. OS publisher signing is unavailable. The project key
 protects downloads and Tauri updates; its private half is never committed.
 
-## Constraints and size gate
+## Constraints and simplification history
 
 - Preserve the MCP delivery on remote main (`97eea03`) and unrelated changes.
-- Measure gross added code against that base, including tests and workflows:
-  `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.ps1`, `.sh`, `.yml`, `.yaml`.
-- Frozen baseline `6d59a40`: **13,864 added lines**. Final maximum: **6,932**,
-  at least a 50% reduction. Moving unchanged tooling or compressing formatting
-  does not satisfy the requirement. This is a ceiling, not a target.
-  The audited implementation is **6,374 added lines**, a **54.0% reduction**,
-  measured from the complete staged tree, including tests and workflows.
+- The one-time simplification audit reduced **13,864 added code lines** at
+  `6d59a40` to **6,374** at `95ac3b3`, measured against `97eea03` and including
+  tests/workflows. The requested halving was met. The user clarified that this
+  was not a permanent line budget; judge subsequent work by necessary behavior
+  and simplicity, without compressing formatting or moving machinery elsewhere.
 - No custom release publisher, source/vendor inventory, artifact-sealing layer,
   symbol-version parser, automatic pruning or pre-release migration framework.
 - No GUI/native visible tests without approval for that run. Headless tests are
@@ -89,9 +92,11 @@ not duplicated in download metadata.
       Depends on the simpler runtime boundary. Completion: supported upgrade status,
       stop/install/start and safe explicit cleanup work without an installed-client
       registry or unattended deletion. Do not add a new cleanup subsystem meanwhile.
-- [x] Meet the size gate, synchronize docs, complete independent review and checks.
-      Completion: gross additions <=6,932; `npm run check` and affected native checks
-      pass; remaining external qualification inputs are stated precisely.
+      Cache pruning passes the native command regression and three independent
+      reviews. Update controls remain unfinished.
+- [x] Complete the one-time halving audit, synchronize docs and review the checkpoint.
+      Completion: checkpoint additions reduced below 6,932; its full and native
+      checks pass; remaining external qualification inputs are stated precisely.
 - [ ] Qualify hosted artifacts and public installation when publication inputs
       and platform access are available. Completion requires actual artifacts and
       install/update execution; a workflow file alone does not establish this.
@@ -125,6 +130,18 @@ outside-checkout managed-server smoke passes native archive installation, RPC v4
 a demo turn, physical exit and SQLite history after restart. Its mutable build
 output is deliberately broken before restart; the captured installed bytes work.
 This qualifies the server payload, not release CLI installation or native UI.
+
+Explicit cache cleanup passes the actual native launcher command regression:
+running-consumer refusal, preview, removal across all four cache locations,
+persistent-file preservation and repeat invocation. The Windows junction regression
+passes without touching external data. Nine bootstrap/launcher cases pass; Unix
+symlink behavior remains unqualified on this machine; the regular Windows/Ubuntu
+CI now runs the headless Rust cases. This increment passes the full check:
+typecheck, lint, formatting and **1,214 tests**, with 36 skipped. A Node 22 run
+was stopped after a reproducible SQLite Node 24 ABI mismatch.
+Node 24 then passed 1,212 tests but failed two OAuth cases. Rebuilding SQLite for
+the documented Node 22 makes all 34 focused OAuth/code-mode integration tests pass;
+the passing full check uses that consistent environment.
 
 No release has been
 published. Anonymous cold download, real installer/update execution and macOS/Linux

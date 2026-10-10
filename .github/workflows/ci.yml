@@ -20,3 +20,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: node packages/desktop/tools/native.mjs cargo test --manifest-path native/Cargo.toml --locked
