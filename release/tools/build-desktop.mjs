@@ -32,6 +32,7 @@ execFileSync(
   [
     join(repositoryRoot, "packages/desktop/tools/native.mjs"),
     "desktop-release",
+    "--ci",
     "--target",
     target.rust,
     "--bundles",

@@ -1256,3 +1256,12 @@ requires the entire runtime pin and canonical asset name. A release-only overlay
 supplies Tauri's required updater public key. Three read-only reviews were used;
 actual fresh signed platform builds, source export, protected workflow and
 publication remain unfinished required work. No visible GUI tests ran.
+
+The foundation is committed locally as `99724cd`. A fresh release-mode Windows
+CLI/server payload build passes. The first actual Tauri invocation produced its
+NSIS installer but waited for a password prompt: Windows did not carry the empty
+password environment value to that child, and the wrapper had omitted Tauri's
+noninteractive mode. The verified headless build process was retired; the open
+user app was untouched. The wrapper now passes `--ci`, which makes Tauri use its
+noninteractive signing contract instead of prompting. Fresh signed output
+qualification remains open until that corrected invocation completes.
