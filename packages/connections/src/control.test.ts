@@ -98,3 +98,20 @@ it("leaves an owner with another client running after conditional release", asyn
     right.dispose();
   }
 });
+
+it("warns on a busy upgrade without closing the existing owner", async () => {
+  const { left, right, identity } = fixture();
+  right.onRequest(managementStopRequest.method, (raw: unknown) => {
+    expect(raw).toEqual({ instanceId: identity.instanceId, ifIdle: true });
+    return { accepted: false };
+  });
+  try {
+    await expect(stopConnection(left, identity, false, true)).rejects.toThrow(
+      "finish or stop the active work, then reconnect",
+    );
+    await expect(left.sendRequest(managementInspectRequest.method, {})).resolves.toEqual(identity);
+  } finally {
+    left.dispose();
+    right.dispose();
+  }
+});

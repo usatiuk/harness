@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { valid } from "semver";
+export { compare as compareVersions } from "semver";
 import product from "../../../package.json" with { type: "json" };
 import nodePin from "../../../release/node.json" with { type: "json" };
 
@@ -7,21 +9,12 @@ export const RELEASE_REPOSITORY = "usatiuk/harness-releases";
 export const NODE_PIN = nodePin;
 export const targetSchema = z.enum(["windows-x64", "linux-x64-glibc", "macos-arm64", "macos-x64"]);
 export type ReleaseTarget = z.infer<typeof targetSchema>;
-export const versionSchema = z.string().refine((value) => {
-  const separator = value.indexOf("-");
-  const base = separator === -1 ? value : value.slice(0, separator);
-  if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(base)) return false;
-  if (base.split(".").some((part) => BigInt(part) > 18446744073709551615n)) return false;
-  const prerelease = separator === -1 ? undefined : value.slice(separator + 1);
-  return (
-    prerelease === undefined ||
-    prerelease
-      .split(".")
-      .every(
-        (part) => /^[0-9A-Za-z-]+$/u.test(part) && (!/^\d+$/u.test(part) || !/^0\d/u.test(part)),
-      )
+export const versionSchema = z
+  .string()
+  .refine(
+    (value) => valid(value) === value && !value.includes("+"),
+    "Expected SemVer without build metadata",
   );
-}, "Expected SemVer without build metadata");
 const pathSchema = z
   .string()
   .min(1)

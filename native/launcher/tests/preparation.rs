@@ -1,4 +1,4 @@
-use harness_bootstrap::{Cache, FileUse, NodePin, host_target};
+use harness_bootstrap::{Cache, FileUse, NodePin, canonical_home, host_target};
 use std::{
     fs,
     process::{Command, Stdio},
@@ -125,9 +125,10 @@ fn development_tar_is_immutable_and_helper_exits_without_stdin_handoff() {
     let cache = Cache::new(&temporary.path().join("home")).unwrap();
     let pin = NodePin::bundled().unwrap();
     let target = host_target().unwrap();
-    let node = cache
-        .home
-        .join("runtime/node")
+    // Elevated Windows runners can default new directories to Administrators ownership.
+    // Match the account-owned cache boundary instead of bypassing it in this fixture.
+    let node = canonical_home(&cache.home.join("runtime/node"))
+        .unwrap()
         .join(format!("{}-{target}", pin.version));
     let entry = node.join(&pin.targets[target].entry);
     fs::create_dir_all(entry.parent().unwrap()).unwrap();

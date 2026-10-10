@@ -2,7 +2,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { targetSchema, versionSchema } from "@harness/release";
+import { compareVersions, targetSchema, versionSchema } from "@harness/release";
 import { replaceJson } from "./json-file.ts";
 
 /** One immutable payload directory, never a path or a live process identity. */
@@ -27,6 +27,14 @@ export type ServerSelection = z.infer<typeof serverSelectionSchema>;
 
 const selectionPath = (home: string) => join(home, "server", "current.json");
 
+/** Source builds have no release ordering. The directory has already been validated. */
+export function serverReleaseVersion(directory: string): string | undefined {
+  if (directory.startsWith("dev-")) return undefined;
+  const target = targetSchema.options.find((target) => directory.endsWith(`-${target}`));
+  if (target === undefined) throw new Error("Server cache entry has no supported target");
+  return directory.slice(0, -target.length - 1);
+}
+
 export async function readServerSelection(home: string): Promise<ServerSelection | null> {
   try {
     return serverSelectionSchema.parse(JSON.parse(await readFile(selectionPath(home), "utf8")));
@@ -42,12 +50,22 @@ export async function selectInitialServer(home: string, directory: string): Prom
   const selected = await readServerSelection(home);
   if (selected !== null) {
     if (selected.directory === candidate.directory) return;
-    // A source rebuild takes effect on the next start, after the caller has
-    // checked for a live owner. Release selections require explicit activation.
+    // The caller has retired the previous owner before changing its selection.
+    const target = targetSchema.options.find((target) => selected.directory.endsWith(`-${target}`));
+    const previousVersion = serverReleaseVersion(selected.directory);
+    const nextVersion = serverReleaseVersion(candidate.directory);
     const sourceTarget = targetSchema.options.find((target) =>
       selected.directory.startsWith(`dev-${target}-`),
     );
-    if (sourceTarget === undefined || !candidate.directory.startsWith(`dev-${sourceTarget}-`))
+    const sourceRebuild =
+      sourceTarget !== undefined && candidate.directory.startsWith(`dev-${sourceTarget}-`);
+    const releaseUpgrade =
+      target !== undefined &&
+      candidate.directory.endsWith(`-${target}`) &&
+      previousVersion !== undefined &&
+      nextVersion !== undefined &&
+      compareVersions(nextVersion, previousVersion) > 0;
+    if (!sourceRebuild && !releaseUpgrade)
       throw new Error("Selected server changed; prepare the selected version and reconnect");
   }
   await mkdir(join(home, "server"), { recursive: true, mode: 0o700 });

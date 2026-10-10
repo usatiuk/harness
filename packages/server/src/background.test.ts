@@ -36,6 +36,129 @@ import { initializeRequest, HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
 import { ApprovalClient, APPROVAL_CLIENT_CONTRACT_VERSION } from "@harness/approval";
 import { textOf } from "@harness/protocol";
 import { CacheUse } from "@harness/native";
+import { build } from "esbuild";
+
+it("upgrades on reconnect only when idle and never downgrades a newer owner", async () => {
+  const id = randomUUID();
+  const home = await canonicalHome(join(tmpdir(), `harness-upgrade-${id}`));
+  const bundles = resolve(".harness-dev", `upgrade-${id}`);
+  const target =
+    process.platform === "win32"
+      ? "windows-x64"
+      : process.platform === "darwin"
+        ? process.arch === "arm64"
+          ? "macos-arm64"
+          : "macos-x64"
+        : "linux-x64-glibc";
+  const server = async (version: string) => {
+    const outfile = join(bundles, `${version}.mjs`);
+    await build({
+      entryPoints: [entry],
+      outfile,
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      conditions: ["development"],
+      external: [
+        "@harness/native",
+        "better-sqlite3",
+        "@napi-rs/keyring",
+        "@primno/dpapi",
+        "@devcontainers/cli",
+        "quickjs-emscripten",
+      ],
+      define: {
+        __HARNESS_BUILD__: JSON.stringify({
+          mode: "release",
+          target,
+          productVersion: version,
+          nodeVersion: process.versions.node,
+        }),
+      },
+      banner: {
+        js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
+      },
+    });
+    return {
+      executable: process.execPath,
+      args: ["--conditions=development", outfile, "--background"],
+      selection: `${version}-${target}`,
+    };
+  };
+  let original: Awaited<ReturnType<typeof ensureLocalServer>> | undefined;
+  let upgraded: Awaited<ReturnType<typeof ensureLocalServer>> | undefined;
+  let observer: HarnessClient | undefined;
+  try {
+    const older = await server("0.1.0");
+    const newer = await server("0.2.0");
+    original = await ensureLocalServer(home, older);
+    observer = new HarnessClient({
+      connection: original.connection,
+      client: { name: "upgrade-test", version: "1" },
+      plugins: [{ id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION }],
+    });
+    await observer.start();
+    const conversation = await observer.create({
+      cwd: await isolatedWorkspace(home),
+      overrides: { model: { provider: "demo", model: "demo-1" } },
+    });
+    await observer.attach(conversation.id);
+    const approvals = new ApprovalClient(observer);
+    let ready!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    approvals.subscribe(conversation.id, (event) => {
+      if (event.type === "created") ready();
+    });
+    await observer.deliver(conversation.id, "keep working", "send");
+    await pending;
+    await expect(ensureLocalServer(home, newer)).rejects.toThrow(
+      "finish or stop the active work, then reconnect",
+    );
+    expect((await readDiscovery(home))?.instanceId).toBe(original.identity.instanceId);
+    expect(JSON.parse(await readFile(join(home, "server/current.json"), "utf8"))).toEqual({
+      formatVersion: 1,
+      directory: older.selection,
+    });
+    await observer.deliver(conversation.id, "", "interrupt");
+    upgraded = await ensureLocalServer(home, newer);
+    expect(upgraded.identity.productVersion).toBe("0.2.0");
+    expect(upgraded.identity.instanceId).not.toBe(original.identity.instanceId);
+    expect(upgraded.identity.serverId).toBe(original.identity.serverId);
+    const oldClient = await ensureLocalServer(home, older);
+    expect(oldClient.identity).toEqual(upgraded.identity);
+    oldClient.close();
+    const reconnect = new HarnessClient({
+      connection: upgraded.connection,
+      client: { name: "reconnected", version: "1" },
+    });
+    await reconnect.start();
+    await reconnect.attach(conversation.id);
+    expect(
+      (await reconnect.history({ conversationId: conversation.id })).entries.length,
+    ).toBeGreaterThan(0);
+    reconnect.closeConnection();
+    expect(JSON.parse(await readFile(join(home, "server/current.json"), "utf8"))).toEqual({
+      formatVersion: 1,
+      directory: newer.selection,
+    });
+  } catch (error) {
+    console.error(
+      await readFile(join(home, ".running-server/startup.log"), "utf8").catch(
+        () => "No startup log",
+      ),
+    );
+    throw error;
+  } finally {
+    observer?.closeConnection();
+    original?.close();
+    upgraded?.close();
+    await stopHome(home);
+    await rm(home, { recursive: true, force: true });
+    await rm(bundles, { recursive: true, force: true });
+  }
+}, 30_000);
 
 const entry = resolve("packages/server/src/bin.ts");
 const args = ["--conditions=development", "--import=tsx", entry];

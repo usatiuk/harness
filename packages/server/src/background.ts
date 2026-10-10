@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { defaultHome } from "@harness/config";
 import { HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
-import { PRODUCT_VERSION } from "@harness/release";
+import { BUILD_IDENTITY } from "@harness/release";
 import { ResponseError, ErrorCodes } from "vscode-jsonrpc";
 import { createNdjsonTransport, type NdjsonTransport } from "@harness/client/node";
 import {
@@ -73,7 +73,7 @@ export async function runBackgroundServer(): Promise<void> {
     }
     const identity = serverIdentitySchema.parse({
       managementVersion: 1,
-      productVersion: PRODUCT_VERSION,
+      productVersion: BUILD_IDENTITY.productVersion,
       serverId,
       instanceId: randomUUID(),
       protocolVersion: HARNESS_PROTOCOL_VERSION,
@@ -133,6 +133,9 @@ export async function runBackgroundServer(): Promise<void> {
                     ErrorCodes.InvalidParams,
                     "Server instance changed; reconnect before stopping it",
                   );
+                if (params.data.ifIdle && !owner.host.beginShutdownIfIdle())
+                  return { accepted: false };
+                stopping = true;
                 setImmediate(stop);
                 return { accepted: true as const };
               });

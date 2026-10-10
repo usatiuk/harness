@@ -91,3 +91,18 @@ it("accepts immutable release/source names and rejects paths", () => {
   ])
     expect(serverCacheEntrySchema.safeParse(value).success).toBe(false);
 });
+
+it("advances a release selection by SemVer precedence without changing platform", async () => {
+  const directory = await home();
+  for (const version of ["0.2.0-rc.2", "0.2.0-rc.10", "0.2.0", "0.10.0"]) {
+    const selected = `${version}-linux-x64-glibc`;
+    await withServerLifecycle(directory, (canonical) => selectInitialServer(canonical, selected));
+    expect(() => assertSelectedServer(directory, selected)).not.toThrow();
+  }
+  await expect(
+    withServerLifecycle(directory, (canonical) =>
+      selectInitialServer(canonical, "0.11.0-macos-arm64"),
+    ),
+  ).rejects.toThrow("Selected server changed");
+  expect(() => assertSelectedServer(directory, "0.10.0-linux-x64-glibc")).not.toThrow();
+});

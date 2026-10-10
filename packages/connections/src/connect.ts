@@ -6,12 +6,13 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { Socket } from "node:net";
 import { PassThrough } from "node:stream";
 import type { RpcConnection } from "@harness/client";
+import { compareVersions } from "@harness/release";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { type ServerIdentity } from "./contracts.ts";
 import { stopConnection } from "./control.ts";
 import { forwardBridgeInput } from "./bridge-input.ts";
 import { withServerLifecycle } from "./lifecycle.ts";
-import { selectInitialServer } from "./selection.ts";
+import { selectInitialServer, serverReleaseVersion } from "./selection.ts";
 import {
   canonicalHome,
   connectDiscovered,
@@ -93,7 +94,17 @@ async function ensureOwnedServer(
   const existing = await readDiscovery(home);
   if (existing !== null) {
     try {
-      return await attachDiscovered(home, existing, signal);
+      const host = await attachDiscovered(home, existing, signal);
+      const incoming =
+        launch.selection === undefined ? undefined : serverReleaseVersion(launch.selection);
+      if (incoming === undefined || compareVersions(host.identity.productVersion, incoming) >= 0)
+        return host;
+      try {
+        await stopConnection(host.connection, host.identity, false, true);
+        signal?.throwIfAborted();
+      } finally {
+        host.close();
+      }
     } catch (error) {
       if (!unavailable(error)) throw error;
     }

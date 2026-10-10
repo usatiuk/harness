@@ -45,10 +45,10 @@ it("keeps the selected release when an isolated launch conflicts with its shared
     host.close();
     await stopServer(host.identity);
     stopped = true;
-    await expect(selectStdioServer({ ...launch, selection: rebuilt })).rejects.toThrow(
-      "Selected server changed",
-    );
-    expect((await readServerSelection(home))?.directory).toBe(initial);
+    await selectStdioServer({ ...launch, selection: rebuilt });
+    expect((await readServerSelection(home))?.directory).toBe(rebuilt);
+    await expect(selectStdioServer(launch)).rejects.toThrow("Selected server changed");
+    expect((await readServerSelection(home))?.directory).toBe(rebuilt);
   } finally {
     host.close();
     if (!stopped) await stopServer(host.identity);

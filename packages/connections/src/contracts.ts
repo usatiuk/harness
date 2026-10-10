@@ -86,8 +86,8 @@ export const managementInspectRequest = defineRequest({
 export const managementStopRequest = defineRequest({
   direction: "client-to-server",
   method: "management.stop",
-  params: z.strictObject({ instanceId: z.uuid() }),
-  result: z.strictObject({ accepted: z.literal(true) }),
+  params: z.strictObject({ instanceId: z.uuid(), ifIdle: z.boolean().default(false) }),
+  result: z.strictObject({ accepted: z.boolean() }),
 });
 export const managementReleaseRequest = defineRequest({
   direction: "client-to-server",

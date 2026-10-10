@@ -74,6 +74,11 @@ bootstrap/launcher tests use `cargo test --manifest-path native/Cargo.toml`.
 Desktop helper tests use `cargo test --manifest-path
 packages/desktop/src-tauri/Cargo.toml`; those command modes run before window setup.
 These are headless checks. Visible native E2E requires approval for each run.
+The connect-time upgrade regression builds two server versions and starts real
+owners over the local socket/pipe. It checks approval-held refusal, unchanged busy
+selection, idle replacement, persistent identity/history and older-client reuse.
+Host regressions cover the existing plugin deactivation blockers and admission
+closure. They do not establish signed downloads or released SSH/WSL upgrades.
 Use a fresh `HARNESS_HOME`, such as `.harness-dev/simplification`, for the
 replacement checks: old disposable development caches use the removed receipt
 format. No pre-release cache migration is required.

@@ -5,6 +5,7 @@ import {
   conversationEventNotification,
   type ConversationId,
   type Plugin,
+  type ModelProvider,
 } from "@harness/protocol";
 import {
   HarnessClient,
@@ -12,7 +13,13 @@ import {
   createInProcessMessageConnectionPair,
 } from "@harness/client";
 import { InMemoryStore } from "@harness/store";
-import { FakeProvider, counterIdGenerator, fixedClock, textStep } from "@harness/testkit";
+import {
+  FakeProvider,
+  GateProvider,
+  counterIdGenerator,
+  fixedClock,
+  textStep,
+} from "@harness/testkit";
 import { HarnessService } from "./service.ts";
 import { HarnessRpcSession } from "./rpc-session.ts";
 
@@ -30,7 +37,7 @@ afterEach(async () => {
 });
 
 const createHarness = (
-  steps = [textStep("done")],
+  steps: ConstructorParameters<typeof FakeProvider>[0] | ModelProvider = [textStep("done")],
   plugins: Plugin[] = [],
   onError?: (error: unknown, method?: string) => void,
 ) => {
@@ -38,7 +45,10 @@ const createHarness = (
   const service = new HarnessService({
     store,
     home: "/nonexistent-harness-home",
-    plugins: [{ id: "fake", providers: () => [new FakeProvider(steps)] }, ...plugins],
+    plugins: [
+      { id: "fake", providers: () => [Array.isArray(steps) ? new FakeProvider(steps) : steps] },
+      ...plugins,
+    ],
   });
   const connections = createInProcessMessageConnectionPair();
   const host = new HarnessRpcHost(service);
@@ -66,6 +76,40 @@ const createConversation = (client: HarnessClient) =>
   });
 
 describe("HarnessRpcSession", () => {
+  it("protects turns and plugin-owned work, then closes admission once idle", async () => {
+    const provider = new GateProvider("complete me");
+    const resource = { busy: true, disposed: false };
+    const { client, service, host } = createHarness(provider, [
+      {
+        id: "owned-work",
+        services: () => [
+          {
+            key: "owned",
+            for: () => resource,
+            blocksDeactivation: () => resource.busy,
+            dispose: () => {
+              resource.disposed = true;
+            },
+          },
+        ],
+      },
+    ]);
+    await client.start();
+    const conversation = await createConversation(client);
+    await client.attach(conversation.id);
+    service.service(conversation.id as ConversationId, "owned");
+    await client.deliver(conversation.id, "work", "send");
+    await provider.started;
+    expect(host.beginShutdownIfIdle()).toBe(false);
+    provider.release();
+    await service.whenIdle(conversation.id as ConversationId);
+    expect((await client.history({ conversationId: conversation.id })).entries).toHaveLength(2);
+    expect(host.beginShutdownIfIdle()).toBe(false);
+    expect(resource.disposed).toBe(false);
+    resource.busy = false;
+    expect(host.beginShutdownIfIdle()).toBe(true);
+    await expect(host.request(() => "new work")).rejects.toThrow("server is stopping");
+  });
   it("reports failed attachment method and retains no shutdown ownership for missing roots", async () => {
     const errors = vi.fn();
     const { client, service, host } = createHarness([], [], errors);

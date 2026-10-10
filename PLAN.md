@@ -72,7 +72,10 @@ GitHub version-bump/build/sign/draft workflow and one cache-use lock for running
 consumers. Immutable deployed payloads preserve safe rebuilds. Explicit cache
 pruning previews/removes inactive downloads and preserves data. Desktop update
 controls now use Tauri's official updater; actual installation remains unqualified.
-CLI/server updates, hosted qualification and public installation remain open.
+Connect-time server replacement now reuses the existing lifecycle lock and engine
+busy check: idle owners upgrade, active work requires explicit reconnect, and
+versions never downgrade. CLI updates, signed remote-upgrade qualification, hosted
+artifacts and public installation remain open.
 
 The simplified implementation passes the ordinary full check with 1,214 tests
 (36 skipped), 17 headless Rust cases and a fresh outside-checkout managed-server

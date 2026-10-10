@@ -1,9 +1,6 @@
 use crate::{Cache, InstalledArtifact, ReleaseManifest, VerifiedRelease, host_target};
 use anyhow::{Context, Result, bail};
-use std::{
-    io::{Read, Write},
-    time::{Duration, Instant},
-};
+use std::io::Read;
 
 pub struct PreparedCli {
     pub node: InstalledArtifact,
@@ -59,39 +56,16 @@ impl Cache {
         base_url: &str,
         key: &str,
     ) -> Result<PreparedServer> {
-        let version = self
+        let selected = self
             .selected_server_version()?
             .unwrap_or(default_version.into());
-        let prepared = self.prepare_server_release(
-            &version,
-            &format!("{base_url}/v{version}/release.json"),
-            key,
-        )?;
-        let mut gate = crate::ExclusiveLock::new(&self.home, "server-lifecycle")?;
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while !gate.try_acquire()? {
-            if Instant::now() >= deadline {
-                bail!("Another server operation is running; try again when it finishes");
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        match self.selected_server_version()? {
-            Some(selected) if selected != version => {
-                bail!("Selected server changed; reconnect to prepare that version")
-            }
-            Some(_) => {}
-            None => {
-                let mut file = tempfile::NamedTempFile::new_in(self.home.join("server"))?;
-                serde_json::to_writer(
-                    &mut file,
-                    &serde_json::json!({"formatVersion":1,"directory":format!("{version}-{}",host_target()?)}),
-                )?;
-                file.flush()?;
-                file.as_file().sync_all()?;
-                file.persist_noclobber(self.home.join("server/current.json"))?;
-            }
-        }
-        Ok(prepared)
+        let version =
+            if semver::Version::parse(default_version)? > semver::Version::parse(&selected)? {
+                default_version
+            } else {
+                &selected
+            };
+        self.prepare_server_release(version, &format!("{base_url}/v{version}/release.json"), key)
     }
     pub fn selected_server_version(&self) -> Result<Option<String>> {
         #[derive(serde::Deserialize)]

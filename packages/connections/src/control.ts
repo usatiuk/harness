@@ -11,6 +11,7 @@ export async function stopConnection(
   connection: RpcConnection,
   expected: ServerIdentity,
   ifAlone = false,
+  ifIdle = false,
 ): Promise<void> {
   connection.listen();
   let markClosed!: () => void;
@@ -44,10 +45,18 @@ export async function stopConnection(
             await connection.sendRequest(managementReleaseRequest.method, params),
           );
           if (!result.stopping) return;
-        } else
-          managementStopRequest.result.parse(
-            await connection.sendRequest(managementStopRequest.method, params),
+        } else {
+          const result = managementStopRequest.result.parse(
+            await connection.sendRequest(
+              managementStopRequest.method,
+              ifIdle ? { ...params, ifIdle: true } : params,
+            ),
           );
+          if (!result.accepted)
+            throw new Error(
+              "Server upgrade is pending: finish or stop the active work, then reconnect",
+            );
+        }
         await closed;
       })(),
     ]);

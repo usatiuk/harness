@@ -30,7 +30,8 @@ own control helper; source startup uses complete immutable snapshots.
 Cold preparation is a hidden, cancellable process; existing host cancellation
 reaches it before admission, and app shutdown also awaits preparing operations.
 The explicit desktop updater is implemented using Tauri, with headless UI and
-shutdown evidence. CLI/server update surfaces remain unfinished.
+shutdown evidence. Connect-time server replacement is implemented through existing
+lifecycle controls; CLI updates and signed remote-upgrade qualification remain open.
 Installed download/cross-version qualification, remote replacement and
 platform qualification remain open in that plan.
 

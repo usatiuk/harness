@@ -15,8 +15,13 @@ Local communication uses Unix sockets or Windows named pipes, never a TCP port.
 Each account/home has one background server, shared by CLI and desktop. The saved
 server selection is independent of the installed client's version. Clients inspect
 the management/protocol versions before attaching and explain incompatibility.
-Updates explicitly stop and replace the server; recovering in-flight work is outside
-scope. Persistent conversations and settings survive uninstall and updates.
+Connecting or opening a client prepares the newer of its required server version
+and the saved selection. It never downgrades. A newer compatible running owner is
+reused. An older idle owner is stopped and replaced through the existing lifecycle
+lock. Active work prevents replacement: finish or stop it, then use Reconnect or
+reopen the CLI. There is no separate server-update action or background waiting
+queue. Recovering in-flight work is outside scope. Persistent conversations and
+settings survive uninstall and updates.
 
 Downloads are signed and hashed, staged, then installed atomically. Installed and
 deployed server code is immutable, so rebuilding does not replace code already
@@ -89,13 +94,15 @@ not duplicated in download metadata.
 - [ ] Validate shared local owner and SSH/WSL bootstrap flows.
       Depends on runtime simplification. Completion: headless CLI/server smoke,
       socket/pipe and available source-remote regressions pass.
-- [ ] Complete explicit server/client updates and cache pruning.
+- [ ] Complete connect-time server upgrades, explicit client updates and cache pruning.
       Depends on the simpler runtime boundary. Completion: supported upgrade status,
       stop/install/start and safe explicit cleanup work without an installed-client
       registry or unattended deletion. Do not add a new cleanup subsystem meanwhile.
       Cache pruning passes the native command regression and three independent
       reviews. Desktop updates use Tauri's updater through one explicit check/install
-      command in Settings. CLI and server update controls remain unfinished.
+      command in Settings. Connect-time server replacement uses existing
+      reconnect/start/stop boundaries and the engine's existing busy predicate.
+      CLI updates and signed remote-upgrade qualification remain unfinished.
 - [x] Complete the one-time halving audit, synchronize docs and review the checkpoint.
       Completion: checkpoint additions reduced below 6,932; its full and native
       checks pass; remaining external qualification inputs are stated precisely.
@@ -157,15 +164,30 @@ Rust cases, a rebuilt development payload and a release-mode configuration check
 The packaged tests use the verified qualification cache; a first invocation pointed
 at an incomplete scratch runtime. The independent shutdown re-review is resolved.
 
-Windows CI for the preceding cache increment (`1676986`, run `38085508682`) failed
-in the development archive/helper test; Ubuntu passed. Its assertion omitted child
-stderr, so the root cause is not established. The regression now preserves that
-output on failure. Local headless execution passes; hosted evidence remains open.
+Windows CI for the cache increment (`1676986`, run `38085508682`) failed in the
+development archive/helper test; Ubuntu passed. Preserved diagnostics in
+`b4a52b4` (run `38086729395`) show "Harness directory has another owner".
+The fixture created the runtime cache through ordinary recursive directory
+creation instead of the bootstrap's account-owned boundary; elevated Windows
+default ownership can differ from the account SID. The fixture now creates that
+cache root through `canonical_home`, retaining the product ownership check.
+Local headless execution passes; hosted correction evidence remains open.
 
 The additional simplification removes Git commands, embedded source commits and
 commit comparisons from payload builders, the native launcher and metadata assembly.
 Versions, platform/Node requirements and signed archive checks remain. The workflow
 already records the source commit in its tag and release notes.
+
+Connect-time server upgrades pass the full local check: typecheck, lint, formatting
+and **1,218 tests**, with 36 skipped. The actual two-version local owner regression
+protects approval-held work, replaces an idle owner, preserves identity/history
+and reuses the newer owner for an older client. The engine's existing busy predicate
+also protects plugin-owned background work; idle shutdown closes admission before
+acknowledgement. Nine native bootstrap/launcher cases and the production frontend
+build pass. Three narrow independent reviews are resolved. The first full run
+exposed a stale isolated-server test that expected idle upgrades to fail; it now
+checks upgrade after stop and rejection of a downgrade. Signed cold downloads and
+release-mode SSH/WSL upgrade execution remain unqualified.
 
 No release has been
 published. Anonymous cold download, real installer/update execution and macOS/Linux

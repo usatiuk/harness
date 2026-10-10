@@ -42,7 +42,10 @@ fn run() -> Result<i32> {
     }
     let helper = matches!(
         command.as_str(),
-        "--prepare-server" | "--inspect-cached-server" | "--install-development-server"
+        "--prepare-server"
+            | "--prepare-release"
+            | "--inspect-cached-server"
+            | "--install-development-server"
     );
     let remote = helper && args.last().is_some_and(|arg| arg == "--remote");
     if remote {
@@ -57,6 +60,19 @@ fn run() -> Result<i32> {
             let prepared = cache.prepare_selected_server(
                 text_arg(&args, 1)?,
                 env!("HARNESS_RELEASE_BASE_URL"),
+                KEY,
+            )?;
+            publish(&cache, &prepared.node, &prepared.server, false, connection)
+        }
+        "--prepare-release" => {
+            exact(&args, 2)?;
+            let version = text_arg(&args, 1)?;
+            let prepared = cache.prepare_server_release(
+                version,
+                &format!(
+                    "{}/v{version}/release.json",
+                    env!("HARNESS_RELEASE_BASE_URL")
+                ),
                 KEY,
             )?;
             publish(&cache, &prepared.node, &prepared.server, false, connection)

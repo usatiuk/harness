@@ -363,6 +363,15 @@ export class Engine {
    * notices are ignored and every loaded runtime is discarded together. The production TUI ensures
    * that set is one top-level conversation plus its descendants.
    */
+  /** The same turn, inbox and plugin blockers protect close and idle server replacement. */
+  isSessionBusy(conversationId: ConversationId): boolean {
+    const rootId = this.#rootOf(conversationId);
+    return (
+      this.#treeRuntimes(rootId).some((runtime) => runtime.running || runtime.inbox.length > 0) ||
+      this.#treeHasDeactivationBlocker(rootId)
+    );
+  }
+
   async deactivate(
     rootConversationId: ConversationId,
     options: { force?: boolean } = {},
@@ -371,11 +380,7 @@ export class Engine {
     if (this.#closingRoots.has(rootId)) {
       throw new Error("conversation deactivation already in progress");
     }
-    if (
-      !options.force &&
-      (this.#treeRuntimes(rootId).some((runtime) => runtime.running || runtime.inbox.length > 0) ||
-        this.#treeHasDeactivationBlocker(rootId))
-    ) {
+    if (!options.force && this.isSessionBusy(rootId)) {
       return { status: "busy" };
     }
 

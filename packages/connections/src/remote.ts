@@ -14,6 +14,7 @@ import {
   developmentRemoteSchema,
   releaseManifestSchema,
   versionSchema,
+  compareVersions,
 } from "@harness/release";
 import { preparedServerSchema } from "./local-runtime.ts";
 import { serverSelectionSchema } from "./selection.ts";
@@ -309,6 +310,11 @@ export async function prepareRemoteRuntime(
     if (!selected.directory.endsWith(suffix))
       throw new Error("Selected server is not for the remote platform");
     releaseVersion = versionSchema.parse(selected.directory.slice(0, -suffix.length));
+    if (
+      BUILD_IDENTITY.mode === "release" &&
+      compareVersions(BUILD_IDENTITY.productVersion, releaseVersion) > 0
+    )
+      releaseVersion = BUILD_IDENTITY.productVersion;
   } else if (BUILD_IDENTITY.mode === "release") {
     if (selected)
       throw new Error("Selected remote server is a source build; use its development checkout");
@@ -424,7 +430,7 @@ export async function prepareRemoteRuntime(
         );
       const args = sourceDirectory
         ? `--install-development-server ${q(`${stage}/server.tar.gz`)} ${q(buildId)}`
-        : `--prepare-server ${q(releaseVersion!)}`;
+        : `--prepare-release ${q(releaseVersion!)}`;
       const prepared = JSON.parse(
         await runRemotePreparation(
           host,
@@ -439,9 +445,7 @@ export async function prepareRemoteRuntime(
 }
 function bridgeCommand(runtime: PreparedRuntime, allowStart: boolean): string {
   const directory = posix.basename(runtime.directory);
-  const command = directory.startsWith(`dev-${TARGET}-`)
-    ? `--run-cached-server ${q(directory)}`
-    : "--server";
+  const command = `--run-cached-server ${q(directory)}`;
   return `exec env HARNESS_HOME=${q(runtime.home)} ${q(`${runtime.directory}/harness-bootstrap`)} ${command} ${allowStart ? "--bridge" : "--attach-only"}`;
 }
 export interface RemoteConnection {

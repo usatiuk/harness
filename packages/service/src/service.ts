@@ -407,6 +407,10 @@ export class HarnessService implements ConversationRunner {
     return this.#engine.conversationTreeState(rootId);
   }
 
+  isSessionBusy(rootId: ConversationId): boolean {
+    return this.#engine.isSessionBusy(rootId);
+  }
+
   pendingRequests(rootId: ConversationId) {
     return this.#engine.pendingRequests(rootId);
   }

@@ -42,7 +42,13 @@ pub fn relative_path(value: &str) -> Result<()> {
 
 pub fn version(value: &str) -> Result<()> {
     let parsed = semver::Version::parse(value)?;
-    if !parsed.build.is_empty() {
+    // Match npm semver's representable version boundary used by clients.
+    if !parsed.build.is_empty()
+        || value.len() > 256
+        || [parsed.major, parsed.minor, parsed.patch]
+            .iter()
+            .any(|part| *part > 9_007_199_254_740_991)
+    {
         bail!("Invalid product/runtime version");
     }
     Ok(())

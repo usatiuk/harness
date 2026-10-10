@@ -82,7 +82,11 @@ target Windows; macOS/Linux desktop packaging is not yet qualified.
 
 Desktop and TUI attach to the same background server for each execution
 environment and OS account. Switching hosts or disconnecting preserves accepted
-work. Desktop exit defaults to stopping Local when no other client uses it;
+work. Installed clients prepare the newer of their required server release and the
+saved selection on connect. They reuse newer owners and never downgrade. An older
+idle server is replaced automatically; active turns or background work leave it
+running and show a warning to finish/stop the work and reconnect. No separate server
+update action is needed. Desktop exit defaults to stopping Local when no other client uses it;
 enable the remembered keep-running preference for Local background work.
 Remote stop/restart is explicit. Provider credential changes require an
 explicit server restart. There is no tray or login autostart.

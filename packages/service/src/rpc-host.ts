@@ -111,6 +111,16 @@ export class HarnessRpcHost {
     return this.#shutdown;
   }
 
+  /** Claim idle shutdown synchronously, closing admission before the stop response. */
+  beginShutdownIfIdle(): boolean {
+    if (this.#requests.size !== 0 || this.#active.size !== 0) return false;
+    for (const root of this.#roots) {
+      if (this.service.isSessionBusy(root)) return false;
+    }
+    this.#stopping = true;
+    return true;
+  }
+
   async #doShutdown(): Promise<void> {
     this.#stopping = true;
     const roots = [...this.#roots];

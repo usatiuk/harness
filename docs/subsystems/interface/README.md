@@ -47,6 +47,13 @@ Canceled admission drains its overlapped operation before releasing memory and
 handles. A dedicated wait thread leaves Node's filesystem worker pool available.
 Management v1 inspection, exact-instance stop and conditional release work before
 the application handshake; application RPC still requires its strict handshake.
+Connect-time release upgrades use the same management stop with an idle condition.
+The engine's existing busy check includes turns, queued input and plugin-owned
+background activities. Claiming idle shutdown closes RPC admission synchronously.
+The home lifecycle lock spans stop, monotonic selection and start. Busy owners stay
+running with a finish/stop-and-reconnect warning; newer owners are reused and saved
+versions never downgrade. Preparation downloads immutable candidates without
+changing the selected owner. Remote bridges run the captured payload directly.
 Windows headless integration is qualified; Unix endpoint cleanup and foreign-user/
 remote Windows rejection remain explicit release qualification work.
 
