@@ -16,6 +16,37 @@ pub struct PreparedServer {
 impl Cache {
     pub fn prepare_cli_release(&self, version: &str, url: &str, key: &str) -> Result<PreparedCli> {
         let release = self.capture_release("cli", version, url, key)?;
+        self.prepare_cli(release)
+    }
+    /// Capture one signed update, prepare its runtime/payload, then return its launcher.
+    pub fn prepare_cli_update(
+        &self,
+        current: &str,
+        url: &str,
+        key: &str,
+    ) -> Result<Option<InstalledArtifact>> {
+        let release = crate::fetch_verified_release(&crate::http_client()?, url, key)?;
+        if semver::Version::parse(&release.manifest.product_version)?
+            <= semver::Version::parse(current)?
+        {
+            return Ok(None);
+        }
+        let target = release
+            .manifest
+            .targets
+            .get(host_target()?)
+            .context("Release does not support this platform")?;
+        let launcher = self.install(
+            "staging/cli-update",
+            &release.manifest.product_version,
+            &target.launcher,
+            None,
+        )?;
+        self.prepare_cli(release)?;
+        Ok(Some(launcher))
+    }
+    fn prepare_cli(&self, release: VerifiedRelease) -> Result<PreparedCli> {
+        let version = &release.manifest.product_version;
         let target = &release.manifest.targets[host_target()?];
         let node = self.install("node", &target.node.version, &target.node.artifact, None)?;
         let cli = self.install("cli", version, &target.cli, Some(&release))?;

@@ -20,7 +20,8 @@ program
   .description("an agent harness with an Ink TUI")
   .addHelpText(
     "after",
-    "\nInstalled launcher: harness cache prune [--apply] previews or removes unused downloads.",
+    "\nInstalled launcher: harness update installs a newer CLI.\n" +
+      "harness cache prune [--apply] previews or removes unused downloads.",
   )
   .version(PRODUCT_VERSION)
   .option("--model <id>", "model id override")

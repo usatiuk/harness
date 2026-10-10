@@ -68,6 +68,13 @@ requiring system Node. Public installers, publication and updates remain in prog
 under the [release plan](docs/plans/cross-cutting/2026-10-10-release-installation-updates.md).
 Release desktops expose an explicit update check and install/restart action in
 Settings → Application. Source and development builds update by rebuilding.
+Installed CLIs update with `harness update`: it verifies one signed latest release,
+prepares that release's CLI and Node, and replaces the native launcher for the next
+invocation. It only accepts a release newer than the running CLI and leaves the
+server running. Windows keeps one
+`harness.exe.previous` beside the installation until the next update; close older
+CLI processes before updating again. Manual CLI uninstall removes those two files
+and retains the shared home/data/cache.
 Actual signed installer/update execution remains unqualified.
 Installed launchers expose `harness cache prune` to preview cached downloads and
 `harness cache prune --apply` to remove them. Stop installed CLI, desktop and server

@@ -27,4 +27,7 @@ fn main() {
     println!(
         "cargo:rustc-env=HARNESS_RELEASE_BASE_URL=https://github.com/{repository}/releases/download"
     );
+    println!(
+        "cargo:rustc-env=HARNESS_LATEST_MANIFEST_URL=https://github.com/{repository}/releases/latest/download/release.json"
+    );
 }

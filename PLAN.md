@@ -74,12 +74,15 @@ pruning previews/removes inactive downloads and preserves data. Desktop update
 controls now use Tauri's official updater; actual installation remains unqualified.
 Connect-time server replacement now reuses the existing lifecycle lock and engine
 busy check: idle owners upgrade, active work requires explicit reconnect, and
-versions never downgrade. CLI updates, signed remote-upgrade qualification, hosted
-artifacts and public installation remain open.
+versions never downgrade. The native CLI update command verifies a signed release,
+prepares its CLI/Node and replaces its launcher. Signed update/remote qualification,
+hosted artifacts and public installation remain open.
 
-The simplified implementation passes the ordinary full check with 1,214 tests
-(36 skipped), 17 headless Rust cases and a fresh outside-checkout managed-server
-RPC/demo-turn/SQLite-restart smoke. Three independent final reviews are resolved.
+The current implementation passes the ordinary full check with 1,218 tests
+(36 skipped), eleven Windows and ten Ubuntu headless native cases, and fresh
+WSL/SSH source deployment checks. Windows/Linux release payloads and a signed
+Windows installer build; real installation/update remains unqualified.
+Three independent reviews of the CLI update increment are resolved.
 Direct main commits/pushes are authorized; publication and visible native tests
 require separate approval.
 

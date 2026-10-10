@@ -216,6 +216,15 @@ remain visible, and an installation failure after shutdown requires reopening th
 Window exit and the Windows installer share one awaited shutdown result so neither
 can exit while the other is still retiring a helper. Actual installer/update execution
 is not yet qualified.
+The native `harness update` command captures a signed latest release, prepares
+its Node/CLI payload, checks the launcher's reported version and replaces it for
+the next invocation. It only accepts versions newer than the invoking CLI and
+does not stop the server. Updates are serialized within the shared home, not
+across independent `HARNESS_HOME` installations. Windows retains one
+`.previous` launcher and refuses its deletion while an older CLI still uses it;
+Unix uses an atomic rename. No helper subprocess performs deletion. A failed
+Windows replacement restores the previous file; interruption between its two
+renames requires manual restoration. Signed update execution remains unqualified.
 The keep-running preference defaults false; stop-on-exit releases Local only when
 another client is not attached. Local background execution after desktop exit is
 an explicit remembered preference. Remote observers detach without stopping their owner.

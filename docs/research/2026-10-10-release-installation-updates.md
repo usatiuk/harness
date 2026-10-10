@@ -218,6 +218,14 @@ still needs qualification: [Microsoft Ctrl+C/Break documentation](https://learn.
 warns that ignoring Ctrl+C can be inherited by children. Forward stdio/signals
 instead of buffering input or disabling the TUI's cancellation.
 
+The maintained [Windows self-replace implementation](https://github.com/mitsuhiko/self-replace/blob/main/src/windows.rs)
+spawns its deletion copy without a no-window flag. That conflicts with the accepted
+headless/no-popup requirement. Harness instead stages beside the installation,
+atomically replaces Unix binaries, and retains one Windows `.previous` binary.
+The next explicit update deletes that file only after its users exit. The mapped
+Windows-image regression qualifies this file-lifetime behavior. No fork, copied
+library implementation or deletion process is added.
+
 Use component directories (`runtime/node`, `server`, `cli`) with verified metadata
 beside their payloads. Separate release catalogs and installed-client references
 are unnecessary for explicit cleanup. Keep one durable server selection to

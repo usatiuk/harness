@@ -79,6 +79,18 @@ owners over the local socket/pipe. It checks approval-held refusal, unchanged bu
 selection, idle replacement, persistent identity/history and older-client reuse.
 Host regressions cover the existing plugin deactivation blockers and admission
 closure. They do not establish signed downloads or released SSH/WSL upgrades.
+CLI replacement tests use real files and, on Windows, a mapped native executable:
+replace while its old image runs, refuse to delete that image, then replace again
+after physical exit. The ignored `held_image` test is a subprocess fixture invoked
+by that regression. These checks remain headless and do not establish the combined
+signed-download/update command against public release artifacts.
+The current CLI update increment passes `npm run check -- --maxWorkers=2`
+(1,218 tests, 36 skipped), eleven Windows and ten Ubuntu native cases, and fresh
+source remote qualification: two WSL cases and three isolated SSH cases pass.
+Windows and Linux release CLI/server payloads build and report the product version.
+A Windows NSIS release installer builds and its updater signature verifies against
+the project public key. It has not been installed or published; cold release
+downloads, combined updates and macOS artifacts remain unqualified.
 Use a fresh `HARNESS_HOME`, such as `.harness-dev/simplification`, for the
 replacement checks: old disposable development caches use the removed receipt
 format. No pre-release cache migration is required.
@@ -93,7 +105,7 @@ The native launcher cleanup regression exercises `harness cache prune [--apply]`
 without downloading Node: preview, refusal under a live shared cache lease,
 removal across all cache locations, persistent files and repeat invocation.
 The bootstrap test rejects redirected runtime directories (Windows junction or
-Unix symlink). Windows passes; the Unix variant still needs a Unix execution.
+Unix symlink). Both Windows and the rebuilt Ubuntu qualification pass.
 The regular Windows/Ubuntu workflow now runs these headless Rust tests as well
 as `npm run check`; it opens no native UI.
 

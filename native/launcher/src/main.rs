@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail};
 use harness_bootstrap::{Cache, InstalledArtifact, default_home};
 use std::{ffi::OsString, path::Path, process::Command};
 mod preparation;
+mod update;
 use preparation::PreparationConnection;
 
 const KEY: &str = include_str!("../../../release/verification-key.pub");
@@ -55,6 +56,13 @@ fn run() -> Result<i32> {
     let connection = remote.then(PreparationConnection::new).transpose()?;
     let cache = Cache::new(&default_home()?)?;
     match command.as_str() {
+        "update" => {
+            exact(&args, 1)?;
+            if option_env!("HARNESS_RELEASE_BUILD") != Some("1") {
+                bail!("Development builds update by rebuilding");
+            }
+            update::run(&cache, KEY)
+        }
         "--prepare-server" => {
             exact(&args, 2)?;
             let prepared = cache.prepare_selected_server(

@@ -23,6 +23,17 @@ reopen the CLI. There is no separate server-update action or background waiting
 queue. Recovering in-flight work is outside scope. Persistent conversations and
 settings survive uninstall and updates.
 
+Client updates are explicit: Settings uses Tauri's updater; `harness update` uses
+the same signed release metadata and existing download cache. The CLI prepares its
+Node/JavaScript payload before replacing the launcher and takes effect on its next
+invocation. Neither action force-upgrades a busy server. Unix replaces the launcher
+by atomic rename. Windows retains one `.previous` binary because running images
+cannot be deleted; the next update removes it once older CLI processes have exited.
+A replacement failure restores it; a crash between Windows renames requires manual
+restoration from that file. No deletion helper, registry or cleanup daemon is needed.
+CLI updates compare against the invoking binary and serialize within its shared
+home; independent `HARNESS_HOME` installations are not coordinated.
+
 Downloads are signed and hashed, staged, then installed atomically. Installed and
 deployed server code is immutable, so rebuilding does not replace code already
 loaded by a running owner. Ordinary source development and tests use local
@@ -91,7 +102,7 @@ not duplicated in download metadata.
 - [x] Replace per-artifact lifetime/retention machinery with one cache-use lock.
       Depends on the payload contract. Completion: running consumers prevent removal,
       cancellation joins helpers, source rebuilds retain the previous owner safely.
-- [ ] Validate shared local owner and SSH/WSL bootstrap flows.
+- [x] Validate shared local owner and SSH/WSL bootstrap flows.
       Depends on runtime simplification. Completion: headless CLI/server smoke,
       socket/pipe and available source-remote regressions pass.
 - [ ] Complete connect-time server upgrades, explicit client updates and cache pruning.
@@ -102,7 +113,7 @@ not duplicated in download metadata.
       reviews. Desktop updates use Tauri's updater through one explicit check/install
       command in Settings. Connect-time server replacement uses existing
       reconnect/start/stop boundaries and the engine's existing busy predicate.
-      CLI updates and signed remote-upgrade qualification remain unfinished.
+      CLI update code is implemented; signed update/remote qualification remains open.
 - [x] Complete the one-time halving audit, synchronize docs and review the checkpoint.
       Completion: checkpoint additions reduced below 6,932; its full and native
       checks pass; remaining external qualification inputs are stated precisely.
@@ -188,6 +199,22 @@ build pass. Three narrow independent reviews are resolved. The first full run
 exposed a stale isolated-server test that expected idle upgrades to fail; it now
 checks upgrade after stop and rejection of a downgrade. Signed cold downloads and
 release-mode SSH/WSL upgrade execution remain unqualified.
+
+The CLI update increment passes eleven headless bootstrap/launcher cases, including
+replacement of a mapped Windows executable, and native compilation. Actual Windows
+release CLI/server payloads build successfully. Three narrow independent reviews
+are resolved; the documentation scopes version comparison and serialization to
+the invoking CLI/shared home rather than promising installation-wide coordination
+across independent homes. The combined signed-download/update remains unqualified.
+
+The current full check passes typecheck, lint, formatting and 1,218 tests (36
+skipped). Ten headless Ubuntu native cases pass, including Unix symlink and cache
+pruning behavior. Fresh source payloads pass two WSL and three isolated SSH cases.
+Actual Windows and Linux release CLI/server payloads build and report the product
+version. The Windows NSIS installer builds, and the production native verifier
+accepts its updater signature against the project public key. No installer is
+executed or published. Sandbox temp-module rename and NSIS extraction failures
+are resolved by rerunning the unchanged commands outside the sandbox.
 
 No release has been
 published. Anonymous cold download, real installer/update execution and macOS/Linux
