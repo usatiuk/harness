@@ -72,6 +72,13 @@ remain solid. Repository checks, ten headless browser cases and all five rebuilt
 native appearance cases pass. The client-window-chrome follow-up above replaces
 the separate title-bar surface to allow consistent modal dimming.
 
+The [Mistral and session-routing change](docs/plans/models/2026-10-10-mistral-support.md)
+adds Mistral API/Vibe API-key connections and OpenCode Go's required session
+header. Each conversation keeps its own routing identity across turns and
+resume. Full validation after rebasing passes 1,061 tests, the shared-server bundle builds and
+three independent reviews report no material findings. Live Mistral acceptance,
+cache-hit performance and subscription billing remain unqualified without credentials.
+
 The [Windows CI reliability follow-up](docs/plans/cross-cutting/2026-10-07-windows-ci-reliability.md)
 corrects stale discovery publication, RPC completion at shutdown/EOF and test
 prerequisites. The corrected cancellation gate, observer cleanup and attachment
@@ -134,7 +141,7 @@ platform evidence and earlier unreproduced test failures.
 
 ## Current implementation status
 
-As of 2026-10-04, Harness provides:
+As of 2026-10-10, Harness provides:
 
 - An append-only conversation/item graph with one durable head, linear rewind,
   branch-preserving continuation, turn reconciliation, and resumable transcripts.
@@ -145,7 +152,8 @@ As of 2026-10-04, Harness provides:
   per-conversation services, policies, observers, and configuration schemas.
 - OpenAI API-key (Responses + chat/completions), OpenAI Codex OAuth, Anthropic
   API-key, OpenCode Go API-key, config-defined OpenAI/Anthropic-compatible
-  providers, named built-in/compatible API/OAuth connections, boot-discovered LiteLLM
+  providers, Mistral API/Vibe API-key connections, named built-in/compatible
+  API/OAuth connections, boot-discovered LiteLLM
   gateways, uniform scoped credentials and neutral shared transports, and a
   deterministic demo provider with model catalogs, reasoning
   payload fidelity, usage, and cost.

@@ -24,6 +24,16 @@ transient reliability work remains open.
 - [x] Qualify real LiteLLM with controlled upstream continuations and packaged Windows behavior.
 - [ ] Qualify vendor-encrypted continuations with real upstream credentials.
 
+## Mistral and per-conversation session routing
+
+The [Mistral and session-routing delivery plan](../../plans/models/2026-10-10-mistral-support.md)
+adds API-key Mistral API/Vibe instances and fixes OpenCode Go's required session
+header. A single model-call context supplies each conversation's existing ID;
+provider-owned request headers keep concurrent calls isolated. Local SDK/HTTP
+and RPC regressions pass. Full validation after rebasing passes 1,061 tests, the shared server
+bundle builds, and three independent reviews report no material findings. Live
+Mistral acceptance/billing/cache qualification lacks credentials.
+
 ## Bounded transient reliability
 
 - [ ] Introduce one provider-neutral retryable model failure with adapters owning

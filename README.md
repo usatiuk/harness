@@ -147,9 +147,10 @@ Add connections to the machine-global `settings.json` under your Harness home:
 }
 ```
 
-Built-in types are `openai-api`, `anthropic-api`, `opencode-go`, and
-`openai-codex`; existing connections with IDs `openai`, `anthropic`,
-`opencode-go`, and `openai-codex` remain available. Each named connection has
+Built-in types are `openai-api`, `anthropic-api`, `opencode-go`,
+`openai-codex`, `mistral-api`, and `mistral-vibe`; default connections use IDs
+`openai`, `anthropic`, `opencode-go`, `openai-codex`, `mistral-api`, and
+`mistral-vibe`. Each named connection has
 isolated credentials. Sign in through desktop Settings or
 `harness auth login --provider work`. Additional named sign-ins preserve the
 global model selection. Labels are editable; instance IDs identify saved
@@ -161,6 +162,23 @@ precedence over storage. OAuth instances own independent sessions and refresh
 tokens. Every connection, including the defaults, uses instance-scoped slots in
 the machine secret backend. This pre-release format has no migration: older
 stored credentials require signing in again.
+
+Mistral API and Vibe use API-key sign-in through the same settings/auth controls.
+The default instances read `MISTRAL_API_KEY` and `MISTRAL_VIBE_API_KEY`
+respectively, with secure storage as a fallback. Additional named instances use
+secure storage unless you select an explicit environment source. Both generate
+through `https://api.mistral.ai/v1/chat/completions`; API discovery uses
+`/v1/models` and Vibe discovery uses `/v1/model-catalog?surface=vibe-code`.
+Discovery runs at server boot. The experimental Vibe catalog surface does not
+establish subscription eligibility or billing behavior. Available context limits
+and verified Vibe reasoning controls come from the catalog; output limits and
+prices remain unknown when the server does not advertise them.
+
+Every model call has the calling conversation's stable identity, including
+subagents, compaction and auto-approval. OpenCode Go sends it as
+`x-opencode-session` on all three transports; Mistral sends it as `x-affinity`.
+Each child keeps its own identity. Retries and resume retain the conversation ID,
+and both providers identify Harness with `User-Agent: Harness/0.0.0`.
 
 Compatible types are `openai-responses-compatible`,
 `openai-completions-compatible`, and `anthropic-compatible`. They accept the same

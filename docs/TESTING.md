@@ -486,6 +486,27 @@ delays, or a nearby condition that does not prove completion.
   test above adds real gateway fidelity/affinity evidence; actual vendor
   cryptographic acceptance remains tracked in the delivery plan.
 
+- Mistral tests exercise the real pinned OpenAI SDK against local HTTP/SSE
+  fixtures, with synthetic API keys and signatures. They cover native interleaved
+  thinking replay, exact tool arguments, deterministic imported IDs, stable
+  headers/prompt prefixes, cached-token accounting, unknown/malformed usage,
+  terminal tool errors, overflow and socket closure on abort/consumer return.
+  Catalog checks cover both surfaces, bounded rows/bytes, aliases, atomic
+  replacement, redirects and external failure classification. Server RPC tests
+  cover isolated API/Vibe and named credentials, sign-in/logout/restart,
+  failed discovery, preserved unavailable selection, catalog and generation.
+  Native signed continuation across a SQLite/server restart is composed coverage
+  from adapter and existing core payload tests; it is not a direct Mistral restart
+  case. RPC auth tests substitute the secret backend and do not qualify real DPAPI.
+  These tests do not establish real vendor signature acceptance, cache-hit rates
+  or subscription billing; no Mistral vendor credentials were available.
+
+- Model-call context regressions cover concurrent roots, nested subagents,
+  logical retries, compaction and resume with each conversation's own ID.
+  OpenCode Go HTTP fixtures reject missing `x-opencode-session` and exercise
+  all three real SDK transports with shared clients and concurrent conversation
+  identities, including repeated calls and the Harness user agent.
+
 - Named built-in provider tests cover independent stored API keys, exact
   environment references, uniform encoded slots, label changes, construction identity,
   type contributions and pre-construction validation. Codex tests cover isolated

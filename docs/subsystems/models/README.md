@@ -5,7 +5,8 @@
 Harness supports OpenAI Responses and chat/completions through API keys,
 ChatGPT/Codex OAuth, Anthropic Messages through API keys, OpenCode Go through an
 API key across all three gateway transports, config-defined
-OpenAI/Anthropic-compatible endpoints, and a deterministic demo provider. Adapters
+OpenAI/Anthropic-compatible endpoints, Mistral API/Vibe API-key connections, and
+a deterministic demo provider. Adapters
 expose one streaming `ModelProvider` contract. Shared transports own native
 serialization, streaming, payload fidelity and error normalization; concrete
 connections own catalogs, capabilities and generation policy.
@@ -25,6 +26,15 @@ A provider declares:
 - Model capabilities used to choose Harness-owned tool dialects.
 - Configuration validation.
 - A cancellable stream from `ModelRequest` to provider-neutral events.
+
+`ModelProvider.stream(request, signal, context)` receives a required
+`ModelCallContext` containing the calling `conversationId`. Core creates it at
+the one middleware/provider boundary for agent steps and auxiliary invocations.
+Retries retain that context, resume retains the durable ID, and each subagent
+uses its own conversation ID. Request identity is outside prompt content and
+credential state. Connections map it to their native headers. Shared SDK
+transports accept a connection-owned `requestHeaders(context)` callback and pass
+its result as per-call request options, without mutating shared client defaults.
 
 `ModelConfig` is one atomic `{provider, model, preset?}` selection. A model
 identity change never carries a preset, even when the destination exposes the
@@ -179,6 +189,13 @@ streaming, payload fidelity, overflow mapping, cancellation and usage
 normalization without inheriting another vendor's catalog or request defaults. Go is a subscription plan, so the
 catalog ships no per-token pricing and usage rows record `null` cost.
 
+Every Go Chat, Responses and Messages call sends
+`x-opencode-session: <conversationId>` and `User-Agent: Harness/0.0.0`.
+This includes compaction and model-backed approval requests through the common
+core boundary. Missing routing identity caused the reported HTTP 400; there is
+no generated fallback ID. The headers follow the
+[Go client requirements](https://opencode.ai/docs/go/#where-can-i-use-it).
+
 The compiled roster also exposes only the model-scoped reasoning controls
 advertised by the verified Models.dev `opencode-go` catalog. Chat models map
 effort presets to `reasoning_effort`; Luna maps `none` through `max` to Responses
@@ -187,6 +204,49 @@ thinking off/on; and Qwen's `high`/`max` presets use the same bounded thinking
 budgets as OpenCode. Omitting a preset leaves every other model on the gateway's
 native behavior. Preset names never transfer between models, and models without
 an advertised control reject presets rather than ignoring them.
+
+## Mistral API and Vibe
+
+`@harness/mistral` contributes `mistral-api` and `mistral-vibe` types. Both use
+API-key auth with existing instance-scoped secrets and generate through
+`https://api.mistral.ai/v1/chat/completions`. The default instances select
+`MISTRAL_API_KEY` and `MISTRAL_VIBE_API_KEY` separately; additional named instances
+select secure storage or an explicit environment reference. API discovery reads
+`GET /v1/models`; Vibe reads `GET /v1/model-catalog?surface=vibe-code`. The Vibe
+endpoint is experimental upstream, and selecting its catalog surface does not
+prove subscription eligibility or change generation billing.
+
+The existing OpenAI SDK owns HTTP/SSE delivery and cancellation. Dedicated pure
+Mistral request/stream functions handle structured `thinking` blocks, signatures,
+closed flags and opaque block metadata, nine-character alphanumeric tool IDs,
+raw tool arguments, and native usage. Thinking blocks finalize in content order;
+their payloads bind to individual reasoning items. Matching provider/model/type
+payloads replay with validated versions; other histories use canonical content.
+Imported call IDs are normalized deterministically, with collisions rejected.
+Truncated/filtered/malformed tool outcomes retain reported accounting but finish
+with an error before any tools dispatch. Missing token counts remain unknown.
+
+Every generation sends `x-affinity: <conversationId>` and the Harness user agent.
+Children retain independent routing. Instructions, tool schemas and history stay
+in stable order; changing context stays at its canonical position rather than
+being moved to the front of the prompt. Cache routing is a provider header,
+separate from telemetry and prompt data. Reported cached prompt tokens are a
+subset of input tokens. SDK retries are disabled; core/middleware owns logical
+retry semantics.
+
+Discovery uses the existing bounded boot lifecycle: 2 MiB responses, 5,000 rows
+and expanded aliases, atomic snapshots, cancellation, safe status diagnostics,
+and no polling or disk cache. Explicit catalog rows own their IDs; conflicting
+aliases and duplicate IDs fail discovery. Only function-capable chat models are
+selectable. Model labels and context capacity follow the catalog; unadvertised
+output limits/prices remain unknown. Vibe's verified `off`/`low` controls map to
+native `none`, and `medium`/`high`/`max` map to `high`, only when advertised.
+The public canonical content boundary currently supports text, so advertised
+vision capabilities do not enable image input.
+
+Local SDK/HTTP/SSE fixtures verify transport and fidelity. No real Mistral key
+was available for this delivery; vendor signature acceptance, cache-hit rates
+and subscription billing remain unqualified.
 
 ## LiteLLM connections and boot discovery
 
@@ -240,7 +300,7 @@ Provider plugins contribute configurable types through `providerTypes()`.
 Global `providers.<id>` entries choose a type, optional display label, and the
 type-owned config. The stable instance ID remains `ModelConfig.provider`; the
 engine needs no extra identity field or execution path. OpenAI API, Anthropic API,
-OpenCode Go, and Codex OAuth support any number of named connections. Their
+OpenCode Go, Mistral API/Vibe, and Codex OAuth support any number of named connections. Their
 existing IDs are implicit default instances with the same scoped storage as
 additional named connections.
 
@@ -307,6 +367,7 @@ middleware. Deterministic request/configuration failures must never be retried.
 - `packages/openai-core`, `openai-api`, `openai-codex`: OpenAI adapters/auth.
 - `packages/anthropic-core`, `anthropic-api`: Anthropic adapter/auth.
 - `packages/opencode-go`: OpenCode Go provider and static roster.
+- `packages/mistral`: API/Vibe auth types, bounded catalogs and native mapping.
 - `packages/custom-providers`: config-defined Responses/chat/Messages providers.
 - `packages/litellm`: instance configuration, discovery normalization and gateway adapters.
 - `packages/auth`, `packages/secrets`: login and credential persistence.
