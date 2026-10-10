@@ -182,8 +182,9 @@ fn development_tar_is_immutable_and_helper_exits_without_stdin_handoff() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    assert!(await_exit(&mut child).success());
+    let status = await_exit(&mut child);
     let output = child.wait_with_output().unwrap();
+    assert!(status.success(), "{output:?}");
     let prepared: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let payload = std::path::Path::new(prepared["payload"].as_str().unwrap());
     assert_eq!(fs::read(payload.join("server.mjs")).unwrap(), b"server");

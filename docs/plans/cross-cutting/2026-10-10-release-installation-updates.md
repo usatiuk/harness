@@ -157,6 +157,11 @@ Rust cases, a rebuilt development payload and a release-mode configuration check
 The packaged tests use the verified qualification cache; a first invocation pointed
 at an incomplete scratch runtime. The independent shutdown re-review is resolved.
 
+Windows CI for the preceding cache increment (`1676986`, run `38085508682`) failed
+in the development archive/helper test; Ubuntu passed. Its assertion omitted child
+stderr, so the root cause is not established. The regression now preserves that
+output on failure. Local headless execution passes; hosted evidence remains open.
+
 The additional simplification removes Git commands, embedded source commits and
 commit comparisons from payload builders, the native launcher and metadata assembly.
 Versions, platform/Node requirements and signed archive checks remain. The workflow
