@@ -3224,8 +3224,10 @@
           "additionalProperties": false
         },
         "relationship": {
-          "type": "string",
-          "enum": ["in-workspace", "out-of-workspace", "unknown"]
+          "anyOf": [
+            { "type": "string", "enum": ["in-workspace", "out-of-workspace", "unknown"] },
+            { "type": "null" }
+          ]
         }
       },
       "required": ["requestId", "rootConversationId", "conversationId", "call", "relationship"],
@@ -3524,10 +3526,19 @@
             "approval": {
               "type": "object",
               "properties": {
-                "inWorkspace": { "type": "string", "enum": ["allow", "ask", "deny"] },
-                "outOfWorkspace": { "type": "string", "enum": ["allow", "ask", "deny"] }
+                "inWorkspace": { "type": "string", "enum": ["allow", "ask", "ask-human", "deny"] },
+                "outOfWorkspace": {
+                  "type": "string",
+                  "enum": ["allow", "ask", "ask-human", "deny"]
+                },
+                "humanApprovalTimeoutSeconds": {
+                  "default": 60,
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 2147483
+                }
               },
-              "required": ["inWorkspace", "outOfWorkspace"],
+              "required": ["inWorkspace", "outOfWorkspace", "humanApprovalTimeoutSeconds"],
               "additionalProperties": false
             },
             "autoApproval": {
@@ -3683,10 +3694,16 @@
         "approval": {
           "type": "object",
           "properties": {
-            "inWorkspace": { "type": "string", "enum": ["allow", "ask", "deny"] },
-            "outOfWorkspace": { "type": "string", "enum": ["allow", "ask", "deny"] }
+            "inWorkspace": { "type": "string", "enum": ["allow", "ask", "ask-human", "deny"] },
+            "outOfWorkspace": { "type": "string", "enum": ["allow", "ask", "ask-human", "deny"] },
+            "humanApprovalTimeoutSeconds": {
+              "default": 60,
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 2147483
+            }
           },
-          "required": ["inWorkspace", "outOfWorkspace"],
+          "required": ["inWorkspace", "outOfWorkspace", "humanApprovalTimeoutSeconds"],
           "additionalProperties": false
         },
         "autoApproval": {
@@ -3765,6 +3782,251 @@
       "required": ["url", "userCode"],
       "additionalProperties": false
     },
+    "plugin_mcp_settings_get_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "plugin_mcp_settings_get_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "config": { "$ref": "#/$defs/__schema0" },
+        "active": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "status": {
+                "type": "string",
+                "enum": ["disabled", "ready", "auth-required", "unavailable"]
+              },
+              "detail": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+              "toolCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "authenticated": { "type": "boolean" },
+              "signingIn": { "type": "boolean" },
+              "credentials": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": { "slot": { "type": "string" }, "present": { "type": "boolean" } },
+                  "required": ["slot", "present"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "detail",
+              "toolCount",
+              "authenticated",
+              "signingIn",
+              "credentials"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "restartRequired": { "type": "boolean" },
+        "credentialBackend": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+      },
+      "required": ["config", "active", "restartRequired", "credentialBackend"],
+      "additionalProperties": false,
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "boolean" },
+            { "type": "number" },
+            { "type": "string" },
+            { "type": "array", "items": { "$ref": "#/$defs/__schema0" } },
+            {
+              "type": "object",
+              "propertyNames": { "type": "string" },
+              "additionalProperties": { "$ref": "#/$defs/__schema0" }
+            }
+          ]
+        }
+      }
+    },
+    "plugin_mcp_settings_set_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "config": { "$ref": "#/$defs/__schema0" } },
+      "required": ["config"],
+      "additionalProperties": false,
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "boolean" },
+            { "type": "number" },
+            { "type": "string" },
+            { "type": "array", "items": { "$ref": "#/$defs/__schema0" } },
+            {
+              "type": "object",
+              "propertyNames": { "type": "string" },
+              "additionalProperties": { "$ref": "#/$defs/__schema0" }
+            }
+          ]
+        }
+      }
+    },
+    "plugin_mcp_settings_set_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "restartRequired": { "type": "boolean", "const": true } },
+      "required": ["restartRequired"],
+      "additionalProperties": false
+    },
+    "plugin_mcp_tools_list_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "plugin_mcp_tools_list_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "serverId": { "type": "string" },
+          "name": { "type": "string" },
+          "rawName": { "type": "string" },
+          "description": { "type": "string" },
+          "readOnly": { "type": "boolean" }
+        },
+        "required": ["serverId", "name", "rawName", "description", "readOnly"],
+        "additionalProperties": false
+      }
+    },
+    "plugin_mcp_test_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "serverId": { "type": "string" } },
+      "required": ["serverId"],
+      "additionalProperties": false
+    },
+    "plugin_mcp_test_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["disabled", "ready", "auth-required", "unavailable"]
+        },
+        "detail": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "toolCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "authenticated": { "type": "boolean" },
+        "signingIn": { "type": "boolean" },
+        "credentials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "slot": { "type": "string" }, "present": { "type": "boolean" } },
+            "required": ["slot", "present"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "detail",
+        "toolCount",
+        "authenticated",
+        "signingIn",
+        "credentials"
+      ],
+      "additionalProperties": false
+    },
+    "plugin_mcp_credentials_set_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "serverId": { "type": "string" },
+        "slot": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "value": { "type": "string", "minLength": 1 }
+      },
+      "required": ["serverId", "slot", "value"],
+      "additionalProperties": false
+    },
+    "plugin_mcp_credentials_set_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "null"
+    },
+    "plugin_mcp_credentials_delete_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "serverId": { "type": "string" },
+        "slot": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["serverId", "slot"],
+      "additionalProperties": false
+    },
+    "plugin_mcp_credentials_delete_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "null"
+    },
+    "plugin_mcp_auth_start_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "serverId": { "type": "string" } },
+      "required": ["serverId"],
+      "additionalProperties": false
+    },
+    "plugin_mcp_auth_start_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "attemptId": { "type": "string" },
+        "url": { "type": "string" },
+        "redirectUrl": { "type": "string" }
+      },
+      "required": ["attemptId", "url", "redirectUrl"],
+      "additionalProperties": false
+    },
+    "plugin_mcp_auth_complete_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "attemptId": { "type": "string" },
+        "callbackUrl": { "type": "string", "format": "uri" }
+      },
+      "required": ["attemptId", "callbackUrl"],
+      "additionalProperties": false
+    },
+    "plugin_mcp_auth_complete_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "null"
+    },
+    "plugin_mcp_auth_cancel_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "attemptId": { "type": "string" } },
+      "required": ["attemptId"],
+      "additionalProperties": false
+    },
+    "plugin_mcp_auth_cancel_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "null"
+    },
+    "plugin_mcp_auth_logout_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "serverId": { "type": "string" } },
+      "required": ["serverId"],
+      "additionalProperties": false
+    },
+    "plugin_mcp_auth_logout_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "null"
+    },
     "activities_snapshot": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -3835,8 +4097,10 @@
                 "additionalProperties": false
               },
               "relationship": {
-                "type": "string",
-                "enum": ["in-workspace", "out-of-workspace", "unknown"]
+                "anyOf": [
+                  { "type": "string", "enum": ["in-workspace", "out-of-workspace", "unknown"] },
+                  { "type": "null" }
+                ]
               }
             },
             "required": [
@@ -4149,6 +4413,76 @@
       "kind": "notification",
       "direction": "server-to-client",
       "params": { "$ref": "#/$defs/app_auth_url_params" }
+    },
+    {
+      "method": "plugin.mcp.settings.get",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_mcp_settings_get_params" },
+      "result": { "$ref": "#/$defs/plugin_mcp_settings_get_result" }
+    },
+    {
+      "method": "plugin.mcp.settings.set",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_mcp_settings_set_params" },
+      "result": { "$ref": "#/$defs/plugin_mcp_settings_set_result" }
+    },
+    {
+      "method": "plugin.mcp.tools.list",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_mcp_tools_list_params" },
+      "result": { "$ref": "#/$defs/plugin_mcp_tools_list_result" }
+    },
+    {
+      "method": "plugin.mcp.test",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_mcp_test_params" },
+      "result": { "$ref": "#/$defs/plugin_mcp_test_result" }
+    },
+    {
+      "method": "plugin.mcp.credentials.set",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_mcp_credentials_set_params" },
+      "result": { "$ref": "#/$defs/plugin_mcp_credentials_set_result" }
+    },
+    {
+      "method": "plugin.mcp.credentials.delete",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_mcp_credentials_delete_params" },
+      "result": { "$ref": "#/$defs/plugin_mcp_credentials_delete_result" }
+    },
+    {
+      "method": "plugin.mcp.auth.start",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_mcp_auth_start_params" },
+      "result": { "$ref": "#/$defs/plugin_mcp_auth_start_result" }
+    },
+    {
+      "method": "plugin.mcp.auth.complete",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_mcp_auth_complete_params" },
+      "result": { "$ref": "#/$defs/plugin_mcp_auth_complete_result" }
+    },
+    {
+      "method": "plugin.mcp.auth.cancel",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_mcp_auth_cancel_params" },
+      "result": { "$ref": "#/$defs/plugin_mcp_auth_cancel_result" }
+    },
+    {
+      "method": "plugin.mcp.auth.logout",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_mcp_auth_logout_params" },
+      "result": { "$ref": "#/$defs/plugin_mcp_auth_logout_result" }
     }
   ],
   "x-harness-snapshots": {

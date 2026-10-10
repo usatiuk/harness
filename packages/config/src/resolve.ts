@@ -30,6 +30,7 @@ export interface ResolveOptions {
   overrides?: Record<string, unknown>;
   /** Plugin id → config schema, for central validation of plugin slices. */
   schemas: Map<string, ZodType>;
+  globalPlugins?: ReadonlySet<string>;
 }
 
 /** One labelled layer in the cascade; the label cites the source in errors. */
@@ -81,6 +82,14 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
     layers.push({ label: "overrides", doc: parsed.data });
   }
 
+  for (const layer of layers) {
+    validateGlobalPluginScopes(
+      layer.doc,
+      opts.globalPlugins ?? new Set(),
+      layer.label,
+      layer.label === "defaults" || layer.label.startsWith("global settings ("),
+    );
+  }
   const doc = mergeDocs(layers);
   const sources = pluginSources(layers);
 
@@ -312,5 +321,22 @@ async function isDirectory(path: string): Promise<boolean> {
     return (await stat(path)).isDirectory();
   } catch {
     return false;
+  }
+}
+
+/** Check source ownership before merging away the source of a plugin contribution. */
+export function validateGlobalPluginScopes(
+  doc: SettingsDoc,
+  ids: ReadonlySet<string>,
+  source: string,
+  global: boolean,
+): void {
+  for (const id of ids) {
+    if (!global && doc.plugins?.[id] !== undefined)
+      throw new Error(`plugin '${id}' is global-only (in ${source})`);
+    for (const [name, profile] of Object.entries(doc.profiles ?? {})) {
+      if (profile.plugins?.[id] !== undefined)
+        throw new Error(`plugin '${id}' is global-only (in profile '${name}' of ${source})`);
+    }
   }
 }

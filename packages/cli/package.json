@@ -43,7 +43,8 @@
     "ink": "^8.0.0",
     "marked": "^18.0.5",
     "react": "^19.3.0",
-    "shiki": "^4.2.0"
+    "shiki": "^4.2.0",
+    "@harness/mcp": "*"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

@@ -2,13 +2,13 @@ import { z } from "zod";
 import { defineRequest, defineNotification, jsonValueSchema } from "@harness/protocol";
 import type { HarnessClient } from "@harness/client";
 
-export const APPROVAL_CLIENT_CONTRACT_VERSION = 2;
+export const APPROVAL_CLIENT_CONTRACT_VERSION = 3;
 export const clientApprovalSchema = z.strictObject({
   requestId: z.string(),
   rootConversationId: z.string(),
   conversationId: z.string(),
   call: z.strictObject({ callId: z.string(), name: z.string(), args: jsonValueSchema }),
-  relationship: z.enum(["in-workspace", "out-of-workspace", "unknown"]),
+  relationship: z.enum(["in-workspace", "out-of-workspace", "unknown"]).nullable(),
 });
 export const approvalsSnapshotSchema = z.strictObject({ pending: z.array(clientApprovalSchema) });
 export const approvalCreatedNotification = defineNotification({

@@ -1,5 +1,12 @@
+import { McpRuntime, MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp";
+import { registerMcpApi } from "./mcp.ts";
 import { join } from "node:path";
-import { defaultHome, readGlobalSettings } from "@harness/config";
+import {
+  defaultHome,
+  readGlobalSettings,
+  setAuthStore,
+  validateGlobalPluginScopes,
+} from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
 import { type ModelConfig, type PluginEntry } from "@harness/protocol";
 import { reapStoppedSandboxes, sandboxPlugin } from "@harness/sandbox";
@@ -7,7 +14,7 @@ import { activitiesPlugin } from "@harness/activities";
 import { agentsPlugin } from "@harness/agents";
 import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
-import { APPROVAL_CLIENT_CONTRACT_VERSION, approvalPlugin } from "@harness/approval";
+import { APPROVAL_CLIENT_CONTRACT_VERSION, createApprovalPlugin } from "@harness/approval";
 import { autoApprovalPlugin } from "@harness/auto-approval";
 import { SubagentsDefinition } from "@harness/subagents";
 import { HarnessService, HarnessRpcSession, HarnessRpcHost } from "@harness/service";
@@ -18,7 +25,7 @@ import { modelCompaction } from "@harness/core";
 import { QuickJsEvaluator } from "@harness/code-mode";
 import { DemoProvider } from "./demo-provider.ts";
 import { prepareProviderEntries, providerPlugins } from "./auth.ts";
-import { credentialStoreForRead } from "./credential-store.ts";
+import { credentialStoreForRead, credentialStoreForLogin } from "./credential-store.ts";
 import { registerFeatureServer } from "./features.ts";
 import { registerAppApi } from "./app-api.ts";
 import { bootstrapProviders } from "./provider-bootstrap.ts";
@@ -32,6 +39,7 @@ export const ACTIVITY_APPROVAL_DEFAULTS = {
 } as const;
 const CLIENT_CONTRACTS = [
   { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
+  { id: "mcp", version: MCP_CLIENT_CONTRACT_VERSION },
   ...FEATURE_PLUGIN_CONTRACTS,
 ];
 export interface ServerComposition {
@@ -56,15 +64,34 @@ export async function buildServerComposition(
     exclusive: true,
   });
   const subagents = new SubagentsDefinition();
+  let mcp: McpRuntime | undefined;
   let startedHost: HarnessRpcHost | undefined;
   try {
     const settings = await readGlobalSettings(defaultHome());
+    validateGlobalPluginScopes(settings, new Set(["mcp"]), "global settings", true);
     const prepare = prepareProviderEntries(
       settings,
       providerPlugins,
       join(defaultHome(), "settings.json"),
     );
     const { store: secrets, kind } = await credentialStoreForRead(defaultHome());
+    let mcpSecrets = secrets;
+    let mcpStoreKind = kind;
+    mcp = new McpRuntime(settings.plugins?.["mcp"] ?? {}, {
+      get: (key) => mcpSecrets.get(key),
+      delete: (key) => mcpSecrets.delete(key),
+      async set(key, value) {
+        if (mcpStoreKind === null) {
+          const selected = await credentialStoreForLogin(defaultHome());
+          await selected.store.set(key, value);
+          await setAuthStore(defaultHome(), selected.kind);
+          mcpSecrets = selected.store;
+          mcpStoreKind = selected.kind;
+        } else await mcpSecrets.set(key, value);
+      },
+    });
+    await mcp.initialize(signal);
+    const mcpRuntime = mcp;
     const registry = prepare(secrets);
     const built = await bootstrapProviders(registry, signal);
     const plugins: PluginEntry[] = [...providerPlugins, built.plugin];
@@ -75,7 +102,8 @@ export async function buildServerComposition(
       activitiesPlugin,
       outputPlugin,
       workspacePlugin,
-      approvalPlugin,
+      createApprovalPlugin((name) => !mcpRuntime.ownsTool(name)),
+      mcpRuntime.plugin(),
       agentsPlugin,
       autoApprovalPlugin,
       subagents,
@@ -133,7 +161,13 @@ export async function buildServerComposition(
           ),
       });
       registerFeatureServer(rpcSession);
-      const appApi = registerAppApi(rpcSession, service, appState);
+      const app = registerAppApi(rpcSession, service, appState);
+      const mcpApi = registerMcpApi(rpcSession, mcpRuntime, defaultHome());
+      const appApi = {
+        async close() {
+          await Promise.all([app.close(), mcpApi.close()]);
+        },
+      };
       sessions.set(rpcSession, appApi);
       connection.onClose(() => {
         void appApi
@@ -166,7 +200,11 @@ export async function buildServerComposition(
           await Promise.all([...sessions.keys()].map((session) => session.shutdown()));
         } finally {
           try {
-            subagents.resetSession();
+            try {
+              await mcpRuntime.close();
+            } finally {
+              subagents.resetSession();
+            }
           } finally {
             store.close();
           }
@@ -182,7 +220,11 @@ export async function buildServerComposition(
       cleanupErrors.push(cleanupError);
     }
     try {
-      subagents.resetSession();
+      try {
+        await mcp?.close();
+      } finally {
+        subagents.resetSession();
+      }
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
     }

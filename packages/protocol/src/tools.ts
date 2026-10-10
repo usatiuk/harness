@@ -4,7 +4,7 @@ import type { ConversationId } from "./ids.ts";
 import type { Item } from "./items.ts";
 import type { ToolGrammar } from "./model.ts";
 import type { PluginEvent } from "./events.ts";
-import type { InteractionRequest } from "./requests.ts";
+import type { InteractionRequest, RequestOptions } from "./requests.ts";
 import type { JsonValue } from "./rpc.ts";
 import type { ToolSchema } from "./model.ts";
 
@@ -87,6 +87,7 @@ export interface ToolContext {
  */
 export type ToolInput<A> =
   | { kind: "function"; schema: ZodType<A> }
+  | { kind: "json-schema"; schema: Record<string, unknown>; parse: (raw: unknown) => A }
   | { kind: "custom"; grammar?: ToolGrammar; parse: (raw: string) => A };
 
 export interface Tool<A = unknown> {
@@ -132,7 +133,7 @@ export interface ToolMiddlewareContext extends ToolContext {
    * ferries the opaque payload by id; the middleware owns the request/response shape
    * (e.g. `{kind:"approval", call}` → `{decision}`). Rejects if the turn is aborted.
    */
-  request(request: InteractionRequest): Promise<unknown>;
+  request(request: InteractionRequest, options?: RequestOptions): Promise<unknown>;
   /**
    * The compacted active window, re-derived from the durable log — the same source the model
    * build reads. Context staged by the current call is not visible until its result is persisted.

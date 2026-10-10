@@ -3,6 +3,14 @@ import { errorResult, type Tool, type ToolResult, type ToolSchema } from "@harne
 
 /** The wire schema a provider renders for a tool, derived from its `input`. */
 export function toToolSchema(tool: Tool): ToolSchema {
+  if (tool.input.kind === "json-schema") {
+    return {
+      kind: "function",
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input.schema,
+    };
+  }
   if (tool.input.kind === "function") {
     // The model supplies the parser's input. For pipelines/defaults/transforms, the output schema
     // describes the already-parsed value and can differ from the wire contract.
@@ -31,6 +39,16 @@ export function parseToolArgs(
     if (result.success) return { ok: true, data: result.data };
     const message = result.error.issues[0]?.message ?? "invalid arguments";
     return { ok: false, result: errorResult(`invalid args: ${message}`) };
+  }
+  if (tool.input.kind === "json-schema") {
+    try {
+      return { ok: true, data: tool.input.parse(rawArgs) };
+    } catch {
+      return {
+        ok: false,
+        result: errorResult("invalid args: advertised JSON Schema validation failed"),
+      };
+    }
   }
   if (typeof rawArgs !== "string") {
     return { ok: false, result: errorResult(`${tool.name} expects raw text input`) };

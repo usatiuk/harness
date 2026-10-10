@@ -282,7 +282,7 @@ export function App({
           request: {
             kind: "approval",
             call: event.approval.call,
-            relationship: event.approval.relationship,
+            ...(event.approval.relationship ? { relationship: event.approval.relationship } : {}),
           },
         },
         receivedAt: Date.now(),

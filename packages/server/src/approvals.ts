@@ -26,7 +26,7 @@ export function registerApprovalServer(rpcSession: HarnessRpcSession): void {
         name: request.call.name,
         args: jsonValueSchema.parse(request.call.args),
       },
-      relationship: request.relationship,
+      relationship: request.relationship ?? null,
     };
   };
   rpcSession.registerSnapshot("approval", (rootId) => ({

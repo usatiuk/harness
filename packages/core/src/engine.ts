@@ -1,3 +1,4 @@
+import { InteractionTimeoutError, type RequestOptions } from "@harness/protocol";
 import { randomUUID } from "node:crypto";
 import {
   assertNever,
@@ -1278,8 +1279,8 @@ export class Engine {
         this.#ensureRunning(runtime);
       },
       putBlob: (bytes) => this.store.putBlob(bytes),
-      request: (request) =>
-        this.#request(request, conversation, turnId, signal, runtime, modelInvocations),
+      request: (request, options) =>
+        this.#request(request, conversation, turnId, signal, runtime, modelInvocations, options),
       active: async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
       appendContext: async (key, content) => {
         if (signal.aborted) throw new Error("interrupted: turn aborted");
@@ -1317,6 +1318,7 @@ export class Engine {
     signal: AbortSignal,
     runtime: Runtime,
     modelInvocations: Promise<ModelInvocationResult>[],
+    options?: RequestOptions,
   ): Promise<unknown> {
     if (
       this.#runtimes.get(conversation.id) !== runtime ||
@@ -1348,7 +1350,7 @@ export class Engine {
       models: this.#modelInvoker(conversation, turnId, signal, undefined, modelInvocations),
     };
     return runRequestChain(this.host.requestMiddleware, request, ctx, (req) =>
-      this.#parkRequest(req, conversation.id, signal, runtime),
+      this.#parkRequest(req, conversation.id, signal, runtime, options),
     );
   }
 
@@ -1361,6 +1363,7 @@ export class Engine {
     conversationId: ConversationId,
     signal: AbortSignal,
     runtime: Runtime,
+    options?: RequestOptions,
   ): Promise<unknown> {
     const aborted = (): Error => new Error("interrupted: turn aborted");
     if (
@@ -1372,7 +1375,9 @@ export class Engine {
     if (signal.aborted) return Promise.reject(aborted());
     const requestId = `req_${++this.#requestSeq}`;
     return new Promise<unknown>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const cleanup = (): void => {
+        if (timer !== undefined) clearTimeout(timer);
         runtime.pendingRequests.delete(requestId);
         signal.removeEventListener("abort", onAbort);
       };
@@ -1390,6 +1395,22 @@ export class Engine {
           resolve(response);
         },
       });
+      if (options?.timeoutMs !== undefined) {
+        if (
+          !Number.isFinite(options.timeoutMs) ||
+          options.timeoutMs <= 0 ||
+          options.timeoutMs > 2_147_483_647
+        ) {
+          cleanup();
+          reject(new RangeError("invalid interaction timeout"));
+          return;
+        }
+        timer = setTimeout(() => {
+          cleanup();
+          this.#emitKernel({ type: "request.resolved", requestId, conversationId });
+          reject(new InteractionTimeoutError());
+        }, options.timeoutMs);
+      }
       this.#emitKernel({ type: "request.created", requestId, conversationId, request });
     });
   }

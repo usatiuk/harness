@@ -73,6 +73,7 @@
     "vscode-jsonrpc": "^8.2.0",
     "@harness/litellm": "*",
     "@harness/mistral": "*",
-    "@harness/connections": "*"
+    "@harness/connections": "*",
+    "@harness/mcp": "*"
   }
 }

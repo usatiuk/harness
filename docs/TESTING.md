@@ -22,6 +22,44 @@ npm run test:remote              # bundle and exercise isolated real SSH; WSL is
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## MCP and shared human approvals
+
+`packages/mcp/src/{mcp,oauth}.test.ts` uses the real official SDK across stdio
+processes and loopback HTTP. It covers public direct/code calls, schema/result
+adaptation, startup isolation, pagination, invalid catalogs, no replay after
+ambiguous disconnect, cancellation, permission inheritance, scoped children,
+credential target binding, redaction, resource-header isolation, and OAuth
+DCR/metadata clients/PKCE/refresh/restart/cancellation/expiry/logout.
+`server/src/mcp.test.ts` exercises real typed RPC settings, write-only secrets,
+namespace separation, reserved-key rejection before JSON normalization, safe
+credential-backend errors, and client-owned sign-in lifetime. Approval and shared-server
+regressions cover ordinary Ask human, auto-review bypass, zero-client expiry,
+and existing multi-client racing decisions and reattach snapshots.
+
+`cli/src/mcp-settings.test.tsx` renders production Ink controls. Desktop browser
+fixtures substitute the RPC data edge and exercise production MCP/settings
+controls with Chromium, including server-specific sign-in cleanup when another
+server is still signing in; run `npm run test:browser --workspace @harness/desktop`.
+Portable bundling and a real bundled NDJSON server were also exercised with
+stdio/HTTP/OAuth fixtures, file-secret persistence across restart, and observed
+child-process cleanup. The credential qualification overrides `os.homedir` only
+at the test boundary to isolate the existing file backend. See the
+[MCP delivery evidence](plans/cross-cutting/2026-10-10-mcp-tools-and-settings.md)
+for full-check results and review status. macOS browser/fixture evidence does not
+establish native Windows/DPAPI, Linux keyring, or real third-party OAuth acceptance.
+
+On this macOS host the unchanged QuickJS microtask test takes approximately
+7.8 seconds against its existing five-second test timeout, while returning its
+computation-limit error. Homebrew Node's `libnode` linkage prevents a copied
+standalone-runtime test; an official standalone Node archive passes that check.
+Bounded Vitest workers avoid observed `EMFILE` watcher failures in process tests.
+CLI host checks pass from an isolated project root; this user's home `.harness`
+marker otherwise causes unrelated global settings to be read as project settings
+when the tests set a temporary Harness home. The unchanged conversation-canvas
+geometry case intermittently fails in the full browser suite and passes alone;
+its timing cause remains unisolated. The affected MCP/approval settings scenarios
+pass. Tests/timeouts remain unchanged.
+
 ## Native search and output finalization
 
 Native-search and output-finalization regressions cover provider-owned defaults,

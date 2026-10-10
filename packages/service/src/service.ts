@@ -73,6 +73,7 @@ export class HarnessService implements ConversationRunner {
   readonly #engine: Engine;
   readonly #home: string;
   readonly #schemas = new Map<string, ZodType>();
+  readonly #globalPlugins = new Set<string>();
   readonly #inheritedPlugins = new Set<string>();
   #configMutation: Promise<void> = Promise.resolve();
   readonly #resolveConfig: (record: NewConversationRecord) => Promise<ConversationConfig>;
@@ -87,6 +88,7 @@ export class HarnessService implements ConversationRunner {
       resolveSettings({
         home: this.#home,
         schemas: this.#schemas,
+        globalPlugins: this.#globalPlugins,
         ...(defaults !== undefined ? { defaults } : {}),
         ...(record.workspaceRoot !== null ? { cwd: record.workspaceRoot } : {}),
         overrides: record.overrides,
@@ -100,6 +102,7 @@ export class HarnessService implements ConversationRunner {
     for (const entry of options.plugins) {
       if (isPluginDefinition(entry)) {
         this.#schemas.set(entry.id, entry.configSchema);
+        if (entry.configScope === "global") this.#globalPlugins.add(entry.id);
         if (entry.inheritConfig) this.#inheritedPlugins.add(entry.id);
         plugins.push(entry.create(reader));
       } else {
@@ -278,6 +281,7 @@ export class HarnessService implements ConversationRunner {
     options: { saveGlobal?: boolean } = {},
   ): Promise<void> {
     return this.#serializeConfigMutation(async () => {
+      if (this.#globalPlugins.has(pluginId)) throw new Error(`plugin '${pluginId}' is global-only`);
       const schema = this.#schemas.get(pluginId);
       if (!schema) throw new Error(`unknown plugin '${pluginId}'`);
       const record = await this.#store.getConversation(conversationId);

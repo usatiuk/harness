@@ -17,6 +17,7 @@ import {
 import { formatError } from "@harness/protocol";
 import { TuiHosts, type TuiHostView } from "./hosts.ts";
 import { loadSession, Root, launchOverrides, type Start } from "./session-app.tsx";
+import { McpSettings } from "./mcp-settings.tsx";
 import type { LaunchOptions } from "./launch-options.ts";
 
 export async function launchConnected(options: LaunchOptions): Promise<void> {
@@ -180,7 +181,16 @@ function CommandCenter({
 }) {
   const { exit } = useApp();
   const [screen, setScreen] = useState<
-    "menu" | "hosts" | "actions" | "edit" | "wsl" | "workspace" | "confirm" | "auth" | "settings"
+    | "menu"
+    | "hosts"
+    | "actions"
+    | "edit"
+    | "wsl"
+    | "workspace"
+    | "confirm"
+    | "auth"
+    | "settings"
+    | "mcp"
   >("menu");
   const [editing, setEditing] = useState<Host>();
   const [distributions, setDistributions] = useState<string[]>([]);
@@ -227,6 +237,7 @@ function CommandCenter({
     { label: "Set workspace path on selected host", value: "workspace" },
     { label: "Provider sign-in / sign-out", value: "auth" },
     { label: "Selected host defaults", value: "settings" },
+    { label: "MCP servers / permissions / credentials", value: "mcp" },
     {
       label: `Desktop exit: ${hosts.config?.desktop.keepServerRunning ? "keep Local running" : "stop Local when alone"}`,
       value: "preference",
@@ -331,6 +342,8 @@ function CommandCenter({
         </>
       ) : screen === "auth" && view?.harness ? (
         <ProviderAuth view={view} onError={setError} />
+      ) : screen === "mcp" && view?.harness ? (
+        <McpSettings view={view} onError={setError} />
       ) : screen === "settings" && view?.harness ? (
         <HostSettings view={view} onError={setError} />
       ) : screen === "actions" && view ? (

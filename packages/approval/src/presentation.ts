@@ -8,7 +8,10 @@ import type {
 } from "@harness/protocol";
 import type { Relationship } from "@harness/execution";
 
-const effect = z.enum(["allow", "ask", "deny"]);
+export const toolPermissionSchema = z.enum(["allow", "ask", "ask-human", "deny"]);
+export type ToolPermission = z.infer<typeof toolPermissionSchema>;
+const effect = toolPermissionSchema;
+export const humanApprovalTimeoutSchema = z.number().positive().max(2_147_483).default(60);
 const toolRule = z.union([
   effect,
   z.strictObject({ inWorkspace: effect.optional(), outOfWorkspace: effect.optional() }),
@@ -26,6 +29,7 @@ export const approvalConfigSchema = z.strictObject({
   inWorkspace: effect.default("allow"),
   outOfWorkspace: effect.default("ask"),
   tools: z.record(z.string(), toolRule).default({}),
+  humanApprovalTimeoutSeconds: humanApprovalTimeoutSchema,
 });
 
 export type ApprovalConfig = z.infer<typeof approvalConfigSchema>;
@@ -33,7 +37,8 @@ export type ApprovalConfig = z.infer<typeof approvalConfigSchema>;
 export interface ApprovalRequest extends InteractionRequest {
   kind: "approval";
   call: ToolCall;
-  relationship: Relationship;
+  relationship?: Relationship;
+  allowAutoApproval?: boolean;
   description?: string;
   input?: ToolSchema;
 }
@@ -50,7 +55,7 @@ export interface ApprovalResponse {
 export interface ApprovalAnnotation {
   decision: "allow" | "deny";
   responder: ApprovalResponder;
-  relationship: Relationship;
+  relationship?: Relationship;
   reason?: string;
   model?: ModelConfig;
 }
@@ -81,7 +86,7 @@ export const approvalResponseSchema = z.object({
 const approvalAnnotationSchema = z.object({
   decision: z.enum(["allow", "deny"]),
   responder: z.enum(["auto", "human", "policy"]),
-  relationship: z.enum(["in-workspace", "out-of-workspace", "unknown"]),
+  relationship: z.enum(["in-workspace", "out-of-workspace", "unknown"]).optional(),
   reason: z.string().optional(),
   model: z
     .object({ provider: z.string(), model: z.string(), preset: z.string().optional() })
@@ -96,7 +101,8 @@ export const isApprovalRequest = (request: unknown): request is ApprovalRequest 
     !!value.call &&
     typeof value.call.name === "string" &&
     typeof value.call.callId === "string" &&
-    (value.relationship === "in-workspace" ||
+    (value.relationship === undefined ||
+      value.relationship === "in-workspace" ||
       value.relationship === "out-of-workspace" ||
       value.relationship === "unknown")
   );
@@ -111,7 +117,7 @@ export const approvalAnnotationOf = (
   return {
     decision: parsed.data.decision,
     responder: parsed.data.responder,
-    relationship: parsed.data.relationship,
+    ...(parsed.data.relationship ? { relationship: parsed.data.relationship } : {}),
     ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
     ...(parsed.data.model
       ? {

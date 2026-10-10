@@ -257,6 +257,45 @@ the OpenAI-style freeform `apply_patch` tool implement the same behavior in thei
 Native web search is the only provider-owned tool enabled by the shipped
 composition. File and command execution remains controlled by Harness.
 
+### MCP servers and tool permissions
+
+Desktop **Settings → MCP** and the TUI's **Ctrl+G → MCP settings** edit the selected
+Harness host's global `plugins.mcp` configuration. Add local stdio processes or
+hosted Streamable HTTP endpoints, then use **Test** to connect and discover tools
+without executing one. Restart that host to activate saved configuration or
+manually replaced credentials. MCP executes on the Harness host; its process and
+network access are separate from conversation sandbox settings.
+
+Environment variables and HTTP headers have explicit sources: plaintext literals,
+host environment references, or stored credential slots. Bearer tokens and OAuth
+client secrets use environment references or stored slots. Credentials use the
+existing host credential backend and separate masked replace/delete controls;
+settings contain references, and read responses contain presence/status only.
+Stored slots are scoped to a server and bound to its configured endpoint or
+stdio command. Changing that target requires re-entering credentials.
+
+HTTP OAuth supports discovery, authorization code with PKCE, pre-registered
+clients, supplied HTTPS Client ID Metadata Document URLs, DCR, and refresh.
+Start sign-in explicitly in settings. The host owns the loopback callback and
+token exchange; remote/headless clients can paste the full redirected URL.
+Sign-in belongs to the initiating client connection and is cancelled on detach.
+Tokens and registered client records remain on the host and survive restart.
+Startup, Test, and tool calls never initiate interactive sign-in.
+
+Permission choices are `allow`, `ask`, `ask-human`, and `deny`. Ask follows the
+existing auto-review settings; Ask human always requests a human decision.
+MCP resolves global MCP defaults, server defaults, then exact raw tool-name rules.
+Read-only declarations default to Allow; other, unknown, or contradictory behavior
+defaults to Ask. Enabling a server accepts its behavior declarations under these
+defaults; configure overrides when appropriate. Direct and code calls use the
+same permission path.
+
+`plugins.approval.humanApprovalTimeoutSeconds` defaults to 60 and accepts a positive
+duration up to 2,147,483 seconds. Desktop **Settings → Defaults** and TUI **Host
+defaults** expose this shared approval setting. A human prompt waits within the
+active call; expiry denies it, removes the prompt, and lets the agent continue.
+There is no later execution of an expired call.
+
 ### Code mode and tool discovery
 
 Set `"tools": {"mode": "hybrid"}` or `"code-only"` in settings or conversation

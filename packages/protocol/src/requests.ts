@@ -12,6 +12,18 @@ export interface InteractionRequest {
   [key: string]: unknown;
 }
 
+/** Host-only lifetime options; never part of the interaction payload. */
+export interface RequestOptions {
+  timeoutMs?: number;
+}
+
+export class InteractionTimeoutError extends Error {
+  constructor() {
+    super("interaction timed out");
+    this.name = "InteractionTimeoutError";
+  }
+}
+
 /** The terminal request transport or the next inner request middleware. */
 export type RequestHandler = (request: InteractionRequest) => Promise<unknown>;
 

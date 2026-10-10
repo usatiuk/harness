@@ -319,3 +319,13 @@ describe("defaultReviewContext", () => {
     expect(rendered).not.toContain("[tool result: error]");
   });
 });
+
+it("passes ask-human directly to the human prompt even with auto-review enabled", async () => {
+  const { middleware, ctx, invoke, events } = setup({ enabled: true });
+  const next = vi.fn(async () => ({ decision: "deny", responder: "human" }));
+  await expect(
+    middleware.wrap({ ...approvalRequest, allowAutoApproval: false }, ctx, next),
+  ).resolves.toMatchObject({ responder: "human" });
+  expect(invoke).not.toHaveBeenCalled();
+  expect(events).toEqual([]);
+});

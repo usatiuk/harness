@@ -130,7 +130,7 @@ describe("production server process ownership", () => {
       });
       await first.client.peer.request(appSettingsUpdateRequest, {
         model: { provider: "demo", model: "demo-1", preset: "high" },
-        approval: { inWorkspace: "ask", outOfWorkspace: "deny" },
+        approval: { inWorkspace: "ask", outOfWorkspace: "deny", humanApprovalTimeoutSeconds: 60 },
         autoApproval: { ...config.settings.autoApproval, enabled: true },
         sandbox: "local",
       });

@@ -1,3 +1,4 @@
+import { McpSettings } from "./components/mcp-settings.tsx";
 import {
   useEffect,
   useRef,
@@ -28,7 +29,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { editPresentation } from "@harness/client-features/edit-presentation";
 import type { Cell } from "@harness/client-features/transcript-reducer";
-import type { ClientApproval } from "@harness/approval/client";
+import { toolPermissionSchema, type ClientApproval } from "@harness/approval/client";
 import { textOf, type Conversation, type ConversationId } from "@harness/protocol";
 import {
   appAuthLogoutRequest,
@@ -225,7 +226,7 @@ export function createDesktopRouter(
           const reviewerPreset = reviewerModel ? field(data, "reviewerPreset") : "";
           if (
             ![inWorkspace, outOfWorkspace].every(
-              (value) => value === "allow" || value === "ask" || value === "deny",
+              (value) => toolPermissionSchema.safeParse(value).success,
             )
           )
             throw new Error("Invalid approval policy");
@@ -247,8 +248,9 @@ export function createDesktopRouter(
                   }
                 : null,
             approval: {
-              inWorkspace: inWorkspace as "allow" | "ask" | "deny",
-              outOfWorkspace: outOfWorkspace as "allow" | "ask" | "deny",
+              inWorkspace: toolPermissionSchema.parse(inWorkspace),
+              outOfWorkspace: toolPermissionSchema.parse(outOfWorkspace),
+              humanApprovalTimeoutSeconds: Number(field(data, "humanApprovalTimeoutSeconds")),
             },
             autoApproval: {
               enabled: autoApproval === "true",
@@ -342,7 +344,7 @@ export function createDesktopRouter(
     return (
       <section className="approval" aria-label="Approval request">
         <strong>Allow {approval.call.name}?</strong>
-        <span className="muted">{approval.relationship}</span>
+        {approval.relationship && <span className="muted">{approval.relationship}</span>}
         <pre>
           {typeof approval.call.args === "string"
             ? approval.call.args
@@ -1377,7 +1379,14 @@ export function createDesktopRouter(
     const { settings } = useRouteLoaderData<RootData>("app")!;
     const save = useFetcher<ActionResult>();
     const [search, setSearch] = useSearchParams();
-    const sections = ["Appearance", "Composer", "Defaults", "Providers", "Application"] as const;
+    const sections = [
+      "Appearance",
+      "Composer",
+      "Defaults",
+      "Providers",
+      "MCP",
+      "Application",
+    ] as const;
     const requested = search.get("section");
     const section =
       sections.find((label) => label.toLowerCase() === requested)?.toLowerCase() ?? "appearance";
@@ -1443,6 +1452,7 @@ export function createDesktopRouter(
                 <Select name="inWorkspace" defaultValue={settings.settings.approval.inWorkspace}>
                   <option value="allow">Allow</option>
                   <option value="ask">Ask</option>
+                  <option value="ask-human">Ask human</option>
                   <option value="deny">Deny</option>
                 </Select>
               </label>
@@ -1454,8 +1464,21 @@ export function createDesktopRouter(
                 >
                   <option value="allow">Allow</option>
                   <option value="ask">Ask</option>
+                  <option value="ask-human">Ask human</option>
                   <option value="deny">Deny</option>
                 </Select>
+              </label>
+              <label>
+                Human approval timeout (seconds)
+                <Input
+                  name="humanApprovalTimeoutSeconds"
+                  type="number"
+                  min="0.001"
+                  max="2147483"
+                  step="any"
+                  defaultValue={settings.settings.approval.humanApprovalTimeoutSeconds}
+                  required
+                />
               </label>
               <label>
                 Auto approver
@@ -1484,6 +1507,14 @@ export function createDesktopRouter(
               selected, each review uses the conversation’s model.
             </p>
             <ActionFeedback data={save.data} />
+          </Tabs.Content>
+          <Tabs.Content value="mcp" forceMount className="settings-panel">
+            <h2>MCP servers</h2>
+            <McpSettings
+              client={session.client}
+              openUrl={openUrl}
+              restart={() => connections.restart()}
+            />
           </Tabs.Content>
           <Tabs.Content value="providers" forceMount className="settings-panel">
             <div className="section-heading">

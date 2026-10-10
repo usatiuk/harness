@@ -377,3 +377,17 @@ test("production composer queues alternatively and keeps rejected drafts with di
   await expect(primary).toBeDisabled();
   expect((await page.evaluate(() => window.composerFixture.calls)).length).toBe(2);
 });
+
+test("settings saves shared Ask human and its approval timeout through the route action", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  await page.locator("select[name=inWorkspace]").selectOption("ask-human");
+  await page.getByLabel("Human approval timeout (seconds)", { exact: true }).fill("12.5");
+  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toMatchObject({ approval: { inWorkspace: "ask-human", humanApprovalTimeoutSeconds: 12.5 } });
+});

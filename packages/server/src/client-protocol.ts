@@ -6,10 +6,17 @@ const model = z.strictObject({
   model: z.string().min(1),
   preset: z.string().nullable(),
 });
-const effect = z.enum(["allow", "ask", "deny"]);
+import {
+  toolPermissionSchema as effect,
+  humanApprovalTimeoutSchema,
+} from "@harness/approval/client";
 const settings = z.strictObject({
   model: model.nullable(),
-  approval: z.strictObject({ inWorkspace: effect, outOfWorkspace: effect }),
+  approval: z.strictObject({
+    inWorkspace: effect,
+    outOfWorkspace: effect,
+    humanApprovalTimeoutSeconds: humanApprovalTimeoutSchema,
+  }),
   autoApproval: z.strictObject({ enabled: z.boolean(), model: model.nullable() }),
   sandbox: z.enum(["local", "native", "docker"]),
 });

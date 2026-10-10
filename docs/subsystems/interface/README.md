@@ -65,6 +65,15 @@ local project settings remain separate layers. Plugin definitions contribute
 their own Zod schemas and defaults; core configuration code treats their values as
 opaque after central validation.
 
+Plugin definitions may declare `configScope: "global"`. The resolver rejects
+their project/local/profile/conversation contributions before merging; MCP uses
+this declaration for its host startup configuration. Clients configure MCP
+through the versioned `@harness/mcp/client` requests over their existing selected
+host connection. Desktop has a structured MCP editor; TUI edits validated JSON
+and supplies separate credential/sign-in controls. Both show safe status and
+explicit restart requirements, without owning credentials or permission logic.
+The shared approval timeout is part of their existing host-defaults editor.
+
 Project discovery and the global-root decision compare physical paths, including
 Windows short-name aliases and junctions. Existing ancestors establish identity
 before a new workspace/settings directory exists. A `.harness` directory alias

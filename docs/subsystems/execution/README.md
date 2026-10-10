@@ -97,6 +97,16 @@ policy requires a decision. Classification is based on the execution substrate,
 tool call, configured tool rules, and explicit sandbox escape. Denial returns one
 canonical tool error and durable annotation.
 
+The shared permission vocabulary is `allow`, `ask`, `ask-human`, and `deny`.
+Native tools select by workspace scope; MCP selects in its own plugin. Both use
+the approval-owned execution/prompting mechanism. Workspace relationship is
+optional for scope-neutral tools. Ask follows auto-review; Ask human bypasses it.
+`plugins.approval.humanApprovalTimeoutSeconds` defaults to 60, accepts positive
+finite durations up to 2,147,483 seconds, and applies after request middleware
+passes a prompt to the kernel. The pending-request owner enforces expiry with
+zero clients, records denial, removes the prompt, and ignores late answers.
+Human waiting remains within the active call, including code-mode child calls.
+
 Auto-approval is request middleware: when enabled, it asks the configured model
 for an allow/deny judgment and records the responder/model/reason. A malformed
 judgment, model failure, or timeout fails closed as an automatic denial rather

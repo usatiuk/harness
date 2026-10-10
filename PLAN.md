@@ -195,7 +195,7 @@ As of 2026-10-10, Harness provides:
 | Models                      | [Architecture](docs/subsystems/models/README.md)        | [Transient reliability and named gateway catalogs](docs/subsystems/models/PLAN.md)                                 |
 | Execution and safety        | [Architecture](docs/subsystems/execution/README.md)     | [Native mutation containment](docs/subsystems/execution/PLAN.md)                                                   |
 | Context and compaction      | [Architecture](docs/subsystems/context/README.md)       | Observe v1; add another strategy only for a demonstrated need.                                                     |
-| Orchestration               | [Architecture](docs/subsystems/orchestration/README.md) | No selected change; MCP callable tools remain a next-plugin candidate.                                             |
+| Orchestration               | [Architecture](docs/subsystems/orchestration/README.md) | [MCP tools and settings plan](docs/plans/cross-cutting/2026-10-10-mcp-tools-and-settings.md)                       |
 | Configuration and interface | [Architecture](docs/subsystems/interface/README.md)     | [Diagnostics and supportability](docs/subsystems/interface/PLAN.md)                                                |
 | Testing                     | [Architecture](docs/subsystems/testing/README.md)       | [Evidence for active reliability and security work](docs/subsystems/testing/PLAN.md)                               |
 
@@ -250,8 +250,12 @@ invocations remain opt-in qualification.
        current subsystem documentation.
 2. [ ] Add minimal provider error normalization and bounded transient model
        retry middleware.
-3. [ ] Choose one concrete vertical plugin: LSP diagnostics for coding quality,
-       or MCP callable tools for ecosystem reach.
+3. [x] Deliver [MCP tools and settings](docs/plans/cross-cutting/2026-10-10-mcp-tools-and-settings.md):
+       stdio/hosted HTTP tools, env/header/OAuth configuration, scoped credentials,
+       plugin-owned permissions, and desktop/TUI settings. Keep the configurable
+       human timeout in approval settings. Fixture/RPC/client qualification and
+       macOS release compilation pass; full-check and platform limits are recorded
+       in the delivery plan.
 4. [ ] Close the native filesystem mutation race before strengthening sandbox
        isolation claims.
 5. [ ] Reassess product ergonomics and diagnostic export in the shipped clients.

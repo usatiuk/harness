@@ -446,3 +446,25 @@ describe("resolveSettings home/project separation", () => {
     expect(config.instructions).toBe("global"); // not "LEAKED"
   });
 });
+
+it("accepts global-only plugin configuration only in the host's global slice", async () => {
+  const home = await tmp(),
+    root = await tmp();
+  const globalPlugins = new Set(["demo"]);
+  await writeJson(join(home, "settings.json"), { model, plugins: { demo: { level: "high" } } });
+  expect((await resolveSettings({ home, schemas, globalPlugins })).plugins?.demo).toMatchObject({
+    level: "high",
+  });
+  await expect(
+    resolveSettings({ home, schemas, globalPlugins, overrides: { plugins: { demo: {} } } }),
+  ).rejects.toThrow("global");
+  await writeJson(join(root, ".harness", "settings.json"), { plugins: { demo: {} } });
+  await expect(resolveSettings({ home, cwd: root, schemas, globalPlugins })).rejects.toThrow(
+    "global",
+  );
+  await writeJson(join(home, "settings.json"), {
+    model,
+    profiles: { bad: { plugins: { demo: {} } } },
+  });
+  await expect(resolveSettings({ home, schemas, globalPlugins })).rejects.toThrow("global");
+});

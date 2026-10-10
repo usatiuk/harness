@@ -95,6 +95,8 @@ export interface ConfigReader {
 export interface PluginDefinition extends ProviderTypeContributions {
   readonly id: string;
   readonly configSchema: ZodType;
+  /** Host startup configuration cannot be supplied by projects/profiles/conversations. */
+  readonly configScope?: "global";
   /** Copy this plugin's effective parent slice into a child's durable overrides. */
   readonly inheritConfig?: boolean;
   create(reader: ConfigReader): Plugin;

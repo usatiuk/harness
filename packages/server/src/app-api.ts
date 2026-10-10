@@ -136,6 +136,7 @@ export function registerAppApi(
         approval: {
           inWorkspace: approval.inWorkspace,
           outOfWorkspace: approval.outOfWorkspace,
+          humanApprovalTimeoutSeconds: approval.humanApprovalTimeoutSeconds,
         },
         autoApproval: {
           enabled: autoApproval.enabled,

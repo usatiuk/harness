@@ -9,6 +9,7 @@ import type {
 } from "@harness/protocol";
 import { LocalExecutionContext } from "@harness/execution";
 import { approvalPlugin, isApprovalDecidedEvent } from "./approval.ts";
+import { approvalConfigSchema } from "./presentation.ts";
 
 function middlewareFor(config: unknown): ToolMiddleware {
   const reader: ConfigReader = { get: <C>() => Promise.resolve(config as C) };
@@ -133,4 +134,29 @@ describe("approval policy", () => {
     expect(allowed).toBe(ran);
     expect(allow.asked()).toBe(false);
   });
+});
+
+it("shares ask-human and the configured timeout across ordinary native tools", async () => {
+  const { ctx } = contextFor();
+  let request: unknown, options: unknown;
+  ctx.request = (value, opts) => {
+    request = value;
+    options = opts;
+    return Promise.resolve({ decision: "allow" });
+  };
+  await middlewareFor({
+    tools: { powershell: "ask-human" },
+    humanApprovalTimeoutSeconds: 0.5,
+  }).wrap(call("powershell", { command: "Get-Date" }), ctx, next);
+  expect(request).toMatchObject({ kind: "approval", allowAutoApproval: false });
+  expect(options).toEqual({ timeoutMs: 500 });
+});
+
+it("validates finite positive human approval timeouts within the timer range", () => {
+  for (const humanApprovalTimeoutSeconds of [0, -1, Infinity, NaN, 2_147_484])
+    expect(approvalConfigSchema.safeParse({ humanApprovalTimeoutSeconds }).success).toBe(false);
+  expect(approvalConfigSchema.parse({}).humanApprovalTimeoutSeconds).toBe(60);
+  expect(
+    approvalConfigSchema.parse({ humanApprovalTimeoutSeconds: 0.5 }).humanApprovalTimeoutSeconds,
+  ).toBe(0.5);
 });

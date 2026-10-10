@@ -119,7 +119,9 @@ export const defaultReviewContext: ReviewContextBuilder = ({
                   `call id: ${item.callId}`,
                   ...(item.parentCallId ? [`parent call: ${item.parentCallId}`] : []),
                   `responder: ${approval.responder}`,
-                  `workspace relationship: ${approval.relationship}`,
+                  ...(approval.relationship
+                    ? [`workspace relationship: ${approval.relationship}`]
+                    : []),
                   `reason: ${boundToolResult(approval.reason ?? "no reason provided")}`,
                 ].join("\n"),
               ),
@@ -153,8 +155,12 @@ export const defaultReviewContext: ReviewContextBuilder = ({
         ...(request.call.parentCallId ? [`invoking call: ${request.call.parentCallId}`] : []),
         ...(request.description ? [`tool description: ${request.description}`] : []),
         ...(request.input ? [`input contract: ${safeJson(request.input)}`] : []),
-        `workspace root: ${conversation.workspaceRoot ?? "[none]"}`,
-        `workspace relationship: ${request.relationship}`,
+        ...(request.relationship
+          ? [
+              `workspace root: ${conversation.workspaceRoot ?? "[none]"}`,
+              `workspace relationship: ${request.relationship}`,
+            ]
+          : []),
         "arguments:",
         safeJson(request.call.args),
         "",
@@ -217,7 +223,7 @@ function autoApprovalMiddleware(
   return {
     id: "auto-approval",
     async wrap(request, ctx, next) {
-      if (!isApprovalRequest(request)) return next(request);
+      if (!isApprovalRequest(request) || request.allowAutoApproval === false) return next(request);
       const config = autoApprovalConfigSchema.parse(
         await reader.get("auto-approval", ctx.conversation.id),
       );

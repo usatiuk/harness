@@ -286,3 +286,52 @@ it("keeps a real shell process running after its creator disconnects and broadca
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("expires one shared human-only approval with no clients, persists denial and rejects a late answer", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const harness = sharedHarness(
+    new FakeProvider([toolStep("call", "echo", {}), textStep("done")]),
+    [approvalPlugin, { id: "echo", tools: () => [new EchoTool()] }],
+  );
+  try {
+    const first = await harness.connect();
+    const root = await first.client.create({
+      overrides: {
+        plugins: { approval: { tools: { echo: "ask-human" }, humanApprovalTimeoutSeconds: 1 } },
+      },
+    });
+    await first.client.attach(root.id);
+    await first.client.deliver(root.id, "execute", "send");
+    await vi.waitFor(() =>
+      expect(harness.service.pendingRequests(root.id as ConversationId)).toHaveLength(1),
+    );
+    const pending = harness.service.pendingRequests(root.id as ConversationId)[0]!;
+    first.client.closeConnection();
+    await first.session.shutdown(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    await harness.service.whenIdle(root.id as ConversationId);
+    expect(harness.service.pendingRequests(root.id as ConversationId)).toEqual([]);
+    const second = await harness.connect();
+    await second.client.attach(root.id);
+    expect(
+      await second.client.peer.request(approvalDecideRequest, {
+        conversationId: root.id,
+        requestId: pending.requestId,
+        decision: "allow",
+      }),
+    ).toEqual({ resolved: false });
+    const history = await second.client.history({ conversationId: root.id });
+    expect(
+      history.entries.some(
+        (entry) =>
+          entry.kind === "item" &&
+          entry.item.type === "tool_result" &&
+          entry.item.annotations?.["approval"] &&
+          JSON.stringify(entry.item.annotations["approval"]).includes("human approval timed out"),
+      ),
+    ).toBe(true);
+  } finally {
+    await harness.close();
+    vi.useRealTimers();
+  }
+});

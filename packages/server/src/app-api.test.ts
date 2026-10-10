@@ -85,7 +85,7 @@ it("drains an admitted settings refresh before closing the database", async () =
     });
     const updating = client.peer.request(appSettingsUpdateRequest, {
       model: { provider: "demo", model: "demo-1", preset: null },
-      approval: { inWorkspace: "ask", outOfWorkspace: "ask" },
+      approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
       autoApproval: { enabled: false, model: null },
       sandbox: "local",
     });

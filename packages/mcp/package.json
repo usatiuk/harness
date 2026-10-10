@@ -1,0 +1,33 @@
+{
+  "name": "@harness/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "development": "./src/client.ts",
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    }
+  },
+  "dependencies": {
+    "@harness/protocol": "*",
+    "@harness/approval": "*",
+    "@harness/secrets": "*",
+    "@modelcontextprotocol/client": "2.3.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@harness/auto-approval": "*",
+    "@harness/code-mode": "*",
+    "@harness/service": "*",
+    "@harness/store": "*",
+    "@harness/testkit": "*",
+    "@modelcontextprotocol/server": "2.3.1"
+  }
+}

@@ -1,3 +1,4 @@
+import { MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp/client";
 import type {
   Conversation,
   ConversationId,
@@ -46,6 +47,7 @@ export interface Harness {
 
 const CLIENT_CONTRACTS: PluginContract[] = [
   { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
+  { id: "mcp", version: MCP_CLIENT_CONTRACT_VERSION },
   ...CLI_PLUGIN_CONTRACTS,
 ];
 

@@ -38,6 +38,8 @@ import {
 } from "@harness/server/client-protocol";
 import { serverInfoRequest, serverStopRequest, serverReleaseRequest } from "@harness/connections";
 
+import { mcpRpcMessages } from "@harness/mcp/client";
+
 const messages: readonly RpcMessage[] = [
   initializeRequest,
   ...coreRpcMessages,
@@ -62,6 +64,7 @@ const messages: readonly RpcMessage[] = [
   appAuthLoginRequest,
   appAuthLogoutRequest,
   appAuthUrlNotification,
+  ...mcpRpcMessages,
 ] as readonly RpcMessage[];
 
 const definitions: Record<string, JsonValue> = {};

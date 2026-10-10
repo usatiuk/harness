@@ -94,6 +94,12 @@ Their `active()` capability returns the compacted active branch by default;
 `active({includeCompacted: true})` includes earlier items on that branch. Request
 owners choose any additional selection, including auto-approval's bounded evidence.
 
+Generic request options may specify a positive finite `timeoutMs`, bounded by
+Node's timer range. The pending-request owner starts the timer after request
+middleware, clears it on answer/cancellation, and settles expiry once with
+`InteractionTimeoutError` plus the ordinary resolution event. RPC clients only
+project and answer requests; detachment does not own the timer.
+
 ## Tool modes and programmatic execution
 
 The host resolves one scoped catalog per turn, then applies contract resolvers
@@ -103,6 +109,10 @@ or withhold a tool; activity background options and subagent catalogs use this
 shared path. Tool identity and direct/code exposure remain host-owned. Exposure
 is presentation and entry-point eligibility; the conversation allowlist still
 defines authority. Omitted exposure means both interfaces.
+
+Function inputs can supply Zod or an already-authored JSON Schema with a parser.
+Core preserves the advertised JSON Schema and invokes its parser at the ordinary
+argument boundary, so external tool adapters do not need lossy schema conversion.
 
 `tools.mode` defaults to `direct`. `hybrid` offers direct tools and the core
 `eval` entry point. The ordinary core `tool_search` and `tool_describe` tools are

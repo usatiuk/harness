@@ -8,6 +8,47 @@ their completion is delivered back through the ordinary conversation input seam.
 Subagents run as durable child conversations through the same service and engine
 as their parent, with independent context, configuration, tools, and usage.
 
+Local stdio and hosted Streamable HTTP MCP tools, env/header/OAuth configuration,
+scoped credentials, and desktop/TUI settings are implemented in `@harness/mcp`.
+Qualification and delivery evidence are in the
+[MCP delivery plan](../../plans/cross-cutting/2026-10-10-mcp-tools-and-settings.md).
+
+## MCP
+
+Server composition injects the existing host `SecretStore`, awaits bounded MCP
+initialization, and then installs the plugin's synchronous tool contributor.
+One SDK transport/client belongs to each enabled server for the server lifetime.
+Classified unavailable/auth-required servers contribute no tools; independent
+servers remain usable. Discovery snapshots the catalog until explicit restart.
+Connection Test discovers into a temporary connection and closes it without
+changing the catalog or executing tools.
+
+The MCP package validates transport/value-source configuration and retains remote
+JSON Schema through the generic tool input boundary with an SDK AJV validator.
+Tool identities combine the configured server ID with a stable raw-name hash.
+Text, structured JSON, and `isError` map to ordinary tool results. Unsupported
+content fails explicitly. Calls preserve allowlists, code mode, subagent scope,
+history, cancellation, and output handling. Ambiguous connection failures fail
+without replay. Shutdown closes transports and stdio children.
+
+MCP selects permissions from its global read-only/other defaults, server defaults,
+and exact raw-name overrides. It delegates the resulting ordinary permission to
+`@harness/approval`; server composition excludes MCP tools from the native scope
+selector so each call has one gate. Read-only requires `readOnlyHint: true`
+without `destructiveHint: true`. No names or other hints imply read-only behavior.
+
+Saved configuration, user credential aliases, and internal OAuth records are
+separate. MCP scopes keys by server and namespace and binds records to the target.
+OAuth client/token identity also includes client authentication and normalized
+scopes. Credentials resolve only on the executing host. Resource headers are
+injected only at the configured MCP URL; OAuth fetches carry none, and redirects
+are rejected. SDK OAuth implements discovery, PKCE, supplied/pre-registered
+clients, DCR, token exchange, and refresh. One owner per server serializes
+login/refresh/logout mutations. Explicit sign-in has a five-minute bound;
+logout cancels login and drains refresh before deleting tokens/client records.
+The initiating RPC session may complete/cancel its attempt; disconnect cancels
+it. The host listener also accepts callbacks, with full-URL paste for remote use.
+
 ## Activities
 
 The activities plugin owns one `ActivityManager` per loaded conversation and

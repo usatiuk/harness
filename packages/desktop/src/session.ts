@@ -1,3 +1,4 @@
+import { MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp/client";
 import {
   HarnessClient,
   HarnessDomainClient,
@@ -68,6 +69,7 @@ export class DesktopSession {
       client: { name: "harness-desktop", version: "0.1.0" },
       plugins: [
         { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
+        { id: "mcp", version: MCP_CLIENT_CONTRACT_VERSION },
         ...FEATURE_PLUGIN_CONTRACTS,
       ],
       onProtocolError: (error) => this.disconnect(error.message),

@@ -15,6 +15,7 @@ declare global {
   interface Window {
     composerFixture: {
       calls: Delivery[];
+      settingsWrites: unknown[];
       settle(reject?: boolean): void;
       settleStop(): void;
       disconnect(): void;
@@ -45,7 +46,7 @@ const settings: AppSettings = {
   settings: {
     model: { provider: "fixture", model: "test", preset: null },
     sandbox: "local",
-    approval: { inWorkspace: "ask", outOfWorkspace: "ask" },
+    approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
     autoApproval: { enabled: false, model: null },
   },
   providers: [],
@@ -57,6 +58,7 @@ const changed = () => {
   for (const listener of listeners) listener();
 };
 const calls: Delivery[] = [];
+const settingsWrites: unknown[] = [];
 let pending: Deferred | undefined;
 let stopping: Deferred | undefined;
 const domain = {
@@ -80,7 +82,22 @@ const domain = {
 // Native cases qualify real RPC and server semantics separately.
 const session = {
   domain,
-  client: { peer: { ready: true } },
+  client: {
+    peer: {
+      ready: true,
+      request: async (definition: { method: string }, params: unknown) => {
+        if (definition.method === "plugin.mcp.settings.get")
+          return { config: {}, active: [], restartRequired: false, credentialBackend: null };
+        if (definition.method === "plugin.mcp.tools.list") return [];
+        if (definition.method === "app.settings.update") {
+          settingsWrites.push(params);
+          Object.assign(settings.settings, params);
+          return null;
+        }
+        throw new Error(`Unexpected fixture RPC: ${definition.method}`);
+      },
+    },
+  },
   settings,
   disconnected: undefined as string | undefined,
   conversations: [view.conversation],
@@ -98,6 +115,7 @@ const session = {
 };
 window.composerFixture = {
   calls,
+  settingsWrites,
   settle(reject = false) {
     if (!pending) throw new Error("No pending delivery");
     if (reject) pending.reject(new Error("Delivery rejected"));
