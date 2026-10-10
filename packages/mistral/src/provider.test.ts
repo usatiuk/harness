@@ -4,11 +4,12 @@ import { ContextWindowExceededError, ModelDiscoveryError } from "@harness/protoc
 import { httpGateway, json, sse } from "../../litellm/src/http-fixture.ts";
 import { MistralProvider } from "./provider.ts";
 import { fetchCatalog, parseCatalog } from "./catalog.ts";
-import { buildMistralRequest, nativeCallId } from "./request.ts";
+import { buildMistralRequest } from "./request.ts";
+import { mistralEvents } from "./stream.ts";
 
 const gateways: Awaited<ReturnType<typeof httpGateway>>[] = [];
 afterEach(async () => {
-  await Promise.all(gateways.splice(0).map((gateway) => gateway.close()));
+  await Promise.all(gateways.splice(0).map((g) => g.close()));
 });
 const signal = new AbortController().signal;
 const context = { conversationId: "child" as ConversationId };
@@ -45,14 +46,30 @@ const request = (mode: "api" | "vibe" = "vibe"): ModelRequest => ({
     ...(mode === "vibe" ? { preset: "high" } : {}),
   },
 });
-function mistralChunk(delta: unknown, finish: string | null = null, usage?: unknown) {
-  return { choices: [{ index: 0, delta, finish_reason: finish }], ...(usage ? { usage } : {}) };
-}
+const message = (content: unknown, content_index = 0, output_index = 0) => ({
+  type: "message.output.delta",
+  id: "msg-" + output_index,
+  output_index,
+  content_index,
+  content,
+});
+const call = (args: string, output_index = 1, tool_call_id = "abc123XYZ") => ({
+  type: "function.call.delta",
+  id: "call-" + output_index,
+  output_index,
+  tool_call_id,
+  name: "echo",
+  arguments: args,
+});
 const usage = {
   prompt_tokens: 100,
   completion_tokens: 20,
   prompt_tokens_details: { cached_tokens: 80 },
 };
+const done = (reported: unknown = usage) => ({
+  type: "conversation.response.done",
+  usage: reported,
+});
 async function collect(provider: MistralProvider, req = request(), abort = signal) {
   const events: ModelStreamEvent[] = [];
   for await (const event of provider.stream(req, abort, context)) events.push(event);
@@ -60,7 +77,7 @@ async function collect(provider: MistralProvider, req = request(), abort = signa
 }
 function item(fields: Record<string, unknown>, seq: number): Item {
   return {
-    id: `item-${seq}`,
+    id: "item-" + seq,
     conversationId: "child",
     turnId: "turn",
     seq,
@@ -78,70 +95,68 @@ function continuation(first: ModelStreamEvent[], base: ModelRequest): ModelReque
       ),
     },
   ];
-  let text = "";
-  const append = (
-    fields: Record<string, unknown>,
-    payload?: Extract<ModelStreamEvent, { type: "reasoning" | "tool_call" }>["payload"],
-  ) => {
-    const next = item(fields, items.length);
-    items.push({ item: next, ...(payload ? { payload: { ...payload, itemId: next.id } } : {}) });
-  };
-  const flush = () => {
-    if (text) append({ type: "message", role: "assistant", content: [{ type: "text", text }] });
-    text = "";
-  };
   for (const event of first) {
-    if (event.type === "text_delta") text += event.text;
-    if (event.type === "reasoning") {
-      flush();
-      append({ type: "reasoning", content: event.content }, event.payload);
-    }
-    if (event.type === "tool_call") {
-      flush();
-      append(
-        { type: "tool_call", callId: event.callId, name: event.name, args: event.args },
-        event.payload,
-      );
-    }
+    if (event.type !== "message" && event.type !== "reasoning" && event.type !== "tool_call")
+      continue;
+    const { payload, ...output } = event;
+    const canonical = item(
+      { ...output, ...(output.type === "message" ? { role: "assistant" } : {}) },
+      items.length,
+    );
+    items.push({
+      item: canonical,
+      ...(payload ? { payload: { ...payload, itemId: canonical.id } } : {}),
+    });
   }
-  flush();
   for (const event of first)
     if (event.type === "tool_call")
-      append({
-        type: "tool_result",
-        callId: event.callId,
-        status: "ok",
-        content: [{ type: "text", text: "echoed" }],
+      items.push({
+        item: item(
+          {
+            type: "tool_result",
+            callId: event.callId,
+            status: "ok",
+            content: [{ type: "text", text: "echoed" }],
+          },
+          items.length,
+        ),
       });
   const next = { ...base, items };
   delete next.prompt;
   return next;
 }
-async function fixture(mode: "api" | "vibe", events: unknown[], status = 200) {
+async function fixture(mode: "api" | "vibe", events: unknown[], status = 200, search = false) {
   const headers: Record<string, unknown>[] = [];
   const gateway = await httpGateway((req, response, raw) => {
     headers.push(raw.headers);
-    if (req.method === "GET") json(response, catalog(mode));
-    else if (status !== 200)
-      json(
+    if (req.method === "GET") return json(response, catalog(mode));
+    expect(req.path).toBe("/v1/conversations");
+    if (status !== 200)
+      return json(
         response,
         { error: { message: "context length exceeded", code: "context_length_exceeded" } },
         status,
       );
-    else sse(response, events);
+    sse(response, events, true);
   });
   gateways.push(gateway);
-  const provider = new MistralProvider("work", mode, "fixture-key", (input, init) => {
-    const url = input instanceof Request ? input.url : input.toString();
-    expect(url.startsWith("https://api.mistral.ai/v1/")).toBe(true);
-    return fetch(url.replace("https://api.mistral.ai", gateway.url), init);
-  });
+  const provider = new MistralProvider(
+    "work",
+    mode,
+    "fixture-key",
+    (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      expect(url.startsWith("https://api.mistral.ai/v1/")).toBe(true);
+      return fetch(url.replace("https://api.mistral.ai", gateway.url), init);
+    },
+    search,
+  );
   await provider.refreshModels(signal);
   return { provider, gateway, headers };
 }
 
 describe("Mistral native delivery", () => {
-  it("replays interleaved signed thinking, exact tool arguments and stable prompt prefixes over real HTTP/SSE", async () => {
+  it("streams and replays signed thinking, exact call arguments and stable prefixes over real HTTP/SSE", async () => {
     const firstBlock = {
       type: "thinking",
       thinking: [{ type: "text", text: "Think", annotation: "opaque" }],
@@ -157,75 +172,118 @@ describe("Mistral native delivery", () => {
     };
     const rawArgs = '{ "x" : 1 }';
     const { provider, gateway, headers } = await fixture("vibe", [
-      mistralChunk({ content: [{ ...firstBlock, signature: null, closed: false }] }),
-      mistralChunk({
-        content: [{ ...firstBlock, thinking: [] }, { type: "text", text: "Between" }, secondBlock],
-      }),
-      mistralChunk({
-        tool_calls: [
-          {
-            index: 0,
-            id: "abc123XYZ",
-            type: "function",
-            function: { name: "echo", arguments: rawArgs.slice(0, 5) },
-          },
-        ],
-      }),
-      mistralChunk(
-        { tool_calls: [{ index: 0, function: { arguments: rawArgs.slice(5) } }] },
-        "tool_calls",
-        usage,
-      ),
+      message({ ...firstBlock, signature: null, closed: false }),
+      message({ ...firstBlock, thinking: [] }),
+      message("Between", 1),
+      message(secondBlock, 2),
+      call(rawArgs.slice(0, 5)),
+      call(rawArgs.slice(5)),
+      done(),
     ]);
     const base = request();
     base.maxOutputTokens = 1234;
     const first = await collect(provider, base);
-    expect(first.at(-1)).toEqual({
+    expect(first.filter((e) => e.type === "reasoning_delta").map((e) => e.text)).toEqual([
+      "Think",
+      "Again",
+    ]);
+    expect(first.at(-1)).toMatchObject({
       type: "completed",
       usage: { inputTokens: 100, outputTokens: 20, cachedReadTokens: 80 },
     });
-    const next = continuation(first, base);
-    await collect(provider, next);
+    await collect(provider, continuation(first, base));
     const [a, b] = gateway.requests.filter((req) => req.method === "POST").map((req) => req.body);
     expect(a).toMatchObject({
       model: "coding",
-      reasoning_effort: "high",
-      temperature: 0.2,
-      max_tokens: 1234,
+      instructions: "Stable system",
       stream: true,
+      store: false,
+      completion_args: { reasoning_effort: "high", temperature: 0.2, max_tokens: 1234 },
     });
-    const aMessages = a!.messages as unknown[];
-    const bMessages = b!.messages as unknown[];
-    expect(bMessages.slice(0, aMessages.length)).toEqual(aMessages);
-    expect(bMessages.slice(2)).toEqual([
+    expect((b!.inputs as unknown[]).slice(0, (a!.inputs as unknown[]).length)).toEqual(a!.inputs);
+    expect((b!.inputs as unknown[]).slice(1)).toEqual([
       {
+        type: "message.output",
+        id: "msg-0",
         role: "assistant",
         content: [firstBlock, { type: "text", text: "Between" }, secondBlock],
-        tool_calls: [
-          { id: "abc123XYZ", type: "function", function: { name: "echo", arguments: rawArgs } },
-        ],
       },
-      { role: "tool", name: "echo", tool_call_id: "abc123XYZ", content: "echoed" },
+      {
+        type: "function.call",
+        id: "call-1",
+        tool_call_id: "abc123XYZ",
+        name: "echo",
+        arguments: rawArgs,
+      },
+      { type: "function.result", tool_call_id: "abc123XYZ", result: "echoed" },
     ]);
     expect(b!.tools).toEqual(a!.tools);
     expect(
       headers
         .slice(1)
-        .every(
-          (value) => value["x-affinity"] === "child" && value["user-agent"] === "Harness/0.0.0",
-        ),
+        .every((h) => h["x-affinity"] === "child" && h["user-agent"] === "Harness/0.0.0"),
     ).toBe(true);
-    expect(gateway.requests.map((value) => value.key)).toEqual([
+    expect(gateway.requests.map((r) => r.key)).toEqual([
       "fixture-key",
       "fixture-key",
       "fixture-key",
     ]);
     expect(gateway.requests[0]?.path).toBe("/v1/model-catalog?surface=vibe-code");
   });
-
-  it("uses the API catalog and preserves unknown accounting and unsupported controls", async () => {
+  it.each(["api", "vibe"] as const)(
+    "keeps %s on Conversations with search enabled or disabled",
+    async (mode) => {
+      for (const search of [false, true]) {
+        const { provider, gateway } = await fixture(
+          mode,
+          [
+            ...(search
+              ? [
+                  {
+                    type: "tool.execution.started",
+                    id: "search",
+                    name: "web_search",
+                    output_index: 0,
+                  },
+                ]
+              : []),
+            message("[Source](https://example.com)"),
+            done(),
+          ],
+          200,
+          search,
+        );
+        const req = { ...request(mode), providerOptions: provider.providerOptions };
+        const events = await collect(provider, req);
+        expect(gateway.requests[1]?.body).toMatchObject({ stream: true, store: false });
+        expect(gateway.requests[1]?.body.tools).toEqual([
+          {
+            type: "function",
+            function: {
+              name: "echo",
+              description: "Echo",
+              parameters: { type: "object", properties: { x: { type: "number" } } },
+            },
+          },
+          ...(search ? [{ type: "web_search" }] : []),
+        ]);
+        expect(events.find((e) => e.type === "message")).toMatchObject({
+          content: [{ type: "text", text: "[Source](https://example.com)" }],
+        });
+        if (search) {
+          expect(events.find((e) => e.type === "provider_output")).not.toHaveProperty("payload");
+          expect(events.at(-1)).toMatchObject({
+            costIncomplete: true,
+            inputTokensAreContext: false,
+          });
+        }
+      }
+    },
+  );
+  it("preserves the API catalog, unknown counts and validation of catalog controls", async () => {
     const { provider, gateway } = await fixture("api", [
-      mistralChunk({ content: "done" }, "stop", { prompt_tokens: 10 }),
+      message("done"),
+      done({ prompt_tokens: 10 }),
     ]);
     expect(provider.listModels()).toEqual([
       { provider: "work", model: "coding", label: "Coding", contextWindow: 262144 },
@@ -236,106 +294,84 @@ describe("Mistral native delivery", () => {
       toolCalling: true,
       fileTools: "string_replace",
     });
-    expect((await collect(provider, request("api"))).at(-1)).toEqual({
+    expect((await collect(provider, request("api"))).at(-1)).toMatchObject({
       type: "completed",
       usage: null,
     });
     expect(gateway.requests[0]?.path).toBe("/v1/models");
-    expect(gateway.requests[1]?.body.reasoning_effort).toBeUndefined();
+    expect(gateway.requests[1]?.body.completion_args).not.toHaveProperty("reasoning_effort");
     await expect(collect(provider)).rejects.toThrow("Unknown preset");
     await expect(
       collect(provider, { ...request("api"), modelConfig: { provider: "other", model: "coding" } }),
     ).rejects.toThrow("identity mismatch");
   });
-
-  it.each([
-    ["abc", "123", "XYZ"],
-    ["abc", "abc123", "abc123XYZ"],
-    ["abc123XYZ", "abc123XYZ", "abc123XYZ"],
-  ])("accepts native fragmented and repeated tool-call IDs: %j", async (...ids) => {
+  it("assembles interleaved local calls without concatenating their repeated names or IDs", async () => {
     const { provider } = await fixture("api", [
-      ...ids.map((id, index) =>
-        mistralChunk({
-          tool_calls: [
-            {
-              index: 0,
-              id,
-              function: index === 0 ? { name: "echo", arguments: '{"x":1}' } : {},
-            },
-          ],
-        }),
-      ),
-      mistralChunk({}, "tool_calls", usage),
+      call('{"x":', 1),
+      call('{"x":2}', 2, "another-id"),
+      call("1}", 1),
+      done(),
     ]);
-    const events = await collect(provider, request("api"));
-    expect(events.find((event) => event.type === "tool_call")).toMatchObject({
-      callId: "abc123XYZ",
-      name: "echo",
-      args: { x: 1 },
-    });
-    expect(events.at(-1)).toEqual({
-      type: "completed",
-      usage: { inputTokens: 100, outputTokens: 20, cachedReadTokens: 80 },
-    });
+    const calls = (await collect(provider, request("api"))).filter((e) => e.type === "tool_call");
+    expect(calls).toMatchObject([
+      { callId: "abc123XYZ", name: "echo", args: { x: 1 } },
+      { callId: "another-id", name: "echo", args: { x: 2 } },
+    ]);
   });
-
-  it.each(["length", "content_filter", "unknown"])(
-    "retains accounting on %s and never dispatches partial calls",
-    async (finish) => {
-      const { provider } = await fixture("api", [
-        mistralChunk(
-          {
-            content: "partial",
-            tool_calls: [{ id: "abc123XYZ", function: { name: "echo", arguments: '{"x":' } }],
-          },
-          finish,
-          usage,
-        ),
-      ]);
-      const events = await collect(provider, request("api"));
-      expect(events.filter((event) => event.type === "tool_call")).toHaveLength(0);
-      const completed = events.at(-1);
-      expect(completed).toMatchObject({
-        type: "completed",
-        usage: { inputTokens: 100 },
-      });
-      expect(completed?.type === "completed" && completed.error).toEqual(expect.any(String));
-    },
-  );
-  it("rejects malformed calls before tools run and malformed accounting without fabricating completion", async () => {
-    const { provider } = await fixture("api", [
-      mistralChunk(
-        { tool_calls: [{ id: "abc123XYZ", function: { name: "echo", arguments: "{bad" } }] },
-        "tool_calls",
-        usage,
-      ),
-    ]);
-    const completed = (await collect(provider, request("api"))).at(-1);
-    expect(completed).toMatchObject({
+  it("retains terminal accounting and readable output on malformed local calls, without dispatch", async () => {
+    const { provider } = await fixture("api", [message("partial"), call("{bad"), done()]);
+    const events = await collect(provider, request("api"));
+    expect(events.filter((e) => e.type === "tool_call")).toEqual([]);
+    expect(events.find((e) => e.type === "message")).not.toHaveProperty("payload");
+    expect(events.at(-1)).toMatchObject({
       type: "completed",
       usage: { inputTokens: 100 },
+      error: expect.stringContaining("malformed") as unknown,
     });
-    expect(completed?.type === "completed" && completed.error).toContain("malformed");
+  });
+  it("rejects invalid accounting and EOF without fabricating successful completion", async () => {
     const invalid = await fixture("api", [
-      mistralChunk({}, "stop", {
-        prompt_tokens: 5,
-        completion_tokens: 1,
-        prompt_tokens_details: { cached_tokens: 6 },
-      }),
+      done({ prompt_tokens: 5, completion_tokens: 1, prompt_tokens_details: { cached_tokens: 6 } }),
     ]);
-    await expect(collect(invalid.provider, request("api"))).rejects.toThrow(
-      "invalid content or accounting",
-    );
-    const truncated = await fixture("api", [mistralChunk({ content: "partial" })]);
+    await expect(collect(invalid.provider, request("api"))).rejects.toThrow();
+    const truncated = await fixture("api", [message("partial"), call("{")]);
     await expect(collect(truncated.provider, request("api"))).rejects.toThrow(
-      "without a finish reason",
+      "without response completion",
     );
+  });
+  it("drains partial readable content without signed metadata after a provider error", async () => {
+    const { provider } = await fixture("api", [
+      message({ type: "thinking", thinking: [{ type: "text", text: "partial" }], signature: null }),
+      call("{"),
+      { type: "conversation.response.error", message: "Interrupted", code: 500 },
+    ]);
+    const events = await collect(provider, request("api"));
+    expect(events).toEqual([
+      { type: "reasoning_delta", text: "partial" },
+      { type: "reasoning", content: [{ type: "text", text: "partial" }] },
+      { type: "completed", usage: null, error: "Mistral response error (500): Interrupted" },
+    ]);
   });
   it("normalizes native context overflow before output", async () => {
     const { provider } = await fixture("api", [], 400);
     await expect(collect(provider, request("api"))).rejects.toBeInstanceOf(
       ContextWindowExceededError,
     );
+  });
+  it("drains authoritative completion even if cancellation arrives while final output is yielded", async () => {
+    const controller = new AbortController();
+    const stream = (async function* () {
+      yield message("received");
+      yield done();
+      throw new Error("must stop at terminal event");
+    })();
+    const events: ModelStreamEvent[] = [];
+    for await (const event of mistralEvents(stream, "work", "coding", controller.signal)) {
+      events.push(event);
+      if (event.type === "message") controller.abort();
+    }
+    expect(events.at(-1)).toMatchObject({ type: "completed", usage: { inputTokens: 100 } });
+    expect(events.find((e) => e.type === "message")).toHaveProperty("payload");
   });
   it.each(["abort", "return"])("closes the real streaming socket on consumer %s", async (kind) => {
     let disconnected!: () => void;
@@ -346,7 +382,9 @@ describe("Mistral native delivery", () => {
       if (req.method === "GET") return json(response, catalog("api"));
       response.on("close", disconnected);
       response.writeHead(200, { "content-type": "text/event-stream" });
-      response.write(`data: ${JSON.stringify(mistralChunk({ content: "started" }))}\n\n`);
+      response.write(
+        "event: message.output.delta\ndata: " + JSON.stringify(message("started")) + "\n\n",
+      );
     });
     gateways.push(gateway);
     const provider = new MistralProvider("work", "api", "key", (input, init) =>
@@ -366,14 +404,17 @@ describe("Mistral native delivery", () => {
     expect((await iterator.next()).value).toEqual({ type: "text_delta", text: "started" });
     if (kind === "abort") {
       const reason = new Error("cancelled by test");
-      const pending = expect(iterator.next()).rejects.toBe(reason);
+      const pending = iterator.next();
       controller.abort(reason);
-      await pending;
+      expect((await pending).value).toEqual({
+        type: "message",
+        content: [{ type: "text", text: "started" }],
+      });
+      await expect(iterator.next()).rejects.toBe(reason);
     } else await iterator.return?.();
     await drained;
   });
 });
-
 describe("Mistral catalog boundary", () => {
   it("exposes verified Vibe presets, excludes unsupported models and reports bad metadata", () => {
     const parsed = parseCatalog(
@@ -483,7 +524,7 @@ describe("Mistral catalog boundary", () => {
   });
 });
 
-it("maps imported IDs deterministically and leaves selected context at its original cache position", () => {
+it("preserves imported IDs exactly and leaves selected context at its original cache position", () => {
   const base = request("api");
   delete base.prompt;
   base.items = [
@@ -510,11 +551,11 @@ it("maps imported IDs deterministically and leaves selected context at its origi
     },
   ];
   const wire = buildMistralRequest(base);
-  expect(wire.messages[0]).toEqual({ role: "system", content: "Stable system" });
-  expect(wire.messages.at(-1)).toEqual({ role: "user", content: "changes" });
-  const id = nativeCallId("other-provider-id");
-  expect(id).toMatch(/^[a-zA-Z0-9]{9}$/);
-  expect(wire.messages[2]).toMatchObject({ tool_calls: [{ id }] });
-  expect(wire.messages[3]).toMatchObject({ tool_call_id: id });
+  expect(wire.instructions).toBe("Stable system");
+  expect(wire.inputs.at(-1)).toEqual({ type: "message.input", role: "user", content: "changes" });
+  const id = "other-provider-id";
+
+  expect(wire.inputs[1]).toMatchObject({ type: "function.call", tool_call_id: id });
+  expect(wire.inputs[2]).toMatchObject({ type: "function.result", tool_call_id: id });
   expect(buildMistralRequest(base)).toEqual(wire);
 });

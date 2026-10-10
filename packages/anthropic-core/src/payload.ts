@@ -1,4 +1,51 @@
 import type { ProviderPayload, ProviderPayloadDraft } from "@harness/protocol";
+import type Anthropic from "@anthropic-ai/sdk";
+import { jsonValueSchema } from "@harness/protocol";
+
+/** Only completed search pairs belong in finalized or selected assistant history. */
+export function completedSearchFilter(
+  blocks: readonly (Anthropic.Messages.ContentBlock | Anthropic.Messages.ContentBlockParam)[],
+): (block: Anthropic.Messages.ContentBlock | Anthropic.Messages.ContentBlockParam) => boolean {
+  const calls = new Set(
+    blocks.flatMap((block) => (block.type === "server_tool_use" ? [block.id] : [])),
+  );
+  const results = new Set(
+    blocks.flatMap((block) => (block.type === "web_search_tool_result" ? [block.tool_use_id] : [])),
+  );
+  return (block) =>
+    block.type === "server_tool_use"
+      ? results.has(block.id)
+      : block.type === "web_search_tool_result"
+        ? calls.has(block.tool_use_id)
+        : true;
+}
+
+export function encodeBlockPayload(
+  blocks: Anthropic.Messages.ContentBlock[],
+  provider: string,
+  model: string,
+): ProviderPayloadDraft {
+  return {
+    provider,
+    model,
+    type: "message_blocks",
+    version: 1,
+    payload: jsonValueSchema.parse(blocks),
+  };
+}
+
+export function readBlockPayload(
+  payload: ProviderPayload | undefined,
+  provider: string,
+  model: string,
+): Anthropic.Messages.ContentBlockParam[] | undefined {
+  return payload?.provider === provider &&
+    payload.model === model &&
+    payload.type === "message_blocks" &&
+    payload.version === 1
+    ? (structuredClone(payload.payload) as Anthropic.Messages.ContentBlockParam[])
+    : undefined;
+}
 
 const THINKING_PAYLOAD_TYPE = "thinking";
 const THINKING_PAYLOAD_VERSION = 1;

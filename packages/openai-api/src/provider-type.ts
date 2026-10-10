@@ -9,6 +9,7 @@ export const openAIProviderType = defineProviderType({
   configSchema: z.strictObject({
     apiKey: apiKeySourceSchema.default({ stored: true }),
     baseUrl: z.url().optional(),
+    webSearch: z.boolean().default(false),
   }),
   create(context, config) {
     const auth = instanceApiKeyAuth(context, config.apiKey, (key) =>
@@ -21,6 +22,7 @@ export const openAIProviderType = defineProviderType({
         return apiKey
           ? new OpenAIResponsesProvider({
               provider: context.id,
+              webSearch: config.webSearch,
               credentials: apiKeyCredentials({
                 apiKey,
                 ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),

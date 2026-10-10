@@ -132,30 +132,30 @@ it.skipIf(process.env.HARNESS_LITELLM_DOCKER !== "1")(
           ...output.flatMap((entry, output_index) => [
             {
               type: "response.output_item.added",
-              sequence_number: output_index * 2 + 1,
+              sequence_number: output_index * 3 + 1,
               output_index,
               item: entry,
             },
+            ...(continuation
+              ? [
+                  {
+                    type: "response.output_text.delta",
+                    sequence_number: output_index * 3 + 2,
+                    output_index,
+                    content_index: 0,
+                    item_id: "msg-1",
+                    delta: "done",
+                  },
+                ]
+              : []),
             {
               type: "response.output_item.done",
-              sequence_number: output_index * 2 + 2,
+              sequence_number: output_index * 3 + 3,
               output_index,
               item: entry,
             },
           ]),
-          ...(continuation
-            ? [
-                {
-                  type: "response.output_text.delta",
-                  sequence_number: 5,
-                  output_index: 0,
-                  content_index: 0,
-                  item_id: "msg-1",
-                  delta: "done",
-                },
-              ]
-            : []),
-          { type: "response.completed", sequence_number: 6, response },
+          { type: "response.completed", sequence_number: output.length * 3 + 1, response },
         ]);
       }
       if (req.path.endsWith("/messages")) {
@@ -363,6 +363,13 @@ it.skipIf(process.env.HARNESS_LITELLM_DOCKER !== "1")(
           });
         const second = await collect(provider, next(first, request));
         expect(second).toContainEqual({ type: "text_delta", text: "done" });
+        expect(second.find((event) => event.type === "message")).toMatchObject({
+          content: [{ type: "text", text: "done" }],
+        });
+        expect(second.findIndex((event) => event.type === "text_delta")).toBeLessThan(
+          second.findIndex((event) => event.type === "message"),
+        );
+        expect(second.at(-1)).toMatchObject({ type: "completed" });
       }
       const responses = upstream.requests.filter((req) => req.path.endsWith("/responses"));
       expect(responses).toHaveLength(6);

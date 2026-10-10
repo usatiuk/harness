@@ -35,6 +35,7 @@ import {
   usageSchema,
   zeroUsage,
   summarizeTurnUsage,
+  jsonValueSchema,
 } from "@harness/protocol";
 import { systemClock, uuidIdGenerator } from "@harness/store";
 import { initializeSchema, type Database } from "./schema.ts";
@@ -359,6 +360,10 @@ export class SqliteStore implements Store {
         request_duration_ms: input.requestDurationMs ?? null,
         usage: JSON.stringify(input.usage),
         cost: input.cost,
+        provider_usage:
+          input.providerUsage === undefined ? null : JSON.stringify(input.providerUsage),
+        cost_incomplete: input.costIncomplete ? 1 : 0,
+        input_tokens_are_context: input.inputTokensAreContext === false ? 0 : 1,
         created_at: record.createdAt,
       })
       .execute();
@@ -379,17 +384,27 @@ export class SqliteStore implements Store {
 
   async summarizeModelUsage(conversationId: ConversationId): Promise<ModelUsageSummary> {
     const rows = this.#db
-      .prepare<[string], { usage: string; cost: number | null }>(
-        `SELECT usage, cost FROM model_usage
+      .prepare<
+        [string],
+        {
+          usage: string;
+          cost: number | null;
+          cost_incomplete: number;
+          input_tokens_are_context: number;
+        }
+      >(
+        `SELECT usage, cost, cost_incomplete, input_tokens_are_context FROM model_usage
          WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC`,
       )
       .iterate(conversationId);
     let usage = zeroUsage();
     let incomplete = false;
     let cost = 0;
+    let costIncomplete = false;
     let lastInputTokens: number | undefined;
     for (const row of rows) {
       cost += row.cost ?? 0;
+      costIncomplete ||= row.cost === null || row.cost_incomplete === 1;
       const parsed = usageSchema.nullable().parse(JSON.parse(row.usage)) as Usage | null;
       if (parsed === null) {
         incomplete = true;
@@ -397,6 +412,7 @@ export class SqliteStore implements Store {
         usage = addUsage(usage, parsed);
         lastInputTokens = parsed.inputTokens;
       }
+      if (row.input_tokens_are_context === 0) lastInputTokens = undefined;
     }
     const agent = this.#db
       .prepare<
@@ -420,6 +436,7 @@ export class SqliteStore implements Store {
       usage,
       incomplete,
       cost,
+      costIncomplete,
       ...(lastInputTokens === undefined ? {} : { lastInputTokens }),
       ...(agent
         ? {
@@ -427,7 +444,7 @@ export class SqliteStore implements Store {
               provider: agent.provider,
               model: agent.model,
               turnId: agent.turn_id as TurnId,
-              usage: rowToModelUsage(agent).usage,
+              usage: agent.input_tokens_are_context === 0 ? null : rowToModelUsage(agent).usage,
               createdAt: agent.created_at,
             },
           }
@@ -612,6 +629,11 @@ function rowToModelUsage(row: Database["model_usage"]): ModelUsage {
     ...(row.request_duration_ms === null ? {} : { requestDurationMs: row.request_duration_ms }),
     usage: usageSchema.nullable().parse(JSON.parse(row.usage)) as Usage | null,
     cost: row.cost,
+    ...(row.provider_usage === null
+      ? {}
+      : { providerUsage: jsonValueSchema.parse(JSON.parse(row.provider_usage)) }),
+    ...(row.cost_incomplete ? { costIncomplete: true } : {}),
+    ...(row.input_tokens_are_context === 0 ? { inputTokensAreContext: false } : {}),
     createdAt: row.created_at,
   };
 }

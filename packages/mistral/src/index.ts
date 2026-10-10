@@ -7,14 +7,19 @@ import type { MistralMode } from "./catalog.ts";
 function providerType(mode: MistralMode) {
   return defineProviderType({
     type: `mistral-${mode}`,
-    configSchema: z.strictObject({ apiKey: apiKeySourceSchema.default({ stored: true }) }),
+    configSchema: z.strictObject({
+      apiKey: apiKeySourceSchema.default({ stored: true }),
+      webSearch: z.boolean().default(false),
+    }),
     create(context, config) {
       const auth = instanceApiKeyAuth(context, config.apiKey);
       return {
         auth,
         async buildProvider() {
           const key = await auth.getKey();
-          return key ? new MistralProvider(context.id, mode, key) : null;
+          return key
+            ? new MistralProvider(context.id, mode, key, fetch, config.webSearch === true)
+            : null;
         },
       };
     },

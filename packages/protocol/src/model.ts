@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId, ItemId } from "./ids.ts";
 import type { Item } from "./items.ts";
+import type { JsonValue } from "./rpc.ts";
 
 export interface ModelIdentity {
   provider: string;
@@ -166,11 +167,21 @@ export interface ModelRequest {
   /** Advisory per-request output cap; providers honor it when their transport supports one. */
   maxOutputTokens?: number;
   modelConfig: ModelConfig;
+  /** Validated, non-secret connection defaults; only the selected adapter interprets them. */
+  providerOptions?: JsonValue;
 }
 
-/** A finalized non-text model output that can be persisted and continued by the agent loop. */
+/** Finalized model output, in emission order. Deltas are only a temporary preview. */
 export type ModelOutputItem =
+  | {
+      type: "message";
+      content: ContentBlock[];
+      phase?: string | null;
+      payload?: ProviderPayloadDraft;
+    }
   | { type: "reasoning"; content: ContentBlock[]; payload?: ProviderPayloadDraft }
+  /** Display-only activity hint. Never model input or a replayable provider payload. */
+  | { type: "provider_output"; content: ContentBlock[]; payload?: never }
   | {
       type: "tool_call";
       callId: string;
@@ -182,7 +193,7 @@ export type ModelOutputItem =
 /** The completed, non-agentic result of exactly one provider invocation. */
 export interface ModelInvocationResult {
   content: ContentBlock[];
-  /** Ordered reasoning/tool-call outputs, including opaque provider fidelity. */
+  /** Ordered finalized outputs, including opaque provider fidelity. */
   outputItems: ModelOutputItem[];
   /** `null` when a compatible backend completed without reporting token accounting. */
   usage: Usage | null;
@@ -203,31 +214,29 @@ export class ContextWindowExceededError extends Error {
  */
 export interface ModelInvoker {
   invoke(
-    request: Omit<ModelRequest, "modelConfig"> & { modelConfig?: ModelConfig },
+    request: Omit<ModelRequest, "modelConfig" | "providerOptions"> & {
+      modelConfig?: ModelConfig;
+    },
     options?: { purpose?: string; signal?: AbortSignal },
   ): Promise<ModelInvocationResult>;
 }
 
-// Output is carried before `completed`: text through `text_delta`, and structured
-// output through finalized `reasoning`/`tool_call` events. A provider whose
-// transport is non-streaming emits its complete text as one `text_delta`.
-// `payload` is the item's opaque provider fidelity (round-tripped).
+// Every visible block finalizes before completion. Non-streaming transports may
+// emit finalized output directly. Phase describes assistant output, not loop control.
 export type ModelStreamEvent =
-  | { type: "text_delta"; text: string }
+  | { type: "text_delta"; text: string; phase?: string | null }
   | { type: "reasoning_delta"; text: string }
-  | {
-      type: "tool_call";
-      callId: string;
-      name: string;
-      args: unknown;
-      payload?: ProviderPayloadDraft;
-    }
-  | { type: "reasoning"; content: ContentBlock[]; payload?: ProviderPayloadDraft }
+  | ModelOutputItem
   | {
       type: "completed";
-      payload?: ProviderPayloadDraft; // binds to the step's final assistant message
       /** Explicitly unknown when a compatible backend omits accounting. */
       usage: Usage | null;
+      /** False when billing input sums internal requests rather than measuring one prompt. */
+      inputTokensAreContext?: boolean;
+      /** Provider-reported billing units; opaque to the loop, safe usage data only. */
+      providerUsage?: JsonValue;
+      /** Additional hosted-tool charges are not included in the token rate card. */
+      costIncomplete?: boolean;
       /** Terminal provider outcome that must be recorded, then fail the logical invocation. */
       error?: string;
     };
@@ -239,9 +248,12 @@ export interface ModelCallContext {
 
 export interface ModelProvider {
   readonly provider: string;
+  /** Immutable provider-owned request defaults, copied into each request and its trace. */
+  readonly providerOptions?: JsonValue;
   capabilities(model: string): ModelCapabilities;
   validateConfig(config: ModelConfig): void;
-  /** Streams one model step. The signal aborts the underlying network stream. */
+  /** Streams one model step. Abort stops network work; already received finalized
+   * output and terminal accounting may drain before the stream closes. */
   stream(
     request: ModelRequest,
     signal: AbortSignal,

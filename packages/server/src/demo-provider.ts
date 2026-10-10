@@ -72,6 +72,7 @@ export class DemoProvider implements ModelProvider {
       await delay(DEMO_LATENCY_MS, signal);
       if (signal.aborted) return;
       yield { type: "text_delta", text };
+      yield { type: "message", content: [{ type: "text", text }] };
       yield { type: "completed", usage: ZERO_USAGE };
       return;
     }

@@ -38,7 +38,8 @@ Each turn then:
 
 1. Resolve a turn-boundary snapshot of conversation configuration and tools.
 2. Assemble and record the model context.
-3. Stream reasoning, assistant text, and tool calls in provider emission order.
+3. Display ephemeral text/reasoning previews and append explicitly finalized
+   messages, reasoning, local calls and provider activity hints in emission order.
 4. Pair every accepted tool call with exactly one result, including interrupted
    calls, then append any middleware-staged context after the whole result batch.
 5. Pull `steer` input at the after-tool-result boundary and continue.
@@ -59,6 +60,15 @@ The loop bounds one turn to 100 model steps. A provider stream must terminate
 with a `completed` event. Its usage is normalized tokens or `null`; a terminal
 error is recorded before the turn fails and never dispatches provider-invalid
 calls.
+
+Further normalized events after completion fail the invocation without overwriting
+its first accounting or dispatching recorded calls.
+
+Assistant phases are presentation metadata. Provider activity hints are durable
+display text only; they never enter model context or control the loop. Finalized
+native protocol history remains opaque provider metadata on ordinary items.
+Hosted search has no kernel resumption state or extra loop. Only local tool calls
+control continuation.
 
 ## Plugin surface
 

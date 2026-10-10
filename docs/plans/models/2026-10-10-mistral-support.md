@@ -2,6 +2,10 @@
 
 Status: Completed
 
+Historical delivery. The [native-search integration](2026-10-10-native-search-and-assistant-phases.md)
+supersedes its Chat transport with streaming Conversations for both connections,
+preserving its auth, catalog, model controls and routing contracts.
+
 ## Outcome and scope
 
 Deliver `mistral-api` and `mistral-vibe` API-key connections and fix OpenCode Go's

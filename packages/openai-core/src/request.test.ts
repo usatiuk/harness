@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type OpenAI from "openai";
 import type { Item, ModelRequest, ProviderPayload } from "@harness/protocol";
-import { buildResponseParams } from "./request.ts";
+import { buildResponseParams, buildChatParams } from "./request.ts";
 
 const REASONING = { effort: "medium", summary: "auto" } as const satisfies OpenAI.Reasoning;
 
@@ -28,6 +28,89 @@ const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
 });
 
 describe("buildResponseParams", () => {
+  it("renders historical raw-string calls as text when no custom tool is offered", () => {
+    const params = buildResponseParams(
+      baseRequest([
+        { item: item({ type: "tool_call", callId: "patch", name: "apply_patch", args: "PATCH" }) },
+        {
+          item: item({
+            type: "tool_result",
+            callId: "patch",
+            status: "ok",
+            content: [{ type: "text", text: "applied" }],
+          }),
+        },
+      ]),
+      undefined,
+      "openai",
+      false,
+    );
+    expect(params.input).toEqual([
+      { role: "assistant", content: "Tool apply_patch: PATCH" },
+      { role: "user", content: "applied" },
+    ]);
+  });
+
+  it.each([null, "commentary", "final_answer", undefined, "foreign"])(
+    "preserves supported canonical assistant phase %s without a sidecar",
+    (phase) => {
+      const request = baseRequest([
+        {
+          item: item({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "partial" }],
+            ...(phase !== undefined ? { phase } : {}),
+          }),
+        },
+      ]);
+      const input = buildResponseParams(request, undefined, "openai", false).input;
+      expect(input).toEqual([
+        {
+          role: "assistant",
+          content: "partial",
+          ...(phase !== undefined && phase !== "foreign" ? { phase } : {}),
+        },
+      ]);
+    },
+  );
+
+  it("declares provider-owned search and forwards toolChoice independently", () => {
+    const request = { ...baseRequest([]), providerOptions: { webSearch: true } };
+    expect(buildResponseParams(request, undefined, "openai", false).tools).toContainEqual({
+      type: "web_search",
+    });
+    const params = buildResponseParams(
+      { ...request, toolChoice: "none" },
+      undefined,
+      "openai",
+      false,
+    );
+    expect(params.tools).toContainEqual({ type: "web_search" });
+    expect(params.tool_choice).toBe("none");
+    expect(
+      buildResponseParams(baseRequest([]), undefined, "openai", false).tools,
+    ).not.toContainEqual({ type: "web_search" });
+  });
+
+  it("never sends display-only search hints or their historical metadata", () => {
+    const request = baseRequest([
+      {
+        item: item({
+          type: "provider_output",
+          content: [{ type: "text", text: "Searched SECRET" }],
+        }),
+        payload: {
+          ...reasoningPayload("gpt-x"),
+          type: "response_output",
+          payload: { type: "web_search_call", id: "search", status: "in_progress" },
+        },
+      },
+    ]);
+    expect(buildResponseParams(request, undefined, "openai", false).input).toEqual([]);
+    expect(buildChatParams(request).messages).toEqual([{ role: "system", content: "be nice" }]);
+  });
+
   it("omits reasoning controls unless the connection requests them", () => {
     const params = buildResponseParams(baseRequest([]), undefined, "gateway", false);
     expect(params).not.toHaveProperty("reasoning");

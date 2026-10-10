@@ -34,7 +34,6 @@ import {
   type Observer,
   type InteractionRequest,
   type PluginEvent,
-  type ProviderPayloadDraft,
   type RequestMiddlewareContext,
   type Store,
   type ToolCall,
@@ -55,6 +54,7 @@ import { applyDelivery } from "./delivery.ts";
 import { runModelChain, runToolChain } from "./compose.ts";
 import { runRequestChain } from "./compose.ts";
 import { reconcileConversation } from "./reconcile.ts";
+import { ModelPreview } from "./model-preview.ts";
 
 const MAX_MODEL_STEPS = 100;
 const COMPACTION_HEADROOM_TOKENS = 8_192;
@@ -721,9 +721,7 @@ export class Engine {
 
   /**
    * The tool-shaped step loop, two phases per step:
-   * 1. Consume the stream, writing assistant items in emission order — text is
-   *    flushed as a message at each `tool_call` (and at `completed`), so interleaved
-   *    text/calls store and replay in order.
+   * 1. Consume finalized provider outputs, writing immutable items in emission order.
    * 2. Dispatch, pairing every recorded call with a `tool_result` (synthetic
    *    `interrupted` when aborted). Invariant: every call is paired before the only
    *    `throw`, so a call never dangles.
@@ -745,6 +743,7 @@ export class Engine {
     let compactedBeforeAttempt = false;
     for (let step = 0; step < MAX_MODEL_STEPS; step++) {
       const draft = await this.#assembleContext(conversation, toolSchemas, runtime);
+      if (provider.providerOptions !== undefined) draft.providerOptions = provider.providerOptions;
       const capacity = await this.#contextCapacity(conversation, draft);
       if (capacity.shouldCompact && !compactedBeforeAttempt) {
         const folded = await this.#compact(
@@ -768,31 +767,16 @@ export class Engine {
         items: build.items,
         tools: build.tools,
         modelConfig: conversation.config.model,
+        ...(build.providerOptions !== undefined ? { providerOptions: build.providerOptions } : {}),
       };
 
       const calls: ToolCall[] = [];
       let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
-      let pendingText = "";
       let sawOutput = false;
-      // The step's final assistant message — the item `completed.payload` binds to.
-      let lastMessageId: ItemId | undefined;
-
-      const bindPayload = async (itemId: ItemId, draft?: ProviderPayloadDraft): Promise<void> => {
-        if (draft) await this.store.putProviderPayload({ ...draft, itemId });
-      };
-
-      const flushText = async (): Promise<void> => {
-        if (pendingText.length === 0) return;
-        const message = await this.store.appendItem({
-          conversationId: conversation.id,
-          turnId,
-          type: "message",
-          role: "assistant",
-          content: [{ type: "text", text: pendingText }],
-        });
-        lastMessageId = message.id;
-        this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
-        pendingText = "";
+      const preview = new ModelPreview();
+      const savePartial = async (): Promise<void> => {
+        const partial = preview.takePartial();
+        if (partial) await this.#appendOutputItem(partial, conversation, turnId);
       };
 
       // --- Consume phase: assistant content, in emission order. ---
@@ -810,22 +794,38 @@ export class Engine {
           requestDurationMs: requestDurationMs ?? performance.now() - requestStarted,
           usage,
           cost: pricing && usage ? costOf(usage, pricing) : null,
+          ...(completed?.inputTokensAreContext === false ? { inputTokensAreContext: false } : {}),
+          ...(completed?.providerUsage !== undefined
+            ? { providerUsage: completed.providerUsage }
+            : {}),
+          ...(completed?.costIncomplete ? { costIncomplete: true } : {}),
         });
         await this.#publishUsage(conversation.id);
       };
       try {
         const stream = this.#streamModel(conversation.id, request, signal, provider, toolSet);
         for await (const event of stream) {
-          if (signal.aborted) break;
+          if (completed)
+            throw new Error("provider emitted an event after completed", {
+              cause: completed.error,
+            });
+          if (
+            signal.aborted &&
+            (event.type === "text_delta" ||
+              event.type === "reasoning_delta" ||
+              event.type === "provider_output")
+          )
+            continue;
+          preview.accept(event);
           switch (event.type) {
             case "text_delta":
               sawOutput = true;
-              pendingText += event.text;
               this.#emitKernel({
                 type: "text_delta",
                 conversationId: conversation.id,
                 turnId,
                 text: event.text,
+                ...(event.phase !== undefined ? { phase: event.phase } : {}),
               });
               break;
             case "reasoning_delta":
@@ -837,15 +837,17 @@ export class Engine {
                 text: event.text,
               });
               break;
+            case "message":
             case "reasoning": {
               sawOutput = true;
-              await flushText(); // preserve emission order against any preceding text
               await this.#appendOutputItem(event, conversation, turnId);
               break;
             }
+            case "provider_output":
+              await this.#appendOutputItem(event, conversation, turnId);
+              break;
             case "tool_call": {
               sawOutput = true;
-              await flushText(); // any text before this call is its own message item
               const call = await this.#appendOutputItem(event, conversation, turnId);
               if (call) calls.push(call);
               break;
@@ -858,10 +860,20 @@ export class Engine {
               assertNever(event);
           }
         }
+        if (completed && !completed.error && !signal.aborted) preview.assertFinalized();
       } catch (error) {
         requestDurationMs ??= performance.now() - requestStarted;
-        await flushText();
+        await savePartial();
         await recordUsage();
+        await this.#dispatchCalls(
+          calls,
+          toolSet,
+          conversation,
+          turnId,
+          signal,
+          runtime,
+          "provider request failed",
+        );
         if (
           error instanceof ContextWindowExceededError &&
           !sawOutput &&
@@ -895,10 +907,19 @@ export class Engine {
         throw error;
       }
       requestDurationMs ??= performance.now() - requestStarted;
-      await flushText(); // trailing text segment (saves partial output on abort)
+      await savePartial();
       await recordUsage();
 
       if (!completed) {
+        await this.#dispatchCalls(
+          calls,
+          toolSet,
+          conversation,
+          turnId,
+          signal,
+          runtime,
+          "provider stream ended without a 'completed' event",
+        );
         if (signal.aborted) throw new TurnAborted();
         throw new Error("provider stream ended without a 'completed' event");
       }
@@ -912,7 +933,6 @@ export class Engine {
           runtime,
           completed.error,
         );
-        if (lastMessageId) await bindPayload(lastMessageId, completed.payload);
         if (signal.aborted) throw new TurnAborted();
         throw new Error(completed.error);
       }
@@ -921,7 +941,6 @@ export class Engine {
       await this.#dispatchCalls(calls, toolSet, conversation, turnId, signal, runtime);
 
       // --- Finalize. ---
-      if (lastMessageId) await bindPayload(lastMessageId, completed.payload);
       if (signal.aborted) throw new TurnAborted();
       if (calls.length === 0) {
         return; // final, non-tool response: the turn is done
@@ -942,13 +961,22 @@ export class Engine {
     conversation: Conversation,
     turnId: TurnId,
   ): Promise<ToolCall | undefined> {
-    if (output.type === "reasoning") {
-      const item = await this.store.appendItem({
+    if (output.type !== "tool_call") {
+      const base = {
         conversationId: conversation.id,
         turnId,
-        type: "reasoning",
         content: output.content,
-      });
+      };
+      const item = await this.store.appendItem(
+        output.type === "message"
+          ? {
+              ...base,
+              type: "message",
+              role: "assistant",
+              ...(output.phase !== undefined ? { phase: output.phase } : {}),
+            }
+          : { ...base, type: output.type },
+      );
       if (output.payload)
         await this.store.putProviderPayload({ ...output.payload, itemId: item.id });
       this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
@@ -1032,10 +1060,10 @@ export class Engine {
       ? toolSet.exposes(call.name, "code")
       : toolSet.exposes(call.name, "direct") &&
         (mode !== "code-only" || call.name === EVALUATOR_NAME || isDiscoveryTool(call.name));
-    const outcome = terminalError
-      ? { result: errorResult(terminalError), completed: false }
-      : signal.aborted
-        ? { result: interruptedResult(), completed: false }
+    const outcome = signal.aborted
+      ? { result: interruptedResult(), completed: false }
+      : terminalError
+        ? { result: errorResult(terminalError), completed: false }
         : !available
           ? {
               result: errorResult(
@@ -1403,12 +1431,15 @@ export class Engine {
       const signal = options.signal ? AbortSignal.any([turnSignal, options.signal]) : turnSignal;
       const request: ModelRequest = {
         instructions: draft.instructions,
-        items: draft.items,
+        items: draft.items.filter(({ item }) => item.type !== "provider_output"),
         modelConfig,
         ...(draft.tools ? { tools: draft.tools } : {}),
         ...(draft.prompt ? { prompt: draft.prompt } : {}),
         ...(draft.toolChoice ? { toolChoice: draft.toolChoice } : {}),
         ...(draft.maxOutputTokens !== undefined ? { maxOutputTokens: draft.maxOutputTokens } : {}),
+        ...(provider.providerOptions !== undefined
+          ? { providerOptions: provider.providerOptions }
+          : {}),
       };
       const build = await this.store.recordContextBuild({
         conversationId: conversation.id,
@@ -1421,11 +1452,14 @@ export class Engine {
         ...(request.maxOutputTokens !== undefined
           ? { maxOutputTokens: request.maxOutputTokens }
           : {}),
+        ...(request.providerOptions !== undefined
+          ? { providerOptions: request.providerOptions }
+          : {}),
       });
       signal.throwIfAborted();
       const outputItems: ModelOutputItem[] = [];
+      const preview = new ModelPreview();
       const requestStarted = performance.now();
-      let text = "";
       let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
       let requestDurationMs: number | undefined;
       const pricing = this.#pricingFor(modelConfig);
@@ -1441,6 +1475,11 @@ export class Engine {
           requestDurationMs: requestDurationMs ?? performance.now() - requestStarted,
           usage,
           cost: pricing && usage ? costOf(usage, pricing) : null,
+          ...(completed?.inputTokensAreContext === false ? { inputTokensAreContext: false } : {}),
+          ...(completed?.providerUsage !== undefined
+            ? { providerUsage: completed.providerUsage }
+            : {}),
+          ...(completed?.costIncomplete ? { costIncomplete: true } : {}),
         });
         await this.#publishUsage(conversation.id);
       };
@@ -1453,28 +1492,26 @@ export class Engine {
           modelMiddlewareTools,
         );
         for await (const event of stream) {
-          if (signal.aborted) break;
-          if (event.type === "text_delta") {
-            text += event.text;
-          } else if (event.type === "tool_call") {
-            outputItems.push({
-              type: "tool_call",
-              callId: event.callId,
-              name: event.name,
-              args: event.args,
-              ...(event.payload ? { payload: event.payload } : {}),
+          if (completed)
+            throw new Error("provider emitted an event after completed", {
+              cause: completed.error,
             });
-          } else if (event.type === "reasoning") {
-            outputItems.push({
-              type: "reasoning",
-              content: event.content,
-              ...(event.payload ? { payload: event.payload } : {}),
-            });
-          } else if (event.type === "completed") {
+          if (
+            signal.aborted &&
+            (event.type === "text_delta" ||
+              event.type === "reasoning_delta" ||
+              event.type === "provider_output")
+          )
+            continue;
+          preview.accept(event);
+          if (event.type === "completed") {
             completed = event;
             requestDurationMs = performance.now() - requestStarted;
+          } else if (event.type !== "text_delta" && event.type !== "reasoning_delta") {
+            outputItems.push(event);
           }
         }
+        if (completed && !completed.error && !signal.aborted) preview.assertFinalized();
       } catch (error) {
         requestDurationMs ??= performance.now() - requestStarted;
         await recordUsage();
@@ -1491,7 +1528,7 @@ export class Engine {
       if (signal.aborted) throw new TurnAborted();
       if (completed.error) throw new Error(completed.error);
       return {
-        content: text ? [{ type: "text", text }] : [],
+        content: outputItems.flatMap((item) => (item.type === "message" ? item.content : [])),
         outputItems,
         usage: completed.usage,
         modelConfig,
@@ -1520,7 +1557,7 @@ export class Engine {
     const usage = await this.store.listModelUsage(conversation.id);
     for (let i = usage.length - 1; i >= 0; i--) {
       const row = usage[i]!;
-      if (!row.usage) continue;
+      if (!row.usage || row.inputTokensAreContext === false) continue;
       if (
         row.provider !== conversation.config.model.provider ||
         row.model !== conversation.config.model.model ||
@@ -1535,7 +1572,8 @@ export class Engine {
       );
       const sameStableInput =
         JSON.stringify(prior.instructions) === JSON.stringify(build.instructions) &&
-        JSON.stringify(prior.tools) === JSON.stringify(build.tools);
+        JSON.stringify(prior.tools) === JSON.stringify(build.tools) &&
+        JSON.stringify(prior.providerOptions) === JSON.stringify(build.providerOptions);
       if (!samePrefix || !sameStableInput) continue;
       estimate =
         row.usage.inputTokens +
@@ -1673,6 +1711,7 @@ export class Engine {
     const items = compactedWindow(await this.store.listActiveItems(conversation.id))
       .filter(
         (item) =>
+          item.type !== "provider_output" &&
           !((item.type === "tool_call" || item.type === "tool_result") && item.parentCallId),
       )
       .map((item) => {
@@ -1693,6 +1732,7 @@ export class Engine {
     ).flat();
     const instructions: ContentBlock[] = [
       { type: "text", text: conversation.config.instructions },
+      { type: "text", text: "Cite sources using Markdown links." },
       ...sourceInstructions,
     ];
 

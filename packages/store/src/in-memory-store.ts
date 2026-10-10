@@ -236,18 +236,21 @@ export class InMemoryStore implements Store {
     let usage = zeroUsage();
     let incomplete = false;
     let cost = 0;
+    let costIncomplete = false;
     let lastInputTokens: number | undefined;
     let agent: ModelUsage | undefined;
     for (const row of this.#modelUsage) {
       if (row.conversationId !== conversationId) continue;
       if (row.purpose === "agent") agent = row;
       cost += row.cost ?? 0;
+      costIncomplete ||= row.cost === null || row.costIncomplete === true;
       if (row.usage === null) {
         incomplete = true;
       } else {
         usage = addUsage(usage, row.usage);
         lastInputTokens = row.usage.inputTokens;
       }
+      if (row.inputTokensAreContext === false) lastInputTokens = undefined;
     }
     const terminal = [...this.#turns.values()].findLast(
       (turn) => turn.conversationId === conversationId && turn.status !== "running",
@@ -256,6 +259,7 @@ export class InMemoryStore implements Store {
       usage,
       incomplete,
       cost,
+      costIncomplete,
       ...(lastInputTokens === undefined ? {} : { lastInputTokens }),
       ...(agent
         ? {
@@ -263,7 +267,7 @@ export class InMemoryStore implements Store {
               provider: agent.provider,
               model: agent.model,
               turnId: agent.turnId,
-              usage: agent.usage,
+              usage: agent.inputTokensAreContext === false ? null : agent.usage,
               createdAt: agent.createdAt,
             },
           }

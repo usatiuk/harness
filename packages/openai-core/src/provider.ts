@@ -157,6 +157,7 @@ export interface OpenAIProviderOptions {
   models?: readonly OpenAIModelSpec[];
   /** Whether this transport can send the advisory `max_output_tokens` request cap. */
   supportsMaxOutputTokens?: boolean;
+  webSearch?: boolean;
 }
 
 /** Connection identity and credential access for the Responses wire transport. */
@@ -208,6 +209,7 @@ export abstract class OpenAIResponsesTransport {
 }
 
 export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements ModelProvider {
+  readonly providerOptions: { readonly webSearch: boolean };
   readonly #reasoning: OpenAI.Reasoning;
   readonly #models: readonly OpenAIModelSpec[];
   readonly #supportsMaxOutputTokens: boolean;
@@ -220,6 +222,7 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
     this.#reasoning = opts.reasoning ?? { effort: "medium", summary: "auto" };
     this.#models = opts.models ?? OPENAI_MODELS;
     this.#supportsMaxOutputTokens = opts.supportsMaxOutputTokens ?? true;
+    this.providerOptions = Object.freeze({ webSearch: opts.webSearch ?? false });
   }
 
   capabilities(model: string): ModelCapabilities {

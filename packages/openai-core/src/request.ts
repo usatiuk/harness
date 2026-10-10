@@ -6,7 +6,7 @@ import type {
   ProviderPayload,
   ToolSchema,
 } from "@harness/protocol";
-import { readReasoningPayload } from "./payload.ts";
+import { readReasoningPayload, readOutputPayload } from "./payload.ts";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ChatTool = OpenAI.Chat.Completions.ChatCompletionTool;
@@ -40,11 +40,25 @@ function toInputItem(
   // Call ids whose tool is freeform this turn — rendered as `custom_tool_call` rather than
   // a JSON function call.
   freeformCallIds: ReadonlySet<string>,
+  rawCallIds: ReadonlySet<string>,
   payload?: ProviderPayload,
 ): InputItem | undefined {
   switch (item.type) {
     case "message":
-      return { role: item.role, content: textOf(item.content) };
+      if (item.role === "assistant") {
+        const native = readOutputPayload(payload, provider, model);
+        if (native?.type === "message") return native;
+      }
+      return {
+        role: item.role,
+        content: textOf(item.content),
+        ...(item.role === "assistant" &&
+        (item.phase === null || item.phase === "commentary" || item.phase === "final_answer")
+          ? { phase: item.phase }
+          : {}),
+      };
+    case "provider_output":
+      return undefined;
     case "reasoning": {
       // Replayable only with our own opaque blob; a mismatched/absent payload is skipped
       // rather than sent as bare summary text (the API rejects that).
@@ -60,6 +74,8 @@ function toInputItem(
       };
     }
     case "tool_call":
+      if (rawCallIds.has(item.callId))
+        return { role: "assistant", content: `Tool ${item.name}: ${String(item.args)}` };
       // A freeform tool's canonical args are the raw input string; round-trip it natively.
       if (freeformCallIds.has(item.callId)) {
         return {
@@ -76,6 +92,7 @@ function toInputItem(
         arguments: JSON.stringify(item.args),
       };
     case "tool_result":
+      if (rawCallIds.has(item.callId)) return { role: "user", content: textOf(item.content) };
       if (freeformCallIds.has(item.callId)) {
         return {
           type: "custom_tool_call_output",
@@ -136,10 +153,26 @@ export function buildResponseParams(
   for (const { item } of request.items) {
     if (item.type === "tool_call" && freeformNames.has(item.name)) freeformCallIds.add(item.callId);
   }
+  const rawCallIds = new Set(
+    request.items.flatMap(({ item }) =>
+      item.type === "tool_call" &&
+      typeof item.args === "string" &&
+      !freeformCallIds.has(item.callId)
+        ? [item.callId]
+        : [],
+    ),
+  );
 
   const input: InputItem[] = [];
   for (const { item, payload } of request.items) {
-    const mapped = toInputItem(item, provider, request.modelConfig.model, freeformCallIds, payload);
+    const mapped = toInputItem(
+      item,
+      provider,
+      request.modelConfig.model,
+      freeformCallIds,
+      rawCallIds,
+      payload,
+    );
     if (mapped) input.push(mapped);
   }
   if (request.prompt) {
@@ -151,6 +184,13 @@ export function buildResponseParams(
       if (t.kind === "custom") return toCustomTool(t);
       return toFunctionTool(t);
     }) ?? [];
+  if (
+    request.providerOptions &&
+    typeof request.providerOptions === "object" &&
+    !Array.isArray(request.providerOptions) &&
+    request.providerOptions.webSearch === true
+  )
+    tools.push({ type: "web_search" });
 
   return {
     model: request.modelConfig.model,
@@ -235,10 +275,22 @@ export function buildChatParams(
   // Open the generation's assistant message on its first assistant-side item.
   const ensureAssistant = (): AssistantMessageWithReasoning =>
     (assistant ??= { role: "assistant", content: null });
+  const rawCallIds = new Set(
+    request.items.flatMap(({ item }) =>
+      item.type === "tool_call" && typeof item.args === "string" ? [item.callId] : [],
+    ),
+  );
 
-  for (const { item } of request.items) {
+  for (const { item, payload } of request.items) {
     switch (item.type) {
       case "reasoning": {
+        if (
+          payload?.provider !== request.modelConfig.provider ||
+          payload.model !== request.modelConfig.model ||
+          payload.type !== "chat_reasoning" ||
+          payload.version !== 1
+        )
+          break;
         // Plaintext round-trip: no encrypted_content, no signature. The fold is
         // position-independent — the item normally precedes the text, but a
         // reasoning item seen after the message is open folds into it too.
@@ -263,8 +315,18 @@ export function buildChatParams(
           messages.push({ role: item.role, content: textOf(item.content) });
         }
         break;
+      case "provider_output":
+        break;
       case "tool_call":
         {
+          if (rawCallIds.has(item.callId)) {
+            flushAssistant();
+            messages.push({
+              role: "assistant",
+              content: `Tool ${item.name}: ${String(item.args)}`,
+            });
+            break;
+          }
           const msg = ensureAssistant();
           (msg.tool_calls ??= []).push({
             id: item.callId,
@@ -276,7 +338,11 @@ export function buildChatParams(
       case "tool_result":
         // tool_result.status is not transmitted — same as the Responses transport.
         flushAssistant();
-        messages.push({ role: "tool", tool_call_id: item.callId, content: textOf(item.content) });
+        messages.push(
+          rawCallIds.has(item.callId)
+            ? { role: "user", content: textOf(item.content) }
+            : { role: "tool", tool_call_id: item.callId, content: textOf(item.content) },
+        );
         break;
       case "compaction":
         flushAssistant();

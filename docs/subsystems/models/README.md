@@ -4,9 +4,9 @@
 
 Harness supports OpenAI Responses and chat/completions through API keys,
 ChatGPT/Codex OAuth, Anthropic Messages through API keys, OpenCode Go through an
-API key across all three gateway transports, config-defined
-OpenAI/Anthropic-compatible endpoints, Mistral API/Vibe API-key connections, and
-a deterministic demo provider. Adapters
+API key across all three gateway transports, Gemini Interactions and Mistral
+API/Vibe through API keys, config-defined
+OpenAI/Anthropic-compatible endpoints, and a deterministic demo provider. Adapters
 expose one streaming `ModelProvider` contract. Shared transports own native
 serialization, streaming, payload fidelity and error normalization; concrete
 connections own catalogs, capabilities and generation policy.
@@ -24,7 +24,7 @@ A provider declares:
 
 - Its registry id and selectable `ModelInfo` catalog.
 - Model capabilities used to choose Harness-owned tool dialects.
-- Configuration validation.
+- Configuration validation and optional immutable, safe provider-owned request options.
 - A cancellable stream from `ModelRequest` to provider-neutral events.
 
 `ModelProvider.stream(request, signal, context)` receives a required
@@ -65,19 +65,73 @@ usage rows can calculate cost at completion.
 
 Canonical requests carry instructions, selected items with optional opaque
 payloads, tools, an optional non-durable prompt, tool choice, advisory output
-limit, and model configuration. Providers translate canonical items into their
+limit, model configuration and safe provider options. Providers translate canonical items into their
 native message/call/result representations and translate streamed output back
 into:
 
 - Text and reasoning deltas for live display.
-- Final reasoning and tool-call items, with provider payloads where required.
+- Explicit finalized assistant messages, reasoning and local tool-call items,
+  with provider payloads where required.
+- Display-only `provider_output` text hints for native search.
 - One terminal `completed` event containing normalized usage or explicit `null`
   when a compatible backend completed without reporting accounting.
 
-A stream failure before completion records no completed usage row. Cancellation
-aborts the provider stream and is normalized by the engine into an aborted turn.
+The engine rejects further events after completion and retains the first terminal
+accounting. A provider can mark `inputTokensAreContext: false` when reported billing
+input is not a single-prompt measurement. Hosted-search adapters do this after
+search occurs. Spend totals remain intact; context checkpoints become unknown and
+capacity uses the existing local estimate.
+
+A failed or interrupted attempt records unknown accounting unless the provider
+reported usage before its terminal error. Cancellation aborts the provider stream
+and is normalized by the engine into an aborted turn.
 Provider payloads remain opaque to the kernel and are replayed only when their
 provider, model, type, and version match.
+
+Deltas are ephemeral previews, never database writes. A finalized block replaces
+its preview once; graceful interruption may persist partial readable content
+without native metadata. A hard crash can lose an unfinalized preview. Assistant
+`phase` preserves any reported string, null, or absence and never drives the loop.
+Readable reasoning or summaries are separate items; opaque-only reasoning can
+have empty canonical content. Model selection changes apply at the next turn.
+Foreign reasoning is omitted, ordinary assistant text remains, and historical
+raw-string local calls use plain text where the target API requires object inputs.
+
+## Native web search
+
+The direct `openai-api`, `openai-codex`, `anthropic-api`, `gemini-api` and
+`mistral-api` and `mistral-vibe` connection schemas own `webSearch: boolean` (default false).
+The adapter's safe immutable options travel on `ModelRequest.providerOptions`
+and the existing context-build trace. Tool declarations follow provider settings
+independently of `toolChoice`, which adapters forward to the native API.
+Automatic compaction retains its existing local-tool continuation.
+
+Search runs inside one provider invocation. Hints carry no provider payload and
+are excluded before all model/context builds and compaction. Only local tool
+calls drive Harness execution. There are no hosted-search continuation flags,
+tokens, remote history IDs or search-resumption loops. Gemini incomplete statuses
+and Anthropic `pause_turn` use the ordinary terminal-error/accounting path.
+
+Gemini and Anthropic require finalized native search history on later requests.
+Their adapters retain it as opaque metadata on corresponding ordinary finalized
+items, independently of the hint. Gemini native steps and Anthropic content blocks
+preserve signatures/encrypted results and original text/annotations without
+changing displayed Markdown. No payload includes later canonical messages or
+local calls outside its selected item. Anthropic finalizes the search portion at
+`message_stop` so paused state cannot leak into later history. Search call/result
+pairs are correlated across the finalized response and selected assistant history,
+preserving intervening readable output. Unanswered searches and unmatched entries
+in a rewound prefix are excluded from requests. Local calls ending in `tool_use`
+follow the existing local-tool loop without restoring pending server work.
+
+Gemini and Mistral use direct-model stateless calls with `store: false`,
+bounded boot catalog discovery and no automatic retries. Catalogs preserve
+advertised limits; separate input/output limits do not invent a context window.
+Gemini returns finalized outputs; Mistral also streams live previews. Unsupported
+non-text outputs fail explicitly while retaining reported accounting. Models are
+instructed to cite Markdown links; no native
+citation converter or Search Suggestions UI is added. Provider-reported billing
+data stays opaque; additional unpriced search fees mark cost as incomplete.
 
 ## OpenAI family
 
@@ -130,8 +184,8 @@ so backends that implement `instructions` natively are unchanged.
 
 The chat/completions transport is the primary path for local and open backends
 (vLLM, Ollama, OVMS). It is function-only (freeform custom tools throw) and
-round-trips prior reasoning as plaintext `reasoning_content` (no
-encrypted/thinking payload) folded into one native assistant message per model
+round-trips its own prior reasoning as plaintext `reasoning_content`, with a
+provider/model ownership tag, folded into one native assistant message per model
 generation — content, reasoning, and tool calls together — which DeepSeek's
 thinking mode requires ("must be passed back to the API"). A generation that only
 reasoned renders as a standalone assistant reasoning message. Instructions and
@@ -209,7 +263,8 @@ an advertised control reject presets rather than ignoring them.
 
 `@harness/mistral` contributes `mistral-api` and `mistral-vibe` types. Both use
 API-key auth with existing instance-scoped secrets and generate through
-`https://api.mistral.ai/v1/chat/completions`. The default instances select
+streaming `https://api.mistral.ai/v1/conversations` with `store: false`. Native
+`webSearch` is available on both types and never changes the transport. The default instances select
 `MISTRAL_API_KEY` and `MISTRAL_VIBE_API_KEY` separately; additional named instances
 select secure storage or an explicit environment reference. API discovery reads
 `GET /v1/models`; Vibe reads `GET /v1/model-catalog?surface=vibe-code`. The Vibe
@@ -218,12 +273,17 @@ prove subscription eligibility or change generation billing.
 
 The existing OpenAI SDK owns HTTP/SSE delivery and cancellation. Dedicated pure
 Mistral request/stream functions handle structured `thinking` blocks, signatures,
-closed flags and opaque block metadata, nine-character alphanumeric tool IDs,
-raw tool arguments, and native usage. Thinking blocks finalize in content order;
-their payloads bind to individual reasoning items. Matching provider/model/type
-payloads replay with validated versions; other histories use canonical content.
-Imported call IDs are normalized deterministically, with collisions rejected.
-Truncated/filtered/malformed tool outcomes retain reported accounting but finish
+closed flags and opaque block metadata, raw tool arguments, and native usage.
+Output/content indices assemble native fragments; text and reasoning previews
+finalize in content order. Conversations has no individual entry-completion event:
+only `conversation.response.done` authorizes native replay and local calls.
+Completed message/function entries bind to the final canonical item, and replay
+only when their entire readable group remains selected. Interrupted readable
+content has no incomplete native sidecar. Existing signed Mistral thinking and
+exact tool-argument sidecars remain valid inputs. Matching provider/model/type
+payloads replay with validated versions; foreign reasoning is omitted.
+Native and imported call/result IDs remain exact; Conversations accepts string IDs.
+Malformed or unsupported outcomes retain reported accounting but finish
 with an error before any tools dispatch. Missing token counts remain unknown.
 
 Every generation sends `x-affinity: <conversationId>` and the Harness user agent.
@@ -245,8 +305,10 @@ The public canonical content boundary currently supports text, so advertised
 vision capabilities do not enable image input.
 
 Local SDK/HTTP/SSE fixtures verify transport and fidelity. No real Mistral key
-was available for this delivery; vendor signature acceptance, cache-hit rates
-and subscription billing remain unqualified.
+was available for this delivery; vendor signature acceptance, cache-hit rates,
+subscription billing, Vibe-key Conversations acceptance and GLM native-search
+acceptance remain unqualified. Models and keys use native provider behavior;
+there is no model allowlist or fallback transport.
 
 ## LiteLLM connections and boot discovery
 
@@ -355,17 +417,20 @@ middleware. Deterministic request/configuration failures must never be retried.
 - Harness canonical items always render without provider payloads; payloads add
   fidelity but never replace canonical content.
 - Model-call middleware applies consistently to agentic and non-agentic calls.
-- Usage belongs to a completed provider invocation and its recorded context build.
+- Every provider attempt records accounting and its context build; unobserved
+  usage stays unknown, including failed/interrupted attempts.
 - Missing provider accounting is durable `null`; it is never presented or priced
   as zero usage.
 - Hard catalog capacity and advisory request output caps remain distinct.
-- Shipped providers do not contribute provider-owned execution tools.
+- Native web search is the only shipped provider-owned tool; local tool execution
+  remains Harness-owned.
 
 ## Source map
 
 - `packages/protocol/src/model.ts`: model contracts and normalized events.
 - `packages/openai-core`, `openai-api`, `openai-codex`: OpenAI adapters/auth.
 - `packages/anthropic-core`, `anthropic-api`: Anthropic adapter/auth.
+- `packages/gemini-api`: native stateless adapter, discovery and auth.
 - `packages/opencode-go`: OpenCode Go provider and static roster.
 - `packages/mistral`: API/Vibe auth types, bounded catalogs and native mapping.
 - `packages/custom-providers`: config-defined Responses/chat/Messages providers.

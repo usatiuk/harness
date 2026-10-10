@@ -5,8 +5,8 @@ import { createCodexProvider } from "./provider.ts";
 
 export const codexProviderType = defineProviderType({
   type: "openai-codex",
-  configSchema: z.strictObject({}),
-  create(context) {
+  configSchema: z.strictObject({ webSearch: z.boolean().default(false) }),
+  create(context, config) {
     const codex = new CodexAuth({ store: context.secrets });
     const auth: ProviderOAuth = {
       kind: "oauth",
@@ -30,7 +30,9 @@ export const codexProviderType = defineProviderType({
     return {
       auth,
       async buildProvider() {
-        return (await codex.status()).authenticated ? createCodexProvider(codex, context.id) : null;
+        return (await codex.status()).authenticated
+          ? createCodexProvider(codex, context.id, config.webSearch)
+          : null;
       },
     };
   },

@@ -43,7 +43,10 @@ export function ContextUsage({ state, models }: { state: State; models: ModelInf
         <dt>Conversation output</dt>
         <dd>{state.usage.outputTokens.toLocaleString()}</dd>
         <dt>Recorded cost</dt>
-        <dd>${state.cost.toFixed(4)}</dd>
+        <dd>
+          {state.costIncomplete ? "≥" : ""}${state.cost.toFixed(4)}
+          {state.costIncomplete ? " (incomplete)" : ""}
+        </dd>
       </dl>
       <p className="muted">
         {checkpoint

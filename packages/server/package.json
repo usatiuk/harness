@@ -58,6 +58,7 @@
     "@harness/custom-providers": "*",
     "@harness/execution": "*",
     "@harness/openai-api": "*",
+    "@harness/gemini-api": "*",
     "@harness/openai-codex": "*",
     "@harness/output": "*",
     "@harness/protocol": "*",

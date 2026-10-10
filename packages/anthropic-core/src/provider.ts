@@ -84,6 +84,7 @@ export interface AnthropicProviderOptions {
   credentials: AnthropicCredentials;
   /** Registry name; defaults to `"anthropic"`. A future OAuth package uses its own. */
   provider?: string;
+  webSearch?: boolean;
 }
 
 /** Connection identity and credential access for the Messages wire transport. */
@@ -130,8 +131,10 @@ export abstract class AnthropicMessagesTransport {
 }
 
 export class AnthropicProvider extends AnthropicMessagesTransport implements ModelProvider {
+  readonly providerOptions: { readonly webSearch: boolean };
   constructor(opts: AnthropicProviderOptions) {
     super({ credentials: opts.credentials, provider: opts.provider ?? "anthropic" });
+    this.providerOptions = Object.freeze({ webSearch: opts.webSearch ?? false });
   }
 
   capabilities(model: string): ModelCapabilities {

@@ -22,7 +22,7 @@ export type KernelEvent = ConversationEvent &
     | { type: "turn.status"; turnId: TurnId; status: TurnStatus; error?: string }
     | { type: "item.appended"; item: Item }
     | { type: "head.changed"; head: Item["parent"] }
-    | { type: "text_delta"; turnId: TurnId; text: string }
+    | { type: "text_delta"; turnId: TurnId; text: string; phase?: string | null }
     | { type: "reasoning_delta"; turnId: TurnId; text: string }
     | { type: "request.created"; requestId: string; request: unknown }
     | { type: "request.resolved"; requestId: string }

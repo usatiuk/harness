@@ -13,6 +13,7 @@ import { anthropicProviderType } from "@harness/anthropic-api";
 import { openAIProviderType } from "@harness/openai-api";
 import { openCodeGoProviderType } from "@harness/opencode-go";
 import { codexProviderType } from "@harness/openai-codex";
+import { geminiProviderType } from "@harness/gemini-api";
 import { liteLLMPlugin } from "@harness/litellm";
 import { customProvidersPlugin } from "@harness/custom-providers";
 import { mistralPlugin } from "@harness/mistral";
@@ -40,6 +41,7 @@ export const providerPlugins: PluginEntry[] = [
   { id: "anthropic-api", providerTypes: () => [anthropicProviderType] },
   { id: "opencode-go", providerTypes: () => [openCodeGoProviderType] },
   { id: "openai-codex", providerTypes: () => [codexProviderType] },
+  { id: "gemini-api", providerTypes: () => [geminiProviderType] },
 ];
 
 const defaults = () => [

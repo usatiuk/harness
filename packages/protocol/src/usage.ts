@@ -1,6 +1,7 @@
 import type { ConversationId, TurnId } from "./ids.ts";
 import type { ModelPricing, Usage } from "./model.ts";
 import type { Turn } from "./conversation.ts";
+import type { JsonValue } from "./rpc.ts";
 
 /** One provider request's spend. A sidecar fact, never an item: it stays out of the transcript. */
 export interface ModelUsage {
@@ -18,8 +19,12 @@ export interface ModelUsage {
   requestDurationMs?: number;
   /** `null` records an attempt whose backend omitted accounting or whose end was not observed. */
   usage: Usage | null;
+  /** Absent means true. Cumulative billing input cannot serve as a context checkpoint. */
+  inputTokensAreContext?: boolean;
   /** USD, priced once at record time; null = unknown usage or no rate card. */
   cost: number | null;
+  providerUsage?: JsonValue;
+  costIncomplete?: boolean;
   createdAt: number;
 }
 
@@ -31,6 +36,7 @@ export interface ModelUsageSummary {
   usage: Usage;
   incomplete: boolean;
   cost: number;
+  costIncomplete?: boolean;
   lastInputTokens?: number;
   agentContext?: AgentContextCheckpoint;
   lastTurn?: TurnUsageSummary;
@@ -46,6 +52,7 @@ export interface TurnUsageSummary {
   usage: Usage;
   incomplete: boolean;
   cost: number;
+  costIncomplete?: boolean;
   /** Both null if any agent request omitted accounting or timing, or none exists. */
   agentOutputTokens: number | null;
   agentDurationMs: number | null;
@@ -55,12 +62,14 @@ export function summarizeTurnUsage(turn: Turn, rows: readonly ModelUsage[]): Tur
   let usage = zeroUsage(),
     cost = 0,
     incomplete = false;
+  let costIncomplete = false;
   let agentOutputTokens = 0,
     agentDurationMs = 0,
     agentCount = 0,
     speedKnown = true;
   for (const row of rows) {
     cost += row.cost ?? 0;
+    costIncomplete ||= row.cost === null || row.costIncomplete === true;
     if (row.purpose === undefined) speedKnown = false;
     if (row.usage) usage = addUsage(usage, row.usage);
     else incomplete = true;
@@ -79,6 +88,7 @@ export function summarizeTurnUsage(turn: Turn, rows: readonly ModelUsage[]): Tur
     usage,
     incomplete,
     cost,
+    costIncomplete,
     agentOutputTokens: speedKnown && agentCount > 0 ? agentOutputTokens : null,
     agentDurationMs: speedKnown && agentCount > 0 ? agentDurationMs : null,
   };

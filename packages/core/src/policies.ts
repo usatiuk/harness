@@ -60,10 +60,10 @@ export const modelCompaction: CompactionStrategy = {
       },
       { purpose: "compaction", signal: input.signal },
     );
-    return {
-      content: result.content,
-      ...(result.outputItems.length > 0 ? { outputItems: result.outputItems } : {}),
-    };
+    const outputItems = result.outputItems.filter(
+      (item) => item.type !== "message" && item.type !== "provider_output",
+    );
+    return { content: result.content, ...(outputItems.length ? { outputItems } : {}) };
   },
 };
 
@@ -74,6 +74,7 @@ export function fallbackCompaction(build: NewContextBuild): ContentBlock[] {
       case "message":
         return `${item.role}: ${textOf(item.content)}`;
       case "reasoning":
+      case "provider_output":
         return "";
       case "tool_call":
         return `tool call ${item.name}: ${JSON.stringify(item.args)}`;
@@ -113,6 +114,7 @@ export function estimateContextTokens(build: NewContextBuild): number {
     instructions: build.instructions,
     tools: build.tools,
     items: build.items,
+    ...(build.providerOptions !== undefined ? { providerOptions: build.providerOptions } : {}),
     ...(build.prompt ? { prompt: build.prompt } : {}),
   });
   let ascii = 0;

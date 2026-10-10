@@ -662,6 +662,14 @@ describe("LiteLLM SDK transport fidelity", () => {
                 ]
               : [
                   { type: "response.output_text.delta", delta: "done" },
+                  {
+                    type: "response.output_item.done",
+                    item: {
+                      type: "message",
+                      role: "assistant",
+                      content: [{ type: "output_text", text: "done" }],
+                    },
+                  },
                   { type: "response.completed", response: {} },
                 ],
           );

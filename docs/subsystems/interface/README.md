@@ -295,6 +295,14 @@ presentation with the TUI. Plugin browser entry points expose schemas and pure
 presentation without importing execution or native dependencies. A virtualized
 transcript renders Markdown, reasoning, tool arguments/output and diffs, while
 history is loaded in byte-bounded pages and large items use range requests.
+
+Both clients replace ephemeral message/reasoning previews with finalized items
+and preserve canonical append order even when a search hint arrived during a
+preview. Assistant phases remain distinct from reasoning; reported phase labels
+and simple provider activity text render without native payload inspection.
+Cost displays indicate incomplete totals when rows are unpriced or native search
+fees are unavailable. Models author Markdown links; no citation transformation
+or provider-specific search-result UI runs in clients.
 Inline approvals, activities, usage, send/queue/steer/interrupt, model/preset,
 sandbox controls, provider/default settings, and client-owned drafts/appearance
 complete v1. Unavailable configured models/backends remain explicit choices;

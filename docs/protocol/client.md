@@ -97,6 +97,13 @@ included in a bounded snapshot rather than reconstructed from old events.
 
 ## History and live events
 
+Assistant messages and text deltas carry phase as `null` when unreported or
+`{value: string | null}` when explicitly reported. This preserves absent phase
+separately from reported null. Reasoning remains a separate item/event.
+`provider_output` items contain display-only activity text. Native provider
+payloads never cross RPC. Deltas are ephemeral; finalized immutable items replace
+previews. Usage summaries include `costIncomplete` for unknown prices/search fees.
+
 History is fetched after attach with `conversation.history`. The first page fixes
 an immutable head anchor; subsequent newest-first pages follow parent item IDs.
 Pages are byte-bounded. An item too large to inline becomes
@@ -117,6 +124,8 @@ Usage summaries include nullable `agentContext` and `lastTurn`. The checkpoint
 contains the latest agent request attempt's provider/model, turn, timestamp and
 nullable reported usage. It is published before tools/approval waits; a newer
 unknown attempt clears the reported count instead of retaining a stale value.
+Cumulative native-search billing can retain known spend while exposing null
+checkpoint usage; it is not a single-prompt context measurement.
 The latest terminal turn includes aggregate usage/cost, incomplete accounting and
 nullable agent output/duration facts. Request duration includes provider latency
 and stream consumption, excluding tools and approval waits. Unknown accounting,

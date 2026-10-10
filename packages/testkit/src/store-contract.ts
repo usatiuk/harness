@@ -332,7 +332,37 @@ export function storeContract(name: string, makeStore: () => Store): void {
         },
         incomplete: true,
         cost: 0.0123,
+        costIncomplete: true,
         lastInputTokens: 10,
+      });
+    });
+
+    it("keeps cumulative billing totals without exposing them as context occupancy", async () => {
+      const store = makeStore();
+      const conversation = await store.createConversation(sampleRecord());
+      const turn = await store.createTurn(conversation.id);
+      const base = {
+        conversationId: conversation.id,
+        turnId: turn.id,
+        contextBuildId: null,
+        provider: "fake",
+        model: "fake-1",
+        purpose: "agent",
+        cost: 0,
+      };
+      await store.recordModelUsage({
+        ...base,
+        usage: { inputTokens: 100, outputTokens: 1, cachedReadTokens: 0 },
+      });
+      const billing = { inputTokens: 20_000, outputTokens: 2, cachedReadTokens: 0 };
+      await store.recordModelUsage({ ...base, usage: billing, inputTokensAreContext: false });
+      const summary = await store.summarizeModelUsage(conversation.id);
+      expect(summary.usage.inputTokens).toBe(20_100);
+      expect(summary.agentContext?.usage).toBeNull();
+      expect(summary.lastInputTokens).toBeUndefined();
+      expect((await store.listModelUsage(conversation.id)).at(-1)).toMatchObject({
+        usage: billing,
+        inputTokensAreContext: false,
       });
     });
 

@@ -46,6 +46,7 @@ export const decodeUsageSummary = (summary: WireUsageSummary): ModelUsageSummary
   usage: decodeUsage(summary.usage),
   incomplete: summary.incomplete,
   cost: summary.cost,
+  costIncomplete: summary.costIncomplete,
   ...(summary.lastInputTokens === null ? {} : { lastInputTokens: summary.lastInputTokens }),
   ...(summary.agentContext
     ? {
@@ -105,8 +106,17 @@ export const decodeItem = (item: WireItem): Item => {
   };
   switch (item.type) {
     case "message":
-      return { ...base, type: item.type, role: item.role, content: item.content };
+      return item.role === "assistant"
+        ? {
+            ...base,
+            type: item.type,
+            role: item.role,
+            content: item.content,
+            ...(item.phase === null ? {} : { phase: item.phase.value }),
+          }
+        : { ...base, type: item.type, role: item.role, content: item.content };
     case "reasoning":
+    case "provider_output":
     case "compaction":
       return { ...base, type: item.type, content: item.content };
     case "tool_call":
@@ -508,6 +518,7 @@ export class HarnessDomainClient implements HarnessClientService {
       case "text.delta":
         return {
           type: "text_delta",
+          ...(event.phase === null ? {} : { phase: event.phase.value }),
           conversationId,
           turnId: event.turnId as TurnId,
           text: event.text,

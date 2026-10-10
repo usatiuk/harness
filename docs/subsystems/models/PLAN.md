@@ -30,8 +30,8 @@ The [Mistral and session-routing delivery plan](../../plans/models/2026-10-10-mi
 adds API-key Mistral API/Vibe instances and fixes OpenCode Go's required session
 header. A single model-call context supplies each conversation's existing ID;
 provider-owned request headers keep concurrent calls isolated. Local SDK/HTTP
-and RPC regressions pass. Full validation after rebasing passes 1,061 tests, the shared server
-bundle builds, and three independent reviews report no material findings. Live
+and RPC regressions passed in that historical delivery. The native-search work
+below consolidates generation onto Conversations while preserving this behavior. Live
 Mistral acceptance/billing/cache qualification lacks credentials.
 
 ## Bounded transient reliability
@@ -57,9 +57,22 @@ Mistral acceptance/billing/cache qualification lacks credentials.
 - Retry decisions use adapter-owned typed classification, not a middleware list
   of provider message regexes.
 
+## Native search and assistant phases
+
+The [native search and assistant-phase delivery](../../plans/models/2026-10-10-native-search-and-assistant-phases.md)
+implements search on OpenAI API, Codex OAuth, Anthropic, Gemini and Mistral,
+explicit output finalization, provider-owned settings and phase-preserving history.
+Display hints never enter model input; required finalized Gemini and Anthropic
+native context uses existing opaque metadata. Mistral API/Vibe share one streaming
+Conversations adapter, preserving catalogs, credentials, native controls, signed
+reasoning and affinity. Combined full checks pass 1,154 tests (36 skipped), the
+server bundle/syntax checks and three independent reviews. The delivery plan
+records the detailed evidence. Live vendor acceptance
+remains credential-dependent.
+
 ## Deliberately deferred
 
-- Provider-native execution tools.
+- Provider-native execution tools beyond native web search.
 - `previous_response_id` or provider server state as canonical history.
 - A general model fallback/router policy.
 - Token-count endpoints without observed failures in the usage-checkpoint and

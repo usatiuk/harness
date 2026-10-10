@@ -105,8 +105,9 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
       });
     headers.push(raw.headers);
     sse(response, [
+      { type: "message.output.delta", id: "reply", content: "Mistral reply" },
       {
-        choices: [{ index: 0, delta: { content: "Mistral reply" }, finish_reason: "stop" }],
+        type: "conversation.response.done",
         usage: {
           prompt_tokens: 100,
           completion_tokens: 4,
@@ -213,6 +214,10 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
     expect(await terminal).toBe("completed");
     unsubscribe();
     expect(headers[0]?.["x-affinity"]).toBe(conversation.id);
+    expect(headers[0]?.["user-agent"]).toBe("Harness/0.0.0");
+    expect(gateway.requests.find(({ method }) => method === "POST")?.path).toBe(
+      "/v1/conversations",
+    );
     expect((await rpc.usage(conversation.id)).usage).toMatchObject({
       inputTokens: 100,
       outputTokens: 4,

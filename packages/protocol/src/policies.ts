@@ -2,6 +2,7 @@ import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
 import type { Item } from "./items.ts";
 import type { ModelInvoker, ModelOutputItem, ProviderPayload, ToolSchema } from "./model.ts";
+import type { JsonValue } from "./rpc.ts";
 
 export interface ContextItem {
   item: Item;
@@ -19,6 +20,7 @@ export interface NewContextBuild {
   prompt?: string;
   toolChoice?: "auto" | "none";
   maxOutputTokens?: number;
+  providerOptions?: JsonValue;
 }
 
 /** Recorded selection: the only source of truth for "what the model saw". */

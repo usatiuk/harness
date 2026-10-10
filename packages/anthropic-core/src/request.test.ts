@@ -29,6 +29,38 @@ const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
 });
 
 describe("buildMessages", () => {
+  it("declares provider-owned search and forwards toolChoice independently", () => {
+    const request = { ...baseRequest([]), providerOptions: { webSearch: true } };
+    const tool = { type: "web_search_20250305", name: "web_search" };
+    expect(buildMessages(request, CONFIG, PROVIDER).tools).toContainEqual(tool);
+    const params = buildMessages({ ...request, toolChoice: "none" }, CONFIG, PROVIDER);
+    expect(params.tools).toContainEqual(tool);
+    expect(params.tool_choice).toEqual({ type: "none" });
+    expect(buildMessages(baseRequest([]), CONFIG, PROVIDER).tools).not.toContainEqual(tool);
+  });
+
+  it("never sends display-only search hints or historical search blocks", () => {
+    const request = baseRequest([
+      {
+        item: item({
+          type: "provider_output",
+          content: [{ type: "text", text: "Searched SECRET" }],
+        }),
+        payload: {
+          ...thinkingPayload(MODEL),
+          type: "message_block",
+          payload: {
+            type: "server_tool_use",
+            id: "search",
+            name: "web_search",
+            input: { query: "SECRET" },
+          },
+        },
+      },
+    ]);
+    expect(buildMessages(request, CONFIG, PROVIDER).messages).toEqual([]);
+  });
+
   it("appends a non-durable prompt, preserves tools, and uses the resolved output cap", () => {
     const params = buildMessages(
       {

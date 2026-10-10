@@ -17,8 +17,13 @@ export type MessageRole = "user" | "assistant" | "system";
 
 /** Immutable canonical log entry. The conversation owns one ordered list of these. */
 export type Item =
-  | (ItemBase & { type: "message"; role: MessageRole; content: ContentBlock[] })
+  | (ItemBase & {
+      type: "message";
+      content: ContentBlock[];
+    } & ({ role: "assistant"; phase?: string | null } | { role: "user" | "system"; phase?: never }))
   | (ItemBase & { type: "reasoning"; content: ContentBlock[] })
+  // Durable display hint only; omitted from every model request and summary.
+  | (ItemBase & { type: "provider_output"; content: ContentBlock[] })
   | (ItemBase & {
       type: "tool_call";
       callId: string;
@@ -59,17 +64,34 @@ const baseShape = {
   createdAt: z.number().int(),
 };
 
+const messageShape = {
+  ...baseShape,
+  type: z.literal("message"),
+  content: z.array(contentBlockSchema),
+};
+
 /** Validates the structural shape; branded ids are cast at the parse site. */
 export const itemSchema = z.discriminatedUnion("type", [
+  z.discriminatedUnion("role", [
+    z.object({
+      ...messageShape,
+      role: z.literal("assistant"),
+      phase: z.string().nullable().optional(),
+    }),
+    z.object({
+      ...messageShape,
+      role: z.enum(["user", "system"]),
+      phase: z.never().optional(),
+    }),
+  ]),
   z.object({
     ...baseShape,
-    type: z.literal("message"),
-    role: z.enum(["user", "assistant", "system"]),
+    type: z.literal("reasoning"),
     content: z.array(contentBlockSchema),
   }),
   z.object({
     ...baseShape,
-    type: z.literal("reasoning"),
+    type: z.literal("provider_output"),
     content: z.array(contentBlockSchema),
   }),
   z.object({

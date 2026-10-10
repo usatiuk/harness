@@ -47,7 +47,7 @@ import { PluginHost } from "./plugin-host.ts";
 import { Engine } from "./engine.ts";
 import { okResult } from "@harness/protocol";
 import { reconcileConversation } from "./reconcile.ts";
-import { compactedWindow, modelCompaction } from "./policies.ts";
+import { compactedWindow, fallbackCompaction, modelCompaction } from "./policies.ts";
 
 const CONFIG = {
   instructions: "be helpful",
@@ -124,6 +124,7 @@ const shapeOf = (items: Item[]): string[] =>
   items.map((i) => {
     if (i.type === "message") return `${i.role}:${textOf(i.content)}`;
     if (i.type === "reasoning") return `reasoning:${textOf(i.content)}`;
+    if (i.type === "provider_output") return `provider:${textOf(i.content)}`;
     if (i.type === "tool_call") return `call:${i.callId}`;
     if (i.type === "compaction") return `compaction:${textOf(i.content)}`;
     if (i.type === "context") return `context:${i.key}`;
@@ -160,6 +161,253 @@ function setup(steps: FakeStep[], plugin?: Partial<Plugin>, existingStore?: InMe
 }
 
 describe("Engine — turn cycle", () => {
+  it("rejects a second completion without executing calls or overwriting first accounting", async () => {
+    let executions = 0;
+    const firstUsage = { inputTokens: 10, outputTokens: 2, cachedReadTokens: 0 };
+    const { store, engine, events } = setup(
+      [
+        [
+          { type: "tool_call", callId: "call", name: "echo", args: {} },
+          { type: "completed", usage: firstUsage, error: "first terminal failure" },
+          { type: "completed", usage: { inputTokens: 1, outputTokens: 1, cachedReadTokens: 0 } },
+        ],
+      ],
+      {
+        tools: () => [
+          {
+            name: "echo",
+            description: "echo",
+            input: { kind: "function", schema: z.object({}) },
+            async execute() {
+              executions++;
+              return okResult("executed");
+            },
+          },
+        ],
+      },
+    );
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conversation.id, userInput("go"));
+    await engine.whenIdle(conversation.id);
+    expect(executions).toBe(0);
+    expect(turnStatuses(events)).toEqual(["running", "failed"]);
+    expect(toolResults(await store.listItems(conversation.id))).toMatchObject([
+      { callId: "call", status: "error" },
+    ]);
+    expect((await store.listModelUsage(conversation.id)).map((row) => row.usage)).toEqual([
+      firstUsage,
+    ]);
+  });
+
+  it("pairs a recorded local call with interruption when its provider throws on abort", async () => {
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let executed = false;
+    const provider: ModelProvider = {
+      provider: "fake",
+      capabilities: () => ({
+        contentTypes: ["text"],
+        toolCalling: true,
+        fileTools: "string_replace",
+      }),
+      validateConfig: () => {},
+      listModels: () => [],
+      async *stream(_request, signal) {
+        yield { type: "tool_call", callId: "call", name: "echo", args: {} };
+        entered();
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) resolve();
+          else signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        signal.throwIfAborted();
+      },
+    };
+    const tool: Tool = {
+      name: "echo",
+      description: "echo",
+      input: { kind: "function", schema: z.object({}) },
+      async execute() {
+        executed = true;
+        return okResult("ran");
+      },
+    };
+    const { store, engine, events } = setup([], {
+      providers: () => [provider],
+      tools: () => [tool],
+    });
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conversation.id, userInput("go"));
+    await started;
+    await engine.deliver(conversation.id, noContent, "interrupt");
+    await engine.whenIdle(conversation.id);
+    expect(executed).toBe(false);
+    expect(turnStatuses(events)).toEqual(["running", "aborted"]);
+    expect(toolResults(await store.listItems(conversation.id))).toMatchObject([
+      {
+        callId: "call",
+        status: "error",
+        content: [{ type: "text", text: "interrupted: turn aborted by new input" }],
+      },
+    ]);
+  });
+
+  it("persists display-only search hints without replay or extra model steps across reload, switching and compaction", async () => {
+    const provider = Object.assign(
+      new RecordingProvider([
+        [
+          { type: "text_delta", text: "preview", phase: "commentary" },
+          { type: "provider_output", content: [{ type: "text", text: "Searched SECRET" }] },
+          { type: "message", content: [{ type: "text", text: "finalized" }], phase: "commentary" },
+          { type: "completed", usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 } },
+        ],
+        textStep("next"),
+        textStep("summary"),
+      ]),
+      { providerOptions: Object.freeze({ webSearch: true }) },
+    );
+    const { store, engine, events } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: modelCompaction }),
+    });
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conversation.id, userInput("go"));
+    await engine.whenIdle(conversation.id);
+    expect(provider.requests).toHaveLength(1);
+    expect(turnStatuses(events)).toEqual(["running", "completed"]);
+    const items = await store.listItems(conversation.id);
+    expect(shapeOf(items)).toEqual(["user:go", "provider:Searched SECRET", "assistant:finalized"]);
+    expect(items.at(-1)).toMatchObject({ phase: "commentary" });
+    const hint = items.find((item) => item.type === "provider_output")!;
+    expect(await store.getProviderPayloads([hint.id])).toEqual([]);
+    expect(
+      textOf(
+        fallbackCompaction({
+          conversationId: conversation.id,
+          purpose: "agent",
+          instructions: [],
+          tools: [],
+          items: items.map((item) => ({ item })),
+        }),
+      ),
+    ).not.toContain("SECRET");
+    await engine.deactivate(conversation.id);
+    await engine.prepare(conversation.id);
+    await engine.setModel(conversation.id, { provider: "fake", model: "fake-2" });
+    await engine.deliver(conversation.id, userInput("again"));
+    await engine.whenIdle(conversation.id);
+    await expect(engine.compact(conversation.id)).resolves.toBe("compacted");
+    expect(provider.requests).toHaveLength(3);
+    for (const request of provider.requests) {
+      expect(request.items.some(({ item }) => item.type === "provider_output")).toBe(false);
+      expect(JSON.stringify(request)).not.toContain("SECRET");
+      expect(request.providerOptions).toEqual({ webSearch: true });
+    }
+    expect(provider.requests.at(-1)?.toolChoice).toBe("none");
+    for (const row of await store.listModelUsage(conversation.id)) {
+      expect((await store.getContextBuild(row.contextBuildId!))?.providerOptions).toEqual({
+        webSearch: true,
+      });
+    }
+  });
+
+  it("drains received finalized output and accounting after cancellation without executing tools", async () => {
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let executed = false;
+    const provider: ModelProvider = {
+      provider: "fake",
+      capabilities: () => ({
+        contentTypes: ["text"],
+        toolCalling: true,
+        fileTools: "string_replace",
+      }),
+      validateConfig: () => {},
+      listModels: () => [],
+      async *stream(_request, signal) {
+        yield { type: "text_delta", text: "preview A" };
+        entered();
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) resolve();
+          else signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        yield { type: "message", content: [{ type: "text", text: "A" }] };
+        yield { type: "message", content: [{ type: "text", text: "B" }] };
+        yield { type: "tool_call", callId: "call", name: "echo", args: {} };
+        yield {
+          type: "completed",
+          usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
+        };
+      },
+    };
+    const tool: Tool = {
+      name: "echo",
+      description: "echo",
+      input: { kind: "function", schema: z.object({}) },
+      async execute() {
+        executed = true;
+        return okResult("ran");
+      },
+    };
+    const { store, engine, events } = setup([], {
+      providers: () => [provider],
+      tools: () => [tool],
+    });
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conversation.id, userInput("go"));
+    await started;
+    await engine.deliver(conversation.id, noContent, "interrupt");
+    await engine.whenIdle(conversation.id);
+    expect(executed).toBe(false);
+    expect(turnStatuses(events)).toEqual(["running", "aborted"]);
+    const items = await store.listItems(conversation.id);
+    expect(
+      items
+        .filter((item) => item.type === "message" && item.role === "assistant")
+        .map((item) => textOf(item.content)),
+    ).toEqual(["A", "B"]);
+    expect(toolResults(items)).toMatchObject([
+      {
+        callId: "call",
+        status: "error",
+        content: [{ type: "text", text: "interrupted: turn aborted by new input" }],
+      },
+    ]);
+    expect(await store.listModelUsage(conversation.id)).toMatchObject([
+      { usage: { inputTokens: 10, outputTokens: 5 } },
+    ]);
+  });
+
+  it("fails unfinished native search once without trying to resume it", async () => {
+    const provider = new RecordingProvider([
+      [
+        { type: "provider_output", content: [{ type: "text", text: "Searching the web…" }] },
+        {
+          type: "completed",
+          usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
+          error: "native search incomplete",
+        },
+      ],
+    ]);
+    const { store, engine, events } = setup([], { providers: () => [provider] });
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conversation.id, userInput("go"));
+    await engine.whenIdle(conversation.id);
+    expect(provider.requests).toHaveLength(1);
+    expect(turnStatuses(events)).toEqual(["running", "failed"]);
+    expect(await store.listModelUsage(conversation.id)).toMatchObject([
+      { usage: { inputTokens: 10, outputTokens: 5 } },
+    ]);
+    expect(
+      await store.getProviderPayloads(
+        (await store.listItems(conversation.id)).map((item) => item.id),
+      ),
+    ).toEqual([]);
+  });
+
   it("keeps generic request history compacted by default and follows rewind when including older items", async () => {
     const snapshots: { current: readonly Item[]; full: readonly Item[] }[] = [];
     const { store, engine } = setup(
@@ -1424,6 +1672,80 @@ const compactions = (items: Item[]) =>
   items.filter((i): i is Extract<Item, { type: "compaction" }> => i.type === "compaction");
 
 describe("Engine — compaction", () => {
+  it.each([
+    { reason: "changed provider options", previousSearch: false, inputTokensAreContext: undefined },
+    { reason: "cumulative billing input", previousSearch: true, inputTokensAreContext: false },
+  ])(
+    "does not reuse a context checkpoint after $reason",
+    async ({ previousSearch, inputTokensAreContext }) => {
+      const limits = { contextWindow: 10_000, maxOutputTokens: 2_000 };
+      const first = Object.assign(
+        new RecordingProvider(
+          [
+            [
+              { type: "message", content: [{ type: "text", text: "first" }] },
+              {
+                type: "completed",
+                usage: { inputTokens: 7_900, outputTokens: 1, cachedReadTokens: 0 },
+                ...(inputTokensAreContext === false ? { inputTokensAreContext: false } : {}),
+              },
+            ],
+          ],
+          limits,
+        ),
+        { providerOptions: Object.freeze({ webSearch: previousSearch }) },
+      );
+      const initial = setup([], {
+        providers: () => [first],
+        policies: () => ({ compaction: modelCompaction }),
+      });
+      const conversation = await initial.store.createConversation(newConversationInput(CONFIG));
+      await initial.engine.deliver(conversation.id, userInput("first"));
+      await initial.engine.whenIdle(conversation.id);
+      await initial.engine.deactivate(conversation.id);
+      const next = Object.assign(new RecordingProvider([textStep("next")], limits), {
+        providerOptions: Object.freeze({ webSearch: true }),
+      });
+      const reopened = setup(
+        [],
+        { providers: () => [next], policies: () => ({ compaction: modelCompaction }) },
+        initial.store,
+      );
+      await reopened.engine.deliver(conversation.id, userInput("again"));
+      await reopened.engine.whenIdle(conversation.id);
+      expect(turnStatuses(reopened.events)).toEqual(["running", "completed"]);
+      expect(next.requests).toHaveLength(1);
+      expect(compactions(await initial.store.listItems(conversation.id))).toHaveLength(0);
+    },
+  );
+
+  it("rejects a second helper completion and retains the first accounting", async () => {
+    const usage = { inputTokens: 10, outputTokens: 2, cachedReadTokens: 0 };
+    const { store, engine, events } = setup(
+      [
+        [
+          { type: "completed", usage, error: "first terminal failure" },
+          { type: "completed", usage: null },
+        ],
+      ],
+      { policies: () => ({ compaction: modelCompaction }) },
+    );
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    const seed = await store.createTurn(conversation.id);
+    await store.appendItem({
+      conversationId: conversation.id,
+      turnId: seed.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "seed" }],
+    });
+    await store.updateTurn(seed.id, "completed");
+    await expect(engine.compact(conversation.id)).rejects.toThrow("after completed");
+    expect(turnStatuses(events)).toEqual(["running", "failed"]);
+    expect(compactions(await store.listItems(conversation.id))).toHaveLength(0);
+    expect((await store.listModelUsage(conversation.id)).map((row) => row.usage)).toEqual([usage]);
+  });
+
   it("folds the context at the boundary and bounds later builds at the summary", async () => {
     const provider = new RecordingProvider(
       [
@@ -1549,6 +1871,7 @@ describe("Engine — compaction", () => {
             payload: priorPayload,
           },
           { type: "text_delta", text: "one" },
+          { type: "message", content: [{ type: "text", text: "one" }] },
           {
             type: "completed",
             usage: { inputTokens: 8_000, outputTokens: 10, cachedReadTokens: 0 },
@@ -1561,6 +1884,7 @@ describe("Engine — compaction", () => {
             payload: compactPayload,
           },
           { type: "text_delta", text: "summary" },
+          { type: "message", content: [{ type: "text", text: "summary" }] },
           { type: "tool_call", callId: "compact-call", name: "echo", args: { next: true } },
           {
             type: "completed",
@@ -1988,6 +2312,7 @@ describe("Engine — compaction", () => {
         }),
         [
           { type: "text_delta", text: "summary" },
+          { type: "message", content: [{ type: "text", text: "summary" }] },
           { type: "tool_call", callId: "compact-gate", name: "gate", args: {} },
           {
             type: "completed",
@@ -2104,42 +2429,57 @@ describe("Engine — compaction", () => {
     expect(turnStatuses(events).at(-1)).toBe("failed");
   });
 
-  it("compacts and retries once after a typed context overflow", async () => {
-    const requests: ModelRequest[] = [];
-    let cursor = 0;
-    const provider: ModelProvider = {
-      provider: "fake",
-      capabilities: () => ({
-        contentTypes: ["text"],
-        toolCalling: true,
-        fileTools: "string_replace",
-      }),
-      validateConfig: () => undefined,
-      listModels: () => [],
-      async *stream(request) {
-        requests.push(request);
-        if (cursor++ === 0) throw new ContextWindowExceededError();
-        const step = cursor === 2 ? textStep("overflow summary") : textStep("recovered");
-        for (const event of step) yield event;
-      },
-    };
-    const { store, engine, events } = setup([], {
-      providers: () => [provider],
-      policies: () => ({ compaction: modelCompaction }),
-    });
-    const conv = await store.createConversation(newConversationInput(CONFIG));
+  it.each([false, true])(
+    "compacts and retries once after a typed context overflow (hint: %s)",
+    async (hint) => {
+      const requests: ModelRequest[] = [];
+      let cursor = 0;
+      const provider: ModelProvider = {
+        provider: "fake",
+        capabilities: () => ({
+          contentTypes: ["text"],
+          toolCalling: true,
+          fileTools: "string_replace",
+        }),
+        validateConfig: () => undefined,
+        listModels: () => [],
+        async *stream(request) {
+          requests.push(request);
+          if (cursor++ === 0) {
+            if (hint)
+              yield {
+                type: "provider_output",
+                content: [{ type: "text", text: "Search activity" }],
+              };
+            throw new ContextWindowExceededError();
+          }
+          const step = cursor === 2 ? textStep("overflow summary") : textStep("recovered");
+          for (const event of step) yield event;
+        },
+      };
+      const { store, engine, events } = setup([], {
+        providers: () => [provider],
+        policies: () => ({ compaction: modelCompaction }),
+      });
+      const conv = await store.createConversation(newConversationInput(CONFIG));
 
-    await engine.deliver(conv.id, userInput("large"));
-    await engine.whenIdle(conv.id);
+      await engine.deliver(conv.id, userInput("large"));
+      await engine.whenIdle(conv.id);
 
-    expect(requests).toHaveLength(3);
-    expect(requests[1]!.maxOutputTokens).toBeUndefined();
-    expect(shapeOf(compactedWindow(await store.listActiveItems(conv.id)))).toEqual([
-      "compaction:overflow summary",
-      "assistant:recovered",
-    ]);
-    expect(turnStatuses(events)).toEqual(["running", "completed"]);
-  });
+      expect(requests).toHaveLength(3);
+      expect(
+        requests.every((request) =>
+          request.items.every(({ item }) => item.type !== "provider_output"),
+        ),
+      ).toBe(true);
+      expect(requests[1]!.maxOutputTokens).toBeUndefined();
+      expect(shapeOf(compactedWindow(await store.listActiveItems(conv.id)))).toEqual([
+        "compaction:overflow summary",
+        "assistant:recovered",
+      ]);
+      expect(turnStatuses(events)).toEqual(["running", "completed"]);
+    },
+  );
 
   it("materializes a deterministic fallback when the compaction call also overflows", async () => {
     const requests: ModelRequest[] = [];
@@ -2279,6 +2619,7 @@ class CatalogProvider implements ModelProvider {
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
     this.seen.push(request.modelConfig.model);
     yield { type: "text_delta", text: "ok" };
+    yield { type: "message", content: [{ type: "text", text: "ok" }] };
     yield {
       type: "completed",
       usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
@@ -2848,6 +3189,7 @@ describe("Engine — usage recording", () => {
     const { store, engine, events } = setup([
       [
         { type: "text_delta", text: "done" },
+        { type: "message", content: [{ type: "text", text: "done" }] },
         { type: "completed", usage: null },
       ],
     ]);

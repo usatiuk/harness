@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { Stream } from "openai/core/streaming";
 import {
   ContextWindowExceededError,
   type ModelCallContext,
@@ -24,14 +25,22 @@ import { mistralEvents } from "./stream.ts";
 /** Native Mistral semantics; the OpenAI SDK owns only HTTP/SSE delivery. */
 export class MistralProvider implements ModelProvider {
   readonly provider: string;
+  readonly providerOptions: { readonly webSearch: boolean };
   readonly #mode: MistralMode;
   readonly #apiKey: string;
   readonly #fetch: typeof fetch;
   readonly #client: OpenAI;
   #catalog = new Map<string, CatalogEntry>();
 
-  constructor(id: string, mode: MistralMode, apiKey: string, fetcher: typeof fetch = fetch) {
+  constructor(
+    id: string,
+    mode: MistralMode,
+    apiKey: string,
+    fetcher: typeof fetch = fetch,
+    webSearch = false,
+  ) {
     this.provider = id;
+    this.providerOptions = Object.freeze({ webSearch });
     this.#mode = mode;
     this.#apiKey = apiKey;
     this.#fetch = fetcher;
@@ -88,24 +97,22 @@ export class MistralProvider implements ModelProvider {
   ): AsyncIterable<ModelStreamEvent> {
     this.validateConfig(request.modelConfig);
     const entry = this.#entry(request.modelConfig.model);
-    const params = {
-      ...buildMistralRequest(request),
-      ...(entry.temperature !== undefined ? { temperature: entry.temperature } : {}),
-      ...(request.modelConfig.preset !== undefined
-        ? {
-            reasoning_effort: REASONING_EFFORT[request.modelConfig.preset as ReasoningPreset],
-          }
-        : {}),
-    };
     try {
-      const stream = await this.#client.chat.completions.create(
-        params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
-        {
-          signal,
-          headers: { "x-affinity": context.conversationId },
-          fetchOptions: { redirect: "manual" },
-        },
-      );
+      const params = buildMistralRequest(request);
+      const completionArgs = {
+        ...params.completion_args,
+        ...(entry.temperature !== undefined ? { temperature: entry.temperature } : {}),
+        ...(request.modelConfig.preset !== undefined
+          ? { reasoning_effort: REASONING_EFFORT[request.modelConfig.preset as ReasoningPreset] }
+          : {}),
+      };
+      const stream = await this.#client.post<Stream<unknown>>("/conversations", {
+        body: { ...params, completion_args: completionArgs },
+        stream: true,
+        signal,
+        headers: { "x-affinity": context.conversationId, Accept: "text/event-stream" },
+        fetchOptions: { redirect: "manual" },
+      });
       yield* mistralEvents(stream, this.provider, request.modelConfig.model, signal);
     } catch (error) {
       if (signal.aborted && (error === signal.reason || error instanceof OpenAI.APIUserAbortError))

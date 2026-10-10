@@ -264,6 +264,7 @@ function autoApprovalMiddleware(
               request,
             }),
             modelConfig: model,
+            toolChoice: "none",
           },
           { purpose: "auto-approval", signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS) },
         );

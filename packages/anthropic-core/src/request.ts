@@ -5,7 +5,7 @@ import {
   type ProviderPayload,
   type ToolSchema,
 } from "@harness/protocol";
-import { readThinkingPayload } from "./payload.ts";
+import { readThinkingPayload, readBlockPayload, completedSearchFilter } from "./payload.ts";
 
 type MessageParam = Anthropic.Messages.MessageParam;
 type ContentBlockParam = Anthropic.Messages.ContentBlockParam;
@@ -44,26 +44,32 @@ function thinkingBlock(
 /**
  * Maps the log's items onto Anthropic messages. Consecutive items of one side merge into a single
  * message: assistant-side items (reasoning, assistant text, tool calls) into one assistant message
- * ordered `[thinking, text, tool_use]` (Anthropic requires thinking before tool_use); user-side
+ * in their original emission order; user-side
  * items (user/system messages, tool results, compaction, context) into one user message — so a
  * parallel tool turn's results share one message, and there's no developer/system role on the wire.
  */
 function toMessages(request: ModelRequest, provider: string): MessageParam[] {
   const model = request.modelConfig.model;
   const messages: MessageParam[] = [];
-  let thinking: ContentBlockParam[] = [];
-  let text: ContentBlockParam[] = [];
-  let toolUse: ContentBlockParam[] = [];
+  let assistant: ContentBlockParam[] = [];
   let user: ContentBlockParam[] = [];
+  const rawCallIds = new Set(
+    request.items.flatMap(({ item }) =>
+      item.type === "tool_call" && typeof item.args === "string" ? [item.callId] : [],
+    ),
+  );
 
   const flushAssistant = (): void => {
+    // A rewind may select a call's item without its later result. Never send
+    // unmatched server work back to the provider as resumable history.
+    assistant = assistant.filter(completedSearchFilter(assistant));
     // A lone thinking block (no text or tool_use to attach to) can't replay — Anthropic rejects it.
-    if (text.length > 0 || toolUse.length > 0) {
-      messages.push({ role: "assistant", content: [...thinking, ...text, ...toolUse] });
+    if (
+      assistant.some((block) => block.type !== "thinking" && block.type !== "redacted_thinking")
+    ) {
+      messages.push({ role: "assistant", content: assistant });
     }
-    thinking = [];
-    text = [];
-    toolUse = [];
+    assistant = [];
   };
   const flushUser = (): void => {
     if (user.length > 0) messages.push({ role: "user", content: user });
@@ -71,18 +77,35 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
   };
 
   for (const { item, payload } of request.items) {
+    if (item.type === "provider_output") continue;
+    const native = readBlockPayload(payload, provider, model);
+    if (
+      native &&
+      (item.type === "reasoning" ||
+        (item.type === "message" && item.role === "assistant") ||
+        item.type === "tool_call")
+    ) {
+      flushUser();
+      const rawCall = item.type === "tool_call" && rawCallIds.has(item.callId);
+      assistant.push(
+        ...native.filter(
+          (block) => !rawCall || block.type !== "tool_use" || block.id !== item.callId,
+        ),
+      );
+      if (!rawCall) continue;
+    }
     switch (item.type) {
       case "reasoning": {
         flushUser();
         const block = thinkingBlock(provider, model, payload);
-        if (block) thinking.push(block);
+        if (block) assistant.push(block);
         break;
       }
       case "message":
         if (item.role === "assistant") {
           flushUser();
           const t = textOf(item.content);
-          if (t) text.push({ type: "text", text: t });
+          if (t) assistant.push({ type: "text", text: t });
         } else {
           flushAssistant();
           user.push({ type: "text", text: textOf(item.content) });
@@ -90,16 +113,24 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
         break;
       case "tool_call":
         flushUser();
-        toolUse.push({ type: "tool_use", id: item.callId, name: item.name, input: item.args });
+        assistant.push(
+          rawCallIds.has(item.callId)
+            ? { type: "text", text: `Tool ${item.name}: ${String(item.args)}` }
+            : { type: "tool_use", id: item.callId, name: item.name, input: item.args },
+        );
         break;
       case "tool_result":
         flushAssistant();
-        user.push({
-          type: "tool_result",
-          tool_use_id: item.callId,
-          content: textOf(item.content),
-          ...(item.status === "error" ? { is_error: true } : {}),
-        });
+        user.push(
+          rawCallIds.has(item.callId)
+            ? { type: "text", text: textOf(item.content) }
+            : {
+                type: "tool_result",
+                tool_use_id: item.callId,
+                content: textOf(item.content),
+                ...(item.status === "error" ? { is_error: true } : {}),
+              },
+        );
         break;
       case "compaction":
       case "context":
@@ -192,6 +223,13 @@ export function buildMessages(
     : undefined;
 
   const tools = request.tools?.map(toTool) ?? [];
+  if (
+    request.providerOptions &&
+    typeof request.providerOptions === "object" &&
+    !Array.isArray(request.providerOptions) &&
+    request.providerOptions.webSearch === true
+  )
+    tools.push({ type: "web_search_20250305", name: "web_search" });
 
   return {
     model: request.modelConfig.model,

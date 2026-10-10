@@ -804,6 +804,7 @@
             },
             "incomplete": { "type": "boolean" },
             "cost": { "type": "number", "minimum": 0 },
+            "costIncomplete": { "default": false, "type": "boolean" },
             "lastInputTokens": {
               "anyOf": [
                 { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
@@ -922,6 +923,7 @@
                     },
                     "incomplete": { "type": "boolean" },
                     "cost": { "type": "number", "minimum": 0 },
+                    "costIncomplete": { "default": false, "type": "boolean" },
                     "agentOutputTokens": {
                       "anyOf": [
                         { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
@@ -938,6 +940,7 @@
                     "usage",
                     "incomplete",
                     "cost",
+                    "costIncomplete",
                     "agentOutputTokens",
                     "agentDurationMs"
                   ],
@@ -951,6 +954,7 @@
             "usage",
             "incomplete",
             "cost",
+            "costIncomplete",
             "lastInputTokens",
             "agentContext",
             "lastTurn"
@@ -1246,6 +1250,7 @@
                     },
                     "incomplete": { "type": "boolean" },
                     "cost": { "type": "number", "minimum": 0 },
+                    "costIncomplete": { "default": false, "type": "boolean" },
                     "lastInputTokens": {
                       "anyOf": [
                         { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
@@ -1371,6 +1376,7 @@
                             },
                             "incomplete": { "type": "boolean" },
                             "cost": { "type": "number", "minimum": 0 },
+                            "costIncomplete": { "default": false, "type": "boolean" },
                             "agentOutputTokens": {
                               "anyOf": [
                                 { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
@@ -1387,6 +1393,7 @@
                             "usage",
                             "incomplete",
                             "cost",
+                            "costIncomplete",
                             "agentOutputTokens",
                             "agentDurationMs"
                           ],
@@ -1400,6 +1407,7 @@
                     "usage",
                     "incomplete",
                     "cost",
+                    "costIncomplete",
                     "lastInputTokens",
                     "agentContext",
                     "lastTurn"
@@ -1519,6 +1527,123 @@
                   "item": {
                     "oneOf": [
                       {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string", "minLength": 1 },
+                              "conversationId": { "type": "string", "minLength": 1 },
+                              "turnId": { "type": "string", "minLength": 1 },
+                              "seq": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "parent": {
+                                "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+                              },
+                              "createdAt": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "type": { "type": "string", "const": "message" },
+                              "content": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "text" },
+                                    "text": { "type": "string" }
+                                  },
+                                  "required": ["type", "text"],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "role": { "type": "string", "const": "assistant" },
+                              "phase": {
+                                "default": null,
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "value": {
+                                        "anyOf": [{ "type": "string" }, { "type": "null" }]
+                                      }
+                                    },
+                                    "required": ["value"],
+                                    "additionalProperties": false
+                                  },
+                                  { "type": "null" }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "conversationId",
+                              "turnId",
+                              "seq",
+                              "parent",
+                              "createdAt",
+                              "type",
+                              "content",
+                              "role",
+                              "phase"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string", "minLength": 1 },
+                              "conversationId": { "type": "string", "minLength": 1 },
+                              "turnId": { "type": "string", "minLength": 1 },
+                              "seq": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "parent": {
+                                "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+                              },
+                              "createdAt": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "type": { "type": "string", "const": "message" },
+                              "content": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "text" },
+                                    "text": { "type": "string" }
+                                  },
+                                  "required": ["type", "text"],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "role": { "type": "string", "enum": ["user", "system"] },
+                              "phase": { "default": null, "type": "null" }
+                            },
+                            "required": [
+                              "id",
+                              "conversationId",
+                              "turnId",
+                              "seq",
+                              "parent",
+                              "createdAt",
+                              "type",
+                              "content",
+                              "role",
+                              "phase"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      {
                         "type": "object",
                         "properties": {
                           "id": { "type": "string", "minLength": 1 },
@@ -1533,8 +1658,7 @@
                             "minimum": -9007199254740991,
                             "maximum": 9007199254740991
                           },
-                          "type": { "type": "string", "const": "message" },
-                          "role": { "type": "string", "enum": ["user", "assistant", "system"] },
+                          "type": { "type": "string", "const": "reasoning" },
                           "content": {
                             "type": "array",
                             "items": {
@@ -1556,7 +1680,6 @@
                           "parent",
                           "createdAt",
                           "type",
-                          "role",
                           "content"
                         ],
                         "additionalProperties": false
@@ -1576,7 +1699,7 @@
                             "minimum": -9007199254740991,
                             "maximum": 9007199254740991
                           },
-                          "type": { "type": "string", "const": "reasoning" },
+                          "type": { "type": "string", "const": "provider_output" },
                           "content": {
                             "type": "array",
                             "items": {
@@ -1952,6 +2075,7 @@
         },
         "incomplete": { "type": "boolean" },
         "cost": { "type": "number", "minimum": 0 },
+        "costIncomplete": { "default": false, "type": "boolean" },
         "lastInputTokens": {
           "anyOf": [
             { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
@@ -2066,6 +2190,7 @@
                 },
                 "incomplete": { "type": "boolean" },
                 "cost": { "type": "number", "minimum": 0 },
+                "costIncomplete": { "default": false, "type": "boolean" },
                 "agentOutputTokens": {
                   "anyOf": [
                     { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
@@ -2082,6 +2207,7 @@
                 "usage",
                 "incomplete",
                 "cost",
+                "costIncomplete",
                 "agentOutputTokens",
                 "agentDurationMs"
               ],
@@ -2091,7 +2217,15 @@
           ]
         }
       },
-      "required": ["usage", "incomplete", "cost", "lastInputTokens", "agentContext", "lastTurn"],
+      "required": [
+        "usage",
+        "incomplete",
+        "cost",
+        "costIncomplete",
+        "lastInputTokens",
+        "agentContext",
+        "lastTurn"
+      ],
       "additionalProperties": false
     },
     "conversation_model_set_params": {
@@ -2180,6 +2314,113 @@
                 "item": {
                   "oneOf": [
                     {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": { "type": "string", "minLength": 1 },
+                            "conversationId": { "type": "string", "minLength": 1 },
+                            "turnId": { "type": "string", "minLength": 1 },
+                            "seq": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                            "parent": {
+                              "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+                            },
+                            "createdAt": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "type": { "type": "string", "const": "message" },
+                            "content": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "text" },
+                                  "text": { "type": "string" }
+                                },
+                                "required": ["type", "text"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "role": { "type": "string", "const": "assistant" },
+                            "phase": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                                  },
+                                  "required": ["value"],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "conversationId",
+                            "turnId",
+                            "seq",
+                            "parent",
+                            "createdAt",
+                            "type",
+                            "content",
+                            "role",
+                            "phase"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": { "type": "string", "minLength": 1 },
+                            "conversationId": { "type": "string", "minLength": 1 },
+                            "turnId": { "type": "string", "minLength": 1 },
+                            "seq": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                            "parent": {
+                              "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+                            },
+                            "createdAt": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "type": { "type": "string", "const": "message" },
+                            "content": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "text" },
+                                  "text": { "type": "string" }
+                                },
+                                "required": ["type", "text"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "role": { "type": "string", "enum": ["user", "system"] },
+                            "phase": { "default": null, "type": "null" }
+                          },
+                          "required": [
+                            "id",
+                            "conversationId",
+                            "turnId",
+                            "seq",
+                            "parent",
+                            "createdAt",
+                            "type",
+                            "content",
+                            "role",
+                            "phase"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
                       "type": "object",
                       "properties": {
                         "id": { "type": "string", "minLength": 1 },
@@ -2194,8 +2435,7 @@
                           "minimum": -9007199254740991,
                           "maximum": 9007199254740991
                         },
-                        "type": { "type": "string", "const": "message" },
-                        "role": { "type": "string", "enum": ["user", "assistant", "system"] },
+                        "type": { "type": "string", "const": "reasoning" },
                         "content": {
                           "type": "array",
                           "items": {
@@ -2217,7 +2457,6 @@
                         "parent",
                         "createdAt",
                         "type",
-                        "role",
                         "content"
                       ],
                       "additionalProperties": false
@@ -2237,7 +2476,7 @@
                           "minimum": -9007199254740991,
                           "maximum": 9007199254740991
                         },
-                        "type": { "type": "string", "const": "reasoning" },
+                        "type": { "type": "string", "const": "provider_output" },
                         "content": {
                           "type": "array",
                           "items": {
@@ -2547,9 +2786,23 @@
               "properties": {
                 "type": { "type": "string", "const": "text.delta" },
                 "turnId": { "type": "string", "minLength": 1 },
-                "text": { "type": "string" }
+                "text": { "type": "string" },
+                "phase": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                      },
+                      "required": ["value"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                }
               },
-              "required": ["type", "turnId", "text"],
+              "required": ["type", "turnId", "text", "phase"],
               "additionalProperties": false
             },
             {
@@ -2675,6 +2928,7 @@
                     },
                     "incomplete": { "type": "boolean" },
                     "cost": { "type": "number", "minimum": 0 },
+                    "costIncomplete": { "default": false, "type": "boolean" },
                     "lastInputTokens": {
                       "anyOf": [
                         { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
@@ -2800,6 +3054,7 @@
                             },
                             "incomplete": { "type": "boolean" },
                             "cost": { "type": "number", "minimum": 0 },
+                            "costIncomplete": { "default": false, "type": "boolean" },
                             "agentOutputTokens": {
                               "anyOf": [
                                 { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
@@ -2816,6 +3071,7 @@
                             "usage",
                             "incomplete",
                             "cost",
+                            "costIncomplete",
                             "agentOutputTokens",
                             "agentDurationMs"
                           ],
@@ -2829,6 +3085,7 @@
                     "usage",
                     "incomplete",
                     "cost",
+                    "costIncomplete",
                     "lastInputTokens",
                     "agentContext",
                     "lastTurn"

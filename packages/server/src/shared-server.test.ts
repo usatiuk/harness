@@ -84,6 +84,7 @@ it("keeps accepted and queued turns alive after disconnect and suppresses missed
     started();
     await gate;
     yield { type: "text_delta", text: "suffix" };
+    yield { type: "message", content: [{ type: "text", text: "prefix suffix" }] };
     yield { type: "completed", usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 } };
   };
   const harness = sharedHarness(provider);

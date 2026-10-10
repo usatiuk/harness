@@ -44,6 +44,14 @@ it("sends stable per-conversation session headers and Harness identity on all th
         [
           { type: "response.output_text.delta", delta: "responses" },
           {
+            type: "response.output_item.done",
+            item: {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "responses" }],
+            },
+          },
+          {
             type: "response.completed",
             response: { usage: { input_tokens: 10, output_tokens: 1 } },
           },
@@ -55,11 +63,13 @@ it("sends stable per-conversation session headers and Harness identity on all th
         response,
         [
           { type: "message_start", message: { usage: { input_tokens: 10, output_tokens: 0 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
           {
             type: "content_block_delta",
             index: 0,
             delta: { type: "text_delta", text: "messages" },
           },
+          { type: "content_block_stop", index: 0 },
           {
             type: "message_delta",
             delta: { stop_reason: "end_turn" },
@@ -92,6 +102,9 @@ it("sends stable per-conversation session headers and Harness identity on all th
     for await (const event of shared.stream(request, AbortSignal.timeout(5000), context))
       events.push(event);
     expect(events.at(-1)).toMatchObject({ type: "completed" });
+    expect(events.find(({ type }) => type === "message")).toMatchObject({
+      content: [{ type: "text", text: expect.any(String) as unknown }],
+    });
   };
   try {
     await Promise.all(

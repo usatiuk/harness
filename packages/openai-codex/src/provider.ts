@@ -19,9 +19,14 @@ const CODEX_MODELS = OPENAI_MODELS.filter(
 }));
 
 /** A subscription connection with Codex-specific capacity and request policy. */
-export function createCodexProvider(auth: CodexAuth, provider: string): OpenAIResponsesProvider {
+export function createCodexProvider(
+  auth: CodexAuth,
+  provider: string,
+  webSearch = false,
+): OpenAIResponsesProvider {
   return new OpenAIResponsesProvider({
     provider,
+    webSearch,
     credentials: codexCredentials(auth),
     models: CODEX_MODELS,
     supportsMaxOutputTokens: false,

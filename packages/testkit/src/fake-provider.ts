@@ -26,10 +26,10 @@ export function textStep(
 ): FakeStep {
   return [
     { type: "text_delta", text },
+    { type: "message", content: [{ type: "text", text }], ...(payload ? { payload } : {}) },
     {
       type: "completed",
       usage,
-      ...(payload ? { payload } : {}),
     },
   ];
 }
@@ -65,7 +65,11 @@ function reasoningEvents(summary: string, payload?: ProviderPayloadDraft): Model
  */
 export function interleavedStep(parts: InterleavedPart[]): FakeStep {
   const events: ModelStreamEvent[] = parts.flatMap((part): ModelStreamEvent[] => {
-    if (typeof part === "string") return [{ type: "text_delta", text: part }];
+    if (typeof part === "string")
+      return [
+        { type: "text_delta", text: part },
+        { type: "message", content: [{ type: "text", text: part }] },
+      ];
     if ("reasoning" in part) return reasoningEvents(part.reasoning, part.payload);
     return [
       {
@@ -162,6 +166,7 @@ export class GateProvider implements ModelProvider {
     this.#markStarted();
     await awaitReleaseOrAbort(this.#gate, signal);
     if (signal.aborted) return;
+    if (this.#text) yield { type: "message", content: [{ type: "text", text: this.#text }] };
     yield { type: "completed", usage: ZERO_USAGE };
   }
 }

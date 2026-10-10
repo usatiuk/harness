@@ -178,7 +178,7 @@ describe("OpenCodeGoProvider", () => {
       events.push(e.type);
     expect(called).toBe("chat");
     expect(params?.reasoning_effort).toBeUndefined();
-    expect(events).toEqual(["text_delta", "completed"]);
+    expect(events).toEqual(["text_delta", "message", "completed"]);
   });
 
   it("maps a selected chat preset to reasoning_effort", async () => {

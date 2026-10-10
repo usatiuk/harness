@@ -23,8 +23,11 @@ in the raw log. `listActiveItems` follows the selected head's ancestry; model
 context and TUI resume use that active chain.
 
 Canonical item types are user/assistant messages, reasoning, tool calls, tool
-results, compaction folds, and plugin-injected context. Items are immutable after
-append.
+results, display-only provider activity hints, compaction folds, and
+plugin-injected context. Assistant messages retain optional phase strings/null.
+Items are immutable after append. Streaming deltas stay in memory; finalization
+appends once. Graceful interruption preserves partial readable content, while a
+hard crash may lose an unfinalized preview.
 
 ## Related records
 
@@ -39,11 +42,15 @@ errors retaining their invocation association; no computation resumes.
 - **Turns** record running/completed/failed/aborted status. Runtime liveness stays
   in memory; persisted `running` exists for crash reconciliation only.
 - **Provider payloads** preserve provider/model/type/version-bound opaque data
-  such as encrypted reasoning without contaminating canonical item content.
+  such as encrypted reasoning and required finalized native search history,
+  without contaminating canonical content. Display-only hints have no payload.
 - **Context builds** record the exact stable instructions, selected items, tool
-  roster, prompt, tool choice, output request, and purpose for model invocations.
+  roster, prompt, tool choice, output request, safe provider options and purpose
+  for model invocations.
 - **Model usage** records provider/model token usage, optional context-build link,
-  calculated cost, turn ownership, optional request purpose and duration. A durable
+  calculated cost, optional provider billing counts/incomplete-cost flag, context
+  checkpoint eligibility, turn
+  ownership, optional request purpose and duration. A durable
   `null` usage distinguishes omitted/unobserved accounting from a real zero-token
   report, including interrupted and failed provider attempts. Agent request rows
   are recorded before tool dispatch. Model-backed approval accounting settles
@@ -61,16 +68,22 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-The current SQLite format is version 4. Fresh databases receive the complete
-schema atomically. Version 3 receives one explicit additive upgrade for nullable
+The current SQLite format is version 6. Fresh databases receive the complete
+schema atomically. Version 3 receives an explicit additive upgrade for nullable
 request purpose/duration and indexed latest-agent, terminal-turn and turn-usage
-lookups. Historical rows remain unchanged; unclassified purpose/timing cannot
-establish historical throughput or an agent checkpoint. Other versions and
-unversioned populated databases fail with a reset instruction.
+lookups. History and billing totals remain intact; unclassified purpose/timing cannot
+establish historical throughput or an agent checkpoint. Versions 3/4 then receive
+nullable provider billing JSON and a false incomplete-cost flag. Versions 3/4/5
+receive context-checkpoint eligibility; historical billing totals remain intact,
+but their unclassified input counts cannot establish prompt size. New ordinary
+invocations default to eligible; native-search billing marks them ineligible.
+Other versions and unversioned populated databases fail with a reset instruction.
 
 The usage summary retains conversation totals and adds the latest agent attempt's
-model-bound checkpoint plus the latest terminal turn's aggregate. New lookups
-use indexes and aggregate only that selected turn. Terminal totals cover every
+model-bound checkpoint plus the latest terminal turn's aggregate. The checkpoint
+reports unknown context usage for an ineligible latest agent row while preserving
+its billing totals. New lookups use indexes and aggregate only that selected turn.
+Terminal totals cover every
 purpose; speed inputs cover known agent requests only and become unavailable if
 any relevant accounting/timing or historical purpose is unknown.
 

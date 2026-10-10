@@ -25,6 +25,41 @@ const worked = (duration = 0): Extract<State["cells"][number], { kind: "worked" 
 });
 
 describe("transcript reducer", () => {
+  it.each([undefined, null, "commentary", "final_answer", "other"])(
+    "replaces preview phase with canonical %s while preserving display hints",
+    (phase) => {
+      const hint = item({ type: "provider_output", id: "h1", content: text("Searched example") });
+      const message = item({
+        type: "message",
+        role: "assistant",
+        id: "m1",
+        content: text("canonical"),
+        ...(phase !== undefined ? { phase } : {}),
+      });
+      const state = fold([
+        { type: "text_delta", turnId: "t1", text: "preview", phase: "commentary" },
+        { type: "item.appended", item: hint },
+        { type: "item.appended", item: message },
+      ]);
+      expect(state.cells).toHaveLength(2);
+      expect(state.cells[1]).toEqual({
+        kind: "assistant",
+        turnId: "t1",
+        text: "canonical",
+        streaming: false,
+        id: "m1",
+        ...(phase !== undefined ? { phase } : {}),
+      });
+      expect(state.cells[0]).toEqual({
+        kind: "provider_output",
+        turnId: "t1",
+        text: "Searched example",
+        id: "h1",
+      });
+      expect(init([hint, message]).cells).toEqual(state.cells);
+    },
+  );
+
   it("streams assistant deltas then finalizes on the message item", () => {
     const state = fold([
       { type: "turn.status", turnId: "t1", status: "running" },
@@ -603,6 +638,26 @@ describe("transcript reducer", () => {
     };
     expect(init([], [row])).toMatchObject({ usageIncomplete: true });
     expect(init([], [row]).lastInputTokens).toBeUndefined();
+  });
+
+  it("restores cumulative billing totals without presenting them as context fill", () => {
+    const usage = { inputTokens: 20_000, outputTokens: 2, cachedReadTokens: 0 };
+    const row: ModelUsage = {
+      id: "u",
+      conversationId: "c" as ModelUsage["conversationId"],
+      turnId: "t" as ModelUsage["turnId"],
+      contextBuildId: null,
+      provider: "native",
+      model: "m",
+      usage,
+      inputTokensAreContext: false,
+      cost: 1,
+      createdAt: 0,
+    };
+    const state = init([], [row]);
+    expect(state.usage).toEqual(usage);
+    expect(state.cost).toBe(1);
+    expect(state.lastInputTokens).toBeUndefined();
   });
 
   it("mirrors the inbox snapshot into pendingInput", () => {

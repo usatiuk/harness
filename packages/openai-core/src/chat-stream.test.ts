@@ -23,6 +23,11 @@ const chunk = (delta: Record<string, unknown>, finish?: unknown): unknown => ({
 });
 
 const usageChunk = (usage: unknown): unknown => ({ choices: [], usage });
+const reasoning = (text: string, model = "m") => ({
+  type: "reasoning",
+  content: [{ type: "text", text }],
+  payload: { provider: "opencode-go", model, type: "chat_reasoning", version: 1, payload: null },
+});
 
 describe("toChatEvents", () => {
   it("emits reasoning before the following text and completes with usage", async () => {
@@ -38,9 +43,10 @@ describe("toChatEvents", () => {
     expect(await collect(toChatEvents(stream, "opencode-go", "deepseek-v4-pro", never))).toEqual([
       { type: "reasoning_delta", text: "think" },
       { type: "reasoning_delta", text: " harder" },
-      { type: "reasoning", content: [{ type: "text", text: "think harder" }] },
+      reasoning("think harder", "deepseek-v4-pro"),
       { type: "text_delta", text: "Hello" },
       { type: "text_delta", text: " world" },
+      { type: "message", content: [{ type: "text", text: "Hello world" }] },
       {
         type: "completed",
         usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
@@ -74,8 +80,9 @@ describe("toChatEvents", () => {
     const out = await collect(toChatEvents(stream, "opencode-go", "m", never));
     expect(out).toEqual([
       { type: "reasoning_delta", text: "think now" },
-      { type: "reasoning", content: [{ type: "text", text: "think now" }] },
+      reasoning("think now"),
       { type: "text_delta", text: "answer" },
+      { type: "message", content: [{ type: "text", text: "answer" }] },
       { type: "completed", usage: { inputTokens: 3, outputTokens: 2, cachedReadTokens: 0 } },
     ]);
   });
@@ -93,7 +100,7 @@ describe("toChatEvents", () => {
 
     const out = await collect(toChatEvents(stream, "opencode-go", "m", never));
     expect(out[0]).toEqual({ type: "reasoning_delta", text: "think" });
-    expect(out[1]).toEqual({ type: "reasoning", content: [{ type: "text", text: "think" }] });
+    expect(out[1]).toEqual(reasoning("think"));
     expect(out.filter((e) => e.type === "reasoning")).toHaveLength(1);
     expect(out.slice(2, 4)).toEqual([
       { type: "text_delta", text: "Hello" },
@@ -125,7 +132,7 @@ describe("toChatEvents", () => {
     // The finalized reasoning item must precede any tool_call from the same choice
     // so the engine log stays `[reasoning, tool_call]`.
     expect(out[0]).toEqual({ type: "reasoning_delta", text: "plan" });
-    expect(out[1]).toEqual({ type: "reasoning", content: [{ type: "text", text: "plan" }] });
+    expect(out[1]).toEqual(reasoning("plan"));
     const callIndex = out.findIndex((e) => e.type === "tool_call");
     expect(callIndex).toBeGreaterThan(1);
     expect(out[callIndex]).toEqual({
@@ -165,6 +172,7 @@ describe("toChatEvents", () => {
     const out = await collect(toChatEvents(stream, "opencode-go", "m", never));
     expect(out).toEqual([
       { type: "text_delta", text: "partial" },
+      { type: "message", content: [{ type: "text", text: "partial" }] },
       {
         type: "completed",
         usage: { inputTokens: 3, outputTokens: 9, cachedReadTokens: 0 },
@@ -187,7 +195,7 @@ describe("toChatEvents", () => {
     const out = await collect(toChatEvents(stream, "opencode-go", "m", never));
     expect(out).toEqual([
       { type: "reasoning_delta", text: "only thinking" },
-      { type: "reasoning", content: [{ type: "text", text: "only thinking" }] },
+      reasoning("only thinking"),
       { type: "completed", usage: null },
     ]);
   });
@@ -219,9 +227,11 @@ describe("toChatEvents", () => {
     const out = await collect(toChatEvents(stream, "opencode-go", "m", never));
     expect(out).toEqual([
       { type: "text_delta", text: "a" },
+      { type: "message", content: [{ type: "text", text: "a" }] },
       { type: "reasoning_delta", text: "mid" },
-      { type: "reasoning", content: [{ type: "text", text: "mid" }] },
+      reasoning("mid"),
       { type: "text_delta", text: "b" },
+      { type: "message", content: [{ type: "text", text: "b" }] },
       { type: "completed", usage: null },
     ]);
   });
@@ -253,6 +263,7 @@ describe("toChatEvents", () => {
     );
     expect(await collect(toChatEvents(stream, "local", "m", never))).toEqual([
       { type: "text_delta", text: "partial" },
+      { type: "message", content: [{ type: "text", text: "partial" }] },
       {
         type: "completed",
         usage: { inputTokens: 4, outputTokens: 1, cachedReadTokens: 0 },

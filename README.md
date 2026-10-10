@@ -147,7 +147,7 @@ Add connections to the machine-global `settings.json` under your Harness home:
 }
 ```
 
-Built-in types are `openai-api`, `anthropic-api`, `opencode-go`,
+Built-in types are `openai-api`, `anthropic-api`, `gemini-api`, `opencode-go`,
 `openai-codex`, `mistral-api`, and `mistral-vibe`; default connections use IDs
 `openai`, `anthropic`, `opencode-go`, `openai-codex`, `mistral-api`, and
 `mistral-vibe`. Each named connection has
@@ -155,6 +155,14 @@ isolated credentials. Sign in through desktop Settings or
 `harness auth login --provider work`. Additional named sign-ins preserve the
 global model selection. Labels are editable; instance IDs identify saved
 selections and credential slots.
+
+OpenAI API, Codex OAuth, Anthropic, Gemini and Mistral API/Vibe connections accept
+`"webSearch": true` in their provider config; the default is false. Search runs
+inside the provider request. Clients show simple activity hints and unchanged
+assistant Markdown, with exposed reasoning and assistant phases kept separate.
+Harness owns local tool execution and conversation history; provider metadata
+preserves required finalized native context. Tool declarations follow provider
+configuration; `toolChoice` is forwarded to the native API for provider behavior.
 
 API-key configuration defaults to secure storage. An `{env: "VARIABLE"}` source
 uses only that variable; `{env: "VARIABLE", stored: true}` gives the environment
@@ -166,8 +174,9 @@ stored credentials require signing in again.
 Mistral API and Vibe use API-key sign-in through the same settings/auth controls.
 The default instances read `MISTRAL_API_KEY` and `MISTRAL_VIBE_API_KEY`
 respectively, with secure storage as a fallback. Additional named instances use
-secure storage unless you select an explicit environment source. Both generate
-through `https://api.mistral.ai/v1/chat/completions`; API discovery uses
+secure storage unless you select an explicit environment source. Both stream
+through stateless `https://api.mistral.ai/v1/conversations`, with optional native
+web search. API discovery uses
 `/v1/models` and Vibe discovery uses `/v1/model-catalog?surface=vibe-code`.
 Discovery runs at server boot. The experimental Vibe catalog surface does not
 establish subscription eligibility or billing behavior. Available context limits
@@ -245,9 +254,8 @@ opt into explicit host escape with `executionFunctionTool`; their schema then ex
 middleware classifies that call as outside the workspace before execution. After approval, only
 that tool invocation receives the host execution context. The Harness-owned Anthropic editor and
 the OpenAI-style freeform `apply_patch` tool implement the same behavior in their own wire formats.
-Provider-owned execution tools are intentionally outside the current product
-surface; all execution tools offered by the shipped composition are controlled
-by Harness.
+Native web search is the only provider-owned tool enabled by the shipped
+composition. File and command execution remains controlled by Harness.
 
 ### Code mode and tool discovery
 

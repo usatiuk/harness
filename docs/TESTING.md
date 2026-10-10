@@ -22,6 +22,36 @@ npm run test:remote              # bundle and exercise isolated real SSH; WSL is
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## Native search and output finalization
+
+Native-search and output-finalization regressions cover provider-owned defaults,
+independent native `toolChoice` forwarding, phases including null/absence, display-only hints, readable
+reasoning and opaque metadata, model switching, compaction and interruption.
+`service/src/native-output.integration.test.ts` uses real SQLite and public RPC
+to prove previews are not persisted, finalized content survives reopening, and
+sidecars remain private. Shared transcript tests compare live and reloaded order.
+Gemini transport tests use its official SDK with controlled fetch responses.
+Mistral uses the existing pinned OpenAI HTTP/SSE transport against real local
+Conversations fixtures for both API/Vibe modes, with and without hosted search.
+They verify discovery, wire requests, native history and cancellation without
+retry. Anthropic stream/request regressions preserve finalized encrypted
+search blocks, mixed local-tool history and cumulative final input/cache counts.
+Interruption regressions cover closed and open readable suffixes, reported and
+unknown accounting, removal of incomplete native metadata, no local execution
+after abort, and authoritative terminal events without a transport-EOF dependency.
+Native-history regressions preserve search pairs separated by readable output and
+exclude unmatched entries from rewound prefixes. Installed-SDK transport tests
+also cover cancellation after the complete response body has already arrived.
+Paused search state is discarded. Lifecycle regressions reject events after
+completion while retaining first accounting and preventing local execution.
+Context regressions invalidate checkpoints when provider options change and keep
+cumulative billing input out of prompt-size checkpoints. Storage and wire schemas
+reject phases on user/system messages. See the
+[delivery plan](plans/models/2026-10-10-native-search-and-assistant-phases.md)
+for run evidence and the unestablished server-process timeout. These controlled tests do not establish
+live vendor acceptance, OAuth entitlement, cryptographic acceptance or billing;
+credentialed qualification remains unperformed for this delivery.
+
 ## Shared-server delivery
 
 Public RPC regressions in server/src/shared-server.test.ts qualify multi-client
@@ -487,9 +517,10 @@ delays, or a nearby condition that does not prove completion.
   cryptographic acceptance remains tracked in the delivery plan.
 
 - Mistral tests exercise the real pinned OpenAI SDK against local HTTP/SSE
-  fixtures, with synthetic API keys and signatures. They cover native interleaved
-  thinking replay, exact tool arguments, deterministic imported IDs, stable
-  headers/prompt prefixes, cached-token accounting, unknown/malformed usage,
+  Conversations fixtures, with synthetic API keys and signatures. They cover native interleaved
+  thinking replay, exact tool arguments and native/imported IDs, stable
+  headers/prompt prefixes, complete-selection replay, foreign reasoning omission,
+  display-only hosted execution, cached-token accounting, unknown/malformed usage,
   terminal tool errors, overflow and socket closure on abort/consumer return.
   Catalog checks cover both surfaces, bounded rows/bytes, aliases, atomic
   replacement, redirects and external failure classification. Server RPC tests

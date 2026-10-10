@@ -93,6 +93,10 @@ const makeService = (
         }
         if (!options.omitReviewCompletion) {
           yield {
+            type: "message",
+            content: [{ type: "text", text: Array.isArray(review) ? review.join("") : review }],
+          };
+          yield {
             type: "completed",
             usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
           };

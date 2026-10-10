@@ -29,16 +29,33 @@ const itemBaseShape = {
   createdAt: z.number().int(),
 };
 
+const messageShape = {
+  ...itemBaseShape,
+  type: z.literal("message"),
+  content: z.array(wireContentBlockSchema),
+};
+
 export const wireItemSchema = z.discriminatedUnion("type", [
+  z.discriminatedUnion("role", [
+    z.strictObject({
+      ...messageShape,
+      role: z.literal("assistant"),
+      phase: z.strictObject({ value: z.string().nullable() }).nullable().default(null),
+    }),
+    z.strictObject({
+      ...messageShape,
+      role: z.enum(["user", "system"]),
+      phase: z.null().default(null),
+    }),
+  ]),
   z.strictObject({
     ...itemBaseShape,
-    type: z.literal("message"),
-    role: z.enum(["user", "assistant", "system"]),
+    type: z.literal("reasoning"),
     content: z.array(wireContentBlockSchema),
   }),
   z.strictObject({
     ...itemBaseShape,
-    type: z.literal("reasoning"),
+    type: z.literal("provider_output"),
     content: z.array(wireContentBlockSchema),
   }),
   z.strictObject({
@@ -149,6 +166,7 @@ export const wireUsageSummarySchema = z.strictObject({
   usage: wireUsageSchema,
   incomplete: z.boolean(),
   cost: z.number().nonnegative(),
+  costIncomplete: z.boolean().default(false),
   lastInputTokens: nonnegativeInteger.nullable(),
   agentContext: z
     .strictObject({
@@ -166,6 +184,7 @@ export const wireUsageSummarySchema = z.strictObject({
       usage: wireUsageSchema,
       incomplete: z.boolean(),
       cost: z.number().nonnegative(),
+      costIncomplete: z.boolean().default(false),
       agentOutputTokens: nonnegativeInteger.nullable(),
       agentDurationMs: z.number().nonnegative().nullable(),
     })
@@ -392,7 +411,12 @@ export const wireConversationEventSchema = z.discriminatedUnion("type", [
     type: z.literal("input.changed"),
     pending: z.array(z.strictObject({ intent: z.enum(["queue", "steer"]), text: z.string() })),
   }),
-  z.strictObject({ type: z.literal("text.delta"), turnId: idSchema, text: z.string() }),
+  z.strictObject({
+    type: z.literal("text.delta"),
+    turnId: idSchema,
+    text: z.string(),
+    phase: z.strictObject({ value: z.string().nullable() }).nullable().default(null),
+  }),
   z.strictObject({ type: z.literal("reasoning.delta"), turnId: idSchema, text: z.string() }),
   z.strictObject({ type: z.literal("head.changed"), head: idSchema.nullable() }),
   z.strictObject({ type: z.literal("config.changed"), config: wireConversationConfigSchema }),

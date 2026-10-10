@@ -84,47 +84,56 @@ describe("SqliteStore (durable-only)", () => {
       }
     },
   );
-  it("upgrades the previous schema additively and preserves history and unknown request timing", async () => {
-    const path = tempDb();
-    const before = new SqliteStore(path);
-    const conv = await before.createConversation(record());
-    const turn = await before.createTurn(conv.id);
-    const item = await before.appendItem({
-      conversationId: conv.id,
-      turnId: turn.id,
-      type: "message",
-      role: "user",
-      content: [{ type: "text", text: "preserved" }],
-    });
-    await before.recordModelUsage({
-      conversationId: conv.id,
-      turnId: turn.id,
-      contextBuildId: null,
-      provider: "fake",
-      model: "fake-1",
-      usage: { inputTokens: 8, outputTokens: 2, cachedReadTokens: 0 },
-      cost: null,
-    });
-    await before.updateTurn(turn.id, "completed");
-    before.close();
-    const previous = new BetterSqlite3(path);
-    previous.exec(
-      "DROP INDEX model_usage_agent; DROP INDEX model_usage_turn; DROP INDEX turns_terminal; ALTER TABLE model_usage DROP COLUMN purpose; ALTER TABLE model_usage DROP COLUMN request_duration_ms;",
-    );
-    previous.pragma("user_version = 3");
-    previous.close();
-    const after = new SqliteStore(path);
-    try {
-      expect(await after.listItems(conv.id)).toEqual([item]);
-      expect((await after.summarizeModelUsage(conv.id)).lastTurn).toMatchObject({
+  it.each([3, 5])(
+    "upgrades schema v%s additively and preserves history with unknown context input",
+    async (version) => {
+      const path = tempDb();
+      const before = new SqliteStore(path);
+      const conv = await before.createConversation(record());
+      const turn = await before.createTurn(conv.id);
+      const item = await before.appendItem({
+        conversationId: conv.id,
         turnId: turn.id,
-        usage: { inputTokens: 8, outputTokens: 2 },
-        agentOutputTokens: null,
-        agentDurationMs: null,
+        type: "message",
+        role: "user",
+        content: [{ type: "text", text: "preserved" }],
       });
-      expect((await after.listModelUsage(conv.id))[0]).not.toHaveProperty("requestDurationMs");
-    } finally {
-      after.close();
-    }
-  });
+      await before.recordModelUsage({
+        conversationId: conv.id,
+        turnId: turn.id,
+        contextBuildId: null,
+        provider: "fake",
+        model: "fake-1",
+        usage: { inputTokens: 8, outputTokens: 2, cachedReadTokens: 0 },
+        cost: null,
+      });
+      await before.updateTurn(turn.id, "completed");
+      before.close();
+      const previous = new BetterSqlite3(path);
+      previous.exec(
+        version === 3
+          ? "DROP INDEX model_usage_agent; DROP INDEX model_usage_turn; DROP INDEX turns_terminal; ALTER TABLE model_usage DROP COLUMN purpose; ALTER TABLE model_usage DROP COLUMN request_duration_ms; ALTER TABLE model_usage DROP COLUMN provider_usage; ALTER TABLE model_usage DROP COLUMN cost_incomplete; ALTER TABLE model_usage DROP COLUMN input_tokens_are_context;"
+          : "ALTER TABLE model_usage DROP COLUMN input_tokens_are_context;",
+      );
+      previous.pragma(`user_version = ${version}`);
+      previous.close();
+      const after = new SqliteStore(path);
+      try {
+        expect(await after.listItems(conv.id)).toEqual([item]);
+        expect((await after.summarizeModelUsage(conv.id)).lastTurn).toMatchObject({
+          turnId: turn.id,
+          usage: { inputTokens: 8, outputTokens: 2 },
+          agentOutputTokens: null,
+          agentDurationMs: null,
+        });
+        expect((await after.listModelUsage(conv.id))[0]).not.toHaveProperty("requestDurationMs");
+        expect((await after.listModelUsage(conv.id))[0]).toMatchObject({
+          inputTokensAreContext: false,
+          usage: { inputTokens: 8, outputTokens: 2, cachedReadTokens: 0 },
+        });
+      } finally {
+        after.close();
+      }
+    },
+  );
 });

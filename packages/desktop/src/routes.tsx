@@ -943,7 +943,12 @@ export function createDesktopRouter(
       );
     if (cell.kind === "assistant")
       return (
-        <article className="cell assistant" data-testid="assistant-message">
+        <article
+          className="cell assistant"
+          data-testid="assistant-message"
+          data-phase={cell.phase ?? undefined}
+        >
+          {cell.phase && cell.phase !== "final_answer" && <div className="muted">{cell.phase}</div>}
           <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
             {cell.text}
           </Markdown>

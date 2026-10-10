@@ -1,6 +1,11 @@
 import { z } from "zod";
-import { type ModelStreamEvent, type Usage } from "@harness/protocol";
-import { nativeContentSchema, type NativeThinking } from "./request.ts";
+import {
+  jsonValueSchema,
+  type ModelOutputItem,
+  type ModelStreamEvent,
+  type Usage,
+} from "@harness/protocol";
+import { contentSchema, outputItems, type NativeEntry } from "./request.ts";
 
 const count = z.number().int().nonnegative();
 const usageSchema = z
@@ -9,56 +14,39 @@ const usageSchema = z
     completion_tokens: count.optional(),
     prompt_tokens_details: z.object({ cached_tokens: count.optional() }).nullish(),
   })
+  .passthrough()
   .refine(
     (usage) =>
       usage.prompt_tokens === undefined ||
       (usage.prompt_tokens_details?.cached_tokens ?? 0) <= usage.prompt_tokens,
   );
-const chunkSchema = z.object({
-  usage: usageSchema.nullish(),
-  choices: z
-    .array(
-      z.object({
-        index: z.literal(0).optional(),
-        finish_reason: z.string().nullish(),
-        delta: z.object({
-          content: z.union([z.string(), nativeContentSchema]).nullish(),
-          tool_calls: z
-            .array(
-              z.object({
-                index: count.optional(),
-                id: z.string().optional(),
-                type: z.literal("function").optional(),
-                function: z.object({
-                  name: z.string().optional(),
-                  arguments: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
-                }),
-              }),
-            )
-            .nullish(),
-        }),
-      }),
-    )
-    .max(1),
+const eventSchema = z.object({ type: z.string() }).passthrough();
+const positionSchema = z.object({ output_index: count.default(0), id: z.string().min(1) });
+const messageSchema = positionSchema.extend({
+  content_index: count.default(0),
+  role: z.literal("assistant").default("assistant"),
+  model: z.string().nullish(),
+  agent_id: z.string().nullish(),
+  content: z.union([z.string(), z.record(z.string(), z.unknown())]),
 });
-interface PendingCall {
-  id?: string;
-  name: string;
+const callSchema = positionSchema.extend({
+  name: z.string().min(1),
+  tool_call_id: z.string().min(1),
+  arguments: z.string(),
+});
+type Chunk = z.infer<typeof contentSchema>;
+type Message = Extract<NativeEntry, { type: "message.output" }>;
+type MessageDraft = Omit<Message, "content" | "type"> & {
+  type: "message.output";
+  content: Map<number, Chunk>;
+};
+type Call = Extract<NativeEntry, { type: "function.call" }>;
+type CallDraft = Omit<Call, "arguments" | "type"> & {
+  type: "function.call";
   arguments: string;
-}
-
-function appendThinking(last: NativeThinking, chunk: NativeThinking) {
-  last.thinking.push(...chunk.thinking);
-  // Preserve opaque additions on the native block as well as its known fields.
-  for (const [key, value] of Object.entries(chunk))
-    if (key !== "type" && key !== "thinking")
-      Object.defineProperty(last, key, {
-        value,
-        configurable: true,
-        enumerable: true,
-        writable: true,
-      });
-}
+  name: string;
+  tool_call_id: string;
+};
 
 export async function* mistralEvents(
   stream: AsyncIterable<unknown>,
@@ -66,121 +54,195 @@ export async function* mistralEvents(
   model: string,
   signal: AbortSignal,
 ): AsyncIterable<ModelStreamEvent> {
-  const calls = new Map<number, PendingCall>();
-  let thinking: NativeThinking | undefined;
-  let reasoning = "";
-  let usage: Usage | null = null;
-  let finish: string | undefined;
-  const flushThinking = (): Extract<ModelStreamEvent, { type: "reasoning" }> | undefined => {
-    if (!thinking) return undefined;
-    const event: Extract<ModelStreamEvent, { type: "reasoning" }> = {
-      type: "reasoning",
-      content: reasoning ? [{ type: "text", text: reasoning }] : [],
-      payload: { provider, model, type: "mistral-thinking", version: 1, payload: thinking },
-    };
-    thinking = undefined;
-    reasoning = "";
-    return event;
-  };
-  for await (const raw of stream) {
-    signal.throwIfAborted();
-    const parsed = chunkSchema.safeParse(raw);
-    if (!parsed.success) throw new Error("Mistral stream returned invalid content or accounting");
-    const chunk = parsed.data;
-    if (chunk.usage) {
-      const reported = chunk.usage;
-      usage =
-        reported.prompt_tokens !== undefined && reported.completion_tokens !== undefined
-          ? ({
-              inputTokens: reported.prompt_tokens,
-              outputTokens: reported.completion_tokens,
-              cachedReadTokens: reported.prompt_tokens_details?.cached_tokens ?? 0,
-            } satisfies Usage)
-          : null;
-    }
-    const choice = chunk.choices[0];
-    if (!choice) continue;
-    if (finish !== undefined)
-      throw new Error("Mistral stream returned output after its finish reason");
-    const pieces =
-      typeof choice.delta.content === "string"
-        ? [{ type: "text" as const, text: choice.delta.content }]
-        : (choice.delta.content ?? []);
-    for (const piece of pieces) {
-      if (piece.type === "text") {
-        const finalized = flushThinking();
-        if (finalized) yield finalized;
-        if (piece.text) yield { type: "text_delta", text: piece.text };
-      } else {
-        if (thinking?.closed === true) {
-          const finalized = flushThinking();
-          if (finalized) yield finalized;
-        }
-        if (thinking) appendThinking(thinking, piece);
-        else thinking = structuredClone(piece);
-        const text = piece.thinking
-          .map((part) => (typeof part.text === "string" ? part.text : ""))
-          .join("");
-        reasoning += text;
-        if (text) yield { type: "reasoning_delta", text };
-      }
-    }
-    for (const [position, part] of (choice.delta.tool_calls ?? []).entries()) {
-      const index = part.index ?? position;
-      const call = calls.get(index) ?? { name: "", arguments: "" };
-      if (part.id) {
-        // Native Mistral can stream fragments or repeat the accumulated ID.
-        if (!call.id || part.id.startsWith(call.id)) call.id = part.id;
-        else if (!call.id.endsWith(part.id)) call.id += part.id;
-      }
-      if (part.function.name) call.name += part.function.name;
-      if (part.function.arguments !== undefined)
-        call.arguments +=
-          typeof part.function.arguments === "string"
-            ? part.function.arguments
-            : JSON.stringify(part.function.arguments);
-      calls.set(index, call);
-    }
-    if (choice.finish_reason) finish = choice.finish_reason;
-  }
-  signal.throwIfAborted();
-  if (finish === undefined) throw new Error("Mistral stream ended without a finish reason");
-  const outputs: Extract<ModelStreamEvent, { type: "tool_call" }>[] = [];
+  const entries = new Map<number, { id: string; entry: MessageDraft | CallDraft }>();
+  let pending: { output: number; content: number } | undefined;
   let error: string | undefined;
-  if (finish === "tool_calls") {
-    const ids = new Set<string>();
-    try {
-      if (!calls.size) throw new Error();
-      for (const [, call] of [...calls].sort(([a], [b]) => a - b)) {
-        if (!call.id || !/^[a-zA-Z0-9]{9}$/.test(call.id) || !call.name || ids.has(call.id))
-          throw new Error();
-        ids.add(call.id);
-        outputs.push({
-          type: "tool_call",
-          callId: call.id,
-          name: call.name,
-          args: JSON.parse(call.arguments) as unknown,
-          payload: {
+  let searched = false;
+  let reported: z.infer<typeof usageSchema> | null | undefined;
+  const flush = () => {
+    if (!pending) return undefined;
+    const entry = entries.get(pending.output)?.entry;
+    if (!entry || entry.type !== "message.output") throw new Error("Missing Mistral message draft");
+    const chunk = entry.content.get(pending.content);
+    if (!chunk) throw new Error("Missing Mistral content draft");
+    const [item] = outputItems([{ type: "message.output", role: "assistant", content: [chunk] }]);
+    if (!item) throw new Error("Mistral visible content has no output item");
+    pending = undefined;
+    return item;
+  };
+  const completed = (): Extract<ModelStreamEvent, { type: "completed" }> => ({
+    type: "completed",
+    usage:
+      reported?.prompt_tokens !== undefined && reported.completion_tokens !== undefined
+        ? ({
+            inputTokens: reported.prompt_tokens,
+            outputTokens: reported.completion_tokens,
+            cachedReadTokens: reported.prompt_tokens_details?.cached_tokens ?? 0,
+          } satisfies Usage)
+        : null,
+    ...(reported ? { providerUsage: jsonValueSchema.parse(reported) } : {}),
+    ...(searched ? { costIncomplete: true, inputTokensAreContext: false } : {}),
+    ...(error ? { error } : {}),
+  });
+  try {
+    for await (const raw of stream) {
+      const event = eventSchema.parse(raw);
+      if (event.type === "conversation.response.done") {
+        reported = z.object({ usage: usageSchema.nullish() }).parse(raw).usage;
+        const native: NativeEntry[] = [...entries]
+          .sort(([a], [b]) => a - b)
+          .map(([, { entry }]) =>
+            entry.type === "message.output"
+              ? {
+                  ...entry,
+                  role: "assistant",
+                  content: [...entry.content].sort(([a], [b]) => a - b).map(([, chunk]) => chunk),
+                }
+              : entry,
+          );
+        let calls: ModelOutputItem[] = [];
+        if (!error) {
+          try {
+            const ids = new Set<string>();
+            for (const entry of native) {
+              if (entry.type !== "function.call") continue;
+              if (ids.has(entry.tool_call_id)) throw new Error();
+              ids.add(entry.tool_call_id);
+              if (typeof entry.arguments === "string") JSON.parse(entry.arguments);
+            }
+            calls = outputItems(native.filter((entry) => entry.type === "function.call"));
+          } catch {
+            error = "Mistral returned malformed or duplicate tool calls";
+          }
+        }
+        const last = flush();
+        const final = [...(last ? [last] : []), ...calls];
+        // No entry-completion events exist: signed native history becomes valid
+        // only at response.done, anchored to the final immutable output item.
+        if (!error && final.length)
+          final.at(-1)!.payload = {
             provider,
             model,
-            type: "mistral-tool-arguments",
+            type: "mistral-output",
             version: 1,
-            payload: call.arguments,
-          },
-        });
+            payload: jsonValueSchema.parse(native),
+          };
+        yield* final;
+        yield completed();
+        return;
       }
-    } catch {
-      error = "Mistral returned malformed or duplicate tool calls";
+      signal.throwIfAborted();
+      if (event.type === "conversation.response.error") {
+        const failure = z.object({ message: z.string(), code: z.number() }).parse(raw);
+        error = `Mistral response error (${failure.code}): ${failure.message}`;
+        const last = flush();
+        if (last) yield last;
+        yield completed();
+        return;
+      }
+      if (event.type === "conversation.response.started") continue;
+      if (event.type.startsWith("tool.execution.")) {
+        const tool = z
+          .object({
+            name: z.string(),
+            type: z.enum(["tool.execution.started", "tool.execution.delta", "tool.execution.done"]),
+          })
+          .parse(raw);
+        searched = true;
+        if (tool.type === "tool.execution.started")
+          yield {
+            type: "provider_output",
+            content: [{ type: "text", text: "Used " + tool.name + "." }],
+          };
+        continue;
+      }
+      if (event.type === "function.call.delta") {
+        const delta = callSchema.parse(raw);
+        const stored = entries.get(delta.output_index);
+        if (
+          stored &&
+          (stored.id !== delta.id ||
+            stored.entry.type !== "function.call" ||
+            stored.entry.name !== delta.name ||
+            stored.entry.tool_call_id !== delta.tool_call_id)
+        )
+          throw new Error("Mistral changed function identity during streaming");
+        const entry: CallDraft = stored
+          ? (stored.entry as CallDraft)
+          : {
+              type: "function.call",
+              id: delta.id,
+              tool_call_id: delta.tool_call_id,
+              name: delta.name,
+              arguments: "",
+            };
+        entry.arguments += delta.arguments;
+        entries.set(delta.output_index, { id: delta.id, entry });
+        continue;
+      }
+      if (event.type !== "message.output.delta") {
+        error ??= "Mistral returned unsupported event: " + event.type;
+        continue;
+      }
+      const delta = messageSchema.parse(raw);
+      const parsed = contentSchema.safeParse(
+        typeof delta.content === "string" ? { type: "text", text: delta.content } : delta.content,
+      );
+      if (!parsed.success) {
+        error ??= "Mistral returned unsupported output chunk";
+        continue;
+      }
+      const chunk = parsed.data;
+      const stored = entries.get(delta.output_index);
+      if (stored && (stored.id !== delta.id || stored.entry.type !== "message.output"))
+        throw new Error("Mistral changed message identity during streaming");
+      const entry: MessageDraft = stored
+        ? (stored.entry as MessageDraft)
+        : {
+            type: "message.output",
+            id: delta.id,
+            role: "assistant",
+            content: new Map(),
+            ...(delta.model !== undefined ? { model: delta.model } : {}),
+            ...(delta.agent_id !== undefined ? { agent_id: delta.agent_id } : {}),
+          };
+      const prior = entry.content.get(delta.content_index);
+      if (prior && prior.type !== chunk.type)
+        throw new Error("Mistral returned inconsistent content indices");
+      let merged: Chunk = chunk;
+      if (prior?.type === "text" && chunk.type === "text")
+        merged = { ...prior, ...chunk, text: prior.text + chunk.text };
+      if (prior?.type === "thinking" && chunk.type === "thinking") {
+        prior.thinking.push(...chunk.thinking);
+        merged = { ...prior, ...chunk, thinking: prior.thinking };
+      }
+      entry.content.set(delta.content_index, merged);
+      entries.set(delta.output_index, { id: delta.id, entry });
+      if (chunk.type === "tool_reference") continue;
+      const changed =
+        pending &&
+        (pending.output !== delta.output_index || pending.content !== delta.content_index);
+      if (changed) {
+        if (
+          delta.output_index < pending!.output ||
+          (delta.output_index === pending!.output && delta.content_index < pending!.content)
+        )
+          throw new Error("Mistral returned out-of-order visible output");
+        const last = flush();
+        if (last) yield last;
+      }
+      pending = { output: delta.output_index, content: delta.content_index };
+      const text =
+        chunk.type === "text"
+          ? chunk.text
+          : chunk.thinking.map((part) => (typeof part.text === "string" ? part.text : "")).join("");
+      if (text) yield { type: chunk.type === "text" ? "text_delta" : "reasoning_delta", text };
     }
-  } else if (finish !== "stop" || calls.size)
-    error =
-      finish === "length"
-        ? "Mistral output was truncated at the model limit"
-        : finish === "content_filter"
-          ? "Mistral output was blocked by the content filter"
-          : "Mistral returned an unsupported finish reason or unfinished tool calls";
-  const finalized = flushThinking();
-  if (finalized) yield finalized;
-  if (!error) yield* outputs;
-  yield { type: "completed", usage, ...(error ? { error } : {}) };
+    signal.throwIfAborted();
+    throw new Error("Mistral stream ended without response completion");
+  } catch (cause) {
+    const last = flush();
+    if (last) yield last;
+    throw cause;
+  }
 }

@@ -19,6 +19,129 @@ async function collect(stream: AsyncIterable<ModelStreamEvent>): Promise<ModelSt
 const never = new AbortController().signal;
 
 describe("toModelEvents", () => {
+  it.each(["response.completed", "response.failed", "response.incomplete"])(
+    "finishes at %s without reading a failed transport tail",
+    async (type) => {
+      async function* source() {
+        yield* emit({
+          type,
+          response: {
+            usage: { input_tokens: 10, output_tokens: 5 },
+            error: { message: "failed" },
+            incomplete_details: { reason: "max_output_tokens" },
+          },
+        });
+        throw new Error("transport tail failed");
+      }
+      const out = await collect(toModelEvents(source(), "openai", "m", never));
+      expect(out).toHaveLength(1);
+      expect(out[0]).toMatchObject({
+        type: "completed",
+        usage: { inputTokens: 10, outputTokens: 5 },
+      });
+      if (type === "response.completed") expect(out[0]).not.toHaveProperty("error");
+      else
+        expect(out[0]).toHaveProperty(
+          "error",
+          type === "response.failed"
+            ? "openai response failed: failed"
+            : "openai response incomplete: max_output_tokens",
+        );
+    },
+  );
+  it.each(["response.failed", "response.incomplete"])(
+    "retains search accounting on %s",
+    async (type) => {
+      const usage = { input_tokens: 10, output_tokens: 5 };
+      const out = await collect(
+        toModelEvents(
+          emit(
+            {
+              type: "response.output_item.added",
+              output_index: 0,
+              item: { type: "web_search_call" },
+            },
+            {
+              type,
+              response: {
+                usage,
+                error: { message: "failed" },
+                incomplete_details: { reason: "max_output_tokens" },
+              },
+            },
+          ),
+          "openai",
+          "gpt-test",
+          never,
+        ),
+      );
+      expect(out[0]).toMatchObject({
+        type: "completed",
+        costIncomplete: true,
+        inputTokensAreContext: false,
+        providerUsage: usage,
+        usage: { inputTokens: 10, outputTokens: 5 },
+      });
+      expect(out[0]).toHaveProperty("error");
+    },
+  );
+
+  it("emits search only as a payload-free hint and preserves assistant phases", async () => {
+    const native = {
+      type: "message",
+      id: "answer",
+      role: "assistant",
+      status: "completed",
+      phase: "final_answer",
+      content: [{ type: "output_text", text: "[Source](https://example.com)", annotations: [] }],
+    };
+    const out = await collect(
+      toModelEvents(
+        emit(
+          {
+            type: "response.output_item.added",
+            output_index: 0,
+            item: { type: "web_search_call" },
+          },
+          {
+            type: "response.output_item.done",
+            item: {
+              type: "web_search_call",
+              id: "search",
+              status: "completed",
+              action: { type: "search", query: "example" },
+            },
+          },
+          { type: "response.output_item.added", output_index: 1, item: native },
+          { type: "response.output_text.delta", output_index: 1, delta: "preview" },
+          { type: "response.output_item.done", item: native },
+          {
+            type: "response.completed",
+            response: { usage: { input_tokens: 10, output_tokens: 5 } },
+          },
+        ),
+        "openai",
+        "gpt-test",
+        never,
+      ),
+    );
+    expect(out[0]).toEqual({
+      type: "provider_output",
+      content: [{ type: "text", text: "Searched the web." }],
+    });
+    expect(out[1]).toEqual({ type: "text_delta", text: "preview", phase: "final_answer" });
+    expect(out[2]).toMatchObject({
+      type: "message",
+      phase: "final_answer",
+      content: [{ type: "text", text: "[Source](https://example.com)" }],
+    });
+    expect(out[3]).toMatchObject({
+      type: "completed",
+      costIncomplete: true,
+      usage: { inputTokens: 10, outputTokens: 5 },
+    });
+  });
+
   it("translates reasoning (with payload), text, and tool calls in emission order", async () => {
     const stream = emit(
       { type: "response.reasoning_summary_text.delta", delta: "think" },
@@ -183,9 +306,11 @@ describe("toModelEvents", () => {
     });
   });
 
-  it("throws on a failed response", async () => {
+  it("reports a failed response through completion so its accounting is retained", async () => {
     const stream = emit({ type: "response.failed", response: { error: { message: "boom" } } });
-    await expect(collect(toModelEvents(stream, "openai", "m", never))).rejects.toThrow(/boom/);
+    expect(await collect(toModelEvents(stream, "openai", "m", never))).toEqual([
+      { type: "completed", usage: null, error: "openai response failed: boom" },
+    ]);
   });
 
   it("stops immediately when the signal is already aborted", async () => {

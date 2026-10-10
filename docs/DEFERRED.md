@@ -44,8 +44,7 @@ machine restart, with explicit ownership and external-resource recovery semantic
 
 ## Provider-owned execution tools
 
-Shipped providers map model requests and outputs but do not contribute hidden
-provider-executed tools. File, command, sandbox, approval, activity, and subagent
+Shipped providers support opt-in native web search. File, command, sandbox, approval, activity, and subagent
 execution stays under Harness control. Supporting provider-owned execution would
 otherwise create a second path for approval, project instructions, output,
 cancellation, and transcript semantics.
@@ -54,11 +53,18 @@ Reopen only for a specific provider capability whose value justifies defining
 honest authorization, observability, and continuation behavior outside the
 Harness tool dispatcher.
 
+The [search and assistant-phase delivery](plans/models/2026-10-10-native-search-and-assistant-phases.md)
+records that scoped exception: provider-specific enablement, display-only hints
+and finalized native context in provider metadata. Hosted-search resumption and
+other provider-owned execution remain outside scope.
+
 ## Stable database compatibility
 
 The user explicitly selected one current protocol and database format. Harness
 is pre-release with no users; unsupported databases require a manual reset.
-There are no migration fixtures or older-format compatibility adapters.
+There is no general migration framework or older-protocol compatibility adapter.
+The current SQLite initializer includes explicit additive v3/v4/v5 upgrades to v6;
+other versions fail with a reset instruction.
 
 Reopen only when the product explicitly promises preservation across versions.
 

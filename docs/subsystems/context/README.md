@@ -16,7 +16,8 @@ At each agent step the engine:
 
 1. Reads the current head's active item chain.
 2. Replaces the prefix before the latest compaction fold with that durable fold.
-3. Attaches provider payloads for selected items.
+3. Omits display-only provider activity hints and attaches provider payloads for
+   the remaining selected items.
 4. Resolves cache-stable conversation and plugin instructions.
 5. Uses the mode's declarations from the scoped, contract-enriched tool catalog.
 6. Records the resulting context build before invoking the model.
@@ -25,6 +26,12 @@ Non-agentic callers use the same model invoker and record a purpose such as
 `compaction` or `auto-approval`. A caller may add a non-durable final prompt,
 disable tool selection, or request an advisory output cap without changing the
 canonical item log.
+
+Safe provider-owned request options are copied onto the request and recorded
+with its existing context build. Model changes use the next turn's snapshot;
+adapters omit foreign reasoning and render canonical text when native metadata
+does not match. Required finalized native history remains adapter-owned metadata,
+not a second conversation log or hosted-search continuation state.
 
 ## Programmatic context projection
 
@@ -94,7 +101,7 @@ The shipped model strategy supports:
 
 - **Manual compaction:** one standalone summary-only call. Tools remain in the
   request for cache shape, but tool choice is disabled and emitted tool calls are
-  rejected.
+  rejected. Adapters forward `toolChoice: "none"` to the provider's native API.
 - **Threshold compaction:** runs before an agent request when estimated input
   reaches `contextWindow - maxOutputTokens - headroom`.
 - **Overflow recovery:** one context-overflow path may compact and retry the agent
@@ -104,8 +111,13 @@ Automatic compaction may emit tool calls after producing a complete summary; the
 fold is appended first and calls then continue through ordinary dispatch. Manual
 compaction never continues the task.
 
-Capacity uses the latest compatible provider usage checkpoint plus a local
-estimate for appended items. The provider/model catalog's hard output maximum is
+Display-only search hints are omitted from model and deterministic summaries.
+
+Capacity uses the latest compatible single-prompt usage checkpoint plus a local
+estimate for appended items. Stable instructions, tools and provider options must
+match. Cumulative hosted-search billing input cannot serve as a checkpoint; the
+existing request estimate applies when no eligible checkpoint exists.
+The provider/model catalog's hard output maximum is
 reserved. A reduced per-request compaction limit is advisory where the provider
 transport cannot enforce it. Headroom is bounded to avoid waiting until the model
 has no room left to summarize.

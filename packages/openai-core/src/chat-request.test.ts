@@ -12,10 +12,59 @@ const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
   tools: [
     { kind: "function", name: "echo", description: "echoes", parameters: { type: "object" } },
   ],
-  items,
+  // These fixtures represent reasoning captured from this exact chat connection.
+  items: items.map((entry) =>
+    entry.item.type === "reasoning" && entry.payload === undefined
+      ? {
+          ...entry,
+          payload: {
+            itemId: entry.item.id,
+            provider: "opencode-go",
+            model: "deepseek-v4-pro",
+            type: "chat_reasoning",
+            version: 1,
+            payload: null,
+          },
+        }
+      : entry,
+  ),
 });
 
 describe("buildChatParams", () => {
+  it("omits foreign or unbound reasoning and renders raw-string historical calls as text", () => {
+    const params = buildChatParams({
+      ...baseRequest([]),
+      items: [
+        { item: item({ type: "reasoning", content: [{ type: "text", text: "unbound" }] }) },
+        {
+          item: item({ type: "reasoning", content: [{ type: "text", text: "foreign" }] }),
+          payload: {
+            itemId: "i" as Item["id"],
+            provider: "other",
+            model: "other",
+            type: "chat_reasoning",
+            version: 1,
+            payload: null,
+          },
+        },
+        { item: item({ type: "tool_call", callId: "patch", name: "apply_patch", args: "PATCH" }) },
+        {
+          item: item({
+            type: "tool_result",
+            callId: "patch",
+            status: "ok",
+            content: [{ type: "text", text: "applied" }],
+          }),
+        },
+      ],
+    });
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      { role: "assistant", content: "Tool apply_patch: PATCH" },
+      { role: "user", content: "applied" },
+    ]);
+  });
+
   it("maps instructions to a single leading system message and items to native messages", () => {
     const params = buildChatParams(
       baseRequest([

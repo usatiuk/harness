@@ -532,7 +532,12 @@ export class HarnessRpcSession {
           ),
         };
       case "text_delta":
-        return { type: "text.delta", turnId: event.turnId, text: event.text };
+        return {
+          type: "text.delta",
+          turnId: event.turnId,
+          text: event.text,
+          phase: event.phase === undefined ? null : { value: event.phase },
+        };
       case "reasoning_delta":
         return { type: "reasoning.delta", turnId: event.turnId, text: event.text };
       case "head.changed":

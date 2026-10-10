@@ -3,6 +3,15 @@ import type { CodexAuth } from "./auth.ts";
 import { CODEX_PROVIDER, createCodexProvider } from "./provider.ts";
 
 describe("createCodexProvider", () => {
+  it("carries provider-owned native search settings through the shared Responses provider", () => {
+    expect(createCodexProvider({} as CodexAuth, CODEX_PROVIDER).providerOptions).toEqual({
+      webSearch: false,
+    });
+    expect(createCodexProvider({} as CodexAuth, "named-codex", true).providerOptions).toEqual({
+      webSearch: true,
+    });
+  });
+
   it("exposes the current ChatGPT roster with Codex capacity and effort controls", () => {
     const provider = createCodexProvider({} as CodexAuth, CODEX_PROVIDER);
     const gpt = provider.listModels().find((model) => model.model === "gpt-5.5");

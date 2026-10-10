@@ -38,6 +38,7 @@ export type Cell =
       text: string;
       streaming: boolean;
       id?: string;
+      phase?: string | null;
     }
   | {
       kind: "reasoning";
@@ -70,6 +71,7 @@ export type Cell =
       };
     }
   | { kind: "compaction"; id: string; text: string }
+  | { kind: "provider_output"; id: string; turnId: string; text: string }
   // Plugin-injected context (e.g. an AGENTS.md), shown as a distinct transcript line.
   | { kind: "context"; id: string; text: string }
   // A failed turn's error message. Immutable, so it migrates straight to scrollback.
@@ -116,6 +118,7 @@ export interface State {
   usageIncomplete?: true;
   /** Σ of stored per-row costs in USD; rows with no rate card contribute nothing. */
   cost: number;
+  costIncomplete?: boolean;
   /** The latest request's total prompt size — the context-fill numerator. */
   lastInputTokens?: number;
   agentContext?: ModelUsageSummary["agentContext"];
@@ -148,6 +151,7 @@ function appendDelta(
   turnId: string,
   text: string,
   receivedAt: number,
+  phase?: string | null,
 ): State {
   const idx = openIndex(state.cells, kind, turnId);
   if (idx === -1) {
@@ -156,14 +160,18 @@ function appendDelta(
       cells: [
         ...state.cells,
         kind === "assistant"
-          ? { kind, turnId, text, streaming: true }
+          ? { kind, turnId, text, streaming: true, ...(phase !== undefined ? { phase } : {}) }
           : { kind, turnId, text, streaming: true, startedAt: receivedAt, observedTiming: true },
       ],
     };
   }
   const cells = state.cells.slice();
   const c = cells[idx] as Extract<Cell, { kind: "assistant" | "reasoning" }>;
-  cells[idx] = { ...c, text: c.text + text };
+  cells[idx] = {
+    ...c,
+    text: c.text + text,
+    ...(kind === "assistant" && phase !== undefined ? { phase } : {}),
+  };
   return { ...state, cells };
 }
 
@@ -175,6 +183,7 @@ function finalizeStream(
   id: string,
   text: string,
   completedAt: number,
+  phase?: string | null,
 ): State {
   const idx = openIndex(state.cells, kind, turnId);
   if (idx === -1) {
@@ -183,17 +192,27 @@ function finalizeStream(
       cells: [
         ...state.cells,
         kind === "assistant"
-          ? { kind, turnId, text, streaming: false, id }
+          ? { kind, turnId, text, streaming: false, id, ...(phase !== undefined ? { phase } : {}) }
           : { kind, turnId, text, streaming: false, id, startedAt: completedAt, completedAt },
       ],
     };
   }
   const cells = state.cells.slice();
   const c = cells[idx] as Extract<Cell, { kind: "assistant" | "reasoning" }>;
-  cells[idx] =
+  const finalized: Cell =
     c.kind === "assistant"
-      ? { ...c, text, streaming: false, id }
+      ? {
+          kind: "assistant",
+          turnId,
+          text,
+          streaming: false,
+          id,
+          ...(phase !== undefined ? { phase } : {}),
+        }
       : { ...c, text, streaming: false, id, completedAt };
+  // Canonical append order wins when display hints arrived during the preview.
+  cells.splice(idx, 1);
+  cells.push(finalized);
   return { ...state, cells };
 }
 
@@ -242,6 +261,7 @@ function reduceItem(state: State, item: Item): State {
           item.id,
           textOf(item.content),
           item.createdAt,
+          item.phase,
         );
       } else {
         next = state;
@@ -261,6 +281,15 @@ function reduceItem(state: State, item: Item): State {
       next = {
         ...state,
         cells: [...state.cells, { kind: "compaction", id: item.id, text: textOf(item.content) }],
+      };
+      break;
+    case "provider_output":
+      next = {
+        ...state,
+        cells: [
+          ...state.cells,
+          { kind: item.type, id: item.id, turnId: item.turnId, text: textOf(item.content) },
+        ],
       };
       break;
     case "context":
@@ -423,7 +452,7 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
     case "item.appended":
       return reduceItem(state, event.item);
     case "text_delta":
-      return appendDelta(state, "assistant", event.turnId, event.text, receivedAt);
+      return appendDelta(state, "assistant", event.turnId, event.text, receivedAt, event.phase);
     case "reasoning_delta":
       return appendDelta(state, "reasoning", event.turnId, event.text, receivedAt);
     case "request.created": {
@@ -461,6 +490,7 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
         ...state,
         usage: event.summary.usage,
         cost: event.summary.cost,
+        costIncomplete: event.summary.costIncomplete ?? false,
         agentContext: event.summary.agentContext,
         lastTurn: event.summary.lastTurn,
         ...(event.summary.incomplete ? { usageIncomplete: true } : {}),
@@ -492,6 +522,7 @@ export function init(items: Item[], usageSeed: ModelUsage[] | ModelUsageSummary 
       usage: usageSeed.usage,
       ...(usageSeed.incomplete ? { usageIncomplete: true as const } : {}),
       cost: usageSeed.cost,
+      costIncomplete: usageSeed.costIncomplete ?? false,
       agentContext: usageSeed.agentContext,
       lastTurn: usageSeed.lastTurn,
       ...(usageSeed.lastInputTokens === undefined
@@ -504,12 +535,14 @@ export function init(items: Item[], usageSeed: ModelUsage[] | ModelUsageSummary 
   );
   const usage = knownUsageRows.reduce((sum, row) => addUsage(sum, row.usage), zeroUsage());
   const cost = usageSeed.reduce((sum, row) => sum + (row.cost ?? 0), 0);
-  const last = usageSeed.at(-1)?.usage?.inputTokens;
+  const latest = usageSeed.at(-1);
+  const last = latest?.inputTokensAreContext === false ? undefined : latest?.usage?.inputTokens;
   return {
     ...state,
     usage,
     ...(usageSeed.some((row) => row.usage === null) ? { usageIncomplete: true as const } : {}),
     cost,
+    costIncomplete: usageSeed.some((row) => row.cost === null || row.costIncomplete === true),
     ...(last !== undefined ? { lastInputTokens: last } : {}),
   };
 }

@@ -49,7 +49,7 @@ describe("OpenAIChatTransport", () => {
       events.push(e.type);
     }
     expect(params?.model).toBe("deepseek-v4-pro");
-    expect(events).toEqual(["text_delta", "completed"]);
+    expect(events).toEqual(["text_delta", "message", "completed"]);
   });
 
   it("maps the SDK's typed context error to the protocol error", async () => {

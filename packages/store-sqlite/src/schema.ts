@@ -86,6 +86,9 @@ interface ModelUsageTable {
   request_duration_ms: number | null;
   usage: string;
   cost: number | null;
+  provider_usage: string | null;
+  cost_incomplete: number;
+  input_tokens_are_context: number;
   created_at: number;
 }
 
@@ -166,6 +169,9 @@ CREATE TABLE model_usage (
   request_duration_ms REAL CHECK(request_duration_ms >= 0),
   usage TEXT NOT NULL,
   cost REAL,
+  provider_usage TEXT,
+  cost_incomplete INTEGER NOT NULL DEFAULT 0 CHECK(cost_incomplete IN (0, 1)),
+  input_tokens_are_context INTEGER NOT NULL DEFAULT 1 CHECK(input_tokens_are_context IN (0, 1)),
   created_at INTEGER NOT NULL
 );
 CREATE INDEX model_usage_conv ON model_usage(conversation_id);
@@ -174,12 +180,12 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 6;
 
-/** Fresh schema or the single additive v3 upgrade; older formats remain unsupported. */
+/** Fresh schema or explicit additive v3/v4/v5 upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
   db.transaction(() => {
-    const version = db.pragma("user_version", { simple: true }) as number;
+    let version = db.pragma("user_version", { simple: true }) as number;
     if (version === SCHEMA_VERSION) return;
     if (version === 3) {
       db.exec(`ALTER TABLE model_usage ADD COLUMN purpose TEXT;
@@ -187,6 +193,20 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
         CREATE INDEX model_usage_agent ON model_usage(conversation_id, created_at DESC) WHERE purpose = 'agent';
         CREATE INDEX model_usage_turn ON model_usage(turn_id);
         CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';`);
+      version = 4;
+    }
+    if (version === 4) {
+      db.exec(`ALTER TABLE model_usage ADD COLUMN provider_usage TEXT;
+        ALTER TABLE model_usage ADD COLUMN cost_incomplete INTEGER NOT NULL DEFAULT 0 CHECK(cost_incomplete IN (0, 1));`);
+      version = 5;
+    }
+    if (version === 5) {
+      db.exec(
+        `ALTER TABLE model_usage ADD COLUMN input_tokens_are_context INTEGER NOT NULL DEFAULT 1 CHECK(input_tokens_are_context IN (0, 1));`,
+      );
+      // Older rows did not classify cumulative billing input. Keep their spend,
+      // but do not infer a trustworthy prompt-size checkpoint from it.
+      db.exec("UPDATE model_usage SET input_tokens_are_context = 0;");
       db.pragma(`user_version = ${SCHEMA_VERSION}`);
       return;
     }

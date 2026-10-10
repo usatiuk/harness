@@ -64,6 +64,7 @@ const attachment: AttachResult = {
     },
     incomplete: false,
     cost: 0,
+    costIncomplete: false,
     lastInputTokens: null,
     agentContext: null,
     lastTurn: null,
@@ -124,12 +125,17 @@ describe("HarnessClient attachment", () => {
       await server.notify(conversationEventNotification, {
         rootConversationId: "root",
         conversationId: "child",
-        event: { type: "text.delta", turnId: "child-turn", text: "x".repeat(1024 * 1024) },
+        event: {
+          type: "text.delta",
+          turnId: "child-turn",
+          text: "x".repeat(1024 * 1024),
+          phase: null,
+        },
       });
     await server.notify(conversationEventNotification, {
       rootConversationId: "root",
       conversationId: "root",
-      event: { type: "text.delta", turnId: "root-turn", text: "root remains live" },
+      event: { type: "text.delta", turnId: "root-turn", text: "root remains live", phase: null },
     });
     await expect(wire.models()).resolves.toMatchObject({ models: [] });
     expect(observed).toContain("text_delta");

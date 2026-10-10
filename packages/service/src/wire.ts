@@ -36,6 +36,7 @@ export const projectUsageSummary = (summary: ModelUsageSummary): WireUsageSummar
     usage: projectUsage(summary.usage),
     incomplete: summary.incomplete,
     cost: summary.cost,
+    costIncomplete: summary.costIncomplete ?? false,
     lastInputTokens: summary.lastInputTokens ?? null,
     agentContext: summary.agentContext
       ? {
@@ -85,7 +86,9 @@ export const projectItem = (item: Item): WireItem =>
           annotations: item.annotations ?? null,
           structured: item.structured === undefined ? null : { value: item.structured },
         }
-      : item,
+      : item.type === "message"
+        ? { ...item, phase: item.phase === undefined ? null : { value: item.phase } }
+        : item,
   );
 
 const projectRateCard = (pricing: ModelPricing) => ({

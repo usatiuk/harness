@@ -23,7 +23,7 @@
 
 ## Non-goals for the current version
 
-- Provider-owned execution tools or opaque provider agent loops.
+- Provider-owned execution beyond native web search, or opaque provider agent loops.
 - Durable resumption of in-flight model streams, processes, approvals, or
   subagents after process exit.
 - A general workflow engine, distributed scheduler, or multi-user daemon.
@@ -75,8 +75,9 @@ the separate title-bar surface to allow consistent modal dimming.
 The [Mistral and session-routing change](docs/plans/models/2026-10-10-mistral-support.md)
 adds Mistral API/Vibe API-key connections and OpenCode Go's required session
 header. Each conversation keeps its own routing identity across turns and
-resume. Full validation after rebasing passes 1,061 tests, the shared-server bundle builds and
-three independent reviews report no material findings. Live Mistral acceptance,
+resume. Its historical validation passed 1,061 tests. The native-search delivery
+below consolidates Mistral generation onto streaming Conversations while retaining
+these connections and routing behavior. Live Mistral acceptance,
 cache-hit performance and subscription billing remain unqualified without credentials.
 
 The [Windows CI reliability follow-up](docs/plans/cross-cutting/2026-10-07-windows-ci-reliability.md)
@@ -150,9 +151,10 @@ As of 2026-10-10, Harness provides:
   dispatch, correlated host requests, and typed events.
 - Tool, model, and request middleware plus plugin-owned context sources,
   per-conversation services, policies, observers, and configuration schemas.
-- OpenAI API-key (Responses + chat/completions), OpenAI Codex OAuth, Anthropic
-  API-key, OpenCode Go API-key, config-defined OpenAI/Anthropic-compatible
-  providers, Mistral API/Vibe API-key connections, named built-in/compatible
+- OpenAI API-key (Responses + chat/completions), OpenAI Codex OAuth, Anthropic,
+  Gemini and Mistral API/Vibe API-key, native web search on these direct connections,
+  OpenCode Go API-key, config-defined OpenAI/Anthropic-compatible
+  providers, named built-in/compatible
   API/OAuth connections, boot-discovered LiteLLM
   gateways, uniform scoped credentials and neutral shared transports, and a
   deterministic demo provider with model catalogs, reasoning
@@ -198,6 +200,16 @@ As of 2026-10-10, Harness provides:
 | Testing                     | [Architecture](docs/subsystems/testing/README.md)       | [Evidence for active reliability and security work](docs/subsystems/testing/PLAN.md)                               |
 
 ## Near-term order
+
+The [native web search and assistant-phase delivery](docs/plans/models/2026-10-10-native-search-and-assistant-phases.md)
+implements provider-owned search settings, reported assistant phases and one
+immutable item log with provider/model-bound metadata. Search hints are
+display-only; required finalized Gemini and Anthropic native history round-trips
+through the existing metadata sidecar. Both Mistral connections use one streaming
+Conversations adapter, preserving auth, catalogs, settings and affinity. Combined
+validation passes 1,154 tests (36 skipped), the server bundle/syntax checks and
+three independent reviews. Detailed evidence is in the delivery plan. Live vendor
+acceptance and billing remain credential-dependent.
 
 The [code-mode delivery](docs/plans/cross-cutting/2026-10-03-code-mode.md) adds
 programmatic selection without a second tool registry or permissions path. It

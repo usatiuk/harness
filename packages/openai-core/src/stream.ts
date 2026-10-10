@@ -1,6 +1,7 @@
 import type OpenAI from "openai";
 import type { ModelStreamEvent, Usage } from "@harness/protocol";
-import { encodeReasoningPayload } from "./payload.ts";
+import { jsonValueSchema } from "@harness/protocol";
+import { encodeReasoningPayload, encodeOutputPayload } from "./payload.ts";
 
 type StreamEvent = OpenAI.Responses.ResponseStreamEvent;
 type ChatChunk = OpenAI.Chat.Completions.ChatCompletionChunk;
@@ -22,13 +23,38 @@ interface ReasoningDelta {
   reasoning_content?: string | null;
 }
 
-/** A completed output item → its model event(s). Messages arrive via text deltas. */
+/** Native final output is authoritative; deltas are only a live preview. */
 function* fromItem(
   item: OpenAI.Responses.ResponseOutputItem,
   provider: string,
   model: string,
 ): Iterable<ModelStreamEvent> {
-  if (item.type === "reasoning") {
+  if (item.type === "message") {
+    yield {
+      type: "message",
+      content: item.content.map((part) => ({
+        type: "text",
+        text: part.type === "output_text" ? part.text : part.refusal,
+      })),
+      ...(item.phase !== undefined ? { phase: item.phase } : {}),
+      payload: encodeOutputPayload(item, provider, model),
+    };
+  } else if (item.type === "web_search_call") {
+    yield {
+      type: "provider_output",
+      content: [
+        {
+          type: "text",
+          text:
+            item.status === "completed"
+              ? "Searched the web."
+              : item.status === "failed"
+                ? "Search failed."
+                : "Searching the web…",
+        },
+      ],
+    };
+  } else if (item.type === "reasoning") {
     const content = item.summary.map((s) => ({ type: "text" as const, text: s.text }));
     const payload = encodeReasoningPayload(item, provider, model);
     yield { type: "reasoning", content, ...(payload ? { payload } : {}) };
@@ -58,7 +84,7 @@ function parseArgs(raw: string): unknown {
 /**
  * Translates the native Responses event stream into our provider-agnostic
  * `ModelStreamEvent`s. Output is emitted before `completed`; the terminal event
- * carries usage and optional fidelity metadata only. Terminal failures throw.
+ * carries usage and terminal errors. Native replay belongs to finalized messages/reasoning.
  */
 export async function* toModelEvents(
   stream: AsyncIterable<StreamEvent>,
@@ -66,37 +92,64 @@ export async function* toModelEvents(
   model: string,
   signal: AbortSignal,
 ): AsyncIterable<ModelStreamEvent> {
+  const phases = new Map<number, string | null>();
+  let searched = false;
+  const accounting = (usage: OpenAI.Responses.ResponseUsage | null | undefined) => ({
+    usage: responseUsage(usage),
+    ...(searched
+      ? {
+          costIncomplete: true,
+          inputTokensAreContext: false,
+          ...(usage ? { providerUsage: jsonValueSchema.parse(usage) } : {}),
+        }
+      : {}),
+  });
   for await (const event of stream) {
     if (signal.aborted) return;
     switch (event.type) {
+      case "response.output_item.added":
+        searched ||= event.item.type === "web_search_call";
+        if (event.item.type === "message" && event.item.phase !== undefined)
+          phases.set(event.output_index, event.item.phase);
+        break;
       case "response.output_text.delta":
-        yield { type: "text_delta", text: event.delta };
+        yield {
+          type: "text_delta",
+          text: event.delta,
+          ...(phases.has(event.output_index) ? { phase: phases.get(event.output_index)! } : {}),
+        };
         break;
       case "response.reasoning_summary_text.delta":
         yield { type: "reasoning_delta", text: event.delta };
         break;
       case "response.output_item.done":
+        searched ||= event.item.type === "web_search_call";
         yield* fromItem(event.item, provider, model);
         break;
       case "response.completed":
         yield {
           type: "completed",
-          usage: responseUsage(event.response.usage),
+          ...accounting(event.response.usage),
         };
-        break;
+        return;
       case "response.failed":
-        throw new Error(`openai response failed: ${event.response.error?.message ?? "unknown"}`);
+        yield {
+          type: "completed",
+          ...accounting(event.response.usage),
+          error: `openai response failed: ${event.response.error?.message ?? "unknown"}`,
+        };
+        return;
       case "response.incomplete":
         yield {
           type: "completed",
-          usage: responseUsage(event.response.usage),
+          ...accounting(event.response.usage),
           error: `openai response incomplete: ${event.response.incomplete_details?.reason ?? "unknown"}`,
         };
-        break;
+        return;
       case "error":
         throw new Error(`openai stream error: ${event.message}`);
       default:
-        break; // the many event types we don't consume (audio, web search, …)
+        break; // native event types without text/reasoning/search semantics
     }
   }
 }
@@ -127,14 +180,18 @@ interface PendingToolCall {
  */
 export async function* toChatEvents(
   stream: AsyncIterable<ChatChunk>,
-  // Chat encodes no provider/model payload fields, but both name the failing
-  // backend in the interleaved-reasoning error.
   provider: string,
   model: string,
   signal: AbortSignal,
 ): AsyncIterable<ModelStreamEvent> {
   let reasoningText = "";
+  let messageText = "";
   let reasoningEmitted = false;
+  const finalizedReasoning = (): Extract<ModelStreamEvent, { type: "reasoning" }> => ({
+    type: "reasoning",
+    content: [{ type: "text", text: reasoningText }],
+    payload: { provider, model, type: "chat_reasoning", version: 1, payload: null },
+  });
   const toolCalls = new Map<number, PendingToolCall>();
   let usage: OpenAI.Completions.CompletionUsage | undefined;
   // Set when the choice announces a terminal state (`stop`/`length`/`tool_calls`),
@@ -156,6 +213,10 @@ export async function* toChatEvents(
     // delta, so accumulate first and fall through rather than `continue` (which
     // would silently drop that boundary output).
     if (delta.reasoning_content) {
+      if (messageText) {
+        yield { type: "message", content: [{ type: "text", text: messageText }] };
+        messageText = "";
+      }
       // Reasoning after the item was finalized can't be folded into it. Fail fast
       // rather than silently dropping the trailing text — DeepSeek requires the
       // full reasoning of a tool-calling turn to be passed back.
@@ -171,10 +232,11 @@ export async function* toChatEvents(
     // First non-reasoning output finalizes the pending reasoning item. A null
     // content (role-only chunk) is not output, so it doesn't trigger the boundary.
     if (delta.content && !reasoningEmitted && reasoningText.length > 0) {
-      yield { type: "reasoning", content: [{ type: "text", text: reasoningText }] };
+      yield finalizedReasoning();
       reasoningEmitted = true;
     }
     if (delta.content) {
+      messageText += delta.content;
       yield { type: "text_delta", text: delta.content };
     }
 
@@ -190,8 +252,12 @@ export async function* toChatEvents(
       sawTerminalFinish = true;
       // Reasoning-only turns and reasoning-then-tools turns finish their item here.
       if (!reasoningEmitted && reasoningText.length > 0) {
-        yield { type: "reasoning", content: [{ type: "text", text: reasoningText }] };
+        yield finalizedReasoning();
         reasoningEmitted = true;
+      }
+      if (messageText) {
+        yield { type: "message", content: [{ type: "text", text: messageText }] };
+        messageText = "";
       }
       if (choice.finish_reason === "tool_calls") {
         const ordered = [...toolCalls.entries()].sort(([a], [b]) => a - b);
@@ -234,7 +300,7 @@ export async function* toChatEvents(
   // A stream that produced reasoning but never hit a content/tool boundary still
   // persists its reasoning item.
   if (!reasoningEmitted && reasoningText.length > 0) {
-    yield { type: "reasoning", content: [{ type: "text", text: reasoningText }] };
+    yield finalizedReasoning();
   }
 
   // A usage tail only arrives with `include_usage`; many backends omit it. A

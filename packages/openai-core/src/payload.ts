@@ -1,5 +1,33 @@
 import type OpenAI from "openai";
 import type { ProviderPayload, ProviderPayloadDraft } from "@harness/protocol";
+import { jsonValueSchema } from "@harness/protocol";
+
+export function encodeOutputPayload(
+  item: OpenAI.Responses.ResponseOutputMessage,
+  provider: string,
+  model: string,
+): ProviderPayloadDraft {
+  return {
+    provider,
+    model,
+    type: "response_output",
+    version: 1,
+    payload: jsonValueSchema.parse(item),
+  };
+}
+
+export function readOutputPayload(
+  payload: ProviderPayload | undefined,
+  provider: string,
+  model: string,
+): OpenAI.Responses.ResponseOutputMessage | undefined {
+  return payload?.provider === provider &&
+    payload.model === model &&
+    payload.type === "response_output" &&
+    payload.version === 1
+    ? (payload.payload as OpenAI.Responses.ResponseOutputMessage)
+    : undefined;
+}
 
 const REASONING_PAYLOAD_TYPE = "reasoning";
 const REASONING_PAYLOAD_VERSION = 1;
