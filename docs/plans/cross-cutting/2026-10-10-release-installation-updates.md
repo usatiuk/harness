@@ -250,3 +250,16 @@ creates version/tag `0.1.1` at `c9a9a4c`. The arm64 macOS payloads and desktop
 compile, but requesting only `dmg` causes Tauri to omit the updater app archive.
 The release command now requests `app,dmg` on macOS; hosted verification of this
 correction remains pending. The first run's other platform results remain open.
+
+The Linux release desktop also compiles, then AppImage packaging fails because
+the bundle configuration omits PNG icons. The existing generated platform icons
+are now explicitly listed in Tauri's bundle configuration. No new icon generation
+or packaging tool is introduced. Hosted verification remains pending.
+
+Windows/Ubuntu CI run `38089276939` passes at `c6620cb`, including the full source
+check and headless native cases. The preceding Windows run `38089010793` passes
+the corrected selection test but times out during background-test cleanup: its
+phase diagnostics show startup took 23.4 seconds, all conversation/history
+assertions completed by 29.6 seconds, then cleanup crossed the 30-second deadline.
+The passing unchanged successor does not establish a product defect; assertions,
+timeouts and retry policy remain unchanged.
