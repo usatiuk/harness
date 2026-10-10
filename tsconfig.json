@@ -22,7 +22,7 @@
 
     "noEmit": true
   },
-  "include": ["packages/*/src/**/*.ts", "scripts/**/*.ts", "release/tools/**/*.ts"],
+  "include": ["packages/*/src/**/*.ts", "scripts/**/*.ts"],
   // packages/cli is typechecked by its own tsconfig (JSX); see packages/cli/tsconfig.json.
   "exclude": ["packages/cli", "packages/desktop"]
 }

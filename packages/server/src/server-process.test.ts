@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { HarnessClient } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
+import { canonicalHome } from "@harness/connections/local";
 import { appSettingsRequest, appSettingsUpdateRequest } from "./client-protocol.ts";
 
 function launch(home: string) {
@@ -64,7 +65,8 @@ function launch(home: string) {
 async function withServers(
   run: (home: string, start: () => ReturnType<typeof launch>) => Promise<void>,
 ): Promise<void> {
-  const home = await mkdtemp(join(tmpdir(), "harness-server-ownership-"));
+  const temporary = await mkdtemp(join(tmpdir(), "harness-server-ownership-"));
+  const home = await canonicalHome(join(temporary, "home"));
   const launched: ReturnType<typeof launch>[] = [];
   const start = () => {
     const server = launch(home);
@@ -79,7 +81,7 @@ async function withServers(
       if (server.child.exitCode === null && server.child.signalCode === null) server.child.kill();
       await server.exited;
     }
-    await rm(home, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true });
   }
 }
 

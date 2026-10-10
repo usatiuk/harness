@@ -5,6 +5,11 @@ separate Node runtime, compatibility and updates. These findings inform the
 [delivery plan](../plans/cross-cutting/2026-10-10-release-installation-updates.md);
 they are not claims of delivered release support.
 
+The October 10 simplification supersedes earlier per-entry retention and offline
+transfer recommendations. The accepted model uses one shared cache-use lease,
+target downloads for cold remote preparation and a standard GitHub draft-release
+workflow. Source/license inventory and custom publication tooling are outside scope.
+
 ## Repository evidence
 
 Read-only inspection found the following:
@@ -183,11 +188,10 @@ expose that flag. Qualify a narrow native creation adapter and account permissio
 without moving JSON-RPC or agent ownership into a Rust service. No such adapter
 or pipe qualification has been implemented by this planning work.
 
-The user subsequently selected removal of the host-installed development Node
-mode. Source development still selects local code and HMR, but execution uses the
-same pinned downloaded Node as installed clients/servers. Existing runtime-source
-choices are retired, not retained as a fallback. This narrows runtime preparation
-and makes source runs exercise the managed runtime path.
+The later clarification limits downloaded Node to installed apps and deployed
+remote servers. Ordinary source development and tests use developer Node/npm and
+workspace code. The source runtime wrapper was a misinterpretation and is removed;
+it is not part of the accepted deployment design.
 
 [Tauri's architecture](https://v2.tauri.app/concept/architecture/) uses Rust and
 the system webview; Node is not included. The shared native helper prepares Node
@@ -202,11 +206,11 @@ and before schema mutation so a late old candidate cannot restart old code.
 Use the existing authenticated channel for a small stable management envelope,
 not a full legacy conversation RPC adapter.
 
-Node runtime files can be shared on a host; Node processes are independent. All
-live processes capture immutable paths. SSH/WSL transfer of verified artifacts
-lets managed remote setup work without target internet or npm. The analogous
-[VS Code Remote SSH model](https://code.visualstudio.com/docs/remote/ssh#what-are-the-connectivity-requirements-for-the-vs-code-server-when-it-is-running-on-a-remote-machine-vm)
-also supports local download and transfer.
+Node runtime files are shared on a host; Node processes are independent. Live
+processes capture immutable paths. SSH/WSL transfers a small verified bootstrap;
+the target downloads its signed server and pinned Node without installed Node,
+npm or a compiler. Cold preparation needs target internet. Source remote fixtures
+transfer an explicitly built Linux server archive and download Node on the target.
 
 [Maintained self-replace](https://docs.rs/self-replace/latest/self_replace/)
 offers native launcher replacement including Windows. Actual terminal behavior
@@ -227,30 +231,22 @@ transition adapters. Data-preservation guarantees start at the first public
 baseline. Concrete migration/backup work belongs to actual later format changes,
 not a historical compatibility project before the initial release.
 
-Completed cache deletion is not safe merely because the server stopped: CLI/
-bridges can still use its files. The user's simple rule is per component: running
-consumers prevent managed removal; unused versions can be removed. Use per-entry
-OS shared/exclusive locks rather than blocking all cleanup whenever any app runs.
+Completed cache deletion is not safe merely because the server stopped: CLI,
+desktop helpers or bridges can still use its files. Each consumer holds one shared
+cache-use lease; explicit pruning requires exclusive ownership and refuses while
+any consumer is running. Callers acquire their lease before spawning preparation
+helpers and retain it through physical child exit. Detached owners acquire their
+own lease before the initiating manager retires.
 [Rust's standard file API](https://doc.rust-lang.org/std/fs/struct.File.html)
 documents shared/exclusive/nonblocking locks and handle-lifetime release, while
 warning that platform interactions may be advisory. This is cooperative Harness
-protection, not an OS guarantee against arbitrary manual deletion. The chosen
-facility must match the project's Rust/toolchain and real detached-process needs.
+protection, not an OS guarantee against arbitrary manual deletion.
 
-Explicit cleanup may remove inactive older-client payloads, whether their launcher
-is still installed or has been uninstalled. Those clients download their pinned
-release again; offline startup is not promised after deliberate eviction. There
-is no installed-client registry or mandatory previous-version reserve. Retained
-payload receipts determine needed Node versions. Runtime use must also cover
-publication of dependent payloads, and pruning rechecks references under exclusive
-runtime use, so installation cannot create a reference to a deleted runtime.
-Native desktop protection spans helper gaps and teardown; detached servers retain
-their own protection after the client exits. Cleanup rechecks the selected server
-under the candidate entry's exclusive protection; selection publication holds
-target use, preventing a failed activation from leaving selected files eligible
-for an obsolete prune decision. Cleanup manages only the new layout.
-Defer automatic policy; never substitute PID guessing or a heartbeat supervisor.
-This is an implementation gate, not already established coverage.
+Explicit cleanup can remove inactive payloads once the cache has no consumers.
+Later invocation downloads missing pinned versions again. Persistent data remains
+separate from the cache. No per-entry receipts, installed-client registry,
+dependency-reference graph or cleanup daemon is needed. Pruning and installed
+updates still require implementation and qualification under the delivery plan.
 
 Numeric JSON format versions and small explicit conversion functions are
 sufficient; no generic migration framework is needed. Current strict parsers mean

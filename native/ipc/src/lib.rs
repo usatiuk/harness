@@ -11,13 +11,13 @@ pub fn verify_release(bytes: napi::bindgen_prelude::Buffer, signature: String) -
             "Release metadata exceeds its size limit",
         ));
     }
-    let manifest = harness_bootstrap::verify_release(
+    harness_bootstrap::verify_release(
         &bytes,
         &signature,
         include_str!("../../../release/verification-key.pub"),
     )
     .map_err(|error| Error::from_reason(format!("{error:#}")))?;
-    serde_json::to_string(&manifest).map_err(|error| Error::from_reason(error.to_string()))
+    String::from_utf8(bytes.to_vec()).map_err(|error| Error::from_reason(error.to_string()))
 }
 
 /// Packaging verifies the exact updater bytes against the compiled project key.
@@ -48,29 +48,24 @@ mod windows_pipe;
 /// A Node owner keeps its own guards after its initiating launcher exits.
 #[napi]
 pub struct CacheUse {
-    guards: Vec<FileUse>,
+    guard: Option<FileUse>,
 }
 
 #[napi]
 impl CacheUse {
     #[napi(constructor)]
-    pub fn new(home: String, keys: Vec<String>) -> Result<Self> {
+    pub fn new(home: String) -> Result<Self> {
         let home = harness_bootstrap::canonical_home(std::path::Path::new(&home))
             .map_err(|error| Error::from_reason(format!("{error:#}")))?;
-        let guards = keys
-            .iter()
-            .map(|key| {
-                FileUse::shared(&home, key)
-                    .map_err(|error| Error::from_reason(format!("{error:#}")))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(Self { guards })
+        let guard = FileUse::shared(&home, "cache-use")
+            .map_err(|error| Error::from_reason(format!("{error:#}")))?;
+        Ok(Self { guard: Some(guard) })
     }
 
     /// Consumers close only after every child and worker that uses their paths exits.
     #[napi]
     pub fn close(&mut self) {
-        self.guards.clear();
+        self.guard.take();
     }
 }
 

@@ -13,6 +13,7 @@ release/output/
 release/staging/
 .harness-dev/
 .native-dev/
+packages/native/harness-native.node
 
 # Editor / IDE
 .idea/

@@ -33,7 +33,6 @@ afterEach(() => {
 });
 
 async function fixture(kind: "desktop" | "tui") {
-  vi.stubEnv("HARNESS_SERVER_PAYLOAD", "/fixture");
   const remote: Host = {
     kind: "ssh",
     id: "remote",

@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { HarnessClient } from "@harness/client";
-import { NODE_PIN } from "@harness/release";
 import { expect, it, vi } from "vitest";
 import { discoverySchema } from "./local.ts";
 import { stopRemoteServer } from "./commands.ts";
@@ -28,9 +27,9 @@ async function checkBlockedCancellation(
     server: { sha256: string };
   };
   const q = shellQuote;
-  const gate = `${runtime.home}/.cache-locks/install-node-${NODE_PIN.version}-linux-x64-glibc`;
+  const gate = `${runtime.home}/.cache-locks/install`;
   const ready = `${runtime.home}/cancel-lock-ready`;
-  const scan = `const fs=require('node:fs');const home=${JSON.stringify(runtime.home)};const found=[];for(const pid of fs.readdirSync('/proc').filter(p=>/^\\d+$/.test(p))){try{const args=fs.readFileSync('/proc/'+pid+'/cmdline','utf8').split('\\0');const env=fs.readFileSync('/proc/'+pid+'/environ','utf8').split('\\0');if(args.includes('--install-transferred-server')&&env.includes('HARNESS_HOME='+home))found.push({pid:Number(pid),wait:fs.readFileSync('/proc/'+pid+'/wchan','utf8')});}catch(e){if(!['ENOENT','EACCES','ESRCH'].includes(e.code))throw e;}}process.stdout.write(JSON.stringify(found));`;
+  const scan = `const fs=require('node:fs');const home=${JSON.stringify(runtime.home)};const found=[];for(const pid of fs.readdirSync('/proc').filter(p=>/^\\d+$/.test(p))){try{const args=fs.readFileSync('/proc/'+pid+'/cmdline','utf8').split('\\0');const env=fs.readFileSync('/proc/'+pid+'/environ','utf8').split('\\0');if(args.includes('--install-development-server')&&env.includes('HARNESS_HOME='+home))found.push({pid:Number(pid),wait:fs.readFileSync('/proc/'+pid+'/wchan','utf8')});}catch(e){if(!['ENOENT','EACCES','ESRCH'].includes(e.code))throw e;}}process.stdout.write(JSON.stringify(found));`;
   const holder = runRemote(
     host,
     `umask 077; exec flock -F -x ${q(gate)} sh -c ${q(`echo $$ > ${q(ready)}; exec sleep 600`)}`,

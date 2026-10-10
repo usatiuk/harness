@@ -3,7 +3,7 @@ export interface NativeCacheUse {
   /** Release only after all consumers have physically exited. Idempotent. */
   close(): void;
 }
-export const CacheUse: new (home: string, keys: string[]) => NativeCacheUse;
+export const CacheUse: new (home: string) => NativeCacheUse;
 export interface NativeLifecycleLock {
   /** false is ordinary contention, with no PID or stale-lease inference. */
   tryAcquire(): boolean;

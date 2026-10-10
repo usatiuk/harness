@@ -5,16 +5,14 @@ mod home;
 mod manifest;
 mod payload;
 mod preparation;
-mod transferred;
 
-pub use cache::{Cache, ExclusiveLock, FileUse, InstalledArtifact, Receipt};
-pub use development::{DevelopmentReceipt, DevelopmentServer, PreparedDevelopmentServer};
+pub use cache::{Cache, ExclusiveLock, FileUse, InstalledArtifact};
+pub use development::PreparedDevelopmentServer;
 pub use home::{canonical_home, default_home};
 pub use manifest::{
     ArchiveFormat, Artifact, BuildIdentity, NodePin, ReleaseManifest, ReleaseTarget, host_target,
 };
 pub use preparation::{PreparedCli, PreparedServer};
-pub use transferred::{DevelopmentTransfer, ReleaseTransfer, ServerTransfer};
 
 use anyhow::{Context, Result, bail};
 use reqwest::blocking::Client;
@@ -42,11 +40,6 @@ fn fetch_bounded(client: &Client, url: &str, limit: u64) -> Result<Vec<u8>> {
         bail!("Download exceeds its size limit");
     }
     Ok(bytes)
-}
-
-/// Signatures are checked over the original bytes, before parsing untrusted metadata.
-pub fn fetch_release(client: &Client, url: &str, public_key: &str) -> Result<ReleaseManifest> {
-    Ok(fetch_verified_release(client, url, public_key)?.manifest)
 }
 
 pub(crate) struct VerifiedRelease {

@@ -19,7 +19,9 @@ pub fn canonical_home(path: &Path) -> Result<PathBuf> {
     let home = dunce::canonicalize(path)?;
     #[cfg(not(windows))]
     let home = path.canonicalize()?;
-    protect_directory(&home, false)?;
+    if home != path {
+        protect_directory(&home, false)?;
+    }
     Ok(home)
 }
 

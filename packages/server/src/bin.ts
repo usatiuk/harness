@@ -12,16 +12,20 @@ import {
 import { dirname } from "node:path";
 import { defaultHome } from "@harness/config";
 import { CacheUse } from "@harness/native";
-import { z } from "zod";
-const encodedKeys = process.env["HARNESS_SERVER_CACHE_KEYS"];
-const keys =
-  encodedKeys === undefined
-    ? undefined
-    : z.tuple([z.string(), z.string()]).parse(JSON.parse(encodedKeys));
-const usage = keys === undefined ? undefined : new CacheUse(defaultHome(), keys);
+import { BUILD_IDENTITY } from "@harness/release";
+import { fileURLToPath } from "node:url";
+const source = BUILD_IDENTITY.target === "development";
+if (source)
+  process.env.HARNESS_HOME ??= fileURLToPath(
+    new URL("../../../.harness-dev/source", import.meta.url),
+  );
+// Raw source runs use files outside the managed cache. IPC startup candidates
+// still acquire a lease before accepting the parent's ownership handoff.
+const usage = !source || process.send !== undefined ? new CacheUse(defaultHome()) : undefined;
+// Keep the lease reachable until process exit; the OS releases the lock.
+process.once("exit", () => usage);
 try {
   if (process.send !== undefined) {
-    if (usage === undefined) throw new Error("Managed startup has no cache-use guards");
     await new Promise<void>((resolve, reject) => {
       const disconnected = () => reject(new Error("Startup manager left before cache-use handoff"));
       process.once("disconnect", disconnected);
@@ -43,12 +47,21 @@ try {
     const value = hostConnectionTargetSchema.parse(JSON.parse(process.argv[bridgeIndex + 1]!));
     if (value.runtime === null) {
       const captured = process.env["HARNESS_PREPARED_SERVER"];
-      if (captured === undefined) throw new Error("The desktop did not prepare its Local server");
-      const runtime = await prepareLocalRuntime(
-        preparedServerSchema.parse(JSON.parse(captured)),
-        defaultHome(),
-      );
-      await runLocalBridge(runtime.home, runtime.launch, (identity) => {
+      if (captured === undefined && !source)
+        throw new Error("The desktop did not prepare its Local server");
+      const launch =
+        captured === undefined
+          ? {
+              executable: process.execPath,
+              args: [...process.execArgv, process.argv[1]!, "--background"],
+            }
+          : (
+              await prepareLocalRuntime(
+                preparedServerSchema.parse(JSON.parse(captured)),
+                defaultHome(),
+              )
+            ).launch;
+      await runLocalBridge(defaultHome(), launch, (identity) => {
         process.stderr.write(JSON.stringify({ type: "localOwner", identity }) + "\n");
       });
     } else {
@@ -81,8 +94,7 @@ try {
         : {
             selection: serverCacheEntrySchema.parse(process.env["HARNESS_SERVER_SELECTION"]),
           }),
-      env: { HARNESS_SERVER_CACHE_KEYS: encodedKeys },
-      ...(keys === undefined ? {} : { retainUse: () => new CacheUse(defaultHome(), keys) }),
+      retainUse: () => new CacheUse(defaultHome()),
     });
   else await runStdioServer();
 } catch (error) {
@@ -91,6 +103,4 @@ try {
     error instanceof Error && (error.cause as { code?: string } | undefined)?.code === "SQLITE_BUSY"
       ? 76
       : 1;
-} finally {
-  usage?.close();
 }

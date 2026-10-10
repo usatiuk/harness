@@ -1,4 +1,4 @@
-import { buildPayload, buildIdentity } from "../../../release/tools/build-payloads.mjs";
+import { buildPayload, buildIdentity } from "../../../scripts/build-payloads.mjs";
 import { fileURLToPath, URL } from "node:url";
 import process from "node:process";
 

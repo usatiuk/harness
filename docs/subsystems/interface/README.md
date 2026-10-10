@@ -166,35 +166,37 @@ shows one. A new conversation records its server-side workspace root and resolve
 overrides. Background-connected clients retain created conversations across exit.
 The isolated stdio TUI removes its own empty conversations when it exits.
 
-The desktop owns one disposable Node bridge per connected entry, using paths
-prepared by the shared native bootstrap.
+The desktop owns one disposable Node bridge per connected entry. Installed builds
+use paths prepared by the shared native bootstrap; Tauri development runs workspace
+code with developer Node.
 Native close blocks new admission, cancels blocked writes, and closes every
 bridge concurrently. A 20-second bridge deadline terminates that child and exits
 unsuccessfully. Each server persists independently. Native preparation captures
 one immutable complete server payload and its exact shared Node runtime under
 the canonical home. TypeScript consumes those captured paths directly; there is
-no second copied runtime or dependency-junction cache. Development builds copy
+no second copied runtime or dependency-junction cache. Packaged development builds copy
 and hash their complete payload, including native dependencies, before starting
 an owner. A rebuild attaches to the existing owner until explicit stop; the next
 start selects the new source snapshot. An isolated stdio launch first rejects a
 live shared owner, preserving its selection.
-Complete payloads also carry the target native bootstrap for offline remote
-installation/control. Shared preparation validates the complete layout and build
-identity before publication and on cache reuse, including the declared Node
-requirement. The offline transfer boundary stages files without changing server
-selection. SSH/WSL now provisions through that shared native boundary and runs
-the installed payload through its cached-only native launcher. Controllers verify
-signed release metadata before transferring an executable; development accepts
-an explicitly built Linux source deployment. Target Node/npm and dependency
-installation are unnecessary. Cold/warm source SSH qualification passes;
-signed remote release and interrupted-target preparation remain open.
-The desktop retains its own prepared control helper between calls and through
-shutdown; a Local bridge separately retains its selected server. Every helper
-keeps cache-use protection through physical exit, including failed output and
-deadline cancellation. Cooperative cancellation drains final pipe writes while
-awaiting cleanup. Startup failure diagnostics take precedence over subsequent
-transport/teardown errors. Installed downloads, update integration and other
-platforms remain open in the release plan.
+Complete payloads carry a target native bootstrap. Production SSH/WSL verifies
+signed release metadata and transfers that small bootstrap; the target downloads
+the selected server and pinned Node. Source remote work accepts an explicitly
+built Linux server archive. Both paths validate layout and identity before
+atomic publication. Warm bridges open cached code and do not begin late downloads
+when their observer leaves. Source remote deployment always uses downloaded Node,
+without a target-installed Node alternative. Ordinary local source development
+uses Node/npm directly and installs no payload or runtime.
+
+One shared cache-use lock covers each running consumer. Preparation callers
+acquire it before launching helpers; helpers return captured paths and exit.
+The caller retains the lease through actual child completion. Detached owners
+acquire their own lease before the initiating manager retires. The desktop
+retains its prepared control runtime between calls and through shutdown.
+Cooperative cancellation drains final pipe writes while awaiting cleanup;
+startup failure diagnostics take precedence over transport/teardown errors.
+The release simplification and platform qualification remain in progress under
+the [delivery plan](../../plans/cross-cutting/2026-10-10-release-installation-updates.md).
 The keep-running preference defaults false; stop-on-exit releases Local only when
 another client is not attached. Local background execution after desktop exit is
 an explicit remembered preference. Remote observers detach without stopping their owner.
@@ -309,10 +311,10 @@ requests are cancellable while waiting for registry adoption. Stop completion
 closes its captured observer, so a replacement under the same saved ID survives.
 Command results and Local/remote prerequisites have typed, validated contracts.
 
-Desktop cache preparation runs in an internal hidden mode of the desktop
+Installed desktop cache preparation runs in an internal hidden mode of the desktop
 executable before window initialization. Its bootstrap uses the same immutable
-cache as the CLI. The parent acquires shared use guards before closing the
-preparation helper's stdin, so protection overlaps through physical helper exit.
+cache as the CLI. The parent holds its cache lease before spawning preparation;
+the helper returns captured paths and exits. That lease remains through child exit.
 Cancel can terminate and join blocked HTTP/OS-lock preparation without abandoning
 a blocking task in the app. The native connection channel publishes its operation
 ID before preparation; the existing host abort signal reaches that operation and
@@ -485,9 +487,8 @@ architecture until that plan's checks pass.
 - `packages/auth`, `packages/secrets`: login methods and credential stores.
 
 The earlier connection layer was qualified with actual Ubuntu WSL and isolated
-OpenSSH Linux x64 glibc. The release replacement now transfers complete server
-payloads and their pinned shared Node runtime without target npm or a system
-Node. Source remote work uses `npm run prepare:remote` on Linux/WSL and an
+OpenSSH Linux x64 glibc. The release replacement transfers a verified native bootstrap; the target
+downloads server and shared Node without target npm or system Node. Source remote work uses `npm run prepare:remote` on Linux/WSL and an
 explicit `HARNESS_DEVELOPMENT_REMOTE_PAYLOAD` directory on the controller.
 Released server selections survive connections from other client versions;
 source rebuilds attach to a live owner until stop and the next start. The real

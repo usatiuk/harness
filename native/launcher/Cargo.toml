@@ -25,7 +25,6 @@ tar = "0.4"
 sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
-dunce = "1"
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
 [target.'cfg(unix)'.dependencies]

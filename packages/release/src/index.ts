@@ -1,10 +1,9 @@
 import { z } from "zod";
-import product from "../../../release/product.json" with { type: "json" };
+import product from "../../../package.json" with { type: "json" };
 import nodePin from "../../../release/node.json" with { type: "json" };
 
 export const PRODUCT_VERSION = product.version;
-export const MANAGEMENT_VERSION = product.managementVersion;
-export const RELEASE_REPOSITORY = product.repository;
+export const RELEASE_REPOSITORY = "usatiuk/harness-releases";
 export const NODE_PIN = nodePin;
 export const targetSchema = z.enum(["windows-x64", "linux-x64-glibc", "macos-arm64", "macos-x64"]);
 export type ReleaseTarget = z.infer<typeof targetSchema>;
@@ -53,30 +52,18 @@ export const artifactSchema = z.strictObject({
   entry: pathSchema,
 });
 export type ReleaseArtifact = z.infer<typeof artifactSchema>;
-export const releaseManifestSchema = z.strictObject({
+export const releaseManifestSchema = z.object({
   formatVersion: z.literal(1),
   productVersion: versionSchema,
   sourceCommit: z.string().regex(/^[a-f0-9]{40}$/u),
-  managementVersion: z.literal(1),
-  protocolVersion: z.number().int().positive(),
-  storeSchemaVersion: z.number().int().positive(),
-  pluginContracts: z.record(z.string().min(1), z.string().min(1)),
   targets: z
     .partialRecord(
       targetSchema,
-      z.strictObject({
-        minimumPlatform: z.string().min(1),
+      z.object({
         node: z.strictObject({ version: versionSchema, artifact: artifactSchema }),
         server: artifactSchema,
         cli: artifactSchema,
         launcher: artifactSchema,
-        desktop: artifactSchema.optional(),
-        desktopUpdate: z
-          .strictObject({
-            artifact: artifactSchema,
-            signature: z.string().min(1),
-          })
-          .optional(),
       }),
     )
     .refine((value) => Object.keys(value).length > 0, "At least one release target required"),
@@ -106,8 +93,6 @@ export interface BuildIdentity {
   sourceCommit: string;
   target: ReleaseTarget | "development";
   nodeVersion: string;
-  releaseManifestUrl: string | null;
-  releaseVerificationPublicKey: string | null;
 }
 declare const __HARNESS_BUILD__: BuildIdentity | undefined;
 /** Bundlers replace this with captured release inputs; source runs retain an explicit identity. */
@@ -119,8 +104,6 @@ export const BUILD_IDENTITY: BuildIdentity =
         sourceCommit: "development",
         target: "development",
         nodeVersion: nodePin.version,
-        releaseManifestUrl: null,
-        releaseVerificationPublicKey: null,
       }
     : __HARNESS_BUILD__;
 

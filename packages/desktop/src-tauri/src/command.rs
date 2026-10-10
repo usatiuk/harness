@@ -6,24 +6,6 @@ use tokio::{
     sync::watch,
 };
 
-pub(crate) async fn read_tail(mut error: tokio::process::ChildStderr) -> Result<String, String> {
-    let mut tail = Vec::new();
-    let mut buffer = [0; 8192];
-    loop {
-        let count = error
-            .read(&mut buffer)
-            .await
-            .map_err(|error| error.to_string())?;
-        if count == 0 {
-            return Ok(String::from_utf8_lossy(&tail).into_owned());
-        }
-        tail.extend_from_slice(&buffer[..count]);
-        if tail.len() > buffer.len() {
-            tail.drain(..tail.len() - buffer.len());
-        }
-    }
-}
-
 /// A helper's caller retains its prepared runtime until this physical join.
 pub async fn execute(
     mut command: Command,

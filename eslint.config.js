@@ -47,7 +47,9 @@ export default tseslint.config(
   {
     // The N-API loader is CommonJS so Node can load a native .node module.
     files: ["packages/native/index.cjs"],
-    languageOptions: { globals: { require: "readonly", module: "readonly", exports: "readonly" } },
+    languageOptions: {
+      globals: { require: "readonly", __dirname: "readonly", exports: "readonly" },
+    },
     rules: { "@typescript-eslint/no-require-imports": "off" },
   },
   {

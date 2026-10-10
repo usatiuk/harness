@@ -11,15 +11,17 @@ Prior attempts (reference only, not tracked here) live under `old/`.
 
 ## Development
 
-Source execution uses downloaded Node 22.23.3 (see `.nvmrc`) and requires Rust
-1.90 or newer for the native bootstrap. A system Node/npm can start setup. The
+Source development uses ordinary Node/npm (Node 22.23.3 in `.nvmrc`) and requires
+Rust 1.90 or newer for the native binding. The
 monorepo uses npm workspaces; cross-package
 imports resolve to TypeScript **source** in dev via the `development` export
 condition — no TypeScript compilation step is needed to run or test. The
-development bootstrap builds its native helper before starting managed Node.
+`npm ci` builds the native binding; development and tests run from the checkout.
+Stop source CLI/desktop processes before `npm ci` or `npm run native:build`:
+Windows locks loaded native modules. Installed apps use their own immutable copies.
 
 ```sh
-npm run runtime:setup # install dependencies with the pinned managed Node
+npm ci               # install dependencies and build the native binding
 npm run dev          # run the CLI from source (tsx --conditions=development)
 npm run desktop:dev  # Tauri desktop development
 npm run desktop:build # development desktop build and installer
@@ -107,8 +109,9 @@ unauthenticated service. See the [client protocol](docs/protocol/client.md) and
 The controlling machine's `client.json` sits alongside global settings and stores
 host routes and client preferences. Provider/model/tool settings
 and credentials remain on the selected server. Remote deployment supports Linux
-x64 glibc. SSH/WSL transfers a complete server payload and its verified, pinned
-Node runtime; the target needs no Node, npm, compiler or internet connection.
+x64 glibc. SSH/WSL transfers a small verified bootstrap; the target downloads its server
+and shared pinned Node runtime on demand. It needs internet for first installation,
+but no installed Node, npm or compiler.
 Released clients use signed release artifacts. Development uses a Linux payload
 built with `npm run prepare:remote`; set `HARNESS_DEVELOPMENT_REMOTE_PAYLOAD` to
 its output directory on the controlling machine. Upload stages code; restart
@@ -122,18 +125,14 @@ Repository guidance lives in `AGENTS.md`. See `docs/README.md` for the roles of
 subsystem architecture, roadmaps, decisions, research, delivery plans, testing
 guidance, and deferred-work records.
 
-Public installation and automatic-update support are in progress in the
+Public installation and updates are in progress in the
 [release delivery plan](docs/plans/cross-cutting/2026-10-10-release-installation-updates.md).
-The native bootstrap already prepares a verified shared Node runtime, and
-`npm run release:payloads` builds complete separate CLI/server payloads from the
-committed dependency graph. Source CLI uses `.harness-dev` in this checkout by
-default, isolating data and settings from ordinary app use. Native CLI, desktop
-and remote preparation now use this foundation and OS-local IPC. Public installers,
-installed cross-version qualification, publication, updates and pruning remain
-open. Release-cut tools are documented in [release tooling](release/README.md).
-Fresh signed Windows artifacts and cached native CLI/server execution now have
-headless evidence. Source completeness, actual hosted release jobs and installer
-qualification remain open; the current workflow is not a published release.
+`npm run release:payloads` builds separate CLI/server payloads. Source development
+uses this checkout's `.harness-dev/source` home by default, keeping data and settings
+separate from ordinary app use. A manual GitHub workflow bumps the version,
+builds the platform artifacts, signs them and creates a draft release.
+License collection and custom publication tooling are removed. Public installation,
+updates and explicit cache pruning remain open; no release is published yet.
 
 On Windows, local command execution is exposed to models as `powershell`; Linux,
 macOS, and Linux dev containers expose `bash`. Windows sign-in uses DPAPI-encrypted

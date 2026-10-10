@@ -11,7 +11,7 @@
     "test:browser": "playwright test -c playwright.browser.config.ts",
     "prepare:server": "node tools/package-server.mjs",
     "tauri": "node tools/native.mjs tauri",
-    "desktop:dev": "npm run prepare:server && node tools/native.mjs tauri dev --config src-tauri/tauri.development.json",
+    "desktop:dev": "node tools/native.mjs tauri dev",
     "desktop:build": "npm run prepare:server && node tools/native.mjs tauri build --config src-tauri/tauri.development.json",
     "desktop:release": "node tools/native.mjs desktop-release",
     "test:native": "npm run prepare:server && npm run build && node tools/native.mjs cargo build --manifest-path src-tauri/Cargo.toml --features custom-protocol --locked && node --conditions=development ../../node_modules/@playwright/test/cli.js test -c playwright.native.config.ts"

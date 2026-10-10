@@ -82,43 +82,27 @@ pub struct Runtime {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DesktopUpdate {
-    pub artifact: Artifact,
-    pub signature: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ReleaseTarget {
-    pub minimum_platform: String,
     pub node: Runtime,
     pub server: Artifact,
     pub cli: Artifact,
     pub launcher: Artifact,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub desktop: Option<Artifact>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub desktop_update: Option<DesktopUpdate>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ReleaseManifest {
     pub format_version: u32,
     pub product_version: String,
     pub source_commit: String,
-    pub management_version: u32,
-    pub protocol_version: u32,
-    pub store_schema_version: u32,
-    pub plugin_contracts: BTreeMap<String, String>,
     pub targets: BTreeMap<String, ReleaseTarget>,
 }
 
 impl ReleaseManifest {
     pub fn validate(&self) -> Result<()> {
-        if self.format_version != 1 || self.management_version != 1 {
-            bail!("Unsupported release/management metadata format; upgrade the client");
+        if self.format_version != 1 {
+            bail!("Unsupported release metadata format; upgrade the client");
         }
         version(&self.product_version)?;
         if self.source_commit.len() != 40
@@ -126,16 +110,13 @@ impl ReleaseManifest {
                 .source_commit
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit())
-            || self.protocol_version == 0
-            || self.store_schema_version == 0
             || self.targets.is_empty()
         {
-            bail!("Invalid release identity or compatibility metadata");
+            bail!("Invalid release identity");
         }
         for (target, value) in &self.targets {
             if !["windows-x64", "linux-x64-glibc", "macos-arm64", "macos-x64"]
                 .contains(&target.as_str())
-                || value.minimum_platform.is_empty()
             {
                 bail!("Unsupported or incomplete release target");
             }
@@ -144,15 +125,6 @@ impl ReleaseManifest {
             value.server.validate()?;
             value.cli.validate()?;
             value.launcher.validate()?;
-            if let Some(artifact) = &value.desktop {
-                artifact.validate()?;
-            }
-            if let Some(update) = &value.desktop_update {
-                update.artifact.validate()?;
-                if update.signature.is_empty() {
-                    bail!("Missing desktop update signature");
-                }
-            }
         }
         Ok(())
     }
@@ -166,8 +138,6 @@ pub struct BuildIdentity {
     pub source_commit: String,
     pub target: String,
     pub node_version: String,
-    pub release_manifest_url: Option<String>,
-    pub release_verification_public_key: Option<String>,
 }
 
 #[derive(Deserialize)]

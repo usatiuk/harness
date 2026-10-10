@@ -26,7 +26,6 @@ afterEach(() => {
 });
 
 it("reconciles external route changes, pending connects and removal while preserving metadata edits", async () => {
-  vi.stubEnv("HARNESS_SERVER_PAYLOAD", "/prepared-fixture");
   const remote: Host = {
     id: "remote",
     label: "Work",

@@ -44,14 +44,9 @@ async function buildSpawnedHarness(
 async function buildStdioHarness(): Promise<Harness> {
   const prepared = await prepareServerLaunch("stdio");
   const { launch } = prepared;
-  let usage: { close(): void } | undefined;
-  const release = async () => {
-    usage?.close();
-    await prepared.close();
-  };
+  const release = () => prepared.close();
   let child: ChildProcess;
   try {
-    usage = launch.retainUse?.();
     await selectStdioServer(launch);
     child = spawn(launch.executable, launch.args, {
       stdio: ["pipe", "pipe", "inherit"],

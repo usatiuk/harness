@@ -4,8 +4,14 @@ import { runLogin, runLogout, runStatus } from "./auth-app.tsx";
 import { runSandboxShell, runSandboxStop } from "./sandbox-cli.ts";
 import { runLocalBridge } from "@harness/connections/node";
 import { defaultHome } from "@harness/config";
-import { PRODUCT_VERSION } from "@harness/release";
+import { BUILD_IDENTITY, PRODUCT_VERSION } from "@harness/release";
+import { fileURLToPath } from "node:url";
 import { prepareServerLaunch, runServerCommand } from "./server-launch.ts";
+
+if (BUILD_IDENTITY.target === "development")
+  process.env.HARNESS_HOME ??= fileURLToPath(
+    new URL("../../../.harness-dev/source", import.meta.url),
+  );
 
 const program = new Command();
 

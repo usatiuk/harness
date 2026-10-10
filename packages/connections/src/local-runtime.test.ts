@@ -40,7 +40,6 @@ it("executes the captured Node and complete SQLite payload without another cache
       node,
       entry,
       payload,
-      keys: ["node-fixture", `server-0.1.0-${target}`],
     });
     const runtime = await prepareLocalRuntime(descriptor, home);
     usage = runtime.launch.retainUse?.();
@@ -63,10 +62,8 @@ it("executes the captured Node and complete SQLite payload without another cache
 it("rejects malformed native descriptors at the shared boundary", () => {
   expect(() =>
     preparedServerSchema.parse({
-      node: "node",
       entry: "server",
       payload: "payload",
-      keys: ["one"],
     }),
   ).toThrow();
   expect(() =>
@@ -74,7 +71,6 @@ it("rejects malformed native descriptors at the shared boundary", () => {
       node: "",
       entry: "server",
       payload: "payload",
-      keys: ["one", "two"],
     }),
   ).toThrow();
 });

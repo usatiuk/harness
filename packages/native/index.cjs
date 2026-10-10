@@ -2,11 +2,9 @@ const path = require("node:path");
 const process = require("node:process");
 const { Socket } = require("node:net");
 const { closeSync } = require("node:fs");
-// Source bootstrap captures an immutable compiled binding; installed payloads
-// carry their exact target binding beside this loader.
+// Source setup and installed payloads place their target binding beside this loader.
 const binding = require(
-  process.env.HARNESS_NATIVE_BINDING ??
-    path.join(path.dirname(module.filename), "harness-native.node"),
+  process.env.HARNESS_NATIVE_BINDING ?? path.join(__dirname, "harness-native.node"),
 );
 if (
   typeof binding.CacheUse !== "function" ||

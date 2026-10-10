@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -29,7 +29,7 @@ it("keeps account-global settings outside the project cascade with an isolated d
     JSON.stringify({ version: 1, instructions: "must not leak" }),
   );
   vi.stubEnv("HARNESS_HOME", developmentHome);
-  expect(await findProjectRoot(workspace, developmentHome)).toBe(workspace);
+  expect(await findProjectRoot(workspace, developmentHome)).toBe(await realpath(workspace));
   expect(await loadMergedSettings(developmentHome, workspace)).toEqual({});
   expect(await isHomeRoot(account.home, developmentHome)).toBe(true);
 });

@@ -47,7 +47,6 @@ it("protects a cancelled managed candidate until its own cache guards are held",
   const marker = join(home, "started");
   const gate = join(home, "release");
   const fixture = join(home, "gated.mjs");
-  const keys = ["node-test-runtime", "server-test-payload"];
   const cancel = new AbortController();
   let borrowedClosed = false;
   let handoff!: () => void;
@@ -67,9 +66,8 @@ await import(${JSON.stringify(pathToFileURL(entry).href)});`,
       {
         executable: process.execPath,
         args: ["--conditions=development", "--import=tsx", fixture, "--background"],
-        env: { HARNESS_SERVER_CACHE_KEYS: JSON.stringify(keys) },
         retainUse: () => {
-          const usage = new CacheUse(home, keys);
+          const usage = new CacheUse(home);
           return {
             close: () => {
               usage.close();

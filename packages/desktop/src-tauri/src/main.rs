@@ -291,11 +291,12 @@ async fn prepare_runtime(
     local: bool,
     canceled: watch::Receiver<bool>,
 ) -> Result<Arc<runtime::ServerRuntime>, String> {
-    let payload = if env!("HARNESS_BUILD_MODE") == "development" {
-        Some(resources(app)?)
-    } else {
-        None
-    };
+    let payload =
+        if cfg!(feature = "custom-protocol") && env!("HARNESS_BUILD_MODE") == "development" {
+            Some(resources(app)?)
+        } else {
+            None
+        };
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
     runtime::prepare(
         tokio::process::Command::new(executable),
@@ -590,38 +591,27 @@ async fn release_local_owner(bridge: &Bridge) -> Result<(), String> {
     Ok(())
 }
 fn main() {
-    let mut arguments = std::env::args();
-    let _executable = arguments.next();
-    let command = arguments.next();
-    if command.as_deref() == Some("--build-info") {
-        let result = (|| -> anyhow::Result<()> {
-            if arguments.next().is_some() {
-                anyhow::bail!("Unexpected build-info argument");
+    #[cfg(feature = "custom-protocol")]
+    {
+        let mut arguments = std::env::args();
+        let _executable = arguments.next();
+        let command = arguments.next();
+        if command.as_deref() == Some("--prepare-runtime") {
+            let result = (|| {
+                let request = arguments
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing preparation request"))?;
+                if arguments.next().is_some() {
+                    anyhow::bail!("Unexpected preparation arguments");
+                }
+                runtime::preparation_process(&request)
+            })();
+            if let Err(error) = result {
+                eprintln!("Runtime preparation failed: {error:#}");
+                std::process::exit(1);
             }
-            serde_json::to_writer(std::io::stdout(), &runtime::build_identity()?)?;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            eprintln!("Build identity failed: {error:#}");
-            std::process::exit(1);
+            return;
         }
-        return;
-    }
-    if command.as_deref() == Some("--prepare-runtime") {
-        let result = (|| {
-            let request = arguments
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("Missing preparation request"))?;
-            if arguments.next().is_some() {
-                anyhow::bail!("Unexpected preparation arguments");
-            }
-            runtime::preparation_process(&request)
-        })();
-        if let Err(error) = result {
-            eprintln!("Runtime preparation failed: {error:#}");
-            std::process::exit(1);
-        }
-        return;
     }
     let mut context = tauri::generate_context!();
     let window = context

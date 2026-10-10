@@ -5,12 +5,11 @@ import { canonicalHome } from "./local.ts";
 import type { ServerLaunch } from "./connect.ts";
 import { serverCacheEntrySchema } from "./selection.ts";
 
-/** Native preparation owns these complete immutable paths until consumers take use guards. */
+/** Immutable paths returned by the native bootstrap under the shared cache gate. */
 export const preparedServerSchema = z.strictObject({
   node: z.string().min(1),
   entry: z.string().min(1),
   payload: z.string().min(1),
-  keys: z.tuple([z.string().min(1), z.string().min(1)]),
 });
 export type PreparedServer = z.infer<typeof preparedServerSchema>;
 
@@ -27,8 +26,7 @@ export async function prepareLocalRuntime(
       executable: prepared.node,
       args: [prepared.entry, "--background"],
       selection,
-      env: { HARNESS_SERVER_CACHE_KEYS: JSON.stringify(prepared.keys) },
-      retainUse: () => new CacheUse(home, prepared.keys),
+      retainUse: () => new CacheUse(home),
     },
   };
 }

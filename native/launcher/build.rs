@@ -2,7 +2,7 @@ use std::{env, fs, path::PathBuf, process::Command};
 
 fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
-    let product_path = root.join("release/product.json");
+    let product_path = root.join("package.json");
     let public_key = root.join("release/verification-key.pub");
     println!("cargo:rerun-if-changed={}", product_path.display());
     println!("cargo:rerun-if-changed={}", public_key.display());
@@ -20,7 +20,7 @@ fn main() {
         env::var("CARGO_PKG_VERSION").unwrap(),
         "Native/product versions differ"
     );
-    let repository = product["repository"].as_str().unwrap();
+    let repository = "usatiuk/harness-releases";
     println!("cargo:rustc-env=HARNESS_PRODUCT_VERSION={version}");
     println!(
         "cargo:rustc-env=HARNESS_MANIFEST_URL=https://github.com/{repository}/releases/download/v{version}/release.json"
