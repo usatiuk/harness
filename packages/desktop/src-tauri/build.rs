@@ -1,6 +1,9 @@
 fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
+            "window_material",
+            "window_decorate",
+            "window_modal",
             "server_connect",
             "server_write",
             "server_ack",

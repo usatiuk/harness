@@ -32,6 +32,12 @@ npm run check        # typecheck + lint + format:check + test (also runs in CI)
 The desktop client uses Tauri 2, React, React Router data routes, Radix Primitives,
 Tailwind v4, and Lucide. Shared typed controls use neutral surfaces, shallow
 button bases, customizable pastel accents, and light/dark/system appearance.
+The sidebar uses native Mica on supported Windows 11 versions and AppKit Sidebar
+material on macOS, with solid themed surfaces elsewhere. A shared Terminal-branded
+header uses library-managed Windows controls and native macOS traffic lights;
+Linux retains its native frame. Dialogs dim the shared header and content together.
+The same theme choice applies to content and window
+chrome, including startup; custom accents remain independent.
 It shows one selected conversation with live status for other open conversations,
 streaming history, approvals, tool output and edit diffs. Conversations keep
 independent turns and drafts while you navigate. Settings provide provider

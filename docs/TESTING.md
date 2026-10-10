@@ -210,6 +210,42 @@ CDP media emulation. Minimum CDP viewport and measured 200% CSS zoom qualify
 reachability/overflow, not actual OS resizing/browser zoom. Native screenshots
 support visual review. Run native end-to-end checks at the end of layout work:
 they launch visible application windows. The delivery plan records final evidence.
+In an interactive desktop session, obtain explicit user approval for each GUI
+test run before launching visible windows.
+Use the full `test:native` script to rebuild before qualification: development
+builds reuse the default executable path without `custom-protocol`, so invoking
+Playwright alone against that artifact fails at the expected production-origin
+attachment. The approved 2026-10-10 rerun reproduced that artifact mismatch; the
+production rebuild restored all six unchanged design cases (1.1m).
+Native appearance checks also query the actual Tauri theme and Windows DWM theme/
+Mica attributes, public decoration state and native resize/system-menu styles. Full-window OS screenshots
+include the title bar, verify the foreground window and use physical coordinates;
+CDP screenshots alone cannot establish native material. Surface checks cover the
+document ancestors as well as the sidebar to detect opaque backing that hides it.
+Actual OS accessibility/theme transitions, monitor moves, macOS/Linux packaging
+and native startup IPC failure dialogs remain separate platform qualification.
+
+The client-window-chrome follow-up adds a real physical header drag (waiting for
+the native move loop), OS resize, rendered-control maximize/restore/minimize/close,
+double-click maximize, the actual OS system menu and a native `HTMAXBUTTON` probe
+at the displayed maximize control. It checks modal containment and retained
+draft/navigation state across those interactions, and captures complete light,
+dark and modal windows. The hit target establishes Snap integration, not a visible
+Snap flyout on every display scale. Native fullscreen transitions and macOS
+traffic-light dimming still require qualification on the corresponding platform.
+Final execution evidence is recorded in the
+[client-window-chrome plan](plans/interface/2026-10-10-client-window-chrome.md).
+Its final rebuilt Windows run passes all six design cases (1.2m). Root checks pass
+1,039 tests (36 skipped), and all ten headless Edge cases pass (9.9s). The explicit
+theme regression emulates the opposite OS color scheme and checks caption glyphs
+and red/white Close hover. Three independent reviews report no material findings.
+
+The 2026-10-10 native-material change passes repository checks (1,037 tests,
+36 skipped), ten headless Edge regressions, production/server/native builds and
+all five focused native design cases (53.2s). Actual Windows theme, Mica and
+standard window styles are verified. Full-window Light/Dark screenshots confirm
+sidebar/title-bar continuity and the curved main-panel divider. This focused run
+does not repeat unrelated native connection/WSL qualification.
 
 The 2026-10-04 design refactor's final repository check passes typecheck, lint,
 formatting and 1016 tests (117 files; 36 skipped). Its rebuilt ordinary native

@@ -264,8 +264,13 @@ textarea.input {
 .overlay {
   position: fixed;
   inset: 0;
+  top: var(--window-titlebar-height, 0px);
   background: var(--overlay);
   z-index: 30;
+}
+/* Nested confirmations share one window-wide dim layer. */
+.overlay[data-state="open"]:has(~ .overlay[data-state="open"]) {
+  background: transparent;
 }
 .dialog {
   position: fixed;

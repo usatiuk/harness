@@ -1,6 +1,8 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { readFile, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { join, resolve } from "node:path";
 import axe from "axe-core";
 import { canonicalHome } from "@harness/connections/node";
 import { NativeApplication, stopNativeOwners } from "./application.ts";
@@ -19,6 +21,49 @@ async function profile(directory: string) {
     JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
   );
   return home;
+}
+async function nativeTheme(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const native = window as unknown as {
+      __TAURI_INTERNALS__: { invoke<T>(command: string, args?: unknown): Promise<T> };
+    };
+    return native.__TAURI_INTERNALS__.invoke<string>("plugin:window|theme", { label: "main" });
+  });
+}
+async function nativeAppearance(
+  app: NativeApplication,
+  info: TestInfo,
+  name: string,
+  args: string[] = [],
+) {
+  const { stdout } = await promisify(execFile)(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-File",
+      resolve("tests/native/window-appearance.ps1"),
+      "-TargetProcess",
+      String(app.pid),
+      "-Screenshot",
+      info.outputPath(`${name}-window.png`),
+      ...args,
+    ],
+    { windowsHide: true },
+  );
+  await writeFile(info.outputPath(`${name}-native.json`), stdout);
+  return JSON.parse(stdout) as {
+    dark: boolean;
+    material: boolean;
+    resize: boolean;
+    systemMenu: boolean;
+    snapHit: number | null;
+    menuOpen: boolean;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
 }
 async function contrast(page: Page, info: TestInfo, name: string, scope = ".appearance-controls") {
   // Execute through the test debugger; do not weaken the packaged application's CSP.
@@ -43,10 +88,24 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
   let app = await NativeApplication.launch(directory, info.outputPath("first"));
   try {
     const page = app.page;
+    await expect(page.locator("html")).toHaveAttribute("data-native-material", /^(true|false)$/u);
+    const systemTheme = await nativeTheme(page);
+    const surfaces = await page.evaluate(() => ({
+      material: document.documentElement.dataset.nativeMaterial === "true",
+      root: getComputedStyle(document.documentElement).backgroundColor,
+      body: getComputedStyle(document.body).backgroundColor,
+      sidebar: getComputedStyle(document.querySelector(".sidebar")!).backgroundColor,
+      content: getComputedStyle(document.querySelector("main")!).backgroundColor,
+    }));
+    expect(surfaces.sidebar === "rgba(0, 0, 0, 0)").toBe(surfaces.material);
+    expect(surfaces.root === "rgba(0, 0, 0, 0)").toBe(surfaces.material);
+    expect(surfaces.body === "rgba(0, 0, 0, 0)").toBe(surfaces.material);
+    expect(surfaces.content).not.toBe("rgba(0, 0, 0, 0)");
     // Prior clients persisted only `theme`; qualification seeds that existing storage edge.
     await page.evaluate(() => localStorage.setItem("theme", "dark"));
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect.poll(() => nativeTheme(page)).toBe("dark");
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await expect(page.getByRole("button", { name: "Dark", exact: true })).toHaveAttribute(
       "aria-pressed",
@@ -54,9 +113,63 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
     );
     for (const theme of ["Light", "Dark"]) {
       await page.getByRole("button", { name: theme, exact: true }).click();
+      await page.emulateMedia({ colorScheme: theme === "Light" ? "dark" : "light" });
+      await expect.poll(() => nativeTheme(page)).toBe(theme.toLowerCase());
+      const captionColors = await page.evaluate(() => ({
+        title: getComputedStyle(document.querySelector(".window-drag-region")!).color,
+        control: getComputedStyle(
+          document.querySelector('[data-tauri-decoration-control="minimize"]')!,
+        ).color,
+      }));
+      expect(captionColors.control).toBe(captionColors.title);
+      const close = page.locator('[data-tauri-decoration-control="close"]');
+      await close.hover();
+      expect(
+        await close.evaluate((button) => ({
+          color: getComputedStyle(button).color,
+          background: getComputedStyle(button).backgroundColor,
+        })),
+      ).toEqual({ color: "rgb(255, 255, 255)", background: "rgb(196, 43, 28)" });
+      await page.locator(".window-drag-region").hover({ position: { x: 300, y: 16 } });
+      const native = await nativeAppearance(app, info, theme.toLowerCase());
+      expect(native.dark).toBe(theme === "Dark");
+      expect(native.material).toBe(surfaces.material);
+      // Tao retains WS_CAPTION for native frame behavior and removes its painted
+      // title bar through WM_NCCALCSIZE. Check the public decoration state.
+      expect(
+        await page.evaluate(() => {
+          const native = window as unknown as {
+            __TAURI_INTERNALS__: { invoke<T>(command: string, args?: unknown): Promise<T> };
+          };
+          return native.__TAURI_INTERNALS__.invoke<boolean>("plugin:window|is_decorated", {
+            label: "main",
+          });
+        }),
+      ).toBe(false);
+      expect(native.resize).toBe(true);
+      expect(native.systemMenu).toBe(true);
       await contrast(page, info, theme);
       await page.screenshot({ path: info.outputPath(`${theme.toLowerCase()}-settings.png`) });
+      await manageConnections(page);
+      const dimming = await page.evaluate(() => {
+        const title = document.querySelector(".window-titlebar")!;
+        const overlay = document.querySelector(".overlay")!;
+        return {
+          height: title.getBoundingClientRect().height,
+          top: overlay.getBoundingClientRect().top,
+          header: getComputedStyle(title, "::after").backgroundColor,
+          content: getComputedStyle(overlay).backgroundColor,
+        };
+      });
+      expect(dimming.top).toBe(dimming.height);
+      expect(dimming.header).toBe(dimming.content);
+      await nativeAppearance(app, info, `${theme.toLowerCase()}-modal`);
+      await page.getByRole("dialog", { name: "Connections" }).press("Escape");
     }
+    await page.getByRole("button", { name: "System", exact: true }).click();
+    await expect.poll(() => nativeTheme(page)).toBe(systemTheme);
+    await page.getByRole("button", { name: "Dark", exact: true }).click();
+    await expect.poll(() => nativeTheme(page)).toBe("dark");
     await page.getByRole("button", { name: "Sage", exact: true }).click();
     await settingsSection(page, "Defaults");
     await page.getByRole("combobox", { name: "Auto approver", exact: true }).selectOption("true");
@@ -111,6 +224,14 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
     }
     const stopServer = connections.getByRole("button", { name: "Stop server", exact: true });
     await stopServer.click();
+    await expect(page.locator('.overlay[data-state="open"]')).toHaveCount(2);
+    const scrims = await page
+      .locator('.overlay[data-state="open"]')
+      .evaluateAll((overlays) =>
+        overlays.map((overlay) => getComputedStyle(overlay).backgroundColor),
+      );
+    expect(scrims).toHaveLength(2);
+    expect(scrims.filter((color) => color !== "rgba(0, 0, 0, 0)")).toHaveLength(1);
     await expect(
       page.getByRole("alertdialog").getByRole("button", { name: "Cancel", exact: true }),
     ).toBeFocused();
@@ -151,6 +272,7 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
     await expect(page.locator(".conversation-status")).toContainText("Ready");
     await app.close();
     app = await NativeApplication.launch(directory, info.outputPath("reopened"));
+    await expect.poll(() => nativeTheme(app.page)).toBe("dark");
     await app.page.getByRole("link", { name: "Settings", exact: true }).click();
     await expect(app.page.getByRole("button", { name: "Dark", exact: true })).toHaveAttribute(
       "aria-pressed",
@@ -183,6 +305,73 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
         .getByRole("button", { name: "Done", exact: true }),
     ).toBeFocused();
     expect(app.errors).toEqual([]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("shared title bar preserves native window behavior and modal navigation state", async ({}, info) => {
+  const directory = info.outputPath("profile");
+  await profile(directory);
+  const app = await NativeApplication.launch(directory, info.outputPath("app"));
+  try {
+    const page = app.page;
+    await expect(page.locator("html")).toHaveAttribute("data-window-decoration", "windows");
+    await expect(page.locator(".window-titlebar .lucide-terminal")).toBeVisible();
+    await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
+    await page.getByRole("button", { name: "Create conversation" }).click();
+    const draft = page.getByRole("textbox", { name: "Message", exact: true });
+    await draft.fill("A draft retained through window interactions");
+    const route = page.url();
+    const state = (kind: "is_maximized" | "is_minimized") =>
+      page.evaluate((kind) => {
+        const native = window as unknown as {
+          __TAURI_INTERNALS__: { invoke<T>(command: string, args?: unknown): Promise<T> };
+        };
+        return native.__TAURI_INTERNALS__.invoke<boolean>(`plugin:window|${kind}`, {
+          label: "main",
+        });
+      }, kind);
+    const first = await nativeAppearance(app, info, "frame");
+    expect((await nativeAppearance(app, info, "system-menu", ["-Action", "Menu"])).menuOpen).toBe(
+      true,
+    );
+    await nativeAppearance(app, info, "menu-closed", ["-Action", "Escape"]);
+    const moved = await nativeAppearance(app, info, "dragged", ["-Action", "Drag"]);
+    expect(moved.left).not.toBe(first.left);
+    expect(moved.top).not.toBe(first.top);
+    const resized = await nativeAppearance(app, info, "resized", ["-Action", "Resize"]);
+    expect(resized.width).toBe(moved.width + 40);
+    expect(resized.height).toBe(moved.height + 20);
+    const maximize = page.locator('[data-tauri-decoration-control="maximize"]');
+    const bounds = (await maximize.boundingBox())!;
+    const snap = await nativeAppearance(app, info, "snap", [
+      "-ProbeX",
+      String(bounds.x + bounds.width / 2),
+      "-ProbeY",
+      String(bounds.y + bounds.height / 2),
+    ]);
+    expect(snap.snapHit).toBe(9); // Native HTMAXBUTTON, which Windows uses for Snap.
+    await page.locator(".window-drag-region").dblclick({ position: { x: 300, y: 16 } });
+    await expect.poll(() => state("is_maximized")).toBe(true);
+    await expect(maximize).toHaveAttribute("aria-label", "Restore window size");
+    await maximize.click();
+    await expect.poll(() => state("is_maximized")).toBe(false);
+    await manageConnections(page);
+    await maximize.click();
+    await expect.poll(() => state("is_maximized")).toBe(true);
+    await expect(page.getByRole("dialog", { name: "Connections" })).toBeVisible();
+    await page.locator('[data-tauri-decoration-control="minimize"]').click();
+    await expect.poll(() => state("is_minimized")).toBe(true);
+    await nativeAppearance(app, info, "restored-modal", ["-Action", "Restore"]);
+    await expect.poll(() => state("is_minimized")).toBe(false);
+    await expect(page.getByRole("dialog", { name: "Connections" })).toBeVisible();
+    await page.getByRole("dialog", { name: "Connections" }).press("Escape");
+    await expect(draft).toHaveValue("A draft retained through window interactions");
+    expect(page.url()).toBe(route);
+    expect(app.errors).toEqual([]);
+    await page.locator('[data-tauri-decoration-control="close"]').click();
+    await app.waitForExit();
   } finally {
     await app.close();
   }
@@ -247,6 +436,7 @@ test("startup configuration failure has aligned recovery without premature host 
   const app = await NativeApplication.launch(directory, info.outputPath("app"));
   try {
     const page = app.page;
+    await expect(page.locator(".window-titlebar")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Could not start Harness" })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Switch host:/u })).toBeDisabled();
     await page.screenshot({ path: info.outputPath("startup-error.png") });

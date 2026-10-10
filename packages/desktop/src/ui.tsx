@@ -197,6 +197,16 @@ function DialogContent({
         {...props}
         className={`dialog ${className}`}
         style={{ ...style, maxWidth }}
+        onInteractOutside={(event) => {
+          // Window controls and dragging remain usable without dismissing a modal.
+          if (
+            event.target instanceof Element &&
+            event.target.closest("[data-window-chrome], [data-tauri-plugin-decoration-root]")
+          ) {
+            event.preventDefault();
+          }
+          props.onInteractOutside?.(event);
+        }}
         onOpenAutoFocus={(event) => {
           returnFocus.current =
             document.activeElement instanceof HTMLElement ? document.activeElement : null;

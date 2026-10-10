@@ -2,6 +2,7 @@
   font-family: "Segoe UI", system-ui, sans-serif;
   font-size: 14px;
   color-scheme: light;
+  background: var(--surface-sidebar);
   --neutral-0: #ffffff;
   --neutral-1: #fdfdfc;
   --neutral-2: #f3f3f1;
@@ -35,7 +36,8 @@
   --success-face: #edf4ed;
   --warning-ink: #805719;
   --warning-face: #faf4e7;
-  --overlay: #00000038;
+  --modal-opacity: 0.78;
+  --overlay: rgb(0 0 0 / calc(1 - var(--modal-opacity)));
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -64,7 +66,11 @@
   --success-face: #253229;
   --warning-ink: #ddc18a;
   --warning-face: #373022;
-  --overlay: #00000080;
+  --modal-opacity: 0.5;
+}
+:root[data-native-material="true"] {
+  background: transparent;
+  --surface-sidebar: transparent;
 }
 @theme inline {
   --color-canvas: var(--surface-canvas);

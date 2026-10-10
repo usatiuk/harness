@@ -375,7 +375,6 @@ export function createDesktopRouter(
     return (
       <div className="app">
         <aside className="sidebar">
-          <div className="brand">Harness</div>
           <div className="sidebar-heading">
             {connections.controls}
             <Link

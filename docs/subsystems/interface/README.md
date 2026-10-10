@@ -352,7 +352,31 @@ Appearance is applied at the document root before render, including portals.
 The old `theme` preference is retained when no new appearance preference exists.
 Client storage owns System/Light/Dark, pastel/custom accent, button depth/radius,
 send/newline mapping and statistics visibility. System
-theme follows OS changes. Enter sends and Shift+Enter inserts a newline by default;
+theme follows OS changes. The same preference sets Tauri's native theme (including
+returning to System) before the initially hidden window is shown, and on live
+changes without remounting routes. `WindowShell` owns one header above every route,
+including startup/error states; `window-chrome.ts` and native `appearance.rs`
+isolate window integration. Pinned `tauri-plugin-decoration` owns Windows controls,
+native Snap hit testing and macOS traffic-light positioning. Tauri owns dragging,
+double-click maximize and resizing. WebView2's native drag region opens the real
+Windows system menu; Linux retains its native frame. Decoration activates after mount and before
+showing the window. The header and document-level portal scrim share one dimming
+color; window controls remain usable without dismissing modals. macOS traffic
+lights use the same semantic opacity through a main-thread AppKit call. Ordinary
+popovers do not dim the frame. Library fullscreen state removes reserved header
+space. The restored Lucide Terminal mark also generates desktop app-icon formats
+through `npm run icons --workspace @harness/desktop`.
+Window-vibrancy, already used by Tauri,
+installs Windows Mica or macOS Sidebar material; only supported installations
+enable transparent document/sidebar surfaces. Unsupported platforms/versions use
+solid themed surfaces; unexpected native appearance failures are fatal, with an
+IPC failure reported through the native dialog before the existing close/shutdown
+path. Main content and popovers retain opaque surfaces. The main panel's 1px
+divider follows its rounded top-left corner and continues across the top edge.
+OS facilities own material
+focus, transparency, contrast and power adaptations; pastel accents are independent.
+
+Enter sends and Shift+Enter inserts a newline by default;
 settings can swap them. Steer is the default while working; Ctrl/Cmd+Enter queues.
 The retired delivery preference is ignored. One primary button shows Send while
 idle, Stop while working with an empty/whitespace draft, and Steer with text.

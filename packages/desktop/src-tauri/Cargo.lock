@@ -1400,13 +1400,16 @@ name = "harness-desktop"
 version = "0.1.0"
 dependencies = [
  "dunce",
+ "objc2-app-kit",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-plugin-decoration",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tokio",
+ "window-vibrancy",
 ]
 
 [[package]]
@@ -3523,6 +3526,27 @@ dependencies = [
  "serde_json",
  "tauri-utils",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-decoration"
+version = "3.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd7e01544cbc9e7f55e94e034ec4cc75e3f520d6d67ee7d866ac9109017992b7"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "gtk",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "raw-window-handle",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

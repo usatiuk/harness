@@ -58,6 +58,20 @@ packages.
 
 ## Recent delivery
 
+The [client window chrome follow-up](docs/plans/interface/2026-10-10-client-window-chrome.md)
+is complete: one shared title bar, restored Terminal branding and consistent modal
+dimming, with platform controls and window mechanics delegated to Tauri/library.
+Root checks pass 1,039 tests (36 skipped), ten headless browser cases pass, and all
+six rebuilt Windows design cases pass. macOS/Linux packaging remains unqualified.
+
+The [native window material follow-up](docs/plans/interface/2026-10-10-native-window-material.md)
+adds Windows Mica and macOS Sidebar material while retaining native title bars
+and the accepted layout. The existing System/Light/Dark preference also controls
+native chrome and applies before revealing the window. Unsupported platforms
+remain solid. Repository checks, ten headless browser cases and all five rebuilt
+native appearance cases pass. The client-window-chrome follow-up above replaces
+the separate title-bar surface to allow consistent modal dimming.
+
 The [Windows CI reliability follow-up](docs/plans/cross-cutting/2026-10-07-windows-ci-reliability.md)
 corrects stale discovery publication, RPC completion at shutdown/EOF and test
 prerequisites. The corrected cancellation gate, observer cleanup and attachment

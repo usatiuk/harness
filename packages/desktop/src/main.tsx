@@ -15,7 +15,7 @@ import { ConnectionEditor, HostControls } from "./connections-menu.tsx";
 import { createDesktopRouter } from "./routes.tsx";
 import { Button, Tooltip } from "./ui.tsx";
 import { Monitor, LoaderCircle, TriangleAlert } from "lucide-react";
-import "./appearance.ts";
+import { WindowShell } from "./window-shell.tsx";
 import "./styles.css";
 
 const container = document.getElementById("root");
@@ -80,7 +80,6 @@ function Desktop() {
     ) : (
       <div className="app">
         <aside className="sidebar">
-          <div className="brand">Harness</div>
           <HostControls hosts={hosts} onManage={onManage} triggerRef={hostTrigger} />
         </aside>
         <main className="connection-page">
@@ -160,6 +159,8 @@ function Desktop() {
 }
 root.render(
   <Tooltip.Provider delayDuration={300}>
-    <Desktop />
+    <WindowShell>
+      <Desktop />
+    </WindowShell>
   </Tooltip.Provider>,
 );

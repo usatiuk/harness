@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-window-decorate"
+description = "Enables the window_decorate command without any pre-configured scope."
+commands.allow = ["window_decorate"]
+
+[[permission]]
+identifier = "deny-window-decorate"
+description = "Denies the window_decorate command without any pre-configured scope."
+commands.deny = ["window_decorate"]

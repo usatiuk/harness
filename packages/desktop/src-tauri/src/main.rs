@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod appearance;
+
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -560,11 +562,32 @@ async fn release_local_owner(app: &tauri::AppHandle, bridge: &Bridge) -> Result<
 }
 
 fn main() {
+    let mut context = tauri::generate_context!();
+    let window = context
+        .config_mut()
+        .app
+        .windows
+        .iter_mut()
+        .find(|window| window.label == "main")
+        .expect("Desktop main window configuration is missing");
+    window.transparent = cfg!(any(windows, target_os = "macos"));
+    window.no_redirection_bitmap = cfg!(windows);
+    #[cfg(target_os = "macos")]
+    {
+        window.title_bar_style = tauri::TitleBarStyle::Overlay;
+        window.hidden_title = true;
+    }
+
     let application = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_decoration::init())
         .manage(Arc::new(Bridge::default()))
+        .setup(appearance::install)
         .invoke_handler(tauri::generate_handler![
+            appearance::window_material,
+            appearance::window_decorate,
+            appearance::window_modal,
             server_connect,
             server_write,
             server_ack,
@@ -578,7 +601,7 @@ fn main() {
                 window.app_handle().exit(0);
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Could not build the Harness desktop application");
     let shutdown_failed = Arc::new(AtomicBool::new(false));
     let failure = shutdown_failed.clone();
