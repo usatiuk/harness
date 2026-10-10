@@ -238,3 +238,15 @@ in chat or committing it. No cross-repository publisher secret is needed.
 Signing-key backup and hosted artifact execution remain
 publication inputs. Their absence does not
 justify rebuilding license collection or a custom publication service.
+
+The single-repository simplification is pushed as `c6620cb`. Release workflow
+run `38089290253` exercises its patch-bump/build/sign/draft path on GitHub; actual
+publication and local installer/update execution remain excluded. Its results,
+including macOS/Linux installer builds, must be recorded before qualification is
+claimed. The earlier local installer predates the origin change and is not a
+qualified artifact for the final download URLs.
+The workflow's source gate passes all checks and 1,216 tests (38 skipped), then
+creates version/tag `0.1.1` at `c9a9a4c`. The arm64 macOS payloads and desktop
+compile, but requesting only `dmg` causes Tauri to omit the updater app archive.
+The release command now requests `app,dmg` on macOS; hosted verification of this
+correction remains pending. The first run's other platform results remain open.

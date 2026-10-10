@@ -40,6 +40,10 @@ case "$target" in
     exit 1
     ;;
 esac
+bundle_targets="$bundle"
+if [[ $target == macos-* ]]; then
+  bundle_targets=app,dmg
+fi
 public_key=$(cat release/verification-key.pub)
 tauri_config="release/output/tauri.release.json"
 cat > "$tauri_config" <<JSON
@@ -55,7 +59,7 @@ cat > "$tauri_config" <<JSON
 }
 JSON
 npm run desktop:release --workspace @harness/desktop -- \
-  --ci --bundles "$bundle" --config "../../$tauri_config"
+  --ci --bundles "$bundle_targets" --config "../../$tauri_config"
 
 # Give the one installer a stable release asset name.
 shopt -s nullglob
