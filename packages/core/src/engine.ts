@@ -1374,6 +1374,7 @@ export class Engine {
     provider: ModelProvider,
     toolSet?: ToolSet,
   ): AsyncIterable<ModelStreamEvent> {
+    const context = { conversationId };
     return runModelChain(
       this.host.modelMiddleware,
       request,
@@ -1382,7 +1383,7 @@ export class Engine {
         signal,
         toolMeta: (name) => toolSet?.metaOf(name),
       },
-      (nextRequest) => provider.stream(nextRequest, signal),
+      (nextRequest) => provider.stream(nextRequest, signal, context),
     );
   }
 

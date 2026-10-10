@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import { ContextWindowExceededError, type ModelRequest } from "@harness/protocol";
 import { AnthropicProvider } from "./provider.ts";
+import type { ModelCallContext } from "@harness/protocol";
+
+const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 const REQUEST: ModelRequest = {
   instructions: [],
@@ -31,7 +34,13 @@ describe("AnthropicProvider context overflow normalization", () => {
       },
     });
     await expect(
-      consume(provider.stream({ ...REQUEST, maxOutputTokens: 4096 }, new AbortController().signal)),
+      consume(
+        provider.stream(
+          { ...REQUEST, maxOutputTokens: 4096 },
+          new AbortController().signal,
+          CALL_CONTEXT,
+        ),
+      ),
     ).rejects.toBe(reached);
     expect(params?.max_tokens).toBe(4096);
     expect(
@@ -51,7 +60,7 @@ describe("AnthropicProvider context overflow normalization", () => {
     });
 
     await expect(
-      consume(provider.stream(REQUEST, new AbortController().signal)),
+      consume(provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)),
     ).rejects.toBeInstanceOf(ContextWindowExceededError);
   });
 
@@ -64,8 +73,8 @@ describe("AnthropicProvider context overflow normalization", () => {
       },
     });
 
-    await expect(consume(provider.stream(REQUEST, new AbortController().signal))).rejects.toBe(
-      error,
-    );
+    await expect(
+      consume(provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)),
+    ).rejects.toBe(error);
   });
 });

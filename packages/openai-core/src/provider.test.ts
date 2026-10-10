@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type OpenAI from "openai";
 import { ContextWindowExceededError, type ModelRequest } from "@harness/protocol";
 import { OPENAI_MODELS, OpenAIResponsesProvider, reasoningForSelection } from "./provider.ts";
+import type { ModelCallContext } from "@harness/protocol";
+
+const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 const BASE: OpenAI.Reasoning = { effort: "medium", summary: "auto" };
 const REQUEST: ModelRequest = {
@@ -112,6 +115,7 @@ describe("request parameters", () => {
           ],
         },
         new AbortController().signal,
+        CALL_CONTEXT,
       ),
     );
     expect(params).toMatchObject({
@@ -155,7 +159,11 @@ describe("request parameters", () => {
     });
 
     await consume(
-      provider.stream({ ...REQUEST, maxOutputTokens: 128_000 }, new AbortController().signal),
+      provider.stream(
+        { ...REQUEST, maxOutputTokens: 128_000 },
+        new AbortController().signal,
+        CALL_CONTEXT,
+      ),
     );
 
     expect(params).not.toHaveProperty("max_output_tokens");
@@ -176,7 +184,7 @@ describe("context overflow normalization", () => {
     });
 
     await expect(
-      consume(provider.stream(REQUEST, new AbortController().signal)),
+      consume(provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)),
     ).rejects.toBeInstanceOf(ContextWindowExceededError);
   });
 
@@ -189,8 +197,8 @@ describe("context overflow normalization", () => {
       },
     });
 
-    await expect(consume(provider.stream(REQUEST, new AbortController().signal))).rejects.toBe(
-      error,
-    );
+    await expect(
+      consume(provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)),
+    ).rejects.toBe(error);
   });
 });

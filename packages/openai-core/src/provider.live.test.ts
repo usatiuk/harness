@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import OpenAI from "openai";
 import type { Item, ModelRequest, ModelStreamEvent } from "@harness/protocol";
 import { OpenAIResponsesProvider } from "./provider.ts";
+import type { ModelCallContext } from "@harness/protocol";
+
+const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 // A real network smoke test: opt in by exporting OPENAI_API_KEY (skipped in CI).
 const apiKey = process.env.OPENAI_API_KEY;
@@ -38,7 +41,8 @@ describe.skipIf(!apiKey)("OpenAIResponsesProvider (live)", () => {
     };
 
     const events: ModelStreamEvent[] = [];
-    for await (const e of provider.stream(request, new AbortController().signal)) events.push(e);
+    for await (const e of provider.stream(request, new AbortController().signal, CALL_CONTEXT))
+      events.push(e);
 
     expect(events.some((e) => e.type === "text_delta")).toBe(true);
     expect(events.at(-1)?.type).toBe("completed");
@@ -72,7 +76,8 @@ describe.skipIf(!apiKey)("OpenAIResponsesProvider (live)", () => {
     };
 
     const events: ModelStreamEvent[] = [];
-    for await (const e of provider.stream(request, new AbortController().signal)) events.push(e);
+    for await (const e of provider.stream(request, new AbortController().signal, CALL_CONTEXT))
+      events.push(e);
 
     const call = events.find((e) => e.type === "tool_call" && e.name === APPLY_PATCH);
     expect(call).toBeDefined();

@@ -232,12 +232,21 @@ export type ModelStreamEvent =
       error?: string;
     };
 
+/** Invocation identity is independent of prompt content and survives logical retries. */
+export interface ModelCallContext {
+  readonly conversationId: ConversationId;
+}
+
 export interface ModelProvider {
   readonly provider: string;
   capabilities(model: string): ModelCapabilities;
   validateConfig(config: ModelConfig): void;
   /** Streams one model step. The signal aborts the underlying network stream. */
-  stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent>;
+  stream(
+    request: ModelRequest,
+    signal: AbortSignal,
+    context: ModelCallContext,
+  ): AsyncIterable<ModelStreamEvent>;
   /** The selectable models this provider offers (may be empty). */
   listModels(): ModelInfo[];
   /** Replace the discovered snapshot; synchronous reads never perform network I/O. */

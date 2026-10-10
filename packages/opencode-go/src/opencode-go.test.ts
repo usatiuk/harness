@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { ModelRequest } from "@harness/protocol";
 import { ROSTER, familyOf, maxOutputOf, listModels } from "./roster.ts";
 import { OpenCodeGoProvider } from "./provider.ts";
+import type { ModelCallContext } from "@harness/protocol";
+
+const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 const REQUEST: ModelRequest = {
   instructions: [],
@@ -171,7 +174,8 @@ describe("OpenCodeGoProvider", () => {
     });
 
     const events: string[] = [];
-    for await (const e of p.stream(REQUEST, new AbortController().signal)) events.push(e.type);
+    for await (const e of p.stream(REQUEST, new AbortController().signal, CALL_CONTEXT))
+      events.push(e.type);
     expect(called).toBe("chat");
     expect(params?.reasoning_effort).toBeUndefined();
     expect(events).toEqual(["text_delta", "completed"]);
@@ -206,6 +210,7 @@ describe("OpenCodeGoProvider", () => {
         modelConfig: { provider: "opencode-go", model: "deepseek-v4-flash", preset: "max" },
       },
       new AbortController().signal,
+      CALL_CONTEXT,
     )) {
       void _;
     }
@@ -250,6 +255,7 @@ describe("OpenCodeGoProvider", () => {
     for await (const _ of p.stream(
       { ...REQUEST, modelConfig: { provider: "opencode-go", model: "gpt-5.6-luna" } },
       new AbortController().signal,
+      CALL_CONTEXT,
     )) {
       void _;
     }
@@ -288,6 +294,7 @@ describe("OpenCodeGoProvider", () => {
         modelConfig: { provider: "opencode-go", model: "gpt-5.6-luna", preset: "max" },
       },
       new AbortController().signal,
+      CALL_CONTEXT,
     )) {
       void _;
     }
@@ -328,6 +335,7 @@ describe("OpenCodeGoProvider", () => {
     for await (const e of p.stream(
       { ...REQUEST, modelConfig: { provider: "opencode-go", model: "minimax-m3" } },
       new AbortController().signal,
+      CALL_CONTEXT,
     )) {
       events.push(e.type);
     }
@@ -413,6 +421,7 @@ describe("OpenCodeGoProvider", () => {
           ...(cap ? { maxOutputTokens: cap } : {}),
         },
         new AbortController().signal,
+        CALL_CONTEXT,
       )) {
         void _;
       }

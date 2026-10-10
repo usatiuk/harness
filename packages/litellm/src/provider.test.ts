@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Item, ModelRequest, ModelStreamEvent, ProviderPayloadDraft } from "@harness/protocol";
+import type {
+  ConversationId,
+  Item,
+  ModelRequest,
+  ModelStreamEvent,
+  ProviderPayloadDraft,
+} from "@harness/protocol";
 import { LiteLLMProvider } from "./provider.ts";
 import { liteLLMConfigSchema } from "./config.ts";
 import { enrichModels, parseIndex, fetchCatalogJson } from "./discovery.ts";
@@ -12,7 +18,10 @@ afterEach(async () => {
 const signal = new AbortController().signal;
 async function collect(provider: LiteLLMProvider, request: ModelRequest, abort = signal) {
   const events: ModelStreamEvent[] = [];
-  for await (const event of provider.stream(request, abort)) events.push(event);
+  for await (const event of provider.stream(request, abort, {
+    conversationId: "conversation" as ConversationId,
+  }))
+    events.push(event);
   return events;
 }
 const request = (provider = "work", model = "coding"): ModelRequest => ({

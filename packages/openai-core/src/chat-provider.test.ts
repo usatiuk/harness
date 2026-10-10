@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type OpenAI from "openai";
 import { ContextWindowExceededError, type ModelRequest } from "@harness/protocol";
 import { OpenAIChatTransport } from "./provider.ts";
+import type { ModelCallContext } from "@harness/protocol";
+
+const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 const REQUEST: ModelRequest = {
   instructions: [{ type: "text", text: "be nice" }],
@@ -42,7 +45,7 @@ describe("OpenAIChatTransport", () => {
     });
 
     const events: string[] = [];
-    for await (const e of provider.stream(REQUEST, new AbortController().signal)) {
+    for await (const e of provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)) {
       events.push(e.type);
     }
     expect(params?.model).toBe("deepseek-v4-pro");
@@ -65,7 +68,7 @@ describe("OpenAIChatTransport", () => {
     });
 
     await expect(
-      consume(provider.stream(REQUEST, new AbortController().signal)),
+      consume(provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)),
     ).rejects.toBeInstanceOf(ContextWindowExceededError);
   });
 
@@ -81,8 +84,8 @@ describe("OpenAIChatTransport", () => {
       },
     });
 
-    await expect(consume(provider.stream(REQUEST, new AbortController().signal))).rejects.toBe(
-      error,
-    );
+    await expect(
+      consume(provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)),
+    ).rejects.toBe(error);
   });
 });

@@ -3,6 +3,9 @@ import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Item, ModelRequest, ModelStreamEvent, ToolSchema } from "@harness/protocol";
 import { OpenCodeGoProvider } from "./provider.ts";
+import type { ModelCallContext } from "@harness/protocol";
+
+const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 // Real network smoke tests: opt in by exporting OPENCODE_API_KEY (skipped in CI).
 const apiKey = process.env.OPENCODE_API_KEY;
@@ -39,7 +42,11 @@ function request(model: string, preset?: string): ModelRequest {
 
 async function run(model: string, preset?: string): Promise<ModelStreamEvent[]> {
   const events: ModelStreamEvent[] = [];
-  for await (const e of provider().stream(request(model, preset), new AbortController().signal)) {
+  for await (const e of provider().stream(
+    request(model, preset),
+    new AbortController().signal,
+    CALL_CONTEXT,
+  )) {
     events.push(e);
   }
   return events;
@@ -80,7 +87,7 @@ describe.skipIf(!apiKey)("OpenCodeGoProvider (live)", () => {
       items: [{ item: priorReasoning }, { item: userMessage }],
     };
     const events: ModelStreamEvent[] = [];
-    for await (const e of provider().stream(request, new AbortController().signal)) {
+    for await (const e of provider().stream(request, new AbortController().signal, CALL_CONTEXT)) {
       events.push(e);
     }
     expect(events.some((e) => e.type === "text_delta")).toBe(true);
@@ -144,7 +151,7 @@ describe.skipIf(!apiKey)("OpenCodeGoProvider (live)", () => {
       prompt: "Now reply with the single word: done",
     };
     const events: ModelStreamEvent[] = [];
-    for await (const e of provider().stream(request, new AbortController().signal)) {
+    for await (const e of provider().stream(request, new AbortController().signal, CALL_CONTEXT)) {
       events.push(e);
     }
     expect(events.some((e) => e.type === "text_delta")).toBe(true);

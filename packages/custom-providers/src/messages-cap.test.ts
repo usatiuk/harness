@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import type { ConversationId } from "@harness/protocol";
 import { configuredProvider } from "./provider-fixture.ts";
 
 const edge = vi.hoisted(() => ({
@@ -33,6 +34,7 @@ it("sends an invocation cap instead of a compatible model/preset default", async
         modelConfig: { provider: "local", model: "coding", preset: "short" },
       },
       new AbortController().signal,
+      { conversationId: "fixture" as ConversationId },
     ))
       void event;
   })();

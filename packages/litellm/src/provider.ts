@@ -1,6 +1,7 @@
 import {
   ModelDiscoveryError,
   type ModelCapabilities,
+  type ModelCallContext,
   type ModelConfig,
   type ModelInfo,
   type ModelProvider,
@@ -66,7 +67,11 @@ export class LiteLLMProvider implements ModelProvider {
     if (config.preset && !Object.hasOwn(entry.profile.presets ?? {}, config.preset))
       throw new Error(`Unknown preset '${config.preset}' for ${this.provider}/${config.model}`);
   }
-  async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
+  async *stream(
+    request: ModelRequest,
+    signal: AbortSignal,
+    context: ModelCallContext,
+  ): AsyncIterable<ModelStreamEvent> {
     this.validateConfig(request.modelConfig);
     const entry = this.#entry(request.modelConfig.model);
     for (const { payload } of request.items) {
@@ -96,7 +101,7 @@ export class LiteLLMProvider implements ModelProvider {
           );
       }
     }
-    yield* entry.adapter.stream(request, signal);
+    yield* entry.adapter.stream(request, signal, context);
   }
 
   async refreshModels(signal: AbortSignal) {

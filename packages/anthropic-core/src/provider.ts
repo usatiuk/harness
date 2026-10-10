@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type {
   PresetInfo,
   ModelCapabilities,
+  ModelCallContext,
   ModelConfig,
   ModelInfo,
   ModelPricing,
@@ -89,22 +90,33 @@ export interface AnthropicProviderOptions {
 export interface AnthropicMessagesTransportOptions {
   credentials: AnthropicCredentials;
   provider: string;
+  /** Connection-owned per-call headers; never mutate a shared SDK client's defaults. */
+  requestHeaders?: (context: ModelCallContext) => Record<string, string>;
 }
 /** Native streaming and error normalization; concrete connections own catalog and request policy. */
 export abstract class AnthropicMessagesTransport {
   readonly provider: string;
   readonly #credentials: AnthropicCredentials;
+  readonly #requestHeaders: AnthropicMessagesTransportOptions["requestHeaders"];
 
   constructor(opts: AnthropicMessagesTransportOptions) {
     this.provider = opts.provider;
     this.#credentials = opts.credentials;
+    this.#requestHeaders = opts.requestHeaders;
   }
   protected abstract buildConfig(request: ModelRequest): AnthropicRequestConfig;
-  async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
+  async *stream(
+    request: ModelRequest,
+    signal: AbortSignal,
+    context: ModelCallContext,
+  ): AsyncIterable<ModelStreamEvent> {
     try {
       const client = await this.#credentials.client(signal);
       const params = buildMessages(request, this.buildConfig(request), this.provider);
-      const stream = await client.messages.create(params, { signal });
+      const stream = await client.messages.create(params, {
+        signal,
+        ...(this.#requestHeaders ? { headers: this.#requestHeaders(context) } : {}),
+      });
       yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
     } catch (error) {
       const e = error as { status?: number; message?: string };

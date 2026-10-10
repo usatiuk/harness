@@ -6,6 +6,9 @@ import { MemorySecretStore } from "@harness/secrets";
 import { CodexAuth } from "./auth.ts";
 import { parseCodexSession, type CodexSession } from "./session.ts";
 import { createCodexProvider } from "./provider.ts";
+import type { ModelCallContext } from "@harness/protocol";
+
+const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 const STORE_KEY = "oauth";
 
@@ -321,6 +324,7 @@ describe("CodexAuth", () => {
     const stream = createCodexProvider(auth, "work").stream(
       { instructions: [], items: [], modelConfig: { provider: "work", model: "gpt-6.1-sol" } },
       controller.signal,
+      CALL_CONTEXT,
     );
     const invocation = (async () => {
       for await (const event of stream) void event;

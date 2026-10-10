@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import type { Item, ModelRequest, ModelStreamEvent } from "@harness/protocol";
+import type { ConversationId, Item, ModelRequest, ModelStreamEvent } from "@harness/protocol";
 import { LiteLLMProvider } from "./provider.ts";
 import { liteLLMConfigSchema, type Transport } from "./config.ts";
 import { httpGateway, json, sse } from "./http-fixture.ts";
@@ -7,7 +7,9 @@ import { dockerGateway } from "./docker-fixture.ts";
 
 async function collect(provider: LiteLLMProvider, request: ModelRequest) {
   const events: ModelStreamEvent[] = [];
-  for await (const event of provider.stream(request, AbortSignal.timeout(15_000)))
+  for await (const event of provider.stream(request, AbortSignal.timeout(15_000), {
+    conversationId: "fixture" as ConversationId,
+  }))
     events.push(event);
   return events;
 }

@@ -9,6 +9,9 @@ import type {
   ToolSchema,
 } from "@harness/protocol";
 import { AnthropicProvider } from "./provider.ts";
+import type { ModelCallContext } from "@harness/protocol";
+
+const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 // A real network smoke test: opt in by exporting ANTHROPIC_API_KEY (skipped in CI).
 const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -22,7 +25,8 @@ const provider = (): AnthropicProvider =>
 
 const drain = async (request: ModelRequest): Promise<ModelStreamEvent[]> => {
   const events: ModelStreamEvent[] = [];
-  for await (const e of provider().stream(request, new AbortController().signal)) events.push(e);
+  for await (const e of provider().stream(request, new AbortController().signal, CALL_CONTEXT))
+    events.push(e);
   return events;
 };
 

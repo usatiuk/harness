@@ -1,5 +1,6 @@
 import type {
   ModelCapabilities,
+  ModelCallContext,
   ModelConfig,
   ModelInfo,
   ModelProvider,
@@ -17,6 +18,11 @@ import {
   type AnthropicRequestConfig,
 } from "@harness/anthropic-core";
 import { familyOf, listModels, maxOutputOf, modelSpec, presetFor } from "./roster.ts";
+
+/** Go requires stable per-conversation routing on every transport and auxiliary call. */
+function requestHeaders(context: ModelCallContext): Record<string, string> {
+  return { "x-opencode-session": context.conversationId, "User-Agent": "Harness/0.0.0" };
+}
 
 /** Effort control selected for a Chat or Responses request. */
 function effortFor(request: ModelRequest): string | undefined {
@@ -53,6 +59,7 @@ class GoResponsesProvider extends OpenAIResponsesTransport {
     super({
       provider,
       credentials,
+      requestHeaders,
     });
   }
 
@@ -68,7 +75,7 @@ class GoResponsesProvider extends OpenAIResponsesTransport {
 /** Messages policy from the Go roster, including model-scoped thinking controls. */
 class GoMessagesProvider extends AnthropicMessagesTransport {
   constructor(credentials: AnthropicCredentials, provider: string) {
-    super({ provider, credentials });
+    super({ provider, credentials, requestHeaders });
   }
 
   protected override buildConfig(request: ModelRequest): AnthropicRequestConfig {
@@ -121,7 +128,11 @@ export class OpenCodeGoProvider implements ModelProvider {
 
   constructor(opts: OpenCodeGoProviderOptions) {
     this.provider = opts.provider ?? "opencode-go";
-    this.#chat = new GoChatProvider({ provider: this.provider, credentials: opts.openai });
+    this.#chat = new GoChatProvider({
+      provider: this.provider,
+      credentials: opts.openai,
+      requestHeaders,
+    });
     this.#responses = new GoResponsesProvider(opts.openai, this.provider);
     this.#messages = new GoMessagesProvider(opts.anthropic, this.provider);
   }
@@ -159,16 +170,16 @@ export class OpenCodeGoProvider implements ModelProvider {
     return listModels(this.provider);
   }
 
-  async *stream(request: ModelRequest, signal: AbortSignal) {
+  async *stream(request: ModelRequest, signal: AbortSignal, context: ModelCallContext) {
     switch (familyOf(request.modelConfig.model)) {
       case "responses":
-        yield* this.#responses.stream(request, signal);
+        yield* this.#responses.stream(request, signal, context);
         break;
       case "messages":
-        yield* this.#messages.stream(request, signal);
+        yield* this.#messages.stream(request, signal, context);
         break;
       case "chat":
-        yield* this.#chat.stream(request, signal);
+        yield* this.#chat.stream(request, signal, context);
         break;
       case undefined:
         throw new Error(

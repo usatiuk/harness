@@ -8,6 +8,7 @@ import type {
   ModelRequest,
   ModelStreamEvent,
   ModelCapabilities,
+  ModelCallContext,
 } from "@harness/protocol";
 import { ContextWindowExceededError } from "@harness/protocol";
 import type { OpenAICredentials } from "./credentials.ts";
@@ -162,23 +163,34 @@ export interface OpenAIProviderOptions {
 export interface OpenAIResponsesTransportOptions {
   credentials: OpenAICredentials;
   provider: string;
+  /** Connection-owned per-call headers; never mutate a shared SDK client's defaults. */
+  requestHeaders?: (context: ModelCallContext) => Record<string, string>;
 }
 /** Native streaming and error normalization; concrete connections own catalog and request policy. */
 export abstract class OpenAIResponsesTransport {
   readonly provider: string;
   readonly #credentials: OpenAICredentials;
+  readonly #requestHeaders: OpenAIResponsesTransportOptions["requestHeaders"];
   constructor(opts: OpenAIResponsesTransportOptions) {
     this.provider = opts.provider;
     this.#credentials = opts.credentials;
+    this.#requestHeaders = opts.requestHeaders;
   }
   protected abstract buildParams(
     request: ModelRequest,
   ): OpenAI.Responses.ResponseCreateParamsStreaming;
-  async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
+  async *stream(
+    request: ModelRequest,
+    signal: AbortSignal,
+    context: ModelCallContext,
+  ): AsyncIterable<ModelStreamEvent> {
     try {
       const client = await this.#credentials.client(signal);
       const params = this.buildParams(request);
-      const stream = await client.responses.create(params, { signal });
+      const stream = await client.responses.create(params, {
+        signal,
+        ...(this.#requestHeaders ? { headers: this.#requestHeaders(context) } : {}),
+      });
       yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
     } catch (error) {
       const e = error as { status?: number; code?: string; message?: string };
@@ -255,16 +267,19 @@ export interface OpenAIChatTransportOptions {
   credentials: OpenAICredentials;
   /** Outer connection identity, retained on opaque payloads. */
   provider: string;
+  requestHeaders?: (context: ModelCallContext) => Record<string, string>;
 }
 
 /** Chat Completions serialization and streaming; connections own catalog and policy. */
 export class OpenAIChatTransport {
   readonly provider: string;
   readonly #credentials: OpenAICredentials;
+  readonly #requestHeaders: OpenAIChatTransportOptions["requestHeaders"];
 
   constructor(opts: OpenAIChatTransportOptions) {
     this.provider = opts.provider;
     this.#credentials = opts.credentials;
+    this.#requestHeaders = opts.requestHeaders;
   }
 
   /**
@@ -277,11 +292,18 @@ export class OpenAIChatTransport {
     return buildChatParams(request);
   }
 
-  async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
+  async *stream(
+    request: ModelRequest,
+    signal: AbortSignal,
+    context: ModelCallContext,
+  ): AsyncIterable<ModelStreamEvent> {
     try {
       const client = await this.#credentials.client(signal);
       const params = this.buildParams(request);
-      const stream = await client.chat.completions.create(params, { signal });
+      const stream = await client.chat.completions.create(params, {
+        signal,
+        ...(this.#requestHeaders ? { headers: this.#requestHeaders(context) } : {}),
+      });
       yield* toChatEvents(stream, this.provider, request.modelConfig.model, signal);
     } catch (error) {
       const e = error as { status?: number; code?: string; message?: string };
