@@ -41,6 +41,7 @@ fn main() {
             "server_write",
             "server_ack",
             "server_disconnect",
+            "desktop_update",
             "connection_command",
             "cancel_connection_command",
         ]),

@@ -66,6 +66,9 @@ native bootstrap downloads the pinned Node distribution into the shared cache.
 The release build entry uses on-demand verified server and Node payloads without
 requiring system Node. Public installers, publication and updates remain in progress
 under the [release plan](docs/plans/cross-cutting/2026-10-10-release-installation-updates.md).
+Release desktops expose an explicit update check and install/restart action in
+Settings → Application. Source and development builds update by rebuilding.
+Actual signed installer/update execution remains unqualified.
 Installed launchers expose `harness cache prune` to preview cached downloads and
 `harness cache prune --apply` to remove them. Stop installed CLI, desktop and server
 processes first; cleanup refuses while any consumer is running. Conversations,

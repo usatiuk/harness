@@ -201,6 +201,14 @@ Cooperative cancellation drains final pipe writes while awaiting cleanup;
 startup failure diagnostics take precedence over transport/teardown errors.
 The release simplification and platform qualification remain in progress under
 the [delivery plan](../../plans/cross-cutting/2026-10-10-release-installation-updates.md).
+Settings → Application offers an explicit desktop update check and install/restart
+action through the official Tauri updater. The native command verifies the offered
+version again before installation; release configuration requires a signed version.
+Development builds report that they update by rebuilding. Download/install errors
+remain visible, and an installation failure after shutdown requires reopening the app.
+Window exit and the Windows installer share one awaited shutdown result so neither
+can exit while the other is still retiring a helper. Actual installer/update execution
+is not yet qualified.
 The keep-running preference defaults false; stop-on-exit releases Local only when
 another client is not attached. Local background execution after desktop exit is
 an explicit remembered preference. Remote observers detach without stopping their owner.

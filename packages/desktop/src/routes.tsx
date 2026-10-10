@@ -1,4 +1,5 @@
 import { McpSettings } from "./components/mcp-settings.tsx";
+import { DesktopUpdates } from "./components/desktop-updates.tsx";
 import {
   useEffect,
   useRef,
@@ -1560,6 +1561,7 @@ export function createDesktopRouter(
               <h2>Application</h2>
               <p className="muted">Server lifecycle and local storage.</p>
             </div>
+            <DesktopUpdates />
             <div className="storage-location">
               <h3>Harness home</h3>
               <p className="muted">{settings.home}</p>

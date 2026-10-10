@@ -55,7 +55,6 @@ export type ReleaseArtifact = z.infer<typeof artifactSchema>;
 export const releaseManifestSchema = z.object({
   formatVersion: z.literal(1),
   productVersion: versionSchema,
-  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/u),
   targets: z
     .partialRecord(
       targetSchema,
@@ -82,7 +81,6 @@ export const developmentRemoteSchema = z.strictObject({
   formatVersion: z.literal(1),
   target: z.literal("linux-x64-glibc"),
   productVersion: versionSchema,
-  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/u),
   nodeVersion: versionSchema,
   server: transferredFileSchema,
   bootstrap: transferredFileSchema,
@@ -90,7 +88,6 @@ export const developmentRemoteSchema = z.strictObject({
 export interface BuildIdentity {
   mode: "development" | "release";
   productVersion: string;
-  sourceCommit: string;
   target: ReleaseTarget | "development";
   nodeVersion: string;
 }
@@ -101,7 +98,6 @@ export const BUILD_IDENTITY: BuildIdentity =
     ? {
         mode: "development",
         productVersion: PRODUCT_VERSION,
-        sourceCommit: "development",
         target: "development",
         nodeVersion: nodePin.version,
       }

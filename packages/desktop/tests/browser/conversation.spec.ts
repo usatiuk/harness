@@ -69,6 +69,33 @@ const gap = (page: Page) =>
     .locator(".conversation-scroll")
     .evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
 
+test("desktop updates capture the offered version and expose installation errors", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.assign(window, {
+      isTauri: true,
+      __TAURI_INTERNALS__: {
+        invoke: async (command: string, args: { version: string | null }) => {
+          if (command !== "desktop_update") throw new Error("Unexpected command");
+          if (args.version === null) return "0.2.0";
+          if (args.version !== "0.2.0") throw new Error("Offered version was not retained");
+          throw new Error("Download interrupted; check again to retry.");
+        },
+      },
+    });
+  });
+  await page.goto(url + "?updates");
+  await expect(page.getByRole("button", { name: /Install/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Check for updates" }).click();
+  await expect(page.getByRole("status")).toHaveText("Version 0.2.0 is available.");
+  await page.getByRole("button", { name: "Install 0.2.0 and restart" }).click();
+  await expect(page.getByRole("status")).toHaveText("Download interrupted; check again to retry.");
+  await expect(page.getByRole("button", { name: /Install/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Check for updates" }).click();
+  await expect(page.getByRole("button", { name: "Install 0.2.0 and restart" })).toBeVisible();
+});
+
 test("a new tall stream follows from an initially empty conversation", async ({ page }) => {
   await page.goto(url + "?empty");
   await expect.poll(() => page.evaluate(() => window.canvasFixture.ready)).toBe(true);

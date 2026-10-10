@@ -4,14 +4,12 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 import console from "node:console";
 import { URL } from "node:url";
-import { buildIdentity } from "../../../scripts/build-payloads.mjs";
 const require = createRequire(import.meta.url);
 let [command, ...args] = process.argv.slice(2);
 if (!command) throw new Error("Expected a native command");
 const env = { ...process.env };
 env.HARNESS_DEVELOPMENT_NODE = process.execPath;
 if (command === "desktop-release") {
-  await buildIdentity("release");
   env.HARNESS_RELEASE_BUILD = "1";
   command = "tauri";
   args.unshift("build");

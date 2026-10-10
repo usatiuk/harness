@@ -45,7 +45,13 @@ tauri_config="release/output/tauri.release.json"
 cat > "$tauri_config" <<JSON
 {
   "bundle": { "createUpdaterArtifacts": true },
-  "plugins": { "updater": { "pubkey": "$public_key" } }
+  "plugins": {
+    "updater": {
+      "pubkey": "$public_key",
+      "requireSignedVersion": true,
+      "endpoints": ["https://github.com/usatiuk/harness-releases/releases/latest/download/latest.json"]
+    }
+  }
 }
 JSON
 npm run desktop:release --workspace @harness/desktop -- \

@@ -29,7 +29,9 @@ headless evidence. Desktop now consumes shared prepared paths and retains its
 own control helper; source startup uses complete immutable snapshots.
 Cold preparation is a hidden, cancellable process; existing host cancellation
 reaches it before admission, and app shutdown also awaits preparing operations.
-Installed download/cross-version qualification, remote replacement, update surfaces and
+The explicit desktop updater is implemented using Tauri, with headless UI and
+shutdown evidence. CLI/server update surfaces remain unfinished.
+Installed download/cross-version qualification, remote replacement and
 platform qualification remain open in that plan.
 
 ## Diagnostics and supportability

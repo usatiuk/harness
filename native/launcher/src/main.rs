@@ -142,9 +142,6 @@ fn run() -> Result<i32> {
                 env!("HARNESS_MANIFEST_URL"),
                 KEY,
             )?;
-            if prepared.manifest.source_commit != env!("HARNESS_SOURCE_COMMIT") {
-                bail!("Release metadata differs from this launcher's source identity");
-            }
             let mut process = Command::new(&prepared.node.entry);
             process.env_remove("HARNESS_SERVER_SELECTION");
             process

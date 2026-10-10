@@ -89,25 +89,9 @@ async function copyDependencies(output, roots) {
 
 export async function buildIdentity(mode = "development") {
   if (!["development", "release"].includes(mode)) throw new Error("Unknown build mode");
-  const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: root,
-    encoding: "utf8",
-    windowsHide: true,
-  }).trim();
-  if (!/^[a-f0-9]{40}$/u.test(sourceCommit)) throw new Error("Invalid source commit");
-  if (
-    mode === "release" &&
-    execFileSync("git", ["status", "--porcelain"], {
-      cwd: root,
-      encoding: "utf8",
-      windowsHide: true,
-    }).trim()
-  )
-    throw new Error("Release builds require a clean checkout");
   return {
     mode,
     productVersion: product.version,
-    sourceCommit,
     target: nativeTarget().release,
     nodeVersion: pin.version,
   };
@@ -169,7 +153,6 @@ export async function buildPayload(component, output, identity) {
         ...(profile === "release" ? ["--release"] : []),
       ],
       {
-        HARNESS_SOURCE_COMMIT: identity.sourceCommit,
         HARNESS_RELEASE_BUILD: identity.mode === "release" ? "1" : "0",
       },
     );
@@ -220,7 +203,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         formatVersion: 1,
         target: identity.target,
         productVersion: identity.productVersion,
-        sourceCommit: identity.sourceCommit,
         nodeVersion: identity.nodeVersion,
         server: await describe(join(output, "server.tar.gz")),
         bootstrap: await describe(join(output, "harness-bootstrap")),

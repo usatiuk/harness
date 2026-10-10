@@ -73,8 +73,9 @@ with the first public release. Future destructive migrations require a concrete
 migration/backup design when needed, not a speculative framework now.
 
 The product version comes from root `package.json`; native Cargo versions and
-Tauri's package version must match. Build identity captures the source commit,
-target and Node pin. The signed release manifest declares component locations,
+Tauri's package version must match. Payload metadata captures the mode,
+target and Node pin. Git commit provenance belongs to the workflow's tag and release
+notes, not a second runtime identity check. The signed release manifest declares component locations,
 sizes and hashes. Protocol compatibility is checked by the actual server handshake,
 not duplicated in download metadata.
 
@@ -93,7 +94,8 @@ not duplicated in download metadata.
       stop/install/start and safe explicit cleanup work without an installed-client
       registry or unattended deletion. Do not add a new cleanup subsystem meanwhile.
       Cache pruning passes the native command regression and three independent
-      reviews. Update controls remain unfinished.
+      reviews. Desktop updates use Tauri's updater through one explicit check/install
+      command in Settings. CLI and server update controls remain unfinished.
 - [x] Complete the one-time halving audit, synchronize docs and review the checkpoint.
       Completion: checkpoint additions reduced below 6,932; its full and native
       checks pass; remaining external qualification inputs are stated precisely.
@@ -142,6 +144,23 @@ was stopped after a reproducible SQLite Node 24 ABI mismatch.
 Node 24 then passed 1,212 tests but failed two OAuth cases. Rebuilding SQLite for
 the documented Node 22 makes all 34 focused OAuth/code-mode integration tests pass;
 the passing full check uses that consistent environment.
+
+Desktop update installation verifies Tauri signatures including the signed version,
+then joins the same shutdown boundary as normal window exit before Windows exits
+into its installer. Linux/macOS request a restart after installation. Download or
+installation failures remain visible; failure after closing connections explicitly
+requires reopening the app. Development builds update by rebuilding. Native
+installation and restart remain unqualified until actual artifacts are available.
+This increment passes the full check (1,214 tests; 36 skipped), the headless browser
+update flow, nine bootstrap/launcher cases, seven source and nine packaged desktop
+Rust cases, a rebuilt development payload and a release-mode configuration check.
+The packaged tests use the verified qualification cache; a first invocation pointed
+at an incomplete scratch runtime. The independent shutdown re-review is resolved.
+
+The additional simplification removes Git commands, embedded source commits and
+commit comparisons from payload builders, the native launcher and metadata assembly.
+Versions, platform/Node requirements and signed archive checks remain. The workflow
+already records the source commit in its tag and release notes.
 
 No release has been
 published. Anonymous cold download, real installer/update execution and macOS/Linux

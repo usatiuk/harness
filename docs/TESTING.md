@@ -115,6 +115,19 @@ Actual hosted release builds, anonymous cold installation, installer execution,
 updates and other native platforms remain unqualified. Prior Windows/Linux native
 and source SSH/WSL evidence applies to the previous implementation only.
 
+The desktop updater's headless browser regression exercises the production
+Settings component with a controlled native boundary: no installation before an
+offer, capture of the offered version, visible installation failure and a fresh
+check before retry. Seven source desktop Rust cases pass, including two concurrent
+shutdown callers joining physical preparation retirement. Nine bootstrap/launcher
+cases pass after removing redundant Git provenance checks. Sandbox ACL/profile
+failures were retried outside the sandbox; no visible GUI tests were run.
+This does not qualify actual downloads, signed installer execution or restart.
+The increment's full check passes 1,214 tests (36 skipped); the rebuilt development
+payload, nine packaged desktop Rust cases and release-mode updater configuration
+check also pass. Packaged tests point at the verified qualification cache, rather
+than the incomplete default scratch cache.
+
 ## Native search and output finalization
 
 Native-search and output-finalization regressions cover provider-owned defaults,

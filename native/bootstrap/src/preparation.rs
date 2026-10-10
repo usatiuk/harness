@@ -165,9 +165,7 @@ impl Cache {
         };
         let identity =
             crate::payload::validate_server(&server.directory, "release", &node.version)?;
-        if identity.product_version != release.manifest.product_version
-            || identity.source_commit != release.manifest.source_commit
-        {
+        if identity.product_version != release.manifest.product_version {
             bail!("Server build identity differs from signed release");
         }
         Ok(PreparedServer {

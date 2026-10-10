@@ -242,9 +242,7 @@ impl Cache {
                         "release",
                         &release.manifest.targets[host_target()?].node.version,
                     )?;
-                    if identity.product_version != release.manifest.product_version
-                        || identity.source_commit != release.manifest.source_commit
-                    {
+                    if identity.product_version != release.manifest.product_version {
                         bail!("Server build identity differs from signed release");
                     }
                 }

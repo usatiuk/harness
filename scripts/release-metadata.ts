@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
 import {
   artifactSchema,
   NODE_PIN,
@@ -78,10 +77,6 @@ for (const [target, extension, updater] of platforms) {
 const manifest = releaseManifestSchema.parse({
   formatVersion: 1,
   productVersion: PRODUCT_VERSION,
-  sourceCommit: execFileSync("git", ["rev-parse", "HEAD"], {
-    encoding: "utf8",
-    windowsHide: true,
-  }).trim(),
   targets,
 });
 await writeFile(join(directory, "release.json"), JSON.stringify(manifest, null, 2));

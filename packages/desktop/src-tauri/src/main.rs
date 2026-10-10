@@ -14,6 +14,7 @@ use std::{
     time::Duration,
 };
 use tauri::{Manager, ipc::Channel};
+use tauri_plugin_updater::UpdaterExt;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::ChildStdin,
@@ -49,10 +50,30 @@ struct Bridge {
     next_id: AtomicU64,
     exit_owner: Mutex<Option<serde_json::Value>>,
     helper_runtime: Mutex<Option<Arc<runtime::ServerRuntime>>>,
+    shutdown: Mutex<Option<Result<(), String>>>,
     stopping: AtomicBool,
 }
 
 impl Bridge {
+    async fn shutdown(self: &Arc<Self>) -> Result<(), String> {
+        // Window exit and the Windows installer must join the same owned work.
+        let mut completed = self.shutdown.lock().await;
+        if let Some(result) = completed.as_ref() {
+            return result.clone();
+        }
+        let failures: Vec<_> = [self.close_all().await, release_local_owner(self).await]
+            .into_iter()
+            .filter_map(Result::err)
+            .collect();
+        let result = if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
+        };
+        *completed = Some(result.clone());
+        result
+    }
+
     async fn begin_operation(
         &self,
     ) -> Result<(u64, watch::Receiver<bool>, oneshot::Sender<()>), String> {
@@ -139,7 +160,7 @@ mod tests {
         let bridge = Arc::new(Bridge::default());
         let (id, mut canceled, complete) = bridge.begin_operation().await.unwrap();
         let owner = bridge.clone();
-        let mut shutdown = tokio::spawn(async move { owner.close_all().await });
+        let mut shutdown = tokio::spawn(async move { owner.shutdown().await });
         tokio::select! {
             result = &mut shutdown => panic!("shutdown missed preparation: {result:?}"),
             result = canceled.changed() => result.expect("preparation cancellation"),
@@ -156,8 +177,16 @@ mod tests {
             !shutdown.is_finished(),
             "preparation must physically retire before shutdown completes"
         );
+        let second = bridge.shutdown();
+        tokio::pin!(second);
+        tokio::select! {
+            biased;
+            result = &mut second => panic!("concurrent shutdown missed preparation: {result:?}"),
+            _ = std::future::ready(()) => {}
+        }
         bridge.finish_operation(id, complete).await;
         shutdown.await.unwrap().unwrap();
+        second.await.unwrap();
         assert!(bridge.commands.lock().await.is_empty());
     }
 
@@ -590,6 +619,76 @@ async fn release_local_owner(bridge: &Bridge) -> Result<(), String> {
     command::execute(process, canceled, |_| Ok(()), Some(Duration::from_secs(25))).await?;
     Ok(())
 }
+#[tauri::command]
+async fn desktop_update(
+    app: tauri::AppHandle,
+    version: Option<String>,
+) -> Result<Option<String>, String> {
+    if env!("HARNESS_BUILD_MODE") != "release" {
+        return Err("Development builds update by rebuilding the app.".into());
+    }
+    let before_exit = app.clone();
+    let update = app
+        .updater_builder()
+        .on_before_exit(move || {
+            // Windows invokes this before launching the installer, then exits directly.
+            if !finish_desktop(&before_exit) {
+                before_exit.cleanup_before_exit();
+                std::process::exit(1);
+            }
+        })
+        .build()
+        .map_err(|error| error.to_string())?
+        .check()
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(update) = update else {
+        return if version.is_some() {
+            Err("This update is no longer available; check for updates again.".into())
+        } else {
+            Ok(None)
+        };
+    };
+    let offered = update.version.clone();
+    if let Some(expected) = version {
+        if expected != offered {
+            return Err("The offered version changed; check for updates again.".into());
+        }
+        let bytes = update
+            .download(|_, _| {}, || {})
+            .await
+            .map_err(|error| error.to_string())?;
+        if app.state::<Arc<Bridge>>().stopping.load(Ordering::Acquire) {
+            return Err("Desktop is shutting down; reopen Harness to update.".into());
+        }
+        // Installation's synchronous Windows hook drains async bridge work.
+        let installed = tauri::async_runtime::spawn_blocking(move || update.install(bytes))
+            .await
+            .map_err(|error| error.to_string())?;
+        if let Err(error) = installed {
+            let stopped = app.state::<Arc<Bridge>>().stopping.load(Ordering::Acquire);
+            return Err(if stopped {
+                format!("{error}. Close and reopen Harness to reconnect.")
+            } else {
+                error.to_string()
+            });
+        }
+        app.request_restart();
+    }
+    Ok(Some(offered))
+}
+
+fn finish_desktop(app: &tauri::AppHandle) -> bool {
+    let bridge = app.state::<Arc<Bridge>>();
+    match tauri::async_runtime::block_on(bridge.shutdown()) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("Desktop shutdown failed: {error}");
+            false
+        }
+    }
+}
+
 fn main() {
     #[cfg(feature = "custom-protocol")]
     {
@@ -629,10 +728,16 @@ fn main() {
         window.hidden_title = true;
     }
 
-    let application = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_decoration::init())
+        .plugin(tauri_plugin_decoration::init());
+    let builder = if env!("HARNESS_BUILD_MODE") == "release" {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
+    let application = builder
         .manage(Arc::new(Bridge::default()))
         .setup(appearance::install)
         .invoke_handler(tauri::generate_handler![
@@ -643,6 +748,7 @@ fn main() {
             server_write,
             server_ack,
             server_disconnect,
+            desktop_update,
             connection_command,
             cancel_connection_command
         ])
@@ -654,24 +760,13 @@ fn main() {
         })
         .build(context)
         .expect("Could not build the Harness desktop application");
-    let shutdown_failed = Arc::new(AtomicBool::new(false));
-    let failure = shutdown_failed.clone();
     let code = application.run_return(move |app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
-            let bridge = app.state::<Arc<Bridge>>();
-            if let Err(error) = tauri::async_runtime::block_on(bridge.close_all()) {
-                eprintln!("Desktop shutdown failed: {error}");
-                failure.store(true, Ordering::Release);
-            }
-            if let Err(error) = tauri::async_runtime::block_on(release_local_owner(&bridge)) {
-                eprintln!("Local server exit failed: {error}");
-                failure.store(true, Ordering::Release);
+            if !finish_desktop(app) {
+                app.cleanup_before_exit();
+                std::process::exit(1);
             }
         }
     });
-    std::process::exit(if shutdown_failed.load(Ordering::Acquire) {
-        1
-    } else {
-        code
-    });
+    std::process::exit(code);
 }

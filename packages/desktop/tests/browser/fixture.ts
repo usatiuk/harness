@@ -6,6 +6,7 @@ import type { Cell } from "@harness/client-features/transcript-reducer";
 import { ConversationCanvas } from "../../src/components/conversation-canvas.tsx";
 import { DesktopTranscript, type TranscriptRow } from "../../src/transcript.ts";
 import { Button, Disclosure } from "../../src/ui.tsx";
+import { DesktopUpdates } from "../../src/components/desktop-updates.tsx";
 import "../../src/styles.css";
 
 declare global {
@@ -205,4 +206,6 @@ function Fixture() {
   );
 }
 if (window.location.search === "?composer") await import("./composer-fixture.ts");
+else if (window.location.search === "?updates")
+  createRoot(document.getElementById("root")!).render(h(DesktopUpdates));
 else createRoot(document.getElementById("root")!).render(h(Fixture));

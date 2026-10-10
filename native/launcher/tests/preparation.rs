@@ -140,7 +140,7 @@ fn development_tar_is_immutable_and_helper_exits_without_stdin_handoff() {
         Compression::fast(),
     ));
     let identity = serde_json::to_vec(&serde_json::json!({
-        "mode":"development","productVersion":"0.1.0","sourceCommit":"a".repeat(40),
+        "mode":"development","productVersion":"0.1.0",
         "target":target,"nodeVersion":pin.version
     }))
     .unwrap();

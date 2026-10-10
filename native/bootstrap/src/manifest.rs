@@ -95,7 +95,6 @@ pub struct ReleaseTarget {
 pub struct ReleaseManifest {
     pub format_version: u32,
     pub product_version: String,
-    pub source_commit: String,
     pub targets: BTreeMap<String, ReleaseTarget>,
 }
 
@@ -105,14 +104,8 @@ impl ReleaseManifest {
             bail!("Unsupported release metadata format; upgrade the client");
         }
         version(&self.product_version)?;
-        if self.source_commit.len() != 40
-            || !self
-                .source_commit
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit())
-            || self.targets.is_empty()
-        {
-            bail!("Invalid release identity");
+        if self.targets.is_empty() {
+            bail!("Release has no supported targets");
         }
         for (target, value) in &self.targets {
             if !["windows-x64", "linux-x64-glibc", "macos-arm64", "macos-x64"]
@@ -135,7 +128,6 @@ impl ReleaseManifest {
 pub struct BuildIdentity {
     pub mode: String,
     pub product_version: String,
-    pub source_commit: String,
     pub target: String,
     pub node_version: String,
 }
