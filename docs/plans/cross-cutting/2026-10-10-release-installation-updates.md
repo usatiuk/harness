@@ -53,7 +53,10 @@ Pruned development server selections need redeployment from their source checkou
 
 A manual GitHub workflow accepts a patch/minor/major bump, commits the new version,
 builds the platform artifacts, signs them, and creates a draft release. Standard
-Cargo, npm, Tauri and `gh` commands own these operations. `release/` contains only
+Cargo, npm, Tauri and `gh` commands own these operations. Source, tags, assets and
+update URLs use the public `usatiuk/harness` repository. Publishing uses the job's
+built-in GitHub token; no separate downloads repository or publishing token exists.
+`release/` contains only
 the necessary Node pin, public key, test fixture and generated build output.
 The exact GNU GPLv3 text stays in `LICENSE`; license collection/export tooling is
 explicitly outside this work. OS publisher signing is unavailable. The project key
@@ -72,7 +75,8 @@ protects downloads and Tauri updates; its private half is never committed.
 - No GUI/native visible tests without approval for that run. Headless tests are
   allowed. Keep Windows child commands hidden.
 - Coherent validated commits and periodic direct pushes to main are authorized.
-  Publishing a release or uploading secrets is not yet authorized.
+  The user authorized making `usatiuk/harness` public and uploading the signing
+  key to its CI secrets. Publishing a release remains pending approval.
 
 ## Platform and data boundaries
 
@@ -227,6 +231,10 @@ machine is prohibited, and local tests/builds are paused pending clarification.
 
 No release has been
 published. Anonymous cold download, real installer/update execution and macOS/Linux
-native packaging remain unqualified. The public artifact repository/token, signing
-key backup and platform access remain publication inputs. Their absence does not
+native packaging remain unqualified. The public repository now hosts source and
+future releases together. Its `harness-release` environment now contains
+`TAURI_SIGNING_PRIVATE_KEY`, uploaded through `gh` file input without exposing it
+in chat or committing it. No cross-repository publisher secret is needed.
+Signing-key backup and hosted artifact execution remain
+publication inputs. Their absence does not
 justify rebuilding license collection or a custom publication service.

@@ -49,7 +49,7 @@ cat > "$tauri_config" <<JSON
     "updater": {
       "pubkey": "$public_key",
       "requireSignedVersion": true,
-      "endpoints": ["https://github.com/usatiuk/harness-releases/releases/latest/download/latest.json"]
+      "endpoints": ["https://github.com/usatiuk/harness/releases/latest/download/latest.json"]
     }
   }
 }

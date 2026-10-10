@@ -119,6 +119,8 @@ jobs:
   draft:
     needs: [cut, build]
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     environment: harness-release
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -134,7 +136,7 @@ jobs:
           path: release/staging
       - name: Assemble, sign, and upload one release draft
         env:
-          GH_TOKEN: ${{ secrets.HARNESS_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           VERSION: ${{ needs.cut.outputs.version }}
@@ -148,4 +150,4 @@ jobs:
           npm exec -- tauri signer sign --app-version "$VERSION" release/staging/assets/release.json
           mv release/staging/assets/release.json.sig release/staging/assets/release.json.minisig
           node --conditions=development --import=tsx scripts/release-metadata.ts release/staging/assets --verify
-          gh release create "v$VERSION" release/staging/assets/* --repo usatiuk/harness-releases --draft --title "Harness $VERSION" --notes "Native builds from ${{ needs.cut.outputs.commit }}. Publisher signing is not configured."
+          gh release create "v$VERSION" release/staging/assets/* --repo "$GITHUB_REPOSITORY" --draft --title "Harness $VERSION" --notes "Native builds from ${{ needs.cut.outputs.commit }}. Publisher signing is not configured."

@@ -157,10 +157,11 @@ provide pinned URLs and a moving latest asset URL.
 
 [Immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
 lock tags/assets after publication and recommend uploading all assets into a draft
-first. Release attestations bind the distribution repository's tag, commit and
-assets; they do not automatically attest a separate private source checkout.
-Public source is not required for public artifacts: use a public distribution
-repository with a scoped CI publisher credential. No client token is shipped.
+first. Source and artifacts now share the public `usatiuk/harness` repository,
+so its tags identify the source and release together. The user rejected the
+separate public downloads repository and made the source public. The release job
+uses GitHub's built-in token with contents-write permission; no cross-repository
+publisher credential or client token is needed.
 
 ## Lifecycle, cleanup and simplicity conclusions
 

@@ -76,6 +76,7 @@ server running. Windows keeps one
 CLI processes before updating again. Manual CLI uninstall removes those two files
 and retains the shared home/data/cache.
 Actual signed installer/update execution remains unqualified.
+Source and release downloads share the public `usatiuk/harness` repository.
 Installed launchers expose `harness cache prune` to preview cached downloads and
 `harness cache prune --apply` to remove them. Stop installed CLI, desktop and server
 processes first; cleanup refuses while any consumer is running. Conversations,

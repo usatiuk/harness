@@ -5,7 +5,7 @@ import product from "../../../package.json" with { type: "json" };
 import nodePin from "../../../release/node.json" with { type: "json" };
 
 export const PRODUCT_VERSION = product.version;
-export const RELEASE_REPOSITORY = "usatiuk/harness-releases";
+export const RELEASE_REPOSITORY = "usatiuk/harness";
 export const NODE_PIN = nodePin;
 export const targetSchema = z.enum(["windows-x64", "linux-x64-glibc", "macos-arm64", "macos-x64"]);
 export type ReleaseTarget = z.infer<typeof targetSchema>;

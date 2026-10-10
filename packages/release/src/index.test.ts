@@ -77,7 +77,7 @@ it("assembles download metadata and Tauri updates from four native artifact sets
         entry: "server.mjs",
       });
       platforms[updater] = {
-        url: `https://github.com/usatiuk/harness-releases/releases/download/v${PRODUCT_VERSION}/${prefix}-desktop${update}`,
+        url: `https://github.com/usatiuk/harness/releases/download/v${PRODUCT_VERSION}/${prefix}-desktop${update}`,
         signature: `signature-${target}`,
       };
     }

@@ -19,7 +19,7 @@ fn main() {
         env::var("CARGO_PKG_VERSION").unwrap(),
         "Native/product versions differ"
     );
-    let repository = "usatiuk/harness-releases";
+    let repository = "usatiuk/harness";
     println!("cargo:rustc-env=HARNESS_PRODUCT_VERSION={version}");
     println!(
         "cargo:rustc-env=HARNESS_MANIFEST_URL=https://github.com/{repository}/releases/download/v{version}/release.json"

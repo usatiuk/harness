@@ -16,7 +16,7 @@ fn main() {
         std::env::var("CARGO_PKG_VERSION").unwrap(),
         "Desktop/product versions differ"
     );
-    let repository = "usatiuk/harness-releases";
+    let repository = "usatiuk/harness";
     println!("cargo:rustc-env=HARNESS_PRODUCT_VERSION={version}");
     println!(
         "cargo:rustc-env=HARNESS_MANIFEST_URL=https://github.com/{repository}/releases/download/v{version}/release.json"
