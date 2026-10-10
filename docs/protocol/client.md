@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first request and requires protocol version `4`. It exchanges
+`initialize` is the first application request and requires protocol version `4`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -37,20 +37,30 @@ selected OS user.
 
 `harness server --background` runs the shared owner without a client transport.
 `harness server --bridge` ensures that owner is ready and relays stdio into its
-authenticated loopback socket. Closing the bridge removes that connection;
+authenticated local socket or named pipe. Closing the bridge removes that connection;
 the owner continues with zero clients. `--stdio` owns an isolated composition
 and disposes it on EOF.
 
-Loopback discovery lives under the canonical Harness home's user-private `.server`
+Discovery lives under the canonical Harness home's user-private `.running-server`
 directory. Windows protects the random token with current-user DPAPI as well as
 directory ACLs; POSIX uses owner-only permissions. The socket accepts a token line
 of at most 128 bytes within five seconds and returns one identity JSON line of at
 most 4 KiB before NDJSON RPC begins. Clients validate that identity against the
 requested canonical home and discovery record. They verify readiness rather than trusting a
-discovery file or PID. SQLite exclusive ownership arbitrates simultaneous starts.
+discovery file or PID. Unix uses a user-private socket; Windows uses an account-local
+named pipe with current-user permissions and remote clients rejected. There is no
+local TCP listener or fallback. SQLite exclusive ownership arbitrates simultaneous starts.
+
+Before application initialization, management version `1` exposes
+`management.inspect`, `management.stop`, and `management.release`. Inspection
+returns the management and product versions together with the server identity,
+including its application protocol version. Stop/release require the inspected
+instance ID. This lets a client inspect or stop a protocol-incompatible owner
+without pretending application initialization succeeded. Management and ordinary
+RPC use the same authenticated local connection.
 
 After initialization, `server.info` returns the canonical home, stable server ID,
-per-process instance ID, PID, platform, protocol version and build ID.
+per-process instance ID, PID, platform, management/product/protocol versions and build ID.
 `server.stop` returns acceptance and then drains the shared composition and closes
 its clients. Acceptance does not mean drainage is finished; the control adapter
 waits for connection closure. `server.release` atomically accepts shutdown only
@@ -152,7 +162,10 @@ snapshot derived only from already-created state. Large data uses a feature
 request, not the attach response.
 
 The shipped contracts cover activities, workspace shell streaming, sandbox
-control, subagent list filtering, and approval. Workspace shell IDs are allocated
+control, subagent list filtering, approval, and MCP host settings, credentials,
+tools and sign-in. MCP configuration belongs to the host's global settings;
+saved changes require explicit host restart. Sign-in belongs to its initiating
+client connection and is cancelled on detach. Workspace shell IDs are allocated
 with a fresh UUID; duplicate active activity IDs fail rather than overwrite.
 The approval contract exposes pending requests in the approval attach snapshot,
 created/resolved notifications, and a client-to-server decision request. The first

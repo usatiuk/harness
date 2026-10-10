@@ -718,8 +718,8 @@ open. Automatic pruning is outside scope.
 
 Implementation and incremental local commits are authorized; checkboxes remain
 open until their completion checks pass. Execute coherent slices and record
-observed results. Push, publication and visible GUI test runs need separate
-authorization.
+observed results. Periodic pushes of validated commits directly to main are now
+authorized. Publication and visible GUI test runs need separate authorization.
 
 - [ ] **M0 — Publication inputs and release contract.** Decide distribution repo,
       first release/version/channel, project binary distribution terms/notices,
@@ -1333,3 +1333,37 @@ resolution for both manifests. Its archive is 111,437,365 bytes and inventories
 537 Rust crates and 662 installed npm packages. It reports 59 missing notices;
 preferred npm source, all-target notice/source closure and rebuilding the
 extracted archive remain required qualification. Nothing was pushed or published.
+
+### Rebase onto MCP main — validated
+
+Rebased the four local delivery commits onto `97eea03`, preserving upstream MCP
+host settings, scoped secrets, OAuth lifetime and human-only approvals together
+with managed Node, numeric settings-file versions, selected-server admission
+before SQLite initialization and owned cleanup. The three textual conflicts
+(testing documentation, lockfile and composition imports) retain both changes.
+Range-diff verifies the remaining local commits replay unchanged.
+
+Independent review found release metadata/smoke clients missing the new MCP
+contract and stale protocol schema/transport documentation. Assembly and smoke
+handshakes now include MCP; the generated schema includes stable management
+requests and updated identity fields while retaining MCP messages. Transport docs
+describe sockets/named pipes and distinguish management from application
+initialization. The pinned MCP SDK already hides Windows stdio children, so no
+new spawn wrapper or dependency abstraction is added.
+
+The first combined full check passed 1,286 tests and failed four cases. Exact
+managed Node reproduction identified a raw Windows drive path passed to the MCP
+fixture's `--import` loader; `pathToFileURL` fixes that original regression. Three
+existing five-second timeouts pass in isolation and in the final full check;
+their initial scheduling cause remains unestablished. No assertions/timeouts or
+retry policy changed. The final `npm run check` passes typecheck, lint, formatting
+and 1,290 tests (36 skipped; 145 passing files, nine skipped files).
+
+Fresh development CLI/server payloads build and their headless outside-checkout
+CLI/RPC/demo-turn/SQLite-restart smoke passes. This does not qualify installed
+release updates, cold HTTPS bootstrap or native desktop behavior. Three read-only
+review lenses cover correctness, architecture/simplicity and evidence. Historical
+pre-MCP signing/source-export results remain labeled with their original commits.
+Periodic direct main pushes are authorized; release publication and visible GUI
+tests still require separate authorization. All M0–M7 completion gates remain
+open and the overall goal remains active.

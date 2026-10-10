@@ -3135,6 +3135,8 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
+        "managementVersion": { "type": "number", "const": 1 },
+        "productVersion": { "type": "string" },
         "serverId": {
           "type": "string",
           "format": "uuid",
@@ -3145,13 +3147,19 @@
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
         },
-        "protocolVersion": { "type": "number", "const": 4 },
+        "protocolVersion": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
         "home": { "type": "string", "minLength": 1 },
         "pid": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
         "platform": { "type": "string", "enum": ["win32", "darwin", "linux"] },
         "buildId": { "type": "string", "minLength": 1 }
       },
       "required": [
+        "managementVersion",
+        "productVersion",
         "serverId",
         "instanceId",
         "protocolVersion",
@@ -3182,6 +3190,91 @@
       "additionalProperties": false
     },
     "server_release_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "stopping": { "type": "boolean" } },
+      "required": ["stopping"],
+      "additionalProperties": false
+    },
+    "management_inspect_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "management_inspect_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "managementVersion": { "type": "number", "const": 1 },
+        "productVersion": { "type": "string" },
+        "serverId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "instanceId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "protocolVersion": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "home": { "type": "string", "minLength": 1 },
+        "pid": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+        "platform": { "type": "string", "enum": ["win32", "darwin", "linux"] },
+        "buildId": { "type": "string", "minLength": 1 }
+      },
+      "required": [
+        "managementVersion",
+        "productVersion",
+        "serverId",
+        "instanceId",
+        "protocolVersion",
+        "home",
+        "pid",
+        "platform",
+        "buildId"
+      ],
+      "additionalProperties": false
+    },
+    "management_stop_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "instanceId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": ["instanceId"],
+      "additionalProperties": false
+    },
+    "management_stop_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "accepted": { "type": "boolean", "const": true } },
+      "required": ["accepted"],
+      "additionalProperties": false
+    },
+    "management_release_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "instanceId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": ["instanceId"],
+      "additionalProperties": false
+    },
+    "management_release_result": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": { "stopping": { "type": "boolean" } },
@@ -4293,6 +4386,27 @@
       "direction": "client-to-server",
       "params": { "$ref": "#/$defs/server_release_params" },
       "result": { "$ref": "#/$defs/server_release_result" }
+    },
+    {
+      "method": "management.inspect",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/management_inspect_params" },
+      "result": { "$ref": "#/$defs/management_inspect_result" }
+    },
+    {
+      "method": "management.stop",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/management_stop_params" },
+      "result": { "$ref": "#/$defs/management_stop_result" }
+    },
+    {
+      "method": "management.release",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/management_release_params" },
+      "result": { "$ref": "#/$defs/management_release_result" }
     },
     {
       "method": "plugin.approval.decide",

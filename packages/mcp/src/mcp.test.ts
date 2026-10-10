@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { MemorySecretStore } from "@harness/secrets";
 import { HarnessService } from "@harness/service";
@@ -106,7 +106,7 @@ it("discovers a real stdio process with host env/secret sources, preserves JSON 
           executable: process.execPath,
           args: [
             "--import",
-            createRequire(import.meta.url).resolve("tsx"),
+            pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href,
             fileURLToPath(new URL("./stdio-fixture.ts", import.meta.url)),
           ],
           cwd,

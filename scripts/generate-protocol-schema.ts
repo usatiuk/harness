@@ -36,7 +36,14 @@ import {
   appAuthLogoutRequest,
   appAuthUrlNotification,
 } from "@harness/server/client-protocol";
-import { serverInfoRequest, serverStopRequest, serverReleaseRequest } from "@harness/connections";
+import {
+  serverInfoRequest,
+  serverStopRequest,
+  serverReleaseRequest,
+  managementInspectRequest,
+  managementStopRequest,
+  managementReleaseRequest,
+} from "@harness/connections";
 
 import { mcpRpcMessages } from "@harness/mcp/client";
 
@@ -46,6 +53,9 @@ const messages: readonly RpcMessage[] = [
   serverInfoRequest,
   serverStopRequest,
   serverReleaseRequest,
+  managementInspectRequest,
+  managementStopRequest,
+  managementReleaseRequest,
   approvalDecideRequest,
   approvalCreatedNotification,
   approvalResolvedNotification,

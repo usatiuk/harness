@@ -21,6 +21,7 @@ import {
 import { HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
 import { FEATURE_PLUGIN_CONTRACTS } from "@harness/client-features";
 import { APPROVAL_CLIENT_CONTRACT_VERSION } from "@harness/approval/client";
+import { MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp/client";
 import { STORE_SCHEMA_VERSION } from "../../packages/store-sqlite/src/schema.ts";
 import { verifyArtifactSignature } from "@harness/native";
 import { cleanSourceCommit, repositoryRoot } from "./version.ts";
@@ -442,6 +443,7 @@ export async function assembleRelease(
     pluginContracts: Object.fromEntries(
       [
         { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
+        { id: "mcp", version: MCP_CLIENT_CONTRACT_VERSION },
         ...FEATURE_PLUGIN_CONTRACTS,
       ].map(({ id, version }) => [id, String(version)]),
     ),

@@ -306,6 +306,7 @@ describe("exact release artifact assembly", () => {
       sourceCommit,
     );
     expect(Object.keys(manifest.targets)).toEqual(["windows-x64", "linux-x64-glibc"]);
+    expect(manifest.pluginContracts).toMatchObject({ mcp: "1" });
     const latest = JSON.parse(await readFile(join(output, "latest.json"), "utf8")) as {
       version: string;
       platforms: Record<string, { url: string }>;

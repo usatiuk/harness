@@ -9,6 +9,7 @@ import { HarnessClient } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { APPROVAL_CLIENT_CONTRACT_VERSION } from "@harness/approval";
 import { FEATURE_PLUGIN_CONTRACTS } from "@harness/client-features";
+import { MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp/client";
 import { PRODUCT_VERSION } from "@harness/release";
 import { LOCAL_HOST, managementInspectRequest, type ServerIdentity } from "@harness/connections";
 import {
@@ -126,6 +127,7 @@ async function bridge<T>(
     client: { name: "desktop-bootstrap-smoke", version: PRODUCT_VERSION },
     plugins: [
       { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
+      { id: "mcp", version: MCP_CLIENT_CONTRACT_VERSION },
       ...FEATURE_PLUGIN_CONTRACTS,
     ],
   });

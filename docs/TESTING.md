@@ -50,7 +50,7 @@ at the test boundary to isolate the existing file backend. See the
 for full-check results and review status. macOS browser/fixture evidence does not
 establish native Windows/DPAPI, Linux keyring, or real third-party OAuth acceptance.
 
-On this macOS host the unchanged QuickJS microtask test takes approximately
+In the upstream MCP delivery's macOS run, the unchanged QuickJS microtask test takes approximately
 7.8 seconds against its existing five-second test timeout, while returning its
 computation-limit error. Homebrew Node's `libnode` linkage prevents a copied
 standalone-runtime test; an official standalone Node archive passes that check.
@@ -61,7 +61,9 @@ when the tests set a temporary Harness home. The unchanged conversation-canvas
 geometry case intermittently fails in the full browser suite and passes alone;
 its timing cause remains unisolated. The affected MCP/approval settings scenarios
 pass. Tests/timeouts remain unchanged.
+
 ## Managed runtime and release foundation
+
 CLI development, desktop, Vitest and `npm run check` commands enter through the
 native bootstrap and downloaded Node 22.23.3, including remote qualification. Run
 `npm run runtime:setup` first so native dependencies share its ABI. The new
@@ -112,7 +114,7 @@ retirement; failed scratch is retained when physical retirement is unconfirmed.
 
 Source export checks use real Git/files/archives with a controlled Cargo edge.
 Actual desktop Cargo metadata was 2,778,800 bytes; export uses a bounded 16 MiB
-capture. Actual clean-commit export now passes locked vendoring and offline
+capture. Actual pre-MCP clean-commit export from `1c2ecae` passes locked vendoring and offline
 metadata resolution for both Rust graphs: 537 crates, 662 installed npm packages
 and a 111,437,365-byte source archive. It reports 59 missing notices. Rebuilding
 the extracted archive and preferred npm source remain unqualified.
@@ -121,8 +123,23 @@ controlled signing/GitHub edges; they do not publish releases. The manual workfl
 passes syntax/actionlint and real local Git source-cut/rejection fixtures, but
 hosted builders, minimum-platform artifacts, corresponding-source completeness
 and anonymous published installation still require their own evidence.
-The full managed check for this source/publication slice passes typecheck, lint,
+The pre-MCP full managed check for this source/publication slice passes typecheck, lint,
 formatting and 1,259 tests (36 skipped; 141 passing files, nine skipped files).
+
+After rebasing onto the MCP delivery (`97eea03`), the combined Windows managed
+check passes typecheck, lint, formatting and 1,290 tests (36 skipped; 145 passing
+files, nine skipped files). Fresh development CLI/server payloads build and pass
+the headless outside-checkout CLI/RPC/demo/SQLite smoke. Release metadata and
+smoke clients advertise the same MCP contract as the production clients/server.
+The regenerated schema includes management controls and MCP messages.
+
+The initial combined check had one Windows MCP fixture failure and three existing
+five-second timeouts. The fixture passed a raw drive path to Node's `--import`;
+an exact managed-runtime probe reproduced `ERR_UNSUPPORTED_ESM_URL_SCHEME`.
+Using `pathToFileURL` fixes the existing real stdio/direct/code-mode regression.
+The three timed-out cases pass in isolation and in the final full check; their
+initial scheduling cause remains unestablished. No assertions, retries or timeouts
+changed. The upstream macOS evidence above remains distinct. No GUI tests ran.
 
 ## Native search and output finalization
 

@@ -91,15 +91,23 @@ atomic main/tag cut and retains exact artifacts for downstream retries. Missing
 notices/preferred npm source, hosted platform execution, anonymous installation,
 installed cross-version/ABI and process-death checks, updates and explicit prune
 remain required work. Public repository credentials, signing-key backup and real
-platform access also remain inputs. No public release or pushed commit is claimed;
-visible native tests require approval for each run.
-The source/publication checkpoint passes the full managed check: typecheck, lint,
+platform access also remain inputs. Direct main pushes of validated checkpoints
+are authorized; publication and visible native tests require separate approval.
+The pre-MCP source/publication checkpoint passes the full managed check: typecheck, lint,
 formatting and 1,259 tests (36 skipped). Three independent review lenses were used;
 the signed finalized-layout Windows smoke also passes. Actual minimum-platform
 and hosted release execution remain unqualified.
 Actual source export from `1c2ecae` now passes locked Rust vendoring and offline
 metadata resolution, producing a 111 MB archive. It reports 59 missing dependency
 notices; preferred npm source and rebuilding the extracted archive remain open.
+
+The release branch is rebased onto the MCP delivery at `97eea03`. Both MCP host
+ownership/human-only approvals and release runtime/settings semantics are
+preserved. Release metadata and smoke clients include the MCP contract; the
+generated protocol schema includes stable management controls. A Windows test
+fixture now supplies Node's loader as a file URL. The combined full managed check
+passes 1,290 tests (36 skipped), and fresh development CLI/server payloads build
+and pass their outside-checkout headless smoke. No GUI qualification is claimed.
 
 ## Recent delivery
 

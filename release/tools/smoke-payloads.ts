@@ -7,6 +7,7 @@ import { HarnessClient } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { FEATURE_PLUGIN_CONTRACTS } from "@harness/client-features";
 import { APPROVAL_CLIENT_CONTRACT_VERSION } from "@harness/approval";
+import { MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp/client";
 import {
   PRODUCT_VERSION,
   targetSchema,
@@ -250,6 +251,7 @@ try {
       client: { name: "payload-smoke", version: PRODUCT_VERSION },
       plugins: [
         { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
+        { id: "mcp", version: MCP_CLIENT_CONTRACT_VERSION },
         ...FEATURE_PLUGIN_CONTRACTS,
       ],
     });
