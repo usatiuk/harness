@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
@@ -74,7 +74,11 @@ describe("SqliteStore (durable-only)", () => {
       raw.exec("CREATE TABLE obsolete (value INTEGER); INSERT INTO obsolete VALUES (42)");
       raw.pragma(`user_version = ${version}`);
       raw.close();
-      expect(() => new SqliteStore(path)).toThrow("database migrations are not supported");
+      const original = readFileSync(path);
+      expect(() => new SqliteStore(path, undefined, undefined, { exclusive: true })).toThrow(
+        "Upgrade Harness to a compatible server",
+      );
+      expect(readFileSync(path)).toEqual(original);
       const check = new BetterSqlite3(path);
       try {
         expect(check.pragma("user_version", { simple: true })).toBe(version);
@@ -84,6 +88,42 @@ describe("SqliteStore (durable-only)", () => {
       }
     },
   );
+  it("holds SQLite exclusion before admission and leaves a rejected database unchanged", () => {
+    const path = tempDb();
+    const raw = new BetterSqlite3(path);
+    raw.exec("CREATE TABLE preserved (value TEXT); INSERT INTO preserved VALUES ('untouched')");
+    raw.pragma("user_version = 3");
+    raw.close();
+    const original = readFileSync(path);
+    const rejection = new Error("Selected server changed");
+    expect(
+      () =>
+        new SqliteStore(path, undefined, undefined, {
+          exclusive: true,
+          beforeInitialize: () => {
+            const rival = new BetterSqlite3(path);
+            try {
+              rival.pragma("busy_timeout = 0");
+              expect(() => rival.prepare("SELECT value FROM preserved").get()).toThrow(
+                "database is locked",
+              );
+            } finally {
+              rival.close();
+            }
+            throw rejection;
+          },
+        }),
+    ).toThrow(rejection);
+    expect(readFileSync(path)).toEqual(original);
+    // Rejection released the ownership lock without running the v3 migration.
+    const reopened = new BetterSqlite3(path);
+    try {
+      expect(reopened.pragma("user_version", { simple: true })).toBe(3);
+      expect(reopened.prepare("SELECT value FROM preserved").get()).toEqual({ value: "untouched" });
+    } finally {
+      reopened.close();
+    }
+  });
   it.each([3, 5])(
     "upgrades schema v%s additively and preserves history with unknown context input",
     async (version) => {

@@ -1,0 +1,16 @@
+{
+  "name": "@harness/release",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

@@ -28,10 +28,9 @@ it.skipIf(!process.env.HARNESS_REMOTE_WSL || !process.env.HARNESS_REMOTE_FIXTURE
       kind: "wsl",
       distribution: process.env.HARNESS_REMOTE_WSL!,
       user: null,
-      runtime: { source: "managed" },
     };
     const q = shellQuote;
-    const settings = JSON.stringify({ model: { provider: "demo", model: "demo-1" } });
+    const settings = JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } });
     await runRemote(
       remote,
       `umask 077; mkdir -p ${q(`${root}/.harness`)} ${q(`${root}/project`)}; printf '%s' ${q(settings)} > ${q(`${root}/.harness/settings.json`)}`,
@@ -53,6 +52,8 @@ it.skipIf(!process.env.HARNESS_REMOTE_WSL || !process.env.HARNESS_REMOTE_FIXTURE
     let fresh: TuiHosts | undefined;
     let ui: ReturnType<typeof render> | undefined;
     const input = async (text: string) => {
+      // A rendered input can precede Ink's passive subscription to stdin.
+      await act(async () => {});
       await act(async () => {
         ui!.stdin.write(text);
       });
@@ -120,7 +121,7 @@ it.skipIf(!process.env.HARNESS_REMOTE_WSL || !process.env.HARNESS_REMOTE_FIXTURE
           JSON.parse(
             await runRemote(
               remote,
-              `if test -f ${q(`${root}/.harness/.server/discovery.json`)}; then cat ${q(`${root}/.harness/.server/discovery.json`)}; else printf null; fi`,
+              `if test -f ${q(`${root}/.harness/.running-server/discovery.json`)}; then cat ${q(`${root}/.harness/.running-server/discovery.json`)}; else printf null; fi`,
             ),
           ),
         );

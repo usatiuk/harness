@@ -6,7 +6,6 @@ import {
   Button,
   Dialog,
   Input,
-  Select,
   Checkbox,
   PopoverControl,
   Confirmation,
@@ -68,7 +67,6 @@ export function ConnectionEditor({
     const common = {
       id: crypto.randomUUID(),
       label: kind === "wsl" ? "WSL" : "SSH",
-      runtime: { source: "managed" as const },
     };
     setEditing(
       kind === "wsl"
@@ -86,9 +84,6 @@ export function ConnectionEditor({
     act(async () => {
       if (!editing) throw new Error("No connection selected");
       const common = { id: editing.id, label: value(form, "label") };
-      const runtime = {
-        source: value(form, "source"),
-      };
       const host = hostSchema.parse(
         editing.kind === "local"
           ? { ...common, kind: "local" }
@@ -98,14 +93,11 @@ export function ConnectionEditor({
                 kind: "wsl",
                 distribution: value(form, "distribution"),
                 user: optional(form, "user"),
-                runtime,
               }
             : {
                 ...common,
                 kind: "ssh",
                 destination: value(form, "destination"),
-
-                runtime,
               },
       );
       await hosts.edit({ type: "host.save", host });
@@ -218,15 +210,6 @@ export function ConnectionEditor({
                       aliases in .ssh/config.
                     </p>
                   </>
-                )}
-                {editing.kind !== "local" && (
-                  <label>
-                    Runtime
-                    <Select name="source" defaultValue={editing.runtime.source}>
-                      <option value="managed">Managed portable runtime</option>
-                      <option value="development">Use host’s Node (development)</option>
-                    </Select>
-                  </label>
                 )}
                 <div className="button-row">
                   <Button type="submit" value="save" disabled={busy}>

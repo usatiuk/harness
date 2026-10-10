@@ -11,7 +11,7 @@ async function tmp() {
   return home;
 }
 async function writeJson(path: string, value: unknown) {
-  await writeFile(path, JSON.stringify(value));
+  await writeFile(path, JSON.stringify({ version: 1, ...(value as Record<string, unknown>) }));
 }
 afterEach(async () => {
   await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));

@@ -19,6 +19,7 @@ describe("updateGlobalModel", () => {
       setAuthStore(home, "file"),
     ]);
     expect(await readDoc(home)).toEqual({
+      version: 1,
       plugins: { audit: { a: 1, b: 2 } },
       model: { provider: "fake", model: "next" },
       auth: { store: "file" },
@@ -46,6 +47,7 @@ describe("updateGlobalModel", () => {
     await writeFile(
       join(home, "settings.json"),
       JSON.stringify({
+        version: 1,
         instructions: "be nice",
         model: { provider: "demo", model: "demo-1" },
         profiles: { fast: { model: { provider: "openai", model: "gpt-5.1-codex" } } },
@@ -67,6 +69,7 @@ describe("updateGlobalPluginConfig", () => {
     await writeFile(
       join(home, "settings.json"),
       JSON.stringify({
+        version: 1,
         model: { provider: "demo", model: "demo-1" },
         plugins: {
           "auto-approval": {
@@ -94,6 +97,7 @@ describe("readGlobalSettings custom providers", () => {
     await writeFile(
       join(home, "settings.json"),
       JSON.stringify({
+        version: 1,
         model: { provider: "demo", model: "demo-1" },
         providers: {
           ovms: {

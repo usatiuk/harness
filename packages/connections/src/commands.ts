@@ -2,13 +2,8 @@ import { z } from "zod";
 import { type ConnectionCommand, type ConnectionCommandResult } from "./contracts.ts";
 export { connectionCommandSchema, preparedRuntimeSchema } from "./contracts.ts";
 export type { ConnectionCommand } from "./contracts.ts";
-import { HarnessClient } from "@harness/client";
-import {
-  hostSchema,
-  serverIdentitySchema,
-  serverInfoRequest,
-  serverStopRequest,
-} from "./contracts.ts";
+import { hostSchema, serverIdentitySchema } from "./contracts.ts";
+import { stopConnection } from "./control.ts";
 import { readClientConfig, removeHost, saveHost, updateClientConfig } from "./registry.ts";
 import { stopServer } from "./connect.ts";
 import { readDiscovery } from "./local.ts";
@@ -84,37 +79,9 @@ export async function stopRemoteServer(
   options: RemoteOptions = {},
 ): Promise<void> {
   const transport = await connectRemote(host, runtime, options, false);
-  const client = new HarnessClient({
-    connection: transport.connection,
-    client: { name: "harness-control", version: "0.0.0" },
-  });
-  let timer!: ReturnType<typeof setTimeout>;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new Error("Remote shutdown did not finish within 20 seconds")),
-      20_000,
-    );
-  });
-  const closed = new Promise<void>((resolve) => transport.connection.onClose(() => resolve()));
   try {
-    await Promise.race([
-      deadline,
-      (async () => {
-        await client.start();
-        const identity = await client.peer.request(serverInfoRequest, {});
-        if (
-          identity.instanceId !== expected.instanceId ||
-          identity.serverId !== expected.serverId ||
-          identity.home !== expected.home
-        )
-          throw new Error("Server instance changed; reconnect before stopping it");
-        await client.peer.request(serverStopRequest, {});
-        await closed;
-      })(),
-    ]);
+    await stopConnection(transport.connection, expected);
   } finally {
-    clearTimeout(timer);
-    client.closeConnection();
     await transport.close();
   }
 }

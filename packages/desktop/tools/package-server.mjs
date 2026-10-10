@@ -1,88 +1,12 @@
-import { bundleServer, RUNTIME_EXTERNAL } from "../../connections/tools/bundle-server.mjs";
-import { cp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { buildPayload, buildIdentity } from "../../../release/tools/build-payloads.mjs";
+import { fileURLToPath, URL } from "node:url";
 import process from "node:process";
-import console from "node:console";
-import { URL } from "node:url";
 
-const require = createRequire(import.meta.url);
-const root = fileURLToPath(new URL("../../../", import.meta.url));
+if (process.env.HARNESS_RELEASE_BUILD === "1")
+  throw new Error("Published desktop builds download server payloads; use desktop:release");
+
 const output = fileURLToPath(new URL("../resources/", import.meta.url));
-if (resolve(output) !== resolve(root, "packages/desktop/resources"))
-  throw new Error("Invalid generated resource directory");
-await rm(output, { recursive: true, force: true });
-await mkdir(join(output, "runtime"), { recursive: true });
-await cp(
-  process.execPath,
-  join(output, "runtime", process.platform === "win32" ? "node.exe" : "node"),
-);
-let nodeLicense;
-try {
-  nodeLicense = await readFile(join(dirname(process.execPath), "LICENSE"), "utf8");
-} catch (error) {
-  if (error.code !== "ENOENT") throw error;
-  const response = await globalThis.fetch(
-    `https://raw.githubusercontent.com/nodejs/node/${process.version}/LICENSE`,
-  );
-  if (!response.ok)
-    throw new Error(
-      `Cannot obtain the license for bundled Node ${process.version}: HTTP ${response.status}`,
-      { cause: error },
-    );
-  nodeLicense = await response.text();
-}
-await writeFile(join(output, "runtime", "LICENSE"), nodeLicense);
-await bundleServer(output);
-const external = RUNTIME_EXTERNAL;
-const copied = new Set();
-const dependencies = {};
-async function copyPackage(name, from) {
-  if (copied.has(name)) return;
-  let manifest;
-  try {
-    manifest = require.resolve(`${name}/package.json`, { paths: [from] });
-  } catch (error) {
-    if (error.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") throw error;
-    let directory = dirname(require.resolve(name, { paths: [from] }));
-    while (true) {
-      try {
-        const json = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
-        if (json.name === name) {
-          manifest = join(directory, "package.json");
-          break;
-        }
-      } catch (cause) {
-        if (cause.code !== "ENOENT") throw cause;
-      }
-      const parent = dirname(directory);
-      if (parent === directory)
-        throw new Error(`Cannot locate native dependency ${name}`, { cause: error });
-      directory = parent;
-    }
-  }
-  const source = dirname(manifest);
-  const json = JSON.parse(await readFile(manifest, "utf8"));
-  dependencies[name] = json;
-  copied.add(name);
-  await cp(source, join(output, "node_modules", name), { recursive: true });
-  for (const dependency of Object.keys(json.dependencies ?? {}))
-    await copyPackage(dependency, source);
-  for (const dependency of Object.keys(json.optionalDependencies ?? {})) {
-    try {
-      require.resolve(dependency, { paths: [source] });
-    } catch (error) {
-      if (error.code === "MODULE_NOT_FOUND") continue;
-      throw error;
-    }
-    await copyPackage(dependency, source);
-  }
-}
-for (const name of external) await copyPackage(name, root);
-// The remote install lock omits Windows-only dependencies such as DPAPI.
-// Local cache identity must describe the complete closure actually copied.
-await writeFile(join(output, "packaged-dependencies.json"), JSON.stringify(dependencies));
-console.log(
-  `Packaged Node ${process.version}, Harness server and ${copied.size} native/runtime dependencies.`,
+await buildPayload("server", output, await buildIdentity());
+process.stderr.write(
+  "Prepared complete development server payload; Node is shared through bootstrap.\n",
 );

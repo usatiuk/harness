@@ -1,9 +1,3 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { defaultHome } from "@harness/config";
 import {
@@ -25,6 +19,7 @@ import {
   type ServerLaunch,
 } from "@harness/connections/node";
 import { buildClientHarness, type Harness } from "./client-harness.ts";
+import { prepareServerLaunch } from "./server-launch.ts";
 
 export interface TuiHostView {
   host: Host;
@@ -49,14 +44,7 @@ export class TuiHosts {
   private configTail: Promise<void> = Promise.resolve();
   constructor(
     readonly env: NodeJS.ProcessEnv = {},
-    readonly localLaunch: ServerLaunch = {
-      executable: process.execPath,
-      args: [
-        ...process.execArgv,
-        fileURLToPath(import.meta.resolve("@harness/server/entry")),
-        "--background",
-      ],
-    },
+    readonly localLaunch?: ServerLaunch,
   ) {}
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -122,8 +110,6 @@ export class TuiHosts {
           label: destination,
           kind: "ssh",
           destination,
-
-          runtime: { source: "managed" },
         };
         await this.edit({ type: "host.save", host });
         selectedId = host.id;
@@ -174,24 +160,7 @@ export class TuiHosts {
       view.progress = text;
       this.changed();
     };
-    const configured = process.env["HARNESS_SERVER_PAYLOAD"];
-    const payload = configured ?? (await mkdtemp(join(tmpdir(), "harness-tui-payload-")));
-    try {
-      if (!configured) {
-        progress("Building current local server bundle");
-        await promisify(execFile)(
-          process.execPath,
-          [
-            fileURLToPath(new URL("../../connections/tools/bundle-server.mjs", import.meta.url)),
-            payload,
-          ],
-          { windowsHide: true, signal, timeout: 120_000, maxBuffer: 1024 * 1024 },
-        );
-      }
-      return await prepareRemoteRuntime(host, payload, { signal, env: this.env, progress });
-    } finally {
-      if (!configured) await rm(payload, { recursive: true, force: true });
-    }
+    return prepareRemoteRuntime(host, "", { signal, env: this.env, progress });
   }
   private async open(id: string, signal: AbortSignal): Promise<TuiHostView> {
     const view = this.views.get(id);
@@ -206,19 +175,26 @@ export class TuiHosts {
     let transport: RemoteConnection | undefined;
     try {
       if (host.kind === "local") {
-        const local = await ensureLocalServer(
-          defaultHome(),
-          {
-            ...this.localLaunch,
-            env: { ...this.localLaunch.env, ...this.env },
-          },
-          signal,
-        );
-        transport = {
-          connection: local.connection,
-          failure: undefined,
-          close: async () => local.close(),
-        };
+        const prepared = this.localLaunch
+          ? { launch: this.localLaunch, close: async () => {} }
+          : await prepareServerLaunch("background", signal);
+        try {
+          const local = await ensureLocalServer(
+            defaultHome(),
+            {
+              ...prepared.launch,
+              env: { ...prepared.launch.env, ...this.env },
+            },
+            signal,
+          );
+          transport = {
+            connection: local.connection,
+            failure: undefined,
+            close: async () => local.close(),
+          };
+        } finally {
+          await prepared.close();
+        }
       } else {
         view.runtime = await this.prepare(view, signal);
         signal.throwIfAborted();

@@ -17,7 +17,7 @@ test("packaged Local starts outside the checkout and reuses its standalone cache
   const home = await canonicalHome(join(directory, "home"));
   await writeFile(
     join(home, "settings.json"),
-    JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+    JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } }),
   );
   let app: NativeApplication | undefined;
   try {
@@ -67,7 +67,7 @@ test("host switcher starts with Local and connection editing survives a disconne
   const home = await canonicalHome(join(profile, "app"));
   await writeFile(
     join(home, "settings.json"),
-    JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+    JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } }),
   );
   const app = await NativeApplication.launch(profile, info.outputPath("application"), home);
   try {
@@ -128,7 +128,7 @@ test("stop-on-exit keeps another client alive and stops only the last local owne
   const home = await canonicalHome(join(profile, "app"));
   await writeFile(
     join(home, "settings.json"),
-    JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+    JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } }),
   );
   const first = await NativeApplication.launch(profile, info.outputPath("first"), home);
   let second: NativeApplication | undefined;
@@ -172,7 +172,7 @@ test("stop-on-exit closes a native bridge before its RPC initialization", async 
   const home = await canonicalHome(join(profile, "app"));
   await writeFile(
     join(home, "settings.json"),
-    JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+    JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } }),
   );
   const app = await NativeApplication.launch(profile, info.outputPath("application"), home);
   try {
@@ -223,19 +223,11 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
     kind: "wsl",
     distribution: distribution!,
     user: null,
-    runtime: {
-      source: "development",
-    },
   };
-  const script = `#!/bin/sh\nexport HARNESS_FIXTURE_ROOT=${q(remoteRoot)}\nprintf '%s' "$$" > ${q(`${remoteRoot}/pid`)}\nexec sleep 300\n`;
   await test.step(
     "Create isolated WSL process edge",
     () =>
-      runRemote(
-        host,
-        `umask 077; mkdir ${q(remoteRoot)}; printf '%s' ${q(script)} > ${q(`${remoteRoot}/node`)}; chmod 700 ${q(`${remoteRoot}/node`)}`,
-        { signal: AbortSignal.timeout(10_000) },
-      ),
+      runRemote(host, `umask 077; mkdir ${q(remoteRoot)}`, { signal: AbortSignal.timeout(10_000) }),
     { timeout: 12_000 },
   );
 
@@ -243,11 +235,11 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
   const home = await canonicalHome(join(profile, "app"));
   await writeFile(
     join(home, "settings.json"),
-    JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+    JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } }),
   );
   const preload = await remoteProcessFixture(
     home,
-    `export HOME=${q(remoteRoot)}; export PATH=${q(remoteRoot)}:"$PATH"; `,
+    `export HOME=${q(remoteRoot)}; export HARNESS_FIXTURE_ROOT=${q(remoteRoot)}; printf '%s' "$$" > ${q(`${remoteRoot}/pid`)}; exec sleep 300; `,
   );
   let app: NativeApplication | undefined;
   try {
@@ -287,10 +279,6 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
       { timeout: 10_000 },
     );
 
-    await dialog
-      .getByRole("combobox", { name: "Runtime", exact: true })
-      .selectOption("development", { timeout: 5000 });
-
     await dialog.getByRole("button", { name: "Save & test", exact: true }).click();
     await expect
       .poll(() =>
@@ -319,7 +307,7 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
     await app?.close();
     const owner = await readDiscovery(home);
     if (owner) await stopServer(owner);
-    // The fake executable is an isolated process edge; stop only its recorded fixture PID.
+    // Stop only the isolated process edge's recorded fixture PID.
     await runRemote(
       host,
       `if test -f ${q(`${remoteRoot}/pid`)}; then pid=$(cat ${q(`${remoteRoot}/pid`)}); if test -r /proc/$pid/environ && tr '\\0' '\\n' < /proc/$pid/environ | grep -Fx ${q(`HARNESS_FIXTURE_ROOT=${remoteRoot}`)} >/dev/null; then kill "$pid"; fi; fi; rm -rf ${q(remoteRoot)}`,
@@ -339,10 +327,9 @@ test("a real WSL conversation keeps its approval across host switching and deskt
     kind: "wsl",
     distribution: distribution!,
     user: null,
-    runtime: { source: "managed" },
   };
   const q = shellQuote;
-  const settings = JSON.stringify({ model: { provider: "demo", model: "demo-1" } });
+  const settings = JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } });
   await runRemote(
     host,
     `umask 077; mkdir -p ${q(remoteHome)} ${q(`${remoteRoot}/project`)}; printf '%s' ${q(settings)} > ${q(`${remoteHome}/settings.json`)}`,
@@ -354,7 +341,7 @@ test("a real WSL conversation keeps its approval across host switching and deskt
         JSON.parse(
           await runRemote(
             host,
-            `if test -f ${q(`${remoteHome}/.server/discovery.json`)}; then cat ${q(`${remoteHome}/.server/discovery.json`)}; else printf null; fi`,
+            `if test -f ${q(`${remoteHome}/.running-server/discovery.json`)}; then cat ${q(`${remoteHome}/.running-server/discovery.json`)}; else printf null; fi`,
           ),
         ),
       );

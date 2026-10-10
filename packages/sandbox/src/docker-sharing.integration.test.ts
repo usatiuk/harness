@@ -58,7 +58,10 @@ describe.runIf(process.env.HARNESS_DOCKER_INTEGRATION === "1")(
   "shared devcontainer/Compose integration",
   () => {
     it("owns workspace, sidecar, and network lifetimes across independent conversation handles", async () => {
-      const info = spawnSync("docker", ["info", "--format", "{{.OSType}}"], { encoding: "utf8" });
+      const info = spawnSync("docker", ["info", "--format", "{{.OSType}}"], {
+        encoding: "utf8",
+        windowsHide: true,
+      });
       if (info.status !== 0 || info.stdout.trim() !== "linux")
         throw new Error(`Linux Docker daemon required: ${info.stderr || info.error?.message}`);
       const project = await mkdtemp(join(tmpdir(), "harness-shared-compose-"));

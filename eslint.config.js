@@ -13,6 +13,9 @@ export default tseslint.config(
       "**/test-results/**",
       "old/**",
       "coverage/**",
+      "release/output/**",
+      ".harness-dev/**",
+      ".native-dev/**",
     ],
   },
   eslint.configs.recommended,
@@ -42,8 +45,14 @@ export default tseslint.config(
     files: ["**/*.tsx"],
   },
   {
+    // The N-API loader is CommonJS so Node can load a native .node module.
+    files: ["packages/native/index.cjs"],
+    languageOptions: { globals: { require: "readonly", module: "readonly", exports: "readonly" } },
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
+  {
     // Config files aren't in any package's tsconfig.
-    files: ["**/*.js", "**/*.mjs", "**/*.config.ts"],
+    files: ["**/*.js", "**/*.mjs", "**/*.cjs", "**/*.config.ts"],
     extends: [tseslint.configs.disableTypeChecked],
   },
   prettier,

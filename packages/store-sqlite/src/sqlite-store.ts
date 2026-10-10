@@ -65,8 +65,12 @@ export class SqliteStore implements Store {
     path: string,
     private readonly ids: IdGenerator = uuidIdGenerator,
     private readonly clock: Clock = systemClock,
-    options: { exclusive?: boolean } = {},
+    options:
+      | { exclusive: true; beforeInitialize?: () => void }
+      | { exclusive?: false; beforeInitialize?: never } = {},
   ) {
+    if (options.beforeInitialize !== undefined && !options.exclusive)
+      throw new Error("The pre-initialization hook requires exclusive SQLite ownership");
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.#db = new BetterSqlite3(path);
     try {
@@ -77,10 +81,14 @@ export class SqliteStore implements Store {
         this.#db.pragma("locking_mode = EXCLUSIVE");
         this.#db.exec("BEGIN EXCLUSIVE; COMMIT;");
       }
+      // Selection and future migration backup policy stay outside the store.
+      // A rejected candidate cannot initialize or migrate this database.
+      options.beforeInitialize?.();
       this.#db.pragma("foreign_keys = ON");
+      // Reject an unsupported format before changing persistent journal mode.
+      initializeSchema(this.#db);
       this.#db.pragma("journal_mode = WAL");
       this.#db.pragma("synchronous = NORMAL");
-      initializeSchema(this.#db);
     } catch (error) {
       this.#db.close();
       if (options.exclusive && (error as { code?: string }).code === "SQLITE_BUSY") {

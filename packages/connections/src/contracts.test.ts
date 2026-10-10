@@ -1,3 +1,4 @@
+import { PRODUCT_VERSION } from "@harness/release";
 import { expect, it, expectTypeOf } from "vitest";
 import { randomUUID } from "node:crypto";
 import { HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
@@ -16,7 +17,6 @@ it("rejects impossible Local provisioning and remote stop/bridge prerequisites a
     label: "Work",
     kind: "ssh",
     destination: "work",
-    runtime: { source: "managed" },
   };
   const identity = {
     serverId: randomUUID(),
@@ -25,6 +25,8 @@ it("rejects impossible Local provisioning and remote stop/bridge prerequisites a
     home: "/home/user/.harness",
     pid: 1,
     platform: "linux",
+    managementVersion: 1 as const,
+    productVersion: PRODUCT_VERSION,
     buildId: "fixture",
   };
   expect(
@@ -64,6 +66,8 @@ it("validates native command results once and exposes the corresponding result t
           home: "fixture",
           pid: 1,
           platform: "linux",
+          managementVersion: 1 as const,
+          productVersion: PRODUCT_VERSION,
           buildId: "fixture",
         },
         runtime: null,

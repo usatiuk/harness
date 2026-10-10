@@ -1,3 +1,4 @@
+import { PRODUCT_VERSION } from "@harness/release";
 import { afterEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createInProcessMessageConnectionPair, RpcPeer, type RpcConnection } from "@harness/client";
@@ -31,7 +32,6 @@ it("reconciles external route changes, pending connects and removal while preser
     label: "Work",
     kind: "ssh",
     destination: "first",
-    runtime: { source: "development" },
   };
   let config = { ...defaultClientConfig(), hosts: [...defaultClientConfig().hosts, remote] };
   edge.command.mockImplementation(async (command: ConnectionCommand) => {
@@ -43,7 +43,6 @@ it("reconciles external route changes, pending connects and removal while preser
     directory: "/runtime",
     home: "/home/fixture/.harness",
     buildId: "a".repeat(64),
-    dependencyKey: "b".repeat(64),
     transferred: false,
   });
   let stall = false;
@@ -64,6 +63,8 @@ it("reconciles external route changes, pending connects and removal while preser
       home: "/home/fixture/.harness",
       pid: 1,
       platform: "linux" as const,
+      managementVersion: 1 as const,
+      productVersion: PRODUCT_VERSION,
       buildId: "fixture",
     }));
     server.onRequest(serverModelsRequest, () => ({
@@ -88,7 +89,7 @@ it("reconciles external route changes, pending connects and removal while preser
   hosts.selected!.presentation.drafts.set("conversation", "private draft");
   config = {
     ...config,
-    hosts: [config.hosts[0]!, { ...remote, label: "Renamed", runtime: { source: "managed" } }],
+    hosts: [config.hosts[0]!, { ...remote, label: "Renamed" }],
   };
   await hosts.edit({ type: "preferences", keepServerRunning: true });
   await hosts.connect("remote");

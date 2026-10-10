@@ -6,6 +6,8 @@ import { defaultHome } from "./home.ts";
 import { findProjectRoot, isHomeRoot } from "./resolve.ts";
 import {
   AUTH_STORE_KINDS,
+  decodeSettingsFile,
+  encodeSettingsFile,
   parseProjectDoc,
   parseSettingsDoc,
   type AuthStoreKind,
@@ -98,7 +100,7 @@ const globalPath = (home: string): string => join(home, "settings.json");
 /** Validates the merged document against the schema (failing loudly), then writes it. */
 async function writeSettings(path: string, doc: Record<string, unknown>): Promise<void> {
   const data = parseSettingsDoc(doc, path);
-  await replaceFile(path, `${JSON.stringify(data, null, 2)}\n`);
+  await replaceFile(path, `${JSON.stringify(encodeSettingsFile(data), null, 2)}\n`);
 }
 
 /**
@@ -121,7 +123,7 @@ export async function updateLocalSettings(
     const existing = (await readSettings(path)) as SettingsDoc;
     const merged = mutate(existing);
     const data = isGlobal ? parseSettingsDoc(merged, path) : parseProjectDoc(merged, path);
-    await replaceFile(path, `${JSON.stringify(data, null, 2)}\n`);
+    await replaceFile(path, `${JSON.stringify(encodeSettingsFile(data), null, 2)}\n`);
   });
   return path;
 }
@@ -134,7 +136,7 @@ async function readSettings(path: string): Promise<Record<string, unknown>> {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw e;
   }
-  return JSON.parse(raw) as Record<string, unknown>;
+  return decodeSettingsFile(JSON.parse(raw), path);
 }
 
 /** The validated global settings doc, or `{}` when no global settings file exists. */

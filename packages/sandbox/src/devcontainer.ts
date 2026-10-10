@@ -139,6 +139,7 @@ export async function provisionDevcontainer(
   const { cmd, pre } = devcontainerCmd();
   return new Promise<Provisioned>((resolvePromise, reject) => {
     const child = spawn(cmd, [...pre, ...args], {
+      windowsHide: true,
       cwd: root,
       signal: opts.signal,
       env: { ...process.env, COMPOSE_PROJECT_NAME: environmentName(root, opts.configPath) },

@@ -1,8 +1,9 @@
+import { PRODUCT_VERSION } from "@harness/release";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { rm } from "node:fs/promises";
-import { createServer, type Socket } from "node:net";
+import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
@@ -13,6 +14,7 @@ import {
   createServerToken,
   privateRuntimeDirectory,
   serverSecretStore,
+  listenLocal,
 } from "./local.ts";
 import { replaceJson } from "./json-file.ts";
 
@@ -28,27 +30,32 @@ it("detaches a real bridge with a bounded frame queued against an owner that sto
     home,
     pid: process.pid,
     platform: process.platform,
+    managementVersion: 1 as const,
+    productVersion: PRODUCT_VERSION,
     buildId: "fixture",
   };
   const sockets = new Set<Socket>();
   let authenticated!: () => void;
   const ready = new Promise<void>((resolve) => (authenticated = resolve));
-  const owner = createServer((socket) => {
-    sockets.add(socket);
-    socket.on("error", () => undefined);
-    void authenticateSocket(socket).then((supplied) => {
-      if (supplied !== token) throw new Error("Incorrect fixture authentication");
-      socket.write(`${JSON.stringify(identity)}\n`);
-      // Model a suspended process after authentication, without consuming RPC bytes.
-      socket.pause();
-      authenticated();
-    });
-  });
-  owner.listen(0, "127.0.0.1");
-  await once(owner, "listening");
-  const address = owner.address();
-  if (!address || typeof address === "string") throw new Error("Missing fixture address");
-  await replaceJson(join(directory, "discovery.json"), { ...identity, port: address.port });
+  const owner = await listenLocal(
+    home,
+    identity.instanceId,
+    (socket) => {
+      sockets.add(socket);
+      socket.on("error", () => undefined);
+      void authenticateSocket(socket).then((supplied) => {
+        if (supplied !== token) throw new Error("Incorrect fixture authentication");
+        socket.write(`${JSON.stringify(identity)}\n`);
+        // Model a suspended process after authentication, without consuming RPC bytes.
+        socket.pause();
+        authenticated();
+      });
+    },
+    (error) => {
+      throw error;
+    },
+  );
+  await replaceJson(join(directory, "discovery.json"), { ...identity, endpoint: owner.endpoint });
   const bridge = spawn(
     process.execPath,
     [
@@ -72,14 +79,12 @@ it("detaches a real bridge with a bounded frame queued against an owner that sto
     bridge.stdin.destroy();
     expect((await closed)[0]).toBe(0);
     expect(diagnostics).toBe("");
-    expect(owner.listening).toBe(true);
+    expect(sockets.size).toBe(1);
   } finally {
     if (bridge.exitCode === null) bridge.kill();
     await closed;
     for (const socket of sockets) socket.destroy();
-    await new Promise<void>((resolve, reject) =>
-      owner.close((error) => (error ? reject(error) : resolve())),
-    );
+    await owner.close();
     await rm(home, { recursive: true, force: true });
   }
 }, 20_000);

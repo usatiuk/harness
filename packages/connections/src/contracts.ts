@@ -1,9 +1,7 @@
 import { z } from "zod";
-import { defineRequest, HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
+import { defineRequest } from "@harness/protocol";
+import { versionSchema } from "@harness/release";
 
-const remoteRuntimeSchema = z.strictObject({
-  source: z.enum(["managed", "development"]),
-});
 const common = {
   id: z.string().min(1),
   label: z.string().trim().min(1).max(100),
@@ -19,7 +17,6 @@ export const remoteHostSchema = z.discriminatedUnion("kind", [
     kind: z.literal("wsl"),
     distribution: z.string().min(1),
     user: z.string().min(1).nullable(),
-    runtime: remoteRuntimeSchema,
   }),
   z.strictObject({
     ...common,
@@ -28,7 +25,6 @@ export const remoteHostSchema = z.discriminatedUnion("kind", [
       .string()
       .regex(/^[A-Za-z0-9_.@:[\]-]+$/u)
       .refine((value) => !value.startsWith("-")),
-    runtime: remoteRuntimeSchema,
   }),
 ]);
 export const hostSchema = z.discriminatedUnion("kind", [
@@ -37,7 +33,7 @@ export const hostSchema = z.discriminatedUnion("kind", [
 ]);
 export type Host = z.infer<typeof hostSchema>;
 export type RemoteHost = z.infer<typeof remoteHostSchema>;
-/** Display metadata and staged runtime choices do not change the execution account. */
+/** Display metadata does not change the execution account. */
 export function sameExecutionTarget(left: Host, right: Host): boolean {
   if (left.kind === "local") return right.kind === "local";
   if (left.kind === "ssh") return right.kind === "ssh" && left.destination === right.destination;
@@ -70,15 +66,35 @@ export const defaultClientConfig = (): ClientConfig => ({
 });
 
 export const serverIdentitySchema = z.strictObject({
+  managementVersion: z.literal(1),
+  productVersion: versionSchema,
   serverId: z.uuid(),
   instanceId: z.uuid(),
-  protocolVersion: z.literal(HARNESS_PROTOCOL_VERSION),
+  protocolVersion: z.number().int().positive(),
   home: z.string().min(1),
   pid: z.number().int().positive(),
   platform: z.enum(["win32", "darwin", "linux"]),
   buildId: z.string().min(1),
 });
 export type ServerIdentity = z.infer<typeof serverIdentitySchema>;
+export const managementInspectRequest = defineRequest({
+  direction: "client-to-server",
+  method: "management.inspect",
+  params: z.strictObject({}),
+  result: serverIdentitySchema,
+});
+export const managementStopRequest = defineRequest({
+  direction: "client-to-server",
+  method: "management.stop",
+  params: z.strictObject({ instanceId: z.uuid() }),
+  result: z.strictObject({ accepted: z.literal(true) }),
+});
+export const managementReleaseRequest = defineRequest({
+  direction: "client-to-server",
+  method: "management.release",
+  params: z.strictObject({ instanceId: z.uuid() }),
+  result: z.strictObject({ stopping: z.boolean() }),
+});
 export const serverInfoRequest = defineRequest({
   direction: "client-to-server",
   method: "server.info",
@@ -104,7 +120,6 @@ export const preparedRuntimeSchema = z.strictObject({
   directory: z.string().startsWith("/"),
   home: z.string().startsWith("/"),
   buildId: z.string().regex(/^[a-f0-9]{64}$/u),
-  dependencyKey: z.string().regex(/^[a-f0-9]{64}$/u),
   transferred: z.boolean(),
 });
 export type PreparedRuntime = z.infer<typeof preparedRuntimeSchema>;

@@ -180,13 +180,13 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-const SCHEMA_VERSION = 6;
+export const STORE_SCHEMA_VERSION = 6;
 
 /** Fresh schema or explicit additive v3/v4/v5 upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
   db.transaction(() => {
     let version = db.pragma("user_version", { simple: true }) as number;
-    if (version === SCHEMA_VERSION) return;
+    if (version === STORE_SCHEMA_VERSION) return;
     if (version === 3) {
       db.exec(`ALTER TABLE model_usage ADD COLUMN purpose TEXT;
         ALTER TABLE model_usage ADD COLUMN request_duration_ms REAL CHECK(request_duration_ms >= 0);
@@ -207,7 +207,7 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
       // Older rows did not classify cumulative billing input. Keep their spend,
       // but do not infer a trustworthy prompt-size checkpoint from it.
       db.exec("UPDATE model_usage SET input_tokens_are_context = 0;");
-      db.pragma(`user_version = ${SCHEMA_VERSION}`);
+      db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }
     const populated = db
@@ -217,9 +217,9 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
       .get();
     if (version !== 0 || populated)
       throw new Error(
-        `Unsupported Harness database format (${version}). Stop the server and reset ${db.name}; database migrations are not supported.`,
+        `Unsupported Harness database format (${version}) in ${db.name}; this server supports version ${STORE_SCHEMA_VERSION}. Upgrade Harness to a compatible server. The database was not changed.`,
       );
     db.exec(SCHEMA);
-    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
   }).exclusive();
 }

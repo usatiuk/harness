@@ -56,6 +56,95 @@ root. They may depend on protocol and narrower feature contracts, but the kernel
 does not import provider, workspace, sandbox, approval, activity, or subagent
 packages.
 
+## Release planning
+
+The [release, installation, and update plan](docs/plans/cross-cutting/2026-10-10-release-installation-updates.md)
+records the installed-product work: GitHub Release artifacts, separate
+shared Node runtimes, native bootstrap, selected shared servers, cross-version
+management, platform qualification, and explicit update activation. Compatibility
+guarantees start at the first public release; private/pre-release transition
+support is outside scope. Implementation is in progress. GPLv3, a project-owned
+verification key, Node 22.23.3 and the initial product version are recorded.
+The native bootstrap and complete Windows CLI/server payload foundation pass
+focused checks, including a real turn and database restart from copies outside
+the checkout. Installed launch, shared-server IPC/management, packages, updates
+and prune remain open; no publication is claimed.
+
+Release work is rebased onto native-search commit `0dfb0ff`, preserving Gemini,
+finalized provider output and SQLite v6 migrations. The combined full check passes
+1,173 tests (36 skipped), with typecheck/lint/formatting, and rebuilt isolated
+CLI/server payload smoke passes. All release milestone completion gates remain
+open; the current evidence does not establish installed updates or other platforms.
+
+The CLI now prepares its own payload/runtime separately from the persisted
+selected server/runtime at actual connect/start. Signed cached fixtures and real
+headless helpers cover this separation. Detached startup transfers cache-use
+ownership before SQLite admission; stdio holds a guard through child exit.
+The CLI preparation full check passes 1,188 tests (36 skipped), with typecheck/lint/formatting;
+fresh standalone Windows payloads pass the CLI stdio RPC/turn/database-restart smoke.
+Installed cross-version/ABI qualification, desktop and remote integration,
+updates and prune remain open.
+
+Desktop preparation now uses the shared Rust cache and exact Node/server paths;
+the old secondary runtime/dependency-junction cache is removed. Complete source
+payloads become immutable snapshots, shared source starts preserve a live owner,
+and isolated stdio starts reject that owner before changing selection. The
+desktop keeps its own control helper through app lifetime and selected Local
+helpers through bridge exit. Command helpers share bounded reads, cooperative
+cancellation and physical retirement. The release entry explicitly validates
+clean source identity and selects release mode. Installed download, remote,
+update, cleanup and platform qualifications are still open.
+The full managed check after desktop preparation again passes 1,188 tests
+(36 skipped), with typecheck/lint/formatting. Twenty native-bootstrap Rust tests
+and six desktop Rust tests pass (the latter includes two child fixtures), and
+the prepared bridge/RPC/SQLite/rebuilt-restart smoke passes through OS exit.
+
+Cold desktop preparation now runs in an internal hidden helper, with cancellable
+install/download waits and overlapping cache-use protection on handoff. Host
+Cancel/disconnect reaches that operation before preparation returns. Shutdown
+rejects new admission and awaits preparing operations as well as spawned bridges.
+Eleven desktop Rust tests pass (including two child fixtures, three actual
+desktop-executable preparation cases and one controlled EOF-frame case).
+Actual Tauri shutdown/native UI and other-platform qualification remain open;
+this slice does not complete the overall release milestones.
+The final full managed check passes typecheck, lint, formatting and 1,193 tests
+(36 skipped). The native workspace's 20 tests also pass. Independent correctness,
+architecture/simplicity and evidence reviews have no remaining material finding
+in this cancellation slice; remote provisioning replacement is next.
+
+The shared bootstrap now installs transferred complete server/Node archives
+offline, using the same trust, extraction, cache locks and publication policy as
+local downloads. Server layout and build identity are validated before publication
+and on reuse; source and release warm installation need no transfer archives.
+Complete Windows server payloads include the target native helper. The corrected
+native suite passes 29 tests, plus two actual helper cases in release mode;
+fresh payload and preparation/desktop-bridge smokes pass headlessly. The full
+managed check still passes 1,193 tests (36 skipped).
+
+SSH/WSL now uses the shared offline installer and cached native launch. The saved
+host-Node/runtime selector and target npm installer are removed. Complete Linux
+source deployments build with the pinned Node and private Rust tools; native
+checks pass 32 cases on Windows and 34 on Linux. Real isolated SSH qualification
+passes cold/warm installation, shared Node, bridge loss, live-owner preservation
+and rebuilt restart, plus two authentication failure cases. Review connected
+remote detached startup to the existing child cache-use handoff and corrected
+text-upload error observation. WSL provisioning and its rendered TUI conversation
+now pass; the input fixture flushes React's passive input subscription before
+sending keys. A real SSH install-lock cancellation failure is corrected through
+EOF-aware native preparation and awaited target exit. Cached-only opens now read
+immutable payloads under shared use without installation waits. Final SSH/WSL
+cached-bridge-under-lock checks pass, as does the full managed check (1,193 tests,
+36 skipped). Signed installed remote releases,
+minimum glibc, updates, prune and all overall release milestones remain open.
+
+Release-cut tools now provide clean-checkout patch/minor/major version edits,
+fresh desktop build provenance, complete CLI/server packaging and exact-byte
+manifest/Tauri metadata assembly. Review corrected mirror-cache identity,
+desktop build binding and runtime-layout checks. The full managed check passes
+1,202 tests (36 skipped); native tests pass 34 Windows and 36 Linux cases, and
+twelve desktop Rust checks pass headlessly. Actual signed platform builds,
+source export, protected release jobs, updates and explicit prune remain open.
+
 ## Recent delivery
 
 The [client window chrome follow-up](docs/plans/interface/2026-10-10-client-window-chrome.md)

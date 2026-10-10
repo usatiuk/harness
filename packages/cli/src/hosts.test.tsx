@@ -86,7 +86,7 @@ async function home() {
   roots.push(path);
   await writeFile(
     join(path, "settings.json"),
-    JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+    JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } }),
   );
   return path;
 }
@@ -127,20 +127,15 @@ it("renders Local-first command center and saves an alias-only SSH route", async
     for (const [field, text, initial] of [
       ["label", "Workstation", "SSH"],
       ["destination", "workstation", ""],
-      ["source", "managed", "managed"],
     ] as const) {
       step++;
       await vi.waitFor(() => {
-        expect(ui.lastFrame()).toMatch(new RegExp(`Edit SSH connection.*${step}/3`));
-        expect(ui.lastFrame()).toContain(field === "source" ? "Runtime source" : field);
+        expect(ui.lastFrame()).toMatch(new RegExp(`Edit SSH connection.*${step}/2`));
+        expect(ui.lastFrame()).toContain(field);
       });
-      if (initial !== text) {
-        for (let index = 0; index < initial.length; index++) await writeInput(ui, "\u007f");
-        if (text) {
-          await writeInput(ui, text);
-          await vi.waitFor(() => expect(ui.lastFrame()).toContain(text));
-        }
-      }
+      for (let index = 0; index < initial.length; index++) await writeInput(ui, "\u007f");
+      await writeInput(ui, text);
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain(text));
       await writeInput(ui, "\r");
     }
     await vi.waitFor(() =>
@@ -152,6 +147,7 @@ it("renders Local-first command center and saves an alias-only SSH route", async
     );
     expect(hosts.config?.hosts[1]).not.toHaveProperty("port");
     expect(hosts.config?.hosts[1]).not.toHaveProperty("identityFile");
+    expect(hosts.config?.hosts[1]).not.toHaveProperty("runtime");
     expect(hosts.config?.selectedHostId).toBe("local");
     // Repeatedly unmount the conversation's nested Static output, then edit again.
     for (let iteration = 0; iteration < 3; iteration++) {
@@ -195,7 +191,7 @@ it("reconnects to the same background owner and preserves drafts and another cli
       identity,
     );
   } catch (error) {
-    throw new Error(await readFile(join(firstHome, ".server", "startup.log"), "utf8"), {
+    throw new Error(await readFile(join(firstHome, ".running-server", "startup.log"), "utf8"), {
       cause: error,
     });
   }

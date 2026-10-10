@@ -16,6 +16,7 @@ import {
 import { MAX_RPC_FRAME_BYTES, MAX_RPC_WRITER_QUEUE_BYTES } from "@harness/protocol";
 
 type ServerEvent =
+  | { type: "started"; id: number }
   | { type: "message"; id: number; frame: string }
   | { type: "closed"; message: string };
 
@@ -112,7 +113,9 @@ class NativeWriter extends AbstractMessageWriter {
 export async function connectNative(
   target: HostConnectionTarget,
   onClosed: (message: string) => void,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   const reader = new NativeReader();
   let writer: NativeWriter | undefined = undefined;
   let resolveId!: (id: number | undefined) => void;
@@ -121,6 +124,9 @@ export async function connectNative(
   });
   let closing: Promise<void> | undefined;
   let closedMessage: string | undefined;
+  let operationId: number | undefined;
+  let canceling: Promise<void> | undefined;
+  let cancellationError: Error | undefined;
   const close = (): Promise<void> => {
     if (!closing) {
       closing = ready.then(async (id) => {
@@ -141,8 +147,25 @@ export async function connectNative(
     }
     void close();
   };
+  const cancel = (): void => {
+    if (operationId !== undefined && !canceling) {
+      canceling = invoke<void>("cancel_connection_command", { id: operationId }).catch(
+        (cause: unknown) => {
+          cancellationError = new Error("Could not cancel the native connection attempt", {
+            cause,
+          });
+        },
+      );
+    }
+    void close();
+  };
   const channel = new Channel<ServerEvent>();
   channel.onmessage = (event) => {
+    if (event.type === "started") {
+      operationId = event.id;
+      if (signal?.aborted) cancel();
+      return;
+    }
     if (closing) return;
     if (event.type === "closed") {
       fail(new Error(event.message));
@@ -158,20 +181,27 @@ export async function connectNative(
       }
     }
   };
-  let id: number;
+  signal?.addEventListener("abort", cancel, { once: true });
+  let admission: { id: number } | { error: unknown };
   try {
-    id = await invoke<number>("server_connect", { channel, ...target });
+    const id = await invoke<number>("server_connect", { channel, ...target });
     resolveId(id);
+    admission = { id };
   } catch (error) {
     resolveId(undefined);
-    await close();
-    throw error;
+    admission = { error };
+  } finally {
+    signal?.removeEventListener("abort", cancel);
   }
-  if (closing) {
+  await canceling;
+  if (cancellationError || "error" in admission || signal?.aborted || closing) {
     await close();
+    if (cancellationError) throw cancellationError;
+    signal?.throwIfAborted();
+    if ("error" in admission) throw admission.error;
     throw new Error(closedMessage ?? "Harness bridge closed during connection");
   }
-  writer = new NativeWriter(fail, id);
+  writer = new NativeWriter(fail, admission.id);
   const connection = createMessageConnection(reader, writer);
   connection.onDispose(() => void close());
   return { connection, close };

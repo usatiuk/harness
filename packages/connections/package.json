@@ -21,6 +21,8 @@
     }
   },
   "dependencies": {
+    "@harness/native": "*",
+    "@harness/release": "*",
     "@harness/client": "*",
     "@harness/config": "*",
     "@harness/protocol": "*",

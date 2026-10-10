@@ -77,7 +77,17 @@ nullable provider billing JSON and a false incomplete-cost flag. Versions 3/4/5
 receive context-checkpoint eligibility; historical billing totals remain intact,
 but their unclassified input counts cannot establish prompt size. New ordinary
 invocations default to eligible; native-search billing marks them ineligible.
-Other versions and unversioned populated databases fail with a reset instruction.
+Other versions and unversioned populated databases fail with compatible-upgrade
+guidance before persistent journal-mode changes. Regression checks compare original
+database bytes after rejection under exclusive ownership.
+
+The [release delivery plan](../../plans/cross-cutting/2026-10-10-release-installation-updates.md)
+defines preservation from the first public baseline, without compatibility for
+private/pre-release installs. Concrete forward migrations and backup/recovery
+checks are required when later public releases change a format. The initial
+settings-file baseline is numeric version 1; profiles and RPC fragments carry no
+format marker. Unknown settings versions are rejected without changing their bytes.
+Release upgrade/uninstall qualification remains open.
 
 The usage summary retains conversation totals and adds the latest agent attempt's
 model-bound checkpoint plus the latest terminal turn's aggregate. The checkpoint

@@ -16,6 +16,16 @@ Use a dated descriptive filename such as
 
 Current exploration:
 
+- [Headless tests and Windows console windows](2026-10-10-headless-testing.md):
+  standard console suppression, inherited test-worker consoles, and the limits
+  of hiding native GUI tests. Native tests remain visible and approved; Windows
+  Sandbox is optional. No runner infrastructure is planned.
+
+- [Product releases, installation, and updates](2026-10-10-release-installation-updates.md):
+  repository packaging gaps, GitHub artifact hosting, on-demand shared Node,
+  native bootstrap, Tauri activation, cross-version server management and safe
+  cache retention. Delivery is tracked in the linked draft plan.
+
 - [Remote hosts and background servers](2026-10-03-remote-hosts-and-background-servers.md):
   desktop/TUI host selection and connection editors, client/server configuration,
   shared background servers, WSL/SSH provisioning, and proposed lifecycle changes.

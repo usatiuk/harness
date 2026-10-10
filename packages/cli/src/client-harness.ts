@@ -16,6 +16,7 @@ import {
 import { APPROVAL_CLIENT_CONTRACT_VERSION, ApprovalClient } from "@harness/approval/client";
 import { appProvidersRequest, type ProviderStatus } from "@harness/server/client-protocol";
 import { CLI_PLUGIN_CONTRACTS, CliPluginClient } from "./client-plugins.ts";
+import { PRODUCT_VERSION } from "@harness/release";
 export interface CliService extends HarnessClientService {
   createConversation(options?: {
     cwd?: string;
@@ -58,7 +59,7 @@ export async function buildClientHarness(
 ): Promise<Harness> {
   const wireClient = new HarnessClient({
     connection,
-    client: { name: "harness-tui", version: "0.0.0" },
+    client: { name: "harness-tui", version: PRODUCT_VERSION },
     plugins: CLIENT_CONTRACTS,
   });
   const approvals = new ApprovalClient(wireClient);

@@ -1,36 +1,10 @@
-import { createServer, type TcpNetConnectOpts } from "node:net";
+import { PRODUCT_VERSION } from "@harness/release";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { resolve } from "node:path";
-import { randomUUID } from "node:crypto";
 import { expect, it, vi } from "vitest";
 import { HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
-import { connectDiscovered } from "./local.ts";
-
-const fixture = vi.hoisted(() => ({
-  port: 0,
-  selfConnected: false,
-  socket: undefined as import("node:net").Socket | undefined,
-}));
-
-vi.mock("node:net", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:net")>();
-  return {
-    ...actual,
-    createConnection: (options: TcpNetConnectOpts) => {
-      const socket = actual.createConnection({
-        ...options,
-        localAddress: "127.0.0.1",
-        localPort: fixture.port,
-      });
-      fixture.socket = socket;
-      socket.once("connect", () => {
-        fixture.selfConnected =
-          socket.localAddress === socket.remoteAddress && socket.localPort === socket.remotePort;
-      });
-      return socket;
-    },
-  };
-});
+import { authenticateSocket, connectDiscovered, listenLocal } from "./local.ts";
 
 vi.mock("@harness/secrets", () => {
   class FixtureSecretStore {
@@ -41,37 +15,43 @@ vi.mock("@harness/secrets", () => {
   return { DpapiSecretStore: FixtureSecretStore, FileSecretStore: FixtureSecretStore };
 });
 
-it.runIf(process.platform === "win32" || process.platform === "linux")(
-  "classifies a real TCP self-connection as unavailable before sending authentication",
-  async () => {
-    const listener = createServer();
-    listener.listen(0, "127.0.0.1");
-    await once(listener, "listening");
-    const address = listener.address();
-    if (address === null || typeof address === "string") throw new Error("Missing fixture port");
-    fixture.port = address.port;
-    await new Promise<void>((resolve, reject) =>
-      listener.close((error) => (error ? reject(error) : resolve())),
-    );
-    const home = resolve("fixture-home");
-    try {
-      await expect(
-        connectDiscovered(home, {
-          home,
-          port: fixture.port,
-          serverId: randomUUID(),
-          instanceId: randomUUID(),
-          protocolVersion: HARNESS_PROTOCOL_VERSION,
-          pid: process.pid,
-          platform: "linux",
-          buildId: "fixture",
-        }),
-      ).rejects.toMatchObject({ code: "ECONNREFUSED" });
-      expect(fixture.selfConnected).toBe(true);
-      expect(fixture.socket?.bytesWritten).toBe(0);
-      expect(fixture.socket?.destroyed).toBe(true);
-    } finally {
-      fixture.socket?.destroy();
-    }
-  },
-);
+it("authenticates through local IPC with a home too long for a Unix socket path", async () => {
+  const home = resolve("fixture-home", "x".repeat(180), "y".repeat(180));
+  const identity = {
+    home,
+    serverId: randomUUID(),
+    instanceId: randomUUID(),
+    protocolVersion: HARNESS_PROTOCOL_VERSION,
+    pid: process.pid,
+    platform: process.platform as "win32" | "linux" | "darwin",
+    managementVersion: 1 as const,
+    productVersion: PRODUCT_VERSION,
+    buildId: "fixture",
+  };
+  let admitted: import("node:net").Socket | undefined;
+  const listener = await listenLocal(
+    home,
+    identity.instanceId,
+    (socket) => {
+      admitted = socket;
+      void authenticateSocket(socket).then((token) => {
+        expect(token).toBe("123abc-fixture-token");
+        socket.write(`${JSON.stringify(identity)}\n`);
+      });
+    },
+    (error) => {
+      throw error;
+    },
+  );
+  try {
+    expect(Buffer.byteLength(listener.endpoint.path)).toBeLessThan(104);
+    const attached = await connectDiscovered(home, { ...identity, endpoint: listener.endpoint });
+    expect(attached.identity).toEqual(identity);
+    const closed = once(attached.socket, "close");
+    attached.socket.destroy();
+    await closed;
+  } finally {
+    admitted?.destroy();
+    await listener.close();
+  }
+});

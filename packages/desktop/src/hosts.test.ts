@@ -1,3 +1,4 @@
+import { PRODUCT_VERSION } from "@harness/release";
 import { afterEach, expect, it, vi } from "vitest";
 import { createInProcessMessageConnectionPair, RpcPeer, type RpcConnection } from "@harness/client";
 import {
@@ -32,7 +33,6 @@ it("adopts external route edits and removals before reusing a saved connection",
     label: "Work",
     kind: "ssh",
     destination: "first",
-    runtime: { source: "development" },
   };
   let config = { ...defaultClientConfig(), hosts: [...defaultClientConfig().hosts, remote] };
   native.command.mockImplementation(async () => config);
@@ -53,6 +53,8 @@ it("adopts external route edits and removals before reusing a saved connection",
       home: "/home/fixture/.harness",
       pid: 1,
       platform: "linux" as const,
+      managementVersion: 1 as const,
+      productVersion: PRODUCT_VERSION,
       buildId: "fixture",
     }));
     server.onRequest(serverModelsRequest, () => ({
@@ -74,7 +76,6 @@ it("adopts external route edits and removals before reusing a saved connection",
     directory: "/runtime",
     home: "/home/fixture/.harness",
     buildId: "a".repeat(64),
-    dependencyKey: "b".repeat(64),
     transferred: false,
   };
   native.command.mockImplementation(async (command: ConnectionCommand) => {
@@ -87,7 +88,7 @@ it("adopts external route edits and removals before reusing a saved connection",
   const previous = hosts.selected!.session!;
   config = {
     ...config,
-    hosts: [config.hosts[0]!, { ...remote, label: "Renamed", runtime: { source: "managed" } }],
+    hosts: [config.hosts[0]!, { ...remote, label: "Renamed" }],
   };
   await hosts.edit({ type: "preferences", keepServerRunning: true });
   await hosts.connect("remote");
@@ -123,6 +124,33 @@ function stalledPeer() {
   });
   return started;
 }
+
+it("disconnect forwards cancellation while native Local preparation is still pending", async () => {
+  native.command.mockResolvedValue(defaultClientConfig());
+  let preparing!: () => void;
+  const prepared = new Promise<void>((resolve) => {
+    preparing = resolve;
+  });
+  native.connect.mockImplementation(async (_target, _onClosed, signal: AbortSignal) => {
+    preparing();
+    await new Promise<void>((_resolve, reject) => {
+      signal.addEventListener(
+        "abort",
+        () => reject(new Error("Fixture preparation cancelled", { cause: signal.reason })),
+        { once: true },
+      );
+    });
+  });
+  const hosts = new DesktopHosts();
+  const loading = hosts.initialize();
+  await prepared;
+  const connecting = hosts.connect("local");
+  const rejected = expect(connecting).rejects.toThrow();
+  await hosts.disconnect("local");
+  await rejected;
+  await loading;
+  expect(hosts.views.get("local")?.session).toBeUndefined();
+});
 
 it("disconnect cancels a desktop peer that never initializes", async () => {
   const started = stalledPeer();
@@ -206,6 +234,8 @@ it("restores presentation for the same server and isolates a changed target unde
       home: "/home/fixture/.harness",
       pid: 1,
       platform: "linux" as const,
+      managementVersion: 1 as const,
+      productVersion: PRODUCT_VERSION,
       buildId: "fixture",
     };
     server.onRequest(serverInfoRequest, () => identity);

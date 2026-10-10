@@ -8,8 +8,6 @@ await saveHost(
     id,
     label: id,
     destination: id,
-
-    runtime: { source: "development" },
   },
   path,
 );

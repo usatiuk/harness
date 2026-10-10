@@ -13,6 +13,7 @@
   "dependencies": {
     "@harness/auth": "*",
     "@harness/protocol": "*",
+    "@harness/release": "*",
     "openai": "7.27.0",
     "zod": "^4.4.3"
   },

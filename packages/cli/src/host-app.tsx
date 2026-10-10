@@ -209,7 +209,6 @@ function CommandCenter({
     const common = {
       id: randomUUID(),
       label: kind === "wsl" ? `WSL: ${distribution}` : "SSH",
-      runtime: { source: "managed" as const },
     };
     setEditing(
       kind === "wsl"
@@ -391,15 +390,14 @@ function HostEditor({ host, onSave }: { host: Host; onSave: (host: Host) => void
     host.kind === "local"
       ? ["label"]
       : host.kind === "wsl"
-        ? ["label", "distribution", "user", "source"]
-        : ["label", "destination", "source"];
+        ? ["label", "distribution", "user"]
+        : ["label", "destination"];
   const [index, setIndex] = useState(0);
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       fields.map((key) => {
         const record = host as unknown as Record<string, unknown>;
-        const runtime = host.kind === "local" ? {} : host.runtime;
-        const value = (runtime as Record<string, unknown>)[key] ?? record[key];
+        const value = record[key];
         if (value === null || value === undefined) return [key, ""];
         if (typeof value !== "string" && typeof value !== "number")
           throw new Error(`Invalid editor field ${key}`);
@@ -414,7 +412,7 @@ function HostEditor({ host, onSave }: { host: Host; onSave: (host: Host) => void
       <Text
         bold
       >{`Edit ${host.kind.toUpperCase()} connection · ${index + 1}/${fields.length}`}</Text>
-      <Text>{field === "source" ? "Runtime source: managed or development" : field}</Text>
+      <Text>{field}</Text>
       <TextInput
         key={field}
         defaultValue={values[field]!}
@@ -427,9 +425,6 @@ function HostEditor({ host, onSave }: { host: Host; onSave: (host: Host) => void
           }
           try {
             const common = { id: host.id, label: next["label"] };
-            const runtime = {
-              source: next["source"],
-            };
             onSave(
               hostSchema.parse(
                 host.kind === "local"
@@ -440,14 +435,11 @@ function HostEditor({ host, onSave }: { host: Host; onSave: (host: Host) => void
                         kind: "wsl",
                         distribution: next["distribution"],
                         user: next["user"] || null,
-                        runtime,
                       }
                     : {
                         ...common,
                         kind: "ssh",
                         destination: next["destination"],
-
-                        runtime,
                       },
               ),
             );

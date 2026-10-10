@@ -5,10 +5,13 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { Socket } from "node:net";
 import { PassThrough } from "node:stream";
-import { HarnessClient, type RpcConnection } from "@harness/client";
+import type { RpcConnection } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
-import { serverStopRequest, serverReleaseRequest, type ServerIdentity } from "./contracts.ts";
+import { type ServerIdentity } from "./contracts.ts";
+import { stopConnection } from "./control.ts";
 import { forwardBridgeInput } from "./bridge-input.ts";
+import { withServerLifecycle } from "./lifecycle.ts";
+import { selectInitialServer } from "./selection.ts";
 import {
   canonicalHome,
   connectDiscovered,
@@ -23,6 +26,10 @@ export interface ServerLaunch {
   executable: string;
   args: string[];
   env?: NodeJS.ProcessEnv;
+  /** Captured immutable payload protected by the initiating bootstrap. */
+  selection?: string;
+  /** Protect startup until the child confirms its own use guards or physically closes. */
+  retainUse?: () => { close(): void };
 }
 export interface HostConnection {
   connection: RpcConnection;
@@ -61,7 +68,7 @@ export async function attachLocalServer(
 }
 
 const unavailable = (error: unknown): boolean =>
-  (error as NodeJS.ErrnoException).code === "ECONNREFUSED";
+  ["ECONNREFUSED", "ENOENT"].includes((error as NodeJS.ErrnoException).code ?? "");
 
 /** SQLite arbitrates ownership; only its classified contention exit permits another attempt. */
 export async function ensureLocalServer(
@@ -69,8 +76,19 @@ export async function ensureLocalServer(
   launch: ServerLaunch,
   signal?: AbortSignal,
 ): Promise<HostConnection> {
+  return withServerLifecycle(
+    requestedHome,
+    (home) => ensureOwnedServer(home, launch, signal),
+    signal,
+  );
+}
+
+async function ensureOwnedServer(
+  home: string,
+  launch: ServerLaunch,
+  signal?: AbortSignal,
+): Promise<HostConnection> {
   signal?.throwIfAborted();
-  const home = await canonicalHome(requestedHome);
   const directory = await privateRuntimeDirectory(home);
   const existing = await readDiscovery(home);
   if (existing !== null) {
@@ -80,6 +98,7 @@ export async function ensureLocalServer(
       if (!unavailable(error)) throw error;
     }
   }
+  if (launch.selection !== undefined) await selectInitialServer(home, launch.selection);
   let exited: number | null | undefined;
   let childError: Error | undefined;
   let candidate: { child: ChildProcess; closed: Promise<void> } | undefined;
@@ -91,16 +110,57 @@ export async function ensureLocalServer(
     attempts++;
     try {
       signal?.throwIfAborted();
-      const child = spawn(launch.executable, launch.args, {
-        env: { ...process.env, ...launch.env, HARNESS_HOME: home },
-        stdio: ["ignore", log.fd, log.fd],
-        detached: true,
-        windowsHide: true,
-      });
+      const usage = launch.retainUse?.();
+      let child: ChildProcess;
+      try {
+        child = spawn(launch.executable, launch.args, {
+          env: {
+            ...process.env,
+            ...launch.env,
+            HARNESS_HOME: home,
+            HARNESS_SERVER_SELECTION: launch.selection,
+          },
+          stdio:
+            usage === undefined ? ["ignore", log.fd, log.fd] : ["ignore", log.fd, log.fd, "ipc"],
+          detached: true,
+          windowsHide: true,
+        });
+      } catch (error) {
+        usage?.close();
+        throw error;
+      }
       candidate = {
         child,
-        closed: new Promise<void>((resolve) => child.once("close", () => resolve())),
+        closed: new Promise<void>((resolve) =>
+          child.once("close", () => {
+            usage?.close();
+            resolve();
+          }),
+        ),
       };
+      if (usage !== undefined) {
+        // The child cannot open SQLite until we accept its guard handoff. A
+        // cancelled observer may leave it starting, but cannot drop protection.
+        const expiry = setTimeout(() => child.kill("SIGKILL"), 20_000);
+        const held = (message: unknown) => {
+          if (JSON.stringify(message) !== '{"type":"cache-use-held"}') {
+            childError = new Error("Invalid server cache-use handoff");
+            child.kill("SIGKILL");
+            return;
+          }
+          child.off("message", held);
+          clearTimeout(expiry);
+          usage.close();
+          child.send({ type: "cache-use-accepted" }, (error: Error | null) => {
+            if (error) {
+              childError = error;
+              child.kill("SIGKILL");
+            }
+          });
+        };
+        child.on("message", held);
+        child.once("close", () => clearTimeout(expiry));
+      }
       child.once("error", (error) => {
         childError = error;
       });
@@ -240,6 +300,13 @@ export async function runLocalBridge(
 
 /** Use an independent control connection, so an initialized GUI/TUI peer is untouched. */
 export async function stopServer(identity: ServerIdentity, ifAlone = false): Promise<void> {
+  return withServerLifecycle(identity.home, (home) => {
+    if (!sameHome(identity.home, home)) throw new Error("Server belongs to another Harness home");
+    return stopOwnedServer(identity, ifAlone);
+  });
+}
+
+async function stopOwnedServer(identity: ServerIdentity, ifAlone: boolean): Promise<void> {
   const discovery = await readDiscovery(identity.home);
   if (discovery === null)
     throw new Error("Server discovery is unavailable; shutdown outcome is unknown");
@@ -250,33 +317,9 @@ export async function stopServer(identity: ServerIdentity, ifAlone = false): Pro
   )
     throw new Error("Server instance changed; reconnect before stopping it");
   const host = await attachDiscovered(identity.home, discovery);
-  const client = new HarnessClient({
-    connection: host.connection,
-    client: { name: "harness-control", version: "0.0.0" },
-  });
-  const closed = new Promise<void>((resolve) => host.connection.onClose(() => resolve()));
-  let timer!: ReturnType<typeof setTimeout>;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new Error("Server shutdown did not finish within 20 seconds")),
-      20_000,
-    );
-  });
   try {
-    await Promise.race([
-      deadline,
-      (async () => {
-        await client.start();
-        if (ifAlone) {
-          const result = await client.peer.request(serverReleaseRequest, {});
-          if (!result.stopping) return;
-        } else await client.peer.request(serverStopRequest, {});
-        await closed;
-      })(),
-    ]);
+    await stopConnection(host.connection, identity, ifAlone);
   } finally {
-    clearTimeout(timer);
-    client.peer.close();
     host.close();
   }
 }

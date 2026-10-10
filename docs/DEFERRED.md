@@ -60,13 +60,18 @@ other provider-owned execution remain outside scope.
 
 ## Stable database compatibility
 
-The user explicitly selected one current protocol and database format. Harness
-is pre-release with no users; unsupported databases require a manual reset.
-There is no general migration framework or older-protocol compatibility adapter.
-The current SQLite initializer includes explicit additive v3/v4/v5 upgrades to v6;
-other versions fail with a reset instruction.
+The earlier pre-release decision selected one current protocol and disposable
+historical database formats. The current SQLite v6 initializer includes explicit
+additive upgrades from v3/v4/v5; unsupported formats fail with compatible-upgrade
+guidance without changing the database. Broad historical adapters and an older-
+protocol compatibility layer remain outside scope.
 
-Reopen only when the product explicitly promises preservation across versions.
+The [draft release plan](plans/cross-cutting/2026-10-10-release-installation-updates.md)
+defines preservation beginning with the first public baseline; private/pre-release
+compatibility stays outside scope. Concrete forward migrations and private backups
+are required when a later public release changes a format, rather than as a
+historical migration project before the initial release. Public-baseline handling
+remains an open delivery task, not an implemented compatibility promise.
 
 ## Project discovery with a custom Harness home
 

@@ -211,6 +211,7 @@ export class DockerExecutionContext implements ExecutionContext {
         }
         const c = nodeSpawn("docker", [...this.#exec(h, { cwd: true }), "bash", "-lc", script], {
           detached: true,
+          windowsHide: true,
         });
         child = c;
         c.once("exit", () => (terminal = true));

@@ -18,10 +18,11 @@ import {
   type AnthropicRequestConfig,
 } from "@harness/anthropic-core";
 import { familyOf, listModels, maxOutputOf, modelSpec, presetFor } from "./roster.ts";
+import { PRODUCT_USER_AGENT } from "@harness/release";
 
 /** Go requires stable per-conversation routing on every transport and auxiliary call. */
 function requestHeaders(context: ModelCallContext): Record<string, string> {
-  return { "x-opencode-session": context.conversationId, "User-Agent": "Harness/0.0.0" };
+  return { "x-opencode-session": context.conversationId, "User-Agent": PRODUCT_USER_AGENT };
 }
 
 /** Effort control selected for a Chat or Responses request. */

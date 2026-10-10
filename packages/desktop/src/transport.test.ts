@@ -149,3 +149,84 @@ it("reports physical teardown failure instead of hiding it behind logical closur
   await expect(transport.close()).rejects.toThrow("Fixture detach failure");
   expect(onClosed).toHaveBeenCalledWith("Could not detach the native Harness bridge");
 });
+
+it.each(["before", "after"])(
+  "cancels preparation when aborted %s the native operation ID arrives and awaits retirement",
+  async (timing) => {
+    const abort = new AbortController();
+    let channel!: NonNullable<NativeArgs["channel"]>;
+    let retire!: () => void;
+    const retired = new Promise<void>((resolve) => {
+      retire = resolve;
+    });
+    let cancelRequested!: () => void;
+    const requested = new Promise<void>((resolve) => {
+      cancelRequested = resolve;
+    });
+    const detached: number[] = [];
+    native.invoke.mockImplementation(async (command, args) => {
+      if (command === "server_connect") {
+        channel = args.channel!;
+        if (timing === "after") channel.onmessage({ type: "started", id: 42 });
+        await retired;
+        throw new Error("Connection attempt cancelled");
+      }
+      if (command === "cancel_connection_command") {
+        expect(args.id).toBe(42);
+        cancelRequested();
+      }
+      if (command === "server_disconnect") detached.push(args.id!);
+    });
+    const connecting = connectNative({ host: LOCAL_HOST, runtime: null }, vi.fn(), abort.signal);
+    const rejected = expect(connecting).rejects.toThrow();
+    let settled = false;
+    void connecting.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    abort.abort();
+    if (timing === "before") channel.onmessage({ type: "started", id: 42 });
+    await requested;
+    expect(settled).toBe(false);
+    retire();
+    await rejected;
+    expect(detached).toEqual([]);
+  },
+);
+
+it.each([false, true])(
+  "an aborted late admission detaches before returning, including cancellation error=%s",
+  async (cancelFails) => {
+    const owner = fixture();
+    const invoke = native.invoke.getMockImplementation()!;
+    const abort = new AbortController();
+    let admit!: () => void;
+    const admitted = new Promise<void>((resolve) => {
+      admit = resolve;
+    });
+    native.invoke.mockImplementation(async (command, args) => {
+      if (command === "cancel_connection_command" && cancelFails)
+        throw new Error("Fixture cancel command failed");
+      const result = await invoke(command, args);
+      if (command === "server_connect") {
+        args.channel!.onmessage({ type: "started", id: 1 });
+        await admitted;
+      }
+      return result;
+    });
+    const connecting = connectNative({ host: LOCAL_HOST, runtime: null }, vi.fn(), abort.signal);
+    const rejected = expect(connecting).rejects.toThrow(
+      cancelFails ? "Could not cancel the native connection attempt" : undefined,
+    );
+    await vi.waitFor(() => expect(owner.observers.size).toBe(1));
+    abort.abort();
+    admit();
+    await rejected;
+    expect(owner.detached).toEqual([1]);
+    expect(owner.observers.size).toBe(0);
+  },
+);

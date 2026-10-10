@@ -1,0 +1,7 @@
+{
+  "version": "0.1.0",
+  "repository": "usatiuk/harness-releases",
+  "applicationId": "io.github.usatiuk.harness",
+  "license": "GPL-3.0-only",
+  "managementVersion": 1
+}

@@ -1,12 +1,26 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { readFile, mkdir, open, rename, rm } from "node:fs/promises";
+import { readFile, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { join, dirname } from "node:path";
+import { join, posix } from "node:path";
 import { defaultHome } from "@harness/config";
 import { pipeline } from "node:stream/promises";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import { z } from "zod";
+import { verifyRelease } from "@harness/native";
+import {
+  BUILD_IDENTITY,
+  NODE_PIN,
+  RELEASE_REPOSITORY,
+  artifactSchema,
+  developmentRemoteSchema,
+  releaseManifestSchema,
+  versionSchema,
+  type ReleaseArtifact,
+} from "@harness/release";
+import { preparedServerSchema } from "./local-runtime.ts";
+import { canonicalHome } from "./local.ts";
+import { serverSelectionSchema } from "./selection.ts";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { forwardBridgeInput } from "./bridge-input.ts";
 import type { RpcConnection } from "@harness/client";
@@ -108,44 +122,96 @@ export async function runRemote(
   options: RemoteOptions = {},
   input?: string | Readable,
 ): Promise<string> {
-  const child = remoteProcess(host, script, options);
+  return executeRemote(host, script, options, input);
+}
+
+/** Keep preparation stdin open until readiness; cancellation delivers EOF and
+ * awaits target exit instead of killing only the local SSH/WSL transport. */
+function runRemotePreparation(
+  host: RemoteHost,
+  script: string,
+  options: RemoteOptions,
+): Promise<string> {
+  return executeRemote(host, script, options, undefined, true);
+}
+
+async function executeRemote(
+  host: RemoteHost,
+  script: string,
+  options: RemoteOptions,
+  input?: string | Readable,
+  preparation = false,
+): Promise<string> {
+  const signal = preparation
+    ? AbortSignal.any([...(options.signal ? [options.signal] : []), AbortSignal.timeout(600_000)])
+    : options.signal;
+  signal?.throwIfAborted();
+  const processOptions = { ...options };
+  if (preparation) delete processOptions.signal;
+  const child = remoteProcess(host, script, processOptions, preparation ? 0 : 600_000);
   let output = "";
   let diagnostic = "";
+  let failure: Error | undefined;
+  const cancel = () => {
+    failure ??=
+      signal!.reason instanceof Error
+        ? signal!.reason
+        : new DOMException("Remote preparation cancelled", "AbortError");
+    child.stdin.end();
+  };
+  if (preparation) {
+    child.stdin.on("error", (error) => {
+      failure ??= error;
+    });
+    signal!.addEventListener("abort", cancel, { once: true });
+    if (signal!.aborted) cancel();
+  }
   const result = new Promise<string>((resolve, reject) => {
-    child.on("error", reject);
+    child.on("error", (error) => {
+      failure ??= error;
+    });
     child.stdout.on("data", (chunk: Buffer) => {
+      if (failure) return;
       output += chunk.toString();
+      if (preparation && output.includes("\n")) child.stdin.end();
       if (Buffer.byteLength(output) > 1024 * 1024) {
-        child.kill();
-        reject(new Error("Remote command output exceeds 1 MiB"));
+        failure = new Error("Remote command output exceeds 1 MiB");
+        output = "";
+        if (preparation) child.stdin.end();
+        else child.kill();
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {
       diagnostic = (diagnostic + chunk.toString()).slice(-8192);
     });
     child.on("close", (code) =>
-      code === 0
-        ? resolve(output.trim())
-        : reject(
-            new RemoteCommandError(
-              code,
-              diagnostic.trim() || `Remote command exited with ${String(code)}`,
+      failure
+        ? reject(failure)
+        : code === 0
+          ? resolve(output.trim())
+          : reject(
+              new RemoteCommandError(
+                code,
+                diagnostic.trim() || `Remote command exited with ${String(code)}`,
+              ),
             ),
-          ),
     );
   });
-  if (typeof input === "string") child.stdin.end(input);
-  else if (input) {
-    // Observe both promises immediately: a remote failure can close stdin mid-transfer.
-    const sent = pipeline(input, child.stdin);
-    const settled = await Promise.allSettled([result, sent]);
-    const remote = settled[0];
-    if (remote.status === "rejected") throw remote.reason;
-    const transfer = settled[1];
-    if (transfer.status === "rejected") throw transfer.reason;
-    return remote.value;
-  } else child.stdin.end();
-  return result;
+  // Observe stdin errors for text, archive and empty uploads alike, and settle
+  // only after transport close. A broken pipe is a provisioning failure.
+  const sent = preparation
+    ? Promise.resolve()
+    : pipeline(
+        typeof input === "string" ? Readable.from([input]) : (input ?? Readable.from([])),
+        child.stdin,
+      );
+  const settled = await Promise.allSettled([result, sent]);
+  if (preparation) signal!.removeEventListener("abort", cancel);
+  const remote = settled[0];
+  if (remote.status === "rejected") throw remote.reason;
+  const transfer = settled[1];
+  if (transfer.status === "rejected") throw transfer.reason;
+  return remote.value;
 }
 
 export async function discoverWsl(signal?: AbortSignal): Promise<string[]> {
@@ -178,60 +244,55 @@ export async function discoverWsl(signal?: AbortSignal): Promise<string[]> {
   });
 }
 
-const probeSchema = z.strictObject({
-  home: z.string().startsWith("/"),
-  base: z.string().startsWith("/"),
-  machine: z.string(),
-  libc: z.string(),
-});
 const q = shellQuote;
-const files = ["server.mjs", "worker.mjs", "package.json", "package-lock.json"] as const;
-const NODE_VERSION = "22.23.3";
-const NODE_ARCHIVE = `node-v${NODE_VERSION}-linux-x64.tar.gz`;
-const NODE_SHA256 = "1084aa36196bba4c3a5e69a1ee388a6e4ff729dad09445fbcd434b28fe3c24af";
-const NODE_URL = `https://nodejs.org/dist/v${NODE_VERSION}/${NODE_ARCHIVE}`;
-
-/** Every mutable installation directory is private to the executing OS user. */
+const TARGET = "linux-x64-glibc";
+const preparedTransferSchema = preparedServerSchema.extend({ home: z.string().startsWith("/") });
+/** Every transfer belongs to the authenticated OS account, including its ancestry. */
 const privateDirectory = (path: string): string =>
   `mkdir -p ${q(path)}; cursor=$(readlink -f ${q(path)}); leafMode=$(stat -c %a "$cursor"); test $((0$leafMode & 0022)) = 0 || { echo 'Runtime directory is writable by other users' >&2; exit 1; }; uid=$(id -u); while :; do owner=$(stat -c %u "$cursor"); mode=$(stat -c %a "$cursor"); test "$owner" = "$uid" || test "$owner" = 0 || { echo 'Runtime ancestry belongs to another user' >&2; exit 1; }; if test $((0$mode & 0022)) != 0 && test $((0$mode & 01000)) = 0; then echo 'Runtime ancestry is writable by other users' >&2; exit 1; fi; test "$cursor" = / && break; cursor=$(dirname "$cursor"); done; test "$(stat -c %u ${q(path)})" = "$uid" || { echo 'Runtime directory belongs to another user' >&2; exit 1; };`;
 
-async function cachedNodeArchive(signal?: AbortSignal): Promise<string> {
-  const cache = join(defaultHome(), "downloads");
-  await mkdir(cache, { recursive: true });
-  const path = join(cache, NODE_ARCHIVE);
-  const valid = async () =>
-    createHash("sha256")
-      .update(await readFile(path))
-      .digest("hex") === NODE_SHA256;
-  try {
-    if (await valid()) return path;
-    throw new Error("Cached Node archive checksum mismatch");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
+async function fetchBytes(url: string, limit: number, options: RemoteOptions): Promise<Buffer> {
   const deadline = AbortSignal.timeout(120_000);
-  const response = await fetch(NODE_URL, {
-    signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+  const response = await fetch(url, {
+    signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
   });
   if (!response.ok || !response.body)
-    throw new Error(`Node download failed: HTTP ${response.status}`);
-  const temporary = `${path}.${randomUUID()}`;
-  const handle = await open(temporary, "wx", 0o600);
+    throw new Error(`Release download failed: HTTP ${response.status}`);
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
+    size += chunk.length;
+    if (size > limit) throw new Error("Release metadata exceeds its size limit");
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+async function downloadArtifact(
+  artifact: ReleaseArtifact,
+  destination: string,
+  options: RemoteOptions,
+): Promise<void> {
+  const deadline = AbortSignal.timeout(180_000);
+  const response = await fetch(artifact.url, {
+    signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
+  });
+  if (!response.ok || !response.body)
+    throw new Error(`Artifact download failed: HTTP ${response.status}`);
+  const output = await open(destination, "wx", 0o600);
+  let size = 0;
   const hash = createHash("sha256");
   try {
-    for await (const value of response.body) {
-      const bytes = Buffer.from(value);
-      hash.update(bytes);
-      await handle.write(bytes);
+    for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
+      size += chunk.length;
+      if (size > artifact.size) throw new Error("Artifact exceeds its declared size");
+      hash.update(chunk);
+      await output.writeFile(chunk);
     }
-    await handle.close();
-    if (hash.digest("hex") !== NODE_SHA256)
-      throw new Error("Downloaded Node archive checksum mismatch");
-    await rename(temporary, path);
-    return path;
+    if (size !== artifact.size || hash.digest("hex") !== artifact.sha256)
+      throw new Error("Artifact size or checksum mismatch");
   } finally {
-    await handle.close();
-    await rm(temporary, { force: true });
+    await output.close();
   }
 }
 
@@ -241,161 +302,236 @@ export async function prepareRemoteRuntime(
   options: RemoteOptions = {},
 ): Promise<PreparedRuntime> {
   options.progress?.("Inspecting remote platform");
-  const probe = probeSchema.parse(
-    JSON.parse(
+  const [userHome, machine, libc] = (
+    await runRemote(
+      host,
+      `set -eu; command -v sha256sum >/dev/null; printf '%s\n' "$HOME"; uname -sm; getconf GNU_LIBC_VERSION`,
+      options,
+    )
+  ).split("\n");
+  if (!userHome?.startsWith("/") || machine !== "Linux x86_64" || !libc?.startsWith("glibc "))
+    throw new Error("Remote servers currently support Linux x64 with glibc");
+  const home = z
+    .string()
+    .startsWith("/")
+    .parse(
       await runRemote(
         host,
-        `set -eu; command -v flock >/dev/null; command -v sha256sum >/dev/null; command -v tar >/dev/null; printf '%s\\n' "$HOME"; uname -sm; getconf GNU_LIBC_VERSION`,
+        `set -eu; umask 077; ${privateDirectory(`${userHome}/.harness`)} readlink -f ${q(`${userHome}/.harness`)}`,
         options,
-      ).then((output) => {
-        const [userHome, machine, libc] = output.split("\n");
-        return JSON.stringify({
-          home: `${userHome}/.harness`,
-          base: `${userHome}/.harness/runtimes`,
-          machine,
-          libc,
-        });
-      }),
-    ),
-  );
-  if (probe.machine !== "Linux x86_64" || !probe.libc.startsWith("glibc "))
-    throw new Error("Remote runtimes currently support Linux x64 with glibc");
-  const base = await runRemote(
-    host,
-    `set -eu; umask 077; ${privateDirectory(probe.base)} readlink -f ${q(probe.base)}`,
-    options,
-  );
-  const prefix = `set -eu; umask 077; ${privateDirectory(base)}`;
-  await runRemote(host, prefix, options);
-  const contents = await Promise.all(files.map((file) => readFile(join(payload, file))));
-  const digests = contents.map((bytes) => createHash("sha256").update(bytes).digest("hex"));
-  const buildId = createHash("sha256").update(digests.join("\n")).digest("hex");
-  let node = "node";
-  if (host.runtime.source === "managed") {
-    node = `${base}/node-v${NODE_VERSION}/bin/node`;
-    const archivePath = `${base}/node-download-${randomUUID()}.tar.gz`;
-    const install = `${prefix} flock -w 120 ${q(`${base}/provision.lock`)} sh -c ${q(`set -eu; umask 077; if test ! -x ${q(node)}; then stage=${q(`${base}/node-stage-${randomUUID()}`)}; mkdir "$stage"; trap 'rm -rf "$stage"' EXIT; tar -xzf ${q(`${archivePath}`)} -C "$stage" --strip-components=1; mv "$stage" ${q(dirname(dirname(node)))}; fi`)}`;
-    if (
-      (await runRemote(host, `test -x ${q(node)} && printf ready || true`, options)) !== "ready"
-    ) {
-      options.progress?.("Obtaining verified portable Node runtime");
-      const cleanup = { ...options };
-      delete cleanup.signal;
-      await cleanupAfter(
-        (async () => {
-          try {
-            await runRemote(
-              host,
-              `${prefix} command -v curl >/dev/null || exit 77; curl --fail --location --connect-timeout 15 --max-time 120 ${q(NODE_URL)} -o ${q(`${archivePath}.partial`)} || exit 77; echo ${q(`${NODE_SHA256}  ${archivePath}.partial`)} | sha256sum -c - >&2 || exit 78; mv ${q(`${archivePath}.partial`)} ${q(archivePath)}`,
-              options,
-            );
-          } catch (error) {
-            if (!(error instanceof RemoteCommandError) || error.code !== 77) throw error;
-            const archive = await cachedNodeArchive(options.signal);
-            await runRemote(
-              host,
-              `${prefix} cat > ${q(`${archivePath}.partial`)}; echo ${q(`${NODE_SHA256}  ${archivePath}.partial`)} | sha256sum -c - >&2; mv ${q(`${archivePath}.partial`)} ${q(archivePath)}`,
-              options,
-              createReadStream(archive),
-            );
-          }
-          await runRemote(host, install, options);
-        })(),
-        async () => {
-          await runRemote(
-            host,
-            `${prefix} rm -f ${q(archivePath)} ${q(`${archivePath}.partial`)}`,
-            cleanup,
-          );
-        },
-      );
-    }
-  }
-  const nodeInfo = z
-    .strictObject({
-      version: z.string(),
-      modules: z.string(),
-      platform: z.literal("linux"),
-      arch: z.literal("x64"),
-    })
+      ),
+    );
+  const selected = serverSelectionSchema
+    .nullable()
     .parse(
       JSON.parse(
         await runRemote(
           host,
-          `${q(node)} -p ${q("JSON.stringify({version:process.versions.node,modules:process.versions.modules,platform:process.platform,arch:process.arch})")}`,
+          `set -eu; if test -f ${q(`${home}/server/current.json`)}; then cat ${q(`${home}/server/current.json`)}; else printf null; fi`,
           options,
         ),
       ),
     );
-  if (Number(nodeInfo.version.split(".")[0]) < 22)
-    throw new Error("Remote Node must be version 22 or newer");
-  // Resolve PATH-based executables once; launch metadata never depends on a later SSH shell PATH.
-  node = await runRemote(host, `readlink -f "$(command -v ${q(node)})"`, options);
-  const npm = await runRemote(
-    host,
-    `if test -x ${q(`${dirname(node)}/npm`)}; then printf '%s' ${q(`${dirname(node)}/npm`)}; else readlink -f "$(command -v npm)"; fi`,
-    options,
-  );
-  const dependencyKey = createHash("sha256")
-    .update(`${digests[3]}:${nodeInfo.platform}:${nodeInfo.arch}:${nodeInfo.modules}`)
-    .digest("hex");
-  const directory = `${base}/builds/${buildId}-${dependencyKey}`;
-  const existing = await runRemote(
-    host,
-    `test -f ${q(`${directory}/ready`)} && printf ready || true`,
-    options,
-  );
-  if (existing === "ready")
-    return { node, directory, home: probe.home, buildId, dependencyKey, transferred: false };
-  options.progress?.("Transferring built server bundle");
-  const stage = `${base}/stage-${randomUUID()}`;
-  await runRemote(host, `${prefix} mkdir ${q(stage)}`, options);
-  const archive = spawn("tar", ["-czf", "-", "-C", payload, ...files], { windowsHide: true });
-  let archiveError = "";
-  archive.stderr.on("data", (chunk: Buffer) => {
-    archiveError = (archiveError + chunk.toString()).slice(-8192);
-  });
-  const archived = new Promise<void>((resolve, reject) => {
-    archive.once("error", reject);
-    archive.once("close", (code) =>
-      code === 0
-        ? resolve()
-        : reject(new Error(archiveError || "Could not archive server payload")),
-    );
-  });
+  const suffix = `-${TARGET}`;
+  let releaseVersion: string | undefined;
+  if (selected && !selected.directory.startsWith(`dev-${TARGET}-`)) {
+    if (!selected.directory.endsWith(suffix))
+      throw new Error("Selected server is not for the remote platform");
+    releaseVersion = versionSchema.parse(selected.directory.slice(0, -suffix.length));
+  } else if (BUILD_IDENTITY.mode === "release") {
+    if (selected)
+      throw new Error("Selected remote server is a source build; use its development checkout");
+    releaseVersion = BUILD_IDENTITY.productVersion;
+  }
+  const localStaging = join(await canonicalHome(defaultHome()), "staging");
+  await mkdir(localStaging, { recursive: true, mode: 0o700 });
+  const localStage = await mkdtemp(join(localStaging, "remote-"));
+  const stage = `${home}/staging/remote-${randomUUID()}`;
+  const cleanup = { ...options };
+  delete cleanup.signal;
+  let staged = false;
   return cleanupAfter(
     (async () => {
-      const transfer = runRemote(
-        host,
-        `${prefix} tar -xzf - -C ${q(stage)}`,
-        options,
-        archive.stdout,
-      );
-      const results = await Promise.allSettled([transfer, archived]);
-      for (const result of results) if (result.status === "rejected") throw result.reason;
-      const checks = files.map((file, index) => `${digests[index]}  ${stage}/${file}`).join("\n");
-      await runRemote(host, `${prefix} printf '%s\\n' ${q(checks)} | sha256sum -c - >&2`, options);
-      options.progress?.("Preparing cached target dependencies");
-      const dependencies = `${base}/dependencies/${dependencyKey}`;
-      const depsStage = `${base}/dependencies/stage-${randomUUID()}`;
-      const complete = `set -eu; umask 077; mkdir -p ${q(`${base}/dependencies`)} ${q(`${base}/builds`)}; if test ! -f ${q(`${dependencies}/ready`)}; then mkdir ${q(depsStage)}; trap ${q(`rm -rf ${q(depsStage)}`)} EXIT; cp ${q(`${stage}/package.json`)} ${q(`${stage}/package-lock.json`)} ${q(depsStage)}; cd ${q(depsStage)}; PATH=${q(dirname(node))}:"$PATH" ${q(npm)} ci --omit=dev --no-audit --no-fund >&2; touch ready; mv ${q(depsStage)} ${q(dependencies)}; fi; ln -s ${q(`${dependencies}/node_modules`)} ${q(`${stage}/node_modules`)}; touch ${q(`${stage}/ready`)}; if test ! -f ${q(`${directory}/ready`)}; then mv ${q(stage)} ${q(directory)}; fi`;
+      let directory: string;
+      let buildId: string;
+      let nodeArtifact: ReleaseArtifact;
+      let serverArtifact: { size: number; sha256: string };
+      let bootstrapArtifact: { size: number; sha256: string };
+      let sourceDirectory: string | undefined;
+      let manifest: Buffer | undefined;
+      let signature: Buffer | undefined;
+      let releaseServer: ReleaseArtifact | undefined;
+      let releaseBootstrap: ReleaseArtifact | undefined;
+      if (releaseVersion) {
+        options.progress?.(`Verifying server ${releaseVersion}`);
+        const url = `https://github.com/${RELEASE_REPOSITORY}/releases/download/v${releaseVersion}/release.json`;
+        // Read original bytes in base64: runRemote trims display output, which
+        // must never change the bytes covered by a release signature.
+        const saved = await runRemote(
+          host,
+          `set -eu; if test -e ${q(`${home}/server/${releaseVersion}-${TARGET}`)}; then base64 -w0 ${q(`${home}/server/${releaseVersion}-${TARGET}/release.json`)}; printf '\\n'; base64 -w0 ${q(`${home}/server/${releaseVersion}-${TARGET}/release.json.minisig`)}; else printf null; fi`,
+          options,
+        );
+        if (saved === "null") {
+          [manifest, signature] = await Promise.all([
+            fetchBytes(url, 1024 * 1024, options),
+            fetchBytes(`${url}.minisig`, 16 * 1024, options),
+          ]);
+        } else {
+          const encoded = z.tuple([z.string().min(1), z.string().min(1)]).parse(saved.split("\n"));
+          manifest = Buffer.from(encoded[0], "base64");
+          signature = Buffer.from(encoded[1], "base64");
+        }
+        const release = releaseManifestSchema.parse(
+          JSON.parse(verifyRelease(manifest, signature.toString("utf8"))),
+        );
+        if (release.productVersion !== releaseVersion)
+          throw new Error("Release differs from the captured server version");
+        const target = release.targets[TARGET];
+        if (!target || target.launcher.format !== "file")
+          throw new Error("Release has no Linux bootstrap executable");
+        nodeArtifact = target.node.artifact;
+        releaseServer = target.server;
+        releaseBootstrap = target.launcher;
+        serverArtifact = releaseServer;
+        bootstrapArtifact = releaseBootstrap;
+        directory = `${releaseVersion}-${TARGET}`;
+        buildId = serverArtifact.sha256;
+      } else {
+        sourceDirectory =
+          options.env?.["HARNESS_DEVELOPMENT_REMOTE_PAYLOAD"] ??
+          process.env["HARNESS_DEVELOPMENT_REMOTE_PAYLOAD"] ??
+          payload;
+        if (!sourceDirectory)
+          throw new Error(
+            "Build a Linux remote payload with npm run prepare:remote and set HARNESS_DEVELOPMENT_REMOTE_PAYLOAD to its output directory",
+          );
+        const source = developmentRemoteSchema.parse(
+          JSON.parse(await readFile(join(sourceDirectory, "remote.json"), "utf8")),
+        );
+        if (source.nodeVersion !== NODE_PIN.version)
+          throw new Error("Remote source payload requires a different pinned Node runtime");
+        nodeArtifact = artifactSchema.parse(NODE_PIN.targets[TARGET]);
+        serverArtifact = source.server;
+        bootstrapArtifact = source.bootstrap;
+        directory = `dev-${TARGET}-${source.server.sha256}`;
+        buildId = source.server.sha256;
+      }
+      const installed = `${home}/server/${directory}`;
+      const warm = JSON.parse(
+        await runRemotePreparation(
+          host,
+          `set -eu; if test -e ${q(installed)}; then exec env HARNESS_HOME=${q(home)} ${q(`${installed}/harness-bootstrap`)} --inspect-cached-server ${q(directory)}; else printf null; fi`,
+          options,
+        ),
+      ) as unknown;
+      const consume = (value: unknown, transferred: boolean): PreparedRuntime => {
+        const prepared = preparedTransferSchema.parse(value);
+        if (
+          prepared.home !== home ||
+          prepared.payload !== installed ||
+          prepared.entry !== `${installed}/server.mjs` ||
+          prepared.keys[1] !== `server-${directory}`
+        )
+          throw new Error("Prepared remote server differs from the captured installation");
+        return { node: prepared.node, directory: prepared.payload, home, buildId, transferred };
+      };
+      if (warm !== null) return consume(warm, false);
+      options.progress?.("Transferring complete server and pinned Node runtime");
+      const nodeArchive = join(localStage, "node.archive");
+      await downloadArtifact(nodeArtifact, nodeArchive, options);
+      let serverArchive: string;
+      let bootstrap: string;
+      if (sourceDirectory) {
+        serverArchive = join(sourceDirectory, "server.tar.gz");
+        bootstrap = join(sourceDirectory, "harness-bootstrap");
+      } else {
+        if (!releaseServer || !releaseBootstrap || !manifest || !signature)
+          throw new Error("Release preparation lost its captured artifacts");
+        serverArchive = join(localStage, "server.archive");
+        bootstrap = join(localStage, "harness-bootstrap");
+        await Promise.all([
+          downloadArtifact(releaseServer, serverArchive, options),
+          downloadArtifact(releaseBootstrap, bootstrap, options),
+        ]);
+      }
+      staged = true;
       await runRemote(
         host,
-        `${prefix} flock -w 300 ${q(`${base}/provision.lock`)} sh -c ${q(complete)}`,
+        `set -eu; umask 077; ${privateDirectory(`${home}/staging`)} mkdir ${q(stage)}`,
         options,
       );
-      return { node, directory, home: probe.home, buildId, dependencyKey, transferred: true };
+      const transfer = async (
+        path: string,
+        name: string,
+        artifact: { size: number; sha256: string },
+      ): Promise<void> => {
+        const destination = `${stage}/${name}`;
+        await runRemote(
+          host,
+          `set -eu; umask 077; cat > ${q(destination)}; test "$(wc -c < ${q(destination)})" -eq ${artifact.size}; printf '%s\n' ${q(`${artifact.sha256}  ${destination}`)} | sha256sum -c - >&2`,
+          options,
+          createReadStream(path),
+        );
+      };
+      await transfer(bootstrap, "harness-bootstrap", bootstrapArtifact);
+      await transfer(nodeArchive, "node.archive", nodeArtifact);
+      await transfer(serverArchive, "server.archive", serverArtifact);
+      let request: Record<string, unknown>;
+      if (releaseVersion) {
+        if (!manifest || !signature)
+          throw new Error("Release preparation lost its original signed bytes");
+        await runRemote(
+          host,
+          `set -eu; umask 077; cat > ${q(`${stage}/release.json`)}`,
+          options,
+          manifest.toString("utf8"),
+        );
+        await runRemote(
+          host,
+          `set -eu; umask 077; cat > ${q(`${stage}/release.json.minisig`)}`,
+          options,
+          signature.toString("utf8"),
+        );
+        request = {
+          kind: "release",
+          version: releaseVersion,
+          manifest: `${stage}/release.json`,
+          signature: `${stage}/release.json.minisig`,
+          serverArchive: `${stage}/server.archive`,
+          nodeArchive: `${stage}/node.archive`,
+        };
+      } else {
+        request = {
+          kind: "development",
+          archive: `${stage}/server.archive`,
+          size: serverArtifact.size,
+          sha256: serverArtifact.sha256,
+          nodeArchive: `${stage}/node.archive`,
+        };
+      }
+      const prepared = JSON.parse(
+        await runRemotePreparation(
+          host,
+          `set -eu; chmod 700 ${q(`${stage}/harness-bootstrap`)}; exec env HARNESS_HOME=${q(home)} ${q(`${stage}/harness-bootstrap`)} --install-transferred-server ${q(JSON.stringify(request))}`,
+          options,
+        ),
+      ) as unknown;
+      return consume(prepared, true);
     })(),
     async () => {
-      if (archive.exitCode === null) archive.kill();
-      // Only the unique staging directory belongs to this attempt, never a live build/cache.
-      const cleanup = { ...options };
-      delete cleanup.signal;
-      await runRemote(host, `${prefix} rm -rf ${q(stage)}`, cleanup);
+      try {
+        if (staged) await runRemote(host, `rm -rf ${q(stage)}`, cleanup);
+      } finally {
+        await rm(localStage, { recursive: true, force: true });
+      }
     },
   );
 }
 
+function bridgeCommand(runtime: PreparedRuntime, allowStart: boolean): string {
+  return `exec env HARNESS_HOME=${q(runtime.home)} ${q(`${runtime.directory}/harness-bootstrap`)} --run-cached-server ${q(posix.basename(runtime.directory))} ${allowStart ? "--bridge" : "--attach-only"}`;
+}
 export interface RemoteConnection {
   connection: RpcConnection;
   readonly failure: Error | undefined;
@@ -407,12 +543,7 @@ export async function connectRemote(
   options: RemoteOptions = {},
   allowStart = true,
 ): Promise<RemoteConnection> {
-  const child = remoteProcess(
-    host,
-    `exec env HARNESS_HOME=${q(runtime.home)} HARNESS_BUILD_ID=${q(runtime.buildId)} ${q(runtime.node)} ${q(`${runtime.directory}/server.mjs`)} ${allowStart ? "--bridge" : "--attach-only"}`,
-    options,
-    0,
-  );
+  const child = remoteProcess(host, bridgeCommand(runtime, allowStart), options, 0);
   let diagnostic = "";
   child.stderr.on("data", (chunk: Buffer) => {
     diagnostic = (diagnostic + chunk.toString()).slice(-8192);
@@ -422,11 +553,10 @@ export async function connectRemote(
   const exited = new Promise<void>((resolve, reject) => {
     child.once("error", (error) => {
       failure = error;
-      reject(error);
     });
     child.once("close", (code) => {
       ended = true;
-      if (code === 0) resolve();
+      if (code === 0 && !failure) resolve();
       else {
         failure ??= new RemoteCommandError(code, diagnostic || "Remote bridge disconnected");
         reject(failure);
@@ -463,14 +593,10 @@ export async function runRemoteBridge(
   runtime: PreparedRuntime,
   options: RemoteOptions = {},
 ): Promise<void> {
-  const child = remoteProcess(
-    host,
-    `exec env HARNESS_HOME=${q(runtime.home)} HARNESS_BUILD_ID=${q(runtime.buildId)} ${q(runtime.node)} ${q(`${runtime.directory}/server.mjs`)} --bridge`,
-    options,
-    0,
-  );
+  const child = remoteProcess(host, bridgeCommand(runtime, true), options, 0);
   child.stdout.pipe(process.stdout);
   child.stderr.pipe(process.stderr);
+  const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
   let disposeInput!: () => void;
   let detaching = false;
   try {
@@ -501,5 +627,6 @@ export async function runRemoteBridge(
     child.stdout.unpipe(process.stdout);
     child.stderr.unpipe(process.stderr);
     if (child.exitCode === null) child.kill();
+    await closed;
   }
 }

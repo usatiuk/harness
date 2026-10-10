@@ -2,6 +2,8 @@
 
 mod appearance;
 
+use harness_desktop::{MAX_FRAME, command, runtime};
+
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -14,15 +16,14 @@ use std::{
 use tauri::{Manager, ipc::Channel};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    process::{ChildStdin, Command},
+    process::ChildStdin,
     sync::{Mutex, Notify, oneshot, watch},
 };
-
-const MAX_FRAME: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum ServerEvent {
+    Started { id: u64 },
     Message { id: u64, frame: String },
     Closed { message: String },
 }
@@ -47,10 +48,30 @@ struct Bridge {
     commands: Mutex<HashMap<u64, ConnectionCommand>>,
     next_id: AtomicU64,
     exit_owner: Mutex<Option<serde_json::Value>>,
+    helper_runtime: Mutex<Option<Arc<runtime::ServerRuntime>>>,
     stopping: AtomicBool,
 }
 
 impl Bridge {
+    async fn begin_operation(
+        &self,
+    ) -> Result<(u64, watch::Receiver<bool>, oneshot::Sender<()>), String> {
+        let mut commands = self.commands.lock().await;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err("Desktop is shutting down".into());
+        }
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+        let (cancel, canceled) = watch::channel(false);
+        let (complete, done) = oneshot::channel();
+        commands.insert(id, ConnectionCommand { cancel, done });
+        Ok((id, canceled, complete))
+    }
+
+    async fn finish_operation(&self, id: u64, complete: oneshot::Sender<()>) {
+        let _ = complete.send(());
+        self.commands.lock().await.remove(&id);
+    }
+
     async fn close(&self, id: u64) -> Result<(), String> {
         let (already_exited, mut done) = {
             let mut servers = self.servers.lock().await;
@@ -112,6 +133,33 @@ impl Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn shutdown_cancels_and_awaits_preparation_and_rejects_new_admission() {
+        let bridge = Arc::new(Bridge::default());
+        let (id, mut canceled, complete) = bridge.begin_operation().await.unwrap();
+        let owner = bridge.clone();
+        let mut shutdown = tokio::spawn(async move { owner.close_all().await });
+        tokio::select! {
+            result = &mut shutdown => panic!("shutdown missed preparation: {result:?}"),
+            result = canceled.changed() => result.expect("preparation cancellation"),
+        }
+        assert!(*canceled.borrow());
+        assert!(
+            bridge
+                .begin_operation()
+                .await
+                .unwrap_err()
+                .contains("shutting down")
+        );
+        assert!(
+            !shutdown.is_finished(),
+            "preparation must physically retire before shutdown completes"
+        );
+        bridge.finish_operation(id, complete).await;
+        shutdown.await.unwrap().unwrap();
+        assert!(bridge.commands.lock().await.is_empty());
+    }
 
     #[tokio::test]
     async fn app_shutdown_waits_for_an_already_closing_bridge() {
@@ -238,6 +286,47 @@ fn resources(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(resources)
 }
 
+async fn prepare_runtime(
+    app: &tauri::AppHandle,
+    local: bool,
+    canceled: watch::Receiver<bool>,
+) -> Result<Arc<runtime::ServerRuntime>, String> {
+    let payload = if env!("HARNESS_BUILD_MODE") == "development" {
+        Some(resources(app)?)
+    } else {
+        None
+    };
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    runtime::prepare(
+        tokio::process::Command::new(executable),
+        payload,
+        local,
+        canceled,
+    )
+    .await
+    .map(Arc::new)
+}
+
+async fn prepare_helper(
+    app: &tauri::AppHandle,
+    bridge: &Bridge,
+    mut canceled: watch::Receiver<bool>,
+) -> Result<Arc<runtime::ServerRuntime>, String> {
+    let mut slot = tokio::select! {
+        slot = bridge.helper_runtime.lock() => slot,
+        _ = canceled.changed() => return Err("Connection attempt cancelled".into()),
+    };
+    if *canceled.borrow() {
+        return Err("Connection attempt cancelled".into());
+    }
+    if let Some(prepared) = slot.as_ref() {
+        return Ok(prepared.clone());
+    }
+    let prepared = prepare_runtime(app, false, canceled).await?;
+    *slot = Some(prepared.clone());
+    Ok(prepared)
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum ConnectionProgress {
@@ -252,24 +341,15 @@ async fn connection_command(
     command: serde_json::Value,
     channel: Channel<ConnectionProgress>,
 ) -> Result<serde_json::Value, String> {
-    let mut commands = bridge.commands.lock().await;
-    if bridge.stopping.load(Ordering::Acquire) {
-        return Err("Desktop is shutting down".into());
-    }
-    let id = bridge.next_id.fetch_add(1, Ordering::Relaxed) + 1;
-    let (cancel, canceled) = watch::channel(false);
-    let (complete, done) = oneshot::channel();
-    commands.insert(id, ConnectionCommand { cancel, done });
-    drop(commands);
+    let (id, canceled, complete) = bridge.begin_operation().await?;
     let result = async {
         channel
             .send(ConnectionProgress::Started { id })
             .map_err(|error| error.to_string())?;
-        execute_connection_command(app, command, channel, canceled).await
+        execute_connection_command(app, &bridge, command, channel, canceled).await
     }
     .await;
-    let _ = complete.send(());
-    bridge.commands.lock().await.remove(&id);
+    bridge.finish_operation(id, complete).await;
     result
 }
 
@@ -286,97 +366,34 @@ async fn cancel_connection_command(
 
 async fn execute_connection_command(
     app: tauri::AppHandle,
+    bridge: &Bridge,
     command: serde_json::Value,
     channel: Channel<ConnectionProgress>,
-    mut canceled: watch::Receiver<bool>,
+    canceled: watch::Receiver<bool>,
 ) -> Result<serde_json::Value, String> {
-    let directory = resources(&app)?;
-    let node = directory
-        .join("runtime")
-        .join(if cfg!(windows) { "node.exe" } else { "node" });
-    let mut process = Command::new(node);
-    process
-        .arg(directory.join("server.mjs"))
-        .arg("--connection-command")
-        .arg(command.to_string())
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    #[cfg(windows)]
-    process.creation_flags(0x08000000);
-    let mut child = process.spawn().map_err(|error| error.to_string())?;
-    let output = child.stdout.take().expect("piped command stdout");
-    let diagnostics = child.stderr.take().expect("piped command stderr");
-    let errors = tauri::async_runtime::spawn(async move {
-        let mut reader = BufReader::new(diagnostics);
-        let mut tail = String::new();
-        loop {
-            let mut line = Vec::new();
-            let count = (&mut reader)
-                .take(8193)
-                .read_until(b'\n', &mut line)
-                .await
-                .map_err(|error| error.to_string())?;
-            if count == 0 {
-                return Ok::<String, String>(tail);
-            }
-            if count > 8192 {
-                return Err("Connection diagnostic line exceeds limit".into());
-            }
-            let text = String::from_utf8_lossy(&line);
-            if let Ok(event) = serde_json::from_str::<serde_json::Value>(&text) {
-                if event["type"] == "progress" {
-                    if let Some(message) = event["message"].as_str() {
-                        channel
-                            .send(ConnectionProgress::Progress {
-                                message: message.to_owned(),
-                            })
-                            .map_err(|error| error.to_string())?;
-                    }
-                    continue;
-                }
-            }
-            tail.push_str(&text);
-            if tail.len() > 8192 {
-                tail = tail
-                    .chars()
-                    .rev()
-                    .take(4096)
-                    .collect::<String>()
-                    .chars()
-                    .rev()
-                    .collect();
-            }
-        }
-    });
-    let mut data = Vec::new();
-    let mut bounded_output = output.take((MAX_FRAME + 1) as u64);
-    tokio::select! {
-        result = bounded_output.read_to_end(&mut data) => {
-            result.map_err(|error| error.to_string())?;
+    if *canceled.borrow() {
+        return Err("Connection attempt cancelled".into());
+    }
+    channel
+        .send(ConnectionProgress::Progress {
+            message: "Preparing server helper".into(),
+        })
+        .map_err(|error| error.to_string())?;
+    let prepared = prepare_helper(&app, bridge, canceled.clone()).await?;
+    let mut process = prepared.command();
+    process.arg("--connection-command").arg(command.to_string());
+    command::execute(
+        process,
+        canceled,
+        |message| {
+            channel
+                .send(ConnectionProgress::Progress { message })
+                .map_err(|error| error.to_string())
         },
-        _ = canceled.changed() => {
-            child.stdin.take();
-            match tokio::time::timeout(Duration::from_secs(20), child.wait()).await {
-                Ok(result) => { result.map_err(|error| error.to_string())?; },
-                Err(_) => { child.kill().await.map_err(|error| error.to_string())?; }
-            }
-            errors.await.map_err(|error| error.to_string())??;
-            return Err("Connection attempt cancelled".into());
-        }
-    }
-    if data.len() > MAX_FRAME {
-        return Err("Connection command output exceeds limit".into());
-    }
-    let status = child.wait().await.map_err(|error| error.to_string())?;
-    let diagnostics = errors.await.map_err(|error| error.to_string())??;
-    if !status.success() {
-        return Err(diagnostics);
-    }
-    serde_json::from_slice(&data).map_err(|error| error.to_string())
+        None,
+    )
+    .await
 }
-
 #[tauri::command]
 async fn server_connect(
     app: tauri::AppHandle,
@@ -385,18 +402,38 @@ async fn server_connect(
     host: serde_json::Value,
     runtime: Option<serde_json::Value>,
 ) -> Result<u64, String> {
+    let (id, canceled, complete) = bridge.begin_operation().await?;
+    let result = connect_server(&app, &bridge, channel, host, runtime, id, canceled).await;
+    bridge.finish_operation(id, complete).await;
+    result
+}
+
+async fn connect_server(
+    app: &tauri::AppHandle,
+    bridge: &Arc<Bridge>,
+    channel: Channel<ServerEvent>,
+    host: serde_json::Value,
+    runtime: Option<serde_json::Value>,
+    id: u64,
+    canceled: watch::Receiver<bool>,
+) -> Result<u64, String> {
+    channel
+        .send(ServerEvent::Started { id })
+        .map_err(|error| error.to_string())?;
+    let local = host["kind"] == "local";
+    let helper = prepare_helper(app, bridge, canceled.clone()).await?;
+    let prepared = if local {
+        prepare_runtime(app, true, canceled.clone()).await?
+    } else {
+        helper
+    };
     // Publish every spawned bridge before shutdown takes its snapshot.
     let mut servers = bridge.servers.lock().await;
-    if bridge.stopping.load(Ordering::Acquire) {
+    if bridge.stopping.load(Ordering::Acquire) || *canceled.borrow() {
         return Err("Desktop is shutting down".into());
     }
-    let resources = resources(&app)?;
-    let node = resources
-        .join("runtime")
-        .join(if cfg!(windows) { "node.exe" } else { "node" });
-    let mut command = Command::new(node);
+    let mut command = prepared.command();
     command
-        .arg(resources.join("server.mjs"))
         .arg("--host-bridge")
         .arg(serde_json::json!({"host": host, "runtime": runtime}).to_string())
         .stdin(std::process::Stdio::piped())
@@ -407,7 +444,7 @@ async fn server_connect(
     command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     let mut child = command
         .spawn()
-        .map_err(|error| format!("Could not start the bundled Harness server: {error}"))?;
+        .map_err(|error| format!("Could not start the prepared Harness bridge: {error}"))?;
     let input = Arc::new(Mutex::new(Some(
         child.stdin.take().expect("spawned piped stdin"),
     )));
@@ -416,13 +453,13 @@ async fn server_connect(
     let (stop, stopped) = oneshot::channel();
     let (complete, done) = watch::channel(None);
     let owner_input = input.clone();
-    let id = bridge.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let credit = Arc::new(Notify::new());
     let (cancel, canceled) = watch::channel(false);
     let owner_cancel = cancel.clone();
     let reader_credit = credit.clone();
-    let local_owner = (host["kind"] == "local").then(|| bridge.inner().clone());
+    let local_owner = (host["kind"] == "local").then(|| bridge.clone());
     tauri::async_runtime::spawn(async move {
+        let _prepared = prepared;
         let diagnostics = tauri::async_runtime::spawn(read_diagnostics(error, local_owner));
         let stream_channel = channel.clone();
         let mut stream = tauri::async_runtime::spawn(async move {
@@ -534,34 +571,58 @@ async fn server_ack(bridge: tauri::State<'_, Arc<Bridge>>, id: u64) -> Result<()
 async fn server_disconnect(bridge: tauri::State<'_, Arc<Bridge>>, id: u64) -> Result<(), String> {
     bridge.close(id).await
 }
-async fn release_local_owner(app: &tauri::AppHandle, bridge: &Bridge) -> Result<(), String> {
+async fn release_local_owner(bridge: &Bridge) -> Result<(), String> {
     let Some(identity) = bridge.exit_owner.lock().await.clone() else {
         return Ok(());
     };
-    let resources = resources(app)?;
-    let mut command = Command::new(resources.join("runtime").join(if cfg!(windows) {
-        "node.exe"
-    } else {
-        "node"
-    }));
-    command
-        .arg(resources.join("server.mjs"))
-        .arg("--connection-command")
-        .arg(serde_json::json!({"type":"desktop.exit", "identity":identity}).to_string())
-        .kill_on_drop(true);
-    #[cfg(windows)]
-    command.creation_flags(0x08000000);
-    let output = tokio::time::timeout(Duration::from_secs(25), command.output())
+    let prepared = bridge
+        .helper_runtime
+        .lock()
         .await
-        .map_err(|_| "Local exit command exceeded its deadline".to_string())?
-        .map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
+        .clone()
+        .ok_or("Local owner has no prepared control helper")?;
+    let mut process = prepared.command();
+    process
+        .arg("--connection-command")
+        .arg(serde_json::json!({"type":"desktop.exit", "identity":identity}).to_string());
+    let (_cancel, canceled) = watch::channel(false);
+    command::execute(process, canceled, |_| Ok(()), Some(Duration::from_secs(25))).await?;
     Ok(())
 }
-
 fn main() {
+    let mut arguments = std::env::args();
+    let _executable = arguments.next();
+    let command = arguments.next();
+    if command.as_deref() == Some("--build-info") {
+        let result = (|| -> anyhow::Result<()> {
+            if arguments.next().is_some() {
+                anyhow::bail!("Unexpected build-info argument");
+            }
+            serde_json::to_writer(std::io::stdout(), &runtime::build_identity()?)?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            eprintln!("Build identity failed: {error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if command.as_deref() == Some("--prepare-runtime") {
+        let result = (|| {
+            let request = arguments
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("Missing preparation request"))?;
+            if arguments.next().is_some() {
+                anyhow::bail!("Unexpected preparation arguments");
+            }
+            runtime::preparation_process(&request)
+        })();
+        if let Err(error) = result {
+            eprintln!("Runtime preparation failed: {error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let mut context = tauri::generate_context!();
     let window = context
         .config_mut()
@@ -612,7 +673,7 @@ fn main() {
                 eprintln!("Desktop shutdown failed: {error}");
                 failure.store(true, Ordering::Release);
             }
-            if let Err(error) = tauri::async_runtime::block_on(release_local_owner(app, &bridge)) {
+            if let Err(error) = tauri::async_runtime::block_on(release_local_owner(&bridge)) {
                 eprintln!("Local server exit failed: {error}");
                 failure.store(true, Ordering::Release);
             }

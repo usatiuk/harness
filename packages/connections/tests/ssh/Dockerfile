@@ -1,5 +1,5 @@
 FROM debian:13-slim
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-server curl ca-certificates tar util-linux python3 make g++ \
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server ca-certificates util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --shell /bin/bash harness \
     && echo 'harness:qualification-fixture' | chpasswd \

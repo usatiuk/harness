@@ -100,7 +100,7 @@ async function profile(directory: string) {
   await keepLocalServerRunning(home);
   await writeFile(
     join(home, "settings.json"),
-    JSON.stringify({ model: { provider: "demo", model: "demo-1", preset: "high" } }),
+    JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1", preset: "high" } }),
   );
   return home;
 }
@@ -632,6 +632,7 @@ test("named gateways isolate native keys and catalogs while retaining unavailabl
   await writeFile(
     join(home, "settings.json"),
     JSON.stringify({
+      version: 1,
       model: selected,
       providers: {
         work: { type: "litellm", label: "Work gateway", config: { baseUrl: gateway.url } },
@@ -794,6 +795,7 @@ test("an unsupported sandbox default stays visible and requires an explicit supp
   await writeFile(
     join(home, "settings.json"),
     JSON.stringify({
+      version: 1,
       model: { provider: "demo", model: "demo-1" },
       plugins: { sandbox: { backend: "native" } },
     }),

@@ -1,17 +1,21 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { createServer, type Socket } from "node:net";
-import { readFile, rm } from "node:fs/promises";
+import type { Socket } from "node:net";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { once } from "node:events";
 import { z } from "zod";
 import { defaultHome } from "@harness/config";
 import { HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
+import { PRODUCT_VERSION } from "@harness/release";
+import { ResponseError, ErrorCodes } from "vscode-jsonrpc";
 import { createNdjsonTransport, type NdjsonTransport } from "@harness/client/node";
 import {
   serverIdentitySchema,
   serverInfoRequest,
   serverStopRequest,
   serverReleaseRequest,
+  managementInspectRequest,
+  managementStopRequest,
+  managementReleaseRequest,
 } from "@harness/connections";
 import {
   authenticateSocket,
@@ -19,11 +23,13 @@ import {
   createServerToken,
   privateRuntimeDirectory,
   serverSecretStore,
+  listenLocal,
+  type LocalListener,
 } from "@harness/connections/local";
 import { replaceJson } from "@harness/connections/node";
 import { buildServerComposition, type ServerComposition } from "./index.ts";
 
-/** The SQLite owner alone publishes or removes discovery. Network peers only observe it. */
+/** The SQLite owner alone publishes or removes discovery. IPC peers only observe it. */
 export async function runBackgroundServer(): Promise<void> {
   const home = await canonicalHome(defaultHome());
   process.env["HARNESS_HOME"] = home;
@@ -36,7 +42,7 @@ export async function runBackgroundServer(): Promise<void> {
   const stopped = new Promise<void>((resolve) => {
     stop = resolve;
   });
-  const listener = createServer();
+  let listener: LocalListener | undefined;
   const fail = (error: Error) => {
     listenerFailure = error;
     console.error(JSON.stringify({ event: "server.listener.failed", message: error.message }));
@@ -53,7 +59,9 @@ export async function runBackgroundServer(): Promise<void> {
     composition = await buildServerComposition({ signal: startup.signal });
     const owner = composition;
     const directory = await privateRuntimeDirectory(home);
-    const identityPath = join(directory, "identity.json");
+    const serverDirectory = join(home, "server");
+    await mkdir(serverDirectory, { recursive: true, mode: 0o700 });
+    const identityPath = join(serverDirectory, "identity.json");
     let serverId: string;
     try {
       const value: unknown = JSON.parse(await readFile(identityPath, "utf8"));
@@ -64,6 +72,8 @@ export async function runBackgroundServer(): Promise<void> {
       await replaceJson(identityPath, { serverId });
     }
     const identity = serverIdentitySchema.parse({
+      managementVersion: 1,
+      productVersion: PRODUCT_VERSION,
       serverId,
       instanceId: randomUUID(),
       protocolVersion: HARNESS_PROTOCOL_VERSION,
@@ -78,63 +88,101 @@ export async function runBackgroundServer(): Promise<void> {
     const token = createServerToken();
     await serverSecretStore(directory).set("token", token);
     const expected = Buffer.from(token);
-    listener.on("connection", (socket) => {
-      if (stopping || sockets.size >= 64) {
-        socket.destroy();
-        return;
-      }
-      sockets.set(socket, null);
-      socket.once("close", () => sockets.delete(socket));
-      // Authentication failures are classified external failures, before any RPC admission.
-      void authenticateSocket(socket).then(
-        (supplied) => {
-          const actual = Buffer.from(supplied);
-          if (stopping || actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
-            socket.destroy();
-            return;
-          }
-          try {
-            socket.write(identityFrame);
-            const transport = createNdjsonTransport(socket, socket);
-            const session = owner.connect(transport.connection);
-            sockets.set(socket, transport);
-            session.onRequest(serverInfoRequest, () => identity);
-            session.onRequest(serverStopRequest, () => {
-              // Shutdown cannot await the request that admitted it. Return acceptance first.
-              setImmediate(stop);
-              return { accepted: true as const };
-            });
-            session.onRequest(serverReleaseRequest, () => {
-              if (sockets.size !== 1) return { stopping: false };
-              stopping = true;
-              setImmediate(stop);
-              return { stopping: true };
-            });
-          } catch (error) {
-            socket.destroy();
-            fail(
-              error instanceof Error ? error : new Error("RPC admission failed", { cause: error }),
-            );
-          }
-        },
-        () => {
-          // Never amplify unauthenticated traffic into an unbounded diagnostic log.
+    listener = await listenLocal(
+      home,
+      identity.instanceId,
+      (socket) => {
+        if (stopping || sockets.size >= 64) {
           socket.destroy();
-        },
-      );
-    });
-    listener.listen(0, "127.0.0.1");
-    await once(listener, "listening");
-    listener.on("error", fail);
-    const address = listener.address();
-    if (address === null || typeof address === "string")
-      throw new Error("Background server did not bind TCP");
+          return;
+        }
+        sockets.set(socket, null);
+        socket.once("close", () => sockets.delete(socket));
+        // Authentication failures are classified external failures, before any RPC admission.
+        void authenticateSocket(socket).then(
+          (supplied) => {
+            const actual = Buffer.from(supplied);
+            if (
+              stopping ||
+              actual.length !== expected.length ||
+              !timingSafeEqual(actual, expected)
+            ) {
+              socket.destroy();
+              return;
+            }
+            try {
+              socket.write(identityFrame);
+              const transport = createNdjsonTransport(socket, socket);
+              const session = owner.connect(transport.connection);
+              sockets.set(socket, transport);
+              // This small management surface is independent of application
+              // initialization, including an incompatible application handshake.
+              const inspect = managementInspectRequest;
+              transport.connection.onRequest(inspect.method, (raw: unknown) => {
+                if (!inspect.params.safeParse(raw).success)
+                  return new ResponseError(
+                    ErrorCodes.InvalidParams,
+                    "Invalid management parameters",
+                  );
+                return identity;
+              });
+              transport.connection.onRequest(managementStopRequest.method, (raw: unknown) => {
+                const params = managementStopRequest.params.safeParse(raw);
+                if (!params.success || params.data.instanceId !== identity.instanceId)
+                  return new ResponseError(
+                    ErrorCodes.InvalidParams,
+                    "Server instance changed; reconnect before stopping it",
+                  );
+                setImmediate(stop);
+                return { accepted: true as const };
+              });
+              transport.connection.onRequest(managementReleaseRequest.method, (raw: unknown) => {
+                const params = managementReleaseRequest.params.safeParse(raw);
+                if (!params.success || params.data.instanceId !== identity.instanceId)
+                  return new ResponseError(
+                    ErrorCodes.InvalidParams,
+                    "Server instance changed; reconnect before releasing it",
+                  );
+                if (sockets.size !== 1) return { stopping: false };
+                stopping = true;
+                setImmediate(stop);
+                return { stopping: true };
+              });
+              session.onRequest(serverInfoRequest, () => identity);
+              session.onRequest(serverStopRequest, () => {
+                // Shutdown cannot await the request that admitted it. Return acceptance first.
+                setImmediate(stop);
+                return { accepted: true as const };
+              });
+              session.onRequest(serverReleaseRequest, () => {
+                if (sockets.size !== 1) return { stopping: false };
+                stopping = true;
+                setImmediate(stop);
+                return { stopping: true };
+              });
+            } catch (error) {
+              socket.destroy();
+              fail(
+                error instanceof Error
+                  ? error
+                  : new Error("RPC admission failed", { cause: error }),
+              );
+            }
+          },
+          () => {
+            // Never amplify unauthenticated traffic into an unbounded diagnostic log.
+            socket.destroy();
+          },
+        );
+      },
+      fail,
+    );
     published = join(directory, "discovery.json");
     // SQLite ownership makes any previous record stale. Retire its name before
     // publication: Windows replacement rename can be denied by an ordinary
     // reader of that old file, even though unlink preserves the reader's handle.
     await rm(published, { force: true });
-    await replaceJson(published, { ...identity, port: address.port });
+    await replaceJson(published, { ...identity, endpoint: listener.endpoint });
     await stopped;
     if (listenerFailure !== undefined) throw listenerFailure;
   } catch (error) {
@@ -145,11 +193,7 @@ export async function runBackgroundServer(): Promise<void> {
     process.off("SIGTERM", signal);
     // Remove our record while SQLite is still exclusively held. A successor cannot
     // publish yet, so an old process can never unlink its successor's discovery.
-    const closed = listener.listening
-      ? new Promise<void>((resolve, reject) =>
-          listener.close((error) => (error ? reject(error) : resolve())),
-        )
-      : Promise.resolve();
+    const closed = listener?.close() ?? Promise.resolve();
     try {
       if (published !== undefined) await rm(published, { force: true });
     } finally {

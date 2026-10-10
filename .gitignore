@@ -8,6 +8,11 @@ packages/connections/resources/
 packages/desktop/src-tauri/target/
 packages/desktop/src-tauri/gen/
 packages/desktop/test-results/
+native/target/
+release/output/
+release/staging/
+.harness-dev/
+.native-dev/
 
 # Editor / IDE
 .idea/

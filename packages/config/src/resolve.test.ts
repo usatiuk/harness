@@ -27,7 +27,7 @@ async function tmp(): Promise<string> {
 }
 async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
-  await writeFile(file, JSON.stringify(value));
+  await writeFile(file, JSON.stringify({ version: 1, ...(value as Record<string, unknown>) }));
 }
 afterEach(async () => {
   while (created.length) await rm(created.pop()!, { recursive: true, force: true });
@@ -359,7 +359,10 @@ describe("findProjectRoot", () => {
       home,
     );
     expect(written).toBe(join(home, "settings.json"));
-    expect(JSON.parse(await readFile(written, "utf8"))).toEqual({ auth: { store: "file" } });
+    expect(JSON.parse(await readFile(written, "utf8"))).toEqual({
+      version: 1,
+      auth: { store: "file" },
+    });
     await expect(
       resolveSettings({ home: join(alias, ".harness"), cwd: alias, defaults: { model }, schemas }),
     ).resolves.toMatchObject({ model });
@@ -384,7 +387,10 @@ describe("findProjectRoot", () => {
       home,
     );
     expect(written).toBe(join(repo, ".harness", "settings.local.json"));
-    expect(JSON.parse(await readFile(written, "utf8"))).toEqual({ instructions: "project" });
+    expect(JSON.parse(await readFile(written, "utf8"))).toEqual({
+      version: 1,
+      instructions: "project",
+    });
     await expect(readFile(join(storage, "settings.json"), "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });

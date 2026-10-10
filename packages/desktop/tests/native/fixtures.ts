@@ -185,6 +185,7 @@ export async function commandProvider(
   await writeFile(
     join(home, "settings.json"),
     JSON.stringify({
+      version: 1,
       model: { provider: "fixture", model: "test-model" },
       providers: {
         fixture: {
@@ -254,6 +255,7 @@ export async function streamingProvider(home: string) {
   await writeFile(
     join(home, "settings.json"),
     JSON.stringify({
+      version: 1,
       model: { provider: "fixture", model: "test-model" },
       providers: {
         fixture: {

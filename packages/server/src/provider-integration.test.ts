@@ -36,6 +36,7 @@ it("displays device authorization over RPC, cancels it, then stores only the sel
   await writeFile(
     join(home, "settings.json"),
     JSON.stringify({
+      version: 1,
       providers: {
         work: { type: "openai-codex", config: {} },
         personal: { type: "openai-codex", config: {} },
@@ -153,7 +154,7 @@ it("uses the newly configured OAuth type when a named API-key connection changes
   const settingsPath = join(home, "settings.json");
   await writeFile(
     settingsPath,
-    JSON.stringify({ providers: { work: { type: "openai-api", config: {} } } }),
+    JSON.stringify({ version: 1, providers: { work: { type: "openai-api", config: {} } } }),
   );
   const pair = createInProcessMessageConnectionPair();
   const harness = await buildServerHarness(pair.right);
@@ -165,7 +166,7 @@ it("uses the newly configured OAuth type when a named API-key connection changes
     await client.start();
     await writeFile(
       settingsPath,
-      JSON.stringify({ providers: { work: { type: "openai-codex", config: {} } } }),
+      JSON.stringify({ version: 1, providers: { work: { type: "openai-codex", config: {} } } }),
     );
     expect(
       (await client.peer.request(appProvidersRequest, {})).find(({ id }) => id === "work"),
@@ -221,6 +222,7 @@ it("aborts startup discovery, drains its socket and releases the SQLite lease", 
   await writeFile(
     join(home, "settings.json"),
     JSON.stringify({
+      version: 1,
       providers: {
         work: {
           type: "litellm",
@@ -240,7 +242,7 @@ it("aborts startup discovery, drains its socket and releases the SQLite lease", 
     await drained;
     await writeFile(
       join(home, "settings.json"),
-      JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+      JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } }),
     );
     const next = createInProcessMessageConnectionPair();
     const harness = await buildServerHarness(next.right);
@@ -287,6 +289,7 @@ it("manages two named gateway keys over RPC, preserves global selection, and dis
     .spyOn(credentials, "credentialStoreForLogin")
     .mockResolvedValue({ store: secrets, kind: "dpapi" });
   const settings = {
+    version: 1,
     model: { provider: "work", model: "coding" },
     providers: {
       work: { type: "litellm", label: "Work gateway", config: { baseUrl: gateway.url } },

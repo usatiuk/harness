@@ -20,6 +20,18 @@ Three independent reviews report no remaining material findings. Existing
 client/server ownership and behavior remain intact. Separate UI-package extraction
 and release-installer/other-platform qualification remain deferred.
 
+## Release installation and updates
+
+Installed-product delivery is separately tracked in the
+[release, installation, and update plan](../../plans/cross-cutting/2026-10-10-release-installation-updates.md).
+The bootstrap, payload and local IPC foundations are implemented with focused
+headless evidence. Desktop now consumes shared prepared paths and retains its
+own control helper; source startup uses complete immutable snapshots.
+Cold preparation is a hidden, cancellable process; existing host cancellation
+reaches it before admission, and app shutdown also awaits preparing operations.
+Installed download/cross-version qualification, remote replacement, update surfaces and
+platform qualification remain open in that plan.
+
 ## Diagnostics and supportability
 
 - [ ] Add a focused diagnostic view/export for resolved model, provider limits,

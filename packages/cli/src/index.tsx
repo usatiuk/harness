@@ -10,36 +10,59 @@ import { buildClientHarness, type Harness } from "./client-harness.ts";
 import { Root, loadSession, launchOverrides, type Start } from "./session-app.tsx";
 import type { LaunchOptions } from "./launch-options.ts";
 import { launchConnected } from "./host-app.tsx";
+import { prepareServerLaunch, selectStdioServer } from "./server-launch.ts";
 
 const waitForChild = (child: ChildProcess): Promise<void> =>
-  child.exitCode !== null
+  child.exitCode !== null || child.signalCode !== null
     ? Promise.resolve()
     : new Promise((resolvePromise) => child.once("close", () => resolvePromise()));
 
-async function buildSpawnedHarness(child: ChildProcess): Promise<Harness> {
+async function buildSpawnedHarness(
+  child: ChildProcess,
+  release: () => Promise<void>,
+): Promise<Harness> {
   if (child.stdout === null || child.stdin === null) {
     child.kill();
+    await waitForChild(child);
+    await release();
     throw new Error("server process did not expose protocol pipes");
   }
   const connection = createNdjsonMessageConnection(child.stdout, child.stdin);
   try {
-    return await buildClientHarness(connection, () => waitForChild(child));
+    return await buildClientHarness(connection, async () => {
+      await waitForChild(child);
+      await release();
+    });
   } catch (error) {
     child.kill();
     await waitForChild(child);
+    await release();
     throw error;
   }
 }
 
 async function buildStdioHarness(): Promise<Harness> {
-  const entry = process.argv[1];
-  if (entry === undefined) throw new Error("cannot locate the harness CLI entry point");
-  return buildSpawnedHarness(
-    spawn(process.execPath, [...process.execArgv, entry, "server", "--stdio"], {
+  const prepared = await prepareServerLaunch("stdio");
+  const { launch } = prepared;
+  let usage: { close(): void } | undefined;
+  const release = async () => {
+    usage?.close();
+    await prepared.close();
+  };
+  let child: ChildProcess;
+  try {
+    usage = launch.retainUse?.();
+    await selectStdioServer(launch);
+    child = spawn(launch.executable, launch.args, {
       stdio: ["pipe", "pipe", "inherit"],
       windowsHide: true,
-    }),
-  );
+      env: { ...process.env, ...launch.env },
+    });
+  } catch (error) {
+    await release();
+    throw error;
+  }
+  return buildSpawnedHarness(child, release);
 }
 
 /** Warns when the session's configured model isn't backed by a registered (signed-in) provider. */

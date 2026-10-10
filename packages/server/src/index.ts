@@ -1,6 +1,8 @@
 import { McpRuntime, MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp";
 import { registerMcpApi } from "./mcp.ts";
 import { join } from "node:path";
+import { PRODUCT_VERSION } from "@harness/release";
+import { assertSelectedServer } from "@harness/connections/local";
 import {
   defaultHome,
   readGlobalSettings,
@@ -62,6 +64,8 @@ export async function buildServerComposition(
   signal.throwIfAborted();
   const store = new SqliteStore(join(defaultHome(), "store.db"), undefined, undefined, {
     exclusive: true,
+    beforeInitialize: () =>
+      assertSelectedServer(defaultHome(), process.env["HARNESS_SERVER_SELECTION"]),
   });
   const subagents = new SubagentsDefinition();
   let mcp: McpRuntime | undefined;
@@ -141,7 +145,7 @@ export async function buildServerComposition(
       const rpcSession = new HarnessRpcSession({
         connection,
         host,
-        server: { name: "harness", version: "0.0.0" },
+        server: { name: "harness", version: PRODUCT_VERSION },
         plugins: CLIENT_CONTRACTS,
         defaultModel: resolvedFallback,
         onError: (error, method) =>

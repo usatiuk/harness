@@ -21,8 +21,6 @@ it("starts with Local and preserves simultaneous registry edits", async () => {
             id,
             label: id,
             destination: id,
-
-            runtime: { source: "development" },
           },
           path,
         ),

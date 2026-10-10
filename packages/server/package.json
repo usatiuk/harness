@@ -1,6 +1,7 @@
 {
   "name": "@harness/server",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
   "exports": {
@@ -62,6 +63,7 @@
     "@harness/openai-codex": "*",
     "@harness/output": "*",
     "@harness/protocol": "*",
+    "@harness/release": "*",
     "@harness/sandbox": "*",
     "@harness/secrets": "*",
     "@harness/service": "*",

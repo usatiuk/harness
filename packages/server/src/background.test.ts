@@ -27,14 +27,89 @@ import {
   replaceJson,
 } from "@harness/connections/node";
 import { canonicalHome, privateRuntimeDirectory, readDiscovery } from "@harness/connections/local";
-import { serverInfoRequest } from "@harness/connections";
+import {
+  serverInfoRequest,
+  managementInspectRequest,
+  managementStopRequest,
+} from "@harness/connections";
+import { initializeRequest, HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
 import { ApprovalClient, APPROVAL_CLIENT_CONTRACT_VERSION } from "@harness/approval";
 import { textOf } from "@harness/protocol";
+import { CacheUse } from "@harness/native";
 
 const entry = resolve("packages/server/src/bin.ts");
 const args = ["--conditions=development", "--import=tsx", entry];
 const launch = { executable: process.execPath, args: [...args, "--background"] };
 const exec = promisify(execFile);
+
+it("protects a cancelled managed candidate until its own cache guards are held", async () => {
+  const home = await canonicalHome(join(tmpdir(), `harness-cache-handoff-${randomUUID()}`));
+  const marker = join(home, "started");
+  const gate = join(home, "release");
+  const fixture = join(home, "gated.mjs");
+  const keys = ["node-test-runtime", "server-test-payload"];
+  const cancel = new AbortController();
+  let borrowedClosed = false;
+  let handoff!: () => void;
+  const handedOff = new Promise<void>((resolveHandoff) => {
+    handoff = resolveHandoff;
+  });
+  let pending: ReturnType<typeof ensureLocalServer> | undefined;
+  try {
+    await writeFile(
+      fixture,
+      `import {watch,existsSync,writeFileSync} from 'node:fs';
+await new Promise(resolve=>{const check=()=>{if(existsSync(${JSON.stringify(gate)})){watcher.close();resolve()}};const watcher=watch(${JSON.stringify(home)},check);writeFileSync(${JSON.stringify(marker)},String(process.pid));check();});
+await import(${JSON.stringify(pathToFileURL(entry).href)});`,
+    );
+    pending = ensureLocalServer(
+      home,
+      {
+        executable: process.execPath,
+        args: ["--conditions=development", "--import=tsx", fixture, "--background"],
+        env: { HARNESS_SERVER_CACHE_KEYS: JSON.stringify(keys) },
+        retainUse: () => {
+          const usage = new CacheUse(home, keys);
+          return {
+            close: () => {
+              usage.close();
+              borrowedClosed = true;
+              handoff();
+            },
+          };
+        },
+      },
+      cancel.signal,
+    );
+    void pending.catch(() => undefined);
+    await vi.waitFor(async () => expect(await readFile(marker, "utf8")).toMatch(/^\d+$/u), {
+      timeout: 10_000,
+    });
+    const pid = Number(await readFile(marker, "utf8"));
+    cancel.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(await readDiscovery(home)).toBeNull();
+    expect(borrowedClosed).toBe(false);
+    await writeFile(gate, "release");
+    await handedOff;
+    await vi.waitFor(async () => expect((await readDiscovery(home))?.pid).toBe(pid), {
+      timeout: 20_000,
+    });
+    const host = await attachLocalServer(home);
+    expect(host.identity.pid).toBe(pid);
+    host.close();
+  } finally {
+    cancel.abort();
+    await pending?.catch(() => undefined);
+    await writeFile(gate, "release");
+    if (await readFile(marker, "utf8").catch(() => null))
+      await vi.waitFor(async () => expect(await readDiscovery(home)).not.toBeNull(), {
+        timeout: 20_000,
+      });
+    await stopHome(home);
+    await rm(home, { recursive: true, force: true });
+  }
+}, 30_000);
 
 it.each(["waiter", "bridge"])(
   "cancels a Local %s before readiness without killing its launched owner",
@@ -43,7 +118,7 @@ it.each(["waiter", "bridge"])(
     const phases: { phase: string; ms: number }[] = [];
     const phase = (phase: string) => phases.push({ phase, ms: performance.now() - started });
     const requestedHome = join(tmpdir(), `harness-cancel-start-${randomUUID()}`);
-    const fixtureLog = join(requestedHome, ".server", "startup.log");
+    const fixtureLog = join(requestedHome, ".running-server", "startup.log");
     const describeError = (error: unknown) =>
       error instanceof Error
         ? { name: error.name, message: error.message }
@@ -186,6 +261,8 @@ it("retires its pending candidate before adopting another Local owner", async ()
   let winner: Awaited<ReturnType<typeof ensureLocalServer>> | undefined;
   let selected: Awaited<ReturnType<typeof ensureLocalServer>> | undefined;
   let pending: ReturnType<typeof ensureLocalServer> | undefined;
+  let independentOwner: ReturnType<typeof spawn> | undefined;
+  let independentClosed: Promise<unknown> | undefined;
   const abort = new AbortController();
   try {
     await writeFile(
@@ -209,7 +286,21 @@ await import(${JSON.stringify(pathToFileURL(entry).href)});`,
     });
     pid = Number(await readFile(marker, "utf8"));
     phase("launch-winner");
-    winner = await ensureLocalServer(home, launch);
+    // A previously launched owner can finish after its initiating client leaves.
+    // Start at that process boundary: another ensure now waits on the lifecycle
+    // gate held by the intentionally blocked candidate above.
+    const log = await open(join(home, ".running-server", "startup.log"), "a", 0o600);
+    try {
+      independentOwner = spawn(launch.executable, launch.args, {
+        env: { ...process.env, HARNESS_HOME: home },
+        stdio: ["ignore", log.fd, log.fd],
+        windowsHide: true,
+      });
+      independentClosed = once(independentOwner, "close");
+    } finally {
+      await log.close();
+    }
+    winner = await vi.waitFor(() => attachLocalServer(home), { timeout: 20_000 });
     expect(winner.identity.pid).not.toBe(pid);
     phase("adopt-winner");
     selected = await pending;
@@ -239,6 +330,9 @@ await import(${JSON.stringify(pathToFileURL(entry).href)});`,
     winner?.close();
     phase("cleanup-stop");
     await stopHome(home);
+    if (independentOwner?.exitCode === null && independentOwner.signalCode === null)
+      independentOwner.kill();
+    await independentClosed;
     phase("cleanup-remove");
     await rm(home, { recursive: true, force: true });
   }
@@ -252,7 +346,7 @@ function backgroundPhases(home: string) {
     error instanceof Error ? { name: error.name, message: error.message } : { type: typeof error };
   const report = async (event: string, error?: unknown) => {
     const observedPhases = phases.slice();
-    const child = await open(join(home, ".server", "startup.log"), "r")
+    const child = await open(join(home, ".running-server", "startup.log"), "r")
       .then(async (log) => {
         try {
           const { size } = await log.stat();
@@ -277,6 +371,44 @@ function backgroundPhases(home: string) {
   return { phase, failure: (error: unknown) => report("background.primary", error) };
 }
 
+it("inspects and stops an exact owner after an incompatible application handshake", async () => {
+  const home = join(tmpdir(), `harness-management-${randomUUID()}`);
+  const host = await ensureLocalServer(home, launch);
+  const closed = new Promise<void>((resolve) => host.connection.onClose(() => resolve()));
+  host.connection.listen();
+  try {
+    await expect(
+      host.connection.sendRequest(initializeRequest.method, {
+        protocolVersion: HARNESS_PROTOCOL_VERSION + 1,
+        client: { name: "future-client", version: "9.0.0" },
+        plugins: [],
+      }),
+    ).rejects.toThrow();
+    expect(
+      managementInspectRequest.result.parse(
+        await host.connection.sendRequest(managementInspectRequest.method, {}),
+      ),
+    ).toEqual(host.identity);
+    await expect(
+      host.connection.sendRequest(managementStopRequest.method, { instanceId: randomUUID() }),
+    ).rejects.toThrow("instance changed");
+    expect(await readDiscovery(home)).not.toBeNull();
+    expect(
+      managementStopRequest.result.parse(
+        await host.connection.sendRequest(managementStopRequest.method, {
+          instanceId: host.identity.instanceId,
+        }),
+      ),
+    ).toEqual({ accepted: true });
+    await closed;
+    expect(await readDiscovery(home)).toBeNull();
+  } finally {
+    host.close();
+    await stopHome(home);
+    await rm(home, { recursive: true, force: true });
+  }
+}, 20_000);
+
 it("converges simultaneous starters and rejects unauthenticated peers", async () => {
   const home = join(tmpdir(), `harness-background-${randomUUID()}`);
   const { phase, failure } = backgroundPhases(home);
@@ -297,7 +429,7 @@ it("converges simultaneous starters and rejects unauthenticated peers", async ()
     phase("reject-unauthenticated");
     const discovery = await readDiscovery(home);
     if (discovery === null) throw new Error("Missing discovery");
-    unauthorized = createConnection({ host: "127.0.0.1", port: discovery.port });
+    unauthorized = createConnection(discovery.endpoint.path);
     await once(unauthorized, "connect");
     unauthorized.write("wrong-token\n");
     await once(unauthorized, "close");
@@ -356,7 +488,7 @@ it("does not claim shutdown succeeded when a live server's discovery disappears"
   const discovery = await readDiscovery(home);
   if (discovery === null) throw new Error("Missing fixture discovery");
   try {
-    await rm(join(home, ".server", "discovery.json"));
+    await rm(join(home, ".running-server", "discovery.json"));
     await expect(stopServer(host.identity)).rejects.toThrow("shutdown outcome is unknown");
     const observer = new HarnessClient({
       connection: host.connection,
@@ -366,7 +498,7 @@ it("does not claim shutdown succeeded when a live server's discovery disappears"
     expect(await observer.peer.request(serverInfoRequest, {})).toEqual(host.identity);
     observer.closeConnection();
   } finally {
-    await replaceJson(join(home, ".server", "discovery.json"), discovery);
+    await replaceJson(join(home, ".running-server", "discovery.json"), discovery);
     host.close();
     await stopServer(host.identity);
     await rm(home, { recursive: true, force: true });
@@ -543,7 +675,7 @@ it("rejects discovery copied from another directory", async () => {
   try {
     owner = await ensureLocalServer(home, launch);
     await privateRuntimeDirectory(other);
-    await cp(join(home, ".server"), join(other, ".server"), { recursive: true });
+    await cp(join(home, ".running-server"), join(other, ".running-server"), { recursive: true });
     await expect(ensureLocalServer(other, launch)).rejects.toThrow("another Harness home");
     expect((await readDiscovery(home))?.instanceId).toBe(owner.identity.instanceId);
   } finally {
@@ -570,10 +702,10 @@ it("recovers stale discovery with an active reader after a crash and canonicaliz
     process.kill(first.identity.pid, "SIGKILL");
     await closed;
     expect((await readDiscovery(home))?.instanceId).toBe(first.identity.instanceId);
-    staleDiscovery = await open(join(home, ".server", "discovery.json"), "r");
+    staleDiscovery = await open(join(home, ".running-server", "discovery.json"), "r");
     const replacement = await ensureLocalServer(join(home, "."), launch).catch(
       async (error: unknown) => {
-        throw new Error(await readFile(join(home, ".server", "startup.log"), "utf8"), {
+        throw new Error(await readFile(join(home, ".running-server", "startup.log"), "utf8"), {
           cause: error,
         });
       },

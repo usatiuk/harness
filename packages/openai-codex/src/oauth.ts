@@ -267,6 +267,7 @@ export function openBrowser(url: string): void {
   const child = spawn(command, args, {
     stdio: "ignore",
     detached: true,
+    windowsHide: true,
     ...(windows ? { windowsVerbatimArguments: true } : {}),
   });
   child.on("error", () => {});

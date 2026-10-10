@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { PRODUCT_USER_AGENT } from "@harness/release";
 import type { Stream } from "openai/core/streaming";
 import {
   ContextWindowExceededError,
@@ -49,7 +50,7 @@ export class MistralProvider implements ModelProvider {
       baseURL: MISTRAL_BASE_URL,
       fetch: fetcher,
       maxRetries: 0,
-      defaultHeaders: { "User-Agent": "Harness/0.0.0" },
+      defaultHeaders: { "User-Agent": PRODUCT_USER_AGENT },
     });
   }
   listModels(): ModelInfo[] {

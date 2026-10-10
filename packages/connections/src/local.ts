@@ -8,9 +8,12 @@ import { once } from "node:events";
 import { DpapiSecretStore, FileSecretStore } from "@harness/secrets";
 import { serverIdentitySchema } from "./contracts.ts";
 import { z } from "zod";
+import { localEndpointSchema } from "./local-ipc.ts";
+export { listenLocal, localEndpointSchema, type LocalListener } from "./local-ipc.ts";
+export { assertSelectedServer } from "./selection.ts";
 
 export const discoverySchema = serverIdentitySchema.extend({
-  port: z.number().int().min(1).max(65535),
+  endpoint: localEndpointSchema,
 });
 export type ServerDiscovery = z.infer<typeof discoverySchema>;
 export const sameHome = (left: string, right: string): boolean =>
@@ -28,7 +31,7 @@ export async function canonicalHome(home: string): Promise<string> {
 
 /** Protect both endpoint integrity and secret confidentiality at the OS-user boundary. */
 export async function privateRuntimeDirectory(home: string): Promise<string> {
-  const directory = join(home, ".server");
+  const directory = join(home, ".running-server");
   if (process.platform !== "win32") await mkdir(directory, { recursive: true, mode: 0o700 });
   await protectDirectory(directory, true);
   return directory;
@@ -96,7 +99,7 @@ export function serverSecretStore(directory: string) {
 export async function readDiscovery(home: string): Promise<ServerDiscovery | null> {
   try {
     return discoverySchema.parse(
-      JSON.parse(await readFile(join(home, ".server", "discovery.json"), "utf8")),
+      JSON.parse(await readFile(join(home, ".running-server", "discovery.json"), "utf8")),
     );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -161,26 +164,18 @@ export async function connectDiscovered(
       "Server discovery belongs to another Harness home; remove the copied discovery record before connecting",
     );
   signal?.throwIfAborted();
-  const token = await serverSecretStore(join(home, ".server")).get("token");
+  const token = await serverSecretStore(join(home, ".running-server")).get("token");
   if (token === null) throw new Error("Server authentication secret is missing");
   signal?.throwIfAborted();
-  const socket = createConnection({ host: "127.0.0.1", port: discovery.port });
+  if ((discovery.endpoint.kind === "pipe") !== (process.platform === "win32"))
+    throw new Error("Server endpoint belongs to another platform");
+  const socket = createConnection(discovery.endpoint.path);
   const cancel = () => socket.destroy(new Error("Server connection cancelled"));
   signal?.addEventListener("abort", cancel, { once: true });
   socket.setTimeout(3000, () => socket.destroy(new Error("Server connection timed out")));
   try {
     await once(socket, "connect");
     signal?.throwIfAborted();
-    // A stale listener port can equal the client's ephemeral port. Some kernels
-    // connect that socket to itself, which would echo the authentication token.
-    if (
-      socket.localPort !== undefined &&
-      socket.localAddress === socket.remoteAddress &&
-      socket.localPort === socket.remotePort
-    )
-      throw Object.assign(new Error("Server is unavailable: TCP connected to its own socket"), {
-        code: "ECONNREFUSED",
-      });
     const identity = serverIdentitySchema.parse(
       JSON.parse(await authenticateSocket(socket, token)),
     );

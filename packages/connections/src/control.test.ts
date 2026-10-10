@@ -1,0 +1,100 @@
+import { randomUUID } from "node:crypto";
+import { afterEach, expect, it, vi } from "vitest";
+import { createInProcessMessageConnectionPair } from "@harness/client";
+import { PRODUCT_VERSION } from "@harness/release";
+import { stopRemoteServer } from "./commands.ts";
+import { stopConnection } from "./control.ts";
+import {
+  managementInspectRequest,
+  managementStopRequest,
+  managementReleaseRequest,
+  type ServerIdentity,
+  type PreparedRuntime,
+} from "./contracts.ts";
+
+const remote = vi.hoisted(() => ({ connect: vi.fn() }));
+vi.mock("./remote.ts", async (original) => ({
+  ...(await original<typeof import("./remote.ts")>()),
+  connectRemote: remote.connect,
+}));
+afterEach(() => vi.clearAllMocks());
+
+function fixture() {
+  const pair = createInProcessMessageConnectionPair();
+  const identity: ServerIdentity = {
+    managementVersion: 1,
+    productVersion: PRODUCT_VERSION,
+    protocolVersion: 999,
+    serverId: randomUUID(),
+    instanceId: randomUUID(),
+    home: "/home/test/.harness",
+    pid: 1234,
+    platform: "linux",
+    buildId: "future-server",
+  };
+  pair.right.onRequest(managementInspectRequest.method, () => identity);
+  pair.right.listen();
+  return { ...pair, identity };
+}
+
+it("stops a remote server with an incompatible conversation protocol through management only", async () => {
+  const { left, right, identity } = fixture();
+  const runtime: PreparedRuntime = {
+    node: "/home/test/.harness/runtime/node/22.23.3-linux-x64-glibc/bin/node",
+    directory: "/home/test/.harness/server/0.1.0-linux-x64-glibc",
+    home: identity.home,
+    buildId: "a".repeat(64),
+    transferred: false,
+  };
+  let stopped: unknown;
+  right.onRequest(managementStopRequest.method, (params: unknown) => {
+    stopped = params;
+    setImmediate(() => right.end());
+    return { accepted: true };
+  });
+  const close = vi.fn(async () => {
+    left.dispose();
+    right.dispose();
+  });
+  remote.connect.mockResolvedValue({ connection: left, close });
+  await stopRemoteServer(
+    {
+      kind: "ssh",
+      id: "remote",
+      label: "Remote",
+      destination: "host",
+    },
+    runtime,
+    identity,
+  );
+  expect(stopped).toEqual({ instanceId: identity.instanceId });
+  expect(remote.connect.mock.calls[0]?.[3]).toBe(false);
+  expect(close).toHaveBeenCalledOnce();
+});
+
+it("refuses to stop a replacement instance", async () => {
+  const { left, right, identity } = fixture();
+  const stop = vi.fn(() => ({ accepted: true }));
+  right.onRequest(managementStopRequest.method, stop);
+  try {
+    await expect(stopConnection(left, { ...identity, instanceId: randomUUID() })).rejects.toThrow(
+      "Server instance changed",
+    );
+    expect(stop).not.toHaveBeenCalled();
+  } finally {
+    left.dispose();
+    right.dispose();
+  }
+});
+
+it("leaves an owner with another client running after conditional release", async () => {
+  const { left, right, identity } = fixture();
+  right.onRequest(managementReleaseRequest.method, () => ({ stopping: false }));
+  try {
+    await stopConnection(left, identity, true);
+    await expect(left.sendRequest(managementInspectRequest.method, {})).resolves.toEqual(identity);
+  } finally {
+    left.dispose();
+    right.dispose();
+  }
+});

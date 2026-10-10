@@ -124,14 +124,18 @@ export class DesktopHosts {
       view.progress = "Connecting…";
       this.changed();
       let session: DesktopSession | undefined = undefined;
-      const transport = await connectNative(this.target(view), (message) => {
-        transportError ??= message;
-        session?.disconnect(message);
-        if (view.session === session) {
-          view.error = message;
-          this.changed();
-        }
-      });
+      const transport = await connectNative(
+        this.target(view),
+        (message) => {
+          transportError ??= message;
+          session?.disconnect(message);
+          if (view.session === session) {
+            view.error = message;
+            this.changed();
+          }
+        },
+        signal,
+      );
       view.closeTransport = transport.close;
       session = new DesktopSession(transport.connection, id);
       ready = AbortSignal.any([signal, AbortSignal.timeout(20_000)]);
@@ -155,7 +159,7 @@ export class DesktopHosts {
       view.identity = identity;
       return view;
     } catch (error) {
-      const cancelled = ready?.aborted;
+      const cancelled = signal.aborted || ready?.aborted;
       try {
         await view.closeTransport?.();
       } finally {

@@ -92,6 +92,7 @@ describe("openBrowser", () => {
     expect(browser.spawn).toHaveBeenCalledWith("cmd", ["/d", "/s", "/c", `start "" "${url}"`], {
       stdio: "ignore",
       detached: true,
+      windowsHide: true,
       windowsVerbatimArguments: true,
     });
   });

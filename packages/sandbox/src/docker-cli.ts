@@ -19,7 +19,10 @@ export function capture(
   opts: { input?: Uint8Array; signal?: AbortSignal } = {},
 ): Promise<CaptureResult> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(bin, args, { ...(opts.signal ? { signal: opts.signal } : {}) });
+    const child = spawn(bin, args, {
+      windowsHide: true,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
     const out: Buffer[] = [];
     let err = "";
     let failure: Error | undefined;

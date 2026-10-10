@@ -1,3 +1,4 @@
+import { PRODUCT_VERSION } from "@harness/release";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ConversationId, Item, ModelRequest, ModelStreamEvent } from "@harness/protocol";
 import { ContextWindowExceededError, ModelDiscoveryError } from "@harness/protocol";
@@ -221,7 +222,9 @@ describe("Mistral native delivery", () => {
     expect(
       headers
         .slice(1)
-        .every((h) => h["x-affinity"] === "child" && h["user-agent"] === "Harness/0.0.0"),
+        .every(
+          (h) => h["x-affinity"] === "child" && h["user-agent"] === `Harness/${PRODUCT_VERSION}`,
+        ),
     ).toBe(true);
     expect(gateway.requests.map((r) => r.key)).toEqual([
       "fixture-key",

@@ -16,6 +16,7 @@
     "@harness/openai-api": "*",
     "@harness/openai-core": "*",
     "@harness/protocol": "*",
+    "@harness/release": "*",
     "zod": "^4.3.6",
     "@harness/auth": "*"
   },

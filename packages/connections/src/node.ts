@@ -5,3 +5,5 @@ export * from "./connect.ts";
 export * from "./remote.ts";
 export * from "./commands.ts";
 export * from "./local-runtime.ts";
+export * from "./selection.ts";
+export * from "./lifecycle.ts";

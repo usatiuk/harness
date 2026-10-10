@@ -15,6 +15,11 @@ plugin slices, optional named profiles, and credential-store selection. Top-leve
 plugin keys and provider-specific configurations are validated strictly; typos and
 unknown configured plugins fail with their source layer.
 
+Global, project and local settings files carry numeric `version: 1`. Profiles,
+conversation overrides and RPC settings documents remain versionless fragments.
+Unsupported file versions fail before writes; private pre-release files are not
+silently migrated. `client.json` retains its existing numeric version 1.
+
 The resolution order is:
 
 ```text
@@ -29,15 +34,21 @@ service defaults
 `HARNESS_HOME` is an existing installation/test override for `~/.harness`;
 connection entries do not choose homes or expose multiple server profiles. The shared shipped
 server acquires exclusive SQLite ownership before schema initialization and runtime startup.
-The background owner now supports authenticated multi-client attachment through
-loopback TCP and a disposable stdio bridge. GUI/TUI default launchers reuse that
+The background owner supports authenticated multi-client attachment through
+Unix sockets on Linux/macOS or local named pipes on Windows and a disposable stdio bridge. GUI/TUI default launchers reuse that
 owner; explicit stdio mode retains its isolated composition.
 
-Local connection admission rejects a TCP socket whose connected local and remote
-address/port pairs are identical before sending authentication. Some kernels can
-self-connect to a stale listener port, echoing the client's own preamble. This
-exact absent-peer condition uses the existing connection-unavailable path;
-ordinary authentication and identity failures remain fatal to that connection.
+Local communication never allocates an IP port or falls back to TCP. Discovery and
+authentication live under `.running-server`; stable identity lives in
+`server/identity.json`. Unix endpoints use a short account-private `/tmp` namespace,
+independent of home length. Windows admission uses a narrow NAPI adapter enforcing
+current-account DACLs and remote-client rejection; Node owns connected streams.
+Canceled admission drains its overlapped operation before releasing memory and
+handles. A dedicated wait thread leaves Node's filesystem worker pool available.
+Management v1 inspection, exact-instance stop and conditional release work before
+the application handshake; application RPC still requires its strict handshake.
+Windows headless integration is qualified; Unix endpoint cleanup and foreign-user/
+remote Windows rejection remain explicit release qualification work.
 
 Launchers execute the background owner directly. If startup adopts another
 authenticated owner, it retires and joins its own superseded candidate before
@@ -154,20 +165,35 @@ shows one. A new conversation records its server-side workspace root and resolve
 overrides. Background-connected clients retain created conversations across exit.
 The isolated stdio TUI removes its own empty conversations when it exits.
 
-The desktop owns one disposable bundled Node bridge per connected entry.
+The desktop owns one disposable Node bridge per connected entry, using paths
+prepared by the shared native bootstrap.
 Native close blocks new admission, cancels blocked writes, and closes every
 bridge concurrently. A 20-second bridge deadline terminates that child and exits
-unsuccessfully. Each server persists independently. Local packaged execution
-uses a private immutable Node/code/dependency cache, including the complete
-packaged native dependency closure. The dependency cache keeps a real
-`node_modules` directory beneath its content-addressed root: Node follows the code
-junction and resolves transitive dependencies from that real directory. Layout
-participates in cache identity so an obsolete layout cannot be reused. Startup
-failure diagnostics take precedence over subsequent transport/teardown errors.
-Fresh dependency promotion may retry a Windows `EPERM` once after 100 ms, while
-holding the install lock and only if the completed source directory still exists
-and the destination is absent. The same rename is retried; other errors and a
-second denial propagate without publishing a code build or changing live files.
+unsuccessfully. Each server persists independently. Native preparation captures
+one immutable complete server payload and its exact shared Node runtime under
+the canonical home. TypeScript consumes those captured paths directly; there is
+no second copied runtime or dependency-junction cache. Development builds copy
+and hash their complete payload, including native dependencies, before starting
+an owner. A rebuild attaches to the existing owner until explicit stop; the next
+start selects the new source snapshot. An isolated stdio launch first rejects a
+live shared owner, preserving its selection.
+Complete payloads also carry the target native bootstrap for offline remote
+installation/control. Shared preparation validates the complete layout and build
+identity before publication and on cache reuse, including the declared Node
+requirement. The offline transfer boundary stages files without changing server
+selection. SSH/WSL now provisions through that shared native boundary and runs
+the installed payload through its cached-only native launcher. Controllers verify
+signed release metadata before transferring an executable; development accepts
+an explicitly built Linux source deployment. Target Node/npm and dependency
+installation are unnecessary. Cold/warm source SSH qualification passes;
+signed remote release and interrupted-target preparation remain open.
+The desktop retains its own prepared control helper between calls and through
+shutdown; a Local bridge separately retains its selected server. Every helper
+keeps cache-use protection through physical exit, including failed output and
+deadline cancellation. Cooperative cancellation drains final pipe writes while
+awaiting cleanup. Startup failure diagnostics take precedence over subsequent
+transport/teardown errors. Installed downloads, update integration and other
+platforms remain open in the release plan.
 The keep-running preference defaults false; stop-on-exit releases Local only when
 another client is not attached. Local background execution after desktop exit is
 an explicit remembered preference. Remote observers detach without stopping their owner.
@@ -277,10 +303,21 @@ bounded native pipes. Both shipped clients reconnect to the background owner.
 
 Every adopted shared connection registry reconciles execution targets before
 publishing new metadata. Changed/removed routes cancel and detach their observers;
-label/runtime-source changes preserve valid observers and drafts. Connect/upload
+label changes preserve valid observers and drafts. Connect/upload
 requests are cancellable while waiting for registry adoption. Stop completion
 closes its captured observer, so a replacement under the same saved ID survives.
 Command results and Local/remote prerequisites have typed, validated contracts.
+
+Desktop cache preparation runs in an internal hidden mode of the desktop
+executable before window initialization. Its bootstrap uses the same immutable
+cache as the CLI. The parent acquires shared use guards before closing the
+preparation helper's stdin, so protection overlaps through physical helper exit.
+Cancel can terminate and join blocked HTTP/OS-lock preparation without abandoning
+a blocking task in the app. The native connection channel publishes its operation
+ID before preparation; the existing host abort signal reaches that operation and
+awaits retirement. Shutdown closes admission before draining both preparations
+and already-spawned bridges. Successful control helpers remain cached for the
+app's lifetime.
 
 TUI screens and session helpers live separately from the launcher and server
 entrypoint. Presentation imports sandbox/approval client contracts; shared sandbox
@@ -429,9 +466,14 @@ scoped OS opener instead of navigating the application WebView.
 
 ## Source map
 
+Future release installation and updates are specified in the
+[draft delivery plan](../../plans/cross-cutting/2026-10-10-release-installation-updates.md).
+The current bundled/source deployment and lifecycle above remain the implemented
+architecture until that plan's checks pass.
+
 - `packages/config`: settings schema, merge, discovery, resolution, and writes.
 - `packages/connections`: client.json registry, authenticated background discovery,
-  local/WSL/SSH adapters, immutable built-bundle deployment and target dependencies.
+  local/WSL/SSH adapters and immutable complete-payload deployment.
 - `packages/server`: shipped composition, authentication, app RPCs, and stdio entry.
 - `packages/cli`: auth commands, terminal lifecycle, and TUI.
 - `packages/client-features`: shared plugin clients and pure transcript/edit presentation.
@@ -441,15 +483,18 @@ scoped OS opener instead of navigating the application WebView.
 - `packages/service`: shared runtime ownership, server dispatch and client observers.
 - `packages/auth`, `packages/secrets`: login methods and credential stores.
 
-The common connection layer is now qualified with actual Ubuntu WSL and isolated
-OpenSSH Linux x64 glibc. It uses Node already on the target in development mode or
-verified portable Node in managed mode, plus current locally bundled Harness code.
-Desktop packaging shares this server/worker bundler. Code and target dependency
-caches are immutable; refresh stages a build and activation requires explicit
-server restart. Native desktop and rendered TUI WSL conversation flows qualify
-host switching, client exit and fresh attachment to the same owner. Local retains
+The earlier connection layer was qualified with actual Ubuntu WSL and isolated
+OpenSSH Linux x64 glibc. The release replacement now transfers complete server
+payloads and their pinned shared Node runtime without target npm or a system
+Node. Source remote work uses `npm run prepare:remote` on Linux/WSL and an
+explicit `HARNESS_DEVELOPMENT_REMOTE_PAYLOAD` directory on the controller.
+Released server selections survive connections from other client versions;
+source rebuilds attach to a live owner until stop and the next start. The real
+SSH replacement scenario passes. Earlier native desktop and rendered TUI WSL
+conversation evidence establishes the previous flow; current WSL and visible
+desktop qualification are tracked separately. Local retains
 browser and device-code sign-in; WSL/SSH use device codes without callback
-forwarding. See the [delivery evidence](../../plans/cross-cutting/2026-10-03-remote-hosts-background-servers.md).
+forwarding. See the [release delivery evidence](../../plans/cross-cutting/2026-10-10-release-installation-updates.md).
 
 ## Verification
 

@@ -1,4 +1,5 @@
 import { readFile, realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ZodType } from "zod";
 import type { ConversationConfig } from "@harness/protocol";
@@ -6,6 +7,7 @@ import { deepMerge } from "./merge.ts";
 import { defaultHome } from "./home.ts";
 import {
   formatIssue,
+  decodeSettingsFile,
   parseProjectDoc,
   parseSettingsDoc,
   projectDocSchema,
@@ -209,8 +211,9 @@ async function readDoc(
     throw new Error(`invalid JSON in ${file}: ${(error as Error).message}`, { cause: error });
   }
   // Provider connections are machine-global; project layers parse as project docs.
-  if (schema === settingsDocSchema) return parseSettingsDoc(raw, file);
-  return parseProjectDoc(raw, file);
+  const document = decodeSettingsFile(raw, file);
+  if (schema === settingsDocSchema) return parseSettingsDoc(document, file);
+  return parseProjectDoc(document, file);
 }
 
 /** Walks up from `start`, returning the first dir where `match` holds, else `undefined`. */
@@ -237,7 +240,9 @@ async function walkUp(
  * the enclosing git repo, else the start dir. Always returns a dir when `start` is given.
  */
 export async function findProjectRoot(start: string, home = defaultHome()): Promise<string> {
-  const requestedHomes = [resolve(home), resolve(defaultHome())];
+  // A development HARNESS_HOME override must not turn the account's ordinary
+  // global settings into a project layer while walking an unrelated workspace.
+  const requestedHomes = [resolve(home), resolve(defaultHome()), join(homedir(), ".harness")];
   const [resolvedStart, homes, parents] = await Promise.all([
     canonicalPath(start),
     Promise.all(requestedHomes.map(canonicalPath)),
@@ -278,11 +283,11 @@ export async function findProjectRoot(start: string, home = defaultHome()): Prom
  * not a project.
  */
 export async function isHomeRoot(root: string, home = defaultHome()): Promise<boolean> {
-  const [candidate, global] = await Promise.all([
+  const [candidate, globals] = await Promise.all([
     canonicalPath(join(root, ".harness")),
-    canonicalPath(home),
+    Promise.all([canonicalPath(home), canonicalPath(join(homedir(), ".harness"))]),
   ]);
-  return samePath(candidate, global);
+  return globals.some((global) => samePath(candidate, global));
 }
 
 /** Short Windows names and junctions must not turn global settings into project settings. */

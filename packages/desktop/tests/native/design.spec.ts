@@ -18,7 +18,7 @@ async function profile(directory: string) {
   await keepLocalServerRunning(home);
   await writeFile(
     join(home, "settings.json"),
-    JSON.stringify({ model: { provider: "demo", model: "demo-1" } }),
+    JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } }),
   );
   return home;
 }

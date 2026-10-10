@@ -59,6 +59,22 @@ export const settingsDocSchema = z.strictObject({
 });
 
 export type SettingsDoc = z.infer<typeof settingsDocSchema>;
+export const SETTINGS_FILE_VERSION = 1;
+const fileVersionSchema = z.object({ version: z.literal(SETTINGS_FILE_VERSION) }).passthrough();
+
+/** Only persisted files carry a version; profiles and RPC fragments do not. */
+export function decodeSettingsFile(raw: unknown, path: string): Record<string, unknown> {
+  const parsed = fileVersionSchema.safeParse(raw);
+  if (!parsed.success)
+    throw new Error(
+      `Unsupported Harness settings format in ${path}; this client supports version ${SETTINGS_FILE_VERSION}. Upgrade Harness or explicitly replace this pre-release file; it was not changed.`,
+    );
+  return Object.fromEntries(Object.entries(parsed.data).filter(([key]) => key !== "version"));
+}
+
+export function encodeSettingsFile(document: SettingsDoc) {
+  return { version: SETTINGS_FILE_VERSION, ...document };
+}
 
 /** First validation issue as `path: message`, for human-readable config errors. */
 export function formatIssue(error: z.ZodError): string {

@@ -93,6 +93,7 @@ describe("custom provider public boundary", () => {
     await writeFile(
       join(home, "settings.json"),
       `${JSON.stringify({
+        version: 1,
         model: { provider: "local", model: "m", preset: "fast" },
         providers: {
           local: {
@@ -156,6 +157,7 @@ describe("custom provider public boundary", () => {
     await writeFile(
       join(home, "settings.json"),
       `${JSON.stringify({
+        version: 1,
         model: { provider: "local", model: "m" },
         providers: {
           local: {

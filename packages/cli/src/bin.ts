@@ -1,18 +1,18 @@
 import { Command } from "commander";
 import { launch } from "./index.tsx";
-import { runStdioServer } from "@harness/server";
 import { runLogin, runLogout, runStatus } from "./auth-app.tsx";
 import { runSandboxShell, runSandboxStop } from "./sandbox-cli.ts";
-import { runBackgroundServer } from "@harness/server/background";
 import { runLocalBridge } from "@harness/connections/node";
 import { defaultHome } from "@harness/config";
+import { PRODUCT_VERSION } from "@harness/release";
+import { prepareServerLaunch, runServerCommand } from "./server-launch.ts";
 
 const program = new Command();
 
 program
   .name("harness")
   .description("an agent harness with an Ink TUI")
-  .version("0.0.0")
+  .version(PRODUCT_VERSION)
   .option("--model <id>", "model id override")
   .option("--cwd <dir>", "working directory for the session")
   .option("--connect-stdio", "run the server as a local stdio child process")
@@ -76,13 +76,15 @@ program
   .action(async (opts: { stdio?: boolean; background?: boolean; bridge?: boolean }) => {
     if ([opts.stdio, opts.background, opts.bridge].filter(Boolean).length !== 1)
       throw new Error("Choose --stdio, --background or --bridge");
-    if (opts.background) await runBackgroundServer();
-    else if (opts.bridge)
-      await runLocalBridge(defaultHome(), {
-        executable: process.execPath,
-        args: [...process.execArgv, process.argv[1]!, "server", "--background"],
-      });
-    else await runStdioServer();
+    if (opts.background) await runServerCommand("background");
+    else if (opts.bridge) {
+      const prepared = await prepareServerLaunch("background");
+      try {
+        await runLocalBridge(defaultHome(), prepared.launch);
+      } finally {
+        await prepared.close();
+      }
+    } else await runServerCommand("stdio");
   });
 
 const auth = program.command("auth").description("manage model-provider sign-in");

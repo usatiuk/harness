@@ -113,7 +113,7 @@ it("sends stable per-conversation session headers and Harness identity on all th
       ),
     );
     await run("deepseek-v4-flash", contexts[0]!);
-    expect(received.every(({ agent }) => agent === "Harness/0.0.0")).toBe(true);
+    expect(received.every(({ agent }) => agent === `Harness/${PRODUCT_VERSION}`)).toBe(true);
     expect(received.every(({ session, expectedSession }) => session === expectedSession)).toBe(
       true,
     );
@@ -126,3 +126,4 @@ it("sends stable per-conversation session headers and Harness identity on all th
     await gateway.close();
   }
 });
+import { PRODUCT_VERSION } from "@harness/release";

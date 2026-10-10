@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PRODUCT_USER_AGENT } from "@harness/release";
 import { ModelDiscoveryError, type ModelInfo } from "@harness/protocol";
 
 export type MistralMode = "api" | "vibe";
@@ -172,7 +173,7 @@ export async function fetchCatalog(
   let response: Response;
   try {
     response = await fetcher(`${MISTRAL_BASE_URL}${path}`, {
-      headers: { authorization: `Bearer ${apiKey}`, "user-agent": "Harness/0.0.0" },
+      headers: { authorization: `Bearer ${apiKey}`, "user-agent": PRODUCT_USER_AGENT },
       signal,
       redirect: "manual",
     });

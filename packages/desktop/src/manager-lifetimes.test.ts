@@ -1,3 +1,4 @@
+import { PRODUCT_VERSION } from "@harness/release";
 import { afterEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { RpcPeer, createInProcessMessageConnectionPair, type RpcConnection } from "@harness/client";
@@ -38,7 +39,6 @@ async function fixture(kind: "desktop" | "tui") {
     id: "remote",
     label: "Remote",
     destination: "first",
-    runtime: { source: "development" },
   };
   let config = { ...defaultClientConfig(), hosts: [...defaultClientConfig().hosts, remote] };
   const runtime = {
@@ -46,7 +46,6 @@ async function fixture(kind: "desktop" | "tui") {
     home: "/home/user/.harness",
     directory: "/runtime",
     buildId: "a".repeat(64),
-    dependencyKey: "b".repeat(64),
     transferred: false,
   };
   const command = async (value: ConnectionCommand) =>
@@ -74,6 +73,8 @@ async function fixture(kind: "desktop" | "tui") {
       home: runtime.home,
       pid: 1,
       platform: "linux" as const,
+      managementVersion: 1 as const,
+      productVersion: PRODUCT_VERSION,
       buildId: "fixture",
     }));
     server.listen();

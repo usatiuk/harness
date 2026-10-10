@@ -23,7 +23,10 @@ describe("auth store persistence", () => {
 
   it("treats a malformed persisted value as no backend", async () => {
     const home = freshHome();
-    writeFileSync(join(home, "settings.json"), JSON.stringify({ auth: { store: "bogus" } }));
+    writeFileSync(
+      join(home, "settings.json"),
+      JSON.stringify({ version: 1, auth: { store: "bogus" } }),
+    );
     expect(await getAuthStore(home)).toBeUndefined();
   });
 

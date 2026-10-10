@@ -12,13 +12,15 @@ Current coverage boundaries, platform evidence, and gaps are documented in the
 
 ```sh
 npm test                         # all Vitest tests
-npx vitest run path/to/test.ts   # focused test file
+npm test -- path/to/test.ts       # focused test file under managed Node
 npm run typecheck                # root, CLI, and desktop TypeScript projects
 npm run lint                     # ESLint
 npm run format:check             # Prettier verification
 npm run check                    # complete local and CI validation
 npm run test:native              # build and exercise actual Windows Tauri app
-npm run test:remote              # bundle and exercise isolated real SSH; WSL is opt-in
+npm run prepare:remote           # build a complete Linux source deployment on Linux/WSL
+npm run test:remote              # exercise isolated real SSH with that source deployment
+npm run test:wsl                 # headless Windows WSL + rendered TUI qualification
 npm run desktop:build            # release executable and NSIS installer
 ```
 
@@ -59,6 +61,46 @@ when the tests set a temporary Harness home. The unchanged conversation-canvas
 geometry case intermittently fails in the full browser suite and passes alone;
 its timing cause remains unisolated. The affected MCP/approval settings scenarios
 pass. Tests/timeouts remain unchanged.
+## Managed runtime and release foundation
+CLI development, desktop, Vitest and `npm run check` commands enter through the
+native bootstrap and downloaded Node 22.23.3, including remote qualification. Run
+`npm run runtime:setup` first so native dependencies share its ABI. The new
+release foundation also has `cargo test --manifest-path
+native/Cargo.toml` and a physically isolated CLI/server payload smoke documented
+in [release tooling](../release/README.md). These headless checks do not qualify
+installed packages, visible GUI behavior, other native targets or updates.
+
+Remote source qualification requires `HARNESS_DEVELOPMENT_REMOTE_PAYLOAD` to
+point to the three-file Linux deployment produced by `prepare:remote`; Windows
+WSL runs also require `HARNESS_REMOTE_WSL`. The SSH fixture has a separate OS
+account and no installed Node/npm/compiler/curl. WSL uses a fresh private home
+with no selected credential backend, so read paths do not access the account's
+vault. These cases establish demo/process/IPC behavior, not live credentials.
+The cached bootstrap/launcher checks pass 32 cases on Windows and 34 on Linux.
+Real SSH replacement passes three cases, with WSL and WSL TUI skipped; separate
+WSL qualification passes its provisioning and rendered TUI cases. These exercise
+source cold/warm installation, shared Node, bridge loss, live-owner reuse, rebuilt
+restart, early upload failure and checksum rejection before executing a helper.
+The original blocked-installer test reproduced an SSH helper surviving local
+transport termination. An EOF-aware helper and awaited transport now retire it
+before transfer-stage cleanup, without changing the selected or live server.
+The final SSH and WSL runs also pass cached bridge attachment while the Node
+installation gate remains held. The full managed check passes typecheck, lint,
+formatting and 1,193 tests (36 skipped). This establishes lock-wait cancellation,
+not cleanup during extraction: abrupt process exit can leave native scratch, which
+the explicit cache maintenance milestone must handle. Signed-release remote and
+minimum-glibc qualification remain open; the Linux builder here uses glibc 2.43.
+
+Release version/artifact tools pass twelve focused tests with real Git/files/tar/
+hashes and controlled native/signature/runtime-pin edges. They reject mixed and
+stale build identities, changed recorded installers, altered Node archive layout,
+invalid updater signatures and conflicting matrices; failed packaging cleans only
+its new output and preserves existing output. Native mirror reuse preserves the
+stored receipt and rejects changed digest/layout. The current native suites pass
+34 Windows and 36 Linux cases. Twelve headless desktop Rust tests pass, including
+the actual `--build-info` path without home/window initialization. The full
+managed check passes 1,202 tests (36 skipped). Actual fresh signed platform outputs,
+protected release jobs and anonymous published installation remain unqualified.
 
 ## Native search and output finalization
 
@@ -90,7 +132,129 @@ for run evidence and the unestablished server-process timeout. These controlled 
 live vendor acceptance, OAuth entitlement, cryptographic acceptance or billing;
 credentialed qualification remains unperformed for this delivery.
 
+## Windows test windows
+
+CLI/server tests and browser renderer tests should run without extra console or
+application windows. Noninteractive subprocesses use Node's `windowsHide: true`
+or Rust's `CREATE_NO_WINDOW`; the interactive CLI keeps its caller's console.
+Development commands preserve inherited stdio and the existing console
+relationship through npm and test workers. Browser tests already use Playwright's
+headless mode. This does not make the real Tauri application headless.
+
+Native E2E tests deliberately show the app, move the pointer and exercise native
+dragging, resizing and menus. Run them at the end, with explicit user approval
+for each visible run; accept that their windows can steal focus. Windows Sandbox
+is an optional place to run them when available, with the build/test prerequisites
+prepared inside it. Sandbox is unavailable on Windows Home, and its viewer is
+itself visible. No dedicated runner infrastructure or hidden app mode is required.
+See [the process-launch research](research/2026-10-10-headless-testing.md) for the
+verified limits and remaining evidence gaps.
+
+Before the native-search rebase, the 2026-10-10 console-launch corrections passed
+the full check pipeline under
+managed Node: typecheck, lint, formatting and 1,074 tests (36 skipped). Validation
+used a hidden command window and did not run native GUI tests. The first sandboxed
+attempt was blocked by temporary-file rename permissions before any test ran;
+the unchanged checks passed outside that execution sandbox.
+
+After rebasing release work onto `0dfb0ff`, the complete combined check passes
+typecheck, lint, formatting and 1,173 tests (36 skipped), and rebuilt CLI/server
+payloads pass the isolated RPC/turn/SQLite-restart smoke. These checks remain
+headless. New real-process lifecycle/selection tests use the existing thirty-second
+integration allowance after phase diagnostics established that native Windows
+security preparation exceeded the five-second default under full-suite load;
+product deadlines and assertions are unchanged. An unrelated Docker stat case
+timed out once; focused and final full runs pass unchanged, with that transient's
+root cause still unestablished.
+
 ## Shared-server delivery
+
+Selected-server regressions include signed Rust cached fixtures for CLI A/server
+B with separately declared runtimes and twelve real hidden helper-process cases
+for bounded descriptors, cancellation and physical retirement. A real CLI stdio
+command verifies its captured server executable and admission selection; the copied
+executable is the same managed Node version, not a different-ABI qualification.
+A gated managed background candidate survives observer cancellation while its
+borrowed cache-use guard remains held, then becomes the authenticated owner with
+the same PID after guard handoff. This observes the guard wrapper and ordinary
+server readiness; it does not establish actual prune exclusion or manager-process
+death. See the [release plan](plans/cross-cutting/2026-10-10-release-installation-updates.md)
+for the remaining installed and lifetime qualification gates.
+The complete managed check after the CLI corrections passes 1,188 tests,
+with 36 skipped, plus typecheck/lint/formatting. Fresh Windows CLI/server payloads
+pass the outside-checkout CLI stdio RPC/demo-turn/SQLite-restart smoke. No native
+GUI tests ran.
+
+Desktop preparation has separate headless checks; none opens a Tauri window:
+
+```sh
+node scripts/development.mjs npm run prepare:server --workspace @harness/desktop
+node scripts/development.mjs node packages/desktop/tools/native.mjs cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --features custom-protocol --locked
+node scripts/development.mjs node --conditions=development --import=tsx release/tools/smoke-desktop.ts
+```
+
+The Rust checks use the real complete payload and a copy of the verified managed
+Node distribution to verify captured executable/home/environment and use guards.
+Process regressions verify oversized helper retirement and cooperative EOF
+cleanup with final writes. The bridge smoke uses actual native source preparation,
+RPC and SQLite outside the checkout. It covers EOF persistence, reuse of a live
+owner after a source rebuild, explicit stop and selection of the rebuilt payload
+on the next start. Isolated-stdio regressions reject a live shared owner without
+changing its selection. This is preparation/bridge evidence, not installed signed
+downloads or native UI qualification. Unix terminal inheritance is preserved;
+interactive macOS/Linux launcher qualification remains open.
+
+Stop's protocol completion can precede physical Node exit. The initial Windows
+bridge smoke passed its semantic assertions but failed directory removal with
+`EBUSY`: both owners were still alive at protocol-stop completion. The smoke now
+awaits the actual OS process exit before deleting its cwd, without cleanup retries.
+Cache-prune and owner-process lifetime qualification remain open in M7.
+After desktop preparation, the full managed check again passes typecheck, lint,
+formatting and 1,188 tests (36 skipped). Twenty native-bootstrap Rust tests and
+six desktop Rust tests pass; two desktop cases are subprocess fixtures. The
+prepared bridge smoke passes through actual physical retirement and cleanup.
+It also exercises the native source CLI entry from an outside-checkout cwd and
+checks that `--version` does not select a server. This catches Windows verbatim
+script-path rejection (`EISDIR`), which source imports and compiled-payload
+execution alone do not establish. The ordinary source bootstrap command passes
+after boundary normalization with `dunce`.
+
+The cancellation slice adds three integration cases using Cargo's actual desktop
+executable in `--prepare-runtime` mode, which returns before Tauri/window setup,
+plus one controlled Node process that sends an incomplete EOF frame.
+They qualify cancellation while the real Node install lock is held, physical
+helper exit and released guards, successful handoff plus a real config command,
+failed preparation diagnostics, and rejection of an EOF-truncated frame. Runtime
+fixture copies use `fs::copy`, because normal Windows temporary directories may
+be on C: while the source cache is on D:; hard links cannot cross those volumes.
+Eleven desktop Rust tests pass, including two child-fixture entries. Transport/host
+regressions cover cancellation before/after the early operation ID, late bridge
+admission cleanup, cancellation-command failure and host Disconnect during preparation.
+The shutdown regression proves admission/cancellation and awaited completion;
+combined with the real helper tests this is composed headless evidence, not an
+actual Tauri shutdown or native UI qualification. No windows open in these checks.
+Sandboxed runs hit the known temporary-file ACL/hard-link/rename restrictions;
+unchanged process checks run outside that sandbox rather than weakening assertions.
+The final full managed check after this slice passes typecheck, lint, formatting
+and 1,193 tests (36 skipped), including the added transport/host cases. The native
+bootstrap/launcher workspace's 20 tests pass too. No GUI qualification is claimed.
+
+The offline server-transfer slice passes 29 native bootstrap/launcher tests.
+Signed cold server fixtures exercise actual tar extraction, complete-layout and
+build-identity validation, atomic receipt publication and rejection of a signed
+incomplete payload. Their Node receipts and native file bytes are controlled
+fixtures; they do not qualify executable runtime/ABI behavior. Warm source reuse
+is repeated after deleting the archive, and warm release reuse uses nonexistent
+transfer paths. Metadata/signature bounds, missing files, identity mismatches,
+altered/truncated bytes and unchanged server selection are covered. Actual native
+helper process tests observe both use guards until stdin EOF and physical exit;
+the same two cases pass with `HARNESS_RELEASE_BUILD=1`, including rejection of
+source transfers. No GUI opens. Fresh complete Windows payload and preparation/
+desktop-bridge smokes pass with real Node/RPC/SQLite and process retirement.
+The full managed check again passes 1,193 tests (36 skipped). Actual Linux payload
+execution and replacement of the old SSH/WSL installer remain open.
+Rebuilt generated desktop resources also pass all eleven headless desktop Rust
+checks after this shared validation change; internal helper mode creates no window.
 
 Public RPC regressions in server/src/shared-server.test.ts qualify multi-client
 approval decisions, disconnected accepted/queued work, fresh reconnect without
@@ -193,14 +357,14 @@ causes of earlier uncaptured startup timeouts or typed-TUI input loss.
 
 `npm run test:remote` requires Docker and OpenSSH on the controlling client. It
 creates a loopback-only SSH container, ephemeral key, verified known-host entry
-and private client configuration, then removes the fixture. Set
-`HARNESS_REMOTE_WSL=Ubuntu` to also qualify that installed distribution. Each case
-uses a unique remote home/runtime directory and explicitly shuts down its existing
-owner before cleanup. The target needs network access for the initial Node/dependency
-installation. Fixture HOME/PATH are substituted at the process edge; production
-connection entries expose no home or executable override. These tests exercise real managed deployment, development bundle
-changes, cache reuse, target Node resolution and reconnect. With WSL enabled they
-also run the rendered TUI conversation flow. GUI interaction is qualified by the
+and private client configuration, then removes the fixture. The separate Windows
+`test:wsl` runner uses `HARNESS_REMOTE_WSL=Ubuntu` (or another installed distro)
+and includes the rendered TUI conversation flow. Each case uses a unique remote
+home and explicitly shuts down its existing owner before cleanup. The controller
+downloads verified artifacts; the target needs no internet, Node, npm or compiler.
+Fixture HOME is substituted at the process edge; production connection entries
+expose no home or executable override. Tests exercise complete source deployment,
+archive changes, cache reuse, captured Node and reconnect. GUI interaction is qualified by the
 native suite; provider sign-in and every interrupted-install path are separate.
 
 ## Desktop native tests
@@ -447,6 +611,14 @@ test runner's environment intact. Windows release
 qualification must launch outside the source tree with no system Node on PATH;
 a debug build or browser-only test is not packaged-app evidence. macOS/Linux
 desktop installation and live external OAuth sign-in remain unqualified.
+
+The [draft release plan](plans/cross-cutting/2026-10-10-release-installation-updates.md)
+defines future clean-install, two-release update, shared-runtime, protocol-mismatch,
+public-baseline data preservation and cache-maintenance qualification; concrete
+migration/recovery tests belong to actual later format changes. These scenarios have not run;
+current source/native results do not establish release signing, anonymous download,
+installer upgrade/uninstall or updater activation. Visible native GUI tests require
+explicit user approval for each run and belong at the end of a delivery slice.
 
 Real shared Docker/Compose qualification is opt-in:
 

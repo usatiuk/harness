@@ -7,6 +7,7 @@ import { join } from "node:path";
 // These tests require a Linux container: a reachable Windows Docker daemon cannot run Debian.
 const dockerInfo = spawnSync("docker", ["info", "--format", "{{.OSType}}"], {
   encoding: "utf8",
+  windowsHide: true,
 });
 const dockerOk = dockerInfo.status === 0 && dockerInfo.stdout?.trim() === "linux";
 
@@ -35,7 +36,10 @@ describe.skipIf(!dockerOk)("DockerExecutionContext (real container)", () => {
 
   beforeAll(async () => {
     hostDir = await mkdtemp(join(tmpdir(), "hbox-"));
-    const pull = spawnSync("docker", ["pull", "debian:stable-slim"], { encoding: "utf8" });
+    const pull = spawnSync("docker", ["pull", "debian:stable-slim"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
     if (pull.status !== 0) {
       throw new Error(
         `docker pull failed: ${pull.stderr?.trim() || pull.error?.message || `exit ${pull.status ?? "unknown"}`}`,
@@ -44,7 +48,7 @@ describe.skipIf(!dockerOk)("DockerExecutionContext (real container)", () => {
     const run = spawnSync(
       "docker",
       ["run", "-d", "--rm", "-v", `${hostDir}:/work`, "debian:stable-slim", "sleep", "600"],
-      { encoding: "utf8" },
+      { encoding: "utf8", windowsHide: true },
     );
     cid = run.stdout?.trim() ?? "";
     if (run.status !== 0 || !cid) {
@@ -61,8 +65,9 @@ describe.skipIf(!dockerOk)("DockerExecutionContext (real container)", () => {
     if (cid) {
       spawnSync("docker", ["exec", cid, "find", "/work", "-mindepth", "1", "-delete"], {
         stdio: "ignore",
+        windowsHide: true,
       });
-      spawnSync("docker", ["rm", "-f", cid], { stdio: "ignore" });
+      spawnSync("docker", ["rm", "-f", cid], { stdio: "ignore", windowsHide: true });
     }
     if (hostDir) await rm(hostDir, { recursive: true, force: true });
   });

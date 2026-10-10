@@ -9,7 +9,9 @@ import console from "node:console";
 import { pathToFileURL } from "node:url";
 import { remoteProcessFixture } from "@harness/testkit";
 
-const exec = promisify(execFile);
+const execute = promisify(execFile);
+const exec = (command, args, options = {}) =>
+  execute(command, args, { ...options, windowsHide: true });
 const { canonicalHome } = await import("../src/local.ts");
 const directory = await canonicalHome(join(tmpdir(), `harness-ssh-${randomUUID()}`));
 const container = `harness-ssh-${randomUUID()}`;
@@ -25,9 +27,7 @@ try {
     ["build", "-t", "harness-ssh-qualification", "packages/connections/tests/ssh"],
     { maxBuffer: 1024 * 1024 },
   );
-  await exec("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", join(directory, "identity")], {
-    windowsHide: true,
-  });
+  await exec("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", join(directory, "identity")]);
   await exec("docker", [
     "run",
     "--detach",
@@ -72,12 +72,15 @@ try {
     ],
     {
       stdio: "inherit",
+      windowsHide: true,
       env: {
         ...process.env,
         HARNESS_HOME: directory,
         HARNESS_REMOTE_SSH_CONFIG: join(directory, "config"),
         HARNESS_REMOTE_FIXTURE_HOME: fixtureHome,
-        HARNESS_SERVER_PAYLOAD: resolve("packages/connections/resources"),
+        HARNESS_DEVELOPMENT_REMOTE_PAYLOAD:
+          process.env.HARNESS_DEVELOPMENT_REMOTE_PAYLOAD ??
+          resolve("release/output/linux-x64-glibc"),
         NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preload).href}`,
       },
     },

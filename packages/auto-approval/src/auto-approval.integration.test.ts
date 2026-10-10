@@ -349,6 +349,7 @@ describe("auto approval integration", () => {
     await writeFile(
       join(home, "settings.json"),
       JSON.stringify({
+        version: 1,
         model: { provider: "fake", model: "main" },
         plugins: {
           "auto-approval": {

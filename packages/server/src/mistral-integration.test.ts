@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemorySecretStore } from "@harness/secrets";
+import { PRODUCT_VERSION } from "@harness/release";
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
 import { buildServerHarness, type ServerHarness } from "./index.ts";
 import {
@@ -72,6 +73,7 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
   await writeFile(
     join(home, "settings.json"),
     JSON.stringify({
+      version: 1,
       model: { provider: "mistral-vibe", model: "mistral-vibe-cli-latest" },
       providers: { unavailable: { type: "mistral-vibe", config: {} } },
     }),
@@ -214,7 +216,7 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
     expect(await terminal).toBe("completed");
     unsubscribe();
     expect(headers[0]?.["x-affinity"]).toBe(conversation.id);
-    expect(headers[0]?.["user-agent"]).toBe("Harness/0.0.0");
+    expect(headers[0]?.["user-agent"]).toBe(`Harness/${PRODUCT_VERSION}`);
     expect(gateway.requests.find(({ method }) => method === "POST")?.path).toBe(
       "/v1/conversations",
     );
