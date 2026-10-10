@@ -216,6 +216,15 @@ accepts its updater signature against the project public key. No installer is
 executed or published. Sandbox temp-module rename and NSIS extraction failures
 are resolved by rerunning the unchanged commands outside the sandbox.
 
+Hosted Windows run `38087887143` subsequently failed the new release-selection
+test's five-second deadline. The test acquired the same private lifecycle gate
+five times, repeating Windows ACL subprocess setup; the similar source-selection
+scenario already took nearly four seconds on that runner. The SemVer/platform
+sequence now holds one real gate, preserving every assertion and the original
+deadline. Its five focused cases pass. Hosted correction evidence remains open;
+no product behavior changes. Actual installation/update execution on the user's
+machine is prohibited, and local tests/builds are paused pending clarification.
+
 No release has been
 published. Anonymous cold download, real installer/update execution and macOS/Linux
 native packaging remain unqualified. The public artifact repository/token, signing
