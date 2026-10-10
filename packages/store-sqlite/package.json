@@ -19,6 +19,6 @@
   "devDependencies": {
     "@harness/testkit": "*",
     "@types/better-sqlite3": "^7.6.13",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.11"
   }
 }

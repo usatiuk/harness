@@ -28,7 +28,7 @@
     "@harness/service": "*",
     "@harness/store": "*",
     "@harness/testkit": "*",
-    "vitest": "^4.1.8",
+    "vitest": "^4.1.11",
     "@harness/config": "*",
     "@harness/secrets": "*"
   }
