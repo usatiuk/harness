@@ -1,0 +1,363 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Product version increment
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+        required: true
+      channel:
+        description: Windows preview or the complete stable platform set
+        type: choice
+        options: [windows-preview, stable]
+        default: windows-preview
+        required: true
+
+# One source cut and publisher at a time, including downstream qualification.
+concurrency:
+  group: harness-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  HUSKY: "0"
+  MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+jobs:
+  cut:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    environment: harness-release
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.cut.outputs.version }}
+      sourceCommit: ${{ steps.cut.outputs.sourceCommit }}
+      channel: ${{ steps.cut.outputs.channel }}
+      targets: ${{ steps.cut.outputs.targets }}
+      matrix: ${{ steps.cut.outputs.matrix }}
+    steps:
+      - name: Reject a repeated source cut before mutation
+        run: test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Bootstrap the pinned Node runtime without system Node
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          cargo build --locked --manifest-path native/Cargo.toml --workspace
+          native/target/debug/harness --npm . ci
+      - name: Check the source before cutting its version
+        run: native/target/debug/harness --npm . run check
+      - name: Commit and atomically push main with its source tag
+        id: cut
+        env:
+          RELEASE_BUMP: ${{ inputs.bump }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: >-
+          native/target/debug/harness --run-node . --conditions=development --import=tsx
+          release/tools/cut-release.mjs "$RELEASE_BUMP" "$RELEASE_CHANNEL"
+
+  build:
+    needs: cut
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.cut.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    environment: harness-release
+    timeout-minutes: 120
+    env:
+      RELEASE_TARGET: ${{ matrix.target }}
+      RELEASE_BINARY: ${{ matrix.binary }}
+      MINIMUM_PLATFORM: ${{ matrix.minimumPlatform }}
+      SOURCE_COMMIT: ${{ needs.cut.outputs.sourceCommit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.cut.outputs.sourceCommit }}
+          persist-credentials: false
+      - name: Install Linux desktop build dependencies
+        if: matrix.target == 'linux-x64-glibc'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libfuse2
+      - name: Bootstrap the pinned Node runtime without system Node
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tools/native.ps1 cargo build --locked --manifest-path native/Cargo.toml --workspace
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tools/native.ps1 native/target/debug/harness.exe --npm . ci
+          else
+            cargo build --locked --manifest-path native/Cargo.toml --workspace
+            native/target/debug/harness --npm . ci
+          fi
+      - name: Build Linux CLI and server at the glibc 2.28 baseline
+        if: matrix.target == 'linux-x64-glibc'
+        run: |
+          # Separate installed dependencies and Cargo outputs from the Ubuntu desktop.
+          git clone --no-hardlinks --no-checkout . "$RUNNER_TEMP/linux-payload-source"
+          git -C "$RUNNER_TEMP/linux-payload-source" checkout --detach "$SOURCE_COMMIT"
+          docker run --rm --volume "$RUNNER_TEMP/linux-payload-source:/work" --workdir /work \
+            quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae \
+            bash -euo pipefail -c '
+              git config --global --add safe.directory /work
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.90.0
+              export PATH="$HOME/.cargo/bin:$PATH"
+              export PYTHON=/opt/python/cp312-cp312/bin/python
+              export npm_config_build_from_source=true
+              export HUSKY=0
+              cargo build --locked --manifest-path native/Cargo.toml --workspace
+              native/target/debug/harness --npm . ci
+              native/target/debug/harness --npm . run release:payloads -- --release
+              mkdir -p release/staging
+              tar -czf release/staging/linux-payloads.tar.gz -C release/output/linux-x64-glibc cli server
+            '
+          # Desktop preparation may rebuild release/output under Ubuntu dependencies.
+          # Keep the baseline CLI/server bytes outside that mutable build directory.
+          mkdir -p release/staging
+          mkdir release/staging/linux-payloads
+          tar -xzf "$RUNNER_TEMP/linux-payload-source/release/staging/linux-payloads.tar.gz" -C release/staging/linux-payloads
+      - name: Build Windows and macOS CLI and server
+        if: matrix.target != 'linux-x64-glibc'
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tools/native.ps1 native/target/debug/harness.exe --npm . run release:payloads -- --release
+          else
+            native/target/debug/harness --npm . run release:payloads -- --release
+          fi
+      - name: Build the desktop and sign its updater artifact
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tools/native.ps1 native/target/debug/harness.exe --npm . run release:desktop
+          else
+            native/target/debug/harness --npm . run release:desktop
+          fi
+      - name: Check the actual Linux CLI/server ELF requirements
+        if: matrix.target == 'linux-x64-glibc'
+        run: |
+          # A newer compiler in manylinux can link newer libstdc++ symbols even
+          # when glibc is old. Gate every shipped native library, not only our addon.
+          export LC_ALL=C
+          test -f release/staging/linux-payloads/server/harness-bootstrap
+          find release/staging/linux-payloads \( -type f -o -type l \) \( -name harness-bootstrap -o -name '*.node' -o -name '*.so' -o -name '*.so.*' \) -print0 > release/staging/linux-elf-files
+          while IFS= read -r -d '' file; do
+            versions=$(readelf --version-info --wide "$file" | awk '
+              /^Version needs section/ { needs = 1; next }
+              /^Version .* section/ { needs = 0 }
+              needs {
+                for (i = 1; i < NF; i++)
+                  if ($i == "Name:" && $(i + 1) ~ /^(GLIBC_|GLIBCXX_|CXXABI_)/)
+                    print $(i + 1)
+              }
+            ' | sort -u)
+            while IFS= read -r symbol; do
+              [[ -n "$symbol" ]] || continue
+              case "$symbol" in
+                GLIBC_*) floor=2.28; version=${symbol#GLIBC_} ;;
+                GLIBCXX_*) floor=3.4.25; version=${symbol#GLIBCXX_} ;;
+                CXXABI_*) floor=1.3.11; version=${symbol#CXXABI_} ;;
+              esac
+              if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || [[ $(printf '%s\n' "$floor" "$version" | sort -V | tail -n 1) != "$floor" ]]; then
+                echo "Linux baseline exceeded: $file requires $symbol (maximum $floor)" >&2
+                exit 1
+              fi
+            done <<< "$versions"
+            echo "Checked Linux symbol requirements: $file"
+          done < release/staging/linux-elf-files
+      - name: Package the captured native outputs and verified Node archive
+        run: |
+          pin=$(native/target/debug/"$RELEASE_BINARY" --run-node . --input-type=module -e 'import {readFileSync} from "node:fs"; const pin=JSON.parse(readFileSync("release/node.json", "utf8")).targets[process.argv[1]]; console.log(`${pin.url}\t${pin.size}`)' "$RELEASE_TARGET")
+          IFS=$'\t' read -r node_url node_size <<< "$pin"
+          mkdir -p release/staging
+          curl --fail --location --proto '=https' --tlsv1.2 --max-filesize "$node_size" --output release/staging/node-archive "$node_url"
+          payloads="release/output/$RELEASE_TARGET"
+          if [[ "$RELEASE_TARGET" == linux-x64-glibc ]]; then
+            payloads=release/staging/linux-payloads
+          fi
+          launcher="$payloads/server/harness-bootstrap"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            launcher+=.exe
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tools/native.ps1 native/target/debug/harness.exe --npm . run release:artifacts -- package "$payloads" "release/staging/targets/$RELEASE_TARGET" "$launcher" release/staging/node-archive "$MINIMUM_PLATFORM" "release/output/$RELEASE_TARGET/desktop/desktop-build.json"
+          else
+            native/target/debug/harness --npm . run release:artifacts -- package "$payloads" "release/staging/targets/$RELEASE_TARGET" "$launcher" release/staging/node-archive "$MINIMUM_PLATFORM" "release/output/$RELEASE_TARGET/desktop/desktop-build.json"
+          fi
+          # Actions artifacts do not preserve executable bits or symlinks; tar does.
+          tar -czf "release/staging/$RELEASE_TARGET-target.tar.gz" -C release/staging/targets "$RELEASE_TARGET"
+          tar -czf "release/staging/$RELEASE_TARGET-smoke.tar.gz" -C "$payloads" cli server
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: target-${{ matrix.target }}
+          path: release/staging/${{ matrix.target }}-target.tar.gz
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: smoke-${{ matrix.target }}
+          path: release/staging/${{ matrix.target }}-smoke.tar.gz
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  assemble:
+    needs: [cut, build]
+    runs-on: ubuntu-22.04
+    environment: harness-release
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.cut.outputs.sourceCommit }}
+          persist-credentials: false
+      - name: Bootstrap the pinned Node runtime without system Node
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          cargo build --locked --manifest-path native/Cargo.toml --workspace
+          native/target/debug/harness --npm . ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: target-*
+          merge-multiple: true
+          path: release/staging/transfers
+      - name: Export the captured source and assemble the declared platform set
+        env:
+          SOURCE_COMMIT: ${{ needs.cut.outputs.sourceCommit }}
+          RELEASE_TARGETS: ${{ needs.cut.outputs.targets }}
+        run: |
+          mkdir -p release/staging/targets
+          for archive in release/staging/transfers/*-target.tar.gz; do
+            tar -xzf "$archive" -C release/staging/targets
+          done
+          native/target/debug/harness --run-node . scripts/development.mjs node --conditions=development --import=tsx release/tools/source.ts release/staging/source "$SOURCE_COMMIT"
+          native/target/debug/harness --run-node . scripts/development.mjs node --conditions=development --import=tsx release/tools/finalize.ts prepare release/staging/targets release/staging/signed "$RELEASE_TARGETS" release/staging/source
+      - name: Sign and verify the complete artifact set
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          native/target/debug/harness --run-node . scripts/development.mjs node --conditions=development --import=tsx release/tools/finalize.ts sign release/staging/signed
+          tar -czf release/staging/signed-release.tar.gz -C release/staging/signed .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-release
+          path: release/staging/signed-release.tar.gz
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  qualify:
+    needs: [cut, assemble]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.cut.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      RELEASE_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.cut.outputs.sourceCommit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-release
+          path: release/staging/transfers
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: smoke-${{ matrix.target }}
+          path: release/staging/transfers
+      - name: Restore the exact signed assets and payload fixture
+        run: |
+          mkdir -p release/staging/signed "release/output/$RELEASE_TARGET"
+          tar -xzf release/staging/transfers/signed-release.tar.gz -C release/staging/signed
+          tar -xzf "release/staging/transfers/$RELEASE_TARGET-smoke.tar.gz" -C "release/output/$RELEASE_TARGET"
+      - name: Qualify the signed Linux CLI/server at the glibc 2.28 baseline
+        if: matrix.target == 'linux-x64-glibc'
+        run: |
+          docker run --rm --volume "$PWD:/work" --workdir /work \
+            quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae \
+            bash -euo pipefail -c '
+              git config --global --add safe.directory /work
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.90.0
+              export PATH="$HOME/.cargo/bin:$PATH"
+              export PYTHON=/opt/python/cp312-cp312/bin/python
+              export npm_config_build_from_source=true
+              export HUSKY=0
+              cargo build --locked --manifest-path native/Cargo.toml --workspace
+              native/target/debug/harness --npm . ci
+              getconf GNU_LIBC_VERSION
+              for namespace in GLIBCXX CXXABI; do
+                readelf --version-info --wide /usr/lib64/libstdc++.so.6 | sed -nE "s/.*Name: (${namespace}_[0-9.]+).*/\1/p" | sort -V | tail -n 1
+              done
+              # Exercise the normal distro loader instead of the build toolset libraries.
+              env -u LD_LIBRARY_PATH -u LD_PRELOAD native/target/debug/harness --run-node . scripts/development.mjs node --conditions=development --import=tsx release/tools/smoke-payloads.ts release/output/linux-x64-glibc release/staging/signed
+            '
+      - name: Qualify the signed Windows/macOS CLI/server without a window
+        if: matrix.target != 'linux-x64-glibc'
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tools/native.ps1 cargo build --locked --manifest-path native/Cargo.toml --workspace
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tools/native.ps1 native/target/debug/harness.exe --npm . ci
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tools/native.ps1 native/target/debug/harness.exe --run-node . scripts/development.mjs node --conditions=development --import=tsx release/tools/smoke-payloads.ts "release/output/$RELEASE_TARGET" release/staging/signed
+          else
+            cargo build --locked --manifest-path native/Cargo.toml --workspace
+            native/target/debug/harness --npm . ci
+            native/target/debug/harness --run-node . scripts/development.mjs node --conditions=development --import=tsx release/tools/smoke-payloads.ts "release/output/$RELEASE_TARGET" release/staging/signed
+          fi
+
+  publish:
+    needs: [cut, assemble, qualify]
+    runs-on: ubuntu-22.04
+    environment: harness-release
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.cut.outputs.sourceCommit }}
+          persist-credentials: false
+      - name: Bootstrap the pinned Node runtime without system Node
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          cargo build --locked --manifest-path native/Cargo.toml --workspace
+          native/target/debug/harness --npm . ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-release
+          path: release/staging/transfers
+      - name: Restore the qualified signed artifact set
+        run: |
+          mkdir -p release/staging/signed
+          tar -xzf release/staging/transfers/signed-release.tar.gz -C release/staging/signed
+      - name: Publish immutable runtime and product releases
+        # This token has access to the public distribution repository, not source.
+        # finalize also blocks publication until source completeness is qualified.
+        env:
+          GH_TOKEN: ${{ secrets.HARNESS_RELEASE_TOKEN }}
+          RELEASE_CHANNEL: ${{ needs.cut.outputs.channel }}
+        run: |
+          test -n "$GH_TOKEN"
+          native/target/debug/harness --run-node . scripts/development.mjs node --conditions=development --import=tsx release/tools/finalize.ts publish release/staging/signed "$RELEASE_CHANNEL"

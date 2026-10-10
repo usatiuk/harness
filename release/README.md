@@ -6,9 +6,8 @@ is the public project key used for manifests and Tauri updates. This signing is
 free; Windows/Apple publisher certificates are separate and are not configured.
 The verbatim GNU GPLv3 text is in the repository's `LICENSE`.
 
-The private production key is outside the repository at
-`C:\Users\stepus53\.harness-release\signing.key`, protected for the current
-account. Back up that file securely before public release. Do not commit it,
+The private production key is stored outside the repository, protected for the
+release owner's account. Back it up securely before public release. Do not commit it,
 print it in logs, or attach it to a release. Future protected GitHub release jobs
 will receive `TAURI_SIGNING_PRIVATE_KEY` and its password through repository or
 environment secrets; a scoped distribution-repository token is also required.
@@ -24,6 +23,11 @@ npm run release:payloads -- --release
 npm run release:desktop          # fresh Tauri build, signed updater, captured output record
 npm run release:artifacts -- package PAYLOADS OUTPUT LAUNCHER NODE_ARCHIVE MINIMUM_PLATFORM DESKTOP_BUILD_JSON
 npm run release:artifacts -- assemble INPUT OUTPUT windows-x64,linux-x64-glibc,macos-arm64,macos-x64
+npm run release:source -- SOURCE_OUTPUT
+npm run release:finalize -- prepare INPUT OUTPUT TARGETS SOURCE_OUTPUT
+npm run release:finalize -- sign OUTPUT
+# Publication is a separately authorized external action, after qualification.
+npm run release:finalize -- publish OUTPUT windows-preview # or stable
 ```
 
 `release:version` edits only product identities and their root/local lock records,
@@ -32,8 +36,12 @@ actual native build identities and the desktop record, retains complete payload
 archives, and verifies exact bytes and updater signatures. Assembly rejects mixed
 sources/versions, undeclared/missing targets, changed runtime layouts and asset
 collisions before writing `release.json` and matching `latest.json`. It does not
-sign/publish these files. Source export and the protected signing/publication jobs
-remain required work. Runtime artifacts refer to a separate immutable
+sign/publish these files. Finalization verifies the complete manifest-declared
+set, source identity and Tauri metadata, then seals exact files with project-signed
+checksums. Upstream runtime archives live in `OUTPUT/runtime`; a preview also
+prepares all four pinned archives for the immutable runtime release. Its published
+asset set contains only unchanged upstream archives, avoiding per-product signature
+timestamps. Runtime artifacts refer to a separate immutable
 `runtime-node-<version>` GitHub release, which must never become product latest;
 cache content identity permits verified mirrors of identical bytes.
 
@@ -45,6 +53,25 @@ update hashes; it is build provenance, not another signature/trust root. Native
 `--build-info` exits before home preparation or Tauri initialization. The tooling
 tests use controlled native/signature edges; real cryptography, native probes and
 platform package qualification remain separately identified in the delivery plan.
+
+The manual [release workflow](../.github/workflows/release.yml) accepts a version
+bump and Windows preview or complete stable matrix. It serializes cuts, atomically
+pushes the version commit and source tag, builds exact sources, signs, qualifies
+headless payload execution and invokes one final publisher. Configure the
+`harness-release` environment, project signing secrets and a narrowly scoped
+`HARNESS_RELEASE_TOKEN` for the public distribution repository. Actual protection
+rules depend on the GitHub account/repository; creating a named environment does
+not itself require approval. The publisher requires immutable releases enabled
+and compares existing asset hashes without clobbering files. Rerun failed downstream
+jobs after a successful cut; rerunning the source-cut job is rejected before mutation.
+
+This workflow has not run on hosted platform builders. Source export includes
+locked Rust sources and actual npm notices, but still reports unresolved notices
+and preferred-source obligations; [build instructions](BUILDING.md) explain the
+boundary. Publication fails before GitHub mutations while that source gate remains
+open. Do not treat fixture metadata claiming completeness as a qualified source
+distribution. OS installer execution, updates and the minimum platform still need
+their separate checks.
 
 Developers start with `npm run runtime:setup`, which uses Rust to prepare the
 pinned Node and runs the committed npm installation under that runtime.
@@ -95,13 +122,18 @@ deployment and the minimum glibc baseline remain unqualified.
 Run the physically isolated headless payload smoke with:
 
 ```sh
-node scripts/development.mjs node --conditions=development --import=tsx release/tools/smoke-payloads.ts release/output/windows-x64
+node scripts/development.mjs node --conditions=development --import=tsx release/tools/smoke-payloads.ts release/output/windows-x64 SIGNED_FINALIZED_OUTPUT
 cargo test --manifest-path native/Cargo.toml
 ```
 
 The signed Rust test fixture uses a separate disposable key; its private half is
 not tracked. Its descriptors are controlled cache fixtures, not published
 artifacts. Shared JSON validation cases are consumed by both TypeScript and Rust.
+The released smoke installs Node/server offline through the actual native helper
+and seeds only its CLI fixture cache; the native launcher verifies and executes
+that cache. It does not establish cold CLI HTTPS installation. Windows timeout
+cleanup uses hidden OS process-tree termination; Unix fixtures use their own
+process group. Failed scratch is retained if physical retirement is unconfirmed.
 
 Source/background servers use local IPC, with management v1 available before
 application initialization. Windows headless admission/lifecycle checks pass;

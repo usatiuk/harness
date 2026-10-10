@@ -131,6 +131,9 @@ default, isolating data and settings from ordinary app use. Native CLI, desktop
 and remote preparation now use this foundation and OS-local IPC. Public installers,
 installed cross-version qualification, publication, updates and pruning remain
 open. Release-cut tools are documented in [release tooling](release/README.md).
+Fresh signed Windows artifacts and cached native CLI/server execution now have
+headless evidence. Source completeness, actual hosted release jobs and installer
+qualification remain open; the current workflow is not a published release.
 
 On Windows, local command execution is exposed to models as `powershell`; Linux,
 macOS, and Linux dev containers expose `bash`. Windows sign-in uses DPAPI-encrypted

@@ -99,8 +99,27 @@ its new output and preserves existing output. Native mirror reuse preserves the
 stored receipt and rejects changed digest/layout. The current native suites pass
 34 Windows and 36 Linux cases. Twelve headless desktop Rust tests pass, including
 the actual `--build-info` path without home/window initialization. The full
-managed check passes 1,202 tests (36 skipped). Actual fresh signed platform outputs,
-protected release jobs and anonymous published installation remain unqualified.
+managed check at that checkpoint passes 1,202 tests (36 skipped).
+
+Fresh release-mode Windows desktop and complete CLI/server builds now pass;
+actual NSIS bytes, updater signature and native build identity were verified.
+The real signed-cache smoke passes native launcher execution, offline Node/server
+installation, a demo turn and SQLite restart outside the checkout. It uses the
+finalized `runtime/` archive layout and seeds only the CLI fixture cache; cold
+CLI HTTPS installation and installer launch/uninstall/update remain unqualified.
+An actual headless Windows parent/descendant case establishes process-tree timeout
+retirement; failed scratch is retained when physical retirement is unconfirmed.
+
+Source export checks use real Git/files/archives with a controlled Cargo edge.
+Actual desktop Cargo metadata was 2,778,800 bytes; export uses a bounded 16 MiB
+capture. Actual vendoring/export and rebuilding its archive remain unqualified.
+Publisher/finalizer regressions use real local files, hashes and HTTP streams with
+controlled signing/GitHub edges; they do not publish releases. The manual workflow
+passes syntax/actionlint and real local Git source-cut/rejection fixtures, but
+hosted builders, minimum-platform artifacts, corresponding-source completeness
+and anonymous published installation still require their own evidence.
+The full managed check for this source/publication slice passes typecheck, lint,
+formatting and 1,259 tests (36 skipped; 141 passing files, nine skipped files).
 
 ## Native search and output finalization
 

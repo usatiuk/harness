@@ -63,8 +63,9 @@ cross-process filesystem lock. The registry stays beside the controlling machine
 existing settings. Both clients offer host editors and lifecycle controls. SSH
 accepts a destination/alias and uses OpenSSH BatchMode; advanced SSH configuration
 belongs in .ssh/config. WSL distributions are discovered as editor choices.
-Runtime choice is managed or development; development finds Node on the target's
-PATH. Installation paths are internal. Each saved connection owns an independent
+All hosts use the verified pinned Node runtime through the shared bootstrap;
+source development transfers an explicitly built complete Linux payload. There
+is no target-PATH runtime choice. Installation paths are internal. Each saved connection owns an independent
 client session, including two routes that reach the same background owner.
 The isolated stdio launcher rejects host flags. Local auth/sandbox utility
 subcommands also reject host flags; selected-host controls live in the command

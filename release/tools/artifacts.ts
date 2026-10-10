@@ -60,6 +60,24 @@ const updaterTargets: Record<ReleaseTarget, string> = {
   "macos-x64": "darwin-x86_64",
 };
 
+export function updaterMetadata(manifest: ReleaseManifest) {
+  return {
+    version: manifest.productVersion,
+    platforms: Object.fromEntries(
+      Object.entries(manifest.targets).map(([target, contents]) => {
+        if (!contents.desktopUpdate) throw new Error(`Desktop update missing for ${target}`);
+        return [
+          updaterTargets[target as ReleaseTarget],
+          {
+            url: contents.desktopUpdate.artifact.url,
+            signature: contents.desktopUpdate.signature,
+          },
+        ];
+      }),
+    ),
+  };
+}
+
 function downloadBase(version: string): string {
   return `https://github.com/${RELEASE_REPOSITORY}/releases/download/v${version}/`;
 }
@@ -440,15 +458,9 @@ export async function assembleRelease(
         throw new Error(`Release asset changed while copying: ${name}`);
     }
     await writeFile(join(temporary, "release.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-    const platforms = Object.fromEntries(
-      targets.map((target) => {
-        const update = manifest.targets[target]!.desktopUpdate!;
-        return [updaterTargets[target], { url: update.artifact.url, signature: update.signature }];
-      }),
-    );
     await writeFile(
       join(temporary, "latest.json"),
-      `${JSON.stringify({ version: PRODUCT_VERSION, platforms }, null, 2)}\n`,
+      `${JSON.stringify(updaterMetadata(manifest), null, 2)}\n`,
     );
     // Renaming onto an existing non-empty set fails; published assets are never replaced.
     await rename(temporary, resolve(output));

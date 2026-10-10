@@ -1265,3 +1265,64 @@ noninteractive mode. The verified headless build process was retired; the open
 user app was untouched. The wrapper now passes `--ci`, which makes Tauri use its
 noninteractive signing contract instead of prompting. Fresh signed output
 qualification remains open until that corrected invocation completes.
+
+### Source export, sealed publication and smoke lifetime — in progress
+
+The corrected `--ci` desktop invocation completed from clean commit `fa71b7d`;
+its actual Windows NSIS installer/update bytes and public-key signature were
+captured and verified. Fresh complete release CLI/server payloads also pass.
+The signed-cache smoke now uses the real native launcher, installs Node/server
+offline through the signed transfer boundary, seeds only the CLI fixture cache,
+and completes a demo turn and SQLite restart outside the checkout. Tampered
+manifest and installer bytes are rejected. These checks do not qualify cold CLI
+HTTPS installation, installer execution, updates or other native platforms.
+
+Source export captures a clean exact Git tree without history, vendors both
+locked Cargo graphs and collects the actual installed npm graph's original notice
+files. Its eight tests use real Git/files/archives with a controlled Cargo edge;
+actual vendoring/export/rebuild remain open. The actual desktop metadata probe
+returned 2,778,800 bytes, so export explicitly bounds its capture at 16 MiB.
+Missing notices and preferred npm/system-source obligations are reported rather
+than claimed complete. Final publication rejects that unfinished source gate
+before GitHub mutation. This is unfinished delivery work, not an optional deferral.
+
+Finalization verifies every manifest-declared file, exact upstream runtime pins,
+Tauri metadata, source identity and required source/notices assets. It seals the
+finished directories with project-signed checksums. All four upstream archives
+belong to one immutable runtime-only release, even for Windows preview; only
+those unchanged archives are published there. Per-product signatures stay out of
+its immutable asset set. The gh publisher compares existing draft/published bytes,
+uploads only missing matching assets, requires immutability and never clobbers.
+Its 23 regressions and 25 finalization regressions control signing/GitHub edges.
+
+The manual workflow captures one atomic main/tag version cut, builds the captured
+matrix, assembles/signs, runs headless signed payload checks and invokes one final
+publisher. A full source-cut rerun is rejected before mutation; failed downstream
+jobs reuse the successful cut. Source writing, signing and distribution credentials
+are scoped to their steps. The workflow and real local Git cut/rejection fixtures
+pass syntax/actionlint; hosted execution remains open. The named environment is
+not itself approval protection, and account/repository rules and secrets remain
+external inputs. No source or distribution push, publication or GUI test ran.
+
+Review corrected indefinite smoke work after process death and Windows
+launcher-only timeout killing. Fixture Unix groups and hidden Windows taskkill
+retire owned descendants; physical joining is bounded, with scratch retained if
+retirement cannot be established. A real Windows parent/descendant regression
+passes headlessly. Runtime archives in finalized sets live under `runtime/`;
+the smoke uses that layout rather than the earlier assembly-only fixture layout.
+The stale target-PATH runtime-choice paragraph is removed from interface docs;
+root status now summarizes current evidence instead of repeating each old slice.
+
+All M0–M7 completion gates remain open. Required source, hosted platform,
+installation/cross-version/lifetime, updates and explicit cache pruning work is
+still outstanding; external repository credentials/key backup/platform access
+also remain inputs. The goal stays active.
+
+The full managed check for this checkpoint passes typecheck, lint, formatting and
+1,259 tests (36 skipped; 141 passing files, nine skipped files). The actual signed
+Windows smoke passes with the finalized `runtime/` layout. Three independent
+correctness, architecture/simplicity and evidence lenses reviewed the slice;
+their concrete file-layout, lifecycle and source-buffer findings were corrected.
+The Linux workflow keeps manylinux CLI/server bytes separate from desktop rebuilds
+and gates their actual ELF requirements, with build-library overrides cleared for
+smoke execution. These jobs have not run and do not qualify the declared floor yet.

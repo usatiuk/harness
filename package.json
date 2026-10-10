@@ -16,6 +16,8 @@
     "release:version": "node scripts/development.mjs node --conditions=development --import=tsx release/tools/version.ts",
     "release:artifacts": "node scripts/development.mjs node --conditions=development --import=tsx release/tools/artifacts.ts",
     "release:desktop": "node scripts/development.mjs node --conditions=development --import=tsx release/tools/build-desktop.mjs",
+    "release:source": "node scripts/development.mjs node --conditions=development --import=tsx release/tools/source.ts",
+    "release:finalize": "node scripts/development.mjs node --conditions=development --import=tsx release/tools/finalize.ts",
     "runtime:prepare": "cargo run --quiet --manifest-path native/Cargo.toml --bin harness -- --prepare-node",
     "runtime:setup": "node scripts/development.mjs npm ci",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/cli/tsconfig.json && tsc --noEmit -p packages/desktop/tsconfig.json",
