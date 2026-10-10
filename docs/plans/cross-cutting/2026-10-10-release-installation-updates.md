@@ -1326,3 +1326,10 @@ their concrete file-layout, lifecycle and source-buffer findings were corrected.
 The Linux workflow keeps manylinux CLI/server bytes separate from desktop rebuilds
 and gates their actual ELF requirements, with build-library overrides cleared for
 smoke execution. These jobs have not run and do not qualify the declared floor yet.
+
+The checkpoint is committed locally as `1c2ecae`. Actual clean-commit source
+export then passes, including locked Cargo vendoring and offline metadata
+resolution for both manifests. Its archive is 111,437,365 bytes and inventories
+537 Rust crates and 662 installed npm packages. It reports 59 missing notices;
+preferred npm source, all-target notice/source closure and rebuilding the
+extracted archive remain required qualification. Nothing was pushed or published.

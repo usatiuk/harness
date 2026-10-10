@@ -112,7 +112,10 @@ retirement; failed scratch is retained when physical retirement is unconfirmed.
 
 Source export checks use real Git/files/archives with a controlled Cargo edge.
 Actual desktop Cargo metadata was 2,778,800 bytes; export uses a bounded 16 MiB
-capture. Actual vendoring/export and rebuilding its archive remain unqualified.
+capture. Actual clean-commit export now passes locked vendoring and offline
+metadata resolution for both Rust graphs: 537 crates, 662 installed npm packages
+and a 111,437,365-byte source archive. It reports 59 missing notices. Rebuilding
+the extracted archive and preferred npm source remain unqualified.
 Publisher/finalizer regressions use real local files, hashes and HTTP streams with
 controlled signing/GitHub edges; they do not publish releases. The manual workflow
 passes syntax/actionlint and real local Git source-cut/rejection fixtures, but

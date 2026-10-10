@@ -97,6 +97,9 @@ The source/publication checkpoint passes the full managed check: typecheck, lint
 formatting and 1,259 tests (36 skipped). Three independent review lenses were used;
 the signed finalized-layout Windows smoke also passes. Actual minimum-platform
 and hosted release execution remain unqualified.
+Actual source export from `1c2ecae` now passes locked Rust vendoring and offline
+metadata resolution, producing a 111 MB archive. It reports 59 missing dependency
+notices; preferred npm source and rebuilding the extracted archive remain open.
 
 ## Recent delivery
 
