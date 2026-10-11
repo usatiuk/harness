@@ -415,7 +415,18 @@ Eval arguments and results have separate begin/result rows with subtle horizonta
 boundaries. Child calls stay independently visible without opening their parent;
 results follow the last available descendant, including nested Eval calls.
 Desktop rows distinguish messages from nonrecursive, nonempty step groups.
-Collapsed groups do not mount calls; call details mount only when opened. Grouping
+Active collapsed groups show a quiet tail of recent tools and actual reasoning,
+with a shared five-visible-line budget. Each tool occupies one line; reasoning
+uses the remaining lines and renders only its last 2,000 characters. Wrapped
+reasoning clips from the top so its latest lines remain visible. Native open-state
+CSS hides the preview immediately on expansion; completion removes it. The group
+open attribute and lazy body change in one React commit. Preview tool buttons
+activate the existing summary, preserving focus. When already following, active
+group expansion records one pending follow request. Finished-group inspection
+preserves the reading position. The virtualizer's existing height
+callback consumes it after measurement and schedules bottom alignment after the
+React layout commits, without a timed resize subscription.
+Collapsed groups do not mount full calls; call details mount only when opened. Grouping
 changes presentation only and preserves history anchors when earlier calls merge
 into a visible group. Loading earlier calls into a group can reset its disclosure
 to closed; expansion state is not persisted.

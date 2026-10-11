@@ -40,7 +40,7 @@ import {
   appProviderConfigUpdateRequest,
   type AppSettings,
 } from "@harness/server/client-protocol";
-import type { TranscriptRow } from "./transcript.ts";
+import type { TranscriptRow, TranscriptStep } from "./transcript.ts";
 import { DesktopSession, type ConversationView } from "./session.ts";
 import {
   Button,
@@ -881,6 +881,28 @@ export function createDesktopRouter(
     );
   }
 
+  function toolIcon(name: string) {
+    if (["write", "edit", "apply_patch", "str_replace_based_edit_tool"].includes(name))
+      return PenLine;
+    if (name === "read" || name === "read_file") return BookOpen;
+    if (name === "glob" || name === "grep" || name === "tool_search") return Search;
+    if (name === "eval") return Code;
+    if (name === "bash" || name === "powershell" || name === "exec") return Terminal;
+    return Wrench;
+  }
+
+  function argumentPreview(cell: Extract<Cell, { kind: "tool" }>, boundary?: "begin" | "result") {
+    return (
+      boundary === "result"
+        ? (cell.output ?? "")
+        : typeof cell.args === "string"
+          ? cell.args
+          : JSON.stringify(cell.args)
+    )
+      .slice(0, 300)
+      .replace(/\s+/g, " ");
+  }
+
   function ToolCall({
     cell,
     boundary,
@@ -890,17 +912,7 @@ export function createDesktopRouter(
   }) {
     const [open, setOpen] = useState(false);
     const edit = editPresentation(cell);
-    const ToolIcon = edit
-      ? PenLine
-      : cell.name === "read" || cell.name === "read_file"
-        ? BookOpen
-        : cell.name === "glob" || cell.name === "grep" || cell.name === "tool_search"
-          ? Search
-          : cell.name === "eval"
-            ? Code
-            : cell.name === "bash" || cell.name === "powershell" || cell.name === "exec"
-              ? Terminal
-              : Wrench;
+    const ToolIcon = toolIcon(cell.name);
     return (
       <Disclosure
         className={`cell tool ${boundary ? `eval-${boundary}` : ""} ${cell.status === "error" && boundary !== "begin" ? "failed" : ""}`}
@@ -913,16 +925,7 @@ export function createDesktopRouter(
               <span className="tool-failure">Failed</span>
             )}
             <strong>{boundary ? `eval ${boundary}` : cell.name}</strong>
-            <span className="tool-argument-preview">
-              {(boundary === "result"
-                ? (cell.output ?? "")
-                : typeof cell.args === "string"
-                  ? cell.args
-                  : JSON.stringify(cell.args)
-              )
-                .slice(0, 300)
-                .replace(/\s+/g, " ")}
-            </span>
+            <span className="tool-argument-preview">{argumentPreview(cell, boundary)}</span>
             {cell.approvalProgress?.status === "reviewing" && (
               <span className="tool-status muted">awaiting approval</span>
             )}
@@ -986,8 +989,49 @@ export function createDesktopRouter(
     );
   }
 
+  function WorkPreview({ steps, expand }: { steps: TranscriptStep[]; expand: () => void }) {
+    const recent: { step: TranscriptStep; lines: number }[] = [];
+    let remaining = 5;
+    for (let index = steps.length - 1; index >= 0 && remaining > 0; index--) {
+      const step = steps[index]!;
+      const lines = step.cell.kind === "reasoning" ? remaining : 1;
+      recent.unshift({ step, lines });
+      remaining -= lines;
+    }
+    return (
+      <div className="live-step-preview" aria-label="Recent work">
+        {recent.map(({ step, lines }) => {
+          if (step.cell.kind === "reasoning")
+            return (
+              <div
+                className="preview-reasoning"
+                key={step.key}
+                style={{ maxHeight: `${lines * 1.65}em` }}
+              >
+                <span>{step.cell.text.slice(-2000)}</span>
+              </div>
+            );
+          const cell = step.cell;
+          const ToolIcon = toolIcon(cell.name);
+          const boundary = "boundary" in step ? step.boundary : undefined;
+          return (
+            <button type="button" className="preview-tool" key={step.key} onClick={expand}>
+              <ToolIcon size={13} aria-hidden="true" className="tool-icon" />
+              {cell.status === "error" && boundary !== "begin" && (
+                <span className="tool-failure">Failed</span>
+              )}
+              <span>{boundary ? `eval ${boundary}` : cell.name}</span>
+              <span className="tool-argument-preview">{argumentPreview(cell, boundary)}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   function StepGroup({ row }: { row: Extract<TranscriptRow, { kind: "steps" }> }) {
     const [open, setOpen] = useState(false);
+    const disclosure = useRef<HTMLDetailsElement>(null);
     const calls = row.steps.filter(
       (step) => step.cell.kind === "tool" && !("boundary" in step && step.boundary === "result"),
     ).length;
@@ -1027,29 +1071,54 @@ export function createDesktopRouter(
       `Thought for ${duration} ${duration === 1 ? "second" : "seconds"}`
     );
     return (
-      <Disclosure
-        className="cell tool-group"
-        title={
-          <span>
-            {label}
-            {calls ? ` · ${calls} tool ${calls === 1 ? "call" : "calls"}` : ""}
-          </span>
-        }
-        onToggle={(event) => setOpen(event.currentTarget.open)}
-      >
-        {open &&
-          row.steps.map((step) =>
-            step.cell.kind === "tool" ? (
-              <ToolCall
-                key={step.key}
-                cell={step.cell}
-                boundary={"boundary" in step ? step.boundary : undefined}
-              />
-            ) : (
-              <TranscriptCell key={step.key} cell={step.cell} />
-            ),
-          )}
-      </Disclosure>
+      <div className="cell tool-group-container">
+        <Disclosure
+          ref={disclosure}
+          className="tool-group"
+          open={open}
+          title={
+            <span>
+              {label}
+              {calls ? ` · ${calls} tool ${calls === 1 ? "call" : "calls"}` : ""}
+            </span>
+          }
+          onClick={(event) => {
+            if (
+              event.target instanceof Element &&
+              event.target.closest("summary")?.parentElement === event.currentTarget
+            ) {
+              // Change visibility and mount the body together. A native toggle
+              // hides the tail before its queued event mounts the lazy body,
+              // letting that first resize consume the virtualizer's follow request.
+              event.preventDefault();
+              setOpen((value) => !value);
+            }
+          }}
+        >
+          {open &&
+            row.steps.map((step) =>
+              step.cell.kind === "tool" ? (
+                <ToolCall
+                  key={step.key}
+                  cell={step.cell}
+                  boundary={"boundary" in step ? step.boundary : undefined}
+                />
+              ) : (
+                <TranscriptCell key={step.key} cell={step.cell} />
+              ),
+            )}
+        </Disclosure>
+        {working && (
+          <WorkPreview
+            steps={row.steps}
+            expand={() => {
+              const summary = disclosure.current!.querySelector("summary")!;
+              summary.focus();
+              summary.click();
+            }}
+          />
+        )}
+      </div>
     );
   }
 

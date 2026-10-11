@@ -253,3 +253,63 @@ without remaining findings. Final `npm run check` passes TypeScript, ESLint,
 Prettier and 1,296 tests (38 skipped). All 29 Chromium browser cases pass,
 including the real displayed timer with a 60-second server skew. Native WebView2
 and live-provider qualification remain outside this Linux evidence.
+
+## Quiet active preview
+
+Status: Complete.
+
+The selected quiet tail shows the latest tool rows and actual reasoning text while
+a work group is active and collapsed. The preview shares a five-visible-line
+budget: a tool consumes one line, and the latest reasoning uses the remaining
+lines. Reasoning text is limited to its final 2,000 characters before rendering;
+wrapped text is clipped from the top to retain its most recent lines. Full
+reasoning and call inspection remain available when the group opens.
+
+Native open-state CSS hides the preview synchronously. The existing group open
+state now controls the native attribute and lazy body in one React commit. Preview
+tool buttons activate the existing group summary, preserving keyboard focus.
+Completion removes the preview. No server, protocol, persistence or settings
+extensions are introduced.
+
+- [x] Verify long reasoning, mixed budgets, completion, immediate visibility
+      transitions and follow behavior; run source and browser checks.
+- [x] Independently review correctness, interfaces/simplicity and evidence;
+      synchronize documentation and commit the validated implementation.
+
+All three independent reviewers found no actionable correctness, abstraction,
+simplicity or scope issues. The first browser run caught a test measurement race:
+React/Virtuoso detached the located node before locator.evaluate ran, yielding an
+empty computed line-height and NaN. Diagnostics reproduced isConnected=false.
+The measurement now looks up and checks the mounted node atomically and waits for
+the same positive, at-most-five-line outcome; limits and timeouts are unchanged.
+
+Expansion validation reproduced a 10,565-pixel follow gap. Delaying native toggle
+delivery confirmed that hiding the tail first could consume Virtuoso's one-shot
+resize subscription before the lazy body mounted. Controlling the group in one
+React commit removes that split. A separate long-render case remained: temporary
+instrumentation of the installed library showed its 100 ms subscription expiring
+before the resize notification (arm at 471 ms; expiry at 677 ms). The dependency
+instrumentation was restored after diagnosis. Disclosure follow now uses the
+existing totalListHeightChanged callback to consume one pending expansion-follow
+flag after measurement, then calls the public scrollToIndex API on the next frame
+after the React layout commits. This uses no extra observer or timeout. Native direct
+scrolling was rejected after the full suite showed disclosure state resetting:
+instrumentation confirmed the group unmounting/remounting while scrolling through
+its unmeasured range. A frame guess alone also failed a native tool follow case.
+Waiting for the existing height callback respects the measurement boundary.
+The public virtualizer API retains ownership of measurement and scrolling. The regression
+uses approximately 224,000 characters and checks expansion follow, keyboard
+activation, lazy body removal, five-line/2,000-character bounds, and completion.
+
+Finished-group expansion no longer requests follow: it is inspection, and should
+leave the reading position alone. Forcing bottom alignment on a 100-call completed
+group reproduced a disclosure lifetime reset when returning to its first call.
+Active groups still follow measured expansion. The focused native-tool, 100-call
+inspection and long-reasoning cases all pass with this distinction.
+
+Final validation: `npm run check` passes TypeScript, ESLint, Prettier and 1,296
+tests (38 skipped). All 30 Chromium browser cases pass. The narrow follow
+corrections received independent correctness, simplicity and evidence reviews
+with no remaining actionable findings. The narrow-viewport screenshot was
+inspected; the reasoning tail occupies five lines and retains its final text.
+Native WebView2 and live-provider qualification remain outside this Linux run.

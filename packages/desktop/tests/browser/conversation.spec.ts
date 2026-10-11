@@ -912,3 +912,62 @@ test("eval boundaries keep child tools flat with right chevrons and failure-only
   await expect(result).not.toContainText("Arguments");
   await page.screenshot({ path: test.info().outputPath("eval-boundaries.png") });
 });
+
+test("live quiet previews bound long reasoning and never duplicate expanded content", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showLivePreview());
+  const group = page.locator(".tool-group");
+  const preview = page.getByLabel("Recent work");
+  const reasoning = preview.locator(".preview-reasoning");
+  await expect(preview).toBeVisible();
+  await expect(preview.locator("button")).toHaveCount(2);
+  await expect(preview).not.toContainText("old.ts");
+  await expect(reasoning).toContainText("Latest reasoning tail.");
+  expect((await reasoning.textContent())!.length).toBeLessThanOrEqual(2000);
+  const boundedLines = (budget: number) =>
+    page.evaluate((budget) => {
+      const element = document.querySelector<HTMLElement>(".live-step-preview .preview-reasoning");
+      if (!element) return false;
+      const lines = element.clientHeight / parseFloat(getComputedStyle(element).lineHeight);
+      return lines > 0 && lines <= budget;
+    }, budget);
+  await expect.poll(() => boundedLines(3)).toBe(true);
+  await expect(group.getByTestId("tool-call")).toHaveCount(0);
+  await expect(group.locator(".cell.reasoning")).toHaveCount(0);
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await preview.locator("button").last().click();
+  await expect(group).toHaveAttribute("open", "");
+  await expect(preview).toBeHidden();
+  await expect(group.locator(".cell.reasoning")).toContainText("Latest reasoning tail.");
+  expect((await group.locator(".cell.reasoning").textContent())!.length).toBeGreaterThan(2000);
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  const transitions = await group.evaluate((element) => {
+    const tail = element.nextElementSibling!;
+    const details = element as HTMLDetailsElement;
+    details.open = false;
+    const closed = getComputedStyle(tail).display;
+    details.open = true;
+    return { closed, opened: getComputedStyle(tail).display };
+  });
+  expect(transitions).toEqual({ closed: "block", opened: "none" });
+  await group.locator(":scope > summary").focus();
+  await page.keyboard.press("Space");
+  await expect(group).not.toHaveAttribute("open");
+  await expect(preview).toBeVisible();
+  await expect(group.locator(".cell.reasoning")).toHaveCount(0);
+  await page.keyboard.press("Enter");
+  await expect(group).toHaveAttribute("open", "");
+  await expect(preview).toBeHidden();
+  await page.evaluate(() => window.composerFixture.completeSteps());
+  await expect(preview).toHaveCount(0);
+  await page.evaluate(() => window.composerFixture.showLivePreview(true));
+  const only = page.getByLabel("Recent work").locator(".preview-reasoning");
+  await expect(only).toBeVisible();
+  await expect.poll(() => boundedLines(5)).toBe(true);
+  await page.setViewportSize({ width: 760, height: 720 });
+  await expect.poll(() => boundedLines(5)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath("quiet-live-preview.png") });
+});

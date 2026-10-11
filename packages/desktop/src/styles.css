@@ -625,7 +625,7 @@ main {
   padding: 2px 4px;
   border-radius: 3px;
 }
-.cell.tool-group {
+.cell.tool-group-container {
   padding: 3px var(--chat-inset);
   font-size: 12px;
 }
@@ -637,6 +637,46 @@ main {
 }
 .tool-group > summary {
   padding: 3px 0;
+}
+.tool-group[open] + .live-step-preview {
+  display: none;
+}
+.live-step-preview {
+  margin-top: 3px;
+  color: var(--muted-ink);
+  font-size: 12px;
+  line-height: 1.65;
+}
+.preview-tool {
+  overflow: hidden;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.preview-tool > span:not(.tool-argument-preview) {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.preview-reasoning {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+.preview-reasoning > span {
+  flex-shrink: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .tool-icon {
   flex-shrink: 0;

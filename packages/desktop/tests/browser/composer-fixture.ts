@@ -1,3 +1,4 @@
+import type { Cell } from "@harness/client-features/transcript-reducer";
 import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
@@ -18,6 +19,7 @@ declare global {
       calls: Delivery[];
       showToolsAndActivities(serverSkew?: number): void;
       showEval(): void;
+      showLivePreview(reasoningOnly?: boolean): void;
       showLongToolRun(): void;
       seedHistory(): void;
       seedCollapsedHistory(): void;
@@ -378,6 +380,52 @@ window.composerFixture = {
           streaming: false,
         },
       ],
+    };
+    view.transcript.update(view.state.cells);
+    changed();
+  },
+  showLivePreview(reasoningOnly = false) {
+    const startedAt = Date.now();
+    const reasoning = {
+      kind: "reasoning" as const,
+      id: "preview-reasoning",
+      turnId: "turn",
+      text:
+        "Check the shared timeout and preserve early cancellation. ".repeat(4000) +
+        "Latest reasoning tail.",
+      streaming: true,
+      startedAt,
+      observedTiming: true as const,
+    };
+    const call = (
+      callId: string,
+      name: string,
+      args: unknown,
+      running = false,
+    ): Extract<Cell, { kind: "tool" }> => ({
+      kind: "tool",
+      callId,
+      name,
+      args,
+      startedAt,
+      ...(running ? {} : { status: "ok" as const, completedAt: startedAt }),
+    });
+    view.state = {
+      ...view.state,
+      cells: reasoningOnly
+        ? [reasoning]
+        : [
+            call("preview-old", "read_file", { path: "old.ts" }),
+            call("preview-glob", "glob", { pattern: "**/auth*" }),
+            call("preview-read", "read_file", { path: "auth.ts" }),
+            reasoning,
+            call("preview-edit", "edit", {
+              path: "auth.ts",
+              old_string: "1000",
+              new_string: "5000",
+            }),
+            call("preview-exec", "exec", { command: "npm test -- auth" }, true),
+          ],
     };
     view.transcript.update(view.state.cells);
     changed();

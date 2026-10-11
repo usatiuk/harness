@@ -132,6 +132,7 @@ export function ConversationCanvas({
   const [clearance, setClearance] = useState(0);
   const [gutter, setGutter] = useState(0);
   const [atBottom, setAtBottom] = useState(true);
+  const followExpansion = useRef(false);
 
   useLayoutEffect(() => {
     const element = dockRef.current;
@@ -180,19 +181,31 @@ export function ConversationCanvas({
                 initialTopMostItemIndex={{ index: "LAST", align: "end" }}
                 followOutput={atBottom ? "auto" : false}
                 atBottomStateChange={setAtBottom}
+                totalListHeightChanged={() => {
+                  if (followExpansion.current) {
+                    followExpansion.current = false;
+                    requestAnimationFrame(() =>
+                      scroller.current?.scrollToIndex({ index: "LAST", align: "end" }),
+                    );
+                  }
+                }}
                 components={components}
                 itemContent={(_index, row) => (
                   <div
                     className="transcript-item"
                     data-transcript-key={row.key}
                     onClickCapture={(event) => {
-                      // Arm resize-follow before a disclosure changes the measured row.
-                      if (
-                        atBottom &&
-                        event.target instanceof Element &&
-                        event.target.closest("summary")
-                      )
-                        scroller.current?.autoscrollToBottom();
+                      // Follow once the virtualizer measures the expanded body.
+                      const summary =
+                        event.target instanceof Element ? event.target.closest("summary") : null;
+                      if (summary)
+                        followExpansion.current =
+                          atBottom &&
+                          row.kind === "steps" &&
+                          row.steps.some(({ cell }) =>
+                            cell.kind === "reasoning" ? cell.streaming : !cell.status,
+                          ) &&
+                          !summary.parentElement!.hasAttribute("open");
                     }}
                   >
                     {renderRow(row)}

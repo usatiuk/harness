@@ -36,7 +36,11 @@ when an earlier page loads its parent. Eval presentation checks flat child rows,
 separate begin/result inspection, failure-only labels, right-side tool chevrons and
 native keyboard expansion. A 60-second server-clock-skew scenario verifies live
 and completed labels use desktop observation time. Unit cases cover suffix-bearing
-call IDs and preserving a live group’s observed timing when history prepends. A representative 100-call run with
+call IDs and preserving a live group’s observed timing when history prepends. Quiet
+active previews are checked with long reasoning exceeding 2,000 characters, mixed
+three-reasoning/two-tool budgets, five-line reasoning-only previews at narrow
+width, synchronous preview/expansion visibility, completion cleanup and follow
+after opening through a preview row. A representative 100-call run with
 1,000-line writes verifies collapsed groups mount no calls and only opened calls
 mount output and diff DOM. Vitest covers desktop grouping, nested Eval result ordering, row identity and
 subagent commentary delta replacement without changing the final result.
@@ -48,7 +52,7 @@ A replacement-view regression verifies reload does not share the detached view�
 history request.
 Native test expectations follow the collapsed groups and automatic loading; those
 Windows WebView2 cases cannot run on this Linux host. Final `npm run check` passes
-1,296 tests (38 skipped). All 29 Chromium browser cases pass, including 27
+1,296 tests (38 skipped). All 30 Chromium browser cases pass, including 28
 conversation cases and two MCP settings cases.
 Browser fixture output does not establish native WebView or live-provider behavior.
 
