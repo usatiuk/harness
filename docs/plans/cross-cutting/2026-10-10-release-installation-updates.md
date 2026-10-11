@@ -409,3 +409,11 @@ Direct native invocation is necessary because v0.1.2 cannot reach Settings after
 its startup defect. No endpoint override, product hook or separate test harness
 is added; actual execution remains pending. Nothing is installed or launched on
 the user's machine.
+
+First native updater run `38123134489` fails before invoking the updater: the
+existing harness cannot attach to v0.1.2's WebView CDP endpoint within its unchanged
+20-second readiness deadline. Its teardown also observes an unavailable owner
+pipe. Full test-result upload is rejected by automatic approval review because
+diagnostics could contain sensitive content. Investigate with bounded process
+metadata and source evidence; do not extend timeouts or weaken endpoint identity
+checks.
