@@ -268,6 +268,9 @@ user's request; the preceding `v0.1.4` workflow was canceled before publication.
 Standard Rust release caches are saved for all three retained targets, and
 Windows/Ubuntu main CI passes at `841d116`. This patch was not installed or
 updated on the user's PC; the existing qualification gaps above remain open.
+The published-release workflow now defaults to v0.1.3 → v0.1.5. Its RPC fixture
+uses protocol 4 before replacement and protocol 5 afterward; older launchers
+must bridge to the newer owner without downgrading it. Hosted execution is pending.
 
 The combined Mistral correction and provider-settings integration passes the
 Node 22 full source check: 1,251 tests, 36 skipped, with two workers. All 17

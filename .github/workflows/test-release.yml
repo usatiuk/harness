@@ -6,11 +6,11 @@ on:
       version:
         description: Published release to check (without v)
         required: true
-        default: "0.1.3"
+        default: "0.1.5"
       previous:
         description: Older published CLI to update (without v)
         required: true
-        default: "0.1.2"
+        default: "0.1.3"
 
 permissions:
   contents: read

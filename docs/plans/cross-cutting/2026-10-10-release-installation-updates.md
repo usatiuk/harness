@@ -25,6 +25,9 @@ four-target `v0.1.4` workflow before publication. Release builds, metadata and
 hosted artifact checks now use the three maintained targets. The existing
 three-target metadata regression passes; the replacement patch release `v0.1.5`
 is published. No installer, updater or native GUI ran on the user's PC.
+The existing published-release check is updated to v0.1.3 → v0.1.5, with protocol
+4 before replacement and 5 afterward. The former pinned pair cannot verify the
+latest feed after publication. Hosted execution of the refreshed fixture is pending.
 
 ## Summary
 

@@ -49,8 +49,8 @@ async function session(file, args, inspect, { closeInput = true, env = process.e
 }
 async function initialize(request, expected) {
   const initialized = await request("initialize", {
-    // The published v0.1.2/v0.1.3 pair uses protocol 4, independently of source main.
-    protocolVersion: 4,
+    // The pinned v0.1.3 → v0.1.5 fixture crosses the protocol 4 → 5 boundary.
+    protocolVersion: expected === previous ? 4 : 5,
     client: { name: "published-release-check", version: "1" },
     plugins: [],
   });
