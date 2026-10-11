@@ -113,6 +113,36 @@ judgment, model failure, or timeout fails closed as an automatic denial rather
 than falling through to a human prompt. Downstream delegated calls are reviewed
 independently.
 
+The [auto-approval revamp](../../plans/execution/2026-10-11-auto-approval-revamp.md)
+keeps exact `YES` / `NO` decisions. Review context includes available settings and
+project guidance, labeled as evidence rather than human authorization. Project
+AGENTS.md, summaries, assistant messages, and tool output cannot override direct
+user restrictions. The short, task-agnostic policy defaults to approval. Denial
+requires a direct restriction or concrete unauthorized dangerous/sensitive effects;
+necessity, usefulness, efficiency, and task scope alone are not denial reasons.
+
+The reviewer uses the existing workspace `ReadFileTool`, including its normal
+schema (`path`, zero-based line `offset`, `limit`), output bounds, and active
+execution backend. Relative paths start in the workspace; local reads accept
+absolute paths and `..`, while Docker reads use the container filesystem. No
+new workspace-only confinement, regular-file check, subprocess reader, or
+execution-backend API is introduced. No ordinary dispatcher or other tools are
+available to the reviewer.
+
+Calls and results continue in an in-memory item array, preserving native provider
+payloads. A verdict with outstanding calls is never accepted. Review invocations
+skip persisted context builds; existing approval annotations and parent-turn
+usage remain saved. The short denial reason can include information derived from
+inspection. Other model calls keep existing context retention.
+
+`plugins.auto-approval.timeoutSeconds` defaults to 30 and is editable in desktop
+settings. One signal covers the complete review, including model calls and read
+waiting, with no step/read counts, cumulative quotas, or added model-byte cutoff.
+Deadline expiry uses the existing automatic-denial path. Parent cancellation
+interrupts review. Cancellation stops waiting for the ordinary read; underlying
+backend IO may still complete, because the normal tool does not expose physical
+read cancellation. Normal provider output limits and cancellation remain in use.
+
 ## Code-mode execution
 
 The shipped `@harness/code-mode` implementation runs a fresh QuickJS WASM runtime

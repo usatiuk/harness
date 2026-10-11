@@ -16,6 +16,10 @@ Use a dated descriptive filename such as
 
 Current exploration:
 
+- [Auto-approval context and denials](2026-10-11-auto-approval-context.md):
+  current request projection, missing instruction evidence, public reviewer
+  comparisons, and diagnostics needed to classify reported excessive denials.
+
 - [Headless tests and Windows console windows](2026-10-10-headless-testing.md):
   standard console suppression, inherited test-worker consoles, and the limits
   of hiding native GUI tests. Native tests remain visible and approved; Windows

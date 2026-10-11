@@ -24,6 +24,48 @@ npm run test:wsl                 # headless Windows WSL + rendered TUI qualifica
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## Auto-approval inspection
+
+The [auto-approval delivery](plans/execution/2026-10-11-auto-approval-revamp.md)
+uses the normal workspace `ReadFileTool`; execution and sandbox packages are
+unchanged. `npm run check -- --maxWorkers=2` passes on Linux/Node 24.21.0:
+1,274 tests passed, 38 skipped; typecheck, ESLint, and formatting pass. The second
+independent review and its final follow-up found no remaining blocker. The production desktop settings save regression
+passes in Chromium with
+`PLAYWRIGHT_BROWSERS_PATH=/tmp/harness-playwright-browsers npm run test:browser --workspace @harness/desktop -- conversation.spec.ts --grep 'settings saves'`.
+
+Public service tests use actual temporary files with scripted providers. They
+cover file-dependent verdicts, nonzero line offsets/limits, 20 reads without a
+count cap, mixed YES/read output, provider-native continuation, interruption,
+expiry, temporary-context non-persistence, and parent-turn usage. Controlled
+clocks verify the single timeout across short steps and stopping review while an
+ordinary read remains pending. Inspection fixtures do not execute unsafe scripts.
+
+Live judgment remains model-dependent. Eight explicitly approved Mistral reviewer
+calls returned YES for harmless inspection, but those fixtures were not exact
+reproductions of the running conversation: the minimal case omitted history and
+guidance, and the reconstructed comparisons initially retained wire wrappers and
+omitted catalog temperature. Neither the context nor temperature comparisons
+establish a fix. No shell commands or file tools executed during those calls.
+
+A user-initiated retry captured directly in the running reviewer received the
+current policy and denied `find /home/stepus53/projects/harness -maxdepth 2 -name
+"*.md" | head -30` as “Unnecessary for reviewing the project based on provided
+documentation.” This contradicts the policy's explicit prohibition on
+necessity-based denial, ruling out stale instructions and a verdict-parser defect.
+Its seven context items contained the user question, two read calls, README/PLAN
+results, supplied guidance, and the proposed call, with no earlier denial or user
+restriction. The user subsequently reported GPT 5.6 Luna works correctly as the
+reviewer; no automated Luna qualification was run. Temporary debugging was
+removed, and no reviewer context was persisted. Further live calls require
+explicit approval.
+Offline checks establish plumbing and prompt propagation, not judgment or
+resistance to project-instruction injection. Ordinary reads retain their existing backend
+semantics: relative paths are workspace-rooted but local access is unconfined,
+the tool reads whole files before producing bounded line windows, and review
+cancellation cannot forcibly stop its local IO. Removed custom-reader and byte-cap
+checks are not evidence for the simplified implementation.
+
 ## Window shell layout
 
 The production composer fixture now includes `WindowShell`. Native-frame and

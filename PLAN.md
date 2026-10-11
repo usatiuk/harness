@@ -2,6 +2,16 @@
 
 ## Goals
 
+The [auto-approval revamp](docs/plans/execution/2026-10-11-auto-approval-revamp.md)
+keeps the existing YES/NO decisions and adds clearer context plus normal file-tool
+inspection in a temporary in-memory review. Final approval annotations and usage
+keep their existing form. One configurable deadline covers the review, without
+step/read count limits; broader policy/history frameworks are outside scope.
+Uses the existing read tool without custom execution backends or model-byte limits.
+Live capture found Mistral denying harmless discovery despite the current policy;
+the user reports GPT 5.6 Luna works correctly as the reviewer. Judgment remains
+model-dependent; evidence and limitations are tracked in the delivery plan.
+
 - **Local-first agency.** Conversations, context, usage, execution, and project
   state remain inspectable and controlled by the local Harness process.
 - **Provider independence.** The kernel speaks one model protocol; adapters own
