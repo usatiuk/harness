@@ -41,8 +41,9 @@ continuation. A real RPC regression verifies concurrent session callers share on
 history operation, preserve state after failure, and retry without duplicate items.
 Native test expectations follow the collapsed groups and automatic loading; those
 Windows WebView2 cases cannot run on this Linux host. Final `npm run check` passes
-1,277 tests (38 skipped), and all 24 Chromium conversation cases pass. Browser fixture output does not establish native WebView or
-live-provider behavior.
+1,292 tests (38 skipped) after rebasing onto conversation naming. All 28 Chromium
+browser cases pass, including 26 conversation cases and two MCP settings cases.
+Browser fixture output does not establish native WebView or live-provider behavior.
 
 ## Auto-approval inspection
 

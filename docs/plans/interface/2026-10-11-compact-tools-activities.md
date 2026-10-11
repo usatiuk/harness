@@ -148,3 +148,21 @@ production behavior.
 Native expectations were updated for lazy groups and automatic paging, but Windows
 WebView2/live-provider behavior remains unqualified on this Linux host. No push
 or external publication is included.
+
+## Remote integration verification
+
+Rebased both feature commits onto origin/main `700336c`, the first-message
+conversation-naming delivery. The remote default branch is main. The single
+conflict was overlapping appended browser tests; both naming tests and all
+activity/history tests are preserved. Feature commits after rebase are `bb7efb3`
+and `8388670`. No changes to the naming implementation were needed.
+
+Three independent read-only integration reviews found no actionable issue. Title
+events update conversation metadata while keeping transcript cells and identity
+stable, so expanded groups, activity polling and the history observer retain
+their lifetimes. In-flight history updates preserve the current title.
+
+Final rebased `npm run check` passes TypeScript, ESLint, Prettier and 1,292 tests
+(38 skipped). The entire Chromium browser suite passes all 28 cases: 26
+conversation cases and two MCP settings cases. `git diff --check` passes. Native
+Windows WebView2/live-provider qualification remains outside these results.
