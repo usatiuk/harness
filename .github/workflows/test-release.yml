@@ -97,3 +97,6 @@ jobs:
           echo 'HARNESS_RELEASE_SSH=harness-release-test' >> "$GITHUB_ENV"
       - name: Check cold startup, signed updates and preserved data
         run: node "$GITHUB_WORKSPACE/scripts/check-published-release.mjs" "$RUNNER_TEMP/harness${{ matrix.suffix }}" "$DESKTOP" "$PREVIOUS" "$VERSION"
+      - name: Inspect SSH directory permissions after failure
+        if: failure() && runner.os == 'Linux'
+        run: ssh harness-release-test 'id; stat -c "%a %U %n" "$HOME" "$HOME/.harness" "$HOME/.harness/staging" /home /'

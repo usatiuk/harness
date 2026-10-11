@@ -84,8 +84,12 @@ installation remain open, with no install/update execution allowed on the user's
 The Windows installer report exposes a desktop startup defect across packaged
 platforms: the app checked its own obsolete feature instead of Tauri's actual
 development/packaged mode. The correction is committed and reviewed. Patched
-release `v0.1.3` passes its full source gate (1,216 tests, 38 skipped); native
-builds and hosted installation/update checks remain in progress.
+release `v0.1.3` passes its full source gate (1,216 tests, 38 skipped), all four
+native builds and production signature verification. It is now published.
+Hosted CLI updates and installed desktop runtime preparation pass on all four
+targets. Ubuntu's SSH preparation fails its runtime-directory permission check;
+that failure is being investigated. Desktop updater installation/restart and
+released WSL remain unqualified.
 
 The current implementation passes the ordinary full check with 1,218 tests
 (36 skipped), eleven Windows and ten Ubuntu headless native cases, and fresh

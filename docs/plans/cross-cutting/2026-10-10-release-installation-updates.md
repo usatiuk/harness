@@ -356,3 +356,23 @@ Three focused read-only reviews pass; their fixture feedback removes a known
 password and adds an explicit cold-transfer assertion. Hosted execution is pending.
 This adds no product API or deployment framework. Released WSL and desktop updater
 installation/restart remain unqualified.
+
+Patched release run `38119877472` completes all four platform builds and the
+production manifest/updater signature verification. `v0.1.3` is published with
+25 assets. The existing `Test published release` workflow is dispatched as
+`38122000996` for versions 0.1.2 → 0.1.3. Windows and both macOS jobs pass;
+Ubuntu passes the local CLI/desktop checks but fails first SSH preparation with
+"Runtime directory is writable by other users". A temporary failure-only SSH
+permission inspection is added to establish which directory is responsible.
+The unused
+GitHub release environment is removed after its final consumer completes;
+repository Actions secrets now own the signing key. No additional updater test
+framework or driver changes are retained.
+
+The current local `npm run check` passes typecheck, lint, formatting and **1,242
+tests** (36 skipped) under the already-present pinned Node 22.23.3. Initial
+sandbox execution fails before tests because of temporary-cache rename EPERM.
+The first unsandboxed invocation uses system Node 24 against a Node 22 SQLite
+binding and fails with `ERR_DLOPEN_FAILED`; using the pinned Node fixes that
+environment mismatch without reinstalling dependencies or changing system Node.
+No GUI, installed Harness, installer or update runs locally.
