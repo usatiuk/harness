@@ -9,9 +9,9 @@ glibc and Apple Silicon macOS. Release run `38127043428` passes the full pinned
 Node source check (1,256 tests, 38 skipped), all three builds and production
 signature verification. The public manifest and update feed resolve to `0.1.5`.
 Windows/Ubuntu main CI passes at `841d116`, and Rust release caches are saved for
-all three platforms. Earlier `v0.1.3` CLI updates, Windows desktop
-installation/update/restart and released SSH deployment/upgrades pass in hosted
-run `38124352678`. Connect-time upgrade and
+all three platforms. Hosted run `38128269021` passes v0.1.3 → v0.1.5 CLI updates
+and desktop runtime preparation on all three targets, actual Windows desktop
+installation/update/restart and released SSH deployment/upgrades. Connect-time upgrade and
 explicit cache-pruning regressions pass. The remaining qualification gaps are
 published WSL2 deployment and macOS/Linux desktop update/restart execution.
 Local install/update execution is prohibited, and the unrequested WSL1 fixture
@@ -21,13 +21,15 @@ of still-current failures.
 
 Release targets are Windows x64, Linux x64 glibc and Apple Silicon macOS. The
 user discontinued Intel macOS release builds on October 11 and canceled the
-four-target `v0.1.4` workflow before publication. Release builds, metadata and
-hosted artifact checks now use the three maintained targets. The existing
+four-target `v0.1.4` workflow before publication. Release builds and metadata
+now use the three maintained targets. The existing
 three-target metadata regression passes; the replacement patch release `v0.1.5`
 is published. No installer, updater or native GUI ran on the user's PC.
-The existing published-release check is updated to v0.1.3 → v0.1.5, with protocol
-4 before replacement and 5 afterward. The former pinned pair cannot verify the
-latest feed after publication. Hosted execution of the refreshed fixture is pending.
+The one-off published-release workflow and custom RPC harness are removed. Their
+completed runs establish the evidence above; hardcoded release/protocol pairs are
+not a maintained release gate. Keep ordinary source and native regressions,
+including the optional Windows updater test, and the three-platform
+build/sign/draft workflow. No replacement testing framework is added.
 
 ## Summary
 
@@ -110,7 +112,7 @@ protects downloads and Tauri updates; its private half is never committed.
 
 ## Platform and data boundaries
 
-Initial artifacts target Windows x64, Linux x64 glibc, macOS x64 and macOS arm64.
+Artifacts target Windows x64, Linux x64 glibc and Apple Silicon macOS.
 Linux builds use Ubuntu 22.04; older distributions are unqualified. There is no
 custom ELF baseline parser. Static musl support is not promised for Node/native SQLite.
 The remote target requires internet for first-use downloads. Source remote fixtures

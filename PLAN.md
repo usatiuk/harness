@@ -65,6 +65,10 @@ gate (1,256 tests, 38 skipped), all three builds and signature verification.
 Its public manifest/update feed resolve, and standard Rust caches are populated
 for all three release targets. Windows/Ubuntu main CI passes at `841d116`.
 The previously recorded platform qualification gaps remain open.
+Hosted v0.1.3 → v0.1.5 CLI updates and Windows desktop update/restart pass in
+`38128269021`, including released SSH upgrade and preserved data. The one-off
+published-release workflow and custom RPC harness are removed; keep ordinary
+tests and the three-platform build/sign/draft workflow without release-pair tables.
 
 The [release plan](docs/plans/cross-cutting/2026-10-10-release-installation-updates.md)
 records the completed one-time halving audit (13,864 to 6,374 added code/test/workflow

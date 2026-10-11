@@ -238,9 +238,9 @@ the app's old same-named feature is not used to select runtime behavior.
 pre-window runtime preparation mode before upload, catching accidental use of
 source checkout paths. Cold signed downloads/server startup remain separate checks.
 
-The manual `Test published release` workflow executes downloads, installers and
-CLI updates only on GitHub-hosted Windows, Ubuntu and both macOS architectures.
-It runs outside the checkout, checks two published CLI versions, preserved SQLite
+The removed one-off published-release harness executed downloads, installers and
+CLI updates only on GitHub-hosted machines. Its completed runs remain evidence:
+it ran outside the checkout, checked two published CLI versions, preserved SQLite
 conversations, no server downgrade, shared Node and the installed desktop's
 pre-window runtime preparation. Its actual desktop bridge and older CLI also
 reuse the same live owner over the local socket/pipe. Ubuntu also prepares a fresh
@@ -268,9 +268,15 @@ user's request; the preceding `v0.1.4` workflow was canceled before publication.
 Standard Rust release caches are saved for all three retained targets, and
 Windows/Ubuntu main CI passes at `841d116`. This patch was not installed or
 updated on the user's PC; the existing qualification gaps above remain open.
-The published-release workflow now defaults to v0.1.3 → v0.1.5. Its RPC fixture
-uses protocol 4 before replacement and protocol 5 afterward; older launchers
-must bridge to the newer owner without downgrading it. Hosted execution is pending.
+Run `38128269021` passes v0.1.3 → v0.1.5 on all three retained targets, including
+actual Windows desktop update/restart and released SSH upgrade. The one-off
+workflow and custom RPC script are now removed: a test tied to an old release pair
+while the updater follows latest creates unnecessary maintenance. Ordinary source,
+IPC/lifecycle and native tests remain, as do release build/signature checks.
+`packages/desktop/tests/native/published-update.spec.ts` remains an optional Windows
+updater test against an installed older executable, selected with
+`HARNESS_NATIVE_EXECUTABLE` and `HARNESS_RELEASE_VERSION`; run it through the
+existing Playwright native configuration only with explicit local GUI approval.
 
 The combined Mistral correction and provider-settings integration passes the
 Node 22 full source check: 1,251 tests, 36 skipped, with two workers. All 17

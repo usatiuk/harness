@@ -100,7 +100,7 @@ server running. Windows keeps one
 `harness.exe.previous` beside the installation until the next update; close older
 CLI processes before updating again. Manual CLI uninstall removes those two files
 and retains the shared home/data/cache.
-Hosted v0.1.3 checks verify signed CLI updates on its four targets and Windows desktop
+Completed hosted checks verify signed CLI updates on the three release targets and Windows desktop
 update installation/restart. macOS/Linux desktop updater execution remains unqualified.
 Source and release downloads share the public `usatiuk/harness` repository.
 Installed launchers expose `harness cache prune` to preview cached downloads and
@@ -182,7 +182,7 @@ separate from ordinary app use. A manual GitHub workflow bumps the version,
 builds the platform artifacts, signs them and creates a draft release.
 The [v0.1.5 release](https://github.com/usatiuk/harness/releases/tag/v0.1.5) contains
 Windows x64, Linux x64 glibc and Apple Silicon macOS CLI/server payloads,
-installers and verified update signatures. Hosted v0.1.3 checks qualify CLI
+installers and verified update signatures. Hosted v0.1.3 → v0.1.5 checks qualify CLI
 updates, Windows desktop update/restart and SSH deployment; published WSL2 and
 macOS/Linux desktop updater execution remain unqualified. License collection
 and custom publication tooling are removed.
