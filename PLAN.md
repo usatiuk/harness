@@ -81,6 +81,12 @@ all four platform builds and production signature verification, creating one
 manifest and latest update feed resolve. Signed update/remote execution and actual
 installation remain open, with no install/update execution allowed on the user's PC.
 
+The Windows installer report exposes a desktop startup defect across packaged
+platforms: the app checked its own obsolete feature instead of Tauri's actual
+development/packaged mode. The correction is committed and reviewed. Patched
+release `v0.1.3` passes its full source gate (1,216 tests, 38 skipped); native
+builds and hosted installation/update checks remain in progress.
+
 The current implementation passes the ordinary full check with 1,218 tests
 (36 skipped), eleven Windows and ten Ubuntu headless native cases, and fresh
 WSL/SSH source deployment checks. Windows/Linux release payloads and a signed

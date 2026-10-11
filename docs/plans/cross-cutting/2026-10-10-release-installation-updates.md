@@ -321,3 +321,13 @@ published CLI cold downloads/update, preserved conversations, no downgrade, shar
 Node and installed desktop preparation outside the checkout. Actual execution
 remains pending; it does not qualify desktop updater installation or remote
 deployment. All installer/update execution remains confined to hosted runners.
+
+The corrected source gate passes all checks and **1,216 tests** (38 skipped) in
+release run `38119877472`, then creates `v0.1.3` at `a2ce822`. All four native
+platform builds are running. No local installation or update is executed.
+Windows/Ubuntu full source and headless native CI also pass at `5aa2b5f` in run
+`38119869624`. The focused published probe now uses the desktop's actual bridge
+entry and an older CLI to check reuse of the same live owner, in addition to
+isolated stdio persistence. A larger uncommitted updater-test extension was
+removed after the user's simplicity feedback. Updater installation/restart and
+released remote deployment remain required, unqualified work.

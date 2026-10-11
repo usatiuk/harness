@@ -42,17 +42,20 @@ async function session(file, args, inspect, { closeInput = true, env = process.e
     }
   }
 }
+async function initialize(request, expected) {
+  const initialized = await request("initialize", {
+    protocolVersion: 4,
+    client: { name: "published-release-check", version: "1" },
+    plugins: [],
+  });
+  assert.equal(initialized.server.version, expected);
+}
 async function conversation(file, args, expected, existing, env = process.env) {
   return session(
     file,
     args,
     async (request) => {
-      const initialized = await request("initialize", {
-        protocolVersion: 4,
-        client: { name: "published-release-check", version: "1" },
-        plugins: [],
-      });
-      assert.equal(initialized.server.version, expected);
+      await initialize(request, expected);
       const result = existing
         ? await request("conversation.get", { conversationId: existing })
         : await request("conversation.create", { cwd: null, overrides: {} });
@@ -97,6 +100,42 @@ await conversation(paths.node, [paths.entry, "--stdio"], version, id, {
   HARNESS_SERVER_SELECTION: basename(paths.payload),
 });
 assert.match(run(cli, ["update"]), /is up to date/);
+
+// Use the desktop's actual bridge entry, then let an older CLI attach to its owner.
+const bridgeArgs = [
+  paths.entry,
+  "--host-bridge",
+  JSON.stringify({
+    host: { kind: "local", id: "local", label: "Local" },
+    runtime: null,
+  }),
+];
+const bridgeEnv = {
+  ...process.env,
+  HARNESS_SERVER_SELECTION: basename(paths.payload),
+  HARNESS_PREPARED_SERVER: JSON.stringify(paths),
+};
+const owner = await session(
+  paths.node,
+  bridgeArgs,
+  async (request) => {
+    await initialize(request, version);
+    assert.equal((await request("conversation.get", { conversationId: id })).id, id);
+    return request("server.info", {});
+  },
+  { env: bridgeEnv },
+);
+run(oldCli, ["server", "--background"]);
+await session(
+  paths.node,
+  bridgeArgs,
+  async (request) => {
+    await initialize(request, version);
+    assert.equal((await request("server.info", {})).instanceId, owner.instanceId);
+    assert.equal((await request("server.stop", {})).accepted, true);
+  },
+  { env: bridgeEnv },
+);
 console.log(
-  "Cold published CLI/server, CLI update, no downgrade, SQLite persistence and installed desktop preparation passed",
+  "Cold published CLI/server, CLI update, no downgrade, SQLite persistence, installed desktop preparation and shared owner reuse passed",
 );

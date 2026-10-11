@@ -497,10 +497,12 @@ scoped OS opener instead of navigating the application WebView.
 
 ## Source map
 
-Future release installation and updates are specified in the
-[draft delivery plan](../../plans/cross-cutting/2026-10-10-release-installation-updates.md).
-The current bundled/source deployment and lifecycle above remain the implemented
-architecture until that plan's checks pass.
+Release installation, shared managed runtimes, connect-time server upgrades and
+explicit client updates are implemented as described in the
+[delivery plan](../../plans/cross-cutting/2026-10-10-release-installation-updates.md).
+The plan separates source/native coverage from remaining published-artifact
+installation, update and remote qualification. Desktop runtime selection follows
+Tauri's own development/packaged mode, independently of Rust optimization.
 
 - `packages/config`: settings schema, merge, discovery, resolution, and writes.
 - `packages/connections`: client.json registry, authenticated background discovery,

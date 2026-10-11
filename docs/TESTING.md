@@ -242,7 +242,8 @@ The manual `Qualify published release` workflow executes downloads, installers a
 CLI updates only on GitHub-hosted Windows, Ubuntu and both macOS architectures.
 It runs outside the checkout, checks two published CLI versions, preserved SQLite
 conversations, no server downgrade, shared Node and the installed desktop's
-pre-window runtime preparation. It does not open the desktop UI or qualify the
+pre-window runtime preparation. Its actual desktop bridge and older CLI also
+reuse the same live owner over the local socket/pipe. It does not open the desktop UI or qualify the
 Tauri updater's install/restart flow or released SSH/WSL deployment.
 
 ```sh
