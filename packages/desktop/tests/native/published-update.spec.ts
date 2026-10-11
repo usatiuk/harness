@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readDiscovery } from "@harness/connections/node";
+import { attachLocalServer, readDiscovery } from "@harness/connections/node";
 import { NativeApplication, stopNativeOwners } from "./application.ts";
 
 const execute = promisify(execFile);
@@ -16,6 +16,7 @@ test("published desktop installs its signed update and restarts", async ({}, inf
   const version = process.env.HARNESS_RELEASE_VERSION!;
   const app = await NativeApplication.launch(info.outputPath("profile"), info.outputPath("native"));
   try {
+    const before = await readDiscovery(app.home);
     const offered = await app.page.evaluate(() => {
       const native = window as unknown as {
         __TAURI_INTERNALS__: { invoke<T>(command: string, args: unknown): Promise<T> };
@@ -53,9 +54,15 @@ test("published desktop installs its signed update and restarts", async ({}, inf
         { timeout: 60_000 },
       )
       .toBe(version);
-    await expect
-      .poll(async () => (await readDiscovery(app.home))?.productVersion, { timeout: 60_000 })
-      .toBe(version);
+    await expect(async () => {
+      const owner = await attachLocalServer(app.home);
+      try {
+        expect(owner.identity.productVersion).toBe(version);
+        if (before) expect(owner.identity.instanceId).not.toBe(before.instanceId);
+      } finally {
+        owner.close();
+      }
+    }).toPass({ timeout: 60_000 });
   } finally {
     await app.close();
   }

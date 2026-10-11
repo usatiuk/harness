@@ -417,3 +417,14 @@ pipe. Full test-result upload is rejected by automatic approval review because
 diagnostics could contain sensitive content. Investigate with bounded process
 metadata and source evidence; do not extend timeouts or weaken endpoint identity
 checks.
+
+Run `38123547150` shows the hosted WebView browser is a descendant of the
+launched app but has no debugging-port argument. [Microsoft's explanation](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5645)
+identifies WebView2 150's elevated-host hardening: environment/HKCU overrides
+are ignored, while HKLM app policy remains supported. The disposable Windows
+runner now sets only `harness-desktop.exe`'s debugging policy and the existing
+harness uses that configured port. Normal local tests still allocate a port and
+use environment overrides. No product debugging switch or endpoint is added.
+Standard npm/Rust caches cover the native test's dependencies. Restart validation
+now performs an actual owner handshake and checks replacement of any prior owner,
+rather than trusting a discovery file alone. Verification remains pending.

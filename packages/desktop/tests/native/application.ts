@@ -84,7 +84,11 @@ export class NativeApplication {
     await mkdir(artifacts, { recursive: true });
     appProfile = await canonicalHome(appProfile);
     fixtureHomes.add(appProfile);
-    const port = await freePort();
+    const port = process.env.HARNESS_NATIVE_DEBUG_PORT
+      ? Number(process.env.HARNESS_NATIVE_DEBUG_PORT)
+      : await freePort();
+    if (!Number.isInteger(port) || port < 1 || port > 65_535)
+      throw new Error("Invalid native debugging port");
     const log = createWriteStream(join(artifacts, "process.log"));
     const environment = { ...process.env };
     // Release qualification can exclude system Node without changing the runner's PATH.
