@@ -376,3 +376,10 @@ The first unsandboxed invocation uses system Node 24 against a Node 22 SQLite
 binding and fails with `ERR_DLOPEN_FAILED`; using the pinned Node fixes that
 environment mismatch without reinstalling dependencies or changing system Node.
 No GUI, installed Harness, installer or update runs locally.
+
+Hosted diagnostic run `38122344942` repeats the SSH failure and shows `.harness`
+mode 775 under an account-owned mode-750 home. The other three targets pass again.
+The next diagnostic distinguishes inherited ACL/skeleton state from mkdir behavior
+before changing either production permissions or the test fixture. The user
+explicitly defers exposing desktop updates after backend startup failure;
+that separate recovery gap is recorded in `docs/DEFERRED.md`.

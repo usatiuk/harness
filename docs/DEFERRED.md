@@ -5,6 +5,14 @@ current change. Keep entries concrete: state the limitation, consequence, reason
 for deferral, and the condition that should reopen it. Package-local follow-up may
 instead live in the owning execution plan or an issue.
 
+## Desktop updates after backend startup failure
+
+Desktop updates currently live in Settings, which is unavailable when initial
+backend startup fails. The broken v0.1.2 packaged build therefore needs a manual
+v0.1.3 installer download. The user explicitly deferred changing this startup flow
+on October 11. Reopen when adding recovery actions to the startup-error screen;
+offer the existing native updater without requiring a connected server.
+
 ## Alternate home and natural-home project discovery
 
 With `HARNESS_HOME` pointing elsewhere, a workspace below the user's normal home

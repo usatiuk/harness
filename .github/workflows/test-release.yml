@@ -99,4 +99,6 @@ jobs:
         run: node "$GITHUB_WORKSPACE/scripts/check-published-release.mjs" "$RUNNER_TEMP/harness${{ matrix.suffix }}" "$DESKTOP" "$PREVIOUS" "$VERSION"
       - name: Inspect SSH directory permissions after failure
         if: failure() && runner.os == 'Linux'
-        run: ssh harness-release-test 'id; stat -c "%a %U %n" "$HOME" "$HOME/.harness" "$HOME/.harness/staging" /home /'
+        run: |
+          ssh harness-release-test 'id; stat -c "%a %U %n" "$HOME" "$HOME/.harness" /home /; getfacl "$HOME" "$HOME/.harness"; umask 077; mkdir "$HOME/permission-probe"; stat -c "%a %U %n" "$HOME/permission-probe"; rmdir "$HOME/permission-probe"'
+          sudo ls -la /etc/skel
