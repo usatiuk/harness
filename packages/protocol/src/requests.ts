@@ -34,6 +34,8 @@ export interface RequestMiddlewareContext {
   signal: AbortSignal;
   /** Current active branch, starting at its latest compaction unless explicitly included. */
   active(options?: { includeCompacted?: boolean }): Promise<readonly Item[]>;
+  /** Available settings/plugin context; this does not establish human authorization. */
+  instructions(): Promise<import("./content.ts").ContentBlock[]>;
   /** Read part of stored tool output, e.g. a bounded preview for approval review. */
   readBlob(ref: OutputRef, range: ByteRange): Promise<Uint8Array>;
   service(key: string): unknown;

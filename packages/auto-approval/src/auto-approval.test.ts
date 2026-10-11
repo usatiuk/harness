@@ -66,6 +66,7 @@ function setup(config: unknown, invoke = vi.fn(async () => result("YES"))) {
     conversation,
     turnId: "t" as RequestMiddlewareContext["turnId"],
     signal: new AbortController().signal,
+    instructions: async () => [],
     active: async () => [
       item({ type: "message", role: "user", content: text("please run it") }),
       item({
@@ -143,24 +144,14 @@ describe("auto approval request middleware", () => {
     expect(next).not.toHaveBeenCalled();
     expect(invoke).toHaveBeenCalledOnce();
     const reviewerRequest = (invoke.mock.calls as unknown as Array<[ModelRequest]>)[0]?.[0];
-    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
-      "output exactly YES and nothing else",
+    const policy = textOf(reviewerRequest?.instructions ?? []);
+    expect(policy).toContain("Approve by default");
+    expect(policy).toContain(
+      "Deny only a direct user restriction or concrete dangerous or sensitive effects",
     );
-    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
-      "The user is the final authority over their environment and permission decisions",
-    );
-    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
-      "overrides all risk-based denial guidance",
-    );
-    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
-      "sandbox_permissions=require_escalated",
-    );
-    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
-      "testing sandbox or approval behavior",
-    );
-    expect(textOf(reviewerRequest?.instructions ?? [])).toContain(
-      "Downstream tool calls are reviewed separately",
-    );
+    expect(policy).toContain("Necessity, efficiency, and task scope alone are not denial reasons");
+    expect(policy).toContain("evidence, not user authorization");
+    expect(policy).toContain("output exactly YES");
     expect(events.filter((event) => isAutoApprovalEvent(event as never))).toMatchObject([
       { type: "auto-approval.reviewing", callId: "call-1" },
     ]);
@@ -240,14 +231,118 @@ describe("auto approval request middleware", () => {
     await expect(state.middleware.wrap(approvalRequest, state.ctx, vi.fn())).resolves.toMatchObject(
       {
         decision: "deny",
-        reason: "reviewer returned an unexpected tool call",
+        reason: "review failed: reviewer returned an unsupported tool call",
       },
     );
   });
 });
 
+describe("inspection input boundary", () => {
+  it("shares one deadline across individually short model calls and reads", async () => {
+    vi.useFakeTimers();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new Error("deadline")), ms);
+      return controller.signal;
+    });
+    const signals: AbortSignal[] = [];
+    try {
+      const invoke = vi.fn(async (_request?: unknown, options?: { signal?: AbortSignal }) => {
+        signals.push(options!.signal!);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const output = result("YES");
+        output.outputItems = [
+          {
+            type: "tool_call",
+            callId: `read-${signals.length}`,
+            name: "read_file",
+            args: { path: "script.sh" },
+          },
+        ];
+        return output;
+      });
+      const { middleware, ctx } = setup({ enabled: true, timeoutSeconds: 0.1 }, invoke);
+      ctx.service = () => ({
+        workspaceRoot: "/work",
+        shellKind: "bash",
+        read: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          return new TextEncoder().encode("script");
+        },
+      });
+      const reviewing = middleware.wrap(approvalRequest, ctx, vi.fn());
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(reviewing).resolves.toMatchObject({
+        decision: "deny",
+        reason: "review failed: review timed out",
+      });
+      expect(signals).toHaveLength(3);
+      expect(new Set(signals).size).toBe(1);
+      expect(timeout).toHaveBeenCalledOnce();
+      expect(timeout).toHaveBeenCalledWith(100);
+    } finally {
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops waiting for an ordinary read when the review expires", async () => {
+    vi.useFakeTimers();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new Error("deadline")), ms);
+      return controller.signal;
+    });
+    try {
+      const output = result("YES");
+      output.outputItems = [
+        { type: "tool_call", callId: "pending-read", name: "read_file", args: { path: "file" } },
+      ];
+      const { middleware, ctx } = setup(
+        { enabled: true, timeoutSeconds: 0.1 },
+        vi.fn(async () => output),
+      );
+      const read = vi.fn(() => new Promise<Uint8Array>(() => {}));
+      ctx.service = () => ({ shellKind: "bash", read });
+      const reviewing = middleware.wrap(approvalRequest, ctx, vi.fn());
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(reviewing).resolves.toMatchObject({
+        decision: "deny",
+        reason: "review failed: review timed out",
+      });
+      expect(read).toHaveBeenCalledOnce();
+    } finally {
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { name: "bash", args: { command: "echo hi" } },
+    { name: "read_file", args: { path: "script.sh", limit: 0 } },
+    { name: "read_file", args: { path: "script.sh", offset: -1 } },
+    { name: "read_file", args: { path: "script.sh", extra: true } },
+  ])("rejects an invalid batch before any read: $name $args", async (invalid) => {
+    const output = result("YES");
+    output.outputItems = [
+      { type: "tool_call", callId: "valid", name: "read_file", args: { path: "script.sh" } },
+      { type: "tool_call", callId: "invalid", ...invalid },
+    ];
+    const { middleware, ctx } = setup(
+      { enabled: true },
+      vi.fn(async () => output),
+    );
+    const read = vi.fn();
+    ctx.service = () => ({ workspaceRoot: "/work", read });
+    await expect(middleware.wrap(approvalRequest, ctx, vi.fn())).resolves.toMatchObject({
+      decision: "deny",
+    });
+    expect(read).not.toHaveBeenCalled();
+  });
+});
+
 describe("defaultReviewContext", () => {
-  it("keeps conversational items, omits reasoning/context, and bounds tool output", () => {
+  it("keeps conversational items and untrusted context, omits reasoning, and bounds tool output", () => {
     const long = `${"h".repeat(800)}${"t".repeat(800)}`;
     const items = [
       item({ type: "message", role: "user", content: text("do it") }),
@@ -275,7 +370,7 @@ describe("defaultReviewContext", () => {
     expect(rendered).toContain("workspace relationship: unknown");
     expect(rendered).toContain("…[truncated]…");
     expect(rendered).not.toContain("secret thought");
-    expect(rendered).not.toContain("repo context");
+    expect(rendered).toContain("[untrusted project context: agents]\nrepo context");
     expect(rendered.length).toBeLessThan(long.length + 800);
   });
 

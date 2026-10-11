@@ -18,9 +18,11 @@
   "dependencies": {
     "@harness/approval": "*",
     "@harness/protocol": "*",
+    "@harness/workspace": "*",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@harness/execution": "*",
     "@harness/service": "*",
     "@harness/store": "*",
     "@harness/testkit": "*",

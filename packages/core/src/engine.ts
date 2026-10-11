@@ -1338,6 +1338,16 @@ export class Engine {
         const items = await this.store.listActiveItems(conversation.id);
         return options?.includeCompacted ? items : compactedWindow(items);
       },
+      instructions: async () => [
+        { type: "text", text: conversation.config.instructions },
+        ...(
+          await Promise.all(
+            this.host.contextSources.map((source) =>
+              source.instructions({ service: (key) => this.#service(runtime, key) }),
+            ),
+          )
+        ).flat(),
+      ],
       readBlob: (
         ref: import("@harness/protocol").OutputRef,
         range: import("@harness/protocol").ByteRange,
@@ -1466,21 +1476,24 @@ export class Engine {
           ? { providerOptions: provider.providerOptions }
           : {}),
       };
-      const build = await this.store.recordContextBuild({
-        conversationId: conversation.id,
-        purpose: options.purpose ?? "plugin",
-        instructions: request.instructions,
-        tools: request.tools ?? [],
-        items: request.items,
-        ...(request.prompt ? { prompt: request.prompt } : {}),
-        ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
-        ...(request.maxOutputTokens !== undefined
-          ? { maxOutputTokens: request.maxOutputTokens }
-          : {}),
-        ...(request.providerOptions !== undefined
-          ? { providerOptions: request.providerOptions }
-          : {}),
-      });
+      const build =
+        options.persistContext === false
+          ? undefined
+          : await this.store.recordContextBuild({
+              conversationId: conversation.id,
+              purpose: options.purpose ?? "plugin",
+              instructions: request.instructions,
+              tools: request.tools ?? [],
+              items: request.items,
+              ...(request.prompt ? { prompt: request.prompt } : {}),
+              ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
+              ...(request.maxOutputTokens !== undefined
+                ? { maxOutputTokens: request.maxOutputTokens }
+                : {}),
+              ...(request.providerOptions !== undefined
+                ? { providerOptions: request.providerOptions }
+                : {}),
+            });
       signal.throwIfAborted();
       const outputItems: ModelOutputItem[] = [];
       const preview = new ModelPreview();
@@ -1493,7 +1506,7 @@ export class Engine {
         await this.store.recordModelUsage({
           conversationId: conversation.id,
           turnId,
-          contextBuildId: build.id,
+          contextBuildId: build?.id ?? null,
           provider: modelConfig.provider,
           model: modelConfig.model,
           purpose: options.purpose ?? "plugin",

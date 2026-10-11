@@ -217,7 +217,12 @@ export interface ModelInvoker {
     request: Omit<ModelRequest, "modelConfig" | "providerOptions"> & {
       modelConfig?: ModelConfig;
     },
-    options?: { purpose?: string; signal?: AbortSignal },
+    options?: {
+      purpose?: string;
+      signal?: AbortSignal;
+      /** Temporary callers retain their own context; usage is still recorded. */
+      persistContext?: boolean;
+    },
   ): Promise<ModelInvocationResult>;
 }
 
