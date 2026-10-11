@@ -52,7 +52,8 @@ machine restart, with explicit ownership and external-resource recovery semantic
 
 ## Provider-owned execution tools
 
-Shipped providers support opt-in native web search. File, command, sandbox, approval, activity, and subagent
+Shipped direct providers support configurable native web search, enabled by default.
+File, command, sandbox, approval, activity, and subagent
 execution stays under Harness control. Supporting provider-owned execution would
 otherwise create a second path for approval, project instructions, output,
 cancellation, and transcript semantics.

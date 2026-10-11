@@ -5,7 +5,13 @@ import { createCodexProvider } from "./provider.ts";
 
 export const codexProviderType = defineProviderType({
   type: "openai-codex",
-  configSchema: z.strictObject({ webSearch: z.boolean().default(false) }),
+  configSchema: z.strictObject({
+    webSearch: z.boolean().default(true).meta({
+      harnessSetting: true,
+      title: "Web search",
+      description: "Allow this provider to search the web when needed. Enabled by default.",
+    }),
+  }),
   create(context, config) {
     const codex = new CodexAuth({ store: context.secrets });
     const auth: ProviderOAuth = {

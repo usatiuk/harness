@@ -9,7 +9,11 @@ export const openAIProviderType = defineProviderType({
   configSchema: z.strictObject({
     apiKey: apiKeySourceSchema.default({ stored: true }),
     baseUrl: z.url().optional(),
-    webSearch: z.boolean().default(false),
+    webSearch: z.boolean().default(true).meta({
+      harnessSetting: true,
+      title: "Web search",
+      description: "Allow this provider to search the web when needed. Enabled by default.",
+    }),
   }),
   create(context, config) {
     const auth = instanceApiKeyAuth(context, config.apiKey, (key) =>

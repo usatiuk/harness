@@ -17,6 +17,8 @@ import { geminiProviderType } from "@harness/gemini-api";
 import { liteLLMPlugin } from "@harness/litellm";
 import { customProvidersPlugin } from "@harness/custom-providers";
 import { mistralPlugin } from "@harness/mistral";
+import { providerSettings } from "./provider-settings.ts";
+import type { ProviderSetting } from "./client-protocol.ts";
 
 export interface AuthEntry {
   method: AuthMethod;
@@ -28,6 +30,8 @@ export interface ProviderEntry {
   id: string;
   label: string;
   type: string;
+  config: NonNullable<SettingsDoc["providers"]>[string]["config"];
+  settings: ProviderSetting[];
   instance: ProviderInstance;
   defaultModel?: ModelConfig;
 }
@@ -118,7 +122,12 @@ export function prepareProviderEntries(
     const type = types.get(entry.type);
     if (!type) throw new Error(`Unknown provider type '${entry.type}' for instance '${id}'`);
     try {
-      return { id, entry, create: type.prepare(entry.config) };
+      return {
+        id,
+        entry,
+        create: type.prepare(entry.config),
+        settings: providerSettings(type.configSchema, entry.config),
+      };
     } catch (cause) {
       if (!(cause instanceof z.ZodError)) throw cause;
       const section = `providers.${id}.config`;
@@ -130,7 +139,7 @@ export function prepareProviderEntries(
   });
   return (store) =>
     new Map(
-      prepared.map(({ id, entry, create }) => {
+      prepared.map(({ id, entry, create, settings }) => {
         const slot = (key: string) =>
           `provider-instance:${encodeURIComponent(id)}:${encodeURIComponent(key)}`;
         const instance = create({
@@ -167,6 +176,8 @@ export function prepareProviderEntries(
             id,
             label: entry.label,
             type: entry.type,
+            config: entry.config,
+            settings,
             instance,
             ...(entry.model ? { defaultModel: { provider: id, model: entry.model } } : {}),
           },

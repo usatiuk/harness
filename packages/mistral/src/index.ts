@@ -10,7 +10,11 @@ function providerType(mode: MistralMode) {
     type: `mistral-${mode}`,
     configSchema: z.strictObject({
       apiKey: apiKeySourceSchema.default({ stored: true }),
-      webSearch: z.boolean().default(false),
+      webSearch: z.boolean().default(true).meta({
+        harnessSetting: true,
+        title: "Web search",
+        description: "Allow this provider to search the web when needed. Enabled by default.",
+      }),
       models: configuredModelsSchema.default({}),
     }),
     create(context, config) {

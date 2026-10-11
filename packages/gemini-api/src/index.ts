@@ -8,7 +8,11 @@ export const geminiProviderType = defineProviderType({
   type: "gemini-api",
   configSchema: z.strictObject({
     apiKey: apiKeySourceSchema.default({ stored: true }),
-    webSearch: z.boolean().default(false),
+    webSearch: z.boolean().default(true).meta({
+      harnessSetting: true,
+      title: "Web search",
+      description: "Allow this provider to search the web when needed. Enabled by default.",
+    }),
   }),
   create(context, config) {
     const auth = instanceApiKeyAuth(context, config.apiKey, () => null);

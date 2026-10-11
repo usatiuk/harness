@@ -38,6 +38,7 @@ export async function bootstrapProviders(
         catalog: "missing-credentials",
         modelCount: 0,
         diagnostics: [],
+        settings: entry.settings,
       };
       let provider: ModelProvider | null;
       try {

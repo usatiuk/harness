@@ -8,6 +8,8 @@ function entry(id: string, provider: Partial<ModelProvider>): ProviderEntry {
     id,
     label: id,
     type: "fixture",
+    config: {},
+    settings: [],
     instance: {
       buildProvider: async () => ({
         provider: id,

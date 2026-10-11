@@ -94,7 +94,7 @@ describe("Gemini native search", () => {
   );
 
   it("declares provider-owned search and forwards toolChoice independently", () => {
-    expect(geminiProviderType.configSchema.parse({})).toMatchObject({ webSearch: false });
+    expect(geminiProviderType.configSchema.parse({})).toMatchObject({ webSearch: true });
     expect(buildInteraction(request())).toMatchObject({
       store: false,
       tools: [{ type: "google_search" }],

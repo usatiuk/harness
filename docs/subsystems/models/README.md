@@ -100,7 +100,11 @@ raw-string local calls use plain text where the target API requires object input
 ## Native web search
 
 The direct `openai-api`, `openai-codex`, `anthropic-api`, `gemini-api` and
-`mistral-api` and `mistral-vibe` connection schemas own `webSearch: boolean` (default false).
+`mistral-api` and `mistral-vibe` connection schemas own `webSearch: boolean` (default true).
+Explicit false values remain opt-outs. Application provider status exposes the
+configured choice independently of credential availability. Desktop Settings → Providers
+edits it per connection; an explicit server restart rebuilds running providers.
+Compatible providers and gateways retain their existing search behavior.
 The adapter's safe immutable options travel on `ModelRequest.providerOptions`
 and the existing context-build trace. Tool declarations follow provider settings
 independently of `toolChoice`, which adapters forward to the native API.

@@ -18,6 +18,8 @@ declare global {
       settingsWrites: unknown[];
       creations: unknown[];
       setDefaultModel(model: string): void;
+      providerWrites: { provider: string; patch: Record<string, boolean> }[];
+      failProviderSave: boolean;
       settle(reject?: boolean): void;
       settleStop(): void;
       disconnect(): void;
@@ -51,7 +53,35 @@ const settings: AppSettings = {
     approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
     autoApproval: { enabled: false, model: null },
   },
-  providers: [],
+  providers: [
+    {
+      id: "work",
+      label: "Work",
+      type: "openai-api",
+      settings: [
+        { key: "webSearch", title: "Web search", description: null, value: true },
+        { key: "provider", title: "Compact output", description: null, value: true },
+      ],
+    },
+    {
+      id: "personal",
+      label: "Personal",
+      type: "openai-api",
+      settings: [{ key: "webSearch", title: "Web search", description: null, value: false }],
+    },
+    { id: "gateway", label: "Gateway", type: "opencode-go", settings: [] },
+  ].map((provider) => ({
+    ...provider,
+    kind: "api-key" as const,
+    canStore: false,
+    authenticated: false,
+    detail: null,
+    credentialSource: null,
+    registered: false,
+    catalog: "missing-credentials" as const,
+    modelCount: 0,
+    diagnostics: [],
+  })),
 };
 let revision = 0;
 const listeners = new Set<() => void>();
@@ -62,6 +92,7 @@ const changed = () => {
 const calls: Delivery[] = [];
 const settingsWrites: unknown[] = [];
 const creations: unknown[] = [];
+const providerWrites: { provider: string; patch: Record<string, boolean> }[] = [];
 let pending: Deferred | undefined;
 let stopping: Deferred | undefined;
 const domain = {
@@ -119,6 +150,18 @@ const session = {
           Object.assign(settings.settings, params);
           return null;
         }
+        if (definition.method === "app.providers.config.update") {
+          if (window.composerFixture.failProviderSave) throw new Error("Provider save failed");
+          const update = params as { provider: string; patch: Record<string, boolean> };
+          providerWrites.push(update);
+          for (const setting of settings.providers.find(
+            (provider) => provider.id === update.provider,
+          )!.settings) {
+            if (Object.hasOwn(update.patch, setting.key))
+              setting.value = update.patch[setting.key]!;
+          }
+          return { restartRequired: true };
+        }
         throw new Error(`Unexpected fixture RPC: ${definition.method}`);
       },
     },
@@ -149,6 +192,8 @@ window.composerFixture = {
   setDefaultModel(model) {
     settings.settings.model = { provider: "fixture", model, preset: null };
   },
+  providerWrites,
+  failProviderSave: false,
   settle(reject = false) {
     if (!pending) throw new Error("No pending delivery");
     if (reject) pending.reject(new Error("Delivery rejected"));

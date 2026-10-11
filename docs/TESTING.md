@@ -384,6 +384,22 @@ native suite; provider sign-in and every interrupted-install path are separate.
 
 ## Desktop native tests
 
+`server/src/provider-search.test.ts` covers supported native-search defaults and
+explicit opt-outs, safe status without credentials, per-connection RPC writes,
+preserved credential sources/endpoints/models, concurrent sibling settings and
+rejection of unknown/unsupported connections without changing the file.
+A fixture provider with differently named fields proves generic schema-driven
+projection and patches, excludes credentials and rejects unexposed keys and
+cross-field-invalid values without writing. `provider-settings.test.ts` covers
+definition errors for explicitly exposed unsupported shapes or missing defaults.
+The production desktop route browser regression covers generic provider controls,
+saving both choices, retained settings, dirty-field patches, routing-field name
+collisions and surfaced errors. These tests
+do not establish live vendor search acceptance or native desktop interaction.
+The [delivery evidence](plans/interface/2026-10-11-web-search-settings.md) records
+43 focused and two browser cases passing, plus the full-check OAuth failures and
+server-process timeout that does not reproduce in isolation.
+
 ### Design playground
 
 The [desktop design playground](../packages/desktop/playground/README.md) consumes

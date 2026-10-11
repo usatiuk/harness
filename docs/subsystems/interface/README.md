@@ -143,6 +143,15 @@ back to plaintext.
 
 Desktop provider controls call composition-owned `app.auth.*` RPCs. Responses
 contain authentication status and safe validation errors, never keys or tokens.
+Settings → Providers also exposes native web search for supported connections,
+enabled by default. Provider schemas opt safe fields into the generic editor with
+final-node Zod metadata `{ harnessSetting: true, title, description }`. Safe status
+reports only their descriptors and effective values, never full config or schemas.
+The initial editor supports top-level booleans. Unsupported annotated shapes fail
+as definition errors; unannotated credentials and complex config stay private.
+`app.providers.config.update` accepts a patch of exposed fields, validates the
+merged original provider config and atomically saves it, preserving other settings.
+The GUI offers the existing explicit server restart to apply the saved choice.
 Local offers browser OAuth with its cancellable localhost listener and optional
 device-code sign-in. WSL/SSH use device codes: clients display the provider URL
 and one-time code while the executing server polls authorization. Neither flow

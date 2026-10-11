@@ -115,6 +115,15 @@ details. Creation now offers model presets. The full check passes 1,247 tests
 on pinned Node 22; all 16 headless browser tests pass and three independent
 reviews are resolved. Live-vendor and rebuilt native acceptance remain unqualified.
 
+The [desktop web search follow-up](docs/plans/interface/2026-10-11-web-search-settings.md)
+exposes schema-declared provider settings in the GUI, with native web search enabled
+by default and explicit opt-outs preserved. Three independent reviews, 43 focused
+tests and two browser cases pass. Typechecking, lint and formatting pass; the full
+check has two existing MCP OAuth failures and a server-process timeout that passes
+in isolation. Main integration must bump the exact protocol version for the new
+required provider-status field. The delivery plan records that gate and validation
+limits.
+
 The [client window chrome follow-up](docs/plans/interface/2026-10-10-client-window-chrome.md)
 is complete: one shared title bar, restored Terminal branding and consistent modal
 dimming, with platform controls and window mechanics delegated to Tauri/library.

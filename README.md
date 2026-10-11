@@ -63,9 +63,12 @@ chrome, including startup; custom accents remain independent.
 It shows one selected conversation with live status for other open conversations,
 streaming history, approvals, tool output and edit diffs. Conversations keep
 independent turns and drafts while you navigate. Settings provide provider
-sign-in, model and sandbox defaults, approval policy, auto-approver enablement and
+sign-in, per-provider web search, model and sandbox defaults, approval policy, auto-approver enablement and
 reviewer model/preset, and light/dark appearance. Leave the reviewer model unset
 to use each conversation's current model.
+Native web search is enabled by default for supported direct providers. Change
+it in Settings → Providers and restart the server to apply it; explicit
+`providers.<id>.config.webSearch: false` settings remain disabled.
 Model/preset and sandbox controls open from compact composer chips. Enter sends;
 Shift+Enter inserts a newline; composer settings can swap those two. While working,
 Steer is the default and Ctrl/Cmd+Enter queues. One primary button shows Send when

@@ -57,6 +57,17 @@ export async function updateGlobalModel(home: string, model: ModelConfig): Promi
   });
 }
 
+/** Mutates the latest global document under the shared atomic writer. */
+export async function updateGlobalSettings(
+  home: string,
+  mutate: (doc: SettingsDoc) => SettingsDoc,
+): Promise<void> {
+  const path = globalPath(home);
+  await mutateFile(path, async () => {
+    await writeSettings(path, mutate(parseSettingsDoc(await readSettings(path), path)));
+  });
+}
+
 /** Deep-patches a global plugin slice, or replaces that slice explicitly; preserves siblings. */
 export async function updateGlobalPluginConfig(
   home: string,

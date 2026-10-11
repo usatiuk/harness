@@ -36,6 +36,7 @@ import { textOf, type Conversation, type ConversationId } from "@harness/protoco
 import {
   appAuthLogoutRequest,
   appSettingsUpdateRequest,
+  appProviderConfigUpdateRequest,
   type AppSettings,
 } from "@harness/server/client-protocol";
 import { DesktopSession, type ConversationView } from "./session.ts";
@@ -217,6 +218,30 @@ export function createDesktopRouter(
             restartRequired: true,
             message: "Stored credentials removed. Restart Harness to apply the change.",
           };
+        case "provider-settings": {
+          const provider = session.settings?.providers.find(
+            (entry) => entry.id === field(data, "provider"),
+          );
+          if (!provider) throw new Error("Unknown provider connection");
+          const patch: Record<string, boolean> = {};
+          for (const setting of provider.settings) {
+            const value = field(data, `setting:${setting.key}`);
+            if (value !== "true" && value !== "false")
+              throw new Error(`Invalid ${setting.title} setting`);
+            if ((value === "true") !== setting.value) patch[setting.key] = value === "true";
+          }
+          if (!Object.keys(patch).length)
+            return { ok: true, message: "Provider settings unchanged." };
+          await session.client.peer.request(appProviderConfigUpdateRequest, {
+            provider: provider.id,
+            patch,
+          });
+          return {
+            ok: true,
+            restartRequired: true,
+            message: "Provider settings saved. Restart the server to apply the change.",
+          };
+        }
         case "settings": {
           const [provider, model] = field(data, "model").split("\u0000");
           const inWorkspace = field(data, "inWorkspace");
@@ -1277,6 +1302,7 @@ export function createDesktopRouter(
 
   function Provider({ provider }: { provider: AppSettings["providers"][number] }) {
     const fetcher = useFetcher<ActionResult>();
+    const configuration = useFetcher<ActionResult>();
     const submitKey = (event: FormEvent<HTMLFormElement>): void => {
       event.preventDefault();
       const data = new FormData(event.currentTarget);
@@ -1303,6 +1329,41 @@ export function createDesktopRouter(
             </p>
           ))}
         </Disclosure>
+        {provider.settings.length > 0 && (
+          <configuration.Form
+            method="post"
+            action="/actions"
+            className="form-grid"
+            key={JSON.stringify(provider.settings)}
+          >
+            <Input type="hidden" name="intent" value="provider-settings" />
+            <Input type="hidden" name="provider" value={provider.id} />
+            {provider.settings.map((setting) => (
+              <div key={setting.key}>
+                <label>
+                  {setting.title}
+                  <Select
+                    name={`setting:${setting.key}`}
+                    aria-label={`${provider.label} ${setting.title}`}
+                    defaultValue={String(setting.value)}
+                  >
+                    <option value="true">On</option>
+                    <option value="false">Off</option>
+                  </Select>
+                </label>
+                {setting.description && <p className="muted">{setting.description}</p>}
+              </div>
+            ))}
+            <Button
+              type="submit"
+              disabled={configuration.state !== "idle" || Boolean(session.disconnected)}
+            >
+              Save provider settings
+            </Button>
+          </configuration.Form>
+        )}
+        <ActionFeedback data={configuration.data} />
+        {configuration.data?.ok && configuration.data.restartRequired && <RestartButton />}
         {provider.canStore && (
           <fetcher.Form
             method="post"

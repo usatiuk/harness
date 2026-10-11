@@ -15,6 +15,7 @@ it("distinguishes an empty discovered catalog from missing credentials and prese
     registered: true,
     catalog: "failed",
     modelCount: 0,
+    settings: [],
     diagnostics: ["Catalog request returned HTTP 503"],
   };
   const model = { provider: "work", model: "coding" };

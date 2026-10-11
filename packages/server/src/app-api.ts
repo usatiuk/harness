@@ -4,6 +4,7 @@ import {
   setAuthStore,
   updateGlobalModel,
   updateGlobalPluginConfig,
+  updateGlobalSettings,
   type AuthStoreKind,
 } from "@harness/config";
 import { approvalConfigSchema } from "@harness/approval";
@@ -28,6 +29,7 @@ import {
   appProvidersRequest,
   type ProviderStatus,
   appSettingsUpdateRequest,
+  appProviderConfigUpdateRequest,
 } from "./client-protocol.ts";
 
 /** Concrete application configuration/auth composition, separate from core dispatch. */
@@ -104,6 +106,7 @@ export function registerAppApi(
           catalog: prior?.catalog ?? "missing-credentials",
           modelCount: prior?.modelCount ?? 0,
           diagnostics: prior?.diagnostics ?? [],
+          settings: entry.settings,
         };
         if (method)
           try {
@@ -121,6 +124,35 @@ export function registerAppApi(
     );
   };
   session.onRequest(appProvidersRequest, () => track(listProviders()));
+  session.onRequest(appProviderConfigUpdateRequest, (params) =>
+    track(
+      serializeSettings(async () => {
+        lifetime.signal.throwIfAborted();
+        const { store } = await credentialStoreForRead(defaultHome());
+        await updateGlobalSettings(defaultHome(), (doc) => {
+          const entry = prepareProviderEntries(doc)(store).get(params.provider);
+          if (!entry) return invalid("Unknown provider connection");
+          for (const key of Object.keys(params.patch))
+            if (!entry.settings.some((setting) => setting.key === key))
+              return invalid(`Provider setting '${key}' is not editable`);
+          const updated = {
+            ...doc,
+            providers: {
+              ...doc.providers,
+              [entry.id]: {
+                ...doc.providers?.[entry.id],
+                type: entry.type,
+                config: { ...entry.config, ...params.patch },
+              },
+            },
+          };
+          prepareProviderEntries(updated);
+          return updated;
+        });
+        return { restartRequired: true as const };
+      }),
+    ),
+  );
   session.onRequest(appSettingsRequest, async () => {
     const doc = await readGlobalSettings(defaultHome());
     const providers = await listProviders();

@@ -54,7 +54,7 @@ function history(output: ModelStreamEvent[]): ModelRequest["items"] {
 describe("Mistral request boundary", () => {
   it("declares search for both connection types and forwards native tool choice independently", () => {
     for (const provider of [mistralAPIProviderType, mistralVibeProviderType])
-      expect(provider.configSchema.parse({})).toMatchObject({ webSearch: false });
+      expect(provider.configSchema.parse({})).toMatchObject({ webSearch: true });
     expect(
       buildMistralRequest({ ...request(), toolChoice: "none", maxOutputTokens: 0 }),
     ).toMatchObject({

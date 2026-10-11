@@ -499,3 +499,50 @@ test("settings refreshes its model when authoritative defaults change", async ({
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
     .toMatchObject({ model: { provider: "fixture", model: "test-latest" } });
 });
+
+test("provider settings expose and save native web search for supported connections", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Providers", exact: true }).click();
+  const work = page
+    .locator(".provider")
+    .filter({ has: page.getByRole("heading", { name: "Work", exact: true }) });
+  await expect(page.getByLabel("Work Web search", { exact: true })).toHaveValue("true");
+  await expect(page.getByLabel("Personal Web search", { exact: true })).toHaveValue("false");
+  await expect(page.getByLabel("Gateway Web search", { exact: true })).toHaveCount(0);
+  await page.getByLabel("Work Web search", { exact: true }).selectOption("false");
+  await work.getByRole("button", { name: "Save provider settings", exact: true }).click();
+  await expect(work.getByRole("status")).toContainText("Restart the server");
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.providerWrites))
+    .toEqual([{ provider: "work", patch: { webSearch: false } }]);
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  await page.getByRole("tab", { name: "Providers", exact: true }).click();
+  await expect(page.getByLabel("Work Web search", { exact: true })).toHaveValue("false");
+  await page.getByLabel("Work Web search", { exact: true }).selectOption("true");
+  await page.evaluate(() => {
+    window.composerFixture.failProviderSave = true;
+  });
+  await work.getByRole("button", { name: "Save provider settings", exact: true }).click();
+  await expect(work.getByRole("alert")).toContainText("Provider save failed");
+  await page.evaluate(() => {
+    window.composerFixture.failProviderSave = false;
+  });
+  await work.getByRole("button", { name: "Save provider settings", exact: true }).click();
+  await expect(work.getByRole("status")).toContainText("Provider settings saved");
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.providerWrites.at(-1)))
+    .toEqual({ provider: "work", patch: { webSearch: true } });
+  await page.getByLabel("Work Compact output", { exact: true }).selectOption("false");
+  await work.getByRole("button", { name: "Save provider settings", exact: true }).click();
+  await expect(work.getByRole("status")).toContainText("Provider settings saved");
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.providerWrites.at(-1)))
+    .toEqual({ provider: "work", patch: { provider: false } });
+  await page.screenshot({
+    path: test.info().outputPath("provider-search-settings.png"),
+    fullPage: true,
+  });
+});

@@ -20,6 +20,13 @@ const settings = z.strictObject({
   autoApproval: z.strictObject({ enabled: z.boolean(), model: model.nullable() }),
   sandbox: z.enum(["local", "native", "docker"]),
 });
+const providerSettingSchema = z.strictObject({
+  key: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().nullable(),
+  value: z.boolean(),
+});
+export type ProviderSetting = z.infer<typeof providerSettingSchema>;
 export const providerStatusSchema = z.strictObject({
   id: z.string(),
   label: z.string(),
@@ -39,6 +46,7 @@ export const providerStatusSchema = z.strictObject({
   ]),
   modelCount: z.number().int().nonnegative(),
   diagnostics: z.array(z.string()),
+  settings: z.array(providerSettingSchema),
 });
 export type ProviderStatus = z.infer<typeof providerStatusSchema>;
 export const appProvidersRequest = defineRequest({
@@ -65,6 +73,15 @@ export const appSettingsUpdateRequest = defineRequest({
   method: "app.settings.update",
   params: settings,
   result: z.null(),
+});
+export const appProviderConfigUpdateRequest = defineRequest({
+  direction: "client-to-server",
+  method: "app.providers.config.update",
+  params: z.strictObject({
+    provider: z.string().min(1),
+    patch: z.record(z.string().min(1), z.boolean()),
+  }),
+  result: z.strictObject({ restartRequired: z.literal(true) }),
 });
 export const appAuthLoginRequest = defineRequest({
   direction: "client-to-server",
