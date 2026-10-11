@@ -436,3 +436,11 @@ restarted app resolves the logged-in user's normal home. This single hosted test
 now uses that disposable account's `.harness` for both launches. Product code is
 unchanged; temporary process diagnostics are removed. Source CI at `cfb634b`
 passes on Windows and Ubuntu. Hosted restart confirmation remains pending.
+
+Run `38124352678` passes the published Windows desktop updater installation and
+restart check with the corrected fixture home. Ubuntu and both macOS artifact
+jobs also pass; the Windows CLI check is still running. Released WSL reuses the
+same remote test as SSH, with an Ubuntu 22.04 rootfs imported into the hosted
+runner's enabled WSL1 subsystem. This adds no VM or separate test driver and does
+not install or run anything on the user's PC. Actual WSL execution is pending;
+WSL2 remains covered by the earlier source checks only.
