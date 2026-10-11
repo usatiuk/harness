@@ -56,7 +56,7 @@ root. They may depend on protocol and narrower feature contracts, but the kernel
 does not import provider, workspace, sandbox, approval, activity, or subagent
 packages.
 
-## Release delivery in progress
+## Release delivery complete
 
 `v0.1.5` is published for Windows x64, Linux x64 glibc and Apple Silicon macOS.
 The requested Intel macOS removal is committed; the four-target `v0.1.4` build
@@ -64,7 +64,8 @@ was canceled before publication. The replacement release passes its full source
 gate (1,256 tests, 38 skipped), all three builds and signature verification.
 Its public manifest/update feed resolve, and standard Rust caches are populated
 for all three release targets. Windows/Ubuntu main CI passes at `841d116`.
-The previously recorded platform qualification gaps remain open.
+Implementation is complete. The previously recorded untested platforms remain
+coverage gaps; the user explicitly removed them as completion gates on October 11.
 Hosted v0.1.3 → v0.1.5 CLI updates and Windows desktop update/restart pass in
 `38128269021`, including released SSH upgrade and preserved data. The one-off
 published-release workflow and custom RPC harness are removed; keep ordinary

@@ -1,6 +1,7 @@
 # Product releases, installation, and updates
 
-Status: implementation delivered; platform qualification gaps remain. The simplification requested October 10
+Status: complete. Untested platforms remain documented coverage gaps, not delivery gates,
+as explicitly requested by the user on October 11. The simplification requested October 10
 supersedes the former source-export, license-inventory, sealed-publication and
 per-artifact retention designs. Those are removed requirements, not delivery gates.
 
@@ -15,7 +16,7 @@ installation/update/restart and released SSH deployment/upgrades. Connect-time u
 explicit cache-pruning regressions pass. The remaining qualification gaps are
 published WSL2 deployment and macOS/Linux desktop update/restart execution.
 Local install/update execution is prohibited, and the unrequested WSL1 fixture
-has been removed. These gaps remain open; no new test environment is authorized
+has been removed. These coverage gaps do not block completion; no new test environment is authorized
 by this plan. The evidence below is chronological delivery history, not a list
 of still-current failures.
 
@@ -151,17 +152,15 @@ not duplicated in download metadata.
       reconnect/start/stop boundaries and the engine's existing busy predicate.
       Signed CLI updates and released SSH upgrades pass on hosted machines;
       Windows desktop updater installation/restart passes in `38124352678`.
-      Platform qualification gaps remain in the following separate milestone.
+      Untested platform coverage is recorded below and does not block delivery.
 - [x] Complete the one-time halving audit, synchronize docs and review the checkpoint.
       Completion: checkpoint additions reduced below 6,932; its full and native
       checks pass; remaining external qualification inputs are stated precisely.
-- [ ] Qualify hosted artifacts and public installation when publication inputs
-      and platform access are available. Completion requires actual artifacts and
-      install/update execution; a workflow file alone does not establish this.
-      Four-platform builds, CLI updates, desktop runtime preparation, Windows
-      desktop installation/update/restart and released SSH deployment pass.
-      Published WSL2 deployment and macOS/Linux desktop updater execution remain
-      unverified. OS publisher signing/notarization is intentionally unavailable.
+
+Coverage limits: published WSL2 deployment and macOS/Linux desktop updater
+execution remain unverified. OS publisher signing/notarization is intentionally
+unavailable. The user explicitly removed these extra qualification gates from
+completion; no additional test infrastructure or execution is required for this delivery.
 
 ## Evidence and current gaps
 
