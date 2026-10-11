@@ -77,8 +77,9 @@ busy check: idle owners upgrade, active work requires explicit reconnect, and
 versions never downgrade. The native CLI update command verifies a signed release,
 prepares its CLI/Node and replaces its launcher. The hosted `v0.1.2` workflow passes
 all four platform builds and production signature verification, creating one
-25-asset draft in the public source repository. Publication, signed update/remote
-execution and public installation remain open.
+25-asset release in the public source repository. `v0.1.2` is published; its public
+manifest and latest update feed resolve. Signed update/remote execution and actual
+installation remain open, with no install/update execution allowed on the user's PC.
 
 The current implementation passes the ordinary full check with 1,218 tests
 (36 skipped), eleven Windows and ten Ubuntu headless native cases, and fresh

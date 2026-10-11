@@ -96,6 +96,10 @@ the manifest and updater signatures through the production native verifier, and
 uploads one 25-asset draft. Windows/Ubuntu full source checks and headless native
 tests pass at `696c876`. Packaging establishes neither installer execution nor
 native desktop interaction on macOS/Linux.
+The draft is published as `v0.1.2` on October 11; anonymous manifest/update-feed
+reads resolve all four platforms. These reads execute no downloaded program and
+do not establish installation or updates. Install/update execution on the user's
+machine remains prohibited; qualification must run on hosted machines.
 Use a fresh `HARNESS_HOME`, such as `.harness-dev/simplification`, for the
 replacement checks: old disposable development caches use the removed receipt
 format. No pre-release cache migration is required.

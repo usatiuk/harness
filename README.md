@@ -64,7 +64,7 @@ Windows desktop development requires Rust, Visual Studio C++ build tools, and
 WebView2. `desktop:build` carries the complete development server payload;
 native bootstrap downloads the pinned Node distribution into the shared cache.
 The release build entry uses on-demand verified server and Node payloads without
-requiring system Node. Public installers, publication and updates remain in progress
+requiring system Node. Installers are published; installation and update qualification remain in progress
 under the [release plan](docs/plans/cross-cutting/2026-10-10-release-installation-updates.md).
 Release desktops expose an explicit update check and install/restart action in
 Settings → Application. Source and development builds update by rebuilding.
@@ -153,9 +153,9 @@ Public installation and updates are in progress in the
 uses this checkout's `.harness-dev/source` home by default, keeping data and settings
 separate from ordinary app use. A manual GitHub workflow bumps the version,
 builds the platform artifacts, signs them and creates a draft release.
-The `v0.1.2` draft contains all four platforms' CLI/server payloads, installers and
+The [v0.1.2 release](https://github.com/usatiuk/harness/releases/tag/v0.1.2) contains all four platforms' CLI/server payloads, installers and
 verified update signatures. License collection and custom publication tooling are
-removed. Public installation and updates remain open; no release is published yet.
+removed. Actual installation and update execution remain unqualified.
 
 On Windows, local command execution is exposed to models as `powershell`; Linux,
 macOS, and Linux dev containers expose `bash`. Windows sign-in uses DPAPI-encrypted

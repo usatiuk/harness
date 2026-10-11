@@ -76,7 +76,7 @@ protects downloads and Tauri updates; its private half is never committed.
   allowed. Keep Windows child commands hidden.
 - Coherent validated commits and periodic direct pushes to main are authorized.
   The user authorized making `usatiuk/harness` public and uploading the signing
-  key to its CI secrets. Publishing a release remains pending approval.
+  key to its CI secrets. The user authorized publishing `v0.1.2` on October 11.
 
 ## Platform and data boundaries
 
@@ -273,9 +273,12 @@ Windows/Ubuntu source and headless native CI also pass at `696c876` in run
 `38090119791`. The local checkout is fast-forwarded to the workflow's version
 commit; no local installer or update is executed.
 
-The `v0.1.2` draft is ready for a publication decision in the same public repository.
-It remains a draft: anonymous first-use downloads cannot resolve its asset URLs.
+The user initially retained the `v0.1.2` draft, then authorized publication on
+October 11. It is now published in the same public repository. Anonymous reads of
+the release manifest and latest updater feed succeed and list all four platforms.
 Actual installer execution, released remote cold deployment and a two-release
 update remain open. OS publisher signing/notarization is unavailable; the project
 signatures protect downloaded payloads and updater artifacts without providing
 an OS publisher identity. No additional release service is required.
+No downloaded executable, installer or update has been run on the user's PC;
+remaining install/update qualification must run on hosted machines.
