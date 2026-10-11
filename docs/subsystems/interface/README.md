@@ -32,7 +32,9 @@ service defaults
 ```
 
 `HARNESS_HOME` is an existing installation/test override for `~/.harness`;
-connection entries do not choose homes or expose multiple server profiles. The shared shipped
+connection entries do not choose homes or expose multiple server profiles.
+Unix bootstrap checks home ownership against the process's effective UID directly,
+without spawning host utilities that inherit AppImage library paths. The shared shipped
 server acquires exclusive SQLite ownership before schema initialization and runtime startup.
 The background owner supports authenticated multi-client attachment through
 Unix sockets on Linux/macOS or local named pipes on Windows and a disposable stdio bridge. GUI/TUI default launchers reuse that

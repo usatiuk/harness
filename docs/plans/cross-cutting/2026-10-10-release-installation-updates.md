@@ -479,3 +479,28 @@ simplicity feedback. A new WSL1 setup does not establish release behavior on the
 existing WSL2 baseline. Source WSL2 checks remain qualified; published WSL2
 install/update execution is still unverified because execution on the user's PC
 is prohibited. No additional environment or qualification framework is added.
+
+## v0.1.6 AppImage account lookup correction
+
+The user's downloaded AppImage reproduces a bootstrap failure: AppRun adds its
+bundled libraries to LD_LIBRARY_PATH, and host `/usr/bin/id -u` then fails because
+the bundled libsystemd lacks `LIBSYSTEMD_254`. Ordinary host `id -u` returns 1000.
+The bootstrap hid that stderr behind "Cannot identify runtime account".
+Use libc's `geteuid` directly, preserving effective-user ownership and permission
+checks without an external command or environment sanitization.
+
+- [x] Reproduce the downloaded artifact's failing host command.
+- [x] Replace account lookup and verify owned/writable-home behavior with an empty
+      PATH, symlinked temporary directory and the old AppImage library environment.
+- [x] Complete repository checks and independent review.
+- [ ] Commit, push and build a patch release; qualify its headless packaged runtime
+      preparation in an isolated home, then record publication evidence.
+
+The original regression failed because `id` was unavailable; the corrected test
+passes. Review caught a test assertion assuming temporary paths were canonical;
+comparison now uses the canonical path and passes through symlinked TMPDIR.
+Both Cargo lockfiles only add libc as a direct bootstrap dependency. The initial
+full check timed out in one Docker glob test during first-time Rust compilation;
+that unchanged test passes independently. The final full check passes all 1,297
+tests (38 skipped), TypeScript, ESLint and formatting. The complete native Rust
+suite passes, and three independent reviews have no remaining source findings.

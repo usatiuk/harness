@@ -422,6 +422,7 @@ dependencies = [
  "base64",
  "dunce",
  "flate2",
+ "libc",
  "minisign-verify",
  "reqwest",
  "semver",

@@ -1,8 +1,7 @@
 use anyhow::{Context, Result, bail};
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::process::Command;
 
 pub fn default_home() -> Result<PathBuf> {
     if let Some(value) = std::env::var_os("HARNESS_HOME") {
@@ -34,12 +33,9 @@ pub(crate) fn protect_directory(path: &Path, private: bool) -> Result<()> {
             .mode(0o700)
             .create(path)?;
         let metadata = std::fs::metadata(path)?;
-        // The account ID comes from the OS, not a user-controlled environment variable.
-        let uid = Command::new("id").arg("-u").output()?;
-        if !uid.status.success() {
-            bail!("Cannot identify runtime account");
-        }
-        let uid: u32 = std::str::from_utf8(&uid.stdout)?.trim().parse()?;
+        // SAFETY: geteuid has no arguments or preconditions. Avoid spawning host
+        // utilities, which inherit AppImage libraries incompatible with the host.
+        let uid = unsafe { libc::geteuid() };
         if metadata.uid() != uid {
             bail!("Harness directory has another owner");
         }

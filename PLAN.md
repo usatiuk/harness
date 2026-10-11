@@ -68,6 +68,11 @@ packages.
 
 ## Release delivery complete
 
+`v0.1.6` is published. Its Linux AppImage exposes a startup defect: bundled
+libraries break the host `id -u` subprocess used by home ownership validation.
+The narrow correction uses the OS effective UID directly; native validation
+passes, with full checks and replacement release qualification in progress.
+
 `v0.1.5` is published for Windows x64, Linux x64 glibc and Apple Silicon macOS.
 The requested Intel macOS removal is committed; the four-target `v0.1.4` build
 was canceled before publication. The replacement release passes its full source

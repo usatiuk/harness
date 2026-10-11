@@ -196,6 +196,10 @@ Source CLI and Tauri use `.harness-dev/source` unless `HARNESS_HOME` is set;
 packaged development uses a separate home and immutable payloads.
 Installed apps and deployed remote servers use the shared downloaded runtime. Native
 bootstrap/launcher tests use `cargo test --manifest-path native/Cargo.toml`.
+The Unix home regression runs in a child with an empty PATH, accepts an owned
+home and still rejects writable permissions. It also passes with a symlinked
+temporary directory and the v0.1.6 AppImage's bundled library path. These checks
+cover account lookup independently of host utilities; packaged startup is separate.
 Desktop helper tests use `cargo test --manifest-path
 packages/desktop/src-tauri/Cargo.toml`; those command modes run before window setup.
 These are headless checks. Visible native E2E requires approval for each run.
