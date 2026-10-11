@@ -477,6 +477,9 @@ lights use the same semantic opacity through a main-thread AppKit call. Ordinary
 popovers do not dim the frame. Library fullscreen state removes reserved header
 space. The restored Lucide Terminal mark also generates desktop app-icon formats
 through `npm run icons --workspace @harness/desktop`.
+The content stays explicitly in the expanding second grid row, including when
+Linux native decorations or fullscreen hide the custom header. This preserves
+full-height views and keeps Settings at the bottom of the sidebar.
 Window-vibrancy, already used by Tauri,
 installs Windows Mica or macOS Sidebar material; only supported installations
 enable transparent document/sidebar surfaces. Unsupported platforms/versions use

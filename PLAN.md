@@ -123,6 +123,14 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 
 ## Recent delivery
 
+The Linux squeezed-view correction explicitly keeps window content in the expanding
+grid row when native decorations or fullscreen hide the custom header. Production
+shell/router geometry now fills the viewport and keeps Settings at the sidebar
+bottom. The full source check passes 1,256 tests (38 skipped); in-app browser
+geometry verifies native, fullscreen and custom chrome. The Playwright CLI browser
+is absent, and native WebKit acceptance remains unverified; details are in
+[testing guidance](docs/TESTING.md#window-shell-layout).
+
 The [Node 24 and dependency refresh](docs/plans/cross-cutting/2026-10-11-node24-dependencies.md)
 aligns source, CI and managed release runtimes on 24.21.0. Compatible dependency
 updates clear all 18 audit findings. Prettier 3.9.10 includes mechanical formatting;

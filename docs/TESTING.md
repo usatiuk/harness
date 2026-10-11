@@ -24,6 +24,24 @@ npm run test:wsl                 # headless Windows WSL + rendered TUI qualifica
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## Window shell layout
+
+The production composer fixture now includes `WindowShell`. Native-frame and
+fullscreen regressions check full viewport content/main height and Settings at
+the bottom of the sidebar, including when the custom header is hidden. Before
+the correction, native-frame mode placed content in the zero-height titlebar row:
+the content measured 0px, main 30px and Settings bottom 93px in a 720px viewport.
+Explicit content placement in row 2 restores content/main to 720px and Settings
+bottom to 708px (the sidebar's 12px bottom padding). Fullscreen matches this;
+custom chrome retains its 32px header and 688px content.
+
+The October 11 follow-up passes `npm run check -- --maxWorkers=2` (1,256 tests,
+38 skipped). The geometry and screenshot were verified using the existing in-app
+browser with compiled production shell/routes. The Playwright CLI suite could not
+launch its 19 cases because its Chromium headless executable is not installed;
+no browser or dependencies were installed. The native WebKit application and the
+complete browser suite still require verification in their respective runtimes.
+
 ## MCP and shared human approvals
 
 `packages/mcp/src/{mcp,oauth}.test.ts` uses the real official SDK across stdio

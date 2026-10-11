@@ -7,6 +7,7 @@ import { emptyState } from "@harness/client-features/transcript-reducer";
 import { createDesktopRouter } from "../../src/routes.tsx";
 import { DesktopSession, type ConversationView } from "../../src/session.ts";
 import { DesktopTranscript } from "../../src/transcript.ts";
+import { WindowShell } from "../../src/window-shell.tsx";
 import type { AppSettings } from "@harness/server/client-protocol";
 
 type Delivery = { text: string; intent: DeliveryIntent };
@@ -220,5 +221,5 @@ const router = createDesktopRouter(session as unknown as DesktopSession, {
   restart: () => Promise.reject(new Error("Restart is outside fixture scope")),
 });
 createRoot(document.getElementById("root")!).render(
-  h(Tooltip.Provider, null, h(RouterProvider, { router })),
+  h(Tooltip.Provider, null, h(WindowShell, null, h(RouterProvider, { router }))),
 );

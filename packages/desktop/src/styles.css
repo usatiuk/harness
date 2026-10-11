@@ -148,6 +148,8 @@ textarea.input {
   min-width: 0;
 }
 .window-content {
+  /* The native frame and fullscreen hide the header, but retain its grid row. */
+  grid-row: 2;
   min-height: 0;
 }
 .window-titlebar {

@@ -69,6 +69,39 @@ const gap = (page: Page) =>
     .locator(".conversation-scroll")
     .evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
 
+for (const chrome of ["native", "fullscreen"] as const) {
+  test(`${chrome} chrome keeps the view full height and Settings at the sidebar bottom`, async ({
+    page,
+  }) => {
+    await page.goto(url + "?composer");
+    await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+    await page.evaluate((chrome) => {
+      if (chrome === "native") document.documentElement.dataset.windowDecoration = "native";
+      else document.body.setAttribute("data-tauri-decoration-fullscreen", "");
+    }, chrome);
+    await expect(page.locator(".window-titlebar")).toBeHidden();
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const content = document.querySelector(".window-content")!;
+          const main = document.querySelector("main")!;
+          const sidebar = document.querySelector(".sidebar")!;
+          const settings = document.querySelector(".settings-link")!;
+          return {
+            contentGap: Math.abs(content.getBoundingClientRect().height - innerHeight),
+            mainGap: Math.abs(main.getBoundingClientRect().height - innerHeight),
+            settingsGap: Math.abs(
+              sidebar.getBoundingClientRect().bottom -
+                settings.getBoundingClientRect().bottom -
+                parseFloat(getComputedStyle(sidebar).paddingBottom),
+            ),
+          };
+        }),
+      )
+      .toEqual({ contentGap: 0, mainGap: 0, settingsGap: 0 });
+  });
+}
+
 test("desktop updates capture the offered version and expose installation errors", async ({
   page,
 }) => {
