@@ -172,6 +172,7 @@ export function registerAppApi(
         },
         autoApproval: {
           enabled: autoApproval.enabled,
+          timeoutSeconds: autoApproval.timeoutSeconds,
           model: autoApproval.model
             ? { ...autoApproval.model, preset: autoApproval.model.preset ?? null }
             : null,
@@ -197,6 +198,7 @@ export function registerAppApi(
           "auto-approval",
           {
             enabled: settings.autoApproval.enabled,
+            timeoutSeconds: settings.autoApproval.timeoutSeconds,
             ...(settings.autoApproval.model
               ? {
                   model: {

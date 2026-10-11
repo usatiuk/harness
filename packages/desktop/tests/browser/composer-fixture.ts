@@ -52,7 +52,7 @@ const settings: AppSettings = {
     model: { provider: "fixture", model: "test", preset: null },
     sandbox: "local",
     approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
-    autoApproval: { enabled: false, model: null },
+    autoApproval: { enabled: false, model: null, timeoutSeconds: 30 },
   },
   providers: [
     {

@@ -509,12 +509,13 @@ test("settings saves shared Ask human and its approval timeout through the route
   await expect(page.locator("input[name=reviewerModel]")).toHaveValue("");
   await page.locator("select[name=inWorkspace]").selectOption("ask-human");
   await page.getByLabel("Human approval timeout (seconds)", { exact: true }).fill("12.5");
+  await page.getByLabel("Auto approver timeout (seconds)", { exact: true }).fill("45.5");
   await page.getByRole("button", { name: "Save defaults", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
     .toMatchObject({
       approval: { inWorkspace: "ask-human", humanApprovalTimeoutSeconds: 12.5 },
-      autoApproval: { model: null },
+      autoApproval: { model: null, timeoutSeconds: 45.5 },
     });
 });
 

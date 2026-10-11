@@ -129,12 +129,13 @@ describe("production server process ownership", () => {
       expect(JSON.stringify(config)).not.toContain("apiKey");
       expect(config.settings.autoApproval).toEqual({
         enabled: false,
+        timeoutSeconds: 30,
         model: { provider: "demo", model: "demo-1", preset: "low" },
       });
       await first.client.peer.request(appSettingsUpdateRequest, {
         model: { provider: "demo", model: "demo-1", preset: "high" },
         approval: { inWorkspace: "ask", outOfWorkspace: "deny", humanApprovalTimeoutSeconds: 60 },
-        autoApproval: { ...config.settings.autoApproval, enabled: true },
+        autoApproval: { ...config.settings.autoApproval, enabled: true, timeoutSeconds: 12.5 },
         sandbox: "local",
       });
       first.client.closeConnection();
@@ -147,14 +148,15 @@ describe("production server process ownership", () => {
       const updated = (await reopened.client.peer.request(appSettingsRequest, {})).settings;
       expect(updated.autoApproval).toEqual({
         enabled: true,
+        timeoutSeconds: 12.5,
         model: { provider: "demo", model: "demo-1", preset: "low" },
       });
       await reopened.client.peer.request(appSettingsUpdateRequest, {
         ...updated,
-        autoApproval: { enabled: false, model: null },
+        autoApproval: { enabled: false, model: null, timeoutSeconds: 30 },
       });
       const cleared = (await reopened.client.peer.request(appSettingsRequest, {})).settings;
-      expect(cleared.autoApproval).toEqual({ enabled: false, model: null });
+      expect(cleared.autoApproval).toEqual({ enabled: false, model: null, timeoutSeconds: 30 });
       expect(cleared.model).toEqual(updated.model);
       expect(cleared.approval).toEqual(updated.approval);
       reopened.client.closeConnection();

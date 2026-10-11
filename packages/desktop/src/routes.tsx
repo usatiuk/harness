@@ -279,6 +279,7 @@ export function createDesktopRouter(
             },
             autoApproval: {
               enabled: autoApproval === "true",
+              timeoutSeconds: Number(field(data, "autoApprovalTimeoutSeconds")),
               model:
                 reviewerProvider && reviewerModel
                   ? {
@@ -1558,6 +1559,18 @@ export function createDesktopRouter(
                 key={JSON.stringify(settings.settings.autoApproval.model)}
                 model={settings.settings.autoApproval.model}
               />
+              <label>
+                Auto approver timeout (seconds)
+                <Input
+                  name="autoApprovalTimeoutSeconds"
+                  type="number"
+                  min="0.001"
+                  max="2147483"
+                  step="any"
+                  defaultValue={settings.settings.autoApproval.timeoutSeconds}
+                  required
+                />
+              </label>
               <Button
                 type="submit"
                 variant="accent"

@@ -17,7 +17,11 @@ const settings = z.strictObject({
     outOfWorkspace: effect,
     humanApprovalTimeoutSeconds: humanApprovalTimeoutSchema,
   }),
-  autoApproval: z.strictObject({ enabled: z.boolean(), model: model.nullable() }),
+  autoApproval: z.strictObject({
+    enabled: z.boolean(),
+    model: model.nullable(),
+    timeoutSeconds: z.number().positive().max(2147483).default(30),
+  }),
   sandbox: z.enum(["local", "native", "docker"]),
 });
 const providerSettingSchema = z.strictObject({

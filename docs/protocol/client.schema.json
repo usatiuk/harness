@@ -3653,9 +3653,15 @@
                     },
                     { "type": "null" }
                   ]
+                },
+                "timeoutSeconds": {
+                  "default": 30,
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 2147483
                 }
               },
-              "required": ["enabled", "model"],
+              "required": ["enabled", "model", "timeoutSeconds"],
               "additionalProperties": false
             },
             "sandbox": { "type": "string", "enum": ["local", "native", "docker"] }
@@ -3848,9 +3854,15 @@
                 },
                 { "type": "null" }
               ]
+            },
+            "timeoutSeconds": {
+              "default": 30,
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 2147483
             }
           },
-          "required": ["enabled", "model"],
+          "required": ["enabled", "model", "timeoutSeconds"],
           "additionalProperties": false
         },
         "sandbox": { "type": "string", "enum": ["local", "native", "docker"] }
