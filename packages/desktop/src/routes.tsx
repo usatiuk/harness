@@ -79,6 +79,8 @@ const field = (data: FormData, name: string): string => {
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 const conversationLabel = (conversation: Conversation, view?: ConversationView): string => {
+  const title = view?.conversation.title ?? conversation.title;
+  if (title) return title;
   const user = view?.state.cells.findLast((cell) => cell.kind === "user");
   return user?.kind === "user"
     ? user.text.split("\n")[0]!.slice(0, 64)
@@ -249,6 +251,8 @@ export function createDesktopRouter(
           const autoApproval = field(data, "autoApproval");
           const [reviewerProvider, reviewerModel] = field(data, "reviewerModel").split("\u0000");
           const reviewerPreset = reviewerModel ? field(data, "reviewerPreset") : "";
+          const [titleProvider, titleModel] = field(data, "titleModel").split("\u0000");
+          const titlePreset = titleModel ? field(data, "titlePreset") : "";
           if (
             ![inWorkspace, outOfWorkspace].every(
               (value) => toolPermissionSchema.safeParse(value).success,
@@ -289,6 +293,10 @@ export function createDesktopRouter(
                     }
                   : null,
             },
+            conversationTitleModel:
+              titleProvider && titleModel
+                ? { provider: titleProvider, model: titleModel, preset: titlePreset || null }
+                : null,
             sandbox,
           });
           return {
@@ -1555,7 +1563,9 @@ export function createDesktopRouter(
                   <option value="true">On</option>
                 </Select>
               </label>
-              <ReviewerFields
+              <AuxiliaryModelFields
+                prefix="reviewer"
+                label="Auto approver"
                 key={JSON.stringify(settings.settings.autoApproval.model)}
                 model={settings.settings.autoApproval.model}
               />
@@ -1571,6 +1581,12 @@ export function createDesktopRouter(
                   required
                 />
               </label>
+              <AuxiliaryModelFields
+                prefix="title"
+                label="Conversation naming"
+                key={JSON.stringify(settings.settings.conversationTitleModel)}
+                model={settings.settings.conversationTitleModel}
+              />
               <Button
                 type="submit"
                 variant="accent"
@@ -1581,7 +1597,8 @@ export function createDesktopRouter(
             </save.Form>
             <p className="muted">
               Auto-review settings apply to open and new conversations. If no reviewer model is
-              selected, each review uses the conversation’s model.
+              selected, each review uses the conversation’s model. Conversation naming uses its
+              selected model or the conversation’s model when unset, once after the first message.
             </p>
             <ActionFeedback data={save.data} />
           </Tabs.Content>
@@ -1648,7 +1665,15 @@ export function createDesktopRouter(
       </section>
     );
   }
-  function ReviewerFields({ model }: { model: AppSettings["settings"]["autoApproval"]["model"] }) {
+  function AuxiliaryModelFields({
+    model,
+    prefix,
+    label,
+  }: {
+    model: AppSettings["settings"]["autoApproval"]["model"];
+    prefix: "reviewer" | "title";
+    label: string;
+  }) {
     const [selection, setSelection] = useState(model ? modelKey(model.provider, model.model) : "");
     const presets =
       session.domain
@@ -1659,21 +1684,21 @@ export function createDesktopRouter(
     return (
       <>
         <label>
-          Auto approver model
+          {label} model
           <ModelSelect
-            label="Auto approver model"
+            label={`${label} model`}
             models={session.domain.availableModels()}
             providers={session.settings?.providers ?? []}
-            name="reviewerModel"
+            name={`${prefix}Model`}
             value={selection}
             onValueChange={setSelection}
             emptyLabel="Use conversation model"
           />
         </label>
         <label>
-          Auto approver preset
+          {label} preset
           <Select
-            name="reviewerPreset"
+            name={`${prefix}Preset`}
             key={selection}
             defaultValue={initialPreset}
             disabled={!selection}

@@ -3105,7 +3105,7 @@ describe("Engine — usage recording", () => {
       listModels: () => [],
       validateConfig() {},
       stream() {
-        throw new Error("request setup failed");
+        throw new Error("request setup failed", { cause: new Error("unauthorized") });
       },
     };
     const { store, engine, events } = setup([], { providers: () => [provider] });
@@ -3121,6 +3121,14 @@ describe("Engine — usage recording", () => {
       agentOutputTokens: null,
     });
     expect(turnStatuses(events)).toEqual(["running", "failed"]);
+    expect(
+      events
+        .filter(isKernelEvent)
+        .find((event) => event.type === "turn.status" && event.status === "failed"),
+    ).toMatchObject({
+      error:
+        "ModelInvocationFailure: model provider failed\nCaused by: Error: request setup failed\nCaused by: Error: unauthorized",
+    });
   });
   it("records one model_usage row per provider request and emits usage events", async () => {
     const u1: Usage = { inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 };

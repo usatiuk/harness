@@ -36,6 +36,8 @@ export interface ConversationRecord {
   overrides: ConversationOverrides;
   /** Tip of the active chain; advances on each append. `null` until the first append. */
   head: ItemId | null;
+  /** Saved display title; null until the first user message. */
+  title: string | null;
   createdAt: number;
 }
 

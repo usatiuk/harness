@@ -239,7 +239,18 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
     const terminal = new Promise<string>((resolve) => {
       finished = resolve;
     });
+    let named!: () => void;
+    const titleReady = new Promise<void>((resolve) => {
+      named = resolve;
+    });
     const unsubscribe = rpc.subscribe((event) => {
+      if (
+        event.type === "conversation" &&
+        event.conversationId === conversation.id &&
+        event.event.type === "title.changed" &&
+        event.event.title === "Mistral reply"
+      )
+        named();
       if (
         event.type === "conversation" &&
         event.conversationId === conversation.id &&
@@ -250,17 +261,26 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
     });
     await rpc.deliver(conversation.id, "hello", "send");
     expect(await terminal).toBe("completed");
+    await titleReady;
     unsubscribe();
     expect(headers[0]?.["x-affinity"]).toBe(conversation.id);
     expect(headers[0]?.["user-agent"]).toBe(`Harness/${PRODUCT_VERSION}`);
     expect(gateway.requests.find(({ method }) => method === "POST")?.path).toBe(
       "/v1/conversations",
     );
-    expect((await rpc.usage(conversation.id)).usage).toMatchObject({
+    const summary = await rpc.usage(conversation.id);
+    expect(summary.usage).toMatchObject({
+      inputTokens: 200,
+      outputTokens: 8,
+      cachedReadTokens: 160,
+    });
+    expect(summary.agentContext?.usage).toMatchObject({
       inputTokens: 100,
       outputTokens: 4,
       cachedReadTokens: 80,
     });
+    expect(headers).toHaveLength(2);
+    for (const header of headers) expect(header["x-affinity"]).toBe(conversation.id);
     expect(gateway.requests.find(({ method }) => method === "POST")?.body.model).toBe(
       "manual-model",
     );

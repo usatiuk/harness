@@ -33,6 +33,7 @@ const record = (cid: ConversationId, overrides: ConversationOverrides): Conversa
   workspaceRoot: null,
   overrides,
   head: null,
+  title: null,
   createdAt: 0,
   config: { instructions: "", model: MODEL },
 });

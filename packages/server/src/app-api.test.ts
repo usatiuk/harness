@@ -87,6 +87,7 @@ it("drains an admitted settings refresh before closing the database", async () =
       model: { provider: "demo", model: "demo-1", preset: null },
       approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
       autoApproval: { enabled: false, model: null, timeoutSeconds: 30 },
+      conversationTitleModel: null,
       sandbox: "local",
     });
     const outcome = updating.then(

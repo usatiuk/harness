@@ -156,7 +156,10 @@ inbox entries, turn liveness, abort controller, pending requests, and lazily bui
 plugin services. Durable conversation truth belongs to the store. Runtime
 services are reused within their runtime and disposed in reverse provider order
 when that root tree is deactivated. Closing/reloading one root preserves other
-roots. Model requests use the turn's captured configuration; plugin configuration
+roots. Services can react to persisted inputs through `onInput`, using the
+captured conversation and model capability. Session cancellation calls their
+optional `cancel` hook; services own background work and drain it in `dispose`.
+Model requests use the turn's captured configuration; plugin configuration
 readers may observe the current effective policy. Model selection is pinned in
 durable overrides by HarnessService.
 

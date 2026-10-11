@@ -76,6 +76,7 @@
     "@harness/litellm": "*",
     "@harness/mistral": "*",
     "@harness/connections": "*",
-    "@harness/mcp": "*"
+    "@harness/mcp": "*",
+    "@harness/conversation-titles": "*"
   }
 }

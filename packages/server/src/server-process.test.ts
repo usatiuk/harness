@@ -136,6 +136,7 @@ describe("production server process ownership", () => {
         model: { provider: "demo", model: "demo-1", preset: "high" },
         approval: { inWorkspace: "ask", outOfWorkspace: "deny", humanApprovalTimeoutSeconds: 60 },
         autoApproval: { ...config.settings.autoApproval, enabled: true, timeoutSeconds: 12.5 },
+        conversationTitleModel: { provider: "demo", model: "demo-1", preset: null },
         sandbox: "local",
       });
       first.client.closeConnection();
@@ -146,6 +147,11 @@ describe("production server process ownership", () => {
         (await reopened.client.peer.request(appSettingsRequest, {})).settings.model?.preset,
       ).toBe("high");
       const updated = (await reopened.client.peer.request(appSettingsRequest, {})).settings;
+      expect(updated.conversationTitleModel).toEqual({
+        provider: "demo",
+        model: "demo-1",
+        preset: null,
+      });
       expect(updated.autoApproval).toEqual({
         enabled: true,
         timeoutSeconds: 12.5,
@@ -154,8 +160,10 @@ describe("production server process ownership", () => {
       await reopened.client.peer.request(appSettingsUpdateRequest, {
         ...updated,
         autoApproval: { enabled: false, model: null, timeoutSeconds: 30 },
+        conversationTitleModel: null,
       });
       const cleared = (await reopened.client.peer.request(appSettingsRequest, {})).settings;
+      expect(cleared.conversationTitleModel).toBeNull();
       expect(cleared.autoApproval).toEqual({ enabled: false, model: null, timeoutSeconds: 30 });
       expect(cleared.model).toEqual(updated.model);
       expect(cleared.approval).toEqual(updated.approval);

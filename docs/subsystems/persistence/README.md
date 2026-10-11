@@ -12,6 +12,7 @@ configuration and live runtime state are not stored.
 A conversation record stores:
 
 - Its id and creation time.
+- A nullable display title, updated independently of immutable history.
 - A workspace root, or `null` for a projectless conversation.
 - A durable settings-override object.
 - `head`, the current leaf item or `null` before the first append.
@@ -68,7 +69,7 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-The current SQLite format is version 6. Fresh databases receive the complete
+The current SQLite format is version 7. Fresh databases receive the complete
 schema atomically. Version 3 receives an explicit additive upgrade for nullable
 request purpose/duration and indexed latest-agent, terminal-turn and turn-usage
 lookups. History and billing totals remain intact; unclassified purpose/timing cannot
@@ -77,7 +78,9 @@ nullable provider billing JSON and a false incomplete-cost flag. Versions 3/4/5
 receive context-checkpoint eligibility; historical billing totals remain intact,
 but their unclassified input counts cannot establish prompt size. New ordinary
 invocations default to eligible; native-search billing marks them ineligible.
-Other versions and unversioned populated databases fail with compatible-upgrade
+Versions 3–6 also receive a nullable conversation title; existing titles remain
+unset and history/accounting stay intact. Other versions and unversioned populated
+databases fail with compatible-upgrade
 guidance before persistent journal-mode changes. Regression checks compare original
 database bytes after rejection under exclusive ownership.
 

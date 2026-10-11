@@ -1,3 +1,4 @@
+import { conversationTitlesPlugin } from "@harness/conversation-titles";
 import { McpRuntime, MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp";
 import { registerMcpApi } from "./mcp.ts";
 import { join } from "node:path";
@@ -98,7 +99,7 @@ export async function buildServerComposition(
     const mcpRuntime = mcp;
     const registry = prepare(secrets);
     const built = await bootstrapProviders(registry, signal);
-    const plugins: PluginEntry[] = [...providerPlugins, built.plugin];
+    const plugins: PluginEntry[] = [...providerPlugins, built.plugin, conversationTitlesPlugin];
     const fallbackModel = built.defaultModel;
     plugins.push(
       { id: "demo", providers: () => [new DemoProvider()] },

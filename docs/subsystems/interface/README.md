@@ -576,3 +576,29 @@ output, paged/virtualized history, secure key storage and restart, crash recover
 database contention, and real PowerShell/Node cleanup. See
 [testing guidance](../../TESTING.md) and the
 [desktop delivery evidence](../../plans/interface/2026-10-03-desktop-v1.md).
+
+## Conversation titles
+
+The server wires `@harness/conversation-titles` as a per-conversation service plugin.
+Its persisted-input hook saves a 64-character excerpt of the first root user message and starts one
+independent invocation. A usable result replaces that excerpt with a title capped
+at 80 characters. Empty output, provider failure or cancellation leaves the excerpt.
+The immutable message sequence prevents regeneration after resume or rewind;
+existing conversations and subagents are not backfilled. An explicit metadata
+overwrite wins over a pending suggestion by comparing the captured excerpt.
+
+The plugin sends only a bounded first-message prompt (4,000 characters), with no
+tools, history or workspace instructions, through the shared ModelInvoker.
+Purpose `title` preserves tracing and billing without becoming an agent context
+checkpoint. Naming does not hold the agent turn open or block navigation; session
+deactivation uses generic service cancellation and disposal hooks. The plugin owns
+the controller and pending invocation; core owns metadata writes and events. Internal
+configuration, persistence, middleware and stream-invariant errors remain failed
+tasks with safe diagnostics; cleanup completes before reporting those errors.
+
+Desktop Settings → Defaults exposes the naming model and preset. The durable
+setting is `plugins.conversation-titles.model: {provider, model, preset?}`; unset
+uses the first turn's conversation model. Changes refresh loaded configurations
+and affect future naming attempts. The saved title crosses protocol 6 in reads,
+pages and `title.changed` events; desktop headers/sidebar and TUI resume choices
+use it. No retry, periodic naming, separate queue or manual rename UI is added.

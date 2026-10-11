@@ -224,6 +224,12 @@ export class DesktopSession {
       view.transcript.update(view.state.cells);
       subscriptions.push(
         this.domain.subscribe(id, (event) => {
+          if (isKernelEvent(event) && event.type === "title.changed") {
+            view.conversation = { ...view.conversation, title: event.title };
+            this.conversations = this.conversations.map((row) =>
+              row.id === id ? { ...row, title: event.title } : row,
+            );
+          }
           if (isKernelEvent(event) && event.type === "config.changed")
             view.conversation = { ...view.conversation, config: event.config };
           if (isKernelEvent(event) && event.type === "item.appended") {

@@ -29,6 +29,7 @@ const attachment: AttachResult = {
     workspaceRoot: null,
     overrides: {},
     head: null,
+    title: null,
     createdAt: 0,
     config: {
       instructions: "",
@@ -44,6 +45,7 @@ const attachment: AttachResult = {
         workspaceRoot: null,
         overrides: {},
         head: null,
+        title: null,
         createdAt: 0,
         config: {
           instructions: "",

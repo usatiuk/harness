@@ -12,6 +12,7 @@ import {
 } from "@harness/approval/client";
 const settings = z.strictObject({
   model: model.nullable(),
+  conversationTitleModel: model.nullable(),
   approval: z.strictObject({
     inWorkspace: effect,
     outOfWorkspace: effect,

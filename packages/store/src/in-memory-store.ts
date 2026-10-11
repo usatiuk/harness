@@ -52,11 +52,24 @@ export class InMemoryStore implements Store {
       workspaceRoot: input.workspaceRoot,
       overrides: input.overrides,
       head: null,
+      title: null,
       createdAt: this.clock.now(),
     };
     this.#conversations.set(record.id, record);
     this.#items.set(record.id, []);
     return record;
+  }
+
+  async updateConversationTitle(
+    id: ConversationId,
+    title: string,
+    expected: string | null,
+  ): Promise<boolean> {
+    const record = this.#conversations.get(id);
+    if (!record) throw new Error(`unknown conversation: ${id}`);
+    if (record.title !== expected) return false;
+    this.#conversations.set(id, { ...record, title });
+    return true;
   }
 
   async getConversation(id: ConversationId): Promise<ConversationRecord | undefined> {

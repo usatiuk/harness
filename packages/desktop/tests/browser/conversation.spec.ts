@@ -580,3 +580,34 @@ test("provider settings expose and save native web search for supported connecti
     fullPage: true,
   });
 });
+
+test("settings saves and clears the conversation naming model and preset", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  const naming = page.getByRole("combobox", { name: "Conversation naming model", exact: true });
+  await naming.click();
+  await page.getByRole("option", { name: "fixture / Fixture model test", exact: true }).click();
+  await page.locator("select[name=titlePreset]").selectOption("high");
+  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toMatchObject({
+      conversationTitleModel: { provider: "fixture", model: "test", preset: "high" },
+    });
+  await naming.click();
+  await page.getByRole("option", { name: "Use conversation model", exact: true }).click();
+  await expect(page.locator("select[name=titlePreset]")).toBeDisabled();
+  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toMatchObject({ conversationTitleModel: null });
+});
+
+test("saved conversation titles appear in the sidebar and header", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect.poll(() => page.evaluate(() => Boolean(window.composerFixture))).toBe(true);
+  await page.evaluate(() => window.composerFixture.setTitle("Fix conversation naming"));
+  await expect(page.locator(".conversation-title")).toHaveText("Fix conversation naming");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Fix conversation naming");
+});

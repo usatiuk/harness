@@ -23,6 +23,20 @@ const message = (conversationId: ConversationId, turnId: TurnId, text: string): 
  */
 export function storeContract(name: string, makeStore: () => Store): void {
   describe(name, () => {
+    it("persists titles in reads and pages, and rejects stale title replacements", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation(sampleRecord());
+      expect(conv.title).toBeNull();
+      expect(await store.updateConversationTitle(conv.id, "first message", null)).toBe(true);
+      expect(await store.updateConversationTitle(conv.id, "My title", "first message")).toBe(true);
+      expect(
+        await store.updateConversationTitle(conv.id, "late model title", "first message"),
+      ).toBe(false);
+      expect((await store.getConversation(conv.id))?.title).toBe("My title");
+      expect((await store.listConversationPage(1))[0]?.title).toBe("My title");
+      expect((await store.listConversations())[0]?.title).toBe("My title");
+    });
+
     it("assigns monotonic per-conversation seq on append", async () => {
       const store = makeStore();
       const conv = await store.createConversation(sampleRecord());

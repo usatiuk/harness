@@ -23,6 +23,7 @@ const conversation = {
   workspaceRoot: "/work",
   overrides: {},
   head: null,
+  title: null,
   createdAt: 0,
   config: {
     instructions: "",

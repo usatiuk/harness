@@ -10,10 +10,22 @@ const conv = (id: string, model: string, workspaceRoot: string | null = null): C
     overrides: {},
     config: { instructions: "", model: { provider: "x", model } },
     head: null,
+    title: null,
     createdAt: Date.now(),
   }) as unknown as Conversation;
 
 describe("ResumePicker", () => {
+  it("shows saved titles in resume choices", () => {
+    const { lastFrame } = render(
+      <ResumePicker
+        conversations={[{ ...conv("abcdefgh-1111", "gpt-x"), title: "Fix conversation naming" }]}
+        showingAll={false}
+        onSelect={() => {}}
+      />,
+    );
+    expect(lastFrame()).toContain("Fix conversation naming");
+  });
+
   it("lists conversations with a short id, workspace, and model", () => {
     const { lastFrame } = render(
       <ResumePicker

@@ -19,6 +19,7 @@ declare global {
       settingsWrites: unknown[];
       creations: Array<Parameters<DesktopSession["client"]["create"]>[0]>;
       setDefaultModel(model: string): void;
+      setTitle(title: string): void;
       providerWrites: { provider: string; patch: Record<string, boolean> }[];
       failProviderSave: boolean;
       settle(reject?: boolean): void;
@@ -34,6 +35,7 @@ const view: ConversationView = {
     workspaceRoot: "D:\\example",
     overrides: {},
     head: null,
+    title: null,
     createdAt: 0,
     config: { instructions: "Fixture", model: { provider: "fixture", model: "test" } },
   },
@@ -53,6 +55,7 @@ const settings: AppSettings = {
     sandbox: "local",
     approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
     autoApproval: { enabled: false, model: null, timeoutSeconds: 30 },
+    conversationTitleModel: null,
   },
   providers: [
     {
@@ -187,6 +190,11 @@ const session = {
   load: () => Promise.resolve(view),
 };
 window.composerFixture = {
+  setTitle(title) {
+    view.conversation = { ...view.conversation, title };
+    session.conversations = [view.conversation];
+    changed();
+  },
   calls,
   settingsWrites,
   creations,

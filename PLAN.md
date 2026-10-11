@@ -264,6 +264,13 @@ sign-in; remote hosts use device codes without callback forwarding. Full local
 validation passed 976 tests at that delivery. The plan records independent review, scope cleanup,
 platform evidence and earlier unreproduced test failures.
 
+The [first-message conversation titles](docs/plans/interface/2026-10-11-conversation-titles.md)
+follow-up adds saved display titles and a one-call naming plugin with a configurable
+model/preset. The plugin owns naming lifecycle through generic service hooks.
+The rebased full check passes 1,289 tests (38 skipped); four affected Chromium
+cases and three independent reviews pass. Existing history migrates
+additively; live vendor and native desktop generation remain unqualified.
+
 ## Current implementation status
 
 As of 2026-10-10, Harness provides:

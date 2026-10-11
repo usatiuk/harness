@@ -24,6 +24,7 @@ interface ConversationsTable {
   /** Durable settings-overrides layer, JSON. Config itself is resolved on load, never stored. */
   overrides: string;
   head: string | null;
+  title: string | null;
   created_at: number;
 }
 
@@ -102,6 +103,7 @@ CREATE TABLE conversations (
   workspace_root TEXT,
   overrides TEXT NOT NULL DEFAULT '{}',
   head TEXT REFERENCES items(id),
+  title TEXT,
   created_at INTEGER NOT NULL
 );
 
@@ -180,9 +182,9 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-export const STORE_SCHEMA_VERSION = 6;
+export const STORE_SCHEMA_VERSION = 7;
 
-/** Fresh schema or explicit additive v3/v4/v5 upgrades; older formats remain unsupported. */
+/** Fresh schema or explicit additive v3–v6 upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
   db.transaction(() => {
     let version = db.pragma("user_version", { simple: true }) as number;
@@ -207,6 +209,10 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
       // Older rows did not classify cumulative billing input. Keep their spend,
       // but do not infer a trustworthy prompt-size checkpoint from it.
       db.exec("UPDATE model_usage SET input_tokens_are_context = 0;");
+      version = 6;
+    }
+    if (version === 6) {
+      db.exec("ALTER TABLE conversations ADD COLUMN title TEXT;");
       db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }

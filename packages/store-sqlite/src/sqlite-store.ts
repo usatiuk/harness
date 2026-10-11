@@ -114,6 +114,7 @@ export class SqliteStore implements Store {
       workspaceRoot: input.workspaceRoot,
       overrides: input.overrides,
       head: null,
+      title: null,
       createdAt: this.clock.now(),
     };
     await this.#k
@@ -123,10 +124,27 @@ export class SqliteStore implements Store {
         workspace_root: record.workspaceRoot,
         overrides: JSON.stringify(record.overrides),
         head: null,
+        title: null,
         created_at: record.createdAt,
       })
       .execute();
     return record;
+  }
+
+  async updateConversationTitle(
+    id: ConversationId,
+    title: string,
+    expected: string | null,
+  ): Promise<boolean> {
+    const result = await this.#k
+      .updateTable("conversations")
+      .set({ title })
+      .where("id", "=", id)
+      .where("title", expected === null ? "is" : "=", expected)
+      .executeTakeFirst();
+    if (result.numUpdatedRows === 0n && !(await this.getConversation(id)))
+      throw new Error(`unknown conversation: ${id}`);
+    return result.numUpdatedRows > 0n;
   }
 
   async getConversation(id: ConversationId): Promise<ConversationRecord | undefined> {
@@ -648,6 +666,7 @@ function rowToRecord(row: Database["conversations"]): ConversationRecord {
   return {
     id: row.id as ConversationId,
     workspaceRoot: row.workspace_root,
+    title: row.title,
     overrides: JSON.parse(row.overrides) as ConversationOverrides,
     head: row.head as ItemId | null,
     createdAt: row.created_at,

@@ -8,6 +8,7 @@ import {
   type AuthStoreKind,
 } from "@harness/config";
 import { approvalConfigSchema } from "@harness/approval";
+import { conversationTitlesConfigSchema } from "@harness/conversation-titles";
 import { autoApprovalConfigSchema } from "@harness/auto-approval";
 import { sandboxConfigSchema } from "@harness/sandbox";
 import type { HarnessRpcSession, HarnessService } from "@harness/service";
@@ -158,6 +159,7 @@ export function registerAppApi(
     const providers = await listProviders();
     const approval = approvalConfigSchema.parse(doc.plugins?.["approval"] ?? {});
     const autoApproval = autoApprovalConfigSchema.parse(doc.plugins?.["auto-approval"] ?? {});
+    const titles = conversationTitlesConfigSchema.parse(doc.plugins?.["conversation-titles"] ?? {});
     return {
       home: defaultHome(),
       cwd: process.cwd(),
@@ -177,6 +179,9 @@ export function registerAppApi(
             ? { ...autoApproval.model, preset: autoApproval.model.preset ?? null }
             : null,
         },
+        conversationTitleModel: titles.model
+          ? { ...titles.model, preset: titles.model.preset ?? null }
+          : null,
         sandbox: sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).backend,
       },
     };
@@ -213,8 +218,26 @@ export function registerAppApi(
           },
           { replace: true },
         );
+        await updateGlobalPluginConfig(
+          defaultHome(),
+          "conversation-titles",
+          {
+            ...(settings.conversationTitleModel
+              ? {
+                  model: {
+                    provider: settings.conversationTitleModel.provider,
+                    model: settings.conversationTitleModel.model,
+                    ...(settings.conversationTitleModel.preset === null
+                      ? {}
+                      : { preset: settings.conversationTitleModel.preset }),
+                  },
+                }
+              : {}),
+          },
+          { replace: true },
+        );
         await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });
-        await service.refreshPluginDefaults(["approval", "auto-approval"]);
+        await service.refreshPluginDefaults(["approval", "auto-approval", "conversation-titles"]);
         return null;
       }),
     ),

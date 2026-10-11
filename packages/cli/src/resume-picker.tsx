@@ -15,7 +15,7 @@ export function ResumePicker({
   onSelect: (id: string) => void;
 }): ReactElement {
   const options = conversations.map((c) => ({
-    label: `${shortId(c.id)} · ${workspaceLabel(c.workspaceRoot)} · ${c.config.model.model} · ${timeAgo(c.createdAt)}`,
+    label: `${shortId(c.id)} · ${c.title ?? workspaceLabel(c.workspaceRoot)} · ${c.config.model.model} · ${timeAgo(c.createdAt)}`,
     value: c.id,
   }));
   return (

@@ -35,6 +35,12 @@ export interface ConversationPageCursor {
  */
 export interface Store {
   createConversation(input: NewConversationRecord): Promise<ConversationRecord>;
+  /** Updates metadata only when the current title equals the captured value. */
+  updateConversationTitle(
+    id: ConversationId,
+    title: string,
+    expected: string | null,
+  ): Promise<boolean>;
   getConversation(id: ConversationId): Promise<ConversationRecord | undefined>;
   /**
    * Deletes the conversation iff still empty (head === null and no turn was ever

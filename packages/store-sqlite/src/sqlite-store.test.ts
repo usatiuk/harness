@@ -124,7 +124,7 @@ describe("SqliteStore (durable-only)", () => {
       reopened.close();
     }
   });
-  it.each([3, 5])(
+  it.each([3, 5, 6])(
     "upgrades schema v%s additively and preserves history with unknown context input",
     async (version) => {
       const path = tempDb();
@@ -153,13 +153,18 @@ describe("SqliteStore (durable-only)", () => {
       previous.exec(
         version === 3
           ? "DROP INDEX model_usage_agent; DROP INDEX model_usage_turn; DROP INDEX turns_terminal; ALTER TABLE model_usage DROP COLUMN purpose; ALTER TABLE model_usage DROP COLUMN request_duration_ms; ALTER TABLE model_usage DROP COLUMN provider_usage; ALTER TABLE model_usage DROP COLUMN cost_incomplete; ALTER TABLE model_usage DROP COLUMN input_tokens_are_context;"
-          : "ALTER TABLE model_usage DROP COLUMN input_tokens_are_context;",
+          : version === 5
+            ? "ALTER TABLE model_usage DROP COLUMN input_tokens_are_context;"
+            : "SELECT 1;",
       );
+      previous.exec("ALTER TABLE conversations DROP COLUMN title;");
       previous.pragma(`user_version = ${version}`);
       previous.close();
       const after = new SqliteStore(path);
       try {
         expect(await after.listItems(conv.id)).toEqual([item]);
+        expect((await after.getConversation(conv.id))?.title).toBeNull();
+        await after.updateConversationTitle(conv.id, "Saved title", null);
         expect((await after.summarizeModelUsage(conv.id)).lastTurn).toMatchObject({
           turnId: turn.id,
           usage: { inputTokens: 8, outputTokens: 2 },
@@ -167,12 +172,21 @@ describe("SqliteStore (durable-only)", () => {
           agentDurationMs: null,
         });
         expect((await after.listModelUsage(conv.id))[0]).not.toHaveProperty("requestDurationMs");
+        expect((await after.listModelUsage(conv.id))[0]?.inputTokensAreContext ?? true).toBe(
+          version >= 6,
+        );
         expect((await after.listModelUsage(conv.id))[0]).toMatchObject({
-          inputTokensAreContext: false,
           usage: { inputTokens: 8, outputTokens: 2, cachedReadTokens: 0 },
         });
       } finally {
         after.close();
+      }
+      const reopened = new SqliteStore(path);
+      try {
+        expect((await reopened.getConversation(conv.id))?.title).toBe("Saved title");
+        expect(await reopened.listItems(conv.id)).toEqual([item]);
+      } finally {
+        reopened.close();
       }
     },
   );

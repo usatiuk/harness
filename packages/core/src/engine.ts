@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   assertNever,
   ContextWindowExceededError,
+  ModelInvocationFailure,
   conversationOf,
   costOf,
   errorResult,
@@ -18,6 +19,7 @@ import {
   type DeliveryInput,
   type DeliveryIntent,
   type HarnessEvent,
+  type Item,
   type ItemId,
   type KernelEvent,
   type ModelConfig,
@@ -310,6 +312,10 @@ export class Engine {
       runtime.inbox.splice(0);
       this.#emitInbox(runtime);
       runtime.controller?.abort();
+      for (const provider of this.host.services.values()) {
+        if (runtime.services.has(provider.key))
+          provider.cancel?.(runtime.services.get(provider.key));
+      }
     }
   }
 
@@ -666,18 +672,26 @@ export class Engine {
       status: "running",
     });
 
-    for (const delivery of batch) {
-      const message = await this.store.appendItem({
-        conversationId: conversation.id,
-        turnId: turn.id,
-        type: "message",
-        role: "user",
-        content: delivery.input.content,
-      });
-      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
-    }
-
     try {
+      for (const delivery of batch) {
+        const message = await this.store.appendItem({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          type: "message",
+          role: "user",
+          content: delivery.input.content,
+        });
+        this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
+        await this.#notifyInput(
+          runtime,
+          conversation,
+          turn.id,
+          delivery.input,
+          message,
+          controller.signal,
+        );
+      }
+
       await this.#runSteps(conversation, turn.id, controller.signal, runtime);
       if (controller.signal.aborted) throw new TurnAborted();
       await this.store.updateTurn(turn.id, "completed");
@@ -713,6 +727,36 @@ export class Engine {
       runtime.currentTurnId = undefined;
       runtime.controller = undefined;
     }
+  }
+
+  async #notifyInput(
+    runtime: Runtime,
+    conversation: Conversation,
+    turnId: TurnId,
+    input: DeliveryInput,
+    item: Item,
+    signal: AbortSignal,
+  ): Promise<void> {
+    for (const provider of this.host.services.values()) {
+      if (signal.aborted) return;
+      if (!provider.onInput) continue;
+      await provider.onInput(this.#service(runtime, provider.key), {
+        conversation,
+        rootConversationId: this.#rootOf(conversation.id),
+        input,
+        item,
+        signal,
+        model: (backgroundSignal) => this.#modelInvoker(conversation, turnId, backgroundSignal),
+        updateTitle: (title, expected) => this.#updateTitle(runtime, title, expected),
+      });
+    }
+  }
+
+  async #updateTitle(runtime: Runtime, title: string, expected: string | null): Promise<void> {
+    if (!(await this.store.updateConversationTitle(runtime.conversation.id, title, expected)))
+      return;
+    runtime.setConversation({ ...runtime.conversation, title });
+    this.#emitKernel({ type: "title.changed", conversationId: runtime.conversation.id, title });
   }
 
   /** Publish before the terminal event, so an attachment during this await observes completion. */
@@ -954,7 +998,7 @@ export class Engine {
 
       // After-tool-result boundary: only steers flush into this turn; queued
       // entries wait for the next batch.
-      await this.#flushSteers(runtime, conversation, turnId);
+      await this.#flushSteers(runtime, conversation, turnId, signal);
     }
 
     throw new Error(`turn exceeded ${MAX_MODEL_STEPS} model steps`);
@@ -1120,7 +1164,12 @@ export class Engine {
   }
 
   /** Injects only steering deliveries at a tool-result boundary. */
-  async #flushSteers(runtime: Runtime, conversation: Conversation, turnId: TurnId): Promise<void> {
+  async #flushSteers(
+    runtime: Runtime,
+    conversation: Conversation,
+    turnId: TurnId,
+    signal: AbortSignal,
+  ): Promise<void> {
     const steers = runtime.takeSteers();
     if (steers.length > 0) this.#emitInbox(runtime);
     for (const steer of steers) {
@@ -1132,6 +1181,7 @@ export class Engine {
         content: steer.input.content,
       });
       this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
+      await this.#notifyInput(runtime, conversation, turnId, steer.input, message, signal);
     }
   }
 
@@ -1446,7 +1496,18 @@ export class Engine {
         signal,
         toolMeta: (name) => toolSet?.metaOf(name),
       },
-      (nextRequest) => provider.stream(nextRequest, signal, context),
+      async function* (nextRequest) {
+        try {
+          yield* provider.stream(nextRequest, signal, context);
+        } catch (error) {
+          // Preserve context-limit recovery; classify other provider failures at their boundary.
+          if (error instanceof ContextWindowExceededError) throw error;
+          throw new ModelInvocationFailure(
+            error instanceof Error ? "model provider failed" : String(error),
+            { cause: error },
+          );
+        }
+      },
     );
   }
 
@@ -1459,7 +1520,7 @@ export class Engine {
     pending?: Promise<ModelInvocationResult>[],
   ): ModelInvoker {
     const invoke: ModelInvoker["invoke"] = async (draft, options = {}) => {
-      turnSignal.throwIfAborted();
+      if (turnSignal.aborted) throw new ModelInvocationFailure("model invocation aborted");
       const modelConfig = draft.modelConfig ?? conversation.config.model;
       const provider = this.host.providers.get(modelConfig.provider);
       provider.validateConfig(modelConfig);
@@ -1494,7 +1555,7 @@ export class Engine {
                 ? { providerOptions: request.providerOptions }
                 : {}),
             });
-      signal.throwIfAborted();
+      if (signal.aborted) throw new ModelInvocationFailure("model invocation aborted");
       const outputItems: ModelOutputItem[] = [];
       const preview = new ModelPreview();
       const requestStarted = performance.now();
@@ -1553,18 +1614,18 @@ export class Engine {
       } catch (error) {
         requestDurationMs ??= performance.now() - requestStarted;
         await recordUsage();
-        if (signal.aborted) throw new TurnAborted();
+        if (signal.aborted) throw new ModelInvocationFailure("model invocation aborted");
         throw error;
       }
       if (!completed) {
         requestDurationMs ??= performance.now() - requestStarted;
         await recordUsage();
-        if (signal.aborted) throw new TurnAborted();
+        if (signal.aborted) throw new ModelInvocationFailure("model invocation aborted");
         throw new Error("provider stream ended without a 'completed' event");
       }
       await recordUsage();
-      if (signal.aborted) throw new TurnAborted();
-      if (completed.error) throw new Error(completed.error);
+      if (signal.aborted) throw new ModelInvocationFailure("model invocation aborted");
+      if (completed.error) throw new ModelInvocationFailure(completed.error);
       return {
         content: outputItems.flatMap((item) => (item.type === "message" ? item.content : [])),
         outputItems,
@@ -1698,7 +1759,7 @@ export class Engine {
     }
     await this.#dispatchCalls(calls, toolSet, conversation, turnId, signal, runtime);
     if (calls.length > 0) {
-      await this.#flushSteers(runtime, conversation, turnId);
+      await this.#flushSteers(runtime, conversation, turnId, signal);
     }
     if (signal.aborted) throw new TurnAborted();
     return true;

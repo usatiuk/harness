@@ -1,9 +1,11 @@
 import type { ZodType } from "zod";
-import type { ModelCapabilities, ModelMiddleware, ModelProvider } from "./model.ts";
+import type { ModelCapabilities, ModelMiddleware, ModelProvider, ModelInvoker } from "./model.ts";
 import type { Tool, ToolMiddleware, ToolContractResolver } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
 import type { Conversation } from "./conversation.ts";
 import type { ConversationId } from "./ids.ts";
+import type { DeliveryInput } from "./delivery.ts";
+import type { Item } from "./items.ts";
 import type { HarnessEvent } from "./events.ts";
 import type { CompactionStrategy } from "./policies.ts";
 import type { RequestMiddleware } from "./requests.ts";
@@ -20,6 +22,18 @@ export interface ContextSource {
   instructions(ctx: ContextSourceContext): Promise<ContentBlock[]>;
 }
 
+/** Capabilities for a plugin reacting to a persisted delivery. Background work belongs
+ * to its service: supply its cancellation signal and drain it in dispose. */
+export interface ConversationInputContext {
+  conversation: Conversation;
+  rootConversationId: ConversationId;
+  input: DeliveryInput;
+  item: Item;
+  signal: AbortSignal;
+  model(signal: AbortSignal): ModelInvoker;
+  updateTitle(title: string, expected: string | null): Promise<void>;
+}
+
 /**
  * Builds a per-conversation service a plugin hangs off `ctx.service(key)` — the single
  * mechanism for per-conversation plugin substrate (the execution backend is one, keyed
@@ -30,6 +44,10 @@ export interface ContextSource {
 export interface ServiceProvider {
   readonly key: string;
   for(conversation: Conversation): unknown;
+  /** Runs after an input is persisted, before agent work resumes. */
+  onInput?(service: unknown, context: ConversationInputContext): void | Promise<void>;
+  /** Prompt cancellation of service-owned work; dispose still owns drainage. */
+  cancel?(service: unknown): void;
   /**
    * Optional graceful-close policy check after the root scope has stopped admitting new work.
    * The service must not independently start work after this point. This does not authorize

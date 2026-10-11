@@ -481,6 +481,8 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
         ...state,
         pending: state.pending.filter(({ requestId }) => requestId !== event.requestId),
       };
+    case "title.changed":
+      return state;
     case "config.changed":
       return state; // not a transcript line
     case "head.changed":

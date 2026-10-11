@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `5`. It exchanges
+`initialize` is the first application request and requires protocol version `6`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -212,3 +212,6 @@ stdio controls. They are not an unauthenticated network API. Request cancellatio
 and server close abort OAuth and drain tracked auth/settings mutations before releasing
 ownership. Safe classified validation errors can be shown to users; unexpected
 internal failures retain the generic protocol error treatment.
+
+Conversation records include nullable `title` metadata. Protocol 6 adds
+`title.changed` updates and the application settings naming model/preset.

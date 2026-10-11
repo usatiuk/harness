@@ -112,3 +112,66 @@ it("reattaches after failed sandbox replacement while another conversation remai
     await server.shutdown();
   }
 });
+
+it("updates saved titles in both the loaded view and cached conversation list through RPC", async () => {
+  const store = new InMemoryStore();
+  let release!: () => void;
+  const title = new Promise<string>((resolve) => {
+    release = () => resolve("Fix conversation naming");
+  });
+  const service = new HarnessService({
+    store,
+    home: "/nonexistent-harness-home",
+    defaults: { model: { provider: "fake", model: "fake-1" } },
+    plugins: [
+      { id: "fake", providers: () => [new FakeProvider([textStep("done")])] },
+      {
+        id: "titles",
+        services: () => [
+          {
+            key: "titles",
+            for: () => ({ done: Promise.resolve() }),
+            onInput: async (service, ctx) => {
+              if (ctx.item.seq !== 0) return;
+              await ctx.updateTitle("first message", null);
+              (service as { done: Promise<void> }).done = title.then((value) =>
+                ctx.updateTitle(value, "first message"),
+              );
+            },
+            dispose: (service) => (service as { done: Promise<void> }).done,
+          },
+        ],
+      },
+    ],
+  });
+  const pair = createInProcessMessageConnectionPair();
+  const host = new HarnessRpcHost(service);
+  const server = new HarnessRpcSession({
+    connection: pair.right,
+    host,
+    server: { name: "test", version: "1" },
+  });
+  const desktop = new DesktopSession(pair.left);
+  server.start();
+  try {
+    await desktop.start();
+    const conversation = await desktop.domain.createConversation();
+    const id = conversation.id;
+    desktop.conversations = [conversation];
+    const view = await desktop.load(conversation.id);
+    await desktop.client.deliver(conversation.id, "first message", "send");
+    await service.whenIdle(id);
+    await vi.waitFor(() => expect(view.conversation.title).toBe("first message"));
+    expect(desktop.conversations.find((row) => row.id === id)?.title).toBe("first message");
+    release();
+    await vi.waitFor(() => expect(view.conversation.title).toBe("Fix conversation naming"));
+    expect(desktop.conversations.find((row) => row.id === id)?.title).toBe(
+      "Fix conversation naming",
+    );
+  } finally {
+    release();
+    desktop.client.closeConnection();
+    await host.shutdown();
+    await server.shutdown();
+  }
+});

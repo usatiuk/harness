@@ -16,7 +16,8 @@ isolated credentials. LiteLLM connections discover catalogs at server boot and
 reuse the existing adapters.
 
 Every model-backed operation passes through the same model-middleware boundary:
-ordinary agent steps, compaction, subagents, and model-backed auto-approval.
+ordinary agent steps, compaction, subagents, model-backed auto-approval, and
+first-message conversation naming.
 
 ## Provider contract
 

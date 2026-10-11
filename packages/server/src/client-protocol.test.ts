@@ -4,6 +4,7 @@ import { appSettingsUpdateRequest } from "./client-protocol.ts";
 describe("auto-approval timeout settings", () => {
   const settings = {
     model: null,
+    conversationTitleModel: null,
     approval: {
       inWorkspace: "ask",
       outOfWorkspace: "ask",

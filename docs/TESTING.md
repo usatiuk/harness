@@ -994,3 +994,26 @@ delays, or a nearby condition that does not prove completion.
   handles, subdirectory mapping, distinct recipes, own-command shutdown, rebuild,
   and final workspace/sidecar/network cleanup. Native Linux execution and live
   model-provider concurrency remain separate platform/credential qualifications.
+
+## Conversation naming
+
+`conversation-titles/src/index.test.ts` uses a gated provider and real in-process
+RPC to verify saved excerpt/generated titles, independent agent completion,
+configured/default models, isolated prompt, accounting, failure/empty output,
+no regeneration after reload/rewind, explicit metadata overwrite, shutdown
+drainage and subagent exclusion. Gated persistence regressions verify cancellation
+during excerpt saving, forced close during first-message saving, and failed excerpt
+writes reaching a failed terminal event and idle runtime cleanup. Shared store tests cover conditional title
+updates/read/pages; SQLite tests upgrade versions 3/5/6 and reopen saved titles.
+Desktop session tests verify real RPC updates to both the loaded view and cached
+sidebar list. Two production-route Chromium cases verify naming model/preset
+save/reset and saved titles in header/sidebar; TUI tests verify named resume choices.
+The Mistral fixture verifies agent+naming billing and separate agent context usage.
+Internal accounting-failure regression checks safe diagnostics and surfaced cleanup
+failure after runtime removal. Native desktop and live vendor title generation
+require separate qualification.
+
+Conversation-title delivery passes `npm run check -- --maxWorkers=2`: 1,289 tests
+passed, 38 skipped; four affected Chromium cases and three independent reviews
+pass. See the [delivery plan](plans/interface/2026-10-11-conversation-titles.md)
+for corrected test assumptions and qualification limits.

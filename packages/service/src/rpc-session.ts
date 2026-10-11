@@ -542,6 +542,8 @@ export class HarnessRpcSession {
         return { type: "reasoning.delta", turnId: event.turnId, text: event.text };
       case "head.changed":
         return { type: "head.changed", head: event.head };
+      case "title.changed":
+        return { type: "title.changed", title: event.title };
       case "config.changed":
         return { type: "config.changed", config: projectConversationConfig(event.config) };
       case "usage.changed":

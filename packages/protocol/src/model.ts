@@ -208,6 +208,15 @@ export class ContextWindowExceededError extends Error {
   }
 }
 
+/** Provider stream failure, or cancellation reported by a one-off invocation.
+ * Configuration, persistence and core protocol-invariant errors remain ordinary exceptions. */
+export class ModelInvocationFailure extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ModelInvocationFailure";
+  }
+}
+
 /**
  * A narrow caller for one model-backed operation (review, summarization, titles, …).
  * It consumes one stream; the caller decides whether finalized outputs should continue.

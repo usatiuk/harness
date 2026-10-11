@@ -89,6 +89,7 @@ export const decodeConversationConfig = (config: WireConversationConfig): Conver
 export const decodeConversation = (conversation: WireConversation): Conversation => ({
   id: conversation.id as ConversationId,
   workspaceRoot: conversation.workspaceRoot,
+  title: conversation.title,
   overrides: conversation.overrides,
   head: conversation.head as ItemId | null,
   createdAt: conversation.createdAt,
@@ -532,6 +533,8 @@ export class HarnessDomainClient implements HarnessClientService {
         };
       case "head.changed":
         return { type: "head.changed", conversationId, head: event.head as ItemId | null };
+      case "title.changed":
+        return { type: "title.changed", conversationId, title: event.title };
       case "config.changed":
         return {
           type: "config.changed",
