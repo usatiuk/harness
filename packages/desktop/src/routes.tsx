@@ -975,7 +975,13 @@ export function createDesktopRouter(
     );
   }
 
-  function Thinking({ startedAt }: { startedAt: number }) {
+  function ActiveDuration({
+    startedAt,
+    label,
+  }: {
+    startedAt: number;
+    label: "Thinking" | "Working";
+  }) {
     const [now, setNow] = useState(Date.now);
     useEffect(() => {
       const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -984,7 +990,7 @@ export function createDesktopRouter(
     const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
     return (
       <>
-        Thinking for {seconds} {seconds === 1 ? "second" : "seconds"}
+        {label} for {seconds} s
       </>
     );
   }
@@ -1061,14 +1067,14 @@ export function createDesktopRouter(
       start === undefined || end === undefined ? undefined : Math.round((end - start) / 1000);
     const label = working ? (
       row.observedTiming ? (
-        <Thinking startedAt={row.observedTiming.startedAt} />
+        <ActiveDuration startedAt={row.observedTiming.startedAt} label="Working" />
       ) : (
-        "Thinking"
+        "Working"
       )
     ) : duration === undefined ? (
-      "Thought"
+      "Worked"
     ) : (
-      `Thought for ${duration} ${duration === 1 ? "second" : "seconds"}`
+      `Worked for ${duration} s`
     );
     return (
       <div className="cell tool-group-container">
@@ -1122,16 +1128,41 @@ export function createDesktopRouter(
     );
   }
 
-  function TranscriptCell({ cell }: { cell: Cell }) {
-    if (cell.kind === "tool") return <ToolCall cell={cell} />;
-    if (cell.kind === "reasoning")
-      return (
-        <div className="cell reasoning">
+  function Reasoning({ cell }: { cell: Extract<Cell, { kind: "reasoning" }> }) {
+    const [open, setOpen] = useState(false);
+    const duration =
+      cell.observedTiming && cell.completedAt !== undefined
+        ? Math.round((cell.completedAt - cell.startedAt) / 1000)
+        : undefined;
+    const label = cell.streaming ? (
+      cell.observedTiming ? (
+        <ActiveDuration startedAt={cell.startedAt} label="Thinking" />
+      ) : (
+        "Thinking"
+      )
+    ) : duration === undefined ? (
+      "Thought"
+    ) : (
+      `Thought for ${duration} s`
+    );
+    return (
+      <Disclosure
+        className="cell reasoning"
+        title={label}
+        onToggle={(event) => setOpen(event.currentTarget.open)}
+      >
+        {open && (
           <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
             {cell.text}
           </Markdown>
-        </div>
-      );
+        )}
+      </Disclosure>
+    );
+  }
+
+  function TranscriptCell({ cell }: { cell: Cell }) {
+    if (cell.kind === "tool") return <ToolCall cell={cell} />;
+    if (cell.kind === "reasoning") return <Reasoning cell={cell} />;
     if (cell.kind === "compaction" || cell.kind === "context")
       return (
         <Disclosure

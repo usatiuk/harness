@@ -635,9 +635,7 @@ test("tool groups are compact and activities refresh automatically only while mo
   await page.clock.install();
   await page.evaluate(() => window.composerFixture.showToolsAndActivities());
   const group = page.locator(".tool-group");
-  await expect(group.locator(":scope > summary")).toHaveText(
-    "Thinking for 0 seconds · 2 tool calls",
-  );
+  await expect(group.locator(":scope > summary")).toHaveText("Working for 0 s · 2 tool calls");
   await expect(group).not.toHaveAttribute("open", "");
   await group.locator(":scope > summary").click();
   const call = group.locator('[data-testid="tool-call"]').first();
@@ -706,7 +704,7 @@ test("long tool groups mount only call previews and the details actually opened"
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showLongToolRun());
   const group = page.locator(".tool-group");
-  await expect(group.locator(":scope > summary")).toHaveText("Thought · 100 tool calls");
+  await expect(group.locator(":scope > summary")).toHaveText("Worked · 100 tool calls");
   await expect(group.getByTestId("tool-call")).toHaveCount(0);
   await expect(group.locator(".diff span")).toHaveCount(0);
   await group.locator(":scope > summary").click();
@@ -734,17 +732,16 @@ test("reasoning and tool calls share a collapsed group between messages", async 
   });
   const group = page.locator(".tool-group");
   await expect(group).toHaveCount(1);
-  await expect(group.locator(":scope > summary")).toHaveText(
-    "Thinking for 0 seconds · 2 tool calls",
-  );
+  await expect(group.locator(":scope > summary")).toHaveText("Working for 0 s · 2 tool calls");
   await page.clock.runFor(2000);
-  await expect(group.locator(":scope > summary")).toHaveText(
-    "Thinking for 2 seconds · 2 tool calls",
-  );
+  await expect(group.locator(":scope > summary")).toHaveText("Working for 2 s · 2 tool calls");
   await expect(group.locator(".reasoning")).toHaveCount(0);
   await group.locator(":scope > summary").click();
-  await expect(group.locator(".reasoning")).toHaveText("Checking credential ownership");
-  await expect(group.locator(".reasoning summary")).toHaveCount(0);
+  await expect(group.locator(".reasoning")).not.toHaveAttribute("open");
+  await expect(group.locator(".reasoning p")).toHaveCount(0);
+  await expect(group.locator(".reasoning summary")).toHaveText("Thought");
+  await group.locator(".reasoning summary").click();
+  await expect(group.locator(".reasoning p")).toHaveText("Checking credential ownership");
   await expect(group.getByTestId("tool-call")).toHaveCount(2);
   const label = await group.locator(":scope > summary").boundingBox();
   const icon = await group.locator(".tool-icon").first().boundingBox();
@@ -753,13 +750,10 @@ test("reasoning and tool calls share a collapsed group between messages", async 
   await expect(page.getByTestId("assistant-message")).toHaveText("Checking the stores");
   await page.clock.runFor(10_000);
   await page.evaluate(() => window.composerFixture.completeSteps());
-  await expect(group.locator(":scope > summary")).toHaveText(
-    "Thought for 12 seconds · 2 tool calls",
-  );
+  await expect(group.locator(".reasoning summary")).toHaveText("Thought for 2 s");
+  await expect(group.locator(":scope > summary")).toHaveText("Worked for 12 s · 2 tool calls");
   await page.clock.runFor(2000);
-  await expect(group.locator(":scope > summary")).toHaveText(
-    "Thought for 12 seconds · 2 tool calls",
-  );
+  await expect(group.locator(":scope > summary")).toHaveText("Worked for 12 s · 2 tool calls");
   await page.screenshot({ path: test.info().outputPath("combined-work.png") });
 });
 
@@ -877,9 +871,7 @@ test("eval boundaries keep child tools flat with right chevrons and failure-only
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showEval());
   const group = page.locator(".tool-group");
-  await expect(group.locator(":scope > summary")).toHaveText(
-    "Thought for 12 seconds · 3 tool calls",
-  );
+  await expect(group.locator(":scope > summary")).toHaveText("Worked for 12 s · 3 tool calls");
   await expect(group.getByTestId("tool-call")).toHaveCount(0);
   await group.locator(":scope > summary").click();
   const calls = group.locator(":scope > .tool");
@@ -941,8 +933,14 @@ test("live quiet previews bound long reasoning and never duplicate expanded cont
   await preview.locator("button").last().click();
   await expect(group).toHaveAttribute("open", "");
   await expect(preview).toBeHidden();
-  await expect(group.locator(".cell.reasoning")).toContainText("Latest reasoning tail.");
-  expect((await group.locator(".cell.reasoning").textContent())!.length).toBeGreaterThan(2000);
+  const fullReasoning = group.locator(".cell.reasoning");
+  await expect(fullReasoning).not.toHaveAttribute("open");
+  await expect(fullReasoning.locator("summary")).toContainText("Thinking for");
+  await expect(fullReasoning.locator("p")).toHaveCount(0);
+  await fullReasoning.locator("summary").click();
+  await expect(fullReasoning).toHaveAttribute("open", "");
+  await expect(fullReasoning.locator("p")).toContainText("Latest reasoning tail.");
+  expect((await fullReasoning.textContent())!.length).toBeGreaterThan(2000);
   await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
   const transitions = await group.evaluate((element) => {
     const tail = element.nextElementSibling!;
@@ -953,12 +951,21 @@ test("live quiet previews bound long reasoning and never duplicate expanded cont
     return { closed, opened: getComputedStyle(tail).display };
   });
   expect(transitions).toEqual({ closed: "block", opened: "none" });
-  await group.locator(":scope > summary").focus();
-  await page.keyboard.press("Space");
+  await group.locator(":scope > summary").press("Space");
   await expect(group).not.toHaveAttribute("open");
   await expect(preview).toBeVisible();
   await expect(group.locator(".cell.reasoning")).toHaveCount(0);
-  await page.keyboard.press("Enter");
+  // Wait for the virtualizer to replace the expanded height before reopening.
+  await expect
+    .poll(() =>
+      group.evaluate((element) => {
+        const item = element.closest<HTMLElement>("[data-known-size]")!;
+        const height = item.getBoundingClientRect().height;
+        return height > 0 && Math.abs(Number(item.dataset.knownSize) - height) <= 1;
+      }),
+    )
+    .toBe(true);
+  await group.locator(":scope > summary").press("Enter");
   await expect(group).toHaveAttribute("open", "");
   await expect(preview).toBeHidden();
   await page.evaluate(() => window.composerFixture.completeSteps());

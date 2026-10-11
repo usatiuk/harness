@@ -25,6 +25,22 @@ const worked = (duration = 0): Extract<State["cells"][number], { kind: "worked" 
 });
 
 describe("transcript reducer", () => {
+  it("uses client receipt times for live reasoning despite server clock skew", () => {
+    const streamed = reduce(
+      emptyState,
+      { type: "reasoning_delta", turnId: "t1", text: "thought" },
+      100_000,
+    );
+    const durable = item({ type: "reasoning", content: text("thought"), createdAt: 42_000 });
+    const completed = reduce(streamed, { type: "item.appended", item: durable }, 102_000);
+    expect(completed.cells[0]).toMatchObject({
+      startedAt: 100_000,
+      completedAt: 102_000,
+      observedTiming: true,
+    });
+    expect(init([durable]).cells[0]).toMatchObject({ startedAt: 42_000, completedAt: 42_000 });
+    expect(init([durable]).cells[0]).not.toHaveProperty("observedTiming");
+  });
   it.each([undefined, null, "commentary", "final_answer", "other"])(
     "replaces preview phase with canonical %s while preserving display hints",
     (phase) => {

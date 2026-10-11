@@ -313,3 +313,43 @@ corrections received independent correctness, simplicity and evidence reviews
 with no remaining actionable findings. The narrow-viewport screenshot was
 inspected; the reasoning tail occupies five lines and retains its final text.
 Native WebView2 and live-provider qualification remain outside this Linux run.
+
+## Work and thought labels, collapsed reasoning
+
+User correction: the combined group uses Working/Worked for X s. Only individual
+reasoning rows use Thinking/Thought for X s, with their own observed timing.
+Reasoning stays collapsed when the group opens; full Markdown mounts only on
+explicit reasoning expansion. Historical reasoning without observed start timing
+remains untimed; reconstructing timing or extending persisted logs is out of scope.
+Clickable summaries and tool preview rows disable selection while full bodies
+remain selectable. Testing guidance explicitly prohibits overwriting dev profiles
+or credentials; validation uses mocked browser fixtures and isolated source tests.
+
+Live reasoning completion uses client receipt time, matching its observed start;
+history initialization retains stored timestamps without claiming observed timing.
+A regression covers remote clock skew and historical initialization.
+The status row uses less vertical spacing and sits within the dock fade. The fade
+starts 16 px above the dock, continues through the status row and reaches opaque
+canvas color over 48 px, with a solid background behind the composer and shortcut
+hint instead of spreading the fade across the variable-height composer.
+An intermediate 85% opacity stop strengthens the fade without extending it upward;
+status text uses the existing muted color.
+No new layout state is needed.
+
+The intermittent keyboard-reopen test failure was diagnosed with DOM captures:
+large-body collapse detached the original summary and focus moved to the body.
+Separate focus/assert/key commands still allowed focus to change before delivery.
+Targeted delivery also reproduced Enter reaching a focused summary while its
+cached height remained 43,091 px despite a collapsed DOM height around 135 px.
+The test uses `locator.press` and waits for matching DOM/virtualizer item heights
+before reopening. Rapid reopening during remeasurement can lose focus or reset
+the disclosure. This existing virtualization limitation remains documented;
+the correction adds no focus-restoration machinery. Independent scoped review
+found no further actionable findings after the clock fix and test correction.
+
+Final validation: `npm run check` passes TypeScript, ESLint, Prettier and 1,297
+tests (38 skipped). All 30 Chromium browser cases pass, and five focused
+large-reasoning repetitions pass with the measurement prerequisite. Light and
+dark fixture screenshots were inspected. Tests used mocked/isolated fixtures;
+the developer profile and credentials were not changed. Native WebView2 and
+live-provider qualification remain outside this Linux run.

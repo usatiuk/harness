@@ -134,7 +134,7 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 ## Recent delivery
 
 The [compact tools and live activities follow-up](docs/plans/interface/2026-10-11-compact-tools-activities.md)
-groups desktop reasoning and tool calls behind compact collapsed thought summaries,
+groups desktop reasoning and tool calls behind compact collapsed work summaries,
 with flat child calls, Eval boundaries, right-side tool chevrons and failure-only labels.
 Active collapsed groups show a quiet, bounded five-line preview. Desktop
 loads earlier history automatically near the top, and shows only running activities

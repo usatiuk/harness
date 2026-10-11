@@ -400,15 +400,18 @@ Cost displays indicate incomplete totals when rows are unpriced or native search
 fees are unavailable. Models author Markdown links; no citation transformation
 or provider-specific search-result UI runs in clients.
 Desktop groups consecutive reasoning and tool calls between other transcript
-entries under a collapsed summary. Expanded reasoning is direct smaller muted text,
-without another preview or disclosure. The summary shows Thinking for X seconds
+entries under a collapsed summary. Reasoning remains separately collapsed when
+the group opens; opening its compact Thought row mounts the full smaller muted
+text. Reasoning rows show Thinking for X s while streaming and Thought for X s
+when locally observed timing is available. The group summary shows Working for X s
 while active, updating once per second from the locally observed group start.
-Completed live groups retain that local elapsed duration. Historical tool-only
+Completed live groups show Worked for X s with that local elapsed duration. Historical tool-only
 groups use comparable server timestamps; historical groups containing reasoning
-show Thought without timing. Client and server clocks are never mixed for elapsed
+show Worked without timing. Client and server clocks are never mixed for elapsed
 labels. Each call is counted once. Opening the group shows a flat list of
 compact call rows, with small decorative tool icons at the same left edge as the
-thought chevron and one-line argument previews. Tool chevrons sit on the right;
+thought chevron and one-line argument previews. Clickable summaries and preview tool rows disable text selection; expanded body
+text remains selectable. Tool chevrons sit on the right;
 only failures show a status prefix after the icon, while awaiting approval remains
 visible. Opening a call retains full arguments, output, diffs and approval facts.
 Eval arguments and results have separate begin/result rows with subtle horizontal
@@ -498,7 +501,8 @@ its sample conversation/host state remains isolated.
 
 The conversation canvas owns one full-height scroll parent. A floating dock holds
 bounded approvals/activities and the composer over a short neutral fade. Current
-status and optional last-turn statistics share a row. A measured footer keeps the
+status and optional last-turn statistics share a compact row within the fade,
+which becomes solid behind the composer and shortcut hint. A measured footer keeps the
 last transcript content clear of that dock; measured items contain their margins.
 The virtualizer opens at the latest edge, follows while at bottom, and pauses when
 the reader scrolls away. Three dots return to latest only during a running turn;

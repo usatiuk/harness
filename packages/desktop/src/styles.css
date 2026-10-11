@@ -478,8 +478,13 @@ main {
 .conversation-dock::before {
   content: "";
   position: absolute;
-  inset: -48px 0 0;
-  background: linear-gradient(to bottom, transparent, var(--surface-canvas) 48px);
+  inset: -16px 0 0;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--surface-canvas) 85%, transparent) 24px,
+    var(--surface-canvas) 48px
+  );
   pointer-events: none;
 }
 .conversation-dock-content {
@@ -648,6 +653,7 @@ main {
   line-height: 1.65;
 }
 .preview-tool {
+  user-select: none;
   overflow: hidden;
   white-space: nowrap;
   display: flex;
@@ -688,6 +694,7 @@ main {
   color: var(--muted-ink);
 }
 .disclosure > summary {
+  user-select: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -786,13 +793,14 @@ main {
 .conversation-status {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  gap: 2px 12px;
   align-items: center;
   width: 100%;
   justify-content: space-between;
-  margin-bottom: 8px;
-  padding: 4px 14px;
+  margin-bottom: 4px;
+  padding: 0 14px;
   font-size: 11px;
+  line-height: 1.4;
   color: var(--muted-ink);
 }
 .sandbox-status {
@@ -879,7 +887,7 @@ main {
   display: flex;
   gap: 8px;
   font-size: 11px;
-  color: var(--muted-ink);
+  color: inherit;
   margin: 0 0 0 auto;
   flex: 1;
   flex-wrap: wrap;

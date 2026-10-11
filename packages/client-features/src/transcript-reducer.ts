@@ -220,7 +220,7 @@ function clearPending(state: State): State {
   return state.pending.length === 0 ? state : { ...state, pending: [] };
 }
 
-function reduceItem(state: State, item: Item): State {
+function reduceItem(state: State, item: Item, receivedAt?: number): State {
   if (state.itemIds.has(item.id)) {
     const streamKind =
       item.type === "message" && item.role === "assistant"
@@ -274,7 +274,7 @@ function reduceItem(state: State, item: Item): State {
         item.turnId,
         item.id,
         textOf(item.content),
-        item.createdAt,
+        receivedAt ?? item.createdAt,
       );
       break;
     case "compaction":
@@ -450,7 +450,7 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
       };
     }
     case "item.appended":
-      return reduceItem(state, event.item);
+      return reduceItem(state, event.item, receivedAt);
     case "text_delta":
       return appendDelta(state, "assistant", event.turnId, event.text, receivedAt, event.phase);
     case "reasoning_delta":

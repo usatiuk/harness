@@ -24,6 +24,14 @@ npm run test:wsl                 # headless Windows WSL + rendered TUI qualifica
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## Test profile isolation
+
+Desktop testing must not overwrite the developer's running profile or credentials.
+Use mocked browser fixtures or explicitly isolated test homes and credential
+backends; never use `.harness-dev/source` as a test target. Native credential tests
+must also isolate platform storage (including APPDATA/LOCALAPPDATA on Windows),
+not merely the server home. Do not seed or restore fixture accounts in dev storage.
+
 ## Compact tools and live activities
 
 The [desktop follow-up](plans/interface/2026-10-11-compact-tools-activities.md)
@@ -52,8 +60,17 @@ A replacement-view regression verifies reload does not share the detached viewâ€
 history request.
 Native test expectations follow the collapsed groups and automatic loading; those
 Windows WebView2 cases cannot run on this Linux host. Final `npm run check` passes
-1,296 tests (38 skipped). All 30 Chromium browser cases pass, including 28
+1,297 tests (38 skipped). All 30 Chromium browser cases pass, including 28
 conversation cases and two MCP settings cases.
+Large-row collapse can remount a virtualized summary and lose keyboard focus.
+Diagnostic captures confirmed a detached original summary and focus on the body;
+keyboard activation tests target the current summary with `locator.press` for each key.
+Further captures showed Enter reaching a focused summary before the virtualizer
+replaced its cached 43,091 px height with the collapsed 135 px height. The test
+waits for the measured item height to match its DOM height before reopening.
+These tests qualify activation after measurement. Rapid reopening during
+remeasurement can lose focus or reset the disclosure; that virtualization
+limitation remains open.
 Browser fixture output does not establish native WebView or live-provider behavior.
 
 ## Auto-approval inspection
