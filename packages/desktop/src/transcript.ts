@@ -3,10 +3,10 @@ import type { Cell } from "@harness/client-features/transcript-reducer";
 interface CellRow {
   key: string;
   cell: Cell;
-  children: Cell[];
 }
 export interface ToolCallRow extends CellRow {
   cell: Extract<Cell, { kind: "tool" }>;
+  boundary?: "begin" | "result";
 }
 export type TranscriptStep =
   ToolCallRow | { key: string; cell: Extract<Cell, { kind: "reasoning" }> };
@@ -51,7 +51,7 @@ export class DesktopTranscript {
     }
     const keys = new Map<Cell, string>();
     const rows: CellRow[] = [];
-    const tools = new Map<string, CellRow>();
+    const tools = new Map<string, number>();
     for (const cell of cells) {
       const id = durableKey(cell);
       const stream = streamKey(cell);
@@ -62,20 +62,37 @@ export class DesktopTranscript {
       }
       key ??= id ?? `stream:${this.sequence++}`;
       keys.set(cell, key);
-      const row = { key, cell, children: [] } satisfies CellRow;
+      const row = { key, cell } satisfies CellRow;
       rows.push(row);
-      if (cell.kind === "tool") tools.set(cell.callId, row);
+      if (cell.kind === "tool") tools.set(cell.callId, rows.length - 1);
     }
-    const roots = rows.filter((row) => {
-      const cell = row.cell;
-      if (cell.kind !== "tool" || !cell.parentCallId) return true;
-      const parent = tools.get(cell.parentCallId);
-      if (!parent) return true;
-      parent.children.push(cell);
-      return false;
-    });
+    // Results follow the last available descendant, without nesting or hiding
+    // child calls behind the parent's argument disclosure.
+    const ends = rows.map((_, index) => index);
+    const results = new Map<number, ToolCallRow[]>();
+    for (let index = rows.length - 1; index >= 0; index--) {
+      const row = rows[index]!;
+      if (row.cell.kind !== "tool") continue;
+      const parent = row.cell.parentCallId ? tools.get(row.cell.parentCallId) : undefined;
+      if (parent !== undefined) ends[parent] = Math.max(ends[parent]!, ends[index]!);
+      if (row.cell.name === "eval" && row.cell.status) {
+        const end = ends[index]!;
+        const closing = results.get(end) ?? [];
+        closing.push({ key: `${row.key}:result`, cell: row.cell, boundary: "result" });
+        results.set(end, closing);
+      }
+    }
     this.rows = [];
-    for (const row of roots) {
+    const flat: (CellRow | ToolCallRow)[] = [];
+    rows.forEach((row, index) => {
+      flat.push(
+        row.cell.kind === "tool" && row.cell.name === "eval"
+          ? { ...row, cell: row.cell, boundary: "begin" }
+          : row,
+      );
+      flat.push(...(results.get(index) ?? []));
+    });
+    for (const row of flat) {
       const previous = this.rows.at(-1);
       if (row.cell.kind === "tool" || row.cell.kind === "reasoning") {
         const step: TranscriptStep =

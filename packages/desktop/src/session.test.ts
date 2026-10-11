@@ -80,6 +80,74 @@ it("shares an earlier history load across callers and permits retry after failur
   }
 });
 
+it("loads earlier history for a replacement view while the detached view's request is pending", async () => {
+  const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+  const service = new HarnessService({
+    store,
+    home: "/nonexistent-harness-home",
+    plugins: [{ id: "fake", providers: () => [new FakeProvider([])] }],
+  });
+  const connections = createInProcessMessageConnectionPair();
+  const host = new HarnessRpcHost(service);
+  const server = new HarnessRpcSession({
+    connection: connections.right,
+    host,
+    server: { name: "test", version: "1" },
+  });
+  const desktop = new DesktopSession(connections.left);
+  let release: (() => void) | undefined;
+  const pending: Promise<void>[] = [];
+  server.start();
+  try {
+    await desktop.start();
+    const conversation = await desktop.client.create({
+      overrides: { instructions: "be helpful", model: { provider: "fake", model: "fake-1" } },
+    });
+    const items = [];
+    for (let index = 0; index < 300; index++)
+      items.push(
+        await store.appendItem({
+          conversationId: conversation.id as ConversationId,
+          turnId: "history" as TurnId,
+          type: "message",
+          role: "user",
+          content: [{ type: "text", text: `Message ${index}` }],
+        }),
+      );
+    const detached = await desktop.load(conversation.id);
+    const history = desktop.client.history.bind(desktop.client);
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const requests = vi.spyOn(desktop.client, "history").mockImplementationOnce(async (params) => {
+      await gate;
+      return history(params);
+    });
+    pending.push(desktop.older(conversation.id));
+    await vi.waitFor(() => expect(requests).toHaveBeenCalledTimes(1));
+    await desktop.client.reload(conversation.id);
+    const current = await desktop.load(conversation.id);
+    expect(current).not.toBe(detached);
+    expect(current.cursor).not.toBeNull();
+    pending.push(desktop.older(conversation.id));
+    await vi.waitFor(() => expect(requests).toHaveBeenCalledTimes(3));
+    await pending[1];
+    const expectedIds = items.map((item) => item.id);
+    expect(current.items.map((item) => item.id)).toEqual(expectedIds);
+    expect(current.cursor).toBeNull();
+    release!();
+    await pending[0];
+    expect(desktop.views.get(conversation.id as ConversationId)).toBe(current);
+    expect(current.items.map((item) => item.id)).toEqual(expectedIds);
+    expect(current.cursor).toBeNull();
+  } finally {
+    release?.();
+    await Promise.allSettled(pending);
+    await host.shutdown();
+    await server.shutdown();
+  }
+});
+
 it.each([
   { presets: [{ value: "high" }], preset: "" },
   { presets: [{ value: "high" }], preset: "high" },

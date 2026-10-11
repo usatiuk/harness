@@ -17,6 +17,7 @@ declare global {
     composerFixture: {
       calls: Delivery[];
       showToolsAndActivities(): void;
+      showEval(): void;
       showLongToolRun(): void;
       seedHistory(): void;
       seedCollapsedHistory(): void;
@@ -306,7 +307,7 @@ window.composerFixture = {
       turnId: "turn",
       text: "Checking credential ownership",
       streaming: false,
-      startedAt: 0,
+      startedAt: view.state.cells.find((cell) => cell.kind === "tool")!.startedAt,
       observedTiming: true as const,
     };
     view.state = {
@@ -321,9 +322,9 @@ window.composerFixture = {
       ...view.state,
       cells: view.state.cells.map((cell) =>
         cell.kind === "tool"
-          ? { ...cell, status: "ok", completedAt: 12_000 }
+          ? { ...cell, status: "ok", completedAt: cell.startedAt + 12_000 }
           : cell.kind === "reasoning"
-            ? { ...cell, streaming: false, completedAt: 2_000 }
+            ? { ...cell, streaming: false, completedAt: cell.startedAt + 2_000 }
             : cell,
       ),
     };
@@ -338,6 +339,7 @@ window.composerFixture = {
     releasePeek = undefined;
   },
   showToolsAndActivities() {
+    const startedAt = Date.now();
     view.state = {
       ...view.state,
       activities: [
@@ -357,7 +359,7 @@ window.composerFixture = {
           callId: "read",
           name: "read_file",
           args: { path: "credentials.ts", note: "Long arguments ".repeat(100) },
-          startedAt: 0,
+          startedAt,
           status: "ok",
           output: "Full file output",
         },
@@ -366,7 +368,7 @@ window.composerFixture = {
           callId: "search",
           name: "glob",
           args: { pattern: "**/*.ts" },
-          startedAt: 0,
+          startedAt,
         },
         {
           kind: "assistant",
@@ -374,6 +376,48 @@ window.composerFixture = {
           turnId: "turn",
           text: "Checking the stores",
           streaming: false,
+        },
+      ],
+    };
+    view.transcript.update(view.state.cells);
+    changed();
+  },
+  showEval() {
+    const startedAt = Date.now() - 12_000;
+    view.state = {
+      ...view.state,
+      cells: [
+        {
+          kind: "tool",
+          callId: "eval",
+          name: "eval",
+          args: { code: "await tools.read_file({path: 'auth.ts'})" },
+          startedAt,
+          status: "ok",
+          completedAt: startedAt + 12_000,
+          output: '{"updated":true}',
+        },
+        {
+          kind: "tool",
+          callId: "read",
+          parentCallId: "eval",
+          name: "read_file",
+          args: { path: "auth.ts" },
+          startedAt,
+          status: "error",
+          completedAt: startedAt + 1000,
+          output: "File not found",
+        },
+        {
+          kind: "tool",
+          callId: "exec",
+          parentCallId: "eval",
+          name: "exec",
+          args: { command: "npm test" },
+          startedAt,
+          status: "ok",
+          completedAt: startedAt + 10_000,
+          output: "6 tests passed",
         },
       ],
     };

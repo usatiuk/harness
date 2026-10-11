@@ -399,17 +399,24 @@ and simple provider activity text render without native payload inspection.
 Cost displays indicate incomplete totals when rows are unpriced or native search
 fees are unavailable. Models author Markdown links; no citation transformation
 or provider-specific search-result UI runs in clients.
-Desktop groups consecutive top-level reasoning and tool calls between other
-transcript entries under a collapsed summary. Expanded reasoning is smaller and muted to distinguish
-it from assistant commentary and output. The summary shows Working while active,
-Worked for the observed group duration when all member timings are available,
-or Worked otherwise, with the tool count alongside. Opening the group shows compact call rows with one-line
-argument previews; opening a call retains full arguments, output, diffs, approval
-facts and nested operations. Desktop rows distinguish messages from nonrecursive,
-nonempty step groups. Collapsed groups do not mount calls; call details mount only
-when opened. Grouping changes presentation only and preserves history anchors
-when earlier calls merge into a visible group. Loading earlier calls into a group
-can reset its disclosure to closed; expansion state is not persisted.
+Desktop groups consecutive reasoning and tool calls between other transcript
+entries under a collapsed summary. Expanded reasoning is direct smaller muted text,
+without another preview or disclosure. The summary shows Thinking for X seconds
+while active, updating once per second when the group start was observed, Thought
+for the observed group duration when all member timings are available, or Thought
+otherwise, with each call counted once. Opening the group shows a flat list of
+compact call rows, with small decorative tool icons at the same left edge as the
+thought chevron and one-line argument previews. Tool chevrons sit on the right;
+only failures show a status prefix after the icon, while awaiting approval remains
+visible. Opening a call retains full arguments, output, diffs and approval facts.
+Eval arguments and results have separate begin/result rows with subtle horizontal
+boundaries. Child calls stay independently visible without opening their parent;
+results follow the last available descendant, including nested Eval calls.
+Desktop rows distinguish messages from nonrecursive, nonempty step groups.
+Collapsed groups do not mount calls; call details mount only when opened. Grouping
+changes presentation only and preserves history anchors when earlier calls merge
+into a visible group. Loading earlier calls into a group can reset its disclosure
+to closed; expansion state is not persisted.
 
 Earlier history loads automatically near the top of the transcript through the
 existing bounded history action. A persistent intersection observer loads one page
@@ -417,7 +424,8 @@ per approach; an upward wheel event or the discreet keyboard-accessible marker
 can request another page if collapsed history adds no height. Successful loads
 do not rearm themselves. Failed loads wait for explicit Retry, and disconnection
 stops automatic loading. Session-owned in-flight operations prevent duplicate
-paging across route remounts. The final Start of conversation label preserves the
+paging across route remounts of the same view. Sharing follows the attached view
+lifetime; reloading a conversation gives its replacement an independent load. The final Start of conversation label preserves the
 header height and reading anchor.
 
 The activity dock shows only running work and hides when empty. Existing command

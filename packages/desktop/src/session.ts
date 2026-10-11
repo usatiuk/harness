@@ -49,7 +49,7 @@ export class DesktopSession {
   readonly views = new Map<ConversationId, ConversationView>();
   readonly listeners = new Set<() => void>();
   readonly loads = new Map<string, Promise<ConversationView>>();
-  private readonly historyLoads = new Map<string, Promise<void>>();
+  private readonly historyLoads = new Map<ConversationView, Promise<void>>();
   private readonly subscriptions = new Map<string, Array<() => void>>();
   conversations: Conversation[] = [];
   listLoaded = false;
@@ -269,18 +269,19 @@ export class DesktopSession {
     return items.reverse();
   }
 
-  older(id: string): Promise<void> {
-    const pending = this.historyLoads.get(id);
+  async older(id: string): Promise<void> {
+    const view = await this.load(id);
+    const pending = this.historyLoads.get(view);
     if (pending) return pending;
-    // History belongs to the session: route remounts must share the same cursor load.
-    const result = this.loadOlder(id).finally(() => this.historyLoads.delete(id));
-    this.historyLoads.set(id, result);
+    // Route remounts share a view; reload creates a new view with its own cursor load.
+    const result = this.loadOlder(view).finally(() => this.historyLoads.delete(view));
+    this.historyLoads.set(view, result);
     return result;
   }
 
-  private async loadOlder(id: string): Promise<void> {
-    const view = await this.load(id);
+  private async loadOlder(view: ConversationView): Promise<void> {
     if (view.cursor === null) return;
+    const id = view.conversation.id;
     const page = await this.client.history({
       conversationId: id,
       ...(view.anchor ? { anchor: view.anchor } : {}),

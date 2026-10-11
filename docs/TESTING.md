@@ -31,18 +31,23 @@ uses production routes in Chromium to verify combined reasoning/tool work summar
 one-line argument previews, expanded output, running-only activities, one-second
 automatic refresh, overlapping-request prevention, completion/navigation cleanup,
 disconnection while still mounted, and a late peek response after unmount. Canvas
-tests exercise expanded tool history anchoring. A representative 100-call run with
+tests exercise expanded tool history anchoring, including keeping a child in place
+when an earlier page loads its parent. Eval presentation checks flat child rows,
+separate begin/result inspection, failure-only labels, right-side tool chevrons and
+native keyboard expansion. A representative 100-call run with
 1,000-line writes verifies collapsed groups mount no calls and only opened calls
-mount output and diff DOM. Vitest covers desktop grouping/nested calls/row identity and
+mount output and diff DOM. Vitest covers desktop grouping, nested Eval result ordering, row identity and
 subagent commentary delta replacement without changing the final result.
 Automatic-history cases cover prepend anchors, overlapping-request prevention,
 explicit retry after failure, and multipage collapsed history with keyboard
 continuation. A real RPC regression verifies concurrent session callers share one
 history operation, preserve state after failure, and retry without duplicate items.
+A replacement-view regression verifies reload does not share the detached view’s
+history request.
 Native test expectations follow the collapsed groups and automatic loading; those
 Windows WebView2 cases cannot run on this Linux host. Final `npm run check` passes
-1,292 tests (38 skipped) after rebasing onto conversation naming. All 28 Chromium
-browser cases pass, including 26 conversation cases and two MCP settings cases.
+1,294 tests (38 skipped). All 29 Chromium browser cases pass, including 27
+conversation cases and two MCP settings cases.
 Browser fixture output does not establish native WebView or live-provider behavior.
 
 ## Auto-approval inspection

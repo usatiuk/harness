@@ -638,12 +638,12 @@ main {
 .tool-group > summary {
   padding: 3px 0;
 }
-.tool-group > .cell.tool {
-  padding-left: 14px;
+.tool-icon {
+  flex-shrink: 0;
 }
 .tool-group > .cell.reasoning {
   margin: 0;
-  padding: 3px 0 3px 14px;
+  padding: 3px 0;
   font-size: 13px;
   color: var(--muted-ink);
 }
@@ -660,6 +660,7 @@ main {
   display: none;
 }
 .disclosure-chevron {
+  flex-shrink: 0;
   width: 14px;
   height: 14px;
   transition: transform 120ms ease;
@@ -699,14 +700,25 @@ main {
   max-height: 360px;
   overflow: auto;
 }
-.nested-tools {
-  margin: 4px 0 4px 8px;
-  padding-left: 6px;
-  border-left: 2px solid var(--line);
+.tool > summary > .disclosure-chevron {
+  order: 1;
+  flex-shrink: 0;
+  margin-left: auto;
 }
-.nested-tools .cell.tool {
-  width: 100%;
-  margin: 4px 0;
+.tool-failure {
+  color: var(--danger-ink);
+  flex-shrink: 0;
+}
+.tool.eval-begin {
+  border-bottom: 1px solid var(--line);
+}
+.tool.eval-result {
+  border-top: 1px solid var(--line);
+}
+.tool.eval-begin > summary strong,
+.tool.eval-result > summary strong {
+  color: var(--muted-ink);
+  font-weight: 400;
 }
 .diff pre {
   padding: 8px 0;

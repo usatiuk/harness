@@ -7,7 +7,7 @@ Status: Complete
 Desktop reasoning and tool calls collapse into consecutive work groups between
 messages. Earlier history loads automatically near the top.
 Opening a group shows one compact row per call, with a single-line argument
-preview; opening a call retains output, edits, approval facts and nested calls.
+preview; opening a call retains output, edits and approval facts. Child calls stay flat.
 Activities show only running work and automatically fetch output every second,
 without overlapping requests or updates after unmount. Subagent previews include
 in-progress assistant text as well as committed messages and tool entries.
@@ -115,8 +115,8 @@ The representation stays nonrecursive and nonempty; no server/protocol changes.
 A desktop-local history marker uses IntersectionObserver on the existing scroll
 container to submit the existing bounded history action near the top. A stable observer loads one page per approach; upward wheel input or the discreet
 keyboard-accessible marker can continue a collapsed run. Completion alone does
-not rearm loading. One session-owned operation per conversation runs at a time,
-including across route remounts. Failed loads stop automatic attempts and expose explicit Retry;
+not rearm loading. One session-owned operation per attached view runs at a time,
+including across route remounts of that view. Failed loads stop automatic attempts and expose explicit Retry;
 disconnected sessions do not load. Existing history anchoring handles prepend.
 No prominent Load earlier button or new Canvas loading interface is needed.
 The final Start of conversation label keeps the history header height stable.
@@ -166,3 +166,58 @@ Final rebased `npm run check` passes TypeScript, ESLint, Prettier and 1,292 test
 (38 skipped). The entire Chromium browser suite passes all 28 cases: 26
 conversation cases and two MCP settings cases. `git diff --check` passes. Native
 Windows WebView2/live-provider qualification remains outside these results.
+
+## Final lifetime audit and visual adjustment
+
+The extra correctness review reproduced a reload lifetime bug: sharing an earlier
+history request solely by conversation ID allowed a replacement view to await a
+request that updated only its detached predecessor. Sharing now keys the attached
+ConversationView itself, preserving remount deduplication without crossing reload
+lifetimes. The real RPC regression failed before this correction and now verifies
+the replacement loads independently while the old response cannot change it.
+
+The requested final presentation uses a once-per-second Thinking for X seconds
+counter while active, Thought for X seconds after completion, or Thought
+when historical timing is unknown. Expanded rows avoid extra indentation. Small decorative tool icons align with
+the group label; reads, edits, search and commands use familiar icons, while other
+tools use a generic icon. Reasoning retains its smaller muted text.
+
+- [x] Verify corrected lifetime and latest labels with full source/browser checks.
+- [x] Independently review the focused lifetime correction and commit.
+
+## Selected Eval boundaries presentation
+
+Status of follow-up: Complete.
+
+The selected mockup keeps the thought chevron on the left and tool chevrons on the
+right. Expanded reasoning is direct smaller muted text, without a separate preview
+or disclosure. Tool names and icons stay compact; only failures show a status
+prefix after the icon. Awaiting approval remains visible while applicable.
+
+Eval has separate argument/begin and output/result disclosures with subtle
+horizontal boundaries. Child calls remain in canonical order in the same flat
+list, independently inspectable when the Eval disclosures are closed. Results
+follow the last available descendant, including nested Eval calls. This is purely
+desktop presentation over existing parentCallId values, not a protocol extension.
+The collapsed group counts each call once; lazy output/diff rendering is preserved.
+
+- [x] Validate flat children, Eval boundary ordering, keyboard inspection, labels
+      and chevron geometry with focused and full source/browser checks.
+- [x] Independently review correctness, simplicity, scope and evidence; resolve
+      findings, synchronize documentation and commit the validated changes.
+
+Three independent read-only review lenses found no remaining behavior, architecture
+or simplicity issues. Review found stale native selectors and documentation;
+these now match flat children and separate Eval boundary rows while retaining
+approval, denial and parent-attribution checks. The Chromium anchor regression
+now verifies the surviving child's position when a parent loads, rather than the
+old presentation replacing that child with its parent. Icon alignment measures
+the stable summary edge instead of a chevron bounding box during rotation.
+
+Final `npm run check` passes TypeScript, ESLint, Prettier and 1,294 tests
+(38 skipped). All 29 Chromium browser cases pass, including Eval boundary ordering,
+flat keyboard-inspectable calls, failure-only labels, live thinking timing and
+history anchoring. Rendered screenshots were inspected. `git diff --check` passes.
+Native expectations were synchronized but Windows WebView2/live-provider behavior
+remains unqualified on this Linux host. No protocol or persistence extension and
+no push or external publication are included.

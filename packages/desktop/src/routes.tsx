@@ -66,6 +66,12 @@ import {
   Square,
   ChevronDown,
   Settings2,
+  BookOpen,
+  PenLine,
+  Code,
+  Search,
+  Terminal,
+  Wrench,
 } from "lucide-react";
 
 type ActionResult =
@@ -877,41 +883,48 @@ export function createDesktopRouter(
 
   function ToolCall({
     cell,
-    children = [],
+    boundary,
   }: {
     cell: Extract<Cell, { kind: "tool" }>;
-    children?: Cell[];
+    boundary?: "begin" | "result" | undefined;
   }) {
     const [open, setOpen] = useState(false);
     const edit = editPresentation(cell);
+    const ToolIcon = edit
+      ? PenLine
+      : cell.name === "read" || cell.name === "read_file"
+        ? BookOpen
+        : cell.name === "glob" || cell.name === "grep" || cell.name === "tool_search"
+          ? Search
+          : cell.name === "eval"
+            ? Code
+            : cell.name === "bash" || cell.name === "powershell" || cell.name === "exec"
+              ? Terminal
+              : Wrench;
     return (
       <Disclosure
-        className={`cell tool ${cell.status === "error" ? "failed" : ""}`}
+        className={`cell tool ${boundary ? `eval-${boundary}` : ""} ${cell.status === "error" && boundary !== "begin" ? "failed" : ""}`}
         data-testid="tool-call"
         onToggle={(event) => setOpen(event.currentTarget.open)}
         title={
           <>
-            <strong>
-              {edit
-                ? cell.status === "ok"
-                  ? edit.labels.succeeded
-                  : cell.status === "error"
-                    ? edit.labels.failed
-                    : edit.labels.running
-                : cell.name}
-            </strong>
+            <ToolIcon size={13} aria-hidden="true" className="tool-icon muted" />
+            {cell.status === "error" && boundary !== "begin" && (
+              <span className="tool-failure">Failed</span>
+            )}
+            <strong>{boundary ? `eval ${boundary}` : cell.name}</strong>
             <span className="tool-argument-preview">
-              {(typeof cell.args === "string" ? cell.args : JSON.stringify(cell.args))
-                .replace(/\s+/g, " ")
-                .slice(0, 300)}
+              {(boundary === "result"
+                ? (cell.output ?? "")
+                : typeof cell.args === "string"
+                  ? cell.args
+                  : JSON.stringify(cell.args)
+              )
+                .slice(0, 300)
+                .replace(/\s+/g, " ")}
             </span>
-            <span className="tool-status muted">
-              {cell.approvalProgress?.status === "reviewing"
-                ? "awaiting approval"
-                : (cell.status ?? "running")}
-            </span>
-            {children.length > 0 && (
-              <span className="muted">{children.length} nested operations</span>
+            {cell.approvalProgress?.status === "reviewing" && (
+              <span className="tool-status muted">awaiting approval</span>
             )}
           </>
         }
@@ -919,13 +932,6 @@ export function createDesktopRouter(
         {open && (
           <>
             {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
-            {children.length > 0 && (
-              <div className="nested-tools">
-                {children.map((child) => (
-                  <TranscriptCell key={child.kind === "tool" ? child.callId : ""} cell={child} />
-                ))}
-              </div>
-            )}
             {edit &&
               edit.files.map((file, index) => (
                 <section className="diff" key={`${file.path}:${index}`}>
@@ -940,12 +946,20 @@ export function createDesktopRouter(
                   </pre>
                 </section>
               ))}
-            <h3>Arguments</h3>
-            <pre>
-              {typeof cell.args === "string" ? cell.args : JSON.stringify(cell.args, null, 2)}
-            </pre>
-            <h3>Output</h3>
-            <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
+            {boundary !== "result" && (
+              <>
+                <h3>Arguments</h3>
+                <pre>
+                  {typeof cell.args === "string" ? cell.args : JSON.stringify(cell.args, null, 2)}
+                </pre>
+              </>
+            )}
+            {boundary !== "begin" && (
+              <>
+                <h3>Output</h3>
+                <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
+              </>
+            )}
             {cell.approval && (
               <p className="muted">
                 {cell.approval.decision === "allow" ? "Allowed" : "Denied"} by{" "}
@@ -958,13 +972,32 @@ export function createDesktopRouter(
     );
   }
 
+  function Thinking({ startedAt }: { startedAt: number }) {
+    const [now, setNow] = useState(Date.now);
+    useEffect(() => {
+      const timer = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(timer);
+    }, []);
+    const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+    return (
+      <>
+        Thinking for {seconds} {seconds === 1 ? "second" : "seconds"}
+      </>
+    );
+  }
+
   function StepGroup({ row }: { row: Extract<TranscriptRow, { kind: "steps" }> }) {
     const [open, setOpen] = useState(false);
-    const calls = row.steps.filter((step) => step.cell.kind === "tool").length;
+    const calls = row.steps.filter(
+      (step) => step.cell.kind === "tool" && !("boundary" in step && step.boundary === "result"),
+    ).length;
     const working = row.steps.some(({ cell }) =>
       cell.kind === "reasoning" ? cell.streaming : !cell.status,
     );
     const start = row.steps.reduce((time, { cell }) => Math.min(time, cell.startedAt), Infinity);
+    const observedStart = row.steps.every(
+      ({ cell }) => cell.kind === "tool" || cell.observedTiming,
+    );
     const end = row.steps.reduce<number | undefined>(
       (time, { cell }) =>
         time === undefined ||
@@ -975,38 +1008,53 @@ export function createDesktopRouter(
       0,
     );
     const duration = end === undefined ? undefined : Math.round((end - start) / 1000);
-    const label = working
-      ? "Working"
-      : duration === undefined
-        ? "Worked"
-        : `Worked for ${duration}s`;
+    const label = working ? (
+      observedStart ? (
+        <Thinking startedAt={start} />
+      ) : (
+        "Thinking"
+      )
+    ) : duration === undefined ? (
+      "Thought"
+    ) : (
+      `Thought for ${duration} ${duration === 1 ? "second" : "seconds"}`
+    );
     return (
       <Disclosure
         className="cell tool-group"
-        title={`${label}${calls ? ` · ${calls} tool ${calls === 1 ? "call" : "calls"}` : ""}`}
+        title={
+          <span>
+            {label}
+            {calls ? ` · ${calls} tool ${calls === 1 ? "call" : "calls"}` : ""}
+          </span>
+        }
         onToggle={(event) => setOpen(event.currentTarget.open)}
       >
         {open &&
-          row.steps.map((step) => (
-            <TranscriptCell
-              key={step.key}
-              cell={step.cell}
-              children={"children" in step ? step.children : undefined}
-            />
-          ))}
+          row.steps.map((step) =>
+            step.cell.kind === "tool" ? (
+              <ToolCall
+                key={step.key}
+                cell={step.cell}
+                boundary={"boundary" in step ? step.boundary : undefined}
+              />
+            ) : (
+              <TranscriptCell key={step.key} cell={step.cell} />
+            ),
+          )}
       </Disclosure>
     );
   }
 
-  function TranscriptCell({ cell, children = [] }: { cell: Cell; children?: Cell[] | undefined }) {
-    if (cell.kind === "tool") return <ToolCall cell={cell} children={children} />;
+  function TranscriptCell({ cell }: { cell: Cell }) {
+    if (cell.kind === "tool") return <ToolCall cell={cell} />;
     if (cell.kind === "reasoning")
       return (
-        <Disclosure className="cell reasoning" title={<>Reasoning {cell.streaming ? "…" : ""}</>}>
+        <div className="cell reasoning">
           <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
             {cell.text}
           </Markdown>
-        </Disclosure>
+        </div>
       );
     if (cell.kind === "compaction" || cell.kind === "context")
       return (

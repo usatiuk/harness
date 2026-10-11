@@ -55,15 +55,12 @@ test("code-only execution reviews concrete child calls and keeps nested history 
         .locator('[data-testid="tool-call"]')
         .filter({ has: page.locator("summary strong", { hasText: "tool_search" }) }),
     ).toHaveCount(1);
-    const outer = page
-      .locator('[data-testid="tool-call"]')
-      .filter({ has: page.locator("summary strong", { hasText: "eval" }) })
-      .first();
-    await outer.locator(":scope > summary").click();
-    await expect(outer.locator(".nested-tools")).toContainText("powershell");
+    const nested = page
+      .locator('.tool-group > [data-testid="tool-call"]')
+      .filter({ has: page.locator("summary strong", { hasText: "powershell" }) });
+    await expect(nested).toHaveCount(1);
     await page.getByRole("button", { name: "Allow", exact: true }).click();
     await expect(page.locator(".conversation-status")).toContainText("Ready");
-    const nested = outer.locator('.nested-tools [data-testid="tool-call"]');
     await nested.locator("summary").click();
     await expect(nested.getByTestId("tool-output")).toContainText("code-mode-marker");
     await expect(nested).toContainText("Invoked by");
@@ -85,9 +82,17 @@ test("code-only execution reviews concrete child calls and keeps nested history 
     const reopened = app.page
       .locator('[data-testid="tool-call"]')
       .filter({ has: app.page.locator("summary strong", { hasText: "eval" }) });
-    await expect(reopened).toHaveCount(2);
-    await reopened.last().locator(":scope > summary").click();
-    await expect(reopened.last().locator(".nested-tools")).toContainText("error");
+    await expect(reopened).toHaveCount(4);
+    const denied = app.page
+      .locator('.tool-group > [data-testid="tool-call"]')
+      .filter({
+        has: app.page.locator("summary strong", { hasText: "powershell" }),
+      })
+      .last();
+    await expect(denied.locator(".tool-failure")).toHaveText("Failed");
+    await denied.locator("summary").click();
+    await expect(denied.getByTestId("tool-output")).toContainText("denied");
+    await expect(denied).toContainText("Invoked by");
     expect(app.errors).toEqual([]);
   } finally {
     await app.close();

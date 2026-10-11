@@ -22,7 +22,7 @@ it("retains row identity through growth, commit, interruption and multiple block
   expect(transcript.rows.map((row) => row.key)).toEqual([firstKey, secondKey]);
 });
 
-it("does not give earlier same-turn history the live stream's key and groups newly loaded parents", () => {
+it("does not give earlier same-turn history the live stream's key and keeps newly loaded parents and children flat", () => {
   const transcript = new DesktopTranscript();
   const stream: Cell = {
     kind: "reasoning",
@@ -46,14 +46,15 @@ it("does not give earlier same-turn history the live stream's key and groups new
   transcript.update([earlier, parent, child, stream]);
   const steps = toolGroup(transcript.rows[0]!).steps;
   expect(steps[0].key).not.toBe(liveKey);
-  expect(steps[1]).toMatchObject({ cell: parent, children: [child] });
-  expect(steps[2]!.key).toBe(liveKey);
+  expect(steps[1]).toMatchObject({ cell: parent, boundary: "begin" });
+  expect(steps[2]).toMatchObject({ cell: child });
+  expect(steps[3]!.key).toBe(liveKey);
   const finished: Cell = { ...stream, streaming: false, id: "live" };
   transcript.update([earlier, parent, child, finished]);
-  expect(toolGroup(transcript.rows[0]!).steps[2]!.key).toBe(liveKey);
+  expect(toolGroup(transcript.rows[0]!).steps[3]!.key).toBe(liveKey);
 });
 
-it("groups consecutive calls between messages while retaining nested operations and identities", () => {
+it("groups consecutive calls between messages while showing child operations once without nesting", () => {
   const transcript = new DesktopTranscript();
   const call = (callId: string): Extract<Cell, { kind: "tool" }> => ({
     kind: "tool",
@@ -83,8 +84,8 @@ it("groups consecutive calls between messages while retaining nested operations 
     first,
     thought,
     second,
+    child,
   ]);
-  expect(toolGroup(transcript.rows[0]!).steps[0]).toMatchObject({ children: [child] });
   expect(transcript.rows[1]).toMatchObject({ kind: "cell", cell: message });
   expect(toolGroup(transcript.rows[2]!).steps).toHaveLength(1);
 });
@@ -93,3 +94,47 @@ function toolGroup(row: TranscriptRow): Extract<TranscriptRow, { kind: "steps" }
   if (row.kind !== "steps") throw new Error("Expected tool group");
   return row;
 }
+
+it("places eval results after all available descendants, including nested evals", () => {
+  const transcript = new DesktopTranscript();
+  const call = (
+    callId: string,
+    name: string,
+    parentCallId?: string,
+  ): Extract<Cell, { kind: "tool" }> => ({
+    kind: "tool",
+    callId,
+    name,
+    args: {},
+    startedAt: 0,
+    status: "ok",
+    output: callId,
+    ...(parentCallId ? { parentCallId } : {}),
+  });
+  const parent = call("parent", "eval");
+  const nested = call("nested", "eval", "parent");
+  const leaf = call("leaf", "read_file", "nested");
+  const sibling = call("sibling", "exec", "parent");
+  transcript.update([parent, nested, leaf, sibling]);
+  const steps = toolGroup(transcript.rows[0]!).steps;
+  expect(
+    steps.map((step) => [
+      step.cell.kind === "tool" ? step.cell.callId : "",
+      "boundary" in step ? step.boundary : undefined,
+    ]),
+  ).toEqual([
+    ["parent", "begin"],
+    ["nested", "begin"],
+    ["leaf", undefined],
+    ["nested", "result"],
+    ["sibling", undefined],
+    ["parent", "result"],
+  ]);
+  expect(new Set(steps.map((step) => step.key)).size).toBe(steps.length);
+  const { status: parentStatus, ...runningParent } = parent;
+  const { status: nestedStatus, ...runningNested } = nested;
+  expect(parentStatus).toBe("ok");
+  expect(nestedStatus).toBe("ok");
+  transcript.update([runningParent, runningNested, leaf, sibling]);
+  expect(toolGroup(transcript.rows[0]!).steps).toHaveLength(4);
+});

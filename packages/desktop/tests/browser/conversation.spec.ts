@@ -298,7 +298,9 @@ test("support growth while reading does not resume follow", async ({ page }) => 
   ).toBeCloseTo(top, 0);
 });
 
-test("a visible standalone child anchors to its newly loaded parent", async ({ page }) => {
+test("a visible child keeps its position when earlier history loads its parent", async ({
+  page,
+}) => {
   await page.goto(url + "?children");
   await expect.poll(() => page.evaluate(() => window.canvasFixture.ready)).toBe(true);
   await expect(
@@ -346,28 +348,21 @@ test("a visible standalone child anchors to its newly loaded parent", async ({ p
     .toBe(true);
   const anchor = await page.locator(".conversation-scroll").evaluate((element) => {
     const top = element.querySelector(".conversation-header")!.getBoundingClientRect().bottom;
-    const visible = [...element.querySelectorAll(".transcript-item")].find(
-      (row) => row.querySelector(".cell.tool") && row.getBoundingClientRect().bottom > top,
+    const visible = [...element.querySelectorAll(".cell.tool")].find(
+      (row) => row.getBoundingClientRect().bottom > top,
     );
     if (!visible) throw new Error("No visible child to anchor");
-    // A parent at index zero cannot be placed below the list's start without
-    // a negative scrollTop. Preserve the offset within that real scroll bound.
-    const start =
-      element.getBoundingClientRect().top +
-      (element.querySelector(".conversation-header-wrap") as HTMLElement).offsetHeight +
-      (element.querySelector(".transcript-history") as HTMLElement).offsetHeight;
     return {
       name: visible.querySelector("summary")!.textContent,
-      y: Math.min(visible.getBoundingClientRect().top, start),
+      y: visible.getBoundingClientRect().top,
     };
   });
   expect(anchor.name).toMatch(/^Child /);
   await page.evaluate(() => window.canvasFixture.prepend());
-  const parent = page.getByText("eval", { exact: true });
-  await expect(parent).toBeVisible();
-  await expect(parent).toBeInViewport();
+  const child = page.getByText(anchor.name, { exact: true }).locator("..");
+  await expect(child).toBeInViewport();
   await expect
-    .poll(async () => Math.abs((await parent.locator("../..").boundingBox())!.y - anchor.y))
+    .poll(async () => Math.abs((await child.boundingBox())!.y - anchor.y))
     .toBeLessThanOrEqual(1.5);
 });
 
@@ -640,7 +635,9 @@ test("tool groups are compact and activities refresh automatically only while mo
   await page.clock.install();
   await page.evaluate(() => window.composerFixture.showToolsAndActivities());
   const group = page.locator(".tool-group");
-  await expect(group.locator(":scope > summary")).toHaveText("Working · 2 tool calls");
+  await expect(group.locator(":scope > summary")).toHaveText(
+    "Thinking for 0 seconds · 2 tool calls",
+  );
   await expect(group).not.toHaveAttribute("open", "");
   await group.locator(":scope > summary").click();
   const call = group.locator('[data-testid="tool-call"]').first();
@@ -709,7 +706,7 @@ test("long tool groups mount only call previews and the details actually opened"
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showLongToolRun());
   const group = page.locator(".tool-group");
-  await expect(group.locator(":scope > summary")).toHaveText("Worked · 100 tool calls");
+  await expect(group.locator(":scope > summary")).toHaveText("Thought · 100 tool calls");
   await expect(group.getByTestId("tool-call")).toHaveCount(0);
   await expect(group.locator(".diff span")).toHaveCount(0);
   await group.locator(":scope > summary").click();
@@ -730,22 +727,38 @@ test("long tool groups mount only call previews and the details actually opened"
 test("reasoning and tool calls share a collapsed group between messages", async ({ page }) => {
   await page.goto(url + "?composer");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.clock.install();
   await page.evaluate(() => {
     window.composerFixture.showToolsAndActivities();
     window.composerFixture.insertReasoning();
   });
   const group = page.locator(".tool-group");
   await expect(group).toHaveCount(1);
-  await expect(group.locator(":scope > summary")).toHaveText("Working · 2 tool calls");
+  await expect(group.locator(":scope > summary")).toHaveText(
+    "Thinking for 0 seconds · 2 tool calls",
+  );
+  await page.clock.runFor(2000);
+  await expect(group.locator(":scope > summary")).toHaveText(
+    "Thinking for 2 seconds · 2 tool calls",
+  );
   await expect(group.locator(".reasoning")).toHaveCount(0);
   await group.locator(":scope > summary").click();
-  await expect(group.locator(".reasoning > summary")).toHaveText("Reasoning");
+  await expect(group.locator(".reasoning")).toHaveText("Checking credential ownership");
+  await expect(group.locator(".reasoning summary")).toHaveCount(0);
   await expect(group.getByTestId("tool-call")).toHaveCount(2);
-  await group.locator(".reasoning > summary").click();
+  const label = await group.locator(":scope > summary").boundingBox();
+  const icon = await group.locator(".tool-icon").first().boundingBox();
+  expect(Math.abs(icon!.x - label!.x)).toBeLessThanOrEqual(1);
   await expect(group.locator(".reasoning")).toContainText("Checking credential ownership");
   await expect(page.getByTestId("assistant-message")).toHaveText("Checking the stores");
   await page.evaluate(() => window.composerFixture.completeSteps());
-  await expect(group.locator(":scope > summary")).toHaveText("Worked for 12s · 2 tool calls");
+  await expect(group.locator(":scope > summary")).toHaveText(
+    "Thought for 12 seconds · 2 tool calls",
+  );
+  await page.clock.runFor(2000);
+  await expect(group.locator(":scope > summary")).toHaveText(
+    "Thought for 12 seconds · 2 tool calls",
+  );
   await page.screenshot({ path: test.info().outputPath("combined-work.png") });
 });
 
@@ -854,4 +867,47 @@ test("collapsed history loads one page per approach or upward scroll", async ({ 
   await expect.poll(() => page.evaluate(() => window.composerFixture.historyCalls)).toBe(3);
   await page.evaluate(() => window.composerFixture.releaseHistory());
   await expect(page.locator(".earlier-history")).toHaveCount(0);
+});
+
+test("eval boundaries keep child tools flat with right chevrons and failure-only labels", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showEval());
+  const group = page.locator(".tool-group");
+  await expect(group.locator(":scope > summary")).toHaveText(
+    "Thought for 12 seconds · 3 tool calls",
+  );
+  await expect(group.getByTestId("tool-call")).toHaveCount(0);
+  await group.locator(":scope > summary").click();
+  const calls = group.locator(":scope > .tool");
+  await expect(calls).toHaveCount(4);
+  await expect(calls.locator("summary strong")).toHaveText([
+    "eval begin",
+    "read_file",
+    "exec",
+    "eval result",
+  ]);
+  await expect(group.locator(".tool-failure")).toHaveText("Failed");
+  await expect(group.locator(".tool-status")).toHaveCount(0);
+  await expect(group.getByTestId("tool-output")).toHaveCount(0);
+  const read = calls.nth(1);
+  const icon = await read.locator(".tool-icon").boundingBox();
+  const chevron = await read.locator(".disclosure-chevron").boundingBox();
+  const name = await read.locator("strong").boundingBox();
+  expect(icon!.x).toBeLessThan(name!.x);
+  expect(chevron!.x).toBeGreaterThan(name!.x + name!.width);
+  await read.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(read.getByTestId("tool-output")).toHaveText("File not found");
+  await expect(calls.first()).not.toHaveAttribute("open", "");
+  await calls.first().locator("summary").click();
+  await expect(calls.first()).toContainText("await tools.read_file");
+  await expect(calls.first().getByTestId("tool-output")).toHaveCount(0);
+  const result = calls.last();
+  await result.locator("summary").click();
+  await expect(result.getByTestId("tool-output")).toHaveText('{"updated":true}');
+  await expect(result).not.toContainText("Arguments");
+  await page.screenshot({ path: test.info().outputPath("eval-boundaries.png") });
 });
