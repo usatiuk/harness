@@ -3,6 +3,7 @@ import { PRODUCT_USER_AGENT } from "@harness/release";
 import type { Stream } from "openai/core/streaming";
 import {
   ContextWindowExceededError,
+  ModelDiscoveryError,
   type ModelCallContext,
   type ModelCapabilities,
   type ModelConfig,
@@ -14,6 +15,7 @@ import {
 import {
   fetchCatalog,
   MISTRAL_BASE_URL,
+  MAX_MODELS,
   parseCatalog,
   REASONING_EFFORT,
   type CatalogEntry,
@@ -22,6 +24,7 @@ import {
 } from "./catalog.ts";
 import { buildMistralRequest } from "./request.ts";
 import { mistralEvents } from "./stream.ts";
+import type { ConfiguredModel } from "./config.ts";
 
 /** Native Mistral semantics; the OpenAI SDK owns only HTTP/SSE delivery. */
 export class MistralProvider implements ModelProvider {
@@ -31,6 +34,7 @@ export class MistralProvider implements ModelProvider {
   readonly #apiKey: string;
   readonly #fetch: typeof fetch;
   readonly #client: OpenAI;
+  readonly #models: Readonly<Record<string, ConfiguredModel>>;
   #catalog = new Map<string, CatalogEntry>();
 
   constructor(
@@ -39,12 +43,15 @@ export class MistralProvider implements ModelProvider {
     apiKey: string,
     fetcher: typeof fetch = fetch,
     webSearch = false,
+    models: Record<string, ConfiguredModel> = {},
   ) {
     this.provider = id;
     this.providerOptions = Object.freeze({ webSearch });
     this.#mode = mode;
     this.#apiKey = apiKey;
     this.#fetch = fetcher;
+    this.#models = structuredClone(models);
+    this.#catalog = this.#mergeModels(new Map());
     this.#client = new OpenAI({
       apiKey,
       baseURL: MISTRAL_BASE_URL,
@@ -55,6 +62,38 @@ export class MistralProvider implements ModelProvider {
   }
   listModels(): ModelInfo[] {
     return structuredClone([...this.#catalog.values()].map(({ info }) => info));
+  }
+  #mergeModels(entries: Map<string, CatalogEntry>): Map<string, CatalogEntry> {
+    for (const [model, configured] of Object.entries(this.#models)) {
+      const discovered = entries.get(model);
+      const info: ModelInfo = {
+        provider: this.provider,
+        model,
+        ...discovered?.info,
+        ...(configured.label !== undefined ? { label: configured.label } : {}),
+        ...(configured.contextWindow !== undefined
+          ? { contextWindow: configured.contextWindow }
+          : {}),
+        ...(configured.maxOutputTokens !== undefined
+          ? { maxOutputTokens: configured.maxOutputTokens }
+          : {}),
+      };
+      if (
+        info.contextWindow !== undefined &&
+        info.maxOutputTokens !== undefined &&
+        info.maxOutputTokens > info.contextWindow
+      )
+        throw new Error(
+          `Invalid capacity for ${this.provider}/${model}: maxOutputTokens cannot exceed contextWindow`,
+        );
+      entries.set(model, { ...discovered, info });
+    }
+    if (entries.size > MAX_MODELS)
+      throw new ModelDiscoveryError(
+        "limit",
+        "Mistral catalog exceeds 5000 models including configured entries",
+      );
+    return entries;
   }
   #entry(model: string): CatalogEntry {
     const entry = this.#catalog.get(model);
@@ -85,7 +124,7 @@ export class MistralProvider implements ModelProvider {
       this.provider,
     );
     signal.throwIfAborted();
-    this.#catalog = result.entries;
+    this.#catalog = this.#mergeModels(result.entries);
     return {
       status: result.diagnostics.length ? ("degraded" as const) : ("ready" as const),
       diagnostics: result.diagnostics,

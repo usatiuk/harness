@@ -244,8 +244,35 @@ web search. API discovery uses
 `/v1/models` and Vibe discovery uses `/v1/model-catalog?surface=vibe-code`.
 Discovery runs at server boot. The experimental Vibe catalog surface does not
 establish subscription eligibility or billing behavior. Available context limits
-and verified Vibe reasoning controls come from the catalog; output limits and
-prices remain unknown when the server does not advertise them.
+and verified Vibe reasoning controls come from the catalog; unadvertised output
+limits remain unknown unless configured, and unadvertised prices remain unknown.
+
+Mistral API/Vibe connections also accept `config.models` to declare missing model
+IDs or override discovered labels and capacity. For example, inside a
+`mistral-vibe` connection's config:
+
+```json
+{
+  "apiKey": { "env": "MISTRAL_VIBE_API_KEY", "stored": true },
+  "models": {
+    "your-exact-model-id": {
+      "label": "My model",
+      "contextWindow": 262144,
+      "maxOutputTokens": 8192
+    }
+  }
+}
+```
+
+The ID and limits above are illustrative; use the exact upstream ID and verified
+limits for your model. Every metadata field is optional; `{}` declares an ID with
+unknown capacity. Explicit fields win for that exact ID, without changing its
+aliases or discovered reasoning presets. Configured models remain selectable if
+catalog discovery fails, with the failure shown in provider status; credentials
+are still required and generation errors remain visible. Manual-only entries use
+the existing native Mistral transport and expose no reasoning presets. Both
+capacity limits are needed for proactive compaction; these describe model limits,
+not a generation preset. Restart the server after editing connection config.
 
 Every model call has the calling conversation's stable identity, including
 subagents, compaction and auto-approval. OpenCode Go sends it as

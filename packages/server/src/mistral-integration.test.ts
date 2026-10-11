@@ -75,12 +75,24 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
     JSON.stringify({
       version: 1,
       model: { provider: "mistral-vibe", model: "mistral-vibe-cli-latest" },
-      providers: { unavailable: { type: "mistral-vibe", config: {} } },
+      providers: {
+        "mistral-vibe": {
+          type: "mistral-vibe",
+          config: {
+            models: {
+              "manual-model": { label: "Manual", contextWindow: 524288, maxOutputTokens: 8192 },
+              "mistral-vibe-cli-latest": { contextWindow: 131072, maxOutputTokens: 4096 },
+            },
+          },
+        },
+        unavailable: { type: "mistral-vibe", config: {} },
+        manual: { type: "mistral-vibe", config: { models: { "manual-model": {} } } },
+      },
     }),
   );
   const headers: Record<string, unknown>[] = [];
   const gateway = await httpGateway((req, response, raw) => {
-    if (req.key === "unavailable-key")
+    if (req.key === "unavailable-key" || (req.key === "manual-key" && req.method === "GET"))
       return json(response, { error: "private server detail" }, 403);
     if (req.path === "/v1/models")
       return json(response, {
@@ -152,6 +164,7 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
       ["mistral-api", "api-key"],
       ["mistral-vibe", "vibe-key"],
       ["unavailable", "unavailable-key"],
+      ["manual", "manual-key"],
     ])
       expect(
         await rpc.peer.request(appAuthLoginRequest, {
@@ -171,7 +184,7 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
     expect(statuses.find(({ id }) => id === "mistral-vibe")).toMatchObject({
       registered: true,
       catalog: "ready",
-      modelCount: 1,
+      modelCount: 2,
     });
     expect(statuses.find(({ id }) => id === "unavailable")).toMatchObject({
       registered: true,
@@ -180,6 +193,12 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
       diagnostics: ["Mistral catalog returned HTTP 403"],
     });
     expect(JSON.stringify(statuses)).not.toContain("private server detail");
+    expect(statuses.find(({ id }) => id === "manual")).toMatchObject({
+      registered: true,
+      catalog: "degraded",
+      modelCount: 1,
+      diagnostics: ["Mistral catalog returned HTTP 403"],
+    });
     const models = (await rpc.models()).models;
     expect(models).toEqual(
       expect.arrayContaining([
@@ -190,14 +209,31 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
         }),
         expect.objectContaining({
           provider: "mistral-vibe",
+          model: "mistral-vibe-cli-latest",
+          contextWindow: 131072,
+          maxOutputTokens: 4096,
           presets: [
             { value: "off", label: null },
             { value: "high", label: null },
           ],
         }),
+        expect.objectContaining({
+          provider: "mistral-vibe",
+          model: "manual-model",
+          label: "Manual",
+          contextWindow: 524288,
+          maxOutputTokens: 8192,
+        }),
+        expect.objectContaining({ provider: "manual", model: "manual-model" }),
       ]),
     );
-    const conversation = await rpc.create();
+    const degraded = await rpc.create({
+      overrides: { model: { provider: "manual", model: "manual-model" } },
+    });
+    expect(degraded.config.model).toMatchObject({ provider: "manual", model: "manual-model" });
+    const conversation = await rpc.create({
+      overrides: { model: { provider: "mistral-vibe", model: "manual-model" } },
+    });
     await rpc.attach(conversation.id);
     let finished!: (status: string) => void;
     const terminal = new Promise<string>((resolve) => {
@@ -225,6 +261,9 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
       outputTokens: 4,
       cachedReadTokens: 80,
     });
+    expect(gateway.requests.find(({ method }) => method === "POST")?.body.model).toBe(
+      "manual-model",
+    );
     const history = (await rpc.history({ conversationId: conversation.id })).entries;
     expect(
       history.find(

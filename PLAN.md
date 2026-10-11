@@ -125,6 +125,15 @@ below consolidates Mistral generation onto streaming Conversations while retaini
 these connections and routing behavior. Live Mistral acceptance,
 cache-hit performance and subscription billing remain unqualified without credentials.
 
+The [Mistral configured-model follow-up](docs/plans/models/2026-10-11-mistral-configured-models.md)
+adds missing IDs and per-ID label/capacity overrides through `config.models` on
+both connection types. Its 58 focused tests and three independent reviews pass;
+typechecking, formatting, and repository lint pass. The full suite passes 1,240 tests
+with two unchanged MCP OAuth failures. The delivery plan records validation limits
+and the upstream correction of an initially encountered script lint error. Native
+transport,
+credentials, and discovered reasoning controls retain their existing ownership.
+
 The [Windows CI reliability follow-up](docs/plans/cross-cutting/2026-10-07-windows-ci-reliability.md)
 corrects stale discovery publication, RPC completion at shutdown/EOF and test
 prerequisites. The corrected cancellation gate, observer cleanup and attachment

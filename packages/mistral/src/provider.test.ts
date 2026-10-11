@@ -7,6 +7,7 @@ import { MistralProvider } from "./provider.ts";
 import { fetchCatalog, parseCatalog } from "./catalog.ts";
 import { buildMistralRequest } from "./request.ts";
 import { mistralEvents } from "./stream.ts";
+import type { ConfiguredModel } from "./config.ts";
 
 const gateways: Awaited<ReturnType<typeof httpGateway>>[] = [];
 afterEach(async () => {
@@ -126,7 +127,13 @@ function continuation(first: ModelStreamEvent[], base: ModelRequest): ModelReque
   delete next.prompt;
   return next;
 }
-async function fixture(mode: "api" | "vibe", events: unknown[], status = 200, search = false) {
+async function fixture(
+  mode: "api" | "vibe",
+  events: unknown[],
+  status = 200,
+  search = false,
+  models: Record<string, ConfiguredModel> = {},
+) {
   const headers: Record<string, unknown>[] = [];
   const gateway = await httpGateway((req, response, raw) => {
     headers.push(raw.headers);
@@ -151,12 +158,40 @@ async function fixture(mode: "api" | "vibe", events: unknown[], status = 200, se
       return fetch(url.replace("https://api.mistral.ai", gateway.url), init);
     },
     search,
+    models,
   );
   await provider.refreshModels(signal);
   return { provider, gateway, headers };
 }
 
 describe("Mistral native delivery", () => {
+  it.each(["api", "vibe"] as const)("generates a configured-only model on %s", async (mode) => {
+    const { provider, gateway } = await fixture(
+      mode,
+      [message("manual reply"), done()],
+      200,
+      false,
+      {
+        manual: { label: "Manual", contextWindow: 262144, maxOutputTokens: 8192 },
+      },
+    );
+    const req = { ...request(mode), modelConfig: { provider: "work", model: "manual" } };
+    expect((await collect(provider, req)).at(-1)?.type).toBe("completed");
+    expect(gateway.requests.find(({ method }) => method === "POST")?.body).toMatchObject({
+      model: "manual",
+      store: false,
+    });
+    expect(provider.listModels().find(({ model }) => model === "manual")).toEqual({
+      provider: "work",
+      model: "manual",
+      label: "Manual",
+      contextWindow: 262144,
+      maxOutputTokens: 8192,
+    });
+    expect(() => provider.validateConfig({ ...req.modelConfig, preset: "high" })).toThrow(
+      "Unknown preset",
+    );
+  });
   it("streams and replays signed thinking, exact call arguments and stable prefixes over real HTTP/SSE", async () => {
     const firstBlock = {
       type: "thinking",
@@ -419,6 +454,94 @@ describe("Mistral native delivery", () => {
   });
 });
 describe("Mistral catalog boundary", () => {
+  it.each(["api", "vibe"] as const)(
+    "merges configured metadata per exact ID on %s",
+    async (mode) => {
+      let raw: unknown = catalog(mode);
+      const provider = new MistralProvider(
+        "work",
+        mode,
+        "key",
+        async () => Response.json(raw),
+        false,
+        {
+          coding: { contextWindow: 524288, maxOutputTokens: 8192 },
+          "coding-latest": { label: "Alias override" },
+          manual: { contextWindow: 10000, maxOutputTokens: 1000 },
+        },
+      );
+      expect(provider.listModels().map(({ model }) => model)).toEqual([
+        "coding",
+        "coding-latest",
+        "manual",
+      ]);
+      await provider.refreshModels(signal);
+      const discovered = provider.listModels();
+      expect(discovered.find(({ model }) => model === "coding")).toMatchObject({
+        label: mode === "vibe" ? "Vibe coding" : "Coding",
+        contextWindow: 524288,
+        maxOutputTokens: 8192,
+      });
+      expect(discovered.find(({ model }) => model === "coding-latest")).toMatchObject({
+        label: "Alias override",
+        contextWindow: 262144,
+      });
+      if (mode === "vibe")
+        expect(discovered[0]?.presets).toEqual([{ value: "off" }, { value: "high" }]);
+      raw = mode === "api" ? { data: [{ invalid: true }] } : { models: [{ invalid: true }] };
+      await expect(provider.refreshModels(signal)).rejects.toBeInstanceOf(ModelDiscoveryError);
+      expect(provider.listModels()).toEqual(discovered);
+      raw = mode === "api" ? { data: [] } : { models: [] };
+      await provider.refreshModels(signal);
+      expect(provider.listModels().find(({ model }) => model === "coding-latest")).toEqual({
+        provider: "work",
+        model: "coding-latest",
+        label: "Alias override",
+      });
+      expect(provider.listModels().find(({ model }) => model === "manual")?.maxOutputTokens).toBe(
+        1000,
+      );
+    },
+  );
+
+  it("rejects capacity conflicts introduced by discovery without publishing the snapshot", async () => {
+    const provider = new MistralProvider(
+      "work",
+      "api",
+      "key",
+      async () => Response.json(catalog("api")),
+      false,
+      {
+        coding: { maxOutputTokens: 524288 },
+      },
+    );
+    const before = provider.listModels();
+    await expect(provider.refreshModels(signal)).rejects.toThrow(
+      "maxOutputTokens cannot exceed contextWindow",
+    );
+    expect(provider.listModels()).toEqual(before);
+  });
+
+  it("bounds the combined catalog and retains configured entries after discovery failure", async () => {
+    let response = new Response(null, { status: 503 });
+    const provider = new MistralProvider("work", "api", "key", async () => response, false, {
+      manual: {},
+    });
+    await expect(provider.refreshModels(signal)).rejects.toMatchObject({
+      code: "http",
+      status: 503,
+    });
+    expect(provider.listModels()).toEqual([{ provider: "work", model: "manual" }]);
+    response = Response.json({
+      data: Array.from({ length: 5000 }, (_, i) => ({
+        ...apiRow,
+        id: `model-${i}`,
+        aliases: [],
+      })),
+    });
+    await expect(provider.refreshModels(signal)).rejects.toMatchObject({ code: "limit" });
+    expect(provider.listModels()).toEqual([{ provider: "work", model: "manual" }]);
+  });
   it("exposes verified Vibe presets, excludes unsupported models and reports bad metadata", () => {
     const parsed = parseCatalog(
       {

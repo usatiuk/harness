@@ -4,7 +4,7 @@ import { ModelDiscoveryError, type ModelInfo } from "@harness/protocol";
 
 export type MistralMode = "api" | "vibe";
 export const MISTRAL_BASE_URL = "https://api.mistral.ai/v1";
-const MAX_MODELS = 5000;
+export const MAX_MODELS = 5000;
 // Node fetch reports transport failures through a coded cause. An arbitrary
 // TypeError is a programming defect, even if cancellation races it.
 const NETWORK_CODES = new Set([

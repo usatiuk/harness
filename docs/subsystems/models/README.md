@@ -298,8 +298,18 @@ Discovery uses the existing bounded boot lifecycle: 2 MiB responses, 5,000 rows
 and expanded aliases, atomic snapshots, cancellation, safe status diagnostics,
 and no polling or disk cache. Explicit catalog rows own their IDs; conflicting
 aliases and duplicate IDs fail discovery. Only function-capable chat models are
-selectable. Model labels and context capacity follow the catalog; unadvertised
-output limits/prices remain unknown. Vibe's verified `off`/`low` controls map to
+discovered. Optional `config.models.<exact-id>` entries declare additional models
+or override `label`, `contextWindow`, and `maxOutputTokens` for a discovered ID.
+Explicit fields win without propagating to aliases; discovered temperatures and
+reasoning controls remain intact. Manual-only entries assert support for the
+existing text/function-tool transport and have no reasoning presets. Limits are
+positive integers, and output cannot exceed context when both are known, including
+after discovery merging. The combined catalog retains the 5,000-model bound and
+publishes atomically. Configured entries are available before discovery and survive
+its failure; the existing bootstrap reports degraded status and the original
+diagnostic. Credentials are still required. Connection changes need a restart.
+Unadvertised prices and unadvertised/unconfigured capacity remain unknown.
+Vibe's verified `off`/`low` controls map to
 native `none`, and `medium`/`high`/`max` map to `high`, only when advertised.
 The public canonical content boundary currently supports text, so advertised
 vision capabilities do not enable image input.

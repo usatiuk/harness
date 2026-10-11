@@ -3,6 +3,7 @@ import { defineProviderType, type Plugin } from "@harness/protocol";
 import { apiKeySourceSchema, instanceApiKeyAuth } from "@harness/auth";
 import { MistralProvider } from "./provider.ts";
 import type { MistralMode } from "./catalog.ts";
+import { configuredModelsSchema } from "./config.ts";
 
 function providerType(mode: MistralMode) {
   return defineProviderType({
@@ -10,6 +11,7 @@ function providerType(mode: MistralMode) {
     configSchema: z.strictObject({
       apiKey: apiKeySourceSchema.default({ stored: true }),
       webSearch: z.boolean().default(false),
+      models: configuredModelsSchema.default({}),
     }),
     create(context, config) {
       const auth = instanceApiKeyAuth(context, config.apiKey);
@@ -18,7 +20,7 @@ function providerType(mode: MistralMode) {
         async buildProvider() {
           const key = await auth.getKey();
           return key
-            ? new MistralProvider(context.id, mode, key, fetch, config.webSearch === true)
+            ? new MistralProvider(context.id, mode, key, fetch, config.webSearch, config.models)
             : null;
         },
       };

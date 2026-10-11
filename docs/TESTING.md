@@ -746,6 +746,12 @@ delays, or a nearby condition that does not prove completion.
   replacement, redirects and external failure classification. Server RPC tests
   cover isolated API/Vibe and named credentials, sign-in/logout/restart,
   failed discovery, preserved unavailable selection, catalog and generation.
+  Configured-model regressions cover strict metadata/ID validation, additions and
+  exact-ID overrides on both surfaces, retained discovered controls, combined
+  catalog limits, atomic publication, and configured entries after discovery
+  failures. The RPC fixture loads saved model definitions, exposes overridden
+  limits and degraded discovery status, and generates a configured-only model
+  through the existing native HTTP/SSE path.
   Native signed continuation across a SQLite/server restart is composed coverage
   from adapter and existing core payload tests; it is not a direct Mistral restart
   case. RPC auth tests substitute the secret backend and do not qualify real DPAPI.
