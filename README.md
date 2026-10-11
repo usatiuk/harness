@@ -85,8 +85,9 @@ downloads missing payloads again, so it requires internet after pruning.
 Pruned development server builds need redeployment from their source checkout.
 Docker remains
 an external requirement for devcontainers, and execution tools use the host's
-installed shell/programs. The current installer and native E2E qualification
-target Windows; macOS/Linux desktop packaging is not yet qualified.
+installed shell/programs. Hosted release packaging passes on Windows x64,
+Linux x64 (Ubuntu 22.04), macOS x64 and macOS arm64. Native desktop interaction
+qualification targets Windows; installation and updates remain unqualified.
 
 Desktop and TUI attach to the same background server for each execution
 environment and OS account. Switching hosts or disconnecting preserves accepted
@@ -152,8 +153,9 @@ Public installation and updates are in progress in the
 uses this checkout's `.harness-dev/source` home by default, keeping data and settings
 separate from ordinary app use. A manual GitHub workflow bumps the version,
 builds the platform artifacts, signs them and creates a draft release.
-License collection and custom publication tooling are removed. Public installation,
-and updates remain open; no release is published yet.
+The `v0.1.2` draft contains all four platforms' CLI/server payloads, installers and
+verified update signatures. License collection and custom publication tooling are
+removed. Public installation and updates remain open; no release is published yet.
 
 On Windows, local command execution is exposed to models as `powershell`; Linux,
 macOS, and Linux dev containers expose `bash`. Windows sign-in uses DPAPI-encrypted

@@ -75,13 +75,16 @@ controls now use Tauri's official updater; actual installation remains unqualifi
 Connect-time server replacement now reuses the existing lifecycle lock and engine
 busy check: idle owners upgrade, active work requires explicit reconnect, and
 versions never downgrade. The native CLI update command verifies a signed release,
-prepares its CLI/Node and replaces its launcher. Signed update/remote qualification,
-hosted artifacts and public installation remain open.
+prepares its CLI/Node and replaces its launcher. The hosted `v0.1.2` workflow passes
+all four platform builds and production signature verification, creating one
+25-asset draft in the public source repository. Publication, signed update/remote
+execution and public installation remain open.
 
 The current implementation passes the ordinary full check with 1,218 tests
 (36 skipped), eleven Windows and ten Ubuntu headless native cases, and fresh
 WSL/SSH source deployment checks. Windows/Linux release payloads and a signed
-Windows installer build; real installation/update remains unqualified.
+Windows installer build; real installation/update remains unqualified. Windows
+and Ubuntu source/headless native CI pass at `696c876`.
 Three independent reviews of the CLI update increment are resolved.
 Direct main commits/pushes are authorized; publication and visible native tests
 require separate approval.

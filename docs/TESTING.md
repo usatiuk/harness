@@ -90,7 +90,12 @@ source remote qualification: two WSL cases and three isolated SSH cases pass.
 Windows and Linux release CLI/server payloads build and report the product version.
 A Windows NSIS release installer builds and its updater signature verifies against
 the project public key. It has not been installed or published; cold release
-downloads, combined updates and macOS artifacts remain unqualified.
+downloads and combined updates remain unqualified. Hosted release run
+`38090212226` builds all four CLI/server and desktop targets for `v0.1.2`, verifies
+the manifest and updater signatures through the production native verifier, and
+uploads one 25-asset draft. Windows/Ubuntu full source checks and headless native
+tests pass at `696c876`. Packaging establishes neither installer execution nor
+native desktop interaction on macOS/Linux.
 Use a fresh `HARNESS_HOME`, such as `.harness-dev/simplification`, for the
 replacement checks: old disposable development caches use the removed receipt
 format. No pre-release cache migration is required.
@@ -128,9 +133,10 @@ proven cause; the bounded full run changes no assertions or test deadlines.
 Checkpoint `6d59a40`, after rebasing onto MCP main `97eea03`, passed the full
 managed check with 1,290 tests and 36 skipped. Fresh payloads passed the headless
 outside-checkout CLI/RPC/demo/SQLite smoke. Replacement evidence is pending.
-Actual hosted release builds, anonymous cold installation, installer execution,
-updates and other native platforms remain unqualified. Prior Windows/Linux native
-and source SSH/WSL evidence applies to the previous implementation only.
+Hosted `v0.1.2` release builds now pass on all four targets. Anonymous cold
+installation, installer execution, combined updates and macOS/Linux native desktop
+interaction remain unqualified. Earlier native/source SSH/WSL evidence does not
+establish execution of these released artifacts.
 
 The desktop updater's headless browser regression exercises the production
 Settings component with a controlled native boundary: no installation before an

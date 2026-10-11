@@ -101,7 +101,7 @@ not duplicated in download metadata.
 
 ## Delivery checklist
 
-- [ ] Simplify the release pipeline and remove license/source inventory machinery.
+- [x] Simplify the release pipeline and remove license/source inventory machinery.
       Completion: minimal workflow validates; actual payloads build; no stale callers.
 - [x] Replace per-artifact lifetime/retention machinery with one cache-use lock.
       Depends on the payload contract. Completion: running consumers prevent removal,
@@ -263,3 +263,19 @@ phase diagnostics show startup took 23.4 seconds, all conversation/history
 assertions completed by 29.6 seconds, then cleanup crossed the 30-second deadline.
 The passing unchanged successor does not establish a product defect; assertions,
 timeouts and retry policy remain unchanged.
+
+Release run `38090212226` completes successfully at `485f19d`, tagged `v0.1.2`:
+all four native CLI/server payloads and desktop installers build, including both
+macOS updater archives. The draft job assembles the manifest/update feed and
+verifies their artifact signatures through the production native verifier before
+uploading 25 assets. This qualifies the minimal build/sign/draft workflow.
+Windows/Ubuntu source and headless native CI also pass at `696c876` in run
+`38090119791`. The local checkout is fast-forwarded to the workflow's version
+commit; no local installer or update is executed.
+
+The `v0.1.2` draft is ready for a publication decision in the same public repository.
+It remains a draft: anonymous first-use downloads cannot resolve its asset URLs.
+Actual installer execution, released remote cold deployment and a two-release
+update remain open. OS publisher signing/notarization is unavailable; the project
+signatures protect downloaded payloads and updater artifacts without providing
+an OS publisher identity. No additional release service is required.
