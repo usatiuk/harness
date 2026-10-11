@@ -402,9 +402,11 @@ or provider-specific search-result UI runs in clients.
 Desktop groups consecutive reasoning and tool calls between other transcript
 entries under a collapsed summary. Expanded reasoning is direct smaller muted text,
 without another preview or disclosure. The summary shows Thinking for X seconds
-while active, updating once per second when the group start was observed, Thought
-for the observed group duration when all member timings are available, or Thought
-otherwise, with each call counted once. Opening the group shows a flat list of
+while active, updating once per second from the locally observed group start.
+Completed live groups retain that local elapsed duration. Historical tool-only
+groups use comparable server timestamps; historical groups containing reasoning
+show Thought without timing. Client and server clocks are never mixed for elapsed
+labels. Each call is counted once. Opening the group shows a flat list of
 compact call rows, with small decorative tool icons at the same left edge as the
 thought chevron and one-line argument previews. Tool chevrons sit on the right;
 only failures show a status prefix after the icon, while awaiting approval remains

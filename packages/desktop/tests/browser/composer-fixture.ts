@@ -16,7 +16,7 @@ declare global {
   interface Window {
     composerFixture: {
       calls: Delivery[];
-      showToolsAndActivities(): void;
+      showToolsAndActivities(serverSkew?: number): void;
       showEval(): void;
       showLongToolRun(): void;
       seedHistory(): void;
@@ -307,7 +307,7 @@ window.composerFixture = {
       turnId: "turn",
       text: "Checking credential ownership",
       streaming: false,
-      startedAt: view.state.cells.find((cell) => cell.kind === "tool")!.startedAt,
+      startedAt: Date.now(),
       observedTiming: true as const,
     };
     view.state = {
@@ -338,8 +338,8 @@ window.composerFixture = {
     releasePeek?.();
     releasePeek = undefined;
   },
-  showToolsAndActivities() {
-    const startedAt = Date.now();
+  showToolsAndActivities(serverSkew = 0) {
+    const startedAt = Date.now() + serverSkew;
     view.state = {
       ...view.state,
       activities: [

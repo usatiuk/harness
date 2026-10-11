@@ -221,3 +221,35 @@ history anchoring. Rendered screenshots were inspected. `git diff --check` passe
 Native expectations were synchronized but Windows WebView2/live-provider behavior
 remains unqualified on this Linux host. No protocol or persistence extension and
 no push or external publication are included.
+
+## Fresh abstraction and identity review
+
+Status: Complete.
+
+A fresh review reproduced a synthetic Eval result key collision with a valid
+suffix-bearing tool call ID. Synthetic results now use a separate desktop key
+namespace. The regression requires unique keys for both the child and result.
+
+Review also found a clock-domain leak: reasoning starts are observed locally,
+while canonical tool and reasoning completion timestamps come from the server.
+Subtracting these could show immediate 60-second or negative elapsed labels on a
+remote connection. Live group timing is now observed by DesktopTranscript using
+only its local clock and survives content updates. Historical tool-only duration
+uses comparable server timestamps; historical groups containing reasoning remain
+untimed. This adds only desktop observation metadata, with no protocol changes,
+clock synchronization or runtime state duplication.
+
+- [x] Verify suffix-bearing IDs and a server clock 60 seconds behind through
+      unit/browser regressions, full checks and independent correction review.
+- [x] Synchronize evidence and commit the focused corrections.
+
+Correction review also reproduced a timer reset when history prepend changed the
+first member/group key. A temporary lookup by surviving existing member keys now
+preserves the local observation through regrouping. No durable identity is added.
+The unit regression verifies continuity, frozen completion and historical reopening.
+
+Independent reviewers verified the namespace, clock boundary and continuity fixes
+without remaining findings. Final `npm run check` passes TypeScript, ESLint,
+Prettier and 1,296 tests (38 skipped). All 29 Chromium browser cases pass,
+including the real displayed timer with a 60-second server skew. Native WebView2
+and live-provider qualification remain outside this Linux evidence.

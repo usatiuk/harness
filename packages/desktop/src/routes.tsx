@@ -994,23 +994,30 @@ export function createDesktopRouter(
     const working = row.steps.some(({ cell }) =>
       cell.kind === "reasoning" ? cell.streaming : !cell.status,
     );
-    const start = row.steps.reduce((time, { cell }) => Math.min(time, cell.startedAt), Infinity);
-    const observedStart = row.steps.every(
-      ({ cell }) => cell.kind === "tool" || cell.observedTiming,
-    );
-    const end = row.steps.reduce<number | undefined>(
-      (time, { cell }) =>
-        time === undefined ||
-        cell.completedAt === undefined ||
-        (cell.kind === "reasoning" && !cell.observedTiming)
-          ? undefined
-          : Math.max(time, cell.completedAt),
-      0,
-    );
-    const duration = end === undefined ? undefined : Math.round((end - start) / 1000);
+    // Completed tool-only history has comparable server timestamps. Historical
+    // reasoning starts do not; live groups use desktop-observed timing instead.
+    const historicalTools = row.steps.every(({ cell }) => cell.kind === "tool");
+    const start =
+      row.observedTiming?.startedAt ??
+      (historicalTools
+        ? row.steps.reduce((time, { cell }) => Math.min(time, cell.startedAt), Infinity)
+        : undefined);
+    const end =
+      row.observedTiming?.completedAt ??
+      (historicalTools
+        ? row.steps.reduce<number | undefined>(
+            (time, { cell }) =>
+              time === undefined || cell.completedAt === undefined
+                ? undefined
+                : Math.max(time, cell.completedAt),
+            0,
+          )
+        : undefined);
+    const duration =
+      start === undefined || end === undefined ? undefined : Math.round((end - start) / 1000);
     const label = working ? (
-      observedStart ? (
-        <Thinking startedAt={start} />
+      row.observedTiming ? (
+        <Thinking startedAt={row.observedTiming.startedAt} />
       ) : (
         "Thinking"
       )

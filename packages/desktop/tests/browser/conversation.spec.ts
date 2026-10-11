@@ -729,7 +729,7 @@ test("reasoning and tool calls share a collapsed group between messages", async 
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.clock.install();
   await page.evaluate(() => {
-    window.composerFixture.showToolsAndActivities();
+    window.composerFixture.showToolsAndActivities(-60_000);
     window.composerFixture.insertReasoning();
   });
   const group = page.locator(".tool-group");
@@ -751,6 +751,7 @@ test("reasoning and tool calls share a collapsed group between messages", async 
   expect(Math.abs(icon!.x - label!.x)).toBeLessThanOrEqual(1);
   await expect(group.locator(".reasoning")).toContainText("Checking credential ownership");
   await expect(page.getByTestId("assistant-message")).toHaveText("Checking the stores");
+  await page.clock.runFor(10_000);
   await page.evaluate(() => window.composerFixture.completeSteps());
   await expect(group.locator(":scope > summary")).toHaveText(
     "Thought for 12 seconds · 2 tool calls",

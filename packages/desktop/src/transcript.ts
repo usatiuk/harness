@@ -12,7 +12,12 @@ export type TranscriptStep =
   ToolCallRow | { key: string; cell: Extract<Cell, { kind: "reasoning" }> };
 export type TranscriptRow =
   | { kind: "cell"; key: string; cell: Exclude<Cell, { kind: "tool" | "reasoning" }> }
-  | { kind: "steps"; key: string; steps: [TranscriptStep, ...TranscriptStep[]] };
+  | {
+      kind: "steps";
+      key: string;
+      steps: [TranscriptStep, ...TranscriptStep[]];
+      observedTiming?: { startedAt: number; completedAt?: number };
+    };
 
 const durableKey = (cell: Cell): string | undefined =>
   cell.kind === "tool"
@@ -34,6 +39,12 @@ export class DesktopTranscript {
 
   update(cells: readonly Cell[]): void {
     if (cells === this.cells) return;
+    const previousTimings = new Map<string, { startedAt: number; completedAt?: number }>();
+    for (const row of this.rows) {
+      if (row.kind === "steps" && row.observedTiming)
+        for (const step of row.steps) previousTimings.set(step.key, row.observedTiming);
+    }
+    const now = Date.now();
     const nextCells = new Set(cells);
     const durable = new Map<string, string>();
     const replacements = new Map<string, string>();
@@ -78,7 +89,7 @@ export class DesktopTranscript {
       if (row.cell.name === "eval" && row.cell.status) {
         const end = ends[index]!;
         const closing = results.get(end) ?? [];
-        closing.push({ key: `${row.key}:result`, cell: row.cell, boundary: "result" });
+        closing.push({ key: `eval-result:${row.key}`, cell: row.cell, boundary: "result" });
         results.set(end, closing);
       }
     }
@@ -100,6 +111,23 @@ export class DesktopTranscript {
         if (previous?.kind === "steps") previous.steps.push(step);
         else this.rows.push({ kind: "steps", key: row.key, steps: [step] });
       } else this.rows.push({ kind: "cell", key: row.key, cell: row.cell });
+    }
+    // Live elapsed labels use one client clock. Server history timestamps cannot
+    // be subtracted from locally observed reasoning starts on remote connections.
+    for (const row of this.rows) {
+      if (row.kind !== "steps") continue;
+      const previous = row.steps
+        .map((step) => previousTimings.get(step.key))
+        .find((timing) => timing !== undefined);
+      const working = row.steps.some(({ cell }) =>
+        cell.kind === "reasoning" ? cell.streaming : !cell.status,
+      );
+      if (working) row.observedTiming = { startedAt: previous?.startedAt ?? now };
+      else if (previous)
+        row.observedTiming = {
+          startedAt: previous.startedAt,
+          completedAt: previous.completedAt ?? now,
+        };
     }
     this.keys = keys;
     this.cells = cells;
