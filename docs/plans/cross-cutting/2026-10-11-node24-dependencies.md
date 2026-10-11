@@ -1,6 +1,6 @@
 # Node 24 and dependency refresh
 
-Status: Active
+Status: Complete
 
 Use Node 24.21.0 consistently for source development, CI and managed release
 runtime downloads. Refresh dependencies only through simple compatible bumps;
@@ -18,7 +18,7 @@ Node distribution metadata. Signed historical release fixtures remain unchanged.
       and after, plus anything skipped because it needs more than a simple bump.
 - [x] Run `npm run check` and relevant packaging/native checks where local
       prerequisites permit. Record actual results and blocked validation.
-- [ ] Review the diff, synchronize durable status, commit and push to main as
+- [x] Review the diff, synchronize durable status, commit and push to main as
       authorized by the user.
 
 ## Evidence
@@ -67,3 +67,8 @@ Final validation under Node 24.21.0 on Ubuntu passes:
 These results do not establish other-platform native desktop UI, signed release
 installation/updates or live-provider acceptance. Source/runtime pins and compatible
 bumps are delivered; the incompatible Zod update is intentionally excluded.
+
+Commits `46ab9ca` (Node runtime) and `cda106a` (dependencies/formatting/evidence)
+were pushed directly to `main` as authorized. GitHub's push response still
+advertised 54 repository dependency alerts; this does not change the zero result
+from the final local npm audit. Remote alert reconciliation was not verified.
