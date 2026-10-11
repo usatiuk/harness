@@ -78,8 +78,8 @@ versions never downgrade. The native CLI update command verifies a signed releas
 prepares its CLI/Node and replaces its launcher. The hosted `v0.1.2` workflow passes
 all four platform builds and production signature verification, creating one
 25-asset release in the public source repository. `v0.1.2` is published; its public
-manifest and latest update feed resolve. Signed update/remote execution and actual
-installation remain open, with no install/update execution allowed on the user's PC.
+manifest and latest update feed resolve. Installation/update execution on the
+user's PC remains prohibited; published-artifact checks run on hosted machines.
 
 The Windows installer report exposes a desktop startup defect across packaged
 platforms: the app checked its own obsolete feature instead of Tauri's actual
@@ -87,23 +87,24 @@ development/packaged mode. The correction is committed and reviewed. Patched
 release `v0.1.3` passes its full source gate (1,216 tests, 38 skipped), all four
 native builds and production signature verification. It is now published.
 Hosted CLI updates and installed desktop runtime preparation pass on all four
-targets. Ubuntu's SSH preparation fails its runtime-directory permission check;
-that failure is being investigated. Desktop updater installation/restart and
-released WSL remain unqualified.
+targets in run `38122675683`. Released SSH cold deployment, idle upgrade,
+preserved conversations and older-client reuse also pass. The SSH failure was
+an inherited GitHub runner ACL, corrected only in the temporary account's setup.
+Desktop updater installation/restart and released WSL remain unqualified.
 
-The current implementation passes the ordinary full check with 1,218 tests
+The current implementation passes the ordinary full check with 1,242 tests
 (36 skipped), eleven Windows and ten Ubuntu headless native cases, and fresh
-WSL/SSH source deployment checks. Windows/Linux release payloads and a signed
-Windows installer build; real installation/update remains unqualified. Windows
-and Ubuntu source/headless native CI pass at `696c876`.
+WSL/SSH source deployment checks. Windows and Ubuntu source/headless native CI
+pass at `c72f848`. Hosted checks now verify real CLI installation/updates and
+installed desktop runtime preparation across all four release targets.
 Three independent reviews of the CLI update increment are resolved.
 Direct main commits/pushes are authorized; publication and visible native tests
 require separate approval.
 
 The published `v0.1.2` desktop has a startup defect: app-level feature gating
 chooses source-checkout paths although Tauri correctly built a packaged app.
-The correction uses Tauri's own `dev` cfg; hosted packaging/startup verification
-and a patched release remain open. The standalone CLI is unaffected.
+The correction uses Tauri's own `dev` cfg and ships in `v0.1.3`; its packaged
+runtime preparation is verified on all four targets. The standalone CLI is unaffected.
 
 ## Recent delivery
 

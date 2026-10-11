@@ -122,7 +122,8 @@ not duplicated in download metadata.
       reviews. Desktop updates use Tauri's updater through one explicit check/install
       command in Settings. Connect-time server replacement uses existing
       reconnect/start/stop boundaries and the engine's existing busy predicate.
-      CLI update code is implemented; signed update/remote qualification remains open.
+      Signed CLI updates and released SSH upgrades pass on hosted machines;
+      desktop updater installation/restart remains unqualified.
 - [x] Complete the one-time halving audit, synchronize docs and review the checkpoint.
       Completion: checkpoint additions reduced below 6,932; its full and native
       checks pass; remaining external qualification inputs are stated precisely.
@@ -390,3 +391,12 @@ umask 077 also creates mode 775; the account skeleton has no `.harness` director
 The fixture now removes the access/default ACL from that account's home before
 deployment. Production permission enforcement is unchanged and temporary
 diagnostics are removed. Hosted confirmation is pending.
+
+Run `38122675683` confirms the correction: all four hosted artifact checks pass,
+including released SSH cold deployment, idle upgrade, preserved conversations,
+shared Node and older-client reuse. Windows initially fails a signature download
+with "connection closed before message completed" and passes an unchanged job
+rerun. No retry or weaker assertion is added to the check. Actionlint, formatting
+and diff checks pass for the fixture correction (`1d01d81`). Desktop updater
+installation/restart and released WSL remain the outstanding qualification gaps;
+the delivery goal is not complete.

@@ -245,8 +245,11 @@ conversations, no server downgrade, shared Node and the installed desktop's
 pre-window runtime preparation. Its actual desktop bridge and older CLI also
 reuse the same live owner over the local socket/pipe. Ubuntu also prepares a fresh
 SSH account for released remote cold deployment, idle upgrade, shared Node,
-preserved conversations and older-client reuse. Execution of these released
-checks remains pending. The workflow does not open the desktop UI or qualify the
+preserved conversations and older-client reuse. All four targets pass for
+v0.1.2 → v0.1.3 in run `38122675683`. SSH setup removes the temporary account's
+inherited GitHub runner ACL; production ownership checks remain unchanged.
+Windows passes an unchanged rerun after a release-download connection drop.
+The workflow does not open the desktop UI or qualify the
 Tauri updater's install/restart flow or released WSL deployment.
 
 ```sh
