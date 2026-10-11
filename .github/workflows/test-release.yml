@@ -52,11 +52,19 @@ jobs:
         shell: pwsh
         run: |
           $installer = Join-Path $env:RUNNER_TEMP 'desktop-installer.exe'
-          Invoke-WebRequest "https://github.com/usatiuk/harness/releases/download/v$env:VERSION/harness-v$env:VERSION-windows-x64-desktop.exe" -OutFile $installer
+          Invoke-WebRequest "https://github.com/usatiuk/harness/releases/download/v$env:PREVIOUS/harness-v$env:PREVIOUS-windows-x64-desktop.exe" -OutFile $installer
           $destination = Join-Path $env:RUNNER_TEMP 'installed-desktop'
           $process = Start-Process $installer -ArgumentList '/S', "/D=$destination" -WindowStyle Hidden -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
           "DESKTOP=$destination/harness-desktop.exe" >> $env:GITHUB_ENV
+      - name: Check the published Windows desktop updater
+        if: runner.os == 'Windows'
+        run: |
+          npm ci
+          export HARNESS_NATIVE_EXECUTABLE="$DESKTOP"
+          export HARNESS_RELEASE_VERSION="$VERSION"
+          cd packages/desktop
+          node --conditions=development ../../node_modules/@playwright/test/cli.js test -c playwright.native.config.ts published-update.spec.ts
       - name: Install Unix desktop on this hosted runner
         if: runner.os != 'Windows'
         run: |

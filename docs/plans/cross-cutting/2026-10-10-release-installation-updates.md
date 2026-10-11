@@ -400,3 +400,12 @@ rerun. No retry or weaker assertion is added to the check. Actionlint, formattin
 and diff checks pass for the fixture correction (`1d01d81`). Desktop updater
 installation/restart and released WSL remain the outstanding qualification gaps;
 the delivery goal is not complete.
+
+Desktop updater qualification now uses one focused test in the existing native
+Playwright harness on the hosted Windows runner. It installs published v0.1.2,
+invokes the same native command as Settings, verifies the signed v0.1.3 installer
+replaces the executable, and observes the restarted desktop's server version.
+Direct native invocation is necessary because v0.1.2 cannot reach Settings after
+its startup defect. No endpoint override, product hook or separate test harness
+is added; actual execution remains pending. Nothing is installed or launched on
+the user's machine.
