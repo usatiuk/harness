@@ -140,6 +140,11 @@ are preserved when unavailable. An unconfigured initial profile may use the demo
 Credential-store selection is pinned in global settings. Unsupported Windows
 file/keyring combinations fail and direct the user to DPAPI rather than falling
 back to plaintext.
+The stored secrets themselves are account-wide: Windows uses
+`%LOCALAPPDATA%/Harness/credentials.dpapi`, keyring uses the `Harness` service,
+and the file backend uses `~/.harness/credentials.json`. A separate source
+development home isolates settings and conversations, but not these credential
+slots; login/logout for the same connection can affect installed clients.
 
 Desktop provider controls call composition-owned `app.auth.*` RPCs. Responses
 contain authentication status and safe validation errors, never keys or tokens.
