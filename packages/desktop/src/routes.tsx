@@ -1,5 +1,6 @@
 import { McpSettings } from "./components/mcp-settings.tsx";
 import { DesktopUpdates } from "./components/desktop-updates.tsx";
+import { ModelSelect, modelKey } from "./components/model-select.tsx";
 import {
   useEffect,
   useRef,
@@ -68,7 +69,6 @@ type ActionResult =
   | { ok: true; message?: string; restartRequired?: boolean }
   | { ok: false; message: string };
 type RootData = { settings: AppSettings };
-const modelKey = (provider: string, model: string): string => `${provider}\u0000${model}`;
 const basename = (path: string | null): string =>
   path === null ? "Conversation" : (path.split(/[/\\]/u).filter(Boolean).at(-1) ?? path);
 const field = (data: FormData, name: string): string => {
@@ -469,47 +469,6 @@ export function createDesktopRouter(
       </div>
     );
   }
-  function ModelOptions({ selected }: { selected?: { provider: string; model: string } }) {
-    const models = session.domain.availableModels();
-    const unavailable =
-      selected &&
-      !models.some(
-        (model) => model.provider === selected.provider && model.model === selected.model,
-      );
-    return (
-      <>
-        {unavailable && (
-          <option value={modelKey(selected.provider, selected.model)}>
-            {session.settings?.providers.find((provider) => provider.id === selected.provider)
-              ?.label ?? selected.provider}{" "}
-            / {selected.model} — unavailable;{" "}
-            {session.settings?.providers.find((provider) => provider.id === selected.provider)
-              ?.catalog ?? "check provider configuration"}
-          </option>
-        )}
-        {models.map((model) => (
-          <option
-            key={modelKey(model.provider, model.model)}
-            value={modelKey(model.provider, model.model)}
-          >
-            {session.settings?.providers.find((provider) => provider.id === model.provider)
-              ?.label ?? model.provider}{" "}
-            / {model.label ?? model.model}
-            {[
-              ...(model.contextWindow ? [`${model.contextWindow.toLocaleString()} context`] : []),
-              ...(model.maxInputTokens ? [`${model.maxInputTokens.toLocaleString()} input`] : []),
-              ...(model.maxOutputTokens
-                ? [`${model.maxOutputTokens.toLocaleString()} output`]
-                : []),
-              ...(model.reasoning?.supported === true ? ["reasoning"] : []),
-            ]
-              .map((detail) => ` · ${detail}`)
-              .join("")}
-          </option>
-        ))}
-      </>
-    );
-  }
   function SandboxOptions({ selected }: { selected?: string }) {
     return (
       <>
@@ -530,6 +489,11 @@ export function createDesktopRouter(
     const navigation = useNavigation();
     const defaultModel = settings.settings.model ?? session.domain.defaultModel();
     const [selection, setSelection] = useState(modelKey(defaultModel.provider, defaultModel.model));
+    const [preset, setPreset] = useState(defaultModel.preset ?? "");
+    const catalog = session.domain
+      .availableModels()
+      .find((model) => modelKey(model.provider, model.model) === selection);
+    const presets = catalog?.presets ?? [];
     const [backend, setBackend] = useState<string>(settings.settings.sandbox);
     const [toolMode, setToolMode] = useState("direct");
     const backendAvailable = backend !== "native" || settings.platform === "linux";
@@ -575,6 +539,7 @@ export function createDesktopRouter(
             )}
           </div>
           <Input type="hidden" name="model" value={selection} />
+          <Input type="hidden" name="preset" value={preset} />
           <Input type="hidden" name="sandbox" value={backend} />
           <Input type="hidden" name="toolMode" value={toolMode} />
           <div className="creation-footer">
@@ -596,10 +561,37 @@ export function createDesktopRouter(
               >
                 <label>
                   Model
-                  <Select value={selection} onChange={(event) => setSelection(event.target.value)}>
-                    <ModelOptions selected={defaultModel} />
-                  </Select>
+                  <ModelSelect
+                    label="New conversation model"
+                    models={session.domain.availableModels()}
+                    providers={session.settings?.providers ?? []}
+                    value={selection}
+                    onValueChange={(next) => {
+                      setSelection(next);
+                      setPreset("");
+                    }}
+                  />
                 </label>
+                {(presets.length > 0 || preset) && (
+                  <label>
+                    Preset
+                    <Select
+                      aria-label="New conversation preset"
+                      value={preset}
+                      onChange={(event) => setPreset(event.target.value)}
+                    >
+                      <option value="">Default</option>
+                      {preset && !presets.some((entry) => entry.value === preset) && (
+                        <option value={preset}>{preset} — unavailable</option>
+                      )}
+                      {presets.map((entry) => (
+                        <option key={entry.value} value={entry.value}>
+                          {entry.label ?? entry.value}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                )}
               </PopoverControl>
               <PopoverControl
                 label="New conversation execution"
@@ -712,17 +704,20 @@ export function createDesktopRouter(
               <Input type="hidden" name="conversationId" value={id} />
               <label>
                 Model
-                <Select
-                  aria-label="Conversation model"
+                <ModelSelect
+                  label="Conversation model"
+                  models={session.domain.availableModels()}
+                  providers={session.settings?.providers ?? []}
                   name="model"
                   value={modelKey(selected.provider, selected.model)}
                   disabled={disabled || model.state !== "idle"}
-                  onChange={(event) => {
-                    void model.submit(event.currentTarget.form);
+                  onValueChange={(next) => {
+                    void model.submit(
+                      { intent: "model", conversationId: id, model: next },
+                      { method: "post", action: "/actions" },
+                    );
                   }}
-                >
-                  <ModelOptions selected={selected} />
-                </Select>
+                />
               </label>
             </model.Form>
             {(presets.length > 0 || selected.preset) && (
@@ -1392,6 +1387,13 @@ export function createDesktopRouter(
     const section =
       sections.find((label) => label.toLowerCase() === requested)?.toLowerCase() ?? "appearance";
     const selected = settings.settings.model ?? session.domain.defaultModel();
+    const savedSelection = modelKey(selected.provider, selected.model);
+    const [defaultSelection, setDefaultSelection] = useState({
+      saved: savedSelection,
+      value: savedSelection,
+    });
+    if (defaultSelection.saved !== savedSelection)
+      setDefaultSelection({ saved: savedSelection, value: savedSelection });
     return (
       <section className="page settings-page">
         <div className="page-heading">
@@ -1434,13 +1436,14 @@ export function createDesktopRouter(
               <Input type="hidden" name="intent" value="settings" />
               <label>
                 Model for new conversations
-                <Select
+                <ModelSelect
+                  label="Model for new conversations"
+                  models={session.domain.availableModels()}
+                  providers={session.settings?.providers ?? []}
                   name="model"
-                  key={modelKey(selected.provider, selected.model)}
-                  defaultValue={modelKey(selected.provider, selected.model)}
-                >
-                  <ModelOptions selected={selected} />
-                </Select>
+                  value={defaultSelection.value}
+                  onValueChange={(value) => setDefaultSelection({ saved: savedSelection, value })}
+                />
               </label>
               <label>
                 Sandbox for new conversations
@@ -1584,14 +1587,15 @@ export function createDesktopRouter(
       <>
         <label>
           Auto approver model
-          <Select
+          <ModelSelect
+            label="Auto approver model"
+            models={session.domain.availableModels()}
+            providers={session.settings?.providers ?? []}
             name="reviewerModel"
             value={selection}
-            onChange={(event) => setSelection(event.target.value)}
-          >
-            <option value="">Use conversation model</option>
-            <ModelOptions {...(model ? { selected: model } : {})} />
-          </Select>
+            onValueChange={setSelection}
+            emptyLabel="Use conversation model"
+          />
         </label>
         <label>
           Auto approver preset
@@ -1666,6 +1670,7 @@ export function createDesktopRouter(
                 field(data, "model"),
                 field(data, "sandbox"),
                 field(data, "toolMode"),
+                field(data, "preset"),
               );
               localStorage.setItem(session.storageKey("last-directory"), cwd);
               return redirect(`/conversations/${id}`);

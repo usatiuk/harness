@@ -294,7 +294,13 @@ export class DesktopSession {
     this.changed();
   }
 
-  async create(cwd: string, model: string, sandbox: string, toolMode = "direct"): Promise<string> {
+  async create(
+    cwd: string,
+    model: string,
+    sandbox: string,
+    toolMode: string,
+    preset: string,
+  ): Promise<string> {
     const [provider, modelId] = model.split("\u0000");
     if (!provider || !modelId) throw new Error("Select a model");
     if (
@@ -305,14 +311,9 @@ export class DesktopSession {
       throw new Error(
         "The selected model is unavailable; connect its provider and restart Harness",
       );
-    const defaultModel = this.settings?.settings.model ?? this.domain.defaultModel();
-    const preset =
-      defaultModel.provider === provider && defaultModel.model === modelId
-        ? defaultModel.preset
-        : undefined;
     const overrides: Record<string, JsonValue> = {
       instructions: "You are a helpful coding agent.",
-      model: { provider, model: modelId, ...(preset ? { preset } : {}) },
+      model: { provider, model: modelId, preset: preset || null },
       tools: { mode: toolMode },
       plugins: { sandbox: { backend: sandbox } },
     };

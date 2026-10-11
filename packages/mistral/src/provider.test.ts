@@ -133,12 +133,15 @@ async function fixture(
   status = 200,
   search = false,
   models: Record<string, ConfiguredModel> = {},
+  rawCatalog: unknown = catalog(mode),
 ) {
   const headers: Record<string, unknown>[] = [];
   const gateway = await httpGateway((req, response, raw) => {
     headers.push(raw.headers);
-    if (req.method === "GET") return json(response, catalog(mode));
+    if (req.method === "GET") return json(response, rawCatalog);
     expect(req.path).toBe("/v1/conversations");
+    if ((req.body.inputs as Record<string, unknown>[]).some((entry) => "id" in entry))
+      return json(response, { message: "Input entries send by the user can't specify ids" }, 422);
     if (status !== 200)
       return json(
         response,
@@ -165,6 +168,62 @@ async function fixture(
 }
 
 describe("Mistral native delivery", () => {
+  it.each(["api", "vibe"] as const)(
+    "replays assistant-only output without entry IDs on %s",
+    async (mode) => {
+      const { provider, gateway } = await fixture(mode, [message("reply"), done()]);
+      const base = request(mode);
+      const first = await collect(provider, base);
+      const next = { ...continuation(first, base), prompt: "Follow up" };
+      expect((await collect(provider, next)).at(-1)?.type).toBe("completed");
+      expect(gateway.requests.at(-1)?.body.inputs).toEqual([
+        { type: "message.input", role: "user", content: "Use echo" },
+        { type: "message.output", role: "assistant", content: [{ type: "text", text: "reply" }] },
+        { type: "message.input", role: "user", content: "Follow up" },
+      ]);
+      expect(first.find((event) => event.type === "message")).toMatchObject({
+        payload: { payload: [{ id: "msg-0" }] },
+      });
+    },
+  );
+  it("exposes and delivers advertised Vibe reasoning controls without collapsing efforts", async () => {
+    const levels = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "adaptive", "off"];
+    const { provider, gateway } = await fixture(
+      "vibe",
+      [message("reply"), done()],
+      200,
+      false,
+      {},
+      {
+        models: [{ ...vibeRow, parameters: { reasoning: [...levels, "high"] } }],
+      },
+    );
+    expect(provider.listModels().map((model) => model.presets)).toEqual([
+      levels.map((value) => ({ value })),
+      levels.map((value) => ({ value })),
+    ]);
+    expect(await provider.refreshModels(signal)).toMatchObject({
+      status: "ready",
+      diagnostics: [],
+    });
+    for (const preset of levels) {
+      await collect(provider, {
+        ...request(),
+        modelConfig: { provider: "work", model: "coding-latest", preset },
+      });
+      expect(gateway.requests.at(-1)?.body.completion_args).toMatchObject({
+        reasoning_effort: preset === "off" ? "none" : preset,
+      });
+    }
+    await collect(provider, request("api"));
+    expect(gateway.requests.at(-1)?.body.completion_args).not.toHaveProperty("reasoning_effort");
+    await expect(
+      collect(provider, {
+        ...request(),
+        modelConfig: { provider: "work", model: "coding", preset: "unadvertised" },
+      }),
+    ).rejects.toThrow("Unknown preset");
+  });
   it.each(["api", "vibe"] as const)("generates a configured-only model on %s", async (mode) => {
     const { provider, gateway } = await fixture(
       mode,
@@ -240,13 +299,11 @@ describe("Mistral native delivery", () => {
     expect((b!.inputs as unknown[]).slice(1)).toEqual([
       {
         type: "message.output",
-        id: "msg-0",
         role: "assistant",
         content: [firstBlock, { type: "text", text: "Between" }, secondBlock],
       },
       {
         type: "function.call",
-        id: "call-1",
         tool_call_id: "abc123XYZ",
         name: "echo",
         arguments: rawArgs,
@@ -560,7 +617,8 @@ describe("Mistral catalog boundary", () => {
       presets: [{ value: "off" }, { value: "high" }],
       reasoning: { supported: true, effortLevels: ["off", "high"] },
     });
-    expect(parsed.diagnostics).toHaveLength(2);
+    expect(parsed.entries.get("future")?.info.presets).toEqual([{ value: "new" }]);
+    expect(parsed.diagnostics).toHaveLength(1);
     expect(() => parseCatalog({ models: [{ ...vibeRow, label: 1 }] }, "vibe", "work")).toThrow(
       ModelDiscoveryError,
     );
@@ -576,6 +634,25 @@ describe("Mistral catalog boundary", () => {
       ),
     ).toThrow("including aliases");
   });
+  it.each(["api", "vibe"] as const)(
+    "retains advertised %s reasoning capability without inventing presets",
+    (mode) => {
+      const row = mode === "api" ? apiRow : { ...vibeRow, parameters: {} };
+      for (const reasoning of [true, false]) {
+        const { entries } = parseCatalog(
+          {
+            [mode === "api" ? "data" : "models"]: [
+              { ...row, capabilities: { ...row.capabilities, reasoning } },
+            ],
+          },
+          mode,
+          "work",
+        );
+        expect(entries.get("coding")?.info.reasoning).toEqual({ supported: reasoning });
+        expect(entries.get("coding")?.info.presets).toBeUndefined();
+      }
+    },
+  );
   it("publishes atomic snapshots and preserves the previous catalog on failure", async () => {
     let raw: unknown = catalog("api");
     const provider = new MistralProvider("work", "api", "key", async () => Response.json(raw));

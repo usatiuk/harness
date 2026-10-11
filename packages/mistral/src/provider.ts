@@ -17,10 +17,8 @@ import {
   MISTRAL_BASE_URL,
   MAX_MODELS,
   parseCatalog,
-  REASONING_EFFORT,
   type CatalogEntry,
   type MistralMode,
-  type ReasoningPreset,
 } from "./catalog.ts";
 import { buildMistralRequest } from "./request.ts";
 import { mistralEvents } from "./stream.ts";
@@ -143,7 +141,10 @@ export class MistralProvider implements ModelProvider {
         ...params.completion_args,
         ...(entry.temperature !== undefined ? { temperature: entry.temperature } : {}),
         ...(request.modelConfig.preset !== undefined
-          ? { reasoning_effort: REASONING_EFFORT[request.modelConfig.preset as ReasoningPreset] }
+          ? {
+              reasoning_effort:
+                request.modelConfig.preset === "off" ? "none" : request.modelConfig.preset,
+            }
           : {}),
       };
       const stream = await this.#client.post<Stream<unknown>>("/conversations", {

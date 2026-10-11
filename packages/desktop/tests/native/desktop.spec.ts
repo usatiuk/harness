@@ -256,9 +256,8 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await expect(page.getByRole("combobox", { name: "Auto approver", exact: true })).toHaveValue(
       "false",
     );
-    await page
-      .getByRole("combobox", { name: "Auto approver model", exact: true })
-      .selectOption("fixture\u0000reviewer");
+    await page.getByRole("combobox", { name: "Auto approver model", exact: true }).click();
+    await page.getByRole("option", { name: /fixture \/ reviewer$/u }).click();
     await page
       .getByRole("combobox", { name: "Auto approver preset", exact: true })
       .selectOption("careful");
@@ -278,9 +277,8 @@ test("auto approver model and preset drive real tool review, persist, and can be
     const conversation = page.url();
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await settingsSection(page, "Defaults");
-    await page
-      .getByRole("combobox", { name: "Auto approver model", exact: true })
-      .selectOption("fixture\u0000reviewer-fast");
+    await page.getByRole("combobox", { name: "Auto approver model", exact: true }).click();
+    await page.getByRole("option", { name: /fixture \/ reviewer-fast$/u }).click();
     await page
       .getByRole("combobox", { name: "Auto approver preset", exact: true })
       .selectOption("quick");
@@ -295,7 +293,7 @@ test("auto approver model and preset drive real tool review, persist, and can be
     expect(provider.reviews).toHaveLength(2);
     expect(provider.reviews[1]).toMatchObject({ model: "reviewer-fast", temperature: 0.5 });
     await showModelControls(page);
-    await expect(page.getByLabel("Conversation model")).toHaveValue("fixture\u0000test-model");
+    await expect(page.locator('input[name="model"]')).toHaveValue("fixture\u0000test-model");
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await settingsSection(page, "Defaults");
     await page.getByRole("combobox", { name: "Auto approver", exact: true }).selectOption("false");
@@ -315,15 +313,14 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await expect(
       app.page.getByRole("combobox", { name: "Auto approver", exact: true }),
     ).toHaveValue("false");
-    await expect(
-      app.page.getByRole("combobox", { name: "Auto approver model", exact: true }),
-    ).toHaveValue("fixture\u0000reviewer-fast");
+    await expect(app.page.locator('input[name="reviewerModel"]')).toHaveValue(
+      "fixture\u0000reviewer-fast",
+    );
     await expect(
       app.page.getByRole("combobox", { name: "Auto approver preset", exact: true }),
     ).toHaveValue("quick");
-    await app.page
-      .getByRole("combobox", { name: "Auto approver model", exact: true })
-      .selectOption("");
+    await app.page.getByRole("combobox", { name: "Auto approver model", exact: true }).click();
+    await app.page.getByRole("option", { name: "Use conversation model", exact: true }).click();
     await app.page.getByRole("button", { name: "Save defaults" }).click();
     await expect(app.page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
     const saved = JSON.parse(await readFile(join(home, "settings.json"), "utf8")) as {
@@ -581,7 +578,7 @@ test("provider keys stay in isolated native storage and configured defaults awai
       .click();
     await page.getByRole("button", { name: "Choose model", exact: true }).click();
     await expect(
-      page.getByRole("combobox", { name: "Model", exact: true }).locator("option:checked"),
+      page.getByRole("combobox", { name: "New conversation model", exact: true }),
     ).toContainText("unavailable");
     await expect(page.getByRole("button", { name: "Create conversation" })).toBeDisabled();
     await page.getByRole("link", { name: "Settings", exact: true }).click();
@@ -677,13 +674,16 @@ test("named gateways isolate native keys and catalogs while retaining unavailabl
     await expect(work).toContainText("ready · 1 models");
     await expect(personal).toContainText("ready · 1 models");
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
-    const picker = page.getByRole("combobox", { name: "Model", exact: true });
+    const picker = page.getByRole("combobox", { name: "New conversation model", exact: true });
     await page.getByRole("button", { name: "Choose model", exact: true }).click();
-    await expect(picker.locator("option:checked")).toContainText("Work gateway");
-    await expect(picker.locator("option:checked")).toContainText("200,000 input");
-    await expect(picker.locator("option:checked")).toContainText("32,000 output");
-    await expect(picker.locator("option:checked")).toContainText("reasoning");
-    await expect(picker).toHaveValue("work\u0000coding");
+    await expect(picker).toContainText("Work gateway");
+    await picker.click();
+    await page.getByRole("option").filter({ hasText: "Work gateway" }).hover();
+    await expect(page.getByRole("tooltip")).toContainText("200,000 input tokens");
+    await expect(page.getByRole("tooltip")).toContainText("32,000 output tokens");
+    await expect(page.getByRole("tooltip")).toContainText("Reasoning: supported");
+    await page.getByRole("option").filter({ hasText: "Work gateway" }).click();
+    await expect(page.locator('input[name="model"]')).toHaveValue("work\u0000coding");
     await page.getByLabel("Project folder").fill(directory);
     await page.getByRole("button", { name: "Create conversation" }).click();
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Use work connection");
@@ -707,16 +707,14 @@ test("named gateways isolate native keys and catalogs while retaining unavailabl
     await expect(personal).toContainText("ready · 1 models");
     await page.locator(`a[href='${new URL(conversationUrl).hash.slice(1)}']`).click();
     await showModelControls(page);
-    await expect(page.getByLabel("Conversation model")).toHaveValue("work\u0000coding");
+    await expect(page.locator('input[name="model"]')).toHaveValue("work\u0000coding");
     await showModelControls(page);
-    await expect(page.getByLabel("Conversation model").locator("option:checked")).toContainText(
-      "unavailable",
-    );
+    await expect(page.getByLabel("Conversation model")).toContainText("unavailable");
     await expect(page.getByTestId("assistant-message")).toContainText("Named gateway completed");
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
     await page.getByRole("button", { name: "Choose model", exact: true }).click();
-    await expect(picker).toHaveValue("work\u0000coding");
-    await expect(picker.locator("option:checked")).toContainText("unavailable");
+    await expect(page.locator('input[name="model"]')).toHaveValue("work\u0000coding");
+    await expect(picker).toContainText("unavailable");
     await expect(page.getByRole("button", { name: "Create conversation" })).toBeDisabled();
     expect(
       (JSON.parse(await readFile(join(home, "settings.json"), "utf8")) as { model: unknown }).model,

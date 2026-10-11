@@ -316,6 +316,62 @@ test("a visible standalone child anchors to its newly loaded parent", async ({ p
     .toBeLessThanOrEqual(1.5);
 });
 
+test("production model picker distinguishes same-label IDs and exposes advertised presets", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("button", { name: "Model and preset: Fixture model" }).click();
+  const models = page.getByRole("combobox", { name: "Conversation model" });
+  await models.click();
+  await expect(page.getByRole("option")).toHaveText([
+    "fixture / Fixture model test",
+    "fixture / Fixture model test-latest",
+  ]);
+  const first = page.getByRole("option", { name: "fixture / Fixture model test", exact: true });
+  await first.hover();
+  await expect(page.getByRole("tooltip")).toContainText("262,144 context tokens");
+  await expect(page.getByRole("tooltip")).toContainText("Presets: none, high");
+  expect(
+    await first.locator(".model-id").evaluate((element) => getComputedStyle(element).color),
+  ).not.toBe(await first.evaluate((element) => getComputedStyle(element).color));
+  await first.click();
+  await expect(
+    page.getByRole("combobox", { name: "Conversation preset" }).locator("option"),
+  ).toHaveText(["Default", "none", "high"]);
+  await page.keyboard.press("Escape");
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  await page.getByRole("button", { name: "Choose model", exact: true }).click();
+  const preset = page.getByRole("combobox", { name: "New conversation preset" });
+  await expect(preset.locator("option")).toHaveText(["Default", "none", "high"]);
+  await preset.selectOption("high");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Create conversation", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.creations.at(-1)))
+    .toMatchObject({
+      overrides: { model: { provider: "fixture", model: "test", preset: "high" } },
+    });
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  await page.getByRole("button", { name: "Choose model", exact: true }).click();
+  await preset.selectOption("high");
+  const newModels = page.getByRole("combobox", { name: "New conversation model" });
+  await newModels.click();
+  await page
+    .getByRole("option", { name: "fixture / Fixture model test-latest", exact: true })
+    .click();
+  await expect(preset).toHaveCount(0);
+  await newModels.click();
+  await page.getByRole("option", { name: "fixture / Fixture model test", exact: true }).click();
+  await expect(preset).toHaveValue("");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Create conversation", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.creations.at(-1)))
+    .toMatchObject({
+      overrides: { model: { provider: "fixture", model: "test", preset: null } },
+    });
+});
+
 test("production composer retains new drafts and permits Stop during delivery acknowledgement", async ({
   page,
 }) => {
@@ -411,10 +467,35 @@ test("settings saves shared Ask human and its approval timeout through the route
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  const reviewer = page.getByRole("combobox", { name: "Auto approver model", exact: true });
+  await reviewer.click();
+  await page.getByRole("option", { name: "fixture / Fixture model test", exact: true }).click();
+  await expect(page.locator("input[name=reviewerModel]")).toHaveValue("fixture\u0000test");
+  await reviewer.click();
+  await page.getByRole("option", { name: "Use conversation model", exact: true }).click();
+  await expect(page.locator("input[name=reviewerModel]")).toHaveValue("");
   await page.locator("select[name=inWorkspace]").selectOption("ask-human");
   await page.getByLabel("Human approval timeout (seconds)", { exact: true }).fill("12.5");
   await page.getByRole("button", { name: "Save defaults", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
-    .toMatchObject({ approval: { inWorkspace: "ask-human", humanApprovalTimeoutSeconds: 12.5 } });
+    .toMatchObject({
+      approval: { inWorkspace: "ask-human", humanApprovalTimeoutSeconds: 12.5 },
+      autoApproval: { model: null },
+    });
+});
+
+test("settings refreshes its model when authoritative defaults change", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  await expect(page.locator("input[name=model]")).toHaveValue("fixture\u0000test");
+  await page.evaluate(() => window.composerFixture.setDefaultModel("test-latest"));
+  await page.getByRole("tab", { name: "Composer", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  await expect(page.locator("input[name=model]")).toHaveValue("fixture\u0000test-latest");
+  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toMatchObject({ model: { provider: "fixture", model: "test-latest" } });
 });

@@ -763,6 +763,15 @@ delays, or a nearby condition that does not prove completion.
   case. RPC auth tests substitute the secret backend and do not qualify real DPAPI.
   These tests do not establish real vendor signature acceptance, cache-hit rates
   or subscription billing; no Mistral vendor credentials were available.
+  Continuation regressions reject top-level input-entry IDs with the reported 422,
+  cover assistant-only and signed tool histories, and retain stored output IDs.
+  Advertised Vibe effort strings (including native `none` and GLM levels) retain
+  their exact request values; only legacy `off` maps to `none`. Unknown advertised
+  strings remain selectable, while unadvertised selections fail validation.
+  Reasoning booleans do not manufacture presets. Headless production desktop
+  routes qualify distinct dimmed IDs, hover metadata and creation preset submission
+  and reset, clearing the reviewer model, and refreshing a saved default identity
+  on loader revalidation. Updated native selectors still require a rebuilt native run.
 
 - Model-call context regressions cover concurrent roots, nested subagents,
   logical retries, compaction and resume with each conversation's own ID.

@@ -385,6 +385,13 @@ sandbox controls, provider/default settings, and client-owned drafts/appearance
 complete v1. Unavailable configured models/backends remain explicit choices;
 creation requires an available model and a platform-supported backend.
 
+Desktop model choices use the existing Radix Select and Tooltip primitives:
+provider/model names stay prominent, differing exact IDs are dimmed, and token
+capacities/reasoning/presets appear on hover or focus. Aliases remain selectable
+exact identities. Creation offers the chosen model's presets, inherits the initial
+default, and clears the old preset when changing identity. TUI options use concise
+provider/ID labels. Clients render catalog metadata without inferring vendor controls.
+
 Global settings expose the auto-approval plugin's enabled flag and optional
 reviewer model/preset. An unset reviewer uses each conversation's current model.
 The Settings action writes the reviewer selection globally; creating or saving

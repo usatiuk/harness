@@ -282,6 +282,8 @@ only when their entire readable group remains selected. Interrupted readable
 content has no incomplete native sidecar. Existing signed Mistral thinking and
 exact tool-argument sidecars remain valid inputs. Matching provider/model/type
 payloads replay with validated versions; foreign reasoning is omitted.
+Request rendering omits output-entry `id` fields, which Conversations rejects
+on input, without mutating the stored native payload or nested content.
 Native and imported call/result IDs remain exact; Conversations accepts string IDs.
 Malformed or unsupported outcomes retain reported accounting but finish
 with an error before any tools dispatch. Missing token counts remain unknown.
@@ -309,8 +311,11 @@ publishes atomically. Configured entries are available before discovery and surv
 its failure; the existing bootstrap reports degraded status and the original
 diagnostic. Credentials are still required. Connection changes need a restart.
 Unadvertised prices and unadvertised/unconfigured capacity remain unknown.
-Vibe's verified `off`/`low` controls map to
-native `none`, and `medium`/`high`/`max` map to `high`, only when advertised.
+Vibe's advertised reasoning strings become model-scoped presets and pass unchanged
+to `completion_args.reasoning_effort`; legacy `off` maps to native `none`.
+No client enum drops new advertised controls or collapses distinct efforts.
+Advertised reasoning capability remains visible even without an effort list;
+a boolean alone does not invent presets. Aliases retain the row's controls.
 The public canonical content boundary currently supports text, so advertised
 vision capabilities do not enable image input.
 

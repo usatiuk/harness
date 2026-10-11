@@ -27,18 +27,10 @@ export function ModelPicker({
   const sorted = [...models].sort(
     (a, b) => a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model),
   );
-  const options = sorted.map((m) => {
-    const details = [
-      ...(m.contextWindow ? [`${m.contextWindow.toLocaleString()} context`] : []),
-      ...(m.maxInputTokens ? [`${m.maxInputTokens.toLocaleString()} input`] : []),
-      ...(m.maxOutputTokens ? [`${m.maxOutputTokens.toLocaleString()} output`] : []),
-      ...(m.reasoning?.supported === true ? ["reasoning"] : []),
-    ].join(" · ");
-    return {
-      label: `${providerLabels[m.provider] ?? m.provider} (${m.provider}) / ${m.label ?? m.model}${details ? ` — ${details}` : ""}${modelId(m) === currentId ? " ✓" : ""}`,
-      value: modelId(m),
-    };
-  });
+  const options = sorted.map((m) => ({
+    label: `${providerLabels[m.provider] ?? m.provider} / ${m.model}${modelId(m) === currentId ? " ✓" : ""}`,
+    value: modelId(m),
+  }));
   const byId = new Map(sorted.map((m) => [modelId(m), m]));
   return (
     <Box flexDirection="column">

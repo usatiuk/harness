@@ -108,6 +108,13 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 
 ## Recent delivery
 
+The [Mistral continuation and controls correction](docs/plans/models/2026-10-11-mistral-continuation-and-controls.md)
+removes rejected output-entry IDs from stateless input replay, preserves advertised
+reasoning efforts, and shortens model choices with dimmed exact IDs and hover
+details. Creation now offers model presets. The full check passes 1,247 tests
+on pinned Node 22; all 16 headless browser tests pass and three independent
+reviews are resolved. Live-vendor and rebuilt native acceptance remain unqualified.
+
 The [client window chrome follow-up](docs/plans/interface/2026-10-10-client-window-chrome.md)
 is complete: one shared title bar, restored Terminal branding and consistent modal
 dimming, with platform controls and window mechanics delegated to Tauri/library.

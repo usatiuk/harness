@@ -337,6 +337,25 @@ textarea.input {
 .menu-item[data-highlighted] {
   background: var(--surface-subtle);
 }
+.model-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+.model-menu {
+  width: max-content;
+  min-width: var(--radix-select-trigger-width);
+  max-width: calc(100vw - 28px);
+}
+.model-menu [data-radix-select-viewport] {
+  max-height: min(360px, var(--radix-select-content-available-height));
+}
+.model-id {
+  margin-left: 8px;
+  font-size: 12px;
+}
 .tooltip {
   background: var(--ink);
   color: var(--surface-canvas);

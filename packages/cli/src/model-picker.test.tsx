@@ -7,8 +7,9 @@ it("shows instance labels while selecting stable provider/model identities", asy
   const view = render(
     <ModelPicker
       models={[
-        { provider: "work", model: "coding" },
-        { provider: "personal", model: "coding" },
+        { provider: "work", model: "coding", label: "Coding" },
+        { provider: "work", model: "coding-latest", label: "Coding" },
+        { provider: "personal", model: "coding", label: "Coding" },
       ]}
       providerLabels={{ work: "Work gateway", personal: "Personal gateway" }}
       current={{ provider: "work", model: "coding" }}
@@ -16,8 +17,9 @@ it("shows instance labels while selecting stable provider/model identities", asy
     />,
   );
   try {
-    await vi.waitFor(() => expect(view.lastFrame()).toContain("Work gateway (work) / coding ✓"));
-    expect(view.lastFrame()).toContain("Personal gateway (personal) / coding");
+    await vi.waitFor(() => expect(view.lastFrame()).toContain("Work gateway / coding ✓"));
+    expect(view.lastFrame()).toContain("Work gateway / coding-latest");
+    expect(view.lastFrame()).toContain("Personal gateway / coding");
     // Alphabetical provider order starts with personal; the label never becomes a selection ID.
     view.stdin.write("\r");
     await vi.waitFor(() =>

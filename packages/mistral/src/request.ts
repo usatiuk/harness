@@ -144,7 +144,15 @@ export function buildMistralRequest(request: ModelRequest) {
     if (covered.has(index)) continue;
     const bundle = bundles.get(index);
     if (bundle) {
-      inputs.push(...bundle);
+      // Conversations rejects output-entry IDs on input; tool_call_id still
+      // correlates local calls/results. Leave stored native output untouched.
+      inputs.push(
+        ...bundle.map((entry) => {
+          const input = { ...entry };
+          delete input.id;
+          return input;
+        }),
+      );
       continue;
     }
     switch (item.type) {

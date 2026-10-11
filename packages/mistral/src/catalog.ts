@@ -45,6 +45,7 @@ const capabilities = z.object({
   completion_chat: z.boolean().optional(),
   function_calling: z.boolean(),
   vision: z.boolean().optional(),
+  reasoning: z.boolean().optional(),
 });
 const common = {
   id,
@@ -68,15 +69,6 @@ const vibeEntry = z.object({
     .nullish(),
 });
 
-// Vibe's controls deliberately collapse onto the native none/high choices.
-export const REASONING_EFFORT = {
-  off: "none",
-  low: "none",
-  medium: "high",
-  high: "high",
-  max: "high",
-} as const;
-export type ReasoningPreset = keyof typeof REASONING_EFFORT;
 export interface CatalogEntry {
   info: ModelInfo;
   temperature?: number;
@@ -114,11 +106,7 @@ export function parseCatalog(raw: unknown, mode: MistralMode, provider: string) 
     if (model.capabilities.completion_chat === false || !model.capabilities.function_calling)
       continue;
     const params = "parameters" in model ? model.parameters : undefined;
-    const levels = [...new Set(params?.reasoning ?? [])].filter((value): value is ReasoningPreset =>
-      Object.hasOwn(REASONING_EFFORT, value),
-    );
-    if ((params?.reasoning ?? []).some((value) => !Object.hasOwn(REASONING_EFFORT, value)))
-      diagnostics.push(`Model '${model.id}' advertises unsupported reasoning controls`);
+    const levels = [...new Set(params?.reasoning ?? [])];
     const sampling =
       params?.temperature ??
       ("default_model_temperature" in model ? model.default_model_temperature : undefined);
@@ -142,7 +130,9 @@ export function parseCatalog(raw: unknown, mode: MistralMode, provider: string) 
                 presets: levels.map((value) => ({ value })),
                 reasoning: { supported: true, effortLevels: levels },
               }
-            : {}),
+            : model.capabilities.reasoning !== undefined
+              ? { reasoning: { supported: model.capabilities.reasoning } }
+              : {}),
         },
         ...(sampling != null ? { temperature: sampling } : {}),
       });

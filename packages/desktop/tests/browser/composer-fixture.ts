@@ -2,10 +2,10 @@ import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
 import { Tooltip } from "radix-ui";
-import type { ConversationId, DeliveryIntent } from "@harness/protocol";
+import type { ConversationId, DeliveryIntent, ModelInfo } from "@harness/protocol";
 import { emptyState } from "@harness/client-features/transcript-reducer";
 import { createDesktopRouter } from "../../src/routes.tsx";
-import type { DesktopSession, ConversationView } from "../../src/session.ts";
+import { DesktopSession, type ConversationView } from "../../src/session.ts";
 import { DesktopTranscript } from "../../src/transcript.ts";
 import type { AppSettings } from "@harness/server/client-protocol";
 
@@ -16,6 +16,8 @@ declare global {
     composerFixture: {
       calls: Delivery[];
       settingsWrites: unknown[];
+      creations: unknown[];
+      setDefaultModel(model: string): void;
       settle(reject?: boolean): void;
       settleStop(): void;
       disconnect(): void;
@@ -59,10 +61,21 @@ const changed = () => {
 };
 const calls: Delivery[] = [];
 const settingsWrites: unknown[] = [];
+const creations: unknown[] = [];
 let pending: Deferred | undefined;
 let stopping: Deferred | undefined;
 const domain = {
-  availableModels: () => [],
+  availableModels: (): ModelInfo[] => [
+    {
+      provider: "fixture",
+      model: "test",
+      label: "Fixture model",
+      contextWindow: 262144,
+      reasoning: { supported: true },
+      presets: [{ value: "none" }, { value: "high" }],
+    },
+    { provider: "fixture", model: "test-latest", label: "Fixture model" },
+  ],
   defaultModel: () => view.conversation.config.model,
   deliver(_id: ConversationId, text: string, intent: DeliveryIntent) {
     calls.push({ text, intent });
@@ -83,6 +96,18 @@ const domain = {
 const session = {
   domain,
   client: {
+    async create(params: Parameters<DesktopSession["client"]["create"]>[0]) {
+      creations.push(params);
+      return {
+        ...view.conversation,
+        config: {
+          instructions: "Fixture",
+          model: { provider: "fixture", model: "test", preset: null },
+          tools: null,
+          plugins: {},
+        },
+      };
+    },
     peer: {
       ready: true,
       request: async (definition: { method: string }, params: unknown) => {
@@ -99,6 +124,10 @@ const session = {
     },
   },
   settings,
+  create(...args: Parameters<DesktopSession["create"]>) {
+    return DesktopSession.prototype.create.call(this as unknown as DesktopSession, ...args);
+  },
+  changed,
   disconnected: undefined as string | undefined,
   conversations: [view.conversation],
   views: new Map([[id, view]]),
@@ -116,6 +145,10 @@ const session = {
 window.composerFixture = {
   calls,
   settingsWrites,
+  creations,
+  setDefaultModel(model) {
+    settings.settings.model = { provider: "fixture", model, preset: null };
+  },
   settle(reject = false) {
     if (!pending) throw new Error("No pending delivery");
     if (reject) pending.reject(new Error("Delivery rejected"));
