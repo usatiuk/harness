@@ -292,6 +292,7 @@ main {
 }
 :root[data-window-decoration="native"] main,
 :root:has([data-tauri-decoration-fullscreen]) main {
+  border-top: 0;
   border-top-left-radius: 0;
 }
 .page {
