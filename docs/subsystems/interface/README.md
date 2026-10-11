@@ -240,7 +240,9 @@ across independent `HARNESS_HOME` installations. Windows retains one
 Unix uses an atomic rename. No helper subprocess performs deletion. A failed
 Windows replacement restores the previous file; interruption between its two
 renames requires manual restoration. Hosted signed CLI update execution passes
-on Windows x64, Linux x64 and both macOS architectures.
+on Windows x64, Linux x64 and both macOS architectures for v0.1.3. New release
+builds target Windows x64, Linux x64 glibc and Apple Silicon macOS; Intel macOS
+release builds are discontinued.
 The keep-running preference defaults false; stop-on-exit releases Local only when
 another client is not attached. Local background execution after desktop exit is
 an explicit remembered preference. Remote observers detach without stopping their owner.

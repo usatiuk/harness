@@ -1,12 +1,17 @@
 # Product releases, installation, and updates
 
-Status: implementation in progress. The simplification requested October 10
+Status: implementation delivered; platform qualification gaps remain. The simplification requested October 10
 supersedes the former source-export, license-inventory, sealed-publication and
 per-artifact retention designs. Those are removed requirements, not delivery gates.
 
-Current checkpoint: `v0.1.3` is public. All four platform builds and signed CLI
-updates pass; Windows desktop installation/update/restart and released SSH
-deployment/upgrades pass in hosted run `38124352678`. Connect-time upgrade and
+Current checkpoint: `v0.1.5` is public with 19 assets for Windows x64, Linux x64
+glibc and Apple Silicon macOS. Release run `38127043428` passes the full pinned
+Node source check (1,256 tests, 38 skipped), all three builds and production
+signature verification. The public manifest and update feed resolve to `0.1.5`.
+Windows/Ubuntu main CI passes at `841d116`, and Rust release caches are saved for
+all three platforms. Earlier `v0.1.3` CLI updates, Windows desktop
+installation/update/restart and released SSH deployment/upgrades pass in hosted
+run `38124352678`. Connect-time upgrade and
 explicit cache-pruning regressions pass. The remaining qualification gaps are
 published WSL2 deployment and macOS/Linux desktop update/restart execution.
 Local install/update execution is prohibited, and the unrequested WSL1 fixture
@@ -18,7 +23,8 @@ Release targets are Windows x64, Linux x64 glibc and Apple Silicon macOS. The
 user discontinued Intel macOS release builds on October 11 and canceled the
 four-target `v0.1.4` workflow before publication. Release builds, metadata and
 hosted artifact checks now use the three maintained targets. The existing
-three-target metadata regression passes; the replacement patch release is `v0.1.5`.
+three-target metadata regression passes; the replacement patch release `v0.1.5`
+is published. No installer, updater or native GUI ran on the user's PC.
 
 ## Summary
 

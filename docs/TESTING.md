@@ -260,6 +260,15 @@ temporary homes and need explicit approval. No diagnostic file upload is retaine
 Published WSL2 deployment and macOS/Linux desktop updater execution remain
 unqualified. The additional WSL1 fixture was removed as unnecessary scope.
 
+Release `v0.1.5` is published after run `38127043428` passes the pinned-Node full
+check (1,256 tests, 38 skipped), Windows x64/Linux x64 glibc/Apple Silicon macOS
+builds and production signature verification. Its public manifest/update feed
+both report `0.1.5` with those three targets. Intel macOS was removed at the
+user's request; the preceding `v0.1.4` workflow was canceled before publication.
+Standard Rust release caches are saved for all three retained targets, and
+Windows/Ubuntu main CI passes at `841d116`. This patch was not installed or
+updated on the user's PC; the existing qualification gaps above remain open.
+
 The combined Mistral correction and provider-settings integration passes the
 Node 22 full source check: 1,251 tests, 36 skipped, with two workers. All 17
 headless browser cases and the production desktop build pass. An earlier full

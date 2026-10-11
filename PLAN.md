@@ -58,6 +58,14 @@ packages.
 
 ## Release delivery in progress
 
+`v0.1.5` is published for Windows x64, Linux x64 glibc and Apple Silicon macOS.
+The requested Intel macOS removal is committed; the four-target `v0.1.4` build
+was canceled before publication. The replacement release passes its full source
+gate (1,256 tests, 38 skipped), all three builds and signature verification.
+Its public manifest/update feed resolve, and standard Rust caches are populated
+for all three release targets. Windows/Ubuntu main CI passes at `841d116`.
+The previously recorded platform qualification gaps remain open.
+
 The [release plan](docs/plans/cross-cutting/2026-10-10-release-installation-updates.md)
 records the completed one-time halving audit (13,864 to 6,374 added code/test/workflow
 lines, relative to MCP main `97eea03`). This is historical evidence, not a permanent
@@ -100,8 +108,8 @@ WSL/SSH source deployment checks. Windows and Ubuntu source/headless native CI
 pass at `c72f848`. Hosted checks now verify real CLI installation/updates and
 installed desktop runtime preparation across all four release targets.
 Three independent reviews of the CLI update increment are resolved.
-Direct main commits/pushes are authorized; publication and visible native tests
-require separate approval.
+The user authorized publication of `v0.1.5`; local installed-app execution remains
+prohibited and visible native tests require separate approval.
 
 The published `v0.1.2` desktop has a startup defect: app-level feature gating
 chooses source-checkout paths although Tauri correctly built a packaged app.
