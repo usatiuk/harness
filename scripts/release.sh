@@ -19,7 +19,7 @@ for component in server cli; do
     -C "$payload_directory" "$component"
 done
 cp "$payload_directory/server/harness-bootstrap$executable_suffix" \
-  "$asset_directory/$asset_prefix-bootstrap$executable_suffix"
+  "$asset_directory/harness-${target%-glibc}$executable_suffix"
 
 # Tauri owns the platform installer and its update signature.
 case "$target" in

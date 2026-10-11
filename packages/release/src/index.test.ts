@@ -44,12 +44,10 @@ it("assembles download metadata and Tauri updates from four native artifact sets
   try {
     for (const [target, update] of targets) {
       const prefix = `harness-v${PRODUCT_VERSION}-${target}`;
-      for (const file of [
-        "server.tar.gz",
-        "cli.tar.gz",
-        `bootstrap${target === "windows-x64" ? ".exe" : ""}`,
-      ])
+      for (const file of ["server.tar.gz", "cli.tar.gz"])
         await writeFile(join(directory, `${prefix}-${file}`), `${target}/${file}`);
+      const launcher = `harness-${target.replace("-glibc", "")}${target === "windows-x64" ? ".exe" : ""}`;
+      await writeFile(join(directory, launcher), `${target}/launcher`);
       await writeFile(join(directory, `${prefix}-desktop${update}.sig`), `signature-${target}`);
     }
     await promisify(execFile)(
@@ -75,6 +73,11 @@ it("assembles download metadata and Tauri updates from four native artifact sets
         sha256: createHash("sha256").update(bytes).digest("hex"),
         root: "server",
         entry: "server.mjs",
+      });
+      const launcher = `harness-${target.replace("-glibc", "")}${target === "windows-x64" ? ".exe" : ""}`;
+      expect(release.targets[target]?.launcher).toMatchObject({
+        url: `https://github.com/usatiuk/harness/releases/download/v${PRODUCT_VERSION}/${launcher}`,
+        entry: launcher,
       });
       platforms[updater] = {
         url: `https://github.com/usatiuk/harness/releases/download/v${PRODUCT_VERSION}/${prefix}-desktop${update}`,

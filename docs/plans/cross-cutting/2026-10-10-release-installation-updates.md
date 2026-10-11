@@ -11,6 +11,11 @@ system Node. They download separate server/CLI payloads and share a pinned Node
 runtime in `~/.harness/runtime/node`. A remote Linux host uses the same bootstrap;
 SSH/WSL carries stdin/stdout to a bridge that connects to its local owner.
 Local communication uses Unix sockets or Windows named pipes, never a TCP port.
+CLI installation is a direct download to a directory on PATH, such as
+`~/.local/bin/harness`; no additional install script is needed. Public CLI asset
+names are stable (`harness-linux-x64`, `harness-macos-arm64`, `harness-macos-x64`,
+`harness-windows-x64.exe`) so GitHub's `releases/latest/download/` URL selects the
+latest published version. Signed metadata still pins the release-specific URL.
 
 Each account/home has one background server, shared by CLI and desktop. The saved
 server selection is independent of the installed client's version. Clients inspect
@@ -282,3 +287,10 @@ signatures protect downloaded payloads and updater artifacts without providing
 an OS publisher identity. No additional release service is required.
 No downloaded executable, installer or update has been run on the user's PC;
 remaining install/update qualification must run on hosted machines.
+
+The CLI installation follow-up uses direct curl/download commands, without adding
+installer scripts. `v0.1.2` retains its signed manifest's original launcher assets;
+four additional short asset names contain identical bytes, checked against that
+manifest's hashes and sizes before upload. Future builds emit those short names
+directly and sign their release-specific locations. Metadata assembly tests assert
+the new launcher URLs. Source CI qualification of this naming change remains pending.

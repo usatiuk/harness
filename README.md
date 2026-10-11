@@ -7,6 +7,23 @@ subagents through a typed plugin surface.
 
 See `PLAN.md` for product direction and current subsystem status.
 
+## Install
+
+Download the desktop installer from [the latest release](https://github.com/usatiuk/harness/releases/latest).
+For the Linux x64 CLI:
+
+```sh
+mkdir -p ~/.local/bin
+curl -fL https://github.com/usatiuk/harness/releases/latest/download/harness-linux-x64 -o ~/.local/bin/harness
+chmod +x ~/.local/bin/harness
+```
+
+Keep `~/.local/bin` on PATH. macOS uses `harness-macos-arm64` or
+`harness-macos-x64` at the same latest-release URL; Windows uses
+`harness-windows-x64.exe`. Install the Windows executable as `harness.exe` in a
+directory on PATH. System Node is unnecessary. `harness update` replaces the CLI
+with a newer published version, including its native launcher.
+
 Prior attempts (reference only, not tracked here) live under `old/`.
 
 ## Development

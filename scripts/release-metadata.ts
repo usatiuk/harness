@@ -62,7 +62,7 @@ const updates: Record<string, { url: string; signature: string }> = {};
 for (const [target, extension, updater] of platforms) {
   const prefix = `harness-v${PRODUCT_VERSION}-${target}`;
   const update = `${prefix}-desktop${extension === ".dmg" ? ".app.tar.gz" : extension}`;
-  const launcher = `${prefix}-bootstrap${target === "windows-x64" ? ".exe" : ""}`;
+  const launcher = `harness-${target.replace("-glibc", "")}${target === "windows-x64" ? ".exe" : ""}`;
   targets[target] = {
     node: { version: NODE_PIN.version, artifact: NODE_PIN.targets[target] },
     server: await artifact(`${prefix}-server.tar.gz`, "tarGz", "server", "server.mjs"),
