@@ -18,11 +18,13 @@ curl -fL https://github.com/usatiuk/harness/releases/latest/download/harness-lin
 chmod +x ~/.local/bin/harness
 ```
 
-Keep `~/.local/bin` on PATH. macOS uses `harness-macos-arm64` or
-`harness-macos-x64` at the same latest-release URL; Windows uses
+Keep `~/.local/bin` on PATH. Apple Silicon macOS uses `harness-macos-arm64`
+at the same latest-release URL; Windows uses
 `harness-windows-x64.exe`. Install the Windows executable as `harness.exe` in a
 directory on PATH. System Node is unnecessary. `harness update` replaces the CLI
 with a newer published version, including its native launcher.
+New releases target Windows x64, Linux x64 glibc and Apple Silicon macOS.
+Intel macOS release builds are discontinued.
 
 Prior attempts (reference only, not tracked here) live under `old/`.
 

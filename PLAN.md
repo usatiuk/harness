@@ -120,8 +120,9 @@ The reported main-integration creation regression is corrected: Default omits th
 settings preset rather than sending null, with a `ModelConfig` type check and a
 real RPC regression. API reasoning presets use documented known-model metadata;
 Vibe remains catalog-driven. Focused tests and the affected headless browser case
-pass; final pinned-Node CI is pending, and local Node 24 retains the two known MCP
-OAuth failures.
+pass. Final pinned-Node CI passes on Windows (1,247 tests, 47 skipped) and Ubuntu
+(1,256 tests, 38 skipped), including headless Rust checks. Local Node 24 retains
+the two known MCP OAuth failures.
 
 The [desktop web search follow-up](docs/plans/interface/2026-10-11-web-search-settings.md)
 exposes schema-declared provider settings in the GUI, with native web search enabled

@@ -33,13 +33,12 @@ it("agrees with the native bootstrap on executable metadata boundaries", () => {
     expect(artifactSchema.safeParse({ ...artifact, url }).success).toBe(false);
 });
 
-it("assembles download metadata and Tauri updates from four native artifact sets", async () => {
+it("assembles download metadata and Tauri updates from the shipped native artifact sets", async () => {
   const directory = await mkdtemp(join(tmpdir(), "harness-release-metadata-"));
   const targets = [
     ["windows-x64", ".exe", "windows-x86_64"],
     ["linux-x64-glibc", ".AppImage", "linux-x86_64"],
     ["macos-arm64", ".app.tar.gz", "darwin-aarch64"],
-    ["macos-x64", ".app.tar.gz", "darwin-x86_64"],
   ] as const;
   try {
     for (const [target, update] of targets) {

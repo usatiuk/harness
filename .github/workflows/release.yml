@@ -84,7 +84,6 @@ jobs:
           - { runner: windows-latest, target: windows-x64 }
           - { runner: ubuntu-22.04, target: linux-x64-glibc }
           - { runner: macos-15, target: macos-arm64 }
-          - { runner: macos-15-intel, target: macos-x64 }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

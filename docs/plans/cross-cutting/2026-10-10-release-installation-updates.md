@@ -14,6 +14,12 @@ has been removed. These gaps remain open; no new test environment is authorized
 by this plan. The evidence below is chronological delivery history, not a list
 of still-current failures.
 
+Release targets are Windows x64, Linux x64 glibc and Apple Silicon macOS. The
+user discontinued Intel macOS release builds on October 11 and canceled the
+four-target `v0.1.4` workflow before publication. Release builds, metadata and
+hosted artifact checks now use the three maintained targets. The existing
+three-target metadata regression passes; the replacement patch release is `v0.1.5`.
+
 ## Summary
 
 Harness ships a desktop installer and a small native CLI launcher. Neither needs
@@ -23,7 +29,7 @@ SSH/WSL carries stdin/stdout to a bridge that connects to its local owner.
 Local communication uses Unix sockets or Windows named pipes, never a TCP port.
 CLI installation is a direct download to a directory on PATH, such as
 `~/.local/bin/harness`; no additional install script is needed. Public CLI asset
-names are stable (`harness-linux-x64`, `harness-macos-arm64`, `harness-macos-x64`,
+names are stable (`harness-linux-x64`, `harness-macos-arm64`,
 `harness-windows-x64.exe`) so GitHub's `releases/latest/download/` URL selects the
 latest published version. Signed metadata still pins the release-specific URL.
 

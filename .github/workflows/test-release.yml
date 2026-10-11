@@ -24,7 +24,6 @@ jobs:
           - { runner: windows-latest, target: windows-x64, suffix: .exe }
           - { runner: ubuntu-22.04, target: linux-x64, suffix: "" }
           - { runner: macos-15, target: macos-arm64, suffix: "" }
-          - { runner: macos-15-intel, target: macos-x64, suffix: "" }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     env:

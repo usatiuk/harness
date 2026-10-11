@@ -60,7 +60,8 @@ the real service/settings boundary, and the affected headless model-picker case
 passes. The full Node 24 check passes typecheck, lint, formatting and 1,256 tests
 (36 skipped) but retains the two earlier unchanged MCP OAuth failures. No local
 Node/dependency switch was made while the user runs the app; the pinned Node 22
-CI gate for the final correction remains pending. A read-only query of the user's
+CI passes the final correction on Windows (1,247 tests, 47 skipped) and Ubuntu
+(1,256 tests, 38 skipped), including headless Rust checks. A read-only query of the user's
 already-restarted source server confirms effort choices on actual API aliases
 including `mistral-medium-latest` and `zai-glm-latest`; it performs no vendor
 generation, configuration write or restart.

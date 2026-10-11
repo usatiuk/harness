@@ -55,7 +55,6 @@ const platforms = [
   ["windows-x64", ".exe", "windows-x86_64"],
   ["linux-x64-glibc", ".AppImage", "linux-x86_64"],
   ["macos-arm64", ".dmg", "darwin-aarch64"],
-  ["macos-x64", ".dmg", "darwin-x86_64"],
 ] as const;
 const targets: Record<string, unknown> = {};
 const updates: Record<string, { url: string; signature: string }> = {};

@@ -282,6 +282,10 @@ verifies explicit presets and clearing an inherited default in persisted records
 Mistral API reasoning regressions use the real SDK with synthetic local HTTP/SSE
 to verify documented model-specific options, aliases, omitted defaults and exact
 effort delivery. Neither regression executes a live vendor or the user's app.
+Final pinned-Node CI for this correction passes on Windows (1,247 tests, 47
+skipped) and Ubuntu (1,256 tests, 38 skipped), including the headless Rust checks
+in run `38126203710`. The local Node 24 full check retains two unchanged MCP OAuth
+failures; no dependency/runtime switch or test relaxation was made to hide them.
 
 ```sh
 npm run prepare:server --workspace @harness/desktop
