@@ -625,13 +625,21 @@ main {
   padding: 2px 4px;
   border-radius: 3px;
 }
-.cell.tool {
-  width: calc(min(100%, var(--chat-width)) - 2 * var(--chat-inset));
-  margin: 8px auto;
-  padding: 9px 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+.cell.tool-group {
+  padding: 3px var(--chat-inset);
   font-size: 12px;
+}
+.cell.tool {
+  width: 100%;
+  margin: 0;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.tool-group > summary {
+  padding: 3px 0;
+}
+.tool-group > .cell.tool {
+  padding-left: 14px;
 }
 .disclosure > summary {
   display: flex;
@@ -657,17 +665,37 @@ main {
   font-weight: 500;
   color: var(--ink);
 }
-.tool summary span {
-  font-size: 12px;
+.tool > summary {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tool > summary strong {
+  flex-shrink: 0;
+}
+.tool-argument-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+}
+.tool-status {
+  flex-shrink: 0;
   margin-left: auto;
+}
+.tool h3 {
+  margin: 6px 0 2px;
+  font-size: 12px;
 }
 .tool pre {
   max-height: 360px;
   overflow: auto;
 }
 .nested-tools {
-  margin: 12px 0 12px 14px;
-  padding-left: 12px;
+  margin: 4px 0 4px 8px;
+  padding-left: 6px;
   border-left: 2px solid var(--line);
 }
 .nested-tools .cell.tool {
@@ -826,7 +854,26 @@ main {
   margin: 6px auto;
 }
 .activity {
-  margin: 10px 0;
+  margin: 3px 0;
+}
+.activity-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.activity-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity pre {
+  max-height: 160px;
+  overflow: auto;
+  font-size: 12px;
+  margin: 4px 0;
 }
 .provider {
   border-bottom: 1px solid var(--line);

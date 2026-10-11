@@ -16,6 +16,13 @@ declare global {
   interface Window {
     composerFixture: {
       calls: Delivery[];
+      showToolsAndActivities(): void;
+      showLongToolRun(): void;
+      finishActivity(): void;
+      peekCalls: number;
+      peekOutput: string;
+      holdPeek: boolean;
+      releasePeek(): void;
       settingsWrites: unknown[];
       creations: Array<Parameters<DesktopSession["client"]["create"]>[0]>;
       setDefaultModel(model: string): void;
@@ -128,7 +135,21 @@ const domain = {
 // Substitute only the session/data edge. Production route actions, fetchers,
 // Composer, controls, draft storage and preference handling execute unchanged.
 // Native cases qualify real RPC and server semantics separately.
+let releasePeek: (() => void) | undefined;
 const session = {
+  plugins: {
+    activities: () => ({
+      async peek() {
+        window.composerFixture.peekCalls++;
+        if (window.composerFixture.holdPeek)
+          await new Promise<void>((resolve) => {
+            releasePeek = resolve;
+          });
+        return [{ type: "text", text: window.composerFixture.peekOutput }];
+      },
+      kill: () => Promise.resolve("requested"),
+    }),
+  },
   domain,
   client: {
     async create(params: Parameters<DesktopSession["client"]["create"]>[0]) {
@@ -196,6 +217,83 @@ window.composerFixture = {
     changed();
   },
   calls,
+  peekCalls: 0,
+  peekOutput: "Checking authentication",
+  holdPeek: false,
+  releasePeek() {
+    releasePeek?.();
+    releasePeek = undefined;
+  },
+  showToolsAndActivities() {
+    view.state = {
+      ...view.state,
+      activities: [
+        { id: "live", kind: "subagent", title: "explore" },
+        {
+          id: "finished",
+          kind: "process",
+          title: "old command",
+          status: "ok",
+          summary: "finished",
+        },
+      ],
+      cells: [
+        { kind: "user", id: "user", turnId: "turn", text: "Check authentication", createdAt: 0 },
+        {
+          kind: "tool",
+          callId: "read",
+          name: "read_file",
+          args: { path: "credentials.ts", note: "Long arguments ".repeat(100) },
+          startedAt: 0,
+          status: "ok",
+          output: "Full file output",
+        },
+        {
+          kind: "tool",
+          callId: "search",
+          name: "glob",
+          args: { pattern: "**/*.ts" },
+          startedAt: 0,
+        },
+        {
+          kind: "assistant",
+          id: "assistant",
+          turnId: "turn",
+          text: "Checking the stores",
+          streaming: false,
+        },
+      ],
+    };
+    view.transcript.update(view.state.cells);
+    changed();
+  },
+  showLongToolRun() {
+    view.state = {
+      ...view.state,
+      cells: Array.from({ length: 100 }, (_, index) => ({
+        kind: "tool" as const,
+        callId: `write-${index}`,
+        name: "write",
+        args: { path: `file-${index}.txt`, content: "line\n".repeat(1000) },
+        startedAt: 0,
+        status: "ok" as const,
+        output: `Wrote file-${index}.txt`,
+      })),
+    };
+    view.transcript.update(view.state.cells);
+    changed();
+  },
+  finishActivity() {
+    view.state = {
+      ...view.state,
+      activities: view.state.activities.map((activity) => ({
+        ...activity,
+        status: "ok",
+        summary: "finished",
+      })),
+    };
+    changed();
+  },
   settingsWrites,
   creations,
   setDefaultModel(model) {

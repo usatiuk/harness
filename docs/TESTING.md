@@ -24,6 +24,21 @@ npm run test:wsl                 # headless Windows WSL + rendered TUI qualifica
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## Compact tools and live activities
+
+The [desktop follow-up](plans/interface/2026-10-11-compact-tools-activities.md)
+uses production routes in Chromium to verify collapsed call counts, compact
+one-line argument previews, expanded output, running-only activities, one-second
+automatic refresh, overlapping-request prevention, completion/navigation cleanup,
+disconnection while still mounted, and a late peek response after unmount. Canvas
+tests exercise expanded tool history anchoring. A representative 100-call run with
+1,000-line writes verifies collapsed groups mount no calls and only opened calls
+mount output and diff DOM. Vitest covers desktop grouping/nested calls/row identity and
+subagent commentary delta replacement without changing the final result.
+Final `npm run check` passes 1,276 tests (38 skipped), and all 20 conversation
+browser cases pass. Browser fixture output does not establish native WebView or
+live-provider behavior.
+
 ## Auto-approval inspection
 
 The [auto-approval delivery](plans/execution/2026-10-11-auto-approval-revamp.md)

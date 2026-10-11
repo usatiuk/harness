@@ -1,10 +1,16 @@
 import type { Cell } from "@harness/client-features/transcript-reducer";
 
-export interface TranscriptRow {
+interface CellRow {
   key: string;
   cell: Cell;
   children: Cell[];
 }
+export interface ToolCallRow extends CellRow {
+  cell: Extract<Cell, { kind: "tool" }>;
+}
+export type TranscriptRow =
+  | { kind: "cell"; key: string; cell: Exclude<Cell, { kind: "tool" }> }
+  | { kind: "tools"; key: string; tools: [ToolCallRow, ...ToolCallRow[]] };
 
 const durableKey = (cell: Cell): string | undefined =>
   cell.kind === "tool"
@@ -42,8 +48,8 @@ export class DesktopTranscript {
         replacements.set(streamKey(cell)!, key);
     }
     const keys = new Map<Cell, string>();
-    const rows: TranscriptRow[] = [];
-    const tools = new Map<string, TranscriptRow>();
+    const rows: CellRow[] = [];
+    const tools = new Map<string, CellRow>();
     for (const cell of cells) {
       const id = durableKey(cell);
       const stream = streamKey(cell);
@@ -54,11 +60,11 @@ export class DesktopTranscript {
       }
       key ??= id ?? `stream:${this.sequence++}`;
       keys.set(cell, key);
-      const row = { key, cell, children: [] } satisfies TranscriptRow;
+      const row = { key, cell, children: [] } satisfies CellRow;
       rows.push(row);
       if (cell.kind === "tool") tools.set(cell.callId, row);
     }
-    this.rows = rows.filter((row) => {
+    const roots = rows.filter((row) => {
       const cell = row.cell;
       if (cell.kind !== "tool" || !cell.parentCallId) return true;
       const parent = tools.get(cell.parentCallId);
@@ -66,6 +72,15 @@ export class DesktopTranscript {
       parent.children.push(cell);
       return false;
     });
+    this.rows = [];
+    for (const row of roots) {
+      const previous = this.rows.at(-1);
+      if (row.cell.kind === "tool") {
+        const tool = { ...row, cell: row.cell };
+        if (previous?.kind === "tools") previous.tools.push(tool);
+        else this.rows.push({ kind: "tools", key: row.key, tools: [tool] });
+      } else this.rows.push({ kind: "cell", key: row.key, cell: row.cell });
+    }
     this.keys = keys;
     this.cells = cells;
   }

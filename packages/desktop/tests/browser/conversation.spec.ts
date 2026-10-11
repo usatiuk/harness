@@ -300,7 +300,11 @@ test("a visible standalone child anchors to its newly loaded parent", async ({ p
     element.scrollTop = 300;
   });
   await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  await page.locator(".conversation-scroll").evaluate((element) => {
+    element.scrollTop = 0;
+  });
   await expect(page.locator(".cell.tool").first()).toBeVisible();
+  await page.locator(".cell.tool").first().locator("summary").click();
   await page.locator(".conversation-scroll").evaluate((element) => {
     const top = element.querySelector(".conversation-header")!.getBoundingClientRect().bottom;
     const child = [...element.querySelectorAll(".transcript-item")].find(
@@ -610,4 +614,99 @@ test("saved conversation titles appear in the sidebar and header", async ({ page
   await page.evaluate(() => window.composerFixture.setTitle("Fix conversation naming"));
   await expect(page.locator(".conversation-title")).toHaveText("Fix conversation naming");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Fix conversation naming");
+});
+
+test("tool groups are compact and activities refresh automatically only while mounted and running", async ({
+  page,
+}, testInfo) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.clock.install();
+  await page.evaluate(() => window.composerFixture.showToolsAndActivities());
+  const group = page.locator(".tool-group");
+  await expect(group.locator(":scope > summary")).toHaveText("2 tool calls");
+  await expect(group).not.toHaveAttribute("open", "");
+  await group.locator(":scope > summary").click();
+  const call = group.locator('[data-testid="tool-call"]').first();
+  await expect(call.locator(".tool-argument-preview")).toHaveCSS("white-space", "nowrap");
+  const row = await call.locator("summary").boundingBox();
+  expect(row!.height).toBeLessThan(30);
+  await expect(call).not.toHaveAttribute("open", "");
+  await call.locator("summary").click();
+  await expect(call.getByTestId("tool-output")).toHaveText("Full file output");
+  await expect(page.getByRole("button", { name: "Refresh output" })).toHaveCount(0);
+  await expect(page.locator(".activity")).toHaveCount(1);
+  await page.locator(".activities > summary").click();
+  await page.locator(".activity > summary").click();
+  await expect(page.locator(".activity pre")).toHaveText("Checking authentication");
+  await page.screenshot({ path: testInfo.outputPath("compact-tools.png") });
+  await page.evaluate(() => {
+    window.composerFixture.peekOutput = "Found both stores";
+    window.composerFixture.holdPeek = true;
+  });
+  await page.clock.runFor(1000);
+  await expect.poll(() => page.evaluate(() => window.composerFixture.peekCalls)).toBe(2);
+  await page.clock.runFor(3000);
+  expect(await page.evaluate(() => window.composerFixture.peekCalls)).toBe(2);
+  await page.evaluate(() => {
+    window.composerFixture.holdPeek = false;
+    window.composerFixture.releasePeek();
+  });
+  await expect(page.locator(".activity pre")).toHaveText("Found both stores");
+  await page.evaluate(() => window.composerFixture.finishActivity());
+  await expect(page.locator(".activities")).toHaveCount(0);
+  await page.clock.runFor(2000);
+  expect(await page.evaluate(() => window.composerFixture.peekCalls)).toBe(2);
+  await page.evaluate(() => {
+    window.composerFixture.holdPeek = true;
+    window.composerFixture.showToolsAndActivities();
+  });
+  await expect.poll(() => page.evaluate(() => window.composerFixture.peekCalls)).toBe(3);
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(page.locator(".activity")).toHaveCount(0);
+  await page.evaluate(() => window.composerFixture.releasePeek());
+  await page.clock.runFor(2000);
+  expect(await page.evaluate(() => window.composerFixture.peekCalls)).toBe(3);
+});
+
+test("activity refresh stops when the connection closes while the conversation stays visible", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.clock.install();
+  await page.evaluate(() => window.composerFixture.showToolsAndActivities());
+  await expect.poll(() => page.evaluate(() => window.composerFixture.peekCalls)).toBe(1);
+  await page.locator(".activities > summary").click();
+  await page.locator(".activity > summary").click();
+  await page.evaluate(() => window.composerFixture.disconnect());
+  await expect(page.getByRole("alert")).toContainText("Disconnected fixture");
+  await expect(page.getByRole("button", { name: "Stop activity", exact: true })).toBeDisabled();
+  await page.clock.runFor(3000);
+  expect(await page.evaluate(() => window.composerFixture.peekCalls)).toBe(1);
+});
+
+test("long tool groups mount only call previews and the details actually opened", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showLongToolRun());
+  const group = page.locator(".tool-group");
+  await expect(group.locator(":scope > summary")).toHaveText("100 tool calls");
+  await expect(group.getByTestId("tool-call")).toHaveCount(0);
+  await expect(group.locator(".diff span")).toHaveCount(0);
+  await group.locator(":scope > summary").click();
+  await expect(group.getByTestId("tool-call")).toHaveCount(100);
+  await expect(group.getByTestId("tool-output")).toHaveCount(0);
+  await expect(group.locator(".diff span")).toHaveCount(0);
+  const first = group.getByTestId("tool-call").first();
+  await first.locator(":scope > summary").click();
+  await expect(first.getByTestId("tool-output")).toHaveText("Wrote file-0.txt");
+  await expect(first.locator(".diff span")).toHaveCount(1001);
+  await expect(group.getByTestId("tool-output")).toHaveCount(1);
+  await first.locator(":scope > summary").click();
+  await expect(group.locator(".diff span")).toHaveCount(0);
+  await group.locator(":scope > summary").click();
+  await expect(group.getByTestId("tool-call")).toHaveCount(0);
 });

@@ -120,7 +120,11 @@ window.canvasFixture = {
   },
 };
 
-function renderRow({ cell }: TranscriptRow) {
+function renderRow(row: TranscriptRow): ReturnType<typeof h> {
+  // Canvas fixtures expand grouped calls to keep tall inspection/anchor scenarios.
+  return row.kind === "tools" ? h("div", null, ...row.tools.map(renderCell)) : renderCell(row);
+}
+function renderCell({ cell }: { cell: Cell }): ReturnType<typeof h> {
   if (cell.kind === "user")
     return h(
       "article",

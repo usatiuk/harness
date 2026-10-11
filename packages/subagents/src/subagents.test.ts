@@ -15,6 +15,7 @@ import type {
   ToolSchema,
   TurnId,
 } from "@harness/protocol";
+import { SubagentActivity } from "./activity.ts";
 import { textOf } from "@harness/protocol";
 import {
   SubagentRegistry,
@@ -419,4 +420,62 @@ describe("subagentContractResolver", () => {
     expect(props.agent).toBeDefined();
     expect(props.background).toBeDefined(); // not clobbered by the roster rewrite
   });
+});
+
+it("previews streaming commentary and replaces it with the committed assistant message", async () => {
+  const childId = id("preview-child");
+  const activity = new SubagentActivity({ runner: fakeRunner(), childId, title: "explore" });
+  const turnId = "t" as TurnId;
+  activity.onEvent({
+    type: "text_delta",
+    conversationId: childId,
+    turnId,
+    phase: "commentary",
+    text: "Checking ",
+  });
+  activity.onEvent({
+    type: "text_delta",
+    conversationId: childId,
+    turnId,
+    phase: "commentary",
+    text: "authentication",
+  });
+  expect(textOf(activity.peek())).toBe("assistant: Checking authentication");
+  activity.onEvent({
+    type: "item.appended",
+    conversationId: childId,
+    item: {
+      id: "message" as ItemId,
+      conversationId: childId,
+      turnId,
+      seq: 1,
+      parent: null,
+      createdAt: 0,
+      type: "message",
+      role: "assistant",
+      phase: "commentary",
+      content: [{ type: "text", text: "Checking authentication" }],
+    },
+  });
+  expect(textOf(activity.peek())).toBe("assistant: Checking authentication");
+  activity.onEvent({ type: "text_delta", conversationId: childId, turnId, text: "Found it" });
+  expect(textOf(activity.peek())).toBe("assistant: Checking authentication\nassistant: Found it");
+  activity.onEvent({
+    type: "item.appended",
+    conversationId: childId,
+    item: {
+      id: "final" as ItemId,
+      conversationId: childId,
+      turnId,
+      seq: 2,
+      parent: null,
+      createdAt: 0,
+      type: "message",
+      role: "assistant",
+      content: [{ type: "text", text: "Found it" }],
+    },
+  });
+  activity.onEvent({ type: "turn.status", conversationId: childId, turnId, status: "completed" });
+  expect(textOf((await activity.done).view)).toBe("Found it");
+  expect(textOf(activity.peek())).toBe("assistant: Checking authentication\nassistant: Found it");
 });

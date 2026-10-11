@@ -59,14 +59,18 @@ class HistoryAnchor extends Component<AnchorProps> {
         index: indices.get(element.dataset.transcriptKey!)!,
         offset: (element.getBoundingClientRect().top - viewport.top) / scale,
       };
-    // A newly loaded parent may absorb every rendered standalone child. Its
-    // collapsed row is the nearest remaining representation of that content.
+    // Prepending history can merge tool groups or load a formerly missing parent.
+    // Find the surviving representation of the first visible call.
     const first = visible[0];
     const previousRow = previous.rows.find((row) => row.key === first?.dataset.transcriptKey);
-    if (first && previousRow?.cell.kind === "tool" && previousRow.cell.parentCallId) {
-      const parentCallId = previousRow.cell.parentCallId;
+    if (first && previousRow?.kind === "tools") {
+      const call = previousRow.tools[0].cell;
       const index = this.props.rows.findIndex(
-        (row) => row.cell.kind === "tool" && row.cell.callId === parentCallId,
+        (row) =>
+          row.kind === "tools" &&
+          row.tools.some(
+            (tool) => tool.cell.callId === call.callId || tool.cell.callId === call.parentCallId,
+          ),
       );
       if (index >= 0)
         return { index, offset: (first.getBoundingClientRect().top - viewport.top) / scale };
@@ -174,7 +178,19 @@ export function ConversationCanvas({
                 atBottomStateChange={setAtBottom}
                 components={components}
                 itemContent={(_index, row) => (
-                  <div className="transcript-item" data-transcript-key={row.key}>
+                  <div
+                    className="transcript-item"
+                    data-transcript-key={row.key}
+                    onClickCapture={(event) => {
+                      // Arm resize-follow before a disclosure changes the measured row.
+                      if (
+                        atBottom &&
+                        event.target instanceof Element &&
+                        event.target.closest("summary")
+                      )
+                        scroller.current?.autoscrollToBottom();
+                    }}
+                  >
                     {renderRow(row)}
                   </div>
                 )}

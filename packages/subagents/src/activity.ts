@@ -37,6 +37,7 @@ export class SubagentActivity implements Activity {
   readonly #runner: ConversationRunner;
   readonly #lines: string[] = [];
   #finalText = "";
+  #preview = "";
   #unsub?: () => void;
   #killed = false;
   #settled = false;
@@ -59,9 +60,13 @@ export class SubagentActivity implements Activity {
   onEvent(event: HarnessEvent): void {
     if (!isKernelEvent(event)) return;
     switch (event.type) {
+      case "text_delta":
+        this.#preview = (this.#preview + event.text).slice(-LINE_CAP);
+        break;
       case "item.appended": {
         const item = event.item;
         if (item.type === "message" && item.role === "assistant") {
+          this.#preview = "";
           this.#finalText = textOf(item.content);
           this.#push(`assistant: ${this.#finalText}`);
         } else if (item.type === "tool_call") {
@@ -78,7 +83,10 @@ export class SubagentActivity implements Activity {
   }
 
   peek(): ContentBlock[] {
-    const tail = this.#lines.slice(-PEEK_LINES).join("\n");
+    const tail = [
+      ...this.#lines.slice(-PEEK_LINES),
+      ...(this.#preview ? [`assistant: ${this.#preview}`] : []),
+    ].join("\n");
     return [{ type: "text", text: tail || "(subagent starting…)" }];
   }
 

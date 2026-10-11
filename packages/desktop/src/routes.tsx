@@ -39,6 +39,7 @@ import {
   appProviderConfigUpdateRequest,
   type AppSettings,
 } from "@harness/server/client-protocol";
+import type { TranscriptRow } from "./transcript.ts";
 import { DesktopSession, type ConversationView } from "./session.ts";
 import {
   Button,
@@ -182,14 +183,6 @@ export function createDesktopRouter(
         case "sandbox-stop":
           await session.plugins.stopSandbox(field(data, "conversationId") as ConversationId);
           return { ok: true };
-        case "activity-output": {
-          const view = session.plugins.activities(field(data, "conversationId") as ConversationId);
-          const content = await view.peek(field(data, "activityId"));
-          return {
-            ok: true,
-            message: textOf(content),
-          };
-        }
         case "activity-kill":
           await session.plugins
             .activities(field(data, "conversationId") as ConversationId)
@@ -881,72 +874,107 @@ export function createDesktopRouter(
     );
   }
 
-  function TranscriptCell({ cell, children = [] }: { cell: Cell; children?: Cell[] | undefined }) {
-    if (cell.kind === "tool") {
-      const edit = editPresentation(cell);
-      return (
-        <Disclosure
-          className={`cell tool ${cell.status === "error" ? "failed" : ""}`}
-          data-testid="tool-call"
-          title={
-            <>
-              <strong>
-                {edit
-                  ? cell.status === "ok"
-                    ? edit.labels.succeeded
-                    : cell.status === "error"
-                      ? edit.labels.failed
-                      : edit.labels.running
-                  : cell.name}
-              </strong>
-              <span className="muted">
-                {cell.approvalProgress?.status === "reviewing"
-                  ? "awaiting approval"
-                  : (cell.status ?? "running")}
-              </span>
-              {children.length > 0 && (
-                <span className="muted">{children.length} nested operations</span>
-              )}
-            </>
-          }
-        >
-          {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
-          {children.length > 0 && (
-            <div className="nested-tools">
-              {children.map((child) => (
-                <TranscriptCell key={child.kind === "tool" ? child.callId : ""} cell={child} />
+  function ToolCall({
+    cell,
+    children = [],
+  }: {
+    cell: Extract<Cell, { kind: "tool" }>;
+    children?: Cell[];
+  }) {
+    const [open, setOpen] = useState(false);
+    const edit = editPresentation(cell);
+    return (
+      <Disclosure
+        className={`cell tool ${cell.status === "error" ? "failed" : ""}`}
+        data-testid="tool-call"
+        onToggle={(event) => setOpen(event.currentTarget.open)}
+        title={
+          <>
+            <strong>
+              {edit
+                ? cell.status === "ok"
+                  ? edit.labels.succeeded
+                  : cell.status === "error"
+                    ? edit.labels.failed
+                    : edit.labels.running
+                : cell.name}
+            </strong>
+            <span className="tool-argument-preview">
+              {(typeof cell.args === "string" ? cell.args : JSON.stringify(cell.args))
+                .replace(/\s+/g, " ")
+                .slice(0, 300)}
+            </span>
+            <span className="tool-status muted">
+              {cell.approvalProgress?.status === "reviewing"
+                ? "awaiting approval"
+                : (cell.status ?? "running")}
+            </span>
+            {children.length > 0 && (
+              <span className="muted">{children.length} nested operations</span>
+            )}
+          </>
+        }
+      >
+        {open && (
+          <>
+            {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
+            {children.length > 0 && (
+              <div className="nested-tools">
+                {children.map((child) => (
+                  <TranscriptCell key={child.kind === "tool" ? child.callId : ""} cell={child} />
+                ))}
+              </div>
+            )}
+            {edit &&
+              edit.files.map((file, index) => (
+                <section className="diff" key={`${file.path}:${index}`}>
+                  <strong>{file.path}</strong>
+                  <pre>
+                    {file.lines.map((line, lineIndex) => (
+                      <span key={lineIndex} className={`diff-${line.kind}`}>
+                        {line.text}
+                        {"\n"}
+                      </span>
+                    ))}
+                  </pre>
+                </section>
               ))}
-            </div>
-          )}
-          {edit &&
-            edit.files.map((file, index) => (
-              <section className="diff" key={`${file.path}:${index}`}>
-                <strong>{file.path}</strong>
-                <pre>
-                  {file.lines.map((line, lineIndex) => (
-                    <span key={lineIndex} className={`diff-${line.kind}`}>
-                      {line.text}
-                      {"\n"}
-                    </span>
-                  ))}
-                </pre>
-              </section>
-            ))}
-          <h3>Arguments</h3>
-          <pre>
-            {typeof cell.args === "string" ? cell.args : JSON.stringify(cell.args, null, 2)}
-          </pre>
-          <h3>Output</h3>
-          <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
-          {cell.approval && (
-            <p className="muted">
-              {cell.approval.decision === "allow" ? "Allowed" : "Denied"} by{" "}
-              {cell.approval.responder}
-            </p>
-          )}
-        </Disclosure>
-      );
-    }
+            <h3>Arguments</h3>
+            <pre>
+              {typeof cell.args === "string" ? cell.args : JSON.stringify(cell.args, null, 2)}
+            </pre>
+            <h3>Output</h3>
+            <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
+            {cell.approval && (
+              <p className="muted">
+                {cell.approval.decision === "allow" ? "Allowed" : "Denied"} by{" "}
+                {cell.approval.responder}
+              </p>
+            )}
+          </>
+        )}
+      </Disclosure>
+    );
+  }
+
+  function ToolGroup({ row }: { row: Extract<TranscriptRow, { kind: "tools" }> }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <Disclosure
+        className="cell tool-group"
+        title={`${row.tools.length} tool ${row.tools.length === 1 ? "call" : "calls"}`}
+        onToggle={(event) => setOpen(event.currentTarget.open)}
+      >
+        {open &&
+          row.tools.map((tool) => (
+            <ToolCall key={tool.key} cell={tool.cell} children={tool.children} />
+          ))}
+      </Disclosure>
+    );
+  }
+
+  function TranscriptCell({ cell, children = [] }: { cell: Cell; children?: Cell[] | undefined }) {
+    if (cell.kind === "tool") return <ToolCall cell={cell} children={children} />;
     if (cell.kind === "reasoning")
       return (
         <Disclosure className="cell reasoning" title={<>Reasoning {cell.streaming ? "…" : ""}</>}>
@@ -1029,56 +1057,68 @@ export function createDesktopRouter(
       </>
     );
   }
-  function Activity({
-    view,
-    id,
-    title,
-    running,
-  }: {
-    view: ConversationView;
-    id: string;
-    title: string;
-    running: boolean;
-  }) {
-    const output = useFetcher<ActionResult>();
+  function Activity({ view, id, title }: { view: ConversationView; id: string; title: string }) {
+    const [output, setOutput] = useState("");
+    const [error, setError] = useState<string>();
+    const disconnected = Boolean(session.disconnected);
+    useEffect(() => {
+      if (disconnected) return;
+      let disposed = false;
+      let pending = false;
+      const refresh = async () => {
+        if (pending) return;
+        pending = true;
+        try {
+          const content = await session.plugins.activities(view.conversation.id).peek(id);
+          if (!disposed) {
+            setOutput(textOf(content));
+            setError(undefined);
+          }
+        } catch (cause) {
+          if (!disposed) setError(errorMessage(cause));
+        } finally {
+          pending = false;
+        }
+      };
+      void refresh();
+      const timer = setInterval(() => void refresh(), 1000);
+      return () => {
+        disposed = true;
+        clearInterval(timer);
+      };
+    }, [view.conversation.id, id, disconnected]);
     const kill = useFetcher<ActionResult>();
     return (
       <Disclosure
         className="activity"
         title={
           <>
-            {title} · {running ? "running" : "finished"}
+            <span className="activity-title">{title}</span>
+            <span className="activity-preview muted">
+              {output.replace(/\s+/g, " ").slice(-300)}
+            </span>
+            <span className="muted">running</span>
           </>
         }
       >
-        <output.Form method="post" action="/actions">
+        <pre>{output || "Waiting for output…"}</pre>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <kill.Form method="post" action="/actions">
           <Input type="hidden" name="conversationId" value={view.conversation.id} />
           <Input type="hidden" name="activityId" value={id} />
           <Button
             type="submit"
             name="intent"
-            value="activity-output"
-            disabled={output.state !== "idle"}
+            value="activity-kill"
+            disabled={kill.state !== "idle" || disconnected}
           >
-            Refresh output
+            Stop activity
           </Button>
-        </output.Form>
-        {output.data?.ok && output.data.message && <pre>{output.data.message}</pre>}
-        {output.data && !output.data.ok && <ActionFeedback data={output.data} />}
-        {running && (
-          <kill.Form method="post" action="/actions">
-            <Input type="hidden" name="conversationId" value={view.conversation.id} />
-            <Input type="hidden" name="activityId" value={id} />
-            <Button
-              type="submit"
-              name="intent"
-              value="activity-kill"
-              disabled={kill.state !== "idle"}
-            >
-              Stop activity
-            </Button>
-          </kill.Form>
-        )}
+        </kill.Form>
       </Disclosure>
     );
   }
@@ -1254,7 +1294,9 @@ export function createDesktopRouter(
             </older.Form>
           ) : null
         }
-        renderRow={({ cell, children }) => <TranscriptCell cell={cell} children={children} />}
+        renderRow={(row) =>
+          row.kind === "tools" ? <ToolGroup row={row} /> : <TranscriptCell cell={row.cell} />
+        }
         dock={
           <>
             <div className="conversation-support">
@@ -1270,7 +1312,7 @@ export function createDesktopRouter(
                   {view.state.sandbox.message}
                 </p>
               )}
-              {view.state.activities.length > 0 && (
+              {view.state.activities.some((activity) => activity.status === undefined) && (
                 <Disclosure
                   className="activities"
                   title={
@@ -1284,15 +1326,16 @@ export function createDesktopRouter(
                     </>
                   }
                 >
-                  {view.state.activities.map((activity) => (
-                    <Activity
-                      key={activity.id}
-                      view={view}
-                      id={activity.id}
-                      title={activity.title}
-                      running={activity.status === undefined}
-                    />
-                  ))}
+                  {view.state.activities
+                    .filter((activity) => activity.status === undefined)
+                    .map((activity) => (
+                      <Activity
+                        key={activity.id}
+                        view={view}
+                        id={activity.id}
+                        title={activity.title}
+                      />
+                    ))}
                 </Disclosure>
               )}
               <div className="approvals">

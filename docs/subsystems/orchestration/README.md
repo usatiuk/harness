@@ -117,6 +117,11 @@ The subagent is itself backgroundable. Foreground completion returns the child's
 final result. Background execution is tracked through the same activity tools and
 completion delivery as commands. Parent/child metadata is stored in namespaced
 plugin state; live handles and cascade-stop ownership remain activation-local.
+Subagent activity peeks include a bounded in-progress assistant-text preview,
+including commentary, alongside finalized assistant messages and tool entries.
+Finalizing a message replaces its transient preview rather than duplicating it;
+the terminal result still uses the finalized assistant message.
+
 Closing/reloading a root deactivates its complete loaded conversation tree and
 clears that tree's ephemeral parent/child index. Other roots remain independent;
 connection shutdown closes all roots owned by that connection.

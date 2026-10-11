@@ -399,6 +399,22 @@ and simple provider activity text render without native payload inspection.
 Cost displays indicate incomplete totals when rows are unpriced or native search
 fees are unavailable. Models author Markdown links; no citation transformation
 or provider-specific search-result UI runs in clients.
+Desktop groups consecutive top-level tool calls between other transcript entries
+under a collapsed count. Opening the group shows compact call rows with one-line
+argument previews; opening a call retains full arguments, output, diffs, approval
+facts and nested operations. Desktop rows distinguish messages from nonrecursive,
+nonempty tool groups. Collapsed groups do not mount calls; call details mount only
+when opened. Grouping changes presentation only and preserves history anchors
+when earlier calls merge into a visible group. Loading earlier calls into a group
+can reset its disclosure to closed; expansion state is not persisted.
+
+The activity dock shows only running work and hides when empty. Existing command
+or agent names and a one-line output preview identify compact expandable rows.
+Output uses the existing peek RPC immediately and every second while the visible
+conversation owns the row, with no overlapping requests. Unmount or disconnection cancels refresh
+and ignores late responses. There is no manual refresh control or Recent list;
+completion results remain in ordinary conversation history.
+
 Inline approvals, activities, usage, send/queue/steer/interrupt, model/preset,
 sandbox controls, provider/default settings, and client-owned drafts/appearance
 complete v1. Unavailable configured models/backends remain explicit choices;
