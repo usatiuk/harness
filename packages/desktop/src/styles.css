@@ -290,6 +290,10 @@ main {
   position: relative;
   overflow: auto;
 }
+:root[data-window-decoration="native"] main,
+:root:has([data-tauri-decoration-fullscreen]) main {
+  border-top-left-radius: 0;
+}
 .page {
   max-width: 880px;
   margin: 0 auto;

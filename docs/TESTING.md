@@ -33,7 +33,9 @@ the correction, native-frame mode placed content in the zero-height titlebar row
 the content measured 0px, main 30px and Settings bottom 93px in a 720px viewport.
 Explicit content placement in row 2 restores content/main to 720px and Settings
 bottom to 708px (the sidebar's 12px bottom padding). Fullscreen matches this;
-custom chrome retains its 32px header and 688px content.
+custom chrome retains its 32px header and 688px content. The same regressions check
+that the main panel's top-left corner is square with native decorations/fullscreen
+and retains its 12px radius with the custom header.
 
 The October 11 follow-up passes `npm run check -- --maxWorkers=2` (1,256 tests,
 38 skipped). The geometry and screenshot were verified using the existing in-app

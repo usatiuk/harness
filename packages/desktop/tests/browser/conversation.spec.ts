@@ -75,11 +75,13 @@ for (const chrome of ["native", "fullscreen"] as const) {
   }) => {
     await page.goto(url + "?composer");
     await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+    await expect(page.locator("main")).toHaveCSS("border-top-left-radius", "12px");
     await page.evaluate((chrome) => {
       if (chrome === "native") document.documentElement.dataset.windowDecoration = "native";
       else document.body.setAttribute("data-tauri-decoration-fullscreen", "");
     }, chrome);
     await expect(page.locator(".window-titlebar")).toBeHidden();
+    await expect(page.locator("main")).toHaveCSS("border-top-left-radius", "0px");
     await expect
       .poll(() =>
         page.evaluate(() => {

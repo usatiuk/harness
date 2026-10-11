@@ -487,6 +487,8 @@ solid themed surfaces; unexpected native appearance failures are fatal, with an
 IPC failure reported through the native dialog before the existing close/shutdown
 path. Main content and popovers retain opaque surfaces. The main panel's 1px
 divider follows its rounded top-left corner and continues across the top edge.
+Native decorations and fullscreen make that corner square when the custom header
+is hidden.
 OS facilities own material
 focus, transparency, contrast and power adaptations; pastel accents are independent.
 
