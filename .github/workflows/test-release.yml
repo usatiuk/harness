@@ -74,5 +74,26 @@ jobs:
             hdiutil detach "$RUNNER_TEMP/desktop-volume"
             echo "DESKTOP=$RUNNER_TEMP/Harness.app/Contents/MacOS/harness-desktop" >> "$GITHUB_ENV"
           fi
-      - name: Check cold startup, signed CLI update and preserved data
+      - name: Prepare a fresh SSH account on this hosted runner
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y openssh-server
+          sudo useradd --create-home --shell /bin/bash --password '*' harness-release-test
+          ssh-keygen -q -t ed25519 -N '' -f "$RUNNER_TEMP/ssh-identity"
+          sudo install -d -m 700 -o harness-release-test -g harness-release-test /home/harness-release-test/.ssh
+          sudo install -m 600 -o harness-release-test -g harness-release-test "$RUNNER_TEMP/ssh-identity.pub" /home/harness-release-test/.ssh/authorized_keys
+          sudo systemctl start ssh
+          mkdir -p ~/.ssh
+          sudo awk '{print "127.0.0.1 " $1 " " $2}' /etc/ssh/ssh_host_ed25519_key.pub > "$RUNNER_TEMP/ssh-known-hosts"
+          cat >> ~/.ssh/config <<EOF
+          Host harness-release-test
+            HostName 127.0.0.1
+            User harness-release-test
+            IdentityFile $RUNNER_TEMP/ssh-identity
+            IdentitiesOnly yes
+            UserKnownHostsFile $RUNNER_TEMP/ssh-known-hosts
+            StrictHostKeyChecking yes
+          EOF
+          echo 'HARNESS_RELEASE_SSH=harness-release-test' >> "$GITHUB_ENV"
+      - name: Check cold startup, signed updates and preserved data
         run: node "$GITHUB_WORKSPACE/scripts/check-published-release.mjs" "$RUNNER_TEMP/harness${{ matrix.suffix }}" "$DESKTOP" "$PREVIOUS" "$VERSION"

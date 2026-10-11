@@ -243,8 +243,11 @@ CLI updates only on GitHub-hosted Windows, Ubuntu and both macOS architectures.
 It runs outside the checkout, checks two published CLI versions, preserved SQLite
 conversations, no server downgrade, shared Node and the installed desktop's
 pre-window runtime preparation. Its actual desktop bridge and older CLI also
-reuse the same live owner over the local socket/pipe. It does not open the desktop UI or qualify the
-Tauri updater's install/restart flow or released SSH/WSL deployment.
+reuse the same live owner over the local socket/pipe. Ubuntu also prepares a fresh
+SSH account for released remote cold deployment, idle upgrade, shared Node,
+preserved conversations and older-client reuse. Execution of these released
+checks remains pending. The workflow does not open the desktop UI or qualify the
+Tauri updater's install/restart flow or released WSL deployment.
 
 ```sh
 npm run prepare:server --workspace @harness/desktop

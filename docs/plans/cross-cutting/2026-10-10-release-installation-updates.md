@@ -347,3 +347,12 @@ until the already-running release finishes. Standard setup-node npm caching and
 Swatinem Rust caching cover release jobs, with Rust caching also added to source
 CI. Cache effectiveness remains unmeasured. The current patched release has passed
 Windows, Linux and macOS arm64 builds; macOS x64 is still running.
+
+The same small hosted release probe now uses the production connection helper
+and host bridge to exercise published SSH deployment on a fresh Ubuntu account.
+It checks cold transfer, shared Node across versions, idle replacement,
+conversation/server identity preservation and older-client reuse without downgrade.
+Three focused read-only reviews pass; their fixture feedback removes a known
+password and adds an explicit cold-transfer assertion. Hosted execution is pending.
+This adds no product API or deployment framework. Released WSL and desktop updater
+installation/restart remain unqualified.

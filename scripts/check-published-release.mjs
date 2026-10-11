@@ -144,3 +144,52 @@ await session(
 console.log(
   "Cold published CLI/server, CLI update, no downgrade, SQLite persistence, installed desktop preparation and shared owner reuse passed",
 );
+
+if (process.env.HARNESS_RELEASE_SSH) {
+  const host = {
+    kind: "ssh",
+    id: "release-test",
+    label: "Published SSH test",
+    destination: process.env.HARNESS_RELEASE_SSH,
+  };
+  const previousPaths = JSON.parse(run(oldCli, ["--prepare-release", previous]));
+  async function prepareRemote(local) {
+    return session(
+      local.node,
+      [local.entry, "--connection-command", JSON.stringify({ type: "runtime.prepare", host })],
+      async (_request, lines) => JSON.parse((await lines.next()).value),
+      { closeInput: false },
+    );
+  }
+  async function remoteOwner(local, runtime, existing, stop = false) {
+    return session(
+      local.node,
+      [local.entry, "--host-bridge", JSON.stringify({ host, runtime })],
+      async (request) => {
+        await initialize(request, existing ? version : previous);
+        const result = existing
+          ? await request("conversation.get", { conversationId: existing })
+          : await request("conversation.create", { cwd: null, overrides: {} });
+        if (existing) assert.equal(result.id, existing);
+        const identity = await request("server.info", {});
+        if (stop) assert.equal((await request("server.stop", {})).accepted, true);
+        return { id: result.id, identity };
+      },
+    );
+  }
+  const initialRuntime = await prepareRemote(previousPaths);
+  assert.equal(initialRuntime.transferred, true);
+  const first = await remoteOwner(previousPaths, initialRuntime);
+  const updatedRuntime = await prepareRemote(paths);
+  assert.equal(updatedRuntime.node, initialRuntime.node);
+  const upgraded = await remoteOwner(paths, updatedRuntime, first.id);
+  assert.notEqual(upgraded.identity.instanceId, first.identity.instanceId);
+  assert.equal(upgraded.identity.serverId, first.identity.serverId);
+  const reusedRuntime = await prepareRemote(previousPaths);
+  assert.equal(reusedRuntime.transferred, false);
+  const reused = await remoteOwner(previousPaths, reusedRuntime, first.id, true);
+  assert.equal(reused.identity.instanceId, upgraded.identity.instanceId);
+  console.log(
+    "Published SSH cold deployment, idle upgrade, preserved data and no downgrade passed",
+  );
+}
