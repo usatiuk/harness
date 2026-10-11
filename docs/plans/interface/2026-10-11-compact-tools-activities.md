@@ -4,7 +4,8 @@ Status: Complete
 
 ## Outcome and scope
 
-Desktop conversation tool calls collapse into consecutive groups between messages.
+Desktop reasoning and tool calls collapse into consecutive work groups between
+messages. Earlier history loads automatically near the top.
 Opening a group shows one compact row per call, with a single-line argument
 preview; opening a call retains output, edits, approval facts and nested calls.
 Activities show only running work and automatically fetch output every second,
@@ -98,3 +99,52 @@ suite: 20 passed, including the representative long-run regression. Focused
 transcript/subagent suites: 16 passed. Final `npm run check` passes TypeScript,
 ESLint, Prettier and 1,276 tests (38 skipped); `git diff --check` passes. Native
 WebView and live-provider qualification remain outside this evidence.
+
+## Automatic history and combined reasoning follow-up
+
+Status of follow-up: Complete. The user authorized local commits and requested
+automatic earlier-history loading plus combined reasoning/tool groups.
+
+Consecutive reasoning and tool cells share one collapsed desktop group, preserving
+canonical order and inspectable detail. Messages and other transcript entries
+break the group. Group labels show Working or Worked for the observed duration, retaining tool
+counts. Missing historical timings use Worked without inventing an elapsed time. Expanded
+reasoning uses smaller muted text, separate from assistant commentary/output.
+The representation stays nonrecursive and nonempty; no server/protocol changes.
+
+A desktop-local history marker uses IntersectionObserver on the existing scroll
+container to submit the existing bounded history action near the top. A stable observer loads one page per approach; upward wheel input or the discreet
+keyboard-accessible marker can continue a collapsed run. Completion alone does
+not rearm loading. One session-owned operation per conversation runs at a time,
+including across route remounts. Failed loads stop automatic attempts and expose explicit Retry;
+disconnected sessions do not load. Existing history anchoring handles prepend.
+No prominent Load earlier button or new Canvas loading interface is needed.
+The final Start of conversation label keeps the history header height stable.
+
+Review found and fixed automatic draining of collapsed history and duplicate
+cursor requests across route remounts. A focused browser test also caught the
+final header removal shifting the reader by 44px; preserving header geometry
+fixes the original anchor assertion. Keyboard continuation remains available
+without adding a gesture framework.
+
+- [x] Verify combined reasoning/tool grouping, automatic loading, no overlap,
+      error retry and preserved anchor; run full local and browser checks.
+- [x] Independently review correctness, interfaces and scope/simplicity.
+- [x] Update durable documentation and prepare the validated follow-up for commit.
+
+All three review lenses are resolved. Timing review requires observedTiming for
+reasoning before displaying an elapsed duration; historical completion timestamps
+alone do not establish a beginning. The full source check passes TypeScript,
+ESLint, Prettier and 1,277 tests (38 skipped). All 24 Chromium conversation tests
+pass, including the four follow-up scenarios and rendered compact reasoning.
+
+The browser run exposed an existing composer test race: gap=0 held while footer
+clearance was still 373px instead of the resized dock's required 447px. Independent
+frame measurements confirmed ResizeObserver and Virtuoso converge to the correct
+clearance and visible output. The test now waits for actual footer clearance and
+asserts the same final assistant/dock geometry, without changing timeouts or
+production behavior.
+
+Native expectations were updated for lazy groups and automatic paging, but Windows
+WebView2/live-provider behavior remains unqualified on this Linux host. No push
+or external publication is included.

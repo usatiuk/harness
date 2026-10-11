@@ -18,6 +18,13 @@ declare global {
       calls: Delivery[];
       showToolsAndActivities(): void;
       showLongToolRun(): void;
+      seedHistory(): void;
+      seedCollapsedHistory(): void;
+      historyCalls: number;
+      failHistory: boolean;
+      releaseHistory(): void;
+      insertReasoning(): void;
+      completeSteps(): void;
       finishActivity(): void;
       peekCalls: number;
       peekOutput: string;
@@ -135,8 +142,43 @@ const domain = {
 // Substitute only the session/data edge. Production route actions, fetchers,
 // Composer, controls, draft storage and preference handling execute unchanged.
 // Native cases qualify real RPC and server semantics separately.
+let releaseHistory: (() => void) | undefined;
+let collapsedPages = 0;
 let releasePeek: (() => void) | undefined;
 const session = {
+  async older() {
+    window.composerFixture.historyCalls++;
+    await new Promise<void>((resolve) => {
+      releaseHistory = resolve;
+    });
+    if (window.composerFixture.failHistory) throw new Error("History unavailable");
+    view.cursor = collapsedPages > 1 ? `page-${collapsedPages - 1}` : null;
+    const earlier =
+      collapsedPages > 0
+        ? [
+            {
+              kind: "reasoning" as const,
+              id: `earlier-thought-${collapsedPages--}`,
+              turnId: "old",
+              text: "Earlier reasoning",
+              streaming: false,
+              startedAt: 0,
+            },
+          ]
+        : Array.from({ length: 20 }, (_, index) => ({
+            kind: "user" as const,
+            id: `earlier-${index}`,
+            turnId: "old",
+            text: `Earlier history ${index}`,
+            createdAt: index,
+          }));
+    view.state = {
+      ...view.state,
+      cells: [...earlier, ...view.state.cells],
+    };
+    view.transcript.update(view.state.cells);
+    changed();
+  },
   plugins: {
     activities: () => ({
       async peek() {
@@ -217,6 +259,77 @@ window.composerFixture = {
     changed();
   },
   calls,
+  historyCalls: 0,
+  failHistory: false,
+  releaseHistory() {
+    releaseHistory?.();
+    releaseHistory = undefined;
+  },
+  seedHistory() {
+    view.cursor = "older-page";
+    view.state = {
+      ...view.state,
+      cells: Array.from({ length: 60 }, (_, index) => ({
+        kind: "user" as const,
+        id: `history-${index}`,
+        turnId: "old",
+        text: `Current history ${index}`,
+        createdAt: index,
+      })),
+    };
+    view.transcript.update(view.state.cells);
+    changed();
+  },
+  seedCollapsedHistory() {
+    collapsedPages = 3;
+    view.cursor = "collapsed-page";
+    view.state = {
+      ...view.state,
+      cells: [
+        {
+          kind: "reasoning",
+          id: "latest-thought",
+          turnId: "old",
+          text: "Current reasoning",
+          streaming: false,
+          startedAt: 0,
+        },
+      ],
+    };
+    view.transcript.update(view.state.cells);
+    changed();
+  },
+  insertReasoning() {
+    const thought = {
+      kind: "reasoning" as const,
+      id: "thought",
+      turnId: "turn",
+      text: "Checking credential ownership",
+      streaming: false,
+      startedAt: 0,
+      observedTiming: true as const,
+    };
+    view.state = {
+      ...view.state,
+      cells: [view.state.cells[0]!, thought, ...view.state.cells.slice(1)],
+    };
+    view.transcript.update(view.state.cells);
+    changed();
+  },
+  completeSteps() {
+    view.state = {
+      ...view.state,
+      cells: view.state.cells.map((cell) =>
+        cell.kind === "tool"
+          ? { ...cell, status: "ok", completedAt: 12_000 }
+          : cell.kind === "reasoning"
+            ? { ...cell, streaming: false, completedAt: 2_000 }
+            : cell,
+      ),
+    };
+    view.transcript.update(view.state.cells);
+    changed();
+  },
   peekCalls: 0,
   peekOutput: "Checking authentication",
   holdPeek: false,

@@ -405,6 +405,7 @@ test("a real WSL conversation keeps its approval across host switching and deskt
     await app.page.getByRole("button", { name: "Allow", exact: true }).click();
     await expect(app.page.getByTestId("assistant-message")).toContainText("Done");
     await expect(app.page.locator(".conversation-status")).toContainText("Ready");
+    await app.page.locator(".tool-group:not([open]) > summary").click();
     await app.page.getByTestId("tool-call").locator("summary").click();
     await expect(app.page.getByTestId("tool-output")).toContainText("remote-work-marker");
     expect(app.errors).toEqual([]);

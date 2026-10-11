@@ -134,9 +134,10 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 ## Recent delivery
 
 The [compact tools and live activities follow-up](docs/plans/interface/2026-10-11-compact-tools-activities.md)
-groups desktop tool calls behind compact collapsed counts and shows only running
-activities with automatic one-second output refresh. Subagent previews include
-streamed assistant text. Validation and qualification limits are recorded in the
+groups desktop reasoning and tool calls behind compact collapsed work summaries,
+loads earlier history automatically near the top, and shows only running activities
+with automatic one-second output refresh. Subagent previews include streamed
+assistant text. Validation and qualification limits are recorded in the
 linked plan.
 
 The Linux squeezed-view correction explicitly keeps window content in the expanding

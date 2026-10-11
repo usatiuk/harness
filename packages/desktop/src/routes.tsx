@@ -3,6 +3,7 @@ import { DesktopUpdates } from "./components/desktop-updates.tsx";
 import { ModelSelect, modelKey } from "./components/model-select.tsx";
 import {
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   useSyncExternalStore,
@@ -957,17 +958,41 @@ export function createDesktopRouter(
     );
   }
 
-  function ToolGroup({ row }: { row: Extract<TranscriptRow, { kind: "tools" }> }) {
+  function StepGroup({ row }: { row: Extract<TranscriptRow, { kind: "steps" }> }) {
     const [open, setOpen] = useState(false);
+    const calls = row.steps.filter((step) => step.cell.kind === "tool").length;
+    const working = row.steps.some(({ cell }) =>
+      cell.kind === "reasoning" ? cell.streaming : !cell.status,
+    );
+    const start = row.steps.reduce((time, { cell }) => Math.min(time, cell.startedAt), Infinity);
+    const end = row.steps.reduce<number | undefined>(
+      (time, { cell }) =>
+        time === undefined ||
+        cell.completedAt === undefined ||
+        (cell.kind === "reasoning" && !cell.observedTiming)
+          ? undefined
+          : Math.max(time, cell.completedAt),
+      0,
+    );
+    const duration = end === undefined ? undefined : Math.round((end - start) / 1000);
+    const label = working
+      ? "Working"
+      : duration === undefined
+        ? "Worked"
+        : `Worked for ${duration}s`;
     return (
       <Disclosure
         className="cell tool-group"
-        title={`${row.tools.length} tool ${row.tools.length === 1 ? "call" : "calls"}`}
+        title={`${label}${calls ? ` · ${calls} tool ${calls === 1 ? "call" : "calls"}` : ""}`}
         onToggle={(event) => setOpen(event.currentTarget.open)}
       >
         {open &&
-          row.tools.map((tool) => (
-            <ToolCall key={tool.key} cell={tool.cell} children={tool.children} />
+          row.steps.map((step) => (
+            <TranscriptCell
+              key={step.key}
+              cell={step.cell}
+              children={"children" in step ? step.children : undefined}
+            />
           ))}
       </Disclosure>
     );
@@ -1263,10 +1288,79 @@ export function createDesktopRouter(
     );
   }
 
+  function EarlierHistory({ view }: { view: ConversationView }) {
+    const older = useFetcher<ActionResult>();
+    const marker = useRef<HTMLDivElement>(null);
+    const pending = useRef(false);
+    const disconnected = Boolean(session.disconnected);
+    const failed = older.data?.ok === false;
+    const hasEarlier = Boolean(view.cursor);
+    useEffect(() => {
+      if (older.state === "idle") pending.current = false;
+    }, [older.state]);
+    const load = () => {
+      if (pending.current || older.state !== "idle" || !view.cursor || disconnected) return;
+      pending.current = true;
+      void older.submit(
+        { intent: "older", conversationId: view.conversation.id },
+        { method: "post", action: "/actions" },
+      );
+    };
+    const loadAutomatically = useEffectEvent(() => {
+      if (!failed) load();
+    });
+    useEffect(() => {
+      const element = marker.current;
+      if (!element || !hasEarlier || disconnected) return;
+      const root = element.closest(".conversation-scroll");
+      if (!root) throw new Error("History marker requires a conversation scroller");
+      let visible = false;
+      const observer = new IntersectionObserver(
+        (entries) => {
+          visible = entries.some((entry) => entry.isIntersecting);
+          if (visible) loadAutomatically();
+        },
+        { root, rootMargin: "200px 0px" },
+      );
+      // Collapsed steps may add no height. A new upward scroll can request the
+      // next page, but completing a request must not drain history on its own.
+      const onWheel = (event: Event) => {
+        if (visible && (event as WheelEvent).deltaY < 0) loadAutomatically();
+      };
+      observer.observe(element);
+      root.addEventListener("wheel", onWheel, { passive: true });
+      return () => {
+        observer.disconnect();
+        root.removeEventListener("wheel", onWheel);
+      };
+    }, [hasEarlier, disconnected]);
+    if (!view.cursor) return <span className="muted">Start of conversation</span>;
+    return (
+      <div ref={marker} className="earlier-history">
+        {older.state !== "idle" ? (
+          <span className="muted" role="status">
+            Loading earlier messages…
+          </span>
+        ) : (
+          <button className="history-continuation muted" onClick={load} disabled={disconnected}>
+            Earlier messages
+          </button>
+        )}
+        {failed && (
+          <>
+            <ActionFeedback data={older.data} />
+            <Button size="sm" onClick={load} disabled={older.state !== "idle" || disconnected}>
+              Retry loading earlier messages
+            </Button>
+          </>
+        )}
+      </div>
+    );
+  }
+
   function ConversationPage() {
     useLive();
     const view = useLoaderData<ConversationView>();
-    const older = useFetcher<ActionResult>();
     return (
       <ConversationCanvas
         key={view.conversation.id}
@@ -1282,20 +1376,9 @@ export function createDesktopRouter(
             </div>
           </header>
         }
-        history={
-          view.cursor ? (
-            <older.Form method="post" action="/actions">
-              <Input type="hidden" name="intent" value="older" />
-              <Input type="hidden" name="conversationId" value={view.conversation.id} />
-              <Button type="submit" disabled={older.state !== "idle"}>
-                Load earlier messages
-              </Button>
-              <ActionFeedback data={older.data} />
-            </older.Form>
-          ) : null
-        }
+        history={<EarlierHistory key={view.conversation.id} view={view} />}
         renderRow={(row) =>
-          row.kind === "tools" ? <ToolGroup row={row} /> : <TranscriptCell cell={row.cell} />
+          row.kind === "steps" ? <StepGroup row={row} /> : <TranscriptCell cell={row.cell} />
         }
         dock={
           <>

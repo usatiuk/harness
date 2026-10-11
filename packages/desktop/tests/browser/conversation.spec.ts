@@ -244,10 +244,26 @@ test("support and composer growth keep controls reachable and latest clear of th
   await expect(page.getByRole("button", { name: "Allow" })).toBeVisible();
   await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
   await page.getByRole("textbox", { name: "Message" }).fill("A long draft\n".repeat(20));
+  // A bottom gap can still be zero while the footer has the old dock height.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const dock = document.querySelector<HTMLElement>(".conversation-dock-content")!;
+        const footer = document.querySelector<HTMLElement>(".transcript-clearance")!;
+        return footer.clientHeight - (dock.offsetHeight + 12);
+      }),
+    )
+    .toBe(0);
   await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
-  const content = await page.locator(".cell.assistant").boundingBox();
-  const dock = await page.locator(".conversation-dock").boundingBox();
-  expect(content!.y + content!.height).toBeLessThanOrEqual(dock!.y);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document.querySelector(".cell.assistant")!.getBoundingClientRect().bottom -
+          document.querySelector(".conversation-dock")!.getBoundingClientRect().top,
+      ),
+    )
+    .toBeLessThanOrEqual(0);
   await page.evaluate(() => {
     document.documentElement.dataset.theme = "dark";
   });
@@ -624,7 +640,7 @@ test("tool groups are compact and activities refresh automatically only while mo
   await page.clock.install();
   await page.evaluate(() => window.composerFixture.showToolsAndActivities());
   const group = page.locator(".tool-group");
-  await expect(group.locator(":scope > summary")).toHaveText("2 tool calls");
+  await expect(group.locator(":scope > summary")).toHaveText("Working · 2 tool calls");
   await expect(group).not.toHaveAttribute("open", "");
   await group.locator(":scope > summary").click();
   const call = group.locator('[data-testid="tool-call"]').first();
@@ -693,7 +709,7 @@ test("long tool groups mount only call previews and the details actually opened"
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showLongToolRun());
   const group = page.locator(".tool-group");
-  await expect(group.locator(":scope > summary")).toHaveText("100 tool calls");
+  await expect(group.locator(":scope > summary")).toHaveText("Worked · 100 tool calls");
   await expect(group.getByTestId("tool-call")).toHaveCount(0);
   await expect(group.locator(".diff span")).toHaveCount(0);
   await group.locator(":scope > summary").click();
@@ -709,4 +725,133 @@ test("long tool groups mount only call previews and the details actually opened"
   await expect(group.locator(".diff span")).toHaveCount(0);
   await group.locator(":scope > summary").click();
   await expect(group.getByTestId("tool-call")).toHaveCount(0);
+});
+
+test("reasoning and tool calls share a collapsed group between messages", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.showToolsAndActivities();
+    window.composerFixture.insertReasoning();
+  });
+  const group = page.locator(".tool-group");
+  await expect(group).toHaveCount(1);
+  await expect(group.locator(":scope > summary")).toHaveText("Working · 2 tool calls");
+  await expect(group.locator(".reasoning")).toHaveCount(0);
+  await group.locator(":scope > summary").click();
+  await expect(group.locator(".reasoning > summary")).toHaveText("Reasoning");
+  await expect(group.getByTestId("tool-call")).toHaveCount(2);
+  await group.locator(".reasoning > summary").click();
+  await expect(group.locator(".reasoning")).toContainText("Checking credential ownership");
+  await expect(page.getByTestId("assistant-message")).toHaveText("Checking the stores");
+  await page.evaluate(() => window.composerFixture.completeSteps());
+  await expect(group.locator(":scope > summary")).toHaveText("Worked for 12s · 2 tool calls");
+  await page.screenshot({ path: test.info().outputPath("combined-work.png") });
+});
+
+test("earlier history loads automatically without overlap and preserves the reading anchor", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedHistory());
+  await expect(
+    page.locator(".user-text").filter({ hasText: /^Current history 59$/ }),
+  ).toBeVisible();
+  const scroller = page.locator(".conversation-scroll");
+  await scroller.evaluate((element) => {
+    element.scrollTop = 300;
+  });
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Load earlier messages", exact: true }),
+  ).toHaveCount(0);
+  await scroller.evaluate((element) => {
+    element.scrollTop = 100;
+  });
+  await expect.poll(() => page.evaluate(() => window.composerFixture.historyCalls)).toBe(1);
+  await expect(page.locator(".earlier-history").getByRole("status")).toContainText(
+    "Loading earlier messages",
+  );
+  const anchor = scroller.locator(".user-text").filter({ hasText: "Current history" }).first();
+  const text = (await anchor.textContent())!;
+  const before = (await anchor.boundingBox())!.y;
+  await scroller.evaluate((element) => {
+    element.dispatchEvent(new Event("scroll"));
+  });
+  expect(await page.evaluate(() => window.composerFixture.historyCalls)).toBe(1);
+  await page.evaluate(() => window.composerFixture.releaseHistory());
+  await expect(page.locator(".earlier-history")).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      Math.abs((await page.getByText(text, { exact: true }).boundingBox())!.y - before),
+    )
+    .toBeLessThanOrEqual(1.5);
+});
+
+test("failed automatic history loading waits for an explicit retry", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.failHistory = true;
+    window.composerFixture.seedHistory();
+  });
+  await expect(
+    page.locator(".user-text").filter({ hasText: /^Current history 59$/ }),
+  ).toBeVisible();
+  const scroller = page.locator(".conversation-scroll");
+  await scroller.evaluate((element) => {
+    element.scrollTop = 300;
+  });
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect.poll(() => page.evaluate(() => window.composerFixture.historyCalls)).toBe(1);
+  await page.evaluate(() => window.composerFixture.releaseHistory());
+  const retry = page.getByRole("button", { name: "Retry loading earlier messages" });
+  await expect(retry).toBeVisible();
+  expect(await page.evaluate(() => window.composerFixture.historyCalls)).toBe(1);
+  await page.evaluate(() => {
+    window.composerFixture.failHistory = false;
+  });
+  await retry.click();
+  await expect.poll(() => page.evaluate(() => window.composerFixture.historyCalls)).toBe(2);
+  await page.evaluate(() => window.composerFixture.releaseHistory());
+  await expect(retry).toHaveCount(0);
+});
+
+test("collapsed history loads one page per approach or upward scroll", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedCollapsedHistory());
+  await expect.poll(() => page.evaluate(() => window.composerFixture.historyCalls)).toBe(1);
+  await page.evaluate(() => window.composerFixture.releaseHistory());
+  await expect(page.locator(".earlier-history")).toHaveText("Earlier messages");
+  // Complete rendering/observer delivery before checking that idle did not rearm.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  expect(await page.evaluate(() => window.composerFixture.historyCalls)).toBe(1);
+  await page.locator(".conversation-scroll").evaluate((element) => {
+    element.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
+  });
+  await expect.poll(() => page.evaluate(() => window.composerFixture.historyCalls)).toBe(2);
+  await page.evaluate(() => window.composerFixture.releaseHistory());
+  await expect(page.locator(".earlier-history")).toHaveText("Earlier messages");
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  expect(await page.evaluate(() => window.composerFixture.historyCalls)).toBe(2);
+  await page.getByRole("button", { name: "Earlier messages", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.composerFixture.historyCalls)).toBe(3);
+  await page.evaluate(() => window.composerFixture.releaseHistory());
+  await expect(page.locator(".earlier-history")).toHaveCount(0);
 });

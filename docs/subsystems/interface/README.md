@@ -399,14 +399,26 @@ and simple provider activity text render without native payload inspection.
 Cost displays indicate incomplete totals when rows are unpriced or native search
 fees are unavailable. Models author Markdown links; no citation transformation
 or provider-specific search-result UI runs in clients.
-Desktop groups consecutive top-level tool calls between other transcript entries
-under a collapsed count. Opening the group shows compact call rows with one-line
+Desktop groups consecutive top-level reasoning and tool calls between other
+transcript entries under a collapsed summary. Expanded reasoning is smaller and muted to distinguish
+it from assistant commentary and output. The summary shows Working while active,
+Worked for the observed group duration when all member timings are available,
+or Worked otherwise, with the tool count alongside. Opening the group shows compact call rows with one-line
 argument previews; opening a call retains full arguments, output, diffs, approval
 facts and nested operations. Desktop rows distinguish messages from nonrecursive,
-nonempty tool groups. Collapsed groups do not mount calls; call details mount only
+nonempty step groups. Collapsed groups do not mount calls; call details mount only
 when opened. Grouping changes presentation only and preserves history anchors
 when earlier calls merge into a visible group. Loading earlier calls into a group
 can reset its disclosure to closed; expansion state is not persisted.
+
+Earlier history loads automatically near the top of the transcript through the
+existing bounded history action. A persistent intersection observer loads one page
+per approach; an upward wheel event or the discreet keyboard-accessible marker
+can request another page if collapsed history adds no height. Successful loads
+do not rearm themselves. Failed loads wait for explicit Retry, and disconnection
+stops automatic loading. Session-owned in-flight operations prevent duplicate
+paging across route remounts. The final Start of conversation label preserves the
+header height and reading anchor.
 
 The activity dock shows only running work and hides when empty. Existing command
 or agent names and a one-line output preview identify compact expandable rows.

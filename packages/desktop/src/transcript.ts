@@ -8,9 +8,11 @@ interface CellRow {
 export interface ToolCallRow extends CellRow {
   cell: Extract<Cell, { kind: "tool" }>;
 }
+export type TranscriptStep =
+  ToolCallRow | { key: string; cell: Extract<Cell, { kind: "reasoning" }> };
 export type TranscriptRow =
-  | { kind: "cell"; key: string; cell: Exclude<Cell, { kind: "tool" }> }
-  | { kind: "tools"; key: string; tools: [ToolCallRow, ...ToolCallRow[]] };
+  | { kind: "cell"; key: string; cell: Exclude<Cell, { kind: "tool" | "reasoning" }> }
+  | { kind: "steps"; key: string; steps: [TranscriptStep, ...TranscriptStep[]] };
 
 const durableKey = (cell: Cell): string | undefined =>
   cell.kind === "tool"
@@ -75,10 +77,11 @@ export class DesktopTranscript {
     this.rows = [];
     for (const row of roots) {
       const previous = this.rows.at(-1);
-      if (row.cell.kind === "tool") {
-        const tool = { ...row, cell: row.cell };
-        if (previous?.kind === "tools") previous.tools.push(tool);
-        else this.rows.push({ kind: "tools", key: row.key, tools: [tool] });
+      if (row.cell.kind === "tool" || row.cell.kind === "reasoning") {
+        const step: TranscriptStep =
+          row.cell.kind === "tool" ? { ...row, cell: row.cell } : { key: row.key, cell: row.cell };
+        if (previous?.kind === "steps") previous.steps.push(step);
+        else this.rows.push({ kind: "steps", key: row.key, steps: [step] });
       } else this.rows.push({ kind: "cell", key: row.key, cell: row.cell });
     }
     this.keys = keys;

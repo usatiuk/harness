@@ -63,13 +63,17 @@ class HistoryAnchor extends Component<AnchorProps> {
     // Find the surviving representation of the first visible call.
     const first = visible[0];
     const previousRow = previous.rows.find((row) => row.key === first?.dataset.transcriptKey);
-    if (first && previousRow?.kind === "tools") {
-      const call = previousRow.tools[0].cell;
+    if (first && previousRow?.kind === "steps") {
+      const firstStep = previousRow.steps[0];
       const index = this.props.rows.findIndex(
         (row) =>
-          row.kind === "tools" &&
-          row.tools.some(
-            (tool) => tool.cell.callId === call.callId || tool.cell.callId === call.parentCallId,
+          row.kind === "steps" &&
+          row.steps.some(
+            (step) =>
+              step.key === firstStep.key ||
+              (step.cell.kind === "tool" &&
+                firstStep.cell.kind === "tool" &&
+                step.cell.callId === firstStep.cell.parentCallId),
           ),
       );
       if (index >= 0)

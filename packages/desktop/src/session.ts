@@ -49,6 +49,7 @@ export class DesktopSession {
   readonly views = new Map<ConversationId, ConversationView>();
   readonly listeners = new Set<() => void>();
   readonly loads = new Map<string, Promise<ConversationView>>();
+  private readonly historyLoads = new Map<string, Promise<void>>();
   private readonly subscriptions = new Map<string, Array<() => void>>();
   conversations: Conversation[] = [];
   listLoaded = false;
@@ -268,7 +269,16 @@ export class DesktopSession {
     return items.reverse();
   }
 
-  async older(id: string): Promise<void> {
+  older(id: string): Promise<void> {
+    const pending = this.historyLoads.get(id);
+    if (pending) return pending;
+    // History belongs to the session: route remounts must share the same cursor load.
+    const result = this.loadOlder(id).finally(() => this.historyLoads.delete(id));
+    this.historyLoads.set(id, result);
+    return result;
+  }
+
+  private async loadOlder(id: string): Promise<void> {
     const view = await this.load(id);
     if (view.cursor === null) return;
     const page = await this.client.history({

@@ -641,6 +641,12 @@ main {
 .tool-group > .cell.tool {
   padding-left: 14px;
 }
+.tool-group > .cell.reasoning {
+  margin: 0;
+  padding: 3px 0 3px 14px;
+  font-size: 13px;
+  color: var(--muted-ink);
+}
 .disclosure > summary {
   display: flex;
   align-items: center;

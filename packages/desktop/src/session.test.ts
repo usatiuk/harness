@@ -5,8 +5,80 @@ import { HarnessService, HarnessRpcSession } from "@harness/service";
 import { InMemoryStore } from "@harness/store";
 import { sandboxPlugin } from "@harness/sandbox";
 import { FakeProvider, counterIdGenerator, fixedClock, textStep } from "@harness/testkit";
-import type { ConversationId } from "@harness/protocol";
+import type { ConversationId, TurnId } from "@harness/protocol";
 import { DesktopSession } from "./session.ts";
+
+it("shares an earlier history load across callers and permits retry after failure", async () => {
+  const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+  const service = new HarnessService({
+    store,
+    home: "/nonexistent-harness-home",
+    plugins: [{ id: "fake", providers: () => [new FakeProvider([])] }],
+  });
+  const connections = createInProcessMessageConnectionPair();
+  const host = new HarnessRpcHost(service);
+  const server = new HarnessRpcSession({
+    connection: connections.right,
+    host,
+    server: { name: "test", version: "1" },
+  });
+  const desktop = new DesktopSession(connections.left);
+  let release: (() => void) | undefined;
+  server.start();
+  try {
+    await desktop.start();
+    const conversation = await desktop.client.create({
+      overrides: { instructions: "be helpful", model: { provider: "fake", model: "fake-1" } },
+    });
+    const items = [];
+    for (let index = 0; index < 300; index++)
+      items.push(
+        await store.appendItem({
+          conversationId: conversation.id as ConversationId,
+          turnId: "history" as TurnId,
+          type: "message",
+          role: "user",
+          content: [{ type: "text", text: `Message ${index}` }],
+        }),
+      );
+    const view = await desktop.load(conversation.id);
+    expect(view.cursor).not.toBeNull();
+    const initialIds = view.items.map((item) => item.id);
+    const cursor = view.cursor;
+    const history = desktop.client.history.bind(desktop.client);
+    const requests = vi.spyOn(desktop.client, "history");
+    requests.mockRejectedValueOnce(new Error("history temporarily unavailable"));
+    await Promise.all([
+      expect(desktop.older(conversation.id)).rejects.toThrow("history temporarily unavailable"),
+      expect(desktop.older(conversation.id)).rejects.toThrow("history temporarily unavailable"),
+    ]);
+    expect(requests).toHaveBeenCalledTimes(1);
+    expect(view.items.map((item) => item.id)).toEqual(initialIds);
+    expect(view.cursor).toBe(cursor);
+
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    requests.mockImplementationOnce(async (params) => {
+      await gate;
+      return history(params);
+    });
+    const first = desktop.older(conversation.id);
+    const second = desktop.older(conversation.id);
+    await vi.waitFor(() => expect(requests).toHaveBeenCalledTimes(2));
+    expect(view.items.map((item) => item.id)).toEqual(initialIds);
+    release!();
+    await Promise.all([first, second]);
+    expect(view.items.map((item) => item.id)).toEqual(items.map((item) => item.id));
+    expect(view.cursor).toBeNull();
+    await desktop.older(conversation.id);
+    expect(requests).toHaveBeenCalledTimes(2);
+  } finally {
+    release?.();
+    await host.shutdown();
+    await server.shutdown();
+  }
+});
 
 it.each([
   { presets: [{ value: "high" }], preset: "" },

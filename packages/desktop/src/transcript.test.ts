@@ -40,16 +40,17 @@ it("does not give earlier same-turn history the live stream's key and groups new
     startedAt: 1,
   };
   transcript.update([child, stream]);
-  const liveKey = transcript.rows[1]!.key;
+  const liveKey = toolGroup(transcript.rows[0]!).steps[1]!.key;
   const earlier: Cell = { ...stream, text: "Earlier", streaming: false, id: "earlier" };
   const parent: Cell = { kind: "tool", callId: "parent", name: "eval", args: {}, startedAt: 0 };
   transcript.update([earlier, parent, child, stream]);
-  expect(transcript.rows[0]!.key).not.toBe(liveKey);
-  expect(toolGroup(transcript.rows[1]!).tools[0].children).toEqual([child]);
-  expect(transcript.rows[2]!.key).toBe(liveKey);
+  const steps = toolGroup(transcript.rows[0]!).steps;
+  expect(steps[0].key).not.toBe(liveKey);
+  expect(steps[1]).toMatchObject({ cell: parent, children: [child] });
+  expect(steps[2]!.key).toBe(liveKey);
   const finished: Cell = { ...stream, streaming: false, id: "live" };
   transcript.update([earlier, parent, child, finished]);
-  expect(transcript.rows[2]!.key).toBe(liveKey);
+  expect(toolGroup(transcript.rows[0]!).steps[2]!.key).toBe(liveKey);
 });
 
 it("groups consecutive calls between messages while retaining nested operations and identities", () => {
@@ -67,16 +68,28 @@ it("groups consecutive calls between messages while retaining nested operations 
   const message: Cell = { kind: "assistant", turnId: "turn", text: "Update", streaming: false };
   transcript.update([first]);
   const key = transcript.rows[0]!.key;
-  transcript.update([first, second, child, message, call("third")]);
+  const thought: Cell = {
+    kind: "reasoning",
+    turnId: "turn",
+    text: "Checking",
+    streaming: false,
+    id: "thought",
+    startedAt: 0,
+  };
+  transcript.update([first, thought, second, child, message, call("third")]);
   expect(transcript.rows).toHaveLength(3);
   expect(transcript.rows[0]!.key).toBe(key);
-  expect(toolGroup(transcript.rows[0]!).tools.map((row) => row.cell)).toEqual([first, second]);
-  expect(toolGroup(transcript.rows[0]!).tools[0].children).toEqual([child]);
+  expect(toolGroup(transcript.rows[0]!).steps.map((row) => row.cell)).toEqual([
+    first,
+    thought,
+    second,
+  ]);
+  expect(toolGroup(transcript.rows[0]!).steps[0]).toMatchObject({ children: [child] });
   expect(transcript.rows[1]).toMatchObject({ kind: "cell", cell: message });
-  expect(toolGroup(transcript.rows[2]!).tools).toHaveLength(1);
+  expect(toolGroup(transcript.rows[2]!).steps).toHaveLength(1);
 });
 
-function toolGroup(row: TranscriptRow): Extract<TranscriptRow, { kind: "tools" }> {
-  if (row.kind !== "tools") throw new Error("Expected tool group");
+function toolGroup(row: TranscriptRow): Extract<TranscriptRow, { kind: "steps" }> {
+  if (row.kind !== "steps") throw new Error("Expected tool group");
   return row;
 }

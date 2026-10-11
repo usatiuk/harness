@@ -49,6 +49,7 @@ test("code-only execution reviews concrete child calls and keeps nested history 
     const approval = page.getByRole("region", { name: "Approval request" });
     await expect(approval).toContainText("Allow powershell?");
     await expect(approval.locator("pre")).toContainText("code-mode-marker");
+    await page.locator(".tool-group:not([open]) > summary").click();
     await expect(
       page
         .locator('[data-testid="tool-call"]')
@@ -79,6 +80,8 @@ test("code-only execution reviews concrete child calls and keeps nested history 
       directory,
     );
     await app.page.locator(".conversation-list").getByRole("link").first().click();
+    for (const group of await app.page.locator(".tool-group:not([open]) > summary").all())
+      await group.click();
     const reopened = app.page
       .locator('[data-testid="tool-call"]')
       .filter({ has: app.page.locator("summary strong", { hasText: "eval" }) });
@@ -214,6 +217,7 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await page.locator(".conversation-list").getByRole("link").filter({ hasText: "beta" }).click();
     await page.getByRole("button", { name: "Allow", exact: true }).click();
     await expect(page.getByTestId("assistant-message")).toContainText("Done");
+    await page.locator(".tool-group:not([open]) > summary").click();
     await page.getByTestId("tool-call").locator("summary").click();
     await expect(page.getByTestId("tool-output")).toContainText("beta");
     await expect(page.locator(".conversation-status")).toContainText("Ready");
@@ -270,6 +274,7 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByTestId("assistant-message")).toContainText("Command completed");
     await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await page.locator(".tool-group:not([open]) > summary").click();
     await page.getByTestId("tool-call").locator("summary").click();
     await expect(page.getByTestId("tool-output")).toContainText("approved-command");
     expect(provider.reviews).toHaveLength(1);
@@ -353,6 +358,7 @@ test("paged sidebar and virtualized history retain preset, diffs and large tool 
     await showModelControls(page);
     await expect(page.getByLabel("Conversation preset")).toHaveValue("high");
     expect(await page.locator(".cell").count()).toBeLessThan(40);
+    await page.locator(".tool-group:not([open]) > summary").click();
     const tool = page.getByTestId("tool-call");
     await tool.locator("summary").click();
     await expect(tool.locator(".diff-remove")).toContainText("before");
@@ -361,15 +367,30 @@ test("paged sidebar and virtualized history retain preset, diffs and large tool 
     await page.screenshot({ path: info.outputPath("diff.png") });
     const scroller = page.locator(".conversation-scroll");
     await scroller.evaluate((element) => {
-      element.scrollTop = 0;
+      element.scrollTop = 300;
     });
-    const earlier = page.getByRole("button", { name: "Load earlier messages" });
-    await expect(earlier).toBeVisible();
-    const original = await page.locator(".user-text").first().textContent();
-    const anchor = page.getByText(original!, { exact: true });
-    const anchorTop = (await anchor.boundingBox())!.y;
-    const height = await scroller.evaluate((element) => element.scrollHeight);
-    await earlier.click();
+    const original = await scroller.evaluate((element) => {
+      const top = element.getBoundingClientRect().top;
+      const row = [...element.querySelectorAll<HTMLElement>(".user-text")].find(
+        (row) => row.getBoundingClientRect().top >= top,
+      );
+      if (!row) throw new Error("History user row is missing");
+      return {
+        text: row.textContent,
+        y: row.getBoundingClientRect().top,
+        scrollTop: element.scrollTop,
+        height: element.scrollHeight,
+      };
+    });
+    const anchor = page.locator(".user-text").filter({ hasText: original.text });
+    const anchorTop = original.y + original.scrollTop - 100;
+    const height = original.height;
+    await scroller.evaluate((element) => {
+      element.scrollTop = 100;
+    });
+    await expect(
+      page.getByRole("button", { name: "Load earlier messages", exact: true }),
+    ).toHaveCount(0);
     await expect
       .poll(() => scroller.evaluate((element) => element.scrollHeight))
       .toBeGreaterThan(height);
