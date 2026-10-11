@@ -60,6 +60,8 @@ cat > "$tauri_config" <<JSON
 JSON
 npm run desktop:release --workspace @harness/desktop -- \
   --ci --bundles "$bundle_targets" --config "../../$tauri_config"
+node scripts/check-desktop-package.mjs \
+  "packages/desktop/src-tauri/target/release/harness-desktop$executable_suffix"
 
 # Give the one installer a stable release asset name.
 shopt -s nullglob

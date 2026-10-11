@@ -321,7 +321,7 @@ async fn prepare_runtime(
     canceled: watch::Receiver<bool>,
 ) -> Result<Arc<runtime::ServerRuntime>, String> {
     let payload =
-        if cfg!(feature = "custom-protocol") && env!("HARNESS_BUILD_MODE") == "development" {
+        if cfg!(not(dev)) && env!("HARNESS_BUILD_MODE") == "development" {
             Some(resources(app)?)
         } else {
             None
@@ -690,7 +690,7 @@ fn finish_desktop(app: &tauri::AppHandle) -> bool {
 }
 
 fn main() {
-    #[cfg(feature = "custom-protocol")]
+    #[cfg(not(dev))]
     {
         let mut arguments = std::env::args();
         let _executable = arguments.next();

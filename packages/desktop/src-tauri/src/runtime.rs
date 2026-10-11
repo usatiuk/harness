@@ -1,6 +1,6 @@
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 use harness_bootstrap::{Cache, default_home};
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 use std::io::Write;
 use std::path::PathBuf;
 use tokio::{process::Command, sync::watch};
@@ -9,7 +9,7 @@ fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Preparation {
@@ -18,7 +18,7 @@ struct Preparation {
     local: bool,
 }
 
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PreparedPaths {
@@ -28,7 +28,7 @@ struct PreparedPaths {
 }
 
 /// This mode runs before Tauri setup. EOF cancels blocking downloads/OS locks.
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 pub fn preparation_process(request: &str) -> anyhow::Result<()> {
     let request: Preparation = serde_json::from_str(request)?;
     std::thread::spawn(|| {
@@ -91,7 +91,7 @@ pub async fn prepare(
         .find_map(|(key, value)| (key == "HARNESS_HOME").then_some(value).flatten())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HARNESS_HOME").map(PathBuf::from));
-    #[cfg(not(feature = "custom-protocol"))]
+    #[cfg(dev)]
     {
         let _ = (development_payload, local);
         Ok(ServerRuntime {
@@ -101,7 +101,7 @@ pub async fn prepare(
                 .unwrap_or_else(|| PathBuf::from("node")),
         })
     }
-    #[cfg(feature = "custom-protocol")]
+    #[cfg(not(dev))]
     {
         let home = match requested_home {
             Some(home) => home,
@@ -126,13 +126,13 @@ pub async fn prepare(
     }
 }
 
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 pub struct ServerRuntime {
     cache: Cache,
     paths: PreparedPaths,
 }
 
-#[cfg(not(feature = "custom-protocol"))]
+#[cfg(dev)]
 pub struct ServerRuntime {
     home: PathBuf,
     node: PathBuf,
@@ -140,7 +140,7 @@ pub struct ServerRuntime {
 
 impl ServerRuntime {
     pub fn command(&self) -> Command {
-        #[cfg(not(feature = "custom-protocol"))]
+        #[cfg(dev)]
         let (mut command, home) = {
             let mut command = Command::new(&self.node);
             command
@@ -150,7 +150,7 @@ impl ServerRuntime {
                 .env_remove("HARNESS_PREPARED_SERVER");
             (command, &self.home)
         };
-        #[cfg(feature = "custom-protocol")]
+        #[cfg(not(dev))]
         let (mut command, home) = {
             let mut command = Command::new(&self.paths.node);
             command.arg(&self.paths.entry)

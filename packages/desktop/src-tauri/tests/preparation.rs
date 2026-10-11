@@ -1,12 +1,12 @@
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 use harness_bootstrap::{Cache, FileUse};
 use harness_desktop::{command, runtime};
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 use std::{fs, path::PathBuf};
 use std::{path::Path, time::Duration};
 use tokio::{process::Command, sync::watch};
 
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
@@ -15,7 +15,7 @@ fn desktop(home: &Path) -> Command {
     command.env("HARNESS_HOME", home);
     command
 }
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 fn copy_tree(source: &Path, destination: &Path) {
     fs::create_dir_all(destination).unwrap();
     for entry in fs::read_dir(source).unwrap() {
@@ -34,7 +34,7 @@ fn copy_tree(source: &Path, destination: &Path) {
         }
     }
 }
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 fn source_cache() -> Cache {
     Cache::new(
         &std::env::var_os("HARNESS_HOME")
@@ -44,7 +44,7 @@ fn source_cache() -> Cache {
     .unwrap()
 }
 
-#[cfg(not(feature = "custom-protocol"))]
+#[cfg(dev)]
 #[tokio::test]
 async fn source_development_runs_the_workspace_without_installing_a_runtime() {
     let root = tempfile::tempdir().unwrap();
@@ -66,7 +66,7 @@ async fn source_development_runs_the_workspace_without_installing_a_runtime() {
     assert!(!home.join("server").exists());
 }
 
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 #[tokio::test]
 async fn actual_preparation_and_command_retain_one_cache_lease_through_exit() {
     let root = tempfile::tempdir().unwrap();
@@ -112,7 +112,7 @@ async fn actual_preparation_and_command_retain_one_cache_lease_through_exit() {
     );
 }
 
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 #[tokio::test]
 async fn failed_preparation_leaves_no_window_or_cache_lease() {
     let root = tempfile::tempdir().unwrap();
@@ -134,7 +134,7 @@ async fn failed_preparation_leaves_no_window_or_cache_lease() {
     assert!(!home.join("server/current.json").exists());
 }
 
-#[cfg(feature = "custom-protocol")]
+#[cfg(not(dev))]
 #[tokio::test]
 async fn cancellation_joins_a_blocked_helper_before_releasing_the_cache() {
     let root = tempfile::tempdir().unwrap();

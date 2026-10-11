@@ -294,3 +294,19 @@ four additional short asset names contain identical bytes, checked against that
 manifest's hashes and sizes before upload. Future builds emit those short names
 directly and sign their release-specific locations. Metadata assembly tests assert
 the new launcher URLs. Source CI qualification of this naming change remains pending.
+
+The user's Windows installer launch exposes a packaged-mode defect in `v0.1.2`:
+Tauri 2 enables its dependency's custom protocol but does not enable the app's
+same-named feature. The app therefore chooses source runtime preparation and tries
+to spawn from the CI checkout directory, causing Windows error 267 on an installed
+machine. Desktop runtime selection now follows Tauri's own `dev` cfg alias instead
+of the app feature, across source development and packaged builds on every platform.
+No extra build flag or guard is needed. Packaged preparation tests now use the
+dependency feature that the Tauri CLI actually enables. The release script checks
+the actual built executable's existing pre-window preparation mode before upload.
+Hosted correction and a patched release remain open. No installed program is
+launched on the user's PC.
+Three narrow read-only reviews (correctness, simplicity, evidence) find no material
+issue in the correction. Existing binary fingerprints corroborate the root cause:
+the app had no own Cargo features while its Tauri dependency had custom protocol.
+This is independent of Rust debug/release optimization.

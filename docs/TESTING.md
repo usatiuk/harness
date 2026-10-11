@@ -231,9 +231,16 @@ and remaining qualification are tracked in the
 
 Desktop preparation has separate headless checks; none opens a Tauri window:
 
+Desktop runtime selection follows Tauri's `dev` cfg alias. Packaged tests enable
+`tauri/custom-protocol`, matching the dependency feature set by the Tauri 2 CLI;
+the app's old same-named feature is not used to select runtime behavior.
+`scripts/check-desktop-package.mjs` checks the actual release-build executable's
+pre-window runtime preparation mode before upload, catching accidental use of
+source checkout paths. Cold signed downloads/server startup remain separate checks.
+
 ```sh
 npm run prepare:server --workspace @harness/desktop
-node packages/desktop/tools/native.mjs cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --features custom-protocol --locked
+node packages/desktop/tools/native.mjs cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --features tauri/custom-protocol --locked
 node packages/desktop/tools/native.mjs cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --test preparation --locked
 ```
 

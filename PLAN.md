@@ -90,6 +90,11 @@ Three independent reviews of the CLI update increment are resolved.
 Direct main commits/pushes are authorized; publication and visible native tests
 require separate approval.
 
+The published `v0.1.2` desktop has a startup defect: app-level feature gating
+chooses source-checkout paths although Tauri correctly built a packaged app.
+The correction uses Tauri's own `dev` cfg; hosted packaging/startup verification
+and a patched release remain open. The standalone CLI is unaffected.
+
 ## Recent delivery
 
 The [client window chrome follow-up](docs/plans/interface/2026-10-10-client-window-chrome.md)
