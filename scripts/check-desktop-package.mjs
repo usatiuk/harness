@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import process from "node:process";
+import console from "node:console";
 
 // Exercise the actual built application's existing pre-window helper mode.
 const result = spawnSync(resolve(process.argv[2]), ["--prepare-runtime", "{}"], {

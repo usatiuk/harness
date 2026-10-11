@@ -238,6 +238,13 @@ the app's old same-named feature is not used to select runtime behavior.
 pre-window runtime preparation mode before upload, catching accidental use of
 source checkout paths. Cold signed downloads/server startup remain separate checks.
 
+The manual `Qualify published release` workflow executes downloads, installers and
+CLI updates only on GitHub-hosted Windows, Ubuntu and both macOS architectures.
+It runs outside the checkout, checks two published CLI versions, preserved SQLite
+conversations, no server downgrade, shared Node and the installed desktop's
+pre-window runtime preparation. It does not open the desktop UI or qualify the
+Tauri updater's install/restart flow or released SSH/WSL deployment.
+
 ```sh
 npm run prepare:server --workspace @harness/desktop
 node packages/desktop/tools/native.mjs cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --features tauri/custom-protocol --locked

@@ -293,7 +293,8 @@ installer scripts. `v0.1.2` retains its signed manifest's original launcher asse
 four additional short asset names contain identical bytes, checked against that
 manifest's hashes and sizes before upload. Future builds emit those short names
 directly and sign their release-specific locations. Metadata assembly tests assert
-the new launcher URLs. Source CI qualification of this naming change remains pending.
+the new launcher URLs. Windows/Ubuntu source CI passes at `1450734` in run
+`38119258755`.
 
 The user's Windows installer launch exposes a packaged-mode defect in `v0.1.2`:
 Tauri 2 enables its dependency's custom protocol but does not enable the app's
@@ -310,3 +311,13 @@ Three narrow read-only reviews (correctness, simplicity, evidence) find no mater
 issue in the correction. Existing binary fingerprints corroborate the root cause:
 the app had no own Cargo features while its Tauri dependency had custom protocol.
 This is independent of Rust debug/release optimization.
+
+The first correction release attempt (`38119524043`) stops in the source gate,
+before bumping the version: the new executable check omitted explicit imports for
+Node's `process` and `console`, which this repository's lint requires. Those imports
+are corrected. Source CI `38119523939` reports the same failure; no installer is
+produced by that attempt. A small manual hosted qualification workflow now checks
+published CLI cold downloads/update, preserved conversations, no downgrade, shared
+Node and installed desktop preparation outside the checkout. Actual execution
+remains pending; it does not qualify desktop updater installation or remote
+deployment. All installer/update execution remains confined to hosted runners.
