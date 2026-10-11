@@ -120,7 +120,7 @@ export async function buildPayload(component, output, identity) {
       bundle: true,
       platform: "node",
       format: "esm",
-      target: "node22",
+      target: "node24",
       conditions: ["development"],
       external: [...dependencies, "@harness/native"],
       define: { __HARNESS_BUILD__: JSON.stringify(identity) },

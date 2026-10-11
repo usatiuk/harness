@@ -1,36 +1,36 @@
 {
-  "version": "22.23.3",
+  "version": "24.21.0",
   "targets": {
     "windows-x64": {
-      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip",
-      "size": 35574076,
-      "sha256": "2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71",
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
+      "size": 37618919,
+      "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541",
       "format": "zip",
-      "root": "node-v22.23.3-win-x64",
+      "root": "node-v24.21.0-win-x64",
       "entry": "node.exe"
     },
     "linux-x64-glibc": {
-      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-x64.tar.gz",
-      "size": 56792076,
-      "sha256": "1084aa36196bba4c3a5e69a1ee388a6e4ff729dad09445fbcd434b28fe3c24af",
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.gz",
+      "size": 58088022,
+      "sha256": "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff",
       "format": "tarGz",
-      "root": "node-v22.23.3-linux-x64",
+      "root": "node-v24.21.0-linux-x64",
       "entry": "bin/node"
     },
     "macos-arm64": {
-      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-darwin-arm64.tar.gz",
-      "size": 49963763,
-      "sha256": "23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53",
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz",
+      "size": 52909993,
+      "sha256": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
       "format": "tarGz",
-      "root": "node-v22.23.3-darwin-arm64",
+      "root": "node-v24.21.0-darwin-arm64",
       "entry": "bin/node"
     },
     "macos-x64": {
-      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-darwin-x64.tar.gz",
-      "size": 51142049,
-      "sha256": "8a677b0219178efd6eb0e475457c4afb452b521a92f6e67845a73bd85727f2a8",
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.gz",
+      "size": 54203979,
+      "sha256": "1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097",
       "format": "tarGz",
-      "root": "node-v22.23.3-darwin-x64",
+      "root": "node-v24.21.0-darwin-x64",
       "entry": "bin/node"
     }
   }

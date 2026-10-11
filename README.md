@@ -30,7 +30,7 @@ Prior attempts (reference only, not tracked here) live under `old/`.
 
 ## Development
 
-Source development uses ordinary Node/npm (Node 22.23.3 in `.nvmrc`) and requires
+Source development uses ordinary Node/npm (Node 24.21.0 in `.nvmrc`) and requires
 Rust 1.90 or newer for the native binding. The
 monorepo uses npm workspaces; cross-package
 imports resolve to TypeScript **source** in dev via the `development` export

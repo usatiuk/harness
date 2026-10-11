@@ -207,7 +207,8 @@ built Linux server archive. Both paths validate layout and identity before
 atomic publication. Warm bridges open cached code and do not begin late downloads
 when their observer leaves. Source remote deployment always uses downloaded Node,
 without a target-installed Node alternative. Ordinary local source development
-uses Node/npm directly and installs no payload or runtime.
+uses Node/npm directly and installs no payload or runtime. Source and release
+builds currently pin Node 24.21.0 through `.nvmrc` and `release/node.json`.
 
 One shared cache-use lock covers each running consumer. Preparation callers
 acquire it before launching helpers; helpers return captured paths and exit.
