@@ -21,6 +21,7 @@ import {
   type HistoryEntry,
   type Item,
   type JsonValue,
+  type ModelConfig,
 } from "@harness/protocol";
 import {
   appAuthLoginRequest,
@@ -313,7 +314,7 @@ export class DesktopSession {
       );
     const overrides: Record<string, JsonValue> = {
       instructions: "You are a helpful coding agent.",
-      model: { provider, model: modelId, preset: preset || null },
+      model: { provider, model: modelId, ...(preset ? { preset } : {}) } satisfies ModelConfig,
       tools: { mode: toolMode },
       plugins: { sandbox: { backend: sandbox } },
     };

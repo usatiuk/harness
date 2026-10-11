@@ -16,7 +16,7 @@ declare global {
     composerFixture: {
       calls: Delivery[];
       settingsWrites: unknown[];
-      creations: unknown[];
+      creations: Array<Parameters<DesktopSession["client"]["create"]>[0]>;
       setDefaultModel(model: string): void;
       providerWrites: { provider: string; patch: Record<string, boolean> }[];
       failProviderSave: boolean;
@@ -91,7 +91,7 @@ const changed = () => {
 };
 const calls: Delivery[] = [];
 const settingsWrites: unknown[] = [];
-const creations: unknown[] = [];
+const creations: Array<Parameters<DesktopSession["client"]["create"]>[0]> = [];
 const providerWrites: { provider: string; patch: Record<string, boolean> }[] = [];
 let pending: Deferred | undefined;
 let stopping: Deferred | undefined;

@@ -3,9 +3,54 @@ import { expect, it, vi } from "vitest";
 import { createInProcessMessageConnectionPair } from "@harness/client";
 import { HarnessService, HarnessRpcSession } from "@harness/service";
 import { InMemoryStore } from "@harness/store";
+import { sandboxPlugin } from "@harness/sandbox";
 import { FakeProvider, counterIdGenerator, fixedClock, textStep } from "@harness/testkit";
 import type { ConversationId } from "@harness/protocol";
 import { DesktopSession } from "./session.ts";
+
+it.each([
+  { presets: [{ value: "high" }], preset: "" },
+  { presets: [{ value: "high" }], preset: "high" },
+  { presets: [], preset: "" },
+])(
+  "creates a conversation through RPC with $presets and preset '$preset'",
+  async ({ presets, preset }) => {
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    const provider = new FakeProvider([]);
+    vi.spyOn(provider, "listModels").mockReturnValue([
+      { provider: "fake", model: "fake-1", presets },
+    ]);
+    const service = new HarnessService({
+      store,
+      home: "/nonexistent-harness-home",
+      defaults: { model: { provider: "fake", model: "fake-1", preset: "high" } },
+      plugins: [{ id: "fake", providers: () => [provider] }, sandboxPlugin],
+    });
+    const connections = createInProcessMessageConnectionPair();
+    const host = new HarnessRpcHost(service);
+    const server = new HarnessRpcSession({
+      connection: connections.right,
+      host,
+      server: { name: "test", version: "1" },
+    });
+    const desktop = new DesktopSession(connections.left);
+    server.start();
+    try {
+      await desktop.start();
+      const id = await desktop.create("", "fake\u0000fake-1", "local", "direct", preset);
+      const expected = { provider: "fake", model: "fake-1", ...(preset ? { preset } : {}) };
+      const conversation = await service.getConversation(id as ConversationId);
+      expect(conversation?.config.model).toEqual(expected);
+      expect((await store.getConversation(id as ConversationId))?.overrides.model).toEqual(
+        expected,
+      );
+    } finally {
+      desktop.client.closeConnection();
+      await host.shutdown();
+      await server.shutdown();
+    }
+  },
+);
 
 it("reattaches after failed sandbox replacement while another conversation remains usable", async () => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());

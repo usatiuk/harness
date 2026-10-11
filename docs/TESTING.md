@@ -275,6 +275,14 @@ checkout's SQLite binary targeted Node 22. Rebuilding only `better-sqlite3` for
 Node 24 restored its in-memory open/query/close smoke check. No persistent database
 or configuration was changed; native dependencies must match the invoking Node.
 
+A reported source-desktop creation failure exposed an invalid `preset: null`
+inside generic overrides. The desktop-to-service in-memory RPC regression first
+reproduced Default/no-preset creation failures, then passed after omission; it also
+verifies explicit presets and clearing an inherited default in persisted records.
+Mistral API reasoning regressions use the real SDK with synthetic local HTTP/SSE
+to verify documented model-specific options, aliases, omitted defaults and exact
+effort delivery. Neither regression executes a live vendor or the user's app.
+
 ```sh
 npm run prepare:server --workspace @harness/desktop
 node packages/desktop/tools/native.mjs cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --features tauri/custom-protocol --locked

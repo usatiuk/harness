@@ -116,6 +116,12 @@ reasoning efforts, and shortens model choices with dimmed exact IDs and hover
 details. Creation now offers model presets. The full check passes 1,247 tests
 on pinned Node 22; all 16 headless browser tests pass and three independent
 reviews are resolved. Live-vendor and rebuilt native acceptance remain unqualified.
+The reported main-integration creation regression is corrected: Default omits the
+settings preset rather than sending null, with a `ModelConfig` type check and a
+real RPC regression. API reasoning presets use documented known-model metadata;
+Vibe remains catalog-driven. Focused tests and the affected headless browser case
+pass; final pinned-Node CI is pending, and local Node 24 retains the two known MCP
+OAuth failures.
 
 The [desktop web search follow-up](docs/plans/interface/2026-10-11-web-search-settings.md)
 exposes schema-declared provider settings in the GUI, with native web search enabled

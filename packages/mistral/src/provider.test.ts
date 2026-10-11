@@ -168,6 +168,47 @@ async function fixture(
 }
 
 describe("Mistral native delivery", () => {
+  it.each([
+    ["mistral-small-latest", ["none", "high"]],
+    ["mistral-medium-3-5", ["none", "high"]],
+    ["mistral-large-4-0", ["none", "high"]],
+    ["zai-glm-5-3", ["low", "high", "max"]],
+  ] as const)("exposes and delivers documented API reasoning for %s", async (alias, levels) => {
+    const { provider, gateway } = await fixture(
+      "api",
+      [message("reply"), done()],
+      200,
+      false,
+      {},
+      {
+        data: [
+          {
+            ...apiRow,
+            aliases: [alias],
+            capabilities: { ...apiRow.capabilities, reasoning: true },
+          },
+        ],
+      },
+    );
+    expect(provider.listModels().map((model) => model.presets)).toEqual([
+      levels.map((value) => ({ value })),
+      levels.map((value) => ({ value })),
+    ]);
+    for (const preset of levels) {
+      await collect(provider, {
+        ...request("api"),
+        modelConfig: { provider: "work", model: alias, preset },
+      });
+      expect(gateway.requests.at(-1)?.body.completion_args).toMatchObject({
+        reasoning_effort: preset,
+      });
+    }
+    await collect(provider, request("api"));
+    expect(gateway.requests.at(-1)?.body.completion_args).not.toHaveProperty("reasoning_effort");
+    expect(() =>
+      provider.validateConfig({ provider: "work", model: alias, preset: "adaptive" }),
+    ).toThrow("Unknown preset");
+  });
   it.each(["api", "vibe"] as const)(
     "replays assistant-only output without entry IDs on %s",
     async (mode) => {

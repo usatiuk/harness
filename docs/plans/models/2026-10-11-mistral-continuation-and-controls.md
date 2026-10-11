@@ -39,6 +39,32 @@ previously had no preset selector at all; add it through the existing atomic
 model selection, preserve its initial default and clear it on identity changes.
 No registry, retry, transport fallback or store rewrite.
 
+Main follow-up: default creation originally sent `preset: null` in opaque
+overrides, which the settings schema rejects. Omit the field and check the model
+literal against `ModelConfig`; complete model selection already replaces any
+inherited preset atomically. A real desktop-to-service RPC regression reproduces
+the failure with Default and models without presets, while explicit `high` works.
+After correction all three cases pass and persist the intended model selection.
+The headless browser assertion now expects an omitted preset.
+
+Public API reasoning choices were also missing because `/models` advertises only
+a reasoning capability flag. A small provider-local table supplies the documented
+options for reasoning-enabled known IDs/aliases: Mistral Small/Medium 3.5/Large 4
+use `none`/`high`, GLM 5.3 uses `low`/`high`/`max`. Vibe remains catalog-driven,
+and unknown API models do not inherit speculative options. Existing SDK/local
+HTTP regressions verify every choice reaches `completion_args.reasoning_effort`,
+omitted defaults stay omitted, and invalid choices fail before generation.
+
+Follow-up validation: both focused files pass 37 tests, including creation through
+the real service/settings boundary, and the affected headless model-picker case
+passes. The full Node 24 check passes typecheck, lint, formatting and 1,256 tests
+(36 skipped) but retains the two earlier unchanged MCP OAuth failures. No local
+Node/dependency switch was made while the user runs the app; the pinned Node 22
+CI gate for the final correction remains pending. A read-only query of the user's
+already-restarted source server confirms effort choices on actual API aliases
+including `mistral-medium-latest` and `zai-glm-latest`; it performs no vendor
+generation, configuration write or restart.
+
 ## Completion checks
 
 - [x] Reproduce rejection through the real SDK/local HTTP boundary; correct replay

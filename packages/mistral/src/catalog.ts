@@ -69,6 +69,15 @@ const vibeEntry = z.object({
     .nullish(),
 });
 
+// /models reports a reasoning flag, not effort choices. These options are
+// documented at https://docs.mistral.ai/studio/conversations/reasoning.
+const API_REASONING_LEVELS = new Map<string, readonly string[]>([
+  ["mistral-small-latest", ["none", "high"]],
+  ["mistral-medium-3-5", ["none", "high"]],
+  ["mistral-large-4-0", ["none", "high"]],
+  ["zai-glm-5-3", ["low", "high", "max"]],
+]);
+
 export interface CatalogEntry {
   info: ModelInfo;
   temperature?: number;
@@ -106,7 +115,13 @@ export function parseCatalog(raw: unknown, mode: MistralMode, provider: string) 
     if (model.capabilities.completion_chat === false || !model.capabilities.function_calling)
       continue;
     const params = "parameters" in model ? model.parameters : undefined;
-    const levels = [...new Set(params?.reasoning ?? [])];
+    const apiLevels =
+      mode === "api" && model.capabilities.reasoning === true
+        ? [model.id, ...model.aliases]
+            .map((modelId) => API_REASONING_LEVELS.get(modelId))
+            .find((levels) => levels !== undefined)
+        : undefined;
+    const levels = [...new Set(params?.reasoning ?? apiLevels ?? [])];
     const sampling =
       params?.temperature ??
       ("default_model_temperature" in model ? model.default_model_temperature : undefined);

@@ -366,10 +366,8 @@ test("production model picker distinguishes same-label IDs and exposes advertise
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Create conversation", exact: true }).click();
   await expect
-    .poll(() => page.evaluate(() => window.composerFixture.creations.at(-1)))
-    .toMatchObject({
-      overrides: { model: { provider: "fixture", model: "test", preset: null } },
-    });
+    .poll(() => page.evaluate(() => window.composerFixture.creations.at(-1)?.overrides?.model))
+    .toEqual({ provider: "fixture", model: "test" });
 });
 
 test("production composer retains new drafts and permits Stop during delivery acknowledgement", async ({
