@@ -80,16 +80,6 @@ jobs:
           export HARNESS_RELEASE_VERSION="$VERSION"
           cd packages/desktop
           node --conditions=development ../../node_modules/@playwright/test/cli.js test -c playwright.native.config.ts published-update.spec.ts
-      - name: Prepare Ubuntu WSL on this hosted runner
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $rootfs = Join-Path $env:RUNNER_TEMP 'ubuntu-rootfs.tar.gz'
-          Invoke-WebRequest 'https://cloud-images.ubuntu.com/wsl/jammy/current/ubuntu-jammy-wsl-amd64-ubuntu22.04lts.rootfs.tar.gz' -OutFile $rootfs
-          # WSL1 uses the runner's enabled subsystem without nested virtualization.
-          wsl --import harness-release-test "$env:RUNNER_TEMP/wsl" $rootfs --version 1
-          if ($LASTEXITCODE -ne 0) { throw 'WSL import failed' }
-          'HARNESS_RELEASE_WSL=harness-release-test' >> $env:GITHUB_ENV
       - name: Install Unix desktop on this hosted runner
         if: runner.os != 'Windows'
         run: |

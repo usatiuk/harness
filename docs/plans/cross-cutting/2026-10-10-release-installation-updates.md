@@ -437,10 +437,14 @@ now uses that disposable account's `.harness` for both launches. Product code is
 unchanged; temporary process diagnostics are removed. Source CI at `cfb634b`
 passes on Windows and Ubuntu. Hosted restart confirmation remains pending.
 
-Run `38124352678` passes the published Windows desktop updater installation and
-restart check with the corrected fixture home. Ubuntu and both macOS artifact
-jobs also pass; the Windows CLI check is still running. Released WSL reuses the
-same remote test as SSH, with an Ubuntu 22.04 rootfs imported into the hosted
-runner's enabled WSL1 subsystem. This adds no VM or separate test driver and does
-not install or run anything on the user's PC. Actual WSL execution is pending;
-WSL2 remains covered by the earlier source checks only.
+Run `38124352678` passes all four published-artifact jobs, including the Windows
+desktop updater installation/restart and released SSH deployment. The local
+`npm run check` at this checkpoint passes 1,242 tests with 36 skipped, using the
+existing pinned Node 22.23.3. Its first sandbox invocation fails before tests on
+Vitest cache rename EPERM; the unchanged unsandboxed command passes.
+
+The additional hosted WSL1 fixture (`b120a79`) is removed after the user's
+simplicity feedback. A new WSL1 setup does not establish release behavior on the
+existing WSL2 baseline. Source WSL2 checks remain qualified; published WSL2
+install/update execution is still unverified because execution on the user's PC
+is prohibited. No additional environment or qualification framework is added.

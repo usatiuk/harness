@@ -145,14 +145,13 @@ console.log(
   "Cold published CLI/server, CLI update, no downgrade, SQLite persistence, installed desktop preparation and shared owner reuse passed",
 );
 
-for (const kind of ["ssh", "wsl"]) {
-  const destination = process.env[kind === "ssh" ? "HARNESS_RELEASE_SSH" : "HARNESS_RELEASE_WSL"];
-  if (!destination) continue;
-  const common = { id: "release-test", label: `Published ${kind} test` };
-  const host =
-    kind === "ssh"
-      ? { ...common, kind, destination }
-      : { ...common, kind, distribution: destination, user: null };
+if (process.env.HARNESS_RELEASE_SSH) {
+  const host = {
+    kind: "ssh",
+    id: "release-test",
+    label: "Published SSH test",
+    destination: process.env.HARNESS_RELEASE_SSH,
+  };
   const previousPaths = JSON.parse(run(oldCli, ["--prepare-release", previous]));
   async function prepareRemote(local) {
     return session(
@@ -191,6 +190,6 @@ for (const kind of ["ssh", "wsl"]) {
   const reused = await remoteOwner(previousPaths, reusedRuntime, first.id, true);
   assert.equal(reused.identity.instanceId, upgraded.identity.instanceId);
   console.log(
-    `Published ${kind} cold deployment, idle upgrade, preserved data and no downgrade passed`,
+    "Published SSH cold deployment, idle upgrade, preserved data and no downgrade passed",
   );
 }
