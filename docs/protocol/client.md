@@ -13,10 +13,14 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `4`. It exchanges
+`initialize` is the first application request and requires protocol version `5`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
+
+Version 5 includes required schema-declared provider settings in application
+provider status and the provider-config update request. Version 4 clients and
+servers fail the exact-version handshake; no settings compatibility adapter exists.
 
 Both peers may make requests. The requester may cancel with the standard
 `$/cancelRequest` notification; handlers observe an abort signal and cancelled

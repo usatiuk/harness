@@ -249,8 +249,31 @@ preserved conversations and older-client reuse. All four targets pass for
 v0.1.2 → v0.1.3 in run `38122675683`. SSH setup removes the temporary account's
 inherited GitHub runner ACL; production ownership checks remain unchanged.
 Windows passes an unchanged rerun after a release-download connection drop.
-The workflow does not open the desktop UI or qualify the
-Tauri updater's install/restart flow or released WSL deployment.
+Run `38124352678` additionally passes one Windows updater case in the existing
+native harness: published v0.1.2 installs the signed v0.1.3 update, exits and
+restarts with a verified new server. The old release's startup defect requires
+invoking the native update command directly. On the elevated runner, WebView2
+debugging uses its executable-scoped HKLM policy, and the test uses the account's
+normal home because NSIS relaunch does not inherit test-process environment
+overrides. This is hosted-only setup; local native tests retain their existing
+temporary homes and need explicit approval. No diagnostic file upload is retained.
+Published WSL2 deployment and macOS/Linux desktop updater execution remain
+unqualified. The additional WSL1 fixture was removed as unnecessary scope.
+
+The combined Mistral correction and provider-settings integration passes the
+Node 22 full source check: 1,251 tests, 36 skipped, with two workers. All 17
+headless browser cases and the production desktop build pass. An earlier full
+run had one unchanged real-container Docker glob test exceed its five-second
+deadline; the whole file subsequently passed all 11 cases in isolation (glob:
+866 ms). Its timing cause remains unestablished; assertions and timeouts are
+unchanged. Edge initially failed before assertions when its sandboxed temporary
+profile could not be written; the unchanged unsandboxed headless suite passed.
+No live vendor, native GUI or installed-app execution was performed locally for
+this integration.
+After validation, the user's Node 24 development command failed because this
+checkout's SQLite binary targeted Node 22. Rebuilding only `better-sqlite3` for
+Node 24 restored its in-memory open/query/close smoke check. No persistent database
+or configuration was changed; native dependencies must match the invoking Node.
 
 ```sh
 npm run prepare:server --workspace @harness/desktop

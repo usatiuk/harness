@@ -1,8 +1,7 @@
 # Desktop web search settings
 
-Status: Feature implemented and independently reviewed; ready for handoff.
-Main integration must advance the exact protocol version. Focused verification
-passes; the full repository check has the unrelated failures recorded below.
+Status: Implemented, independently reviewed and integrated into main with protocol 5. Combined Node 22 source checks, headless browser tests and the production
+desktop build pass. Earlier verification failures are recorded below.
 
 Expose provider-owned native web search in Settings → Providers and enable it by
 default for supported direct connections. Explicit `webSearch: false` remains an
@@ -59,10 +58,11 @@ installed Harness install/update execution are excluded from that handoff.
       `npm run check`, affected headless browser tests and `git diff --check`.
       Depends on focused verification; record actual evidence and distinguish
       headless/browser checks from native/live-provider qualification.
-- [ ] Main integration: advance the exact application protocol version from 4 to
+- [x] Main integration: advance the exact application protocol version from 4 to
       5 and synchronize protocol docs, schema and fixture references. Completion:
       incompatible peers fail initialization before exchanging strict provider
-      statuses. The coordinating thread owns this shared integration change.
+      statuses. The existing RPC initialization regression covers rejection of
+      the previous version; the combined full check passes.
 
 ## Validation
 
@@ -110,10 +110,19 @@ binding. No package dependency or lockfile changes are intended.
 The required `settings` field changes both `app.providers.list` and the providers
 in `app.settings.get`. The previous provider status schema is strict: an old client
 rejects the new extra field, and a new client rejects the old missing field.
-Both revisions currently advertise protocol version 4, so the exact-version
-initialize guard does not detect this mismatch. A direct schema assertion confirms
-both status failures and acceptance of a v4 initialize request. Main integration
-must bump `HARNESS_PROTOCOL_VERSION` in `packages/protocol/src/rpc.ts` to 5, update
-`docs/protocol/client.md`, regenerate `docs/protocol/client.schema.json`, and update
-`docs/protocol/fixtures/initialize.request.json`. This handoff adds no compatibility
-shim and intentionally leaves those shared protocol references to the coordinator.
+Before integration both revisions advertised protocol version 4, so the
+exact-version initialize guard did not detect this mismatch. A direct schema
+assertion confirmed both status failures and acceptance of a v4 initialize
+request. This required advancing the shared protocol references without a
+compatibility shim.
+
+Main integration completes that gate: protocol 5, updated initialize fixture,
+current protocol documentation and regenerated schema including the new update
+request. Both agents' overlapping fixture changes are preserved. The combined
+Node 22 full check passes 1,251 tests with 36 skipped using two workers; all 17
+headless browser cases and the production desktop build pass. An earlier full
+run passed 1,250 tests but the unchanged real-container Docker glob case exceeded
+its five-second deadline. Its whole file then passed all 11 tests in isolation
+(glob: 866 ms). The timing cause remains unestablished; no assertions, retries or
+timeouts were changed. These checks do not establish live-provider or native GUI
+behavior, and no installed Harness execution ran on the user's PC.

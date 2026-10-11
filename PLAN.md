@@ -71,7 +71,7 @@ pipes. The replacement uses a simple
 GitHub version-bump/build/sign/draft workflow and one cache-use lock for running
 consumers. Immutable deployed payloads preserve safe rebuilds. Explicit cache
 pruning previews/removes inactive downloads and preserves data. Desktop update
-controls now use Tauri's official updater; actual installation remains unqualified.
+controls use Tauri's official updater; Windows installation/restart passes on a hosted runner.
 Connect-time server replacement now reuses the existing lifecycle lock and engine
 busy check: idle owners upgrade, active work requires explicit reconnect, and
 versions never downgrade. The native CLI update command verifies a signed release,
@@ -90,7 +90,9 @@ Hosted CLI updates and installed desktop runtime preparation pass on all four
 targets in run `38122675683`. Released SSH cold deployment, idle upgrade,
 preserved conversations and older-client reuse also pass. The SSH failure was
 an inherited GitHub runner ACL, corrected only in the temporary account's setup.
-Desktop updater installation/restart and released WSL remain unqualified.
+Hosted run `38124352678` also passes signed Windows desktop update installation
+and restart. Published WSL2 and macOS/Linux desktop updater execution remain
+unqualified; the extra WSL1 fixture is removed.
 
 The current implementation passes the ordinary full check with 1,242 tests
 (36 skipped), eleven Windows and ten Ubuntu headless native cases, and fresh
@@ -118,11 +120,11 @@ reviews are resolved. Live-vendor and rebuilt native acceptance remain unqualifi
 The [desktop web search follow-up](docs/plans/interface/2026-10-11-web-search-settings.md)
 exposes schema-declared provider settings in the GUI, with native web search enabled
 by default and explicit opt-outs preserved. Three independent reviews, 43 focused
-tests and two browser cases pass. Typechecking, lint and formatting pass; the full
-check has two existing MCP OAuth failures and a server-process timeout that passes
-in isolation. Main integration must bump the exact protocol version for the new
-required provider-status field. The delivery plan records that gate and validation
-limits.
+tests and two browser cases pass. Main integration preserves both agents' changes
+and uses protocol 5 for the changed strict provider-status contract. The combined
+Node 22 full check passes 1,251 tests (36 skipped) with two workers; all 17 headless
+browser cases and the production desktop build pass. The delivery plan records
+the earlier failures and the limits of this source/browser validation.
 
 The [client window chrome follow-up](docs/plans/interface/2026-10-10-client-window-chrome.md)
 is complete: one shared title bar, restored Terminal branding and consistent modal

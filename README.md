@@ -36,6 +36,9 @@ condition — no TypeScript compilation step is needed to run or test. The
 `npm ci` builds the native binding; development and tests run from the checkout.
 Stop source CLI/desktop processes before `npm ci` or `npm run native:build`:
 Windows locks loaded native modules. Installed apps use their own immutable copies.
+Use the same Node major version for dependency installation and development.
+After switching Node versions, run `npm rebuild better-sqlite3` to rebuild its
+version-specific native binary before starting the source server.
 
 ```sh
 npm ci               # install dependencies and build the native binding
@@ -95,7 +98,8 @@ server running. Windows keeps one
 `harness.exe.previous` beside the installation until the next update; close older
 CLI processes before updating again. Manual CLI uninstall removes those two files
 and retains the shared home/data/cache.
-Actual signed installer/update execution remains unqualified.
+Hosted checks verify signed CLI updates on all four targets and Windows desktop
+update installation/restart. macOS/Linux desktop updater execution remains unqualified.
 Source and release downloads share the public `usatiuk/harness` repository.
 Installed launchers expose `harness cache prune` to preview cached downloads and
 `harness cache prune --apply` to remove them. Stop installed CLI, desktop and server
@@ -107,7 +111,8 @@ Docker remains
 an external requirement for devcontainers, and execution tools use the host's
 installed shell/programs. Hosted release packaging passes on Windows x64,
 Linux x64 (Ubuntu 22.04), macOS x64 and macOS arm64. Native desktop interaction
-qualification targets Windows; installation and updates remain unqualified.
+qualification targets Windows. Published SSH deployment and upgrades pass;
+published WSL2 deployment remains unverified.
 
 Desktop and TUI attach to the same background server for each execution
 environment and OS account. Switching hosts or disconnecting preserves accepted
