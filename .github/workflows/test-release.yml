@@ -70,6 +70,8 @@ jobs:
           New-Item -Path $taskPolicyPath -Force | Out-Null
           New-ItemProperty -Path $taskPolicyPath -Name 'harness-desktop.exe' -PropertyType String -Value '--remote-debugging-port=9222' -Force | Out-Null
           'HARNESS_NATIVE_DEBUG_PORT=9222' >> $env:GITHUB_ENV
+          # NSIS relaunches as the logged-in user without our process environment.
+          "HARNESS_NATIVE_HOME=$env:USERPROFILE/.harness" >> $env:GITHUB_ENV
       - name: Check the published Windows desktop updater
         if: runner.os == 'Windows'
         run: |

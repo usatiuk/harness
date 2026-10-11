@@ -14,7 +14,11 @@ test.afterEach(stopNativeOwners);
 test("published desktop installs its signed update and restarts", async ({}, info) => {
   test.setTimeout(180_000);
   const version = process.env.HARNESS_RELEASE_VERSION!;
-  const app = await NativeApplication.launch(info.outputPath("profile"), info.outputPath("native"));
+  const app = await NativeApplication.launch(
+    info.outputPath("profile"),
+    info.outputPath("native"),
+    process.env.HARNESS_NATIVE_HOME,
+  );
   try {
     const before = await readDiscovery(app.home);
     const offered = await app.page.evaluate(() => {

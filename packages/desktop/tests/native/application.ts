@@ -179,31 +179,9 @@ export class NativeApplication {
       return new NativeApplication(child, browser, page!, exited, errors, artifacts, appProfile);
     } catch (error) {
       try {
-        const metadata = await execute(
-          "powershell.exe",
-          [
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Get-CimInstance Win32_Process | " +
-              "Where-Object Name -in 'harness-desktop.exe', 'msedgewebview2.exe' | " +
-              "Select-Object Name, ProcessId, ParentProcessId, " +
-              "@{Name='DebugPort';Expression={[regex]::Match($_.CommandLine,'--remote-debugging-port=(\\d+)').Groups[1].Value}} | ConvertTo-Json -Compress",
-          ],
-          { timeout: 10_000, windowsHide: true },
-        );
-        // Process IDs/ports only: never publish command lines, profiles or file contents.
-        console.error("Native attachment metadata", {
-          pid: child.pid,
-          port,
-          processes: metadata.stdout,
-        });
+        await browser?.close();
       } finally {
-        try {
-          await browser?.close();
-        } finally {
-          await NativeApplication.terminate(child, exited);
-        }
+        await NativeApplication.terminate(child, exited);
       }
       throw error;
     }

@@ -428,3 +428,11 @@ use environment overrides. No product debugging switch or endpoint is added.
 Standard npm/Rust caches cover the native test's dependencies. Restart validation
 now performs an actual owner handshake and checks replacement of any prior owner,
 rather than trusting a discovery file alone. Verification remains pending.
+
+Run `38123906255` reaches the native updater and replaces the installed binary
+with v0.1.3, but its restart assertion looks in the wrong home. Tauri's NSIS
+`RunAsUser` uses `CreateProcessWithTokenW` with no inherited environment, so the
+restarted app resolves the logged-in user's normal home. This single hosted test
+now uses that disposable account's `.harness` for both launches. Product code is
+unchanged; temporary process diagnostics are removed. Source CI at `cfb634b`
+passes on Windows and Ubuntu. Hosted restart confirmation remains pending.
