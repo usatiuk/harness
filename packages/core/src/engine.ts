@@ -176,8 +176,7 @@ export class Engine {
       throw new Error("cannot prepare a conversation during deactivation");
     }
     const execution = this.#service(runtime, "execution") as
-      | { bind?: (emit: (event: PluginEvent) => void) => void | Promise<unknown> }
-      | undefined;
+      { bind?: (emit: (event: PluginEvent) => void) => void | Promise<unknown> } | undefined;
     await execution?.bind?.((event) => {
       if (
         this.#runtimes.get(conversationId) === runtime &&

@@ -145,7 +145,7 @@ export class InMemoryStore implements Store {
     const log = this.#items.get(conversationId) ?? [];
     const byId = new Map(log.map((i) => [i.id, i]));
     const chain: Item[] = [];
-    for (let id = conversation?.head ?? null; id !== null; ) {
+    for (let id = conversation?.head ?? null; id !== null;) {
       const item = byId.get(id);
       if (!item) break;
       chain.push(item);
@@ -167,7 +167,7 @@ export class InMemoryStore implements Store {
     const log = this.#items.get(conversationId) ?? [];
     const byId = new Map(log.map((item) => [item.id, item]));
     const page: Item[] = [];
-    for (let id = start; id !== null && page.length < limit; ) {
+    for (let id = start; id !== null && page.length < limit;) {
       const item = byId.get(id);
       if (!item) break;
       page.push(item);

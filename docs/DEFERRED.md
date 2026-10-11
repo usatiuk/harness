@@ -92,3 +92,11 @@ settings mutation; the lifecycle test is projectless. Reopen when refining works
 discovery or supporting custom-profile workspaces beneath the user home; project
 discovery must exclude the actual user settings directory as well as the selected
 profile. This follow-up changes approval settings, not project-root discovery.
+
+## Zod dependency refresh
+
+Keep the lockfile on Zod 4.4.3 until the MCP wire preprocessing schema works with
+newer pipe semantics. Zod 4.6.5 continues through `unrecognized_keys` issues and
+allows invalid MCP settings past client validation; the existing RPC regression
+correctly fails. Retain that assertion when revisiting the upgrade. See the
+[Node 24 refresh evidence](plans/cross-cutting/2026-10-11-node24-dependencies.md).

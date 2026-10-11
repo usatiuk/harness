@@ -67,8 +67,7 @@ import {
 } from "lucide-react";
 
 type ActionResult =
-  | { ok: true; message?: string; restartRequired?: boolean }
-  | { ok: false; message: string };
+  { ok: true; message?: string; restartRequired?: boolean } | { ok: false; message: string };
 type RootData = { settings: AppSettings };
 const basename = (path: string | null): string =>
   path === null ? "Conversation" : (path.split(/[/\\]/u).filter(Boolean).at(-1) ?? path);

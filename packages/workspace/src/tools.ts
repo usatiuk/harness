@@ -31,8 +31,7 @@ const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 /** Outcome of a unique string replacement: the new text, or why it couldn't be done. */
 export type ReplaceResult =
-  | { ok: true; text: string }
-  | { ok: false; reason: "absent" | "ambiguous"; count: number };
+  { ok: true; text: string } | { ok: false; reason: "absent" | "ambiguous"; count: number };
 
 /**
  * Replaces the single occurrence of `oldStr` with `newStr` in `current`, or reports why it

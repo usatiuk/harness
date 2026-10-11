@@ -160,8 +160,7 @@ export const commands: Command[] = [
     ],
     run: (ctx, args) => {
       const current = (ctx.config.plugins?.["auto-approval"] as
-        | { enabled?: boolean; model?: ModelConfig }
-        | undefined) ?? { enabled: false };
+        { enabled?: boolean; model?: ModelConfig } | undefined) ?? { enabled: false };
       const value = args[0];
       if (!value) {
         const reviewer = current.model

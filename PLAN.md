@@ -123,6 +123,15 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 
 ## Recent delivery
 
+The [Node 24 and dependency refresh](docs/plans/cross-cutting/2026-10-11-node24-dependencies.md)
+aligns source, CI and managed release runtimes on 24.21.0. Compatible dependency
+updates clear all 18 audit findings. Prettier 3.9.10 includes mechanical formatting;
+Zod remains at 4.4.3 after its newer preprocessing semantics regress MCP client
+validation. The final Ubuntu check passes 1,256 tests (38 skipped), ten headless
+Rust cases, the source CLI smoke check, Linux remote payload build and desktop
+frontend build. Native desktop/install/update execution on other platforms remains
+outside this local evidence.
+
 The [Mistral continuation and controls correction](docs/plans/models/2026-10-11-mistral-continuation-and-controls.md)
 removes rejected output-entry IDs from stateless input replay, preserves advertised
 reasoning efforts, and shortens model choices with dimmed exact IDs and hover

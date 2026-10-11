@@ -423,16 +423,14 @@ export class SqliteStore implements Store {
       if (row.input_tokens_are_context === 0) lastInputTokens = undefined;
     }
     const agent = this.#db
-      .prepare<
-        [string],
-        Database["model_usage"]
-      >(`SELECT * FROM model_usage WHERE conversation_id = ? AND purpose = 'agent' ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+      .prepare<[string], Database["model_usage"]>(
+        `SELECT * FROM model_usage WHERE conversation_id = ? AND purpose = 'agent' ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      )
       .get(conversationId);
     const terminal = this.#db
-      .prepare<
-        [string],
-        Database["turns"]
-      >(`SELECT * FROM turns WHERE conversation_id = ? AND status <> 'running' ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+      .prepare<[string], Database["turns"]>(
+        `SELECT * FROM turns WHERE conversation_id = ? AND status <> 'running' ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      )
       .get(conversationId);
     const turnRows = terminal
       ? this.#db

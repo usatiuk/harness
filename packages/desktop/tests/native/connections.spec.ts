@@ -91,8 +91,8 @@ test("host switcher starts with Local and connection editing survives a disconne
     await dialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(dialog.getByRole("button", { name: "Workstation", exact: true })).toBeVisible();
     await expect
-      .poll(
-        async (): Promise<unknown> => JSON.parse(await readFile(join(home, "client.json"), "utf8")),
+      .poll(async (): Promise<unknown> =>
+        JSON.parse(await readFile(join(home, "client.json"), "utf8")),
       )
       .toMatchObject({
         selectedHostId: "local",

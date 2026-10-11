@@ -20,8 +20,7 @@ export async function depthOf(
   let current: ConversationId | undefined = id;
   for (let i = 0; i < bound && current !== undefined; i++) {
     const mark = (await runner.getPluginState("subagents", current, "spawn")) as
-      | SpawnMark
-      | undefined;
+      SpawnMark | undefined;
     const parent = mark?.parent?.conversationId;
     if (!parent) break; // no mark, or a corrupt one — treat as a tree root
     depth++;

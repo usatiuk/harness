@@ -60,8 +60,7 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
     sandboxSnapshotSchema.parse({
       members: service.conversationTreeState(rootId).map(({ conversation }) => {
         const backend = conversation.config.plugins?.["sandbox"] as
-          | { backend?: SandboxBackend }
-          | undefined;
+          { backend?: SandboxBackend } | undefined;
         const execution = service.existingService(conversation.id, "execution");
         return {
           conversationId: conversation.id,

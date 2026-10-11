@@ -39,8 +39,7 @@ export const FEATURE_PLUGIN_CONTRACTS = [
 ] as const;
 
 export type ShellClientEvent =
-  | { type: "data"; text: string }
-  | { type: "exited"; exitCode: number };
+  { type: "data"; text: string } | { type: "exited"; exitCode: number };
 
 export interface ShellRun {
   readonly id: string;

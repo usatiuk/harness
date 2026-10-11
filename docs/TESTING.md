@@ -64,6 +64,20 @@ pass. Tests/timeouts remain unchanged.
 
 ## Managed runtime and release foundation
 
+The [Node 24 refresh](plans/cross-cutting/2026-10-11-node24-dependencies.md) passes
+`npm run check -- --maxWorkers=2` on Ubuntu with Node 24.21.0: 1,256 tests passed,
+38 skipped, and typecheck/lint/formatting passed. Ten headless Rust cases,
+`npm run dev -- --help`, `npm run prepare:remote`, and the desktop frontend build
+also pass. Final `npm audit` reports zero vulnerabilities. These checks do not
+qualify native desktop UI, signed release installation/updates, or live providers.
+
+The Zod 4.6.5 bump fails the MCP RPC malformed-settings assertion; both cases
+pass against the original dependency lockfile, and retaining Zod 4.4.3 restores
+the full suite. The assertion protects client-side validation before transport.
+Do not replace it with a server rejection assertion: that would hide the new
+preprocessing/pipe regression. The skipped upgrade is tracked in
+[deferred work](DEFERRED.md#zod-dependency-refresh).
+
 Source CLI, Tauri development, Vitest and `npm run check` use ordinary Node/npm.
 Use `.nvmrc` and run `npm ci` so native dependencies share the selected Node ABI.
 Stop source processes before reinstalling/rebuilding loaded native modules on Windows.

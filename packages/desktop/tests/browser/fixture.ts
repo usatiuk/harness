@@ -52,14 +52,11 @@ let cells: Cell[] = [
 if (window.location.search === "?children")
   cells = [
     user(-100),
-    ...Array.from(
-      { length: 24 },
-      (_, index): Cell => ({
-        ...child,
-        callId: `child-${index}`,
-        name: `Child ${index}`,
-      }),
-    ),
+    ...Array.from({ length: 24 }, (_, index): Cell => ({
+      ...child,
+      callId: `child-${index}`,
+      name: `Child ${index}`,
+    })),
     ...Array.from({ length: 80 }, (_, index) => user(index)),
   ];
 if (window.location.search === "?empty") cells = [];

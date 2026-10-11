@@ -15,8 +15,7 @@ const dockerOk = dockerInfo.status === 0 && dockerInfo.stdout?.trim() === "linux
 // container started in `beforeAll`, with a temp dir bind-mounted as the workspace.
 const state = vi.hoisted(() => ({
   handle: undefined as
-    | undefined
-    | { containerId: string; remoteUser: string; remoteWorkspaceFolder: string },
+    undefined | { containerId: string; remoteUser: string; remoteWorkspaceFolder: string },
 }));
 vi.mock("./devcontainer.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./devcontainer.ts")>()),

@@ -33,8 +33,7 @@ export const approvalDecideRequest = defineRequest({
 });
 export type ClientApproval = z.infer<typeof clientApprovalSchema>;
 export type ApprovalClientEvent =
-  | { type: "created"; approval: ClientApproval }
-  | { type: "resolved"; requestId: string };
+  { type: "created"; approval: ClientApproval } | { type: "resolved"; requestId: string };
 
 /** A view of server-owned pending approvals, independent of the visible screen. */
 export class ApprovalClient {

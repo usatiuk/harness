@@ -57,8 +57,7 @@ const THINKING_PAYLOAD_VERSION = 1;
  * provider/model gate below is exactly Anthropic's "a different model drops thinking" rule.
  */
 export type ThinkingPayload =
-  | { kind: "thinking"; thinking: string; signature: string }
-  | { kind: "redacted"; data: string };
+  { kind: "thinking"; thinking: string; signature: string } | { kind: "redacted"; data: string };
 
 /** Tags a finalized thinking payload with the live provider/model so replay can be gated. */
 export function encodeThinkingPayload(
