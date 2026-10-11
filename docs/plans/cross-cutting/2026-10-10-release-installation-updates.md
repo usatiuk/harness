@@ -383,3 +383,10 @@ The next diagnostic distinguishes inherited ACL/skeleton state from mkdir behavi
 before changing either production permissions or the test fixture. The user
 explicitly defers exposing desktop updates after backend startup failure;
 that separate recovery gap is recorded in `docs/DEFERRED.md`.
+
+Run `38122547379` establishes the SSH fixture cause: the fresh account inherits
+an ACL granting the GitHub `runner` user write access. A separate mkdir under
+umask 077 also creates mode 775; the account skeleton has no `.harness` directory.
+The fixture now removes the access/default ACL from that account's home before
+deployment. Production permission enforcement is unchanged and temporary
+diagnostics are removed. Hosted confirmation is pending.

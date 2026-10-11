@@ -79,6 +79,8 @@ jobs:
         run: |
           sudo apt-get install -y openssh-server
           sudo useradd --create-home --shell /bin/bash --password '*' harness-release-test
+          # GitHub's inherited home ACL grants runner write access, overriding umask.
+          sudo setfacl --remove-all --remove-default /home/harness-release-test
           ssh-keygen -q -t ed25519 -N '' -f "$RUNNER_TEMP/ssh-identity"
           sudo install -d -m 700 -o harness-release-test -g harness-release-test /home/harness-release-test/.ssh
           sudo install -m 600 -o harness-release-test -g harness-release-test "$RUNNER_TEMP/ssh-identity.pub" /home/harness-release-test/.ssh/authorized_keys
@@ -97,8 +99,3 @@ jobs:
           echo 'HARNESS_RELEASE_SSH=harness-release-test' >> "$GITHUB_ENV"
       - name: Check cold startup, signed updates and preserved data
         run: node "$GITHUB_WORKSPACE/scripts/check-published-release.mjs" "$RUNNER_TEMP/harness${{ matrix.suffix }}" "$DESKTOP" "$PREVIOUS" "$VERSION"
-      - name: Inspect SSH directory permissions after failure
-        if: failure() && runner.os == 'Linux'
-        run: |
-          ssh harness-release-test 'id; stat -c "%a %U %n" "$HOME" "$HOME/.harness" /home /; getfacl "$HOME" "$HOME/.harness"; umask 077; mkdir "$HOME/permission-probe"; stat -c "%a %U %n" "$HOME/permission-probe"; rmdir "$HOME/permission-probe"'
-          sudo ls -la /etc/skel
