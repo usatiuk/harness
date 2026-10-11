@@ -26,7 +26,8 @@ env:
   MACOSX_DEPLOYMENT_TARGET: "11.0"
 
 jobs:
-  cut:
+  prepare:
+    name: Check and bump version
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     permissions:
@@ -42,10 +43,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-      - name: Install dependencies and check the source
+          cache: npm
+      - name: Set up Rust
         run: |
           rustup toolchain install 1.90.0 --profile minimal
           rustup default 1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Install dependencies and check the source
+        run: |
           npm ci
           npm run check
       - name: Bump and capture the source version
@@ -69,7 +76,7 @@ jobs:
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: cut
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -79,25 +86,31 @@ jobs:
           - { runner: macos-15, target: macos-arm64 }
           - { runner: macos-15-intel, target: macos-x64 }
     runs-on: ${{ matrix.runner }}
-    environment: harness-release
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ needs.cut.outputs.commit }}
+          ref: ${{ needs.prepare.outputs.commit }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+          cache: npm
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libfuse2
-      - name: Install dependencies
+      - name: Set up Rust
         run: |
           rustup toolchain install 1.90.0 --profile minimal
           rustup default 1.90.0
-          npm ci
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            native
+            packages/desktop/src-tauri
+      - name: Install dependencies
+        run: npm ci
       - name: Build native payloads and signed desktop updates
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -117,19 +130,27 @@ jobs:
           if-no-files-found: error
 
   draft:
-    needs: [cut, build]
+    name: Create release draft
+    needs: [prepare, build]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
-    environment: harness-release
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ needs.cut.outputs.commit }}
+          ref: ${{ needs.prepare.outputs.commit }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+          cache: npm
+      - name: Set up Rust
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           merge-multiple: true
@@ -139,10 +160,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          VERSION: ${{ needs.cut.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          rustup toolchain install 1.90.0 --profile minimal
-          rustup default 1.90.0
           npm ci
           mkdir release/staging/assets
           for archive in release/staging/*.tar.gz; do tar -xzf "$archive" -C release/staging/assets; done
@@ -150,4 +169,4 @@ jobs:
           npm exec -- tauri signer sign --app-version "$VERSION" release/staging/assets/release.json
           mv release/staging/assets/release.json.sig release/staging/assets/release.json.minisig
           node --conditions=development --import=tsx scripts/release-metadata.ts release/staging/assets --verify
-          gh release create "v$VERSION" release/staging/assets/* --repo "$GITHUB_REPOSITORY" --draft --title "Harness $VERSION" --notes "Native builds from ${{ needs.cut.outputs.commit }}. Publisher signing is not configured."
+          gh release create "v$VERSION" release/staging/assets/* --repo "$GITHUB_REPOSITORY" --draft --title "Harness $VERSION" --notes "Native builds from ${{ needs.prepare.outputs.commit }}. Publisher signing is not configured."

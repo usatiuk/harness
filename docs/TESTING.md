@@ -238,7 +238,7 @@ the app's old same-named feature is not used to select runtime behavior.
 pre-window runtime preparation mode before upload, catching accidental use of
 source checkout paths. Cold signed downloads/server startup remain separate checks.
 
-The manual `Qualify published release` workflow executes downloads, installers and
+The manual `Test published release` workflow executes downloads, installers and
 CLI updates only on GitHub-hosted Windows, Ubuntu and both macOS architectures.
 It runs outside the checkout, checks two published CLI versions, preserved SQLite
 conversations, no server downgrade, shared Node and the installed desktop's

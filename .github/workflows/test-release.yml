@@ -1,4 +1,4 @@
-name: Qualify published release
+name: Test published release
 
 on:
   workflow_dispatch:
@@ -30,23 +30,23 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
       PREVIOUS: ${{ inputs.previous }}
-      HARNESS_HOME: ${{ runner.temp }}/harness-release-check
     defaults:
       run:
         shell: bash
-        working-directory: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+      - name: Set isolated test home
+        run: echo "HARNESS_HOME=$RUNNER_TEMP/harness-release-check" >> "$GITHUB_ENV"
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libxdo3 libfuse2
       - name: Download the previous CLI
         run: |
-          curl -fL "https://github.com/usatiuk/harness/releases/download/v$PREVIOUS/harness-${{ matrix.target }}${{ matrix.suffix }}" -o "harness${{ matrix.suffix }}"
-          chmod +x "harness${{ matrix.suffix }}"
+          curl -fL "https://github.com/usatiuk/harness/releases/download/v$PREVIOUS/harness-${{ matrix.target }}${{ matrix.suffix }}" -o "$RUNNER_TEMP/harness${{ matrix.suffix }}"
+          chmod +x "$RUNNER_TEMP/harness${{ matrix.suffix }}"
       - name: Install Windows desktop on this hosted runner
         if: runner.os == 'Windows'
         shell: pwsh
@@ -60,6 +60,7 @@ jobs:
       - name: Install Unix desktop on this hosted runner
         if: runner.os != 'Windows'
         run: |
+          cd "$RUNNER_TEMP"
           base="https://github.com/usatiuk/harness/releases/download/v$VERSION/harness-v$VERSION"
           if [[ "$RUNNER_OS" == Linux ]]; then
             curl -fL "$base-linux-x64-glibc-desktop.AppImage" -o desktop.AppImage

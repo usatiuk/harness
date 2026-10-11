@@ -331,3 +331,19 @@ entry and an older CLI to check reuse of the same live owner, in addition to
 isolated stdio persistence. A larger uncommitted updater-test extension was
 removed after the user's simplicity feedback. Updater installation/restart and
 released remote deployment remain required, unqualified work.
+
+The three `qualify-release.yml` push failures (`38119868957`, `38120457694`,
+`38120597796`) execute no jobs: GitHub rejects `runner.temp` in job-level `env`
+and `defaults.run`. The renamed manual `Test published release` workflow sets
+its isolated home in a step and the test driver starts children outside the
+checkout. Actionlint 1.7.12 reproduces both original errors and accepts the
+corrected workflows; focused ESLint, Prettier and diff checks also pass.
+
+Release job names now describe their actions: `Check and bump version` and
+`Create release draft`. The signing key is copied to repository Actions secrets
+without displaying its contents. Future builds no longer use a GitHub Environment
+or create deployment records for packaging. The old environment remains available
+until the already-running release finishes. Standard setup-node npm caching and
+Swatinem Rust caching cover release jobs, with Rust caching also added to source
+CI. Cache effectiveness remains unmeasured. The current patched release has passed
+Windows, Linux and macOS arm64 builds; macOS x64 is still running.

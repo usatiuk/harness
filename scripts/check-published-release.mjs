@@ -10,9 +10,14 @@ import { setTimeout, clearTimeout } from "node:timers";
 
 const [cli, desktop, previous, version] = process.argv.slice(2);
 const run = (file, args) =>
-  execFileSync(file, args, { encoding: "utf8", windowsHide: true, timeout: 180_000 });
+  execFileSync(file, args, {
+    cwd: dirname(cli),
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 180_000,
+  });
 async function session(file, args, inspect, { closeInput = true, env = process.env } = {}) {
-  const child = spawn(file, args, { windowsHide: true, env });
+  const child = spawn(file, args, { cwd: dirname(cli), windowsHide: true, env });
   const deadline = setTimeout(() => child.kill(), 180_000);
   const closed = once(child, "close");
   let diagnostics = "";

@@ -18,6 +18,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
       - run: npm ci
       - run: npm run check
       - run: node packages/desktop/tools/native.mjs cargo test --manifest-path native/Cargo.toml --locked
