@@ -493,7 +493,7 @@ checks without an external command or environment sanitization.
 - [x] Replace account lookup and verify owned/writable-home behavior with an empty
       PATH, symlinked temporary directory and the old AppImage library environment.
 - [x] Complete repository checks and independent review.
-- [ ] Commit, push and build a patch release; qualify its headless packaged runtime
+- [x] Commit, push and build a patch release; qualify its headless packaged runtime
       preparation in an isolated home, then record publication evidence.
 
 The original regression failed because `id` was unavailable; the corrected test
@@ -504,3 +504,15 @@ full check timed out in one Docker glob test during first-time Rust compilation;
 that unchanged test passes independently. The final full check passes all 1,297
 tests (38 skipped), TypeScript, ESLint and formatting. The complete native Rust
 suite passes, and three independent reviews have no remaining source findings.
+
+Fix commit `8502ceb` is pushed. Release run
+[`38174338715`](https://github.com/usatiuk/harness/actions/runs/38174338715)
+passes the source gate, all three platform builds and signed draft verification.
+[`v0.1.7`](https://github.com/usatiuk/harness/releases/tag/v0.1.7) is published.
+The tested Linux AppImage matches the release asset digest
+`adabf076f301a2aded4590b5865d461e3f4947b334aebdd0ff6c24a7d9061cee`.
+Before publication, its headless helper passes account validation and reaches a
+deliberately missing test payload, where v0.1.6 instead fails account lookup.
+After publication, cold preparation using public release downloads exits zero
+and returns existing Node/server paths. Both checks use disposable homes and
+the AppImage's bundled libraries; no GUI or developer profile was opened.

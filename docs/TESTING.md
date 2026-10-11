@@ -199,7 +199,12 @@ bootstrap/launcher tests use `cargo test --manifest-path native/Cargo.toml`.
 The Unix home regression runs in a child with an empty PATH, accepts an owned
 home and still rejects writable permissions. It also passes with a symlinked
 temporary directory and the v0.1.6 AppImage's bundled library path. These checks
-cover account lookup independently of host utilities; packaged startup is separate.
+cover account lookup independently of host utilities. The rebuilt v0.1.7 AppImage's
+headless helper passes account validation before publication; its SHA-256 matches
+the released asset. After publication, cold `--prepare-runtime` succeeds under
+the bundled library environment in an isolated home and returns existing Node,
+server entry and payload paths. No GUI, server attachment or profile migration
+is claimed by that check.
 Desktop helper tests use `cargo test --manifest-path
 packages/desktop/src-tauri/Cargo.toml`; those command modes run before window setup.
 These are headless checks. Visible native E2E requires approval for each run.
