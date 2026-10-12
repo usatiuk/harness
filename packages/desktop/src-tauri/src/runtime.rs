@@ -163,8 +163,94 @@ impl ServerRuntime {
         command
             .env("HARNESS_HOME", home)
             .env_remove("HARNESS_SERVER_SELECTION");
+        #[cfg(all(target_os = "linux", not(dev)))]
+        if std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some() {
+            // The external agent runtime must not inherit the GUI launcher's
+            // bundled libraries or its nonexistent Python installation.
+            command
+                .env_remove("LD_LIBRARY_PATH")
+                .env_remove("PYTHONHOME");
+        }
         #[cfg(windows)]
         command.creation_flags(0x08000000);
         command
+    }
+}
+
+#[cfg(all(test, target_os = "linux", not(dev)))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bridge_environment_fixture() {
+        let Some(_) = std::env::var_os("HARNESS_BRIDGE_ENV_FIXTURE") else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("fixture directory");
+        let runtime = ServerRuntime {
+            cache: Cache::new(&directory.path().join("home")).expect("fixture home"),
+            paths: PreparedPaths {
+                node: std::env::var_os("HARNESS_DEVELOPMENT_NODE")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| "node".into()),
+                entry: "-e".into(),
+                payload: directory.path().into(),
+            },
+        };
+        let output = runtime.command().arg(r#"
+            const assert = require('node:assert/strict');
+            const {execFileSync} = require('node:child_process');
+            if (process.env.HARNESS_BRIDGE_ENV_FIXTURE === 'host') {
+                assert.equal(process.env.LD_LIBRARY_PATH, 'harness-test-libraries');
+                assert.equal(process.env.PYTHONHOME, 'harness-test-python');
+            } else {
+                assert.equal(process.env.LD_LIBRARY_PATH, undefined);
+                assert.equal(process.env.PYTHONHOME, undefined);
+                execFileSync('bash', ['--noprofile', '--norc', '-c',
+                    'id -u; ls -d /tmp; echo hello | cat | tr a-z A-Z | head -n 1; python3 -c "print(123)"'],
+                    {stdio: 'pipe'});
+            }
+        "#).output().await.expect("spawn bridge");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            std::env::var("LD_LIBRARY_PATH").unwrap(),
+            "harness-test-libraries"
+        );
+        assert_eq!(std::env::var("PYTHONHOME").unwrap(), "harness-test-python");
+    }
+
+    #[test]
+    fn appimage_bridge_clears_only_the_child_environment() {
+        for marker in [Some("APPIMAGE"), Some("APPDIR"), None] {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "runtime::tests::bridge_environment_fixture",
+                    "--nocapture",
+                ])
+                .env(
+                    "HARNESS_BRIDGE_ENV_FIXTURE",
+                    if marker.is_some() { "appimage" } else { "host" },
+                )
+                .env("LD_LIBRARY_PATH", "harness-test-libraries")
+                .env("PYTHONHOME", "harness-test-python")
+                .env_remove("APPIMAGE")
+                .env_remove("APPDIR");
+            if let Some(marker) = marker {
+                command.env(marker, "/tmp/harness-test-appimage");
+            }
+            let output = command.output().expect("fixture process");
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 }

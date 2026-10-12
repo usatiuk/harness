@@ -516,3 +516,28 @@ deliberately missing test payload, where v0.1.6 instead fails account lookup.
 After publication, cold preparation using public release downloads exits zero
 and returns existing Node/server paths. Both checks use disposable homes and
 the AppImage's bundled libraries; no GUI or developer profile was opened.
+
+## AppImage external runtime environment correction (2026-10-12)
+
+The downloaded v0.1.9 AppImage still passed its legacy launcher's library and
+Python overrides into the external Node bridge, server and tool commands.
+The previous geteuid correction fixed bootstrap account lookup only. Host id/ls
+fail with LIBSYSTEMD_254 under the bundled library path; host Python fails to
+find encodings under the launcher's unconditional PYTHONHOME.
+
+Linux installed desktop commands with APPIMAGE or APPDIR now remove
+LD_LIBRARY_PATH and PYTHONHOME only on the external Node child. The GUI and
+native preparation helper retain their environment. Source development and
+non-AppImage launches remain unchanged. This intentionally removes any original
+user-supplied values too; exact pre-launch restoration remains outside this
+narrow correction. No path filtering, launcher replacement or packaging change.
+Regression subprocesses cover mounted/extracted markers, unchanged non-AppImage
+values, intact parent variables and actual Node-to-bash host tools/Python, using
+isolated temporary homes. Commit locally; no push or release is authorized.
+
+Focused environment fixtures pass, and the desktop Rust lib/bin suites pass all
+eight cases. The broader existing preparation integration suite exposes two
+failures constructing/dropping a blocking HTTP runtime inside an async context;
+those paths are unchanged by child environment cleanup. Their full qualification
+remains open; no unrelated runtime-lifetime patch is included here. GUI startup
+and a rebuilt AppImage are not claimed verified by the subprocess tests.
