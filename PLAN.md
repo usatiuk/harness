@@ -73,7 +73,8 @@ custom dropdowns, Projects-first navigation, 13px configurable text, session-onl
 unread indicators, credential-fixture isolation and Linux WebKit refresh policy.
 The full check passes (1,327 tests, 38 skips), 47 browser regressions pass and nine
 native lib/bin tests pass. The owning sidebar delivery plan records publication
-status; actual display cadence remains unmeasured.
+evidence. The follow-up is published in `v0.1.11`; all three platform builds and
+signature verification pass. Actual display cadence remains unmeasured.
 
 The [compact sidebar plan](docs/plans/interface/2026-10-12-adjustable-sidebar.md)
 adds resizable/hidden navigation, Recents and folder-derived Projects with bounded

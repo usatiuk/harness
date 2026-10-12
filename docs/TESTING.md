@@ -1164,3 +1164,7 @@ browser evaluation so intermediate virtualizer measurements cannot stale the
 observation; the original 1.5px tolerance is unchanged. Screenshot capture waits
 for rendered Markdown to enter the viewport. Windows native browser scenarios were
 updated for custom menus but were not run on this Linux host.
+
+The published v0.1.11 Linux AppImage also passes isolated cold headless runtime
+preparation through extracted AppRun (exit 0, all prepared paths in the temporary
+home). This does not exercise GUI rendering or in-place updater install/restart.

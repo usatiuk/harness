@@ -88,7 +88,7 @@ is corrected below.
 
 ## Quiet labels follow-up
 
-Status: Implemented and validated; publication pending. The accepted Quiet labels preview includes: muted ghost
+Status: Complete; published in v0.1.11. The accepted Quiet labels preview includes: muted ghost
 Show more controls, uppercase section labels, small right-side Lucide chevrons,
 flat project-chat alignment and unclipped selection rounding. Remove the folder
 subtitle and shorten the conversation header. Use a muted one-pixel Markdown
@@ -145,3 +145,20 @@ could observe virtualizer corrections between baseline capture and prepend; no
 product restoration defect was reproduced. Screenshot capture waits for its
 Markdown divider to enter the viewport instead of capturing initial measurement.
 The credential-isolation correction is committed separately as `2f57f55`.
+
+### Follow-up publication
+
+The user authorized committing, pushing and releasing all changes. Credential
+isolation is `2f57f55`; desktop refinements are `652cc34`; the workflow captures
+version bump `61bc28d`. Release run
+[38309578256](https://github.com/usatiuk/harness/actions/runs/38309578256) passes its
+clean-install source gate, Windows x64/Linux x64 glibc/Apple Silicon builds, and
+artifact signature verification. [v0.1.11](https://github.com/usatiuk/harness/releases/tag/v0.1.11)
+is published with signed desktop updates, including the AppImage. Linux updater
+install/restart and actual rendering cadence remain unqualified; headless startup
+does not establish either behavior.
+
+The exact published Linux AppImage passes cold headless preparation through its
+extracted AppRun launcher, with exit 0 and Node/server payload paths entirely
+inside a new temporary home. No developer desktop profile or credentials are
+used. This qualifies packaging/startup, not interactive GUI or updater execution.
