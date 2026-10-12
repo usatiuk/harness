@@ -70,7 +70,10 @@ packages.
 
 The Quiet labels follow-up is implemented and validated: compact shared controls and
 custom dropdowns, Projects-first navigation, 13px configurable text, session-only
-unread indicators, credential-fixture isolation and Linux WebKit refresh policy.
+unread indicators and credential-fixture isolation. The experimental Linux WebKit
+refresh override was subsequently removed; the
+[frame-pacing investigation](docs/research/2026-10-12-linux-frame-pacing.md) records
+why it is not a demonstrated scrolling fix.
 The full check passes (1,327 tests, 38 skips), 47 browser regressions pass and nine
 native lib/bin tests pass. The owning sidebar delivery plan records publication
 evidence. The follow-up is published in `v0.1.11`; all three platform builds and

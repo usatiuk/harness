@@ -564,19 +564,21 @@ Direct + code (`hybrid`) is the shared server composition default for new
 conversations; explicitly configured choices override it.
 
 Conversation headers sit above the scroll viewport and show a compact single title without a workspace subtitle;
-full folder paths remain available on project and conversation hover. Markdown
+full folder paths remain available on project and conversation hover. The compact
+composer uses a short fade above its status line, keeping the lower dock covered
+by the canvas background. Markdown
 separators use the neutral line token and tight margins. Heading sizes scale with
 conversation text; compact tool/reasoning text keeps its existing sizing. The
 virtualizer uses fractional bounding-rectangle heights rather than default rounded
 measurements, preserving bottom-follow across supported text sizes.
 
-Linux startup disables WebKit's `PreferPageRenderingUpdatesNear60FPS` through its
-public feature API. The narrow FFI supplements the pinned bindings' missing 2.42
-API, owns/unrefs the feature list and verifies the resulting setting. Build-time
-pkg-config requires WebKitGTK 2.42 or newer; absence of the feature is a startup
-error. The setting allows WebKit to choose the display cadence; it does not prove
-smooth scrolling or eliminate other dropped frames. Native Settings tests qualify
-the flag state, while interactive frame timing remains unmeasured.
+Linux uses WebKit's default rendering policy. The experimental
+`PreferPageRenderingUpdatesNear60FPS` override was removed after isolated samples
+already exceeded 60 callbacks/sec with the preference enabled and reproduced the
+reported sluggish scrolling without establishing a benefit from the override.
+The [frame-pacing investigation](../../research/2026-10-12-linux-frame-pacing.md)
+records measurements and limitations. No direct WebKit FFI or extra runtime
+version requirement remains for this experiment.
 
 Appearance is applied at the document root before render, including portals.
 The old `theme` preference is retained when no new appearance preference exists.

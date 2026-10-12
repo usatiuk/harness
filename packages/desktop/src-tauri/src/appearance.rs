@@ -11,9 +11,6 @@ pub fn install(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .get_webview_window("main")
         .expect("Desktop main window is missing");
 
-    #[cfg(target_os = "linux")]
-    harness_desktop::rendering::install(&window)?;
-
     #[cfg(windows)]
     let result = window_vibrancy::apply_mica(&window, None);
     #[cfg(target_os = "macos")]

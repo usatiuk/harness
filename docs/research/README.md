@@ -16,6 +16,10 @@ Use a dated descriptive filename such as
 
 Current exploration:
 
+- [Linux WebKit frame pacing](2026-10-12-linux-frame-pacing.md): isolated native
+  samples, a reproduction of sluggish scrolling, built-in Sysprof tracing and
+  withdrawal of the unproven near-60-FPS preference override.
+
 - [Auto-approval context and denials](2026-10-11-auto-approval-context.md):
   current request projection, missing instruction evidence, public reviewer
   comparisons, and diagnostics needed to classify reported excessive denials.

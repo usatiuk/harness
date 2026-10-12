@@ -162,3 +162,23 @@ The exact published Linux AppImage passes cold headless preparation through its
 extracted AppRun launcher, with exit 0 and Node/server payload paths entirely
 inside a new temporary home. No developer desktop profile or credentials are
 used. This qualifies packaging/startup, not interactive GUI or updater execution.
+
+### WebKit experiment cleanup
+
+After publication, the user reported no benefit and authorized isolated native
+frame samples and tracing. The
+[frame-pacing investigation](../../research/2026-10-12-linux-frame-pacing.md) records
+callbacks above 60 FPS with the preference enabled and sluggish scrolling in the
+isolated conversation renderer. The user requested removal, commit and push.
+The helper/FFI, test, direct dependencies and added 2.42 requirement are removed;
+Linux returns to WebKit defaults. Historical v0.1.11 evidence above remains valid
+for that published version. The follow-up also shortens the status/composer fade
+to match the compact composer: 8px above the dock and solid by 28px through the
+gradient, preserving its existing contrast and background coverage.
+
+Cleanup validation: six native lib/bin tests pass with the locked offline
+dependency graph. The full check passes (1,327 tests, 38 existing skips), and three
+focused browser cases pass for reading/fade stability, support/composer growth and
+compact conversation styling. The updated screenshot was inspected. The final
+8px/28px revision passes the same three focused browser cases. The user resumed
+commit/push/release after the preview; publication is pending.

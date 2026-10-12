@@ -1147,14 +1147,11 @@ including same-item growth while following. Real RPC session tests qualify unrea
 assistant output outside the selected chat and clearing on selection; a browser
 case qualifies spinner/unread rendering and opening behavior.
 
-Linux's native Settings C-API test confirms the near-60-FPS preference is disabled
-without constructing a WebView or using a developer profile. The pinned Rust
-Settings constructor has a blanket GTK-initialization assertion; this isolated
-GObject fixture calls the native constructor directly and keeps normal ownership.
-The test does not measure display cadence, qualify a rebuilt AppImage's GUI or
-establish an improvement to interactive scrolling. WebKitGTK 2.42 is required by
-the build-time pkg-config check. Existing preparation integration-test failures
-remain separate from these lib/bin tests.
+The experimental native near-60-FPS override and its Settings C-API test were
+removed after the [isolated frame-pacing investigation](research/2026-10-12-linux-frame-pacing.md).
+Linux uses WebKit defaults. Callback timing and local Sysprof marks do not qualify
+actual display presentation or a scrolling fix. Existing preparation
+integration-test failures remain separate from the native lib/bin tests.
 
 Final Quiet labels validation: the full check passes with 1,327 tests and 38 existing
 skips; all 47 browser regressions and nine native lib/bin tests pass. Shared Radix

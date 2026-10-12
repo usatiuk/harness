@@ -498,12 +498,12 @@ main {
 .conversation-dock::before {
   content: "";
   position: absolute;
-  inset: -16px 0 0;
+  inset: -8px 0 0;
   background: linear-gradient(
     to bottom,
     transparent,
-    color-mix(in srgb, var(--surface-canvas) 85%, transparent) 24px,
-    var(--surface-canvas) 48px
+    color-mix(in srgb, var(--surface-canvas) 85%, transparent) 16px,
+    var(--surface-canvas) 28px
   );
   pointer-events: none;
 }
