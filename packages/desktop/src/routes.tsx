@@ -52,6 +52,7 @@ import {
   Button,
   Input,
   Select,
+  SelectItem,
   Textarea,
   IconButton,
   PopoverControl,
@@ -66,6 +67,7 @@ import { ConversationCanvas } from "./components/conversation-canvas.tsx";
 import { AppearanceControls, ComposerSettings } from "./components/appearance-controls.tsx";
 import {
   FolderOpen,
+  LoaderCircle,
   Send,
   Square,
   ChevronDown,
@@ -432,12 +434,24 @@ export function createDesktopRouter(
           title={conversation.workspaceRoot ?? undefined}
         >
           <span className="conversation-title">{conversationLabel(conversation, view)}</span>
-          {status && (
-            <span
-              className={`conversation-status-mark ${view?.approvals.size ? "approval-status" : view?.state.turn.status === "failed" ? "failed-status" : ""}`}
-              aria-label={status}
-              title={status}
+          {status === "Running" ? (
+            <LoaderCircle
+              size={12}
+              className="conversation-running loading-icon"
+              role="img"
+              aria-label="Running"
             />
+          ) : (
+            status && (
+              <span
+                className={`conversation-status-mark ${view?.approvals.size ? "approval-status" : view?.state.turn.status === "failed" ? "failed-status" : ""}`}
+                aria-label={status}
+                title={status}
+              />
+            )
+          )}
+          {session.unread.has(conversation.id) && (
+            <span className="conversation-status-mark" aria-label="Unread" title="Unread" />
           )}
         </NavLink>
       );
@@ -489,12 +503,12 @@ export function createDesktopRouter(
   function SandboxOptions({ selected }: { selected?: string }) {
     return (
       <>
-        <option value="local">Local</option>
-        {session.settings?.platform === "linux" && <option value="native">Native</option>}
+        <SelectItem value="local">Local</SelectItem>
+        {session.settings?.platform === "linux" && <SelectItem value="native">Native</SelectItem>}
         {session.settings?.platform !== "linux" && selected === "native" && (
-          <option value="native">Native (Linux only)</option>
+          <SelectItem value="native">Native (Linux only)</SelectItem>
         )}
-        <option value="docker">Docker / devcontainer</option>
+        <SelectItem value="docker">Docker / devcontainer</SelectItem>
       </>
     );
   }
@@ -595,16 +609,16 @@ export function createDesktopRouter(
                     <Select
                       aria-label="New conversation preset"
                       value={preset}
-                      onChange={(event) => setPreset(event.target.value)}
+                      onValueChange={(next) => setPreset(next)}
                     >
-                      <option value="">Default</option>
+                      <SelectItem value="">Default</SelectItem>
                       {preset && !presets.some((entry) => entry.value === preset) && (
-                        <option value={preset}>{preset} — unavailable</option>
+                        <SelectItem value={preset}>{preset} — unavailable</SelectItem>
                       )}
                       {presets.map((entry) => (
-                        <option key={entry.value} value={entry.value}>
+                        <SelectItem key={entry.value} value={entry.value}>
                           {entry.label ?? entry.value}
-                        </option>
+                        </SelectItem>
                       ))}
                     </Select>
                   </label>
@@ -623,16 +637,16 @@ export function createDesktopRouter(
                 <div className="form-grid">
                   <label>
                     Sandbox
-                    <Select value={backend} onChange={(event) => setBackend(event.target.value)}>
+                    <Select value={backend} onValueChange={(next) => setBackend(next)}>
                       <SandboxOptions selected={backend} />
                     </Select>
                   </label>
                   <label>
                     Tool interface
-                    <Select value={toolMode} onChange={(event) => setToolMode(event.target.value)}>
-                      <option value="direct">Direct</option>
-                      <option value="hybrid">Direct and code</option>
-                      <option value="code-only">Code only</option>
+                    <Select value={toolMode} onValueChange={(next) => setToolMode(next)}>
+                      <SelectItem value="direct">Direct</SelectItem>
+                      <SelectItem value="hybrid">Direct and code</SelectItem>
+                      <SelectItem value="code-only">Code only</SelectItem>
                     </Select>
                   </label>
                 </div>
@@ -715,7 +729,6 @@ export function createDesktopRouter(
               </Button>
             }
           >
-            <h3>Model and preset</h3>
             <model.Form method="post" action="/actions" className="picker-form">
               <Input type="hidden" name="intent" value="model" />
               <Input type="hidden" name="conversationId" value={id} />
@@ -748,19 +761,24 @@ export function createDesktopRouter(
                     name="preset"
                     value={selected.preset ?? ""}
                     disabled={disabled || preset.state !== "idle"}
-                    onChange={(event) => {
-                      void preset.submit(event.currentTarget.form);
+                    onValueChange={(next) => {
+                      void preset.submit(
+                        { intent: "preset", conversationId: id, preset: next },
+                        { method: "post", action: "/actions" },
+                      );
                     }}
                   >
-                    <option value="">Default</option>
+                    <SelectItem value="">Default</SelectItem>
                     {selected.preset &&
                       !presets.some((entry) => entry.value === selected.preset) && (
-                        <option value={selected.preset}>{selected.preset} — unavailable</option>
+                        <SelectItem value={selected.preset}>
+                          {selected.preset} — unavailable
+                        </SelectItem>
                       )}
                     {presets.map((entry) => (
-                      <option key={entry.value} value={entry.value}>
+                      <SelectItem key={entry.value} value={entry.value}>
                         {entry.label ?? entry.value}
-                      </option>
+                      </SelectItem>
                     ))}
                   </Select>
                 </label>
@@ -790,7 +808,6 @@ export function createDesktopRouter(
               </Button>
             }
           >
-            <h3>Execution sandbox</h3>
             <sandbox.Form method="post" action="/actions" className="picker-form">
               <Input type="hidden" name="intent" value="sandbox" />
               <Input type="hidden" name="conversationId" value={id} />
@@ -801,8 +818,11 @@ export function createDesktopRouter(
                   name="sandbox"
                   value={backend}
                   disabled={running || disabled || sandbox.state !== "idle"}
-                  onChange={(event) => {
-                    const data = new FormData(event.currentTarget.form!);
+                  onValueChange={(next) => {
+                    const data = new FormData();
+                    data.set("intent", "sandbox");
+                    data.set("conversationId", id);
+                    data.set("sandbox", next);
                     if (session.plugins.runningActivities(id) > 0) setPendingSandbox(data);
                     else void sandbox.submit(data, { method: "post", action: "/actions" });
                   }}
@@ -1416,9 +1436,8 @@ export function createDesktopRouter(
           <ActionFeedback data={stop.data} />
         </div>
         <small className="composer-hint">
-          {preferences.sendWith} {running ? "steer" : "send"} ·{" "}
-          {preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} newline
-          {running ? " · Ctrl/⌘+Enter queue · Ctrl/⌘+. stop" : ""}
+          {preferences.sendWith} send · {preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"}{" "}
+          newline
         </small>
       </div>
     );
@@ -1497,6 +1516,10 @@ export function createDesktopRouter(
   function ConversationPage() {
     useLive();
     const view = useLoaderData<ConversationView>();
+    useEffect(() => {
+      session.setActiveConversation(view.conversation.id);
+      return () => session.setActiveConversation(null);
+    }, [view.conversation.id]);
     return (
       <ConversationCanvas
         key={view.conversation.id}
@@ -1506,9 +1529,6 @@ export function createDesktopRouter(
           <header className="conversation-header">
             <div className="conversation-heading">
               <h1>{conversationLabel(view.conversation, view)}</h1>
-              <div className="workspace-path" title={view.conversation.workspaceRoot ?? undefined}>
-                {view.conversation.workspaceRoot}
-              </div>
             </div>
           </header>
         }
@@ -1617,8 +1637,8 @@ export function createDesktopRouter(
                     aria-label={`${provider.label} ${setting.title}`}
                     defaultValue={String(setting.value)}
                   >
-                    <option value="true">On</option>
-                    <option value="false">Off</option>
+                    <SelectItem value="true">On</SelectItem>
+                    <SelectItem value="false">Off</SelectItem>
                   </Select>
                 </label>
                 {setting.description && <p className="muted">{setting.description}</p>}
@@ -1647,8 +1667,8 @@ export function createDesktopRouter(
               <label>
                 Sign-in method
                 <Select name="flow" defaultValue="browser">
-                  <option value="browser">Browser sign-in</option>
-                  <option value="device">Device code</option>
+                  <SelectItem value="browser">Browser sign-in</SelectItem>
+                  <SelectItem value="device">Device code</SelectItem>
                 </Select>
               </label>
             ) : (
@@ -1800,10 +1820,10 @@ export function createDesktopRouter(
               <label>
                 Tools inside the workspace
                 <Select name="inWorkspace" defaultValue={settings.settings.approval.inWorkspace}>
-                  <option value="allow">Allow</option>
-                  <option value="ask">Ask</option>
-                  <option value="ask-human">Ask human</option>
-                  <option value="deny">Deny</option>
+                  <SelectItem value="allow">Allow</SelectItem>
+                  <SelectItem value="ask">Ask</SelectItem>
+                  <SelectItem value="ask-human">Ask human</SelectItem>
+                  <SelectItem value="deny">Deny</SelectItem>
                 </Select>
               </label>
               <label>
@@ -1812,10 +1832,10 @@ export function createDesktopRouter(
                   name="outOfWorkspace"
                   defaultValue={settings.settings.approval.outOfWorkspace}
                 >
-                  <option value="allow">Allow</option>
-                  <option value="ask">Ask</option>
-                  <option value="ask-human">Ask human</option>
-                  <option value="deny">Deny</option>
+                  <SelectItem value="allow">Allow</SelectItem>
+                  <SelectItem value="ask">Ask</SelectItem>
+                  <SelectItem value="ask-human">Ask human</SelectItem>
+                  <SelectItem value="deny">Deny</SelectItem>
                 </Select>
               </label>
               <label>
@@ -1836,8 +1856,8 @@ export function createDesktopRouter(
                   name="autoApproval"
                   defaultValue={String(settings.settings.autoApproval.enabled)}
                 >
-                  <option value="false">Off</option>
-                  <option value="true">On</option>
+                  <SelectItem value="false">Off</SelectItem>
+                  <SelectItem value="true">On</SelectItem>
                 </Select>
               </label>
               <AuxiliaryModelFields
@@ -1980,14 +2000,14 @@ export function createDesktopRouter(
             defaultValue={initialPreset}
             disabled={!selection}
           >
-            <option value="">Model default</option>
+            <SelectItem value="">Model default</SelectItem>
             {initialPreset && !presets.some((entry) => entry.value === initialPreset) && (
-              <option value={initialPreset}>{initialPreset} — unavailable</option>
+              <SelectItem value={initialPreset}>{initialPreset} — unavailable</SelectItem>
             )}
             {presets.map((entry) => (
-              <option key={entry.value} value={entry.value}>
+              <SelectItem key={entry.value} value={entry.value}>
                 {entry.label ?? entry.value}
-              </option>
+              </SelectItem>
             ))}
           </Select>
         </label>

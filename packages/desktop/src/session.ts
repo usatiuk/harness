@@ -16,6 +16,7 @@ import {
 } from "@harness/approval/client";
 import {
   isKernelEvent,
+  textOf,
   type Conversation,
   type ConversationId,
   type HistoryEntry,
@@ -65,6 +66,8 @@ export class DesktopSession {
   readonly client: HarnessClient;
   readonly domain: HarnessDomainClient;
   readonly plugins: HarnessPluginClient;
+  readonly unread = new Set<ConversationId>();
+  private activeConversation: ConversationId | null = null;
   readonly views = new Map<ConversationId, ConversationView>();
   readonly listeners = new Set<() => void>();
   readonly loads = new Map<string, Promise<ConversationView>>();
@@ -104,6 +107,7 @@ export class DesktopSession {
         for (const unsubscribe of this.subscriptions.get(id) ?? []) unsubscribe();
         this.subscriptions.delete(id);
         this.views.delete(id as ConversationId);
+        this.unread.delete(id as ConversationId);
       }
       this.changed();
     });
@@ -126,6 +130,11 @@ export class DesktopSession {
     this.revision++;
     for (const listener of this.listeners) listener();
   }
+  setActiveConversation(id: ConversationId | null): void {
+    this.activeConversation = id;
+    if (id && this.unread.delete(id)) this.changed();
+  }
+
   disconnect(message: string): void {
     this.authAttempt?.abort();
     this.disconnected = message;
@@ -328,6 +337,17 @@ export class DesktopSession {
       );
       subscriptions.push(
         this.domain.subscribe(id, (event) => {
+          if (
+            this.activeConversation !== id &&
+            isKernelEvent(event) &&
+            ((event.type === "text_delta" && event.text.length > 0) ||
+              (event.type === "item.appended" &&
+                event.item.type === "message" &&
+                event.item.role === "assistant" &&
+                textOf(event.item.content).length > 0))
+          )
+            this.unread.add(id);
+
           if (isKernelEvent(event) && event.type === "title.changed") {
             view.conversation = { ...view.conversation, title: event.title };
             this.recents.rows = this.recents.rows.map((row) =>

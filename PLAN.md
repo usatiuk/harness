@@ -68,6 +68,13 @@ packages.
 
 ## Sidebar delivery
 
+The Quiet labels follow-up is implemented and validated: compact shared controls and
+custom dropdowns, Projects-first navigation, 13px configurable text, session-only
+unread indicators, credential-fixture isolation and Linux WebKit refresh policy.
+The full check passes (1,327 tests, 38 skips), 47 browser regressions pass and nine
+native lib/bin tests pass. The owning sidebar delivery plan records publication
+status; actual display cadence remains unmeasured.
+
 The [compact sidebar plan](docs/plans/interface/2026-10-12-adjustable-sidebar.md)
 adds resizable/hidden navigation, Recents and folder-derived Projects with bounded
 server-side recent-input ordering and pagination. Preferences stay desktop-local;

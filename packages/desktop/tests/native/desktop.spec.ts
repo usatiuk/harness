@@ -1,3 +1,4 @@
+import { chooseDropdown } from "../dropdown.ts";
 import { expect, test } from "@playwright/test";
 import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -41,7 +42,7 @@ test("code-only execution reviews concrete child calls and keeps nested history 
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
     await page.getByLabel("Project folder").fill(directory);
     await page.getByRole("button", { name: "Choose execution options" }).click();
-    await page.getByLabel("Tool interface").selectOption("code-only");
+    await chooseDropdown(page, page.getByLabel("Tool interface"), "code-only");
     await page.getByRole("button", { name: "Create conversation" }).click();
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("code-mode-marker");
@@ -200,7 +201,7 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await showModelControls(page);
     await expect(page.getByLabel("Conversation preset")).toHaveValue("high");
     await showModelControls(page);
-    await page.getByLabel("Conversation preset").selectOption("low");
+    await chooseDropdown(page, page.getByLabel("Conversation preset"), "low");
     await showModelControls(page);
     await expect(page.getByLabel("Conversation preset")).toHaveValue("low");
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("beta");
@@ -232,7 +233,7 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await page.getByRole("button", { name: "Dark", exact: true }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await settingsSection(page, "Defaults");
-    await page.getByLabel("Tools inside the workspace").selectOption("ask");
+    await chooseDropdown(page, page.getByLabel("Tools inside the workspace"), "ask");
     await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
     const saved = JSON.parse(await readFile(join(directory, "app", "settings.json"), "utf8")) as {
@@ -262,15 +263,21 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await settingsSection(page, "Defaults");
-    await expect(page.getByRole("combobox", { name: "Auto approver", exact: true })).toHaveValue(
-      "false",
-    );
+    await expect(
+      page.getByRole("combobox", { name: "Auto approver", exact: true }),
+    ).toHaveAttribute("data-value", "false");
     await page.getByRole("combobox", { name: "Auto approver model", exact: true }).click();
     await page.getByRole("option", { name: /fixture \/ reviewer$/u }).click();
-    await page
-      .getByRole("combobox", { name: "Auto approver preset", exact: true })
-      .selectOption("careful");
-    await page.getByRole("combobox", { name: "Auto approver", exact: true }).selectOption("true");
+    await chooseDropdown(
+      page,
+      page.getByRole("combobox", { name: "Auto approver preset", exact: true }),
+      "careful",
+    );
+    await chooseDropdown(
+      page,
+      page.getByRole("combobox", { name: "Auto approver", exact: true }),
+      "true",
+    );
     await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
@@ -289,9 +296,11 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await settingsSection(page, "Defaults");
     await page.getByRole("combobox", { name: "Auto approver model", exact: true }).click();
     await page.getByRole("option", { name: /fixture \/ reviewer-fast$/u }).click();
-    await page
-      .getByRole("combobox", { name: "Auto approver preset", exact: true })
-      .selectOption("quick");
+    await chooseDropdown(
+      page,
+      page.getByRole("combobox", { name: "Auto approver preset", exact: true }),
+      "quick",
+    );
     await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
     await page.locator(`a[href='${new URL(conversation).hash.slice(1)}']`).click();
@@ -306,7 +315,11 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await expect(page.locator('input[name="model"]')).toHaveValue("fixture\u0000test-model");
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await settingsSection(page, "Defaults");
-    await page.getByRole("combobox", { name: "Auto approver", exact: true }).selectOption("false");
+    await chooseDropdown(
+      page,
+      page.getByRole("combobox", { name: "Auto approver", exact: true }),
+      "false",
+    );
     await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
     await page.locator(`a[href='${new URL(conversation).hash.slice(1)}']`).click();
@@ -322,13 +335,13 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await settingsSection(app.page, "Defaults");
     await expect(
       app.page.getByRole("combobox", { name: "Auto approver", exact: true }),
-    ).toHaveValue("false");
+    ).toHaveAttribute("data-value", "false");
     await expect(app.page.locator('input[name="reviewerModel"]')).toHaveValue(
       "fixture\u0000reviewer-fast",
     );
     await expect(
       app.page.getByRole("combobox", { name: "Auto approver preset", exact: true }),
-    ).toHaveValue("quick");
+    ).toHaveAttribute("data-value", "quick");
     await app.page.getByRole("combobox", { name: "Auto approver model", exact: true }).click();
     await app.page.getByRole("option", { name: "Use conversation model", exact: true }).click();
     await app.page.getByRole("button", { name: "Save defaults" }).click();
@@ -538,9 +551,11 @@ test("Local retains browser sign-in and completes cancellable device-code sign-i
       }),
     });
     const flow = provider.getByRole("combobox", { name: "Sign-in method" });
-    await expect(flow).toHaveValue("browser");
-    await expect(flow.locator("option")).toHaveText(["Browser sign-in", "Device code"]);
-    await flow.selectOption("device");
+    await expect(flow).toHaveAttribute("data-value", "browser");
+    await flow.click();
+    await expect(page.getByRole("option")).toHaveText(["Browser sign-in", "Device code"]);
+    await page.keyboard.press("Escape");
+    await chooseDropdown(page, flow, "device");
     await provider.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page.getByLabel("Sign-in URL", { exact: true })).toHaveValue(
       "https://auth.openai.com/codex/device",
@@ -556,7 +571,7 @@ test("Local retains browser sign-in and completes cancellable device-code sign-i
     await expect(page.getByLabel("Sign-in code", { exact: true })).toHaveCount(0);
     await expect(provider.getByRole("button", { name: "Sign in", exact: true })).toBeEnabled();
     await writeFile(network.allow, "yes");
-    await flow.selectOption("device");
+    await chooseDropdown(page, flow, "device");
     await provider.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(provider).toContainText("Credentials available");
     await expect(provider).toContainText("device-fixture@example.com");
@@ -831,9 +846,12 @@ test("an unsupported sandbox default stays visible and requires an explicit supp
       .getByRole("link", { name: "New conversation" })
       .click();
     await app.page.getByRole("button", { name: "Choose execution options" }).click();
-    await expect(app.page.getByRole("combobox", { name: /^Sandbox/u })).toHaveValue("native");
+    await expect(app.page.getByRole("combobox", { name: /^Sandbox/u })).toHaveAttribute(
+      "data-value",
+      "native",
+    );
     await expect(app.page.getByRole("button", { name: "Create conversation" })).toBeDisabled();
-    await app.page.getByRole("combobox", { name: /^Sandbox/u }).selectOption("local");
+    await chooseDropdown(app.page, app.page.getByRole("combobox", { name: /^Sandbox/u }), "local");
     await app.page.getByRole("button", { name: "Create conversation" }).click();
     await showSandboxControls(app.page);
     await expect(app.page.getByLabel("Conversation sandbox")).toHaveValue("local");

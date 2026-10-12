@@ -1,3 +1,4 @@
+import { chooseDropdown } from "../dropdown.ts";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { readFile, writeFile, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
@@ -172,15 +173,19 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
     await expect.poll(() => nativeTheme(page)).toBe("dark");
     await page.getByRole("button", { name: "Sage", exact: true }).click();
     await settingsSection(page, "Defaults");
-    await page.getByRole("combobox", { name: "Auto approver", exact: true }).selectOption("true");
+    await chooseDropdown(
+      page,
+      page.getByRole("combobox", { name: "Auto approver", exact: true }),
+      "true",
+    );
     await settingsSection(page, "Appearance");
     await expect(page.getByRole("combobox", { name: "Auto approver", exact: true })).toHaveCount(0);
     await settingsSection(page, "Defaults");
-    await expect(page.getByRole("combobox", { name: "Auto approver", exact: true })).toHaveValue(
-      "true",
-    );
+    await expect(
+      page.getByRole("combobox", { name: "Auto approver", exact: true }),
+    ).toHaveAttribute("data-value", "true");
     await settingsSection(page, "Composer");
-    await page.getByLabel("Send message with").selectOption("Shift+Enter");
+    await chooseDropdown(page, page.getByLabel("Send message with"), "Shift+Enter");
     await page.getByLabel("Show last-turn statistics").check();
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
     await page.screenshot({ path: info.outputPath("dark-create.png") });
@@ -548,7 +553,7 @@ test("context and last-turn facts come from persisted model accounting and survi
     await page.getByRole("button", { name: "Create conversation" }).click();
     await page.getByRole("button", { name: "Context usage: unknown", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Context and usage" })).toContainText(
-      "No reported agent request yet",
+      "No usage reported yet.",
     );
     await page.getByRole("dialog", { name: "Context and usage" }).press("Escape");
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Show usage");

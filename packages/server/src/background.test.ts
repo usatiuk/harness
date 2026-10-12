@@ -79,6 +79,7 @@ it("upgrades on reconnect only when idle and never downgrades a newer owner", as
         js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
       },
     });
+    await cp(resolve("packages/code-mode/src/worker.mjs"), join(bundles, "worker.mjs"));
     return {
       executable: process.execPath,
       args: ["--conditions=development", outfile, "--background"],

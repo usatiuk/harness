@@ -123,6 +123,7 @@ export async function buildServerComposition(
       plugins,
       defaults: {
         model: resolvedFallback,
+        tools: { mode: "hybrid" },
         plugins: {
           approval: { tools: ACTIVITY_APPROVAL_DEFAULTS },
         },

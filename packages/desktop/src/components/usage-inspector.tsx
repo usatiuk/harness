@@ -48,15 +48,18 @@ export function ContextUsage({ state, models }: { state: State; models: ModelInf
           {state.costIncomplete ? " (incomplete)" : ""}
         </dd>
       </dl>
-      <p className="muted">
+      <p className="muted shortcut-help">
         {checkpoint
-          ? `${catalog?.label ?? checkpoint.model} · ${new Date(checkpoint.createdAt).toLocaleTimeString()}. `
-          : "No reported agent request yet. "}
-        The ring reflects the latest agent request attempt. Drafts and later context changes are not
-        counted.
-        {state.usageIncomplete
-          ? " Accounting is incomplete; conversation totals are lower bounds."
-          : ""}
+          ? `Latest request · ${catalog?.label ?? checkpoint.model} · ${new Date(checkpoint.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+          : "No usage reported yet."}
+        <br />
+        Unsent draft not included.
+        {state.usageIncomplete && (
+          <>
+            <br />
+            Some usage wasn't reported.
+          </>
+        )}
       </p>
     </PopoverControl>
   );

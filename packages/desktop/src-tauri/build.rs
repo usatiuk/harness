@@ -1,4 +1,11 @@
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        pkg_config::Config::new()
+            .atleast_version("2.42")
+            .cargo_metadata(false)
+            .probe("webkit2gtk-4.1")
+            .expect("Harness requires WebKitGTK 2.42 or newer");
+    }
     let root =
         std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../../..");
     let product_path = root.join("package.json");

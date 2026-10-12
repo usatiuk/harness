@@ -12,6 +12,7 @@ export interface Appearance {
   accent: string;
   depth: number;
   radius: number;
+  conversationFontSize: number;
 }
 export interface ComposerPreferences {
   sendWith: "Enter" | "Shift+Enter";
@@ -22,6 +23,7 @@ export const defaultAppearance: Appearance = {
   accent: accents[0][1],
   depth: 3,
   radius: 9,
+  conversationFontSize: 13,
 };
 export const defaultComposer: ComposerPreferences = {
   sendWith: "Enter",
@@ -60,6 +62,13 @@ export function readAppearance(raw: string | null, legacyTheme: string | null): 
       value.depth <= 5
         ? value.depth
         : defaultAppearance.depth,
+    conversationFontSize:
+      typeof value.conversationFontSize === "number" &&
+      Number.isInteger(value.conversationFontSize) &&
+      value.conversationFontSize >= 12 &&
+      value.conversationFontSize <= 18
+        ? value.conversationFontSize
+        : defaultAppearance.conversationFontSize,
     radius:
       typeof value.radius === "number" &&
       Number.isInteger(value.radius) &&

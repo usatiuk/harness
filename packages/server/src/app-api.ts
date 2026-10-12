@@ -211,7 +211,7 @@ export function registerAppApi(
           ? { ...titles.model, preset: titles.model.preset ?? null }
           : null,
         sandbox: sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).backend,
-        toolMode: doc.tools?.mode ?? "direct",
+        toolMode: doc.tools?.mode ?? "hybrid",
         compactionThresholdTokens: doc.compaction?.thresholdTokens ?? null,
       },
     };

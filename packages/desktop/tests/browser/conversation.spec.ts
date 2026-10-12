@@ -1,3 +1,4 @@
+import { chooseDropdown } from "../dropdown.ts";
 import { test, expect, type Page } from "@playwright/test";
 import { build } from "vite";
 import { createServer, type Server } from "node:http";
@@ -216,21 +217,20 @@ test("idle conversations hide jump and history regrouping preserves a visible re
   await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
   await page.evaluate(() => window.canvasFixture.setRunning(false));
   await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
-  const text = await page.locator(".conversation-scroll").evaluate((element) => {
-    const top = element.querySelector(".conversation-header")!.getBoundingClientRect().bottom;
+  const before = await page.locator(".conversation-scroll").evaluate((element) => {
+    const top = element.getBoundingClientRect().top;
     const visible = [...element.querySelectorAll(".user-text")].find(
       (row) => row.getBoundingClientRect().top >= top,
     );
     if (!visible?.textContent) throw new Error("No visible user message to anchor");
-    return visible.textContent;
+    const anchor = { text: visible.textContent, y: visible.getBoundingClientRect().top };
+    window.canvasFixture.prepend();
+    return anchor;
   });
-  const anchor = page.getByText(text, { exact: true });
-  await expect(anchor).toBeVisible();
-  const before = await anchor.boundingBox();
-  await page.evaluate(() => window.canvasFixture.prepend());
-  // Header measurement rounds to nearest pixel, then scroll targets round upward.
+  const anchor = page.getByText(before.text, { exact: true });
+  // Capture and prepend together so virtualizer measurements cannot stale the baseline.
   await expect
-    .poll(async () => Math.abs((await anchor.boundingBox())!.y - before!.y))
+    .poll(async () => Math.abs((await anchor.boundingBox())!.y - before.y))
     .toBeLessThanOrEqual(1.5);
   expect(await page.locator(".transcript-item").count()).toBeLessThan(40);
 });
@@ -324,7 +324,7 @@ test("a visible child keeps its position when earlier history loads its parent",
   await expect(page.locator(".cell.tool").first()).toBeVisible();
   await page.locator(".cell.tool").first().locator("summary").click();
   await page.locator(".conversation-scroll").evaluate((element) => {
-    const top = element.querySelector(".conversation-header")!.getBoundingClientRect().bottom;
+    const top = element.getBoundingClientRect().top;
     const child = [...element.querySelectorAll(".transcript-item")].find(
       (row) => row.querySelector(".cell.tool") && row.getBoundingClientRect().bottom > top,
     );
@@ -334,7 +334,7 @@ test("a visible child keeps its position when earlier history loads its parent",
   await expect
     .poll(() =>
       page.locator(".conversation-scroll").evaluate((element) => {
-        const top = element.querySelector(".conversation-header")!.getBoundingClientRect().bottom;
+        const top = element.getBoundingClientRect().top;
         const bottom = document.querySelector(".conversation-dock")!.getBoundingClientRect().top;
         const visible = [...element.querySelectorAll(".transcript-item")].filter(
           (row) =>
@@ -347,7 +347,7 @@ test("a visible child keeps its position when earlier history loads its parent",
     )
     .toBe(true);
   const anchor = await page.locator(".conversation-scroll").evaluate((element) => {
-    const top = element.querySelector(".conversation-header")!.getBoundingClientRect().bottom;
+    const top = element.getBoundingClientRect().top;
     const visible = [...element.querySelectorAll(".cell.tool")].find(
       (row) => row.getBoundingClientRect().bottom > top,
     );
@@ -385,15 +385,17 @@ test("production model picker distinguishes same-label IDs and exposes advertise
     await first.locator(".model-id").evaluate((element) => getComputedStyle(element).color),
   ).not.toBe(await first.evaluate((element) => getComputedStyle(element).color));
   await first.click();
-  await expect(
-    page.getByRole("combobox", { name: "Conversation preset" }).locator("option"),
-  ).toHaveText(["Default", "none", "high"]);
+  await page.getByRole("combobox", { name: "Conversation preset" }).click();
+  await expect(page.getByRole("option")).toHaveText(["Default", "none", "high"]);
+  await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await page.getByRole("link", { name: "New conversation", exact: true }).click();
   await page.getByRole("button", { name: "Choose model", exact: true }).click();
   const preset = page.getByRole("combobox", { name: "New conversation preset" });
-  await expect(preset.locator("option")).toHaveText(["Default", "none", "high"]);
-  await preset.selectOption("high");
+  await preset.click();
+  await expect(page.getByRole("option")).toHaveText(["Default", "none", "high"]);
+  await page.keyboard.press("Escape");
+  await chooseDropdown(page, preset, "high");
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Create conversation", exact: true }).click();
   await expect
@@ -403,7 +405,7 @@ test("production model picker distinguishes same-label IDs and exposes advertise
     });
   await page.getByRole("link", { name: "New conversation", exact: true }).click();
   await page.getByRole("button", { name: "Choose model", exact: true }).click();
-  await preset.selectOption("high");
+  await chooseDropdown(page, preset, "high");
   const newModels = page.getByRole("combobox", { name: "New conversation model" });
   await newModels.click();
   await page
@@ -412,7 +414,7 @@ test("production model picker distinguishes same-label IDs and exposes advertise
   await expect(preset).toHaveCount(0);
   await newModels.click();
   await page.getByRole("option", { name: "fixture / Fixture model test", exact: true }).click();
-  await expect(preset).toHaveValue("");
+  await expect(preset).toHaveAttribute("data-value", "");
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Create conversation", exact: true }).click();
   await expect
@@ -424,11 +426,23 @@ test("new conversation choices become host defaults for the next creation", asyn
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "New conversation", exact: true }).click();
   await page.getByRole("button", { name: "Choose model", exact: true }).click();
-  await page.getByRole("combobox", { name: "New conversation preset" }).selectOption("high");
+  await chooseDropdown(
+    page,
+    page.getByRole("combobox", { name: "New conversation preset" }),
+    "high",
+  );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Choose execution options" }).click();
-  await page.getByRole("combobox", { name: "Sandbox", exact: true }).selectOption("docker");
-  await page.getByRole("combobox", { name: "Tool interface", exact: true }).selectOption("hybrid");
+  await chooseDropdown(
+    page,
+    page.getByRole("combobox", { name: "Sandbox", exact: true }),
+    "docker",
+  );
+  await chooseDropdown(
+    page,
+    page.getByRole("combobox", { name: "Tool interface", exact: true }),
+    "hybrid",
+  );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Create conversation", exact: true }).click();
   await expect
@@ -440,11 +454,18 @@ test("new conversation choices become host defaults for the next creation", asyn
     });
   await page.getByRole("link", { name: "New conversation", exact: true }).click();
   await page.getByRole("button", { name: "Choose model", exact: true }).click();
-  await expect(page.getByRole("combobox", { name: "New conversation preset" })).toHaveValue("high");
+  await expect(page.getByRole("combobox", { name: "New conversation preset" })).toHaveAttribute(
+    "data-value",
+    "high",
+  );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Choose execution options" }).click();
-  await expect(page.getByRole("combobox", { name: "Sandbox", exact: true })).toHaveValue("docker");
-  await expect(page.getByRole("combobox", { name: "Tool interface", exact: true })).toHaveValue(
+  await expect(page.getByRole("combobox", { name: "Sandbox", exact: true })).toHaveAttribute(
+    "data-value",
+    "docker",
+  );
+  await expect(page.getByRole("combobox", { name: "Tool interface", exact: true })).toHaveAttribute(
+    "data-value",
     "hybrid",
   );
 });
@@ -551,7 +572,7 @@ test("settings saves shared Ask human and its approval timeout through the route
   await reviewer.click();
   await page.getByRole("option", { name: "Use conversation model", exact: true }).click();
   await expect(page.locator("input[name=reviewerModel]")).toHaveValue("");
-  await page.locator("select[name=inWorkspace]").selectOption("ask-human");
+  await chooseDropdown(page, page.locator("[role=combobox][data-name=inWorkspace]"), "ask-human");
   await page.getByLabel("Human approval timeout (seconds)", { exact: true }).fill("12.5");
   await page.getByLabel("Auto approver timeout (seconds)", { exact: true }).fill("45.5");
   await page.getByRole("button", { name: "Save defaults", exact: true }).click();
@@ -612,10 +633,16 @@ test("provider settings expose and save native web search for supported connecti
   const work = page
     .locator(".provider")
     .filter({ has: page.getByRole("heading", { name: "Work", exact: true }) });
-  await expect(page.getByLabel("Work Web search", { exact: true })).toHaveValue("true");
-  await expect(page.getByLabel("Personal Web search", { exact: true })).toHaveValue("false");
+  await expect(page.getByLabel("Work Web search", { exact: true })).toHaveAttribute(
+    "data-value",
+    "true",
+  );
+  await expect(page.getByLabel("Personal Web search", { exact: true })).toHaveAttribute(
+    "data-value",
+    "false",
+  );
   await expect(page.getByLabel("Gateway Web search", { exact: true })).toHaveCount(0);
-  await page.getByLabel("Work Web search", { exact: true }).selectOption("false");
+  await chooseDropdown(page, page.getByLabel("Work Web search", { exact: true }), "false");
   await work.getByRole("button", { name: "Save provider settings", exact: true }).click();
   await expect(work.getByRole("status")).toContainText("Restart the server");
   await expect
@@ -623,8 +650,11 @@ test("provider settings expose and save native web search for supported connecti
     .toEqual([{ provider: "work", patch: { webSearch: false } }]);
   await page.getByRole("tab", { name: "Defaults", exact: true }).click();
   await page.getByRole("tab", { name: "Providers", exact: true }).click();
-  await expect(page.getByLabel("Work Web search", { exact: true })).toHaveValue("false");
-  await page.getByLabel("Work Web search", { exact: true }).selectOption("true");
+  await expect(page.getByLabel("Work Web search", { exact: true })).toHaveAttribute(
+    "data-value",
+    "false",
+  );
+  await chooseDropdown(page, page.getByLabel("Work Web search", { exact: true }), "true");
   await page.evaluate(() => {
     window.composerFixture.failProviderSave = true;
   });
@@ -638,7 +668,7 @@ test("provider settings expose and save native web search for supported connecti
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.providerWrites.at(-1)))
     .toEqual({ provider: "work", patch: { webSearch: true } });
-  await page.getByLabel("Work Compact output", { exact: true }).selectOption("false");
+  await chooseDropdown(page, page.getByLabel("Work Compact output", { exact: true }), "false");
   await work.getByRole("button", { name: "Save provider settings", exact: true }).click();
   await expect(work.getByRole("status")).toContainText("Provider settings saved");
   await expect
@@ -657,7 +687,7 @@ test("settings saves and clears the conversation naming model and preset", async
   const naming = page.getByRole("combobox", { name: "Conversation naming model", exact: true });
   await naming.click();
   await page.getByRole("option", { name: "fixture / Fixture model test", exact: true }).click();
-  await page.locator("select[name=titlePreset]").selectOption("high");
+  await chooseDropdown(page, page.locator("[role=combobox][data-name=titlePreset]"), "high");
   await page.getByRole("button", { name: "Save defaults", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
@@ -666,7 +696,7 @@ test("settings saves and clears the conversation naming model and preset", async
     });
   await naming.click();
   await page.getByRole("option", { name: "Use conversation model", exact: true }).click();
-  await expect(page.locator("select[name=titlePreset]")).toBeDisabled();
+  await expect(page.locator("[role=combobox][data-name=titlePreset]")).toBeDisabled();
   await page.getByRole("button", { name: "Save defaults", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
@@ -1085,7 +1115,7 @@ test("sidebar groups all folders, pages five chats, and keeps hidden projects in
   await page.goto(url + "?composer");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.seedSidebar());
-  const recents = page.locator(".sidebar-section").first();
+  const recents = page.locator(".sidebar-recents");
   const project = page.locator('.sidebar-project:has(> summary[title="/work/a/repo"])');
   await expect(recents.getByRole("link")).toHaveCount(20);
   await expect(page.locator(".sidebar-project")).toHaveCount(3);
@@ -1160,4 +1190,148 @@ test("creating a chat restores its hidden folder without clearing collapse prefe
   await expect(page.getByRole("heading", { name: "New chat", exact: true })).toBeVisible();
   await expect(project).toHaveCount(1);
   await expect(project).not.toHaveAttribute("open");
+});
+
+test("quiet sidebar keeps long project rows aligned and fully inside the resized navigation", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar(true));
+  const recent = page.locator(".sidebar-recents");
+  const project = page.locator('.sidebar-project:has(> summary[title="/work/a/repo"])');
+  await expect(project.getByRole("link")).toHaveCount(5);
+  await page.getByRole("separator", { name: "Resize sidebar" }).focus();
+  await page.keyboard.press("Home");
+  const bounds = await page.locator(".conversation-list").evaluate((nav) => {
+    const recent = nav.querySelector(".sidebar-recents > a")!;
+    const project = nav.querySelector(".project-conversations > a")!;
+    const rect = nav.getBoundingClientRect();
+    const r = recent.getBoundingClientRect();
+    const p = project.getBoundingClientRect();
+    const more = nav.querySelector(".sidebar-more")!;
+    return {
+      recentLeft: r.left,
+      projectLeft: p.left,
+      projectRight: p.right,
+      navRight: rect.right,
+      overflow: nav.scrollWidth > nav.clientWidth,
+      moreHeight: more.getBoundingClientRect().height,
+      moreShadow: getComputedStyle(more).boxShadow,
+    };
+  });
+  expect(bounds.projectLeft).toBe(bounds.recentLeft);
+  expect(bounds.projectRight).toBeLessThanOrEqual(bounds.navRight);
+  expect(bounds.overflow).toBe(false);
+  expect(bounds.moreHeight).toBeLessThanOrEqual(26);
+  expect(bounds.moreShadow).toBe("none");
+  await recent.locator(":scope > summary").click();
+  await expect(recent).not.toHaveAttribute("open");
+  await page.screenshot({ path: test.info().outputPath("quiet-sidebar-light.png") });
+  await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
+  await page.screenshot({ path: test.info().outputPath("quiet-sidebar-dark.png") });
+});
+
+test("conversation has a compact title, smaller prose and a quiet Markdown separator", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.setTitle("Building a Teaching Assistant");
+    window.composerFixture.showMarkdown();
+  });
+  await expect(page.locator(".cell.assistant hr")).toHaveCount(1);
+  await expect(page.locator(".conversation-header")).toHaveText("Building a Teaching Assistant");
+  await expect(page.locator(".workspace-path")).toHaveCount(0);
+  const metrics = await page.locator(".cell.assistant").evaluate((cell) => {
+    const rule = getComputedStyle(cell.querySelector("hr")!);
+    return {
+      text: getComputedStyle(cell).fontSize,
+      heading: getComputedStyle(cell.querySelector("h1")!).fontSize,
+      ruleWidth: rule.borderTopWidth,
+      ruleMargin: parseFloat(rule.marginTop),
+      headerHeight: document.querySelector(".conversation-header")!.getBoundingClientRect().height,
+    };
+  });
+  expect(metrics.text).toBe("13px");
+  expect(parseFloat(metrics.heading)).toBeCloseTo(16.9, 1);
+  expect(metrics.ruleWidth).toBe("1px");
+  expect(metrics.ruleMargin).toBeLessThanOrEqual(16);
+  expect(metrics.headerHeight).toBeLessThanOrEqual(44);
+  await expect(page.locator(".cell.assistant hr")).toBeVisible();
+  await expect(page.locator(".cell.assistant hr")).toBeInViewport();
+  await page.screenshot({ path: test.info().outputPath("quiet-conversation-light.png") });
+  await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
+  await page.screenshot({ path: test.info().outputPath("quiet-conversation-dark.png") });
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  const size = page.getByRole("combobox", { name: "Conversation text size" });
+  await expect(size).toHaveAttribute("data-value", "13");
+  await chooseDropdown(page, size, "16");
+  await page
+    .locator(".sidebar-recents")
+    .getByRole("link", { name: "Building a Teaching Assistant", exact: true })
+    .click();
+  await expect(page.locator(".cell.assistant")).toHaveCSS("font-size", "16px");
+  await page.reload();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Conversation text size" })).toHaveAttribute(
+    "data-value",
+    "16",
+  );
+});
+
+for (const fontSize of [12, 13, 14, 15, 16, 17, 18]) {
+  test(`fractional measurement preserves initial bottom and stream follow at ${fontSize}px`, async ({
+    page,
+  }) => {
+    await page.addInitScript((size) => {
+      new MutationObserver((_, observer) => {
+        if (document.documentElement) {
+          document.documentElement.style.setProperty("--conversation-font-size", `${size}px`);
+          observer.disconnect();
+        }
+      }).observe(document, { childList: true });
+    }, fontSize);
+    await page.reload();
+    await expect(page.locator(".cell.assistant")).toBeVisible();
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+    await page.evaluate(() => window.canvasFixture.grow());
+    await expect(page.locator(".cell.assistant")).toContainText("Additional streaming paragraph");
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  });
+}
+
+test("running chats use a quiet spinner and unread output clears on opening", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await expect(
+    page.locator(".conversation-list").getByRole("img", { name: "Running" }),
+  ).toHaveCount(1);
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  await page.evaluate(() => window.composerFixture.markUnread("sidebar-0-0"));
+  await expect(page.getByLabel("Unread", { exact: true })).toHaveCount(2);
+  await page
+    .locator(".sidebar-recents")
+    .getByRole("link", { name: /^Chat 0-0/u })
+    .click();
+  await expect(page.getByLabel("Unread", { exact: true })).toHaveCount(0);
+});
+
+test("sidebar headings and chat titles do not select text on double click", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  for (const selector of [
+    ".sidebar-projects > summary",
+    ".sidebar-recents > summary",
+    ".sidebar-project > summary",
+  ]) {
+    await page.locator(selector).first().dblclick();
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+    const section = page.locator(selector).first().locator("..");
+    if ((await section.getAttribute("open")) === null) await page.locator(selector).first().click();
+  }
+  await page.locator('.sidebar-recents a[href$="/sidebar-0-0"]').dblclick();
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
 });

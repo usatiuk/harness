@@ -1546,6 +1546,7 @@ dependencies = [
  "dunce",
  "harness-bootstrap",
  "objc2-app-kit",
+ "pkg-config",
  "serde",
  "serde_json",
  "tauri",
@@ -1556,6 +1557,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "tokio",
+ "webkit2gtk",
  "window-vibrancy",
 ]
 

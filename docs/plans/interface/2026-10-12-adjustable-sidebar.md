@@ -82,4 +82,66 @@ verification. The workflow captures version bump `1a47083`.
 Its exact Linux AppImage passes cold headless preparation through the extracted
 AppRun launcher in an isolated temporary home. This does not establish interactive
 GUI/tool execution; the source subprocess regressions qualify child environment
-cleanup. No developer profile or credentials were touched.
+cleanup. The headless artifact probe used an isolated home. The later TUI-test investigation
+found that a temporary Harness home alone did not isolate credentials; that fixture
+is corrected below.
+
+## Quiet labels follow-up
+
+Status: Implemented and validated; publication pending. The accepted Quiet labels preview includes: muted ghost
+Show more controls, uppercase section labels, small right-side Lucide chevrons,
+flat project-chat alignment and unclipped selection rounding. Remove the folder
+subtitle and shorten the conversation header. Use a muted one-pixel Markdown
+separator with 14px margins; use 13px conversation text by default, configurable from 12–18px in existing
+GUI Appearance preferences with proportionate headings. The font option uses the existing local Appearance preferences; no new preference store or RPC.
+
+- [x] Implement scoped presentation changes and preserve sidebar interaction.
+- [x] Verify long titles, compact header, divider styling, small typography and
+      existing browser navigation/resize/hide flows in isolated browser fixtures.
+- [x] Run the full check and complete scoped correctness/simplicity review.
+
+The earlier credential-isolation correction remains included: real TUI sign-in
+uses an explicitly selected temporary file/DPAPI backend and asserts its credential
+artifact stays inside the fixture. Never use the developer keyring/profile.
+
+Accepted follow-up scope includes a subtle spinner for running chats and a
+session-only unread dot, cleared on opening; no server state or synchronization.
+Linux native startup disables the public near-60-FPS preference with narrow FFI
+and an explicit WebKitGTK 2.42 build/runtime minimum. This is an experiment in
+render cadence, not a verified scrolling performance improvement.
+
+Validation found a real smaller-font scroll defect: Virtuoso rounds each item's
+height, accumulating a 5–10px initial error and losing stream follow. Its existing
+`itemSize` hook now preserves fractional geometry, without timers, new offsets or
+relaxed bottom assertions. Regression cases exercise sizes 12–18px.
+
+The accepted design was extended during implementation: Projects precedes Recents;
+section/project/chat navigation text is non-selectable including WebKit and layout
+whitespace; shared dropdowns use existing Radix menus rather than OS menus. Named
+forms submit canonical values, including empty options and disabled-field behavior.
+Inputs, buttons, menus and popups share tighter spacing; touch controls retain
+larger targets. Redundant model/sandbox headings are removed, popup heading top
+margins are zero, composer row/bottom spacing is reduced, and shortcut/context
+copy is concise with platform-correct Ctrl/Command labels. The title is outside the
+scroll viewport so its scrollbar starts beneath it. Running work uses a muted
+spinner, while unread output remains a separate session-local dot.
+
+Direct + code (`hybrid`) is the shared application's default for new conversations;
+explicit saved choices still win through the normal configuration cascade. The
+standalone upgrade-test bundle now includes the code worker, matching production
+payload construction. The original approval/upgrade regression passes after its
+missing-worker root cause was established; no timeout or assertion changes.
+
+Final follow-up validation: `npm run check` passes typecheck, lint, formatting and
+1,327 tests (38 existing skips). All 47 browser regressions pass, including
+fractional measurement at 12–18px, shared dropdown forms, unread/spinner behavior,
+selection suppression, history anchors and large expansions. Nine native lib/bin
+tests pass. Three independent reviewers found no unresolved correctness,
+architecture or simplicity issue. Actual display cadence remains unmeasured.
+
+The idle-history test captures the visible row's text/geometry and triggers prepend
+in one browser evaluation, preserving its 1.5px assertion. Separate evaluations
+could observe virtualizer corrections between baseline capture and prepend; no
+product restoration defect was reproduced. Screenshot capture waits for its
+Markdown divider to enter the viewport instead of capturing initial measurement.
+The credential-isolation correction is committed separately as `2f57f55`.

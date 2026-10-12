@@ -1123,3 +1123,44 @@ Delivery validation on October 12: `npm run check` passes with 1,325 tests and
 38 existing skips; all 36 browser regressions pass. A focused sidebar screenshot
 run also passes, and the rendered layout was inspected. This establishes browser
 and RPC behavior, not rebuilt AppImage GUI qualification.
+
+## Credential isolation for real sign-in fixtures
+
+`HARNESS_HOME` isolates settings and conversations, but does not isolate the OS
+keyring: it uses the shared Harness service namespace. The fallback credential
+file also uses the OS home (`~/.harness/credentials.json`), independently of
+`HARNESS_HOME`. Therefore an isolated Harness profile alone is insufficient for
+real OAuth success tests. The TUI device fixture explicitly selects file storage
+and replaces `HOME` on Unix; Windows selects DPAPI with temporary `LOCALAPPDATA`.
+Its success assertion verifies the credential artifact inside that temporary
+profile. Never auto-probe the developer's keyring in a sign-in fixture. The prior
+TUI fixture could overwrite real Codex credentials with the device fixture identity;
+this is corrected at the test boundary without changing production storage.
+
+## Quiet labels and conversation presentation
+
+Production-route browser cases cover long titles at the minimum sidebar width,
+flat Recents/project alignment, compact ghost actions, title/path removal, muted
+Markdown dividers, default 13px text and GUI size changes/reload persistence.
+Fractional virtualizer sizing is exercised at every supported size (12–18px),
+including same-item growth while following. Real RPC session tests qualify unread
+assistant output outside the selected chat and clearing on selection; a browser
+case qualifies spinner/unread rendering and opening behavior.
+
+Linux's native Settings C-API test confirms the near-60-FPS preference is disabled
+without constructing a WebView or using a developer profile. The pinned Rust
+Settings constructor has a blanket GTK-initialization assertion; this isolated
+GObject fixture calls the native constructor directly and keeps normal ownership.
+The test does not measure display cadence, qualify a rebuilt AppImage's GUI or
+establish an improvement to interactive scrolling. WebKitGTK 2.42 is required by
+the build-time pkg-config check. Existing preparation integration-test failures
+remain separate from these lib/bin tests.
+
+Final Quiet labels validation: the full check passes with 1,327 tests and 38 existing
+skips; all 47 browser regressions and nine native lib/bin tests pass. Shared Radix
+dropdowns are exercised through production forms, including empty/default values.
+The idle-history anchor scenario captures its baseline and starts prepend in one
+browser evaluation so intermediate virtualizer measurements cannot stale the
+observation; the original 1.5px tolerance is unchanged. Screenshot capture waits
+for rendered Markdown to enter the viewport. Windows native browser scenarios were
+updated for custom menus but were not run on this Linux host.

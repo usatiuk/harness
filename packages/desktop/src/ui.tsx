@@ -1,6 +1,7 @@
 import {
   useId,
   useRef,
+  useState,
   type ComponentProps,
   type CSSProperties,
   type ReactNode,
@@ -13,8 +14,9 @@ import {
   Tooltip,
   DropdownMenu,
   Tabs,
+  Select as SelectPrimitive,
 } from "radix-ui";
-import { Check, ChevronRight, LoaderCircle, X, type LucideIcon } from "lucide-react";
+import { Check, ChevronRight, ChevronDown, LoaderCircle, X, type LucideIcon } from "lucide-react";
 
 type ButtonVariant = "neutral" | "accent" | "ghost" | "danger";
 export type ButtonProps = ComponentProps<"button"> & {
@@ -105,8 +107,79 @@ export function Input({ className = "", ...props }: ComponentProps<"input">) {
 export function Textarea({ className = "", ...props }: ComponentProps<"textarea">) {
   return <textarea className={`input ${className}`} {...props} />;
 }
-export function Select({ className = "", ...props }: ComponentProps<"select">) {
-  return <select className={`input ${className}`} {...props} />;
+const selectKey = (value: string | number) => `value:${value}`;
+type SelectProps = Omit<ComponentProps<"button">, "value" | "defaultValue" | "onChange"> & {
+  value?: string | number;
+  defaultValue?: string | number;
+  onValueChange?: (value: string) => void;
+};
+export function Select({
+  value,
+  defaultValue = "",
+  onValueChange,
+  name,
+  disabled,
+  children,
+  className = "",
+  form,
+  ...props
+}: SelectProps) {
+  const [localValue, setLocalValue] = useState(String(defaultValue));
+  const selected = value === undefined ? localValue : String(value);
+  return (
+    <>
+      {name && <input type="hidden" name={name} form={form} value={selected} disabled={disabled} />}
+      <SelectPrimitive.Root
+        value={selectKey(selected)}
+        disabled={disabled ?? false}
+        onValueChange={(next) => {
+          const decoded = next.slice("value:".length);
+          if (value === undefined) setLocalValue(decoded);
+          onValueChange?.(decoded);
+        }}
+      >
+        <SelectPrimitive.Trigger
+          {...props}
+          className={`input model-select ${className}`}
+          data-value={selected}
+          data-name={name}
+        >
+          <SelectPrimitive.Value />
+          <SelectPrimitive.Icon>
+            <ChevronDown size={12} aria-hidden="true" />
+          </SelectPrimitive.Icon>
+        </SelectPrimitive.Trigger>
+        <SelectPrimitive.Portal>
+          <SelectPrimitive.Content className="menu model-menu" position="popper" sideOffset={4}>
+            <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>
+          </SelectPrimitive.Content>
+        </SelectPrimitive.Portal>
+      </SelectPrimitive.Root>
+    </>
+  );
+}
+export function SelectItem({
+  value,
+  children,
+  disabled,
+}: {
+  value: string | number;
+  children: ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <SelectPrimitive.Item
+      className="menu-item"
+      value={selectKey(value)}
+      data-value={String(value)}
+      disabled={disabled ?? false}
+    >
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      <SelectPrimitive.ItemIndicator>
+        <Check size={12} aria-hidden="true" />
+      </SelectPrimitive.ItemIndicator>
+    </SelectPrimitive.Item>
+  );
 }
 export function Checkbox({ className = "", ...props }: Omit<ComponentProps<"input">, "type">) {
   return <input type="checkbox" className={`native-check ${className}`} {...props} />;

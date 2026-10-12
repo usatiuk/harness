@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { NavLink, Link, useLocation } from "react-router";
-import { PanelLeftClose, PanelLeftOpen, Plus, Settings, X } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Plus, Settings, X, ChevronDown } from "lucide-react";
 import { z } from "zod";
 import type { Conversation } from "@harness/protocol";
 import type { DesktopSession, SidebarPage } from "../session.ts";
@@ -33,7 +33,13 @@ function More<T, Cursor>({ page, load }: { page: SidebarPage<T, Cursor>; load: (
         </p>
       )}
       {(page.cursor !== null || page.error) && (
-        <Button size="sm" className="sidebar-more" disabled={page.loading} onClick={load}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="sidebar-more"
+          disabled={page.loading}
+          onClick={load}
+        >
           {page.error ? "Retry" : "Show more"}
         </Button>
       )}
@@ -81,6 +87,7 @@ function ProjectGroup({
             hide();
           }}
         />
+        <ChevronDown className="sidebar-chevron" size={12} aria-hidden="true" />
       </summary>
       {!collapsed && page && (
         <div className="project-conversations">
@@ -185,25 +192,14 @@ export function SidebarLayout({
         </div>
         <nav aria-label="Conversations" className="conversation-list">
           <details
-            className="sidebar-section"
-            open={!groups.collapsed.includes("recents")}
-            onToggle={(event) => collapse("recents", event.currentTarget.open)}
-          >
-            <summary>Recents</summary>
-            {session.recents.rows.map(renderConversation)}
-            <More
-              page={session.recents}
-              load={() => {
-                void session.list(session.recents.loaded);
-              }}
-            />
-          </details>
-          <details
-            className="sidebar-section"
+            className="sidebar-section sidebar-projects"
             open={!groups.collapsed.includes("projects")}
             onToggle={(event) => collapse("projects", event.currentTarget.open)}
           >
-            <summary>Projects</summary>
+            <summary>
+              <span>Projects</span>
+              <ChevronDown className="sidebar-chevron" size={12} aria-hidden="true" />
+            </summary>
             {session.projects.rows
               .filter((project) => !groups.hidden.includes(project.workspaceRoot))
               .map((project) => {
@@ -231,6 +227,23 @@ export function SidebarLayout({
               page={session.projects}
               load={() => {
                 void session.loadProjects(session.projects.loaded);
+              }}
+            />
+          </details>
+          <details
+            className="sidebar-section sidebar-recents"
+            open={!groups.collapsed.includes("recents")}
+            onToggle={(event) => collapse("recents", event.currentTarget.open)}
+          >
+            <summary>
+              <span>Recents</span>
+              <ChevronDown className="sidebar-chevron" size={12} aria-hidden="true" />
+            </summary>
+            {session.recents.rows.map(renderConversation)}
+            <More
+              page={session.recents}
+              load={() => {
+                void session.list(session.recents.loaded);
               }}
             />
           </details>
@@ -275,6 +288,7 @@ export function SidebarLayout({
           label="Show sidebar"
           icon={PanelLeftOpen}
           className="sidebar-show"
+          size="sm"
           onClick={() => setLayout((current) => ({ ...current, visible: true }))}
         />
       )}

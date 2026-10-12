@@ -28,7 +28,6 @@ const components = { Header: HistoryHeader, Footer: ComposerClearance };
 interface AnchorProps {
   rows: TranscriptRow[];
   scrollParent: HTMLElement;
-  header: RefObject<HTMLDivElement | null>;
   dock: RefObject<HTMLDivElement | null>;
   scroller: RefObject<VirtuosoHandle | null>;
   children: ReactNode;
@@ -42,7 +41,7 @@ class HistoryAnchor extends Component<AnchorProps> {
     const parent = this.props.scrollParent;
     const viewport = parent.getBoundingClientRect();
     const scale = viewport.height / parent.offsetHeight;
-    const top = viewport.top + (this.props.header.current?.getBoundingClientRect().height ?? 0);
+    const top = viewport.top;
     const bottom = Math.min(
       viewport.bottom,
       this.props.dock.current?.getBoundingClientRect().top ?? viewport.bottom,
@@ -127,7 +126,6 @@ export function ConversationCanvas({
 }) {
   const scroller = useRef<VirtuosoHandle>(null);
   const dockRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
   const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
   const [clearance, setClearance] = useState(0);
   const [gutter, setGutter] = useState(0);
@@ -159,16 +157,13 @@ export function ConversationCanvas({
 
   return (
     <div className="conversation-page">
+      <div className="conversation-header-wrap">{header}</div>
       <div className="conversation-scroll" ref={setScrollParent}>
-        <div className="conversation-header-wrap" ref={headerRef}>
-          {header}
-        </div>
         <div className="transcript" data-testid="transcript">
           {scrollParent && (
             <HistoryAnchor
               rows={rows}
               scrollParent={scrollParent}
-              header={headerRef}
               dock={dockRef}
               scroller={scroller}
             >
@@ -177,9 +172,10 @@ export function ConversationCanvas({
                 customScrollParent={scrollParent}
                 data={rows}
                 context={{ history, clearance }}
+                itemSize={(element) => element.getBoundingClientRect().height}
                 computeItemKey={(_index, row) => row.key}
                 initialTopMostItemIndex={{ index: "LAST", align: "end" }}
-                followOutput={atBottom ? "auto" : false}
+                followOutput="auto"
                 atBottomStateChange={setAtBottom}
                 totalListHeightChanged={() => {
                   if (followExpansion.current) {
@@ -200,11 +196,7 @@ export function ConversationCanvas({
                         event.target instanceof Element ? event.target.closest("summary") : null;
                       if (summary)
                         followExpansion.current =
-                          atBottom &&
-                          row.kind === "steps" &&
-                          row.observedTiming !== undefined &&
-                          row.observedTiming.completedAt === undefined &&
-                          !summary.parentElement!.hasAttribute("open");
+                          atBottom && !summary.parentElement!.hasAttribute("open");
                     }}
                   >
                     {renderRow(row)}

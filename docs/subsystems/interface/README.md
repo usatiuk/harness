@@ -392,7 +392,7 @@ route navigation leaves work running. Detachment clears stale views and
 subscriptions so retry performs a fresh attach. Sidebar pagination survives
 action revalidation.
 
-The desktop sidebar has collapsible Recents and folder-derived Projects. Recents
+The desktop sidebar puts collapsible folder-derived Projects above Recents. Recents
 starts with 20 chats; each project starts with five and adds five on Show more.
 Folder summaries are paged in batches of 50. The application list view shares the
 core conversation paging/projection boundary and excludes durable subagent spawn
@@ -411,6 +411,13 @@ while hidden. Section collapse and project hiding/collapse use the existing
 host/server preference namespace. Hiding affects only the group, leaving its chats
 in Recents. Opening or creating a chat there unhides it without changing collapse.
 There are no project records, lifecycle settings or filesystem discovery.
+Section labels use small muted uppercase text with right-side Lucide chevrons;
+Show more is a compact ghost action. Navigation text is non-selectable. Project chats align with Recents and long
+names truncate inside fully visible selected-row rounding. Running chats show a
+small muted spinner; a separate unread dot marks live assistant text received
+while another route is selected. This unread set is session-local, only tracks
+attached conversations, and clears when opened or detached. It is not persisted
+or synchronized between clients.
 
 `@harness/client-features` shares plugin clients, transcript reduction, and edit
 presentation with the TUI. Plugin browser entry points expose schemas and pure
@@ -546,9 +553,35 @@ as a fallback when grouping absorbs that row. Desktop-local row identities are
 updated with each reduced event, preserving streaming blocks through durable
 commit; the server and shared reducer continue to own canonical transcript facts.
 
+Shared GUI dropdowns use themed Radix menus with value callbacks and canonical
+hidden form fields; empty choices and disabled fields retain normal form semantics.
+Text inputs keep native editing and use the same compact themed styling. Model
+pickers retain their provider/ID detail tooltips. Popup/control spacing is compact,
+with larger coarse-pointer targets. Redundant model/sandbox popup headings are
+omitted. Shortcut hints use the platform modifier and concise wording.
+
+Direct + code (`hybrid`) is the shared server composition default for new
+conversations; explicitly configured choices override it.
+
+Conversation headers sit above the scroll viewport and show a compact single title without a workspace subtitle;
+full folder paths remain available on project and conversation hover. Markdown
+separators use the neutral line token and tight margins. Heading sizes scale with
+conversation text; compact tool/reasoning text keeps its existing sizing. The
+virtualizer uses fractional bounding-rectangle heights rather than default rounded
+measurements, preserving bottom-follow across supported text sizes.
+
+Linux startup disables WebKit's `PreferPageRenderingUpdatesNear60FPS` through its
+public feature API. The narrow FFI supplements the pinned bindings' missing 2.42
+API, owns/unrefs the feature list and verifies the resulting setting. Build-time
+pkg-config requires WebKitGTK 2.42 or newer; absence of the feature is a startup
+error. The setting allows WebKit to choose the display cadence; it does not prove
+smooth scrolling or eliminate other dropped frames. Native Settings tests qualify
+the flag state, while interactive frame timing remains unmeasured.
+
 Appearance is applied at the document root before render, including portals.
 The old `theme` preference is retained when no new appearance preference exists.
 Client storage owns System/Light/Dark, pastel/custom accent, button depth/radius,
+conversation text size (13px default, 12–18px in GUI Appearance settings),
 send/newline mapping and statistics visibility. System
 theme follows OS changes. The same preference sets Tauri's native theme (including
 returning to System) before the initially hidden window is shown, and on live

@@ -1,3 +1,4 @@
+import { chooseDropdown } from "../dropdown.ts";
 import { test, expect } from "@playwright/test";
 import { build } from "vite";
 import { createServer, type Server } from "node:http";
@@ -63,12 +64,15 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   await page.getByRole("button", { name: "Add value", exact: true }).click();
   await page.getByLabel("Host variable name", { exact: true }).fill("TOKEN");
   await page.getByLabel("Exact MCP tool name").fill("mutate");
-  await page
-    .locator("fieldset")
-    .filter({ has: page.locator("legend", { hasText: "Tool overrides" }) })
-    .getByRole("combobox")
-    .last()
-    .selectOption("ask-human");
+  await chooseDropdown(
+    page,
+    page
+      .locator("fieldset")
+      .filter({ has: page.locator("legend", { hasText: "Tool overrides" }) })
+      .getByRole("combobox")
+      .last(),
+    "ask-human",
+  );
   await page.getByRole("button", { name: "Add tool rule" }).click();
   await page.getByRole("button", { name: "Save server", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Saved");
@@ -82,14 +86,14 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   await expect(page.getByRole("status")).toContainText("ready · 2 tools");
   await page.getByRole("button", { name: "Add server", exact: true }).click();
   await page.getByLabel("Server ID", { exact: true }).fill("hosted");
-  await page.getByLabel("Transport", { exact: true }).selectOption("http");
+  await chooseDropdown(page, page.getByLabel("Transport", { exact: true }), "http");
   await page.getByLabel("HTTP endpoint", { exact: true }).fill("https://example.com/mcp");
-  await page.getByLabel("Authentication", { exact: true }).selectOption("oauth");
+  await chooseDropdown(page, page.getByLabel("Authentication", { exact: true }), "oauth");
   await page.getByLabel("Pre-registered client ID", { exact: true }).fill("registered");
   const secret = page
     .locator("fieldset")
     .filter({ has: page.locator("legend", { hasText: "OAuth client secret" }) });
-  await secret.getByLabel("Source", { exact: true }).selectOption("secret");
+  await chooseDropdown(page, secret.getByLabel("Source", { exact: true }), "secret");
   await secret.getByLabel("Credential slot", { exact: true }).fill("client-key");
   await page.getByRole("button", { name: "Add value", exact: true }).click();
   await page.getByLabel("Host variable name", { exact: true }).fill("CUSTOM_HEADER");
@@ -153,9 +157,9 @@ test("cancels an owned OAuth attempt when saving removes its server", async ({ p
   for (const id of ["other", "hosted"]) {
     await page.getByRole("button", { name: "Add server", exact: true }).click();
     await page.getByLabel("Server ID", { exact: true }).fill(id);
-    await page.getByLabel("Transport", { exact: true }).selectOption("http");
+    await chooseDropdown(page, page.getByLabel("Transport", { exact: true }), "http");
     await page.getByLabel("HTTP endpoint", { exact: true }).fill("https://example.com/mcp");
-    await page.getByLabel("Authentication", { exact: true }).selectOption("oauth");
+    await chooseDropdown(page, page.getByLabel("Authentication", { exact: true }), "oauth");
     await page.getByRole("button", { name: "Save server", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("Saved");
   }

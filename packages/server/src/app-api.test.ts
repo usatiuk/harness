@@ -32,6 +32,8 @@ it("saves creation defaults without changing unrelated global settings", async (
   try {
     await client.start();
     const before = await client.peer.request(appSettingsRequest, {});
+    expect(before.settings.toolMode).toBe("hybrid");
+    expect((await client.create({})).config.tools?.mode).toBe("hybrid");
     await client.peer.request(appSettingsUpdateRequest, { compactionThresholdTokens: 1200 });
     expect(
       (await client.peer.request(appSettingsRequest, {})).settings.compactionThresholdTokens,

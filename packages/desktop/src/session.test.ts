@@ -315,3 +315,45 @@ it("updates saved titles in both the loaded view and cached conversation list th
     await server.shutdown();
   }
 });
+
+it("marks live assistant output unread only while another conversation is selected", async () => {
+  const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+  const service = new HarnessService({
+    store,
+    home: "/nonexistent-harness-home",
+    plugins: [
+      { id: "fake", providers: () => [new FakeProvider([textStep("first"), textStep("second")])] },
+    ],
+  });
+  const pair = createInProcessMessageConnectionPair();
+  const host = new HarnessRpcHost(service);
+  const server = new HarnessRpcSession({
+    host,
+    connection: pair.right,
+    server: { name: "test", version: "1" },
+  });
+  const desktop = new DesktopSession(pair.left);
+  server.start();
+  try {
+    await desktop.start();
+    const overrides = { instructions: "Be helpful", model: { provider: "fake", model: "fake-1" } };
+    const first = await desktop.client.create({ overrides });
+    const second = await desktop.client.create({ overrides });
+    await desktop.load(first.id);
+    desktop.setActiveConversation(first.id as ConversationId);
+    await desktop.client.deliver(first.id, "first", "send");
+    await service.whenIdle(first.id as ConversationId);
+    expect(desktop.unread.size).toBe(0);
+    await desktop.load(second.id);
+    desktop.setActiveConversation(second.id as ConversationId);
+    await desktop.client.deliver(first.id, "second", "send");
+    await service.whenIdle(first.id as ConversationId);
+    await vi.waitFor(() => expect(desktop.unread.has(first.id as ConversationId)).toBe(true));
+    desktop.setActiveConversation(first.id as ConversationId);
+    expect(desktop.unread.size).toBe(0);
+  } finally {
+    desktop.client.closeConnection();
+    await server.shutdown();
+    await host.shutdown();
+  }
+});

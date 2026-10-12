@@ -18,7 +18,9 @@ declare global {
     composerFixture: {
       calls: Delivery[];
       showToolsAndActivities(serverSkew?: number): void;
-      seedSidebar(): void;
+      seedSidebar(longTitles?: boolean): void;
+      markUnread(id: string): void;
+      showMarkdown(): void;
       switchSidebarScope(scope: string): void;
       showEval(): void;
       showLivePreview(reasoningOnly?: boolean): void;
@@ -194,6 +196,8 @@ const session = {
     changed();
   },
   plugins: {
+    runningActivities: () =>
+      view.state.activities.filter((activity) => activity.status === undefined).length,
     activities: () => ({
       async peek() {
         window.composerFixture.peekCalls++;
@@ -332,6 +336,10 @@ const session = {
     changed();
   },
   async refreshSidebar() {},
+  unread: new Set<ConversationId>(),
+  setActiveConversation(active: ConversationId | null) {
+    if (active && session.unread.delete(active)) changed();
+  },
   views: new Map([[id, view]]),
 
   subscribe(listener: () => void) {
@@ -354,14 +362,16 @@ window.composerFixture = {
     sidebarScope = scope;
     changed();
   },
-  seedSidebar() {
+  seedSidebar(longTitles = false) {
     sidebarRows = ["/work/a/repo", "/work/b/repo", "/work/older"]
       .flatMap((workspaceRoot, folder) =>
         Array.from({ length: 25 }, (_, index) => ({
           ...view.conversation,
           id: `sidebar-${folder}-${index}` as ConversationId,
           workspaceRoot,
-          title: `Chat ${folder}-${index}`,
+          title: longTitles
+            ? `A very long conversation title in folder ${folder} — ${index}`
+            : `Chat ${folder}-${index}`,
           createdAt: index,
           lastUsedAt: 1000 - index * 3 - folder,
         })),
@@ -385,6 +395,27 @@ window.composerFixture = {
       error: null,
     };
     session.projectPages.clear();
+    changed();
+  },
+  markUnread(id) {
+    session.unread.add(id as ConversationId);
+    changed();
+  },
+  showMarkdown() {
+    view.state = {
+      ...view.state,
+      turn: { id: "turn", status: "completed" },
+      cells: [
+        {
+          kind: "assistant",
+          id: "markdown",
+          turnId: "turn",
+          streaming: false,
+          text: "# Representation review\n\n## Value wrapper\n\nThe wrapper resolves the alias conflict.\n\n- Ptr breaks the recursive cycle.\n- Values remain inspectable.\n\n---\n\n### Record needs a deep copy\n\nCopying the pointers shares their values. Copy the fields instead.\n\n```cpp\nr = { x: 1 };\ns = r;\n```",
+        },
+      ],
+    };
+    view.transcript.update(view.state.cells);
     changed();
   },
   setTitle(title) {

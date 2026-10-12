@@ -1,11 +1,12 @@
 import {
   useAppearance,
+  shortcutModifier,
   setAppearance,
   useComposerPreferences,
   setComposerPreferences,
 } from "../appearance.ts";
 import { accents } from "../preferences.ts";
-import { Button, Checkbox, Input, Select } from "../ui.tsx";
+import { Button, Checkbox, Input, Select, SelectItem } from "../ui.tsx";
 
 export function AppearanceControls() {
   const appearance = useAppearance();
@@ -61,17 +62,35 @@ export function AppearanceControls() {
       </div>
       <label className="preference-row">
         <span className="preference-copy">
+          <span className="preference-title">Conversation text size</span>
+          <span className="preference-hint">Message text and Markdown headings.</span>
+        </span>
+        <Select
+          value={appearance.conversationFontSize}
+          onValueChange={(next) =>
+            setAppearance({ ...appearance, conversationFontSize: Number(next) })
+          }
+        >
+          {[12, 13, 14, 15, 16, 17, 18].map((value) => (
+            <SelectItem key={value} value={value}>
+              {value}px
+            </SelectItem>
+          ))}
+        </Select>
+      </label>
+      <label className="preference-row">
+        <span className="preference-copy">
           <span className="preference-title">Button depth</span>
           <span className="preference-hint">The colored edge underneath a button.</span>
         </span>
         <Select
           value={appearance.depth}
-          onChange={(event) => setAppearance({ ...appearance, depth: Number(event.target.value) })}
+          onValueChange={(next) => setAppearance({ ...appearance, depth: Number(next) })}
         >
           {[1, 2, 3, 4, 5].map((value) => (
-            <option key={value} value={value}>
+            <SelectItem key={value} value={value}>
               {value}px
-            </option>
+            </SelectItem>
           ))}
         </Select>
       </label>
@@ -82,12 +101,12 @@ export function AppearanceControls() {
         </span>
         <Select
           value={appearance.radius}
-          onChange={(event) => setAppearance({ ...appearance, radius: Number(event.target.value) })}
+          onValueChange={(next) => setAppearance({ ...appearance, radius: Number(next) })}
         >
           {[5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map((value) => (
-            <option key={value} value={value}>
+            <SelectItem key={value} value={value}>
               {value}px
-            </option>
+            </SelectItem>
           ))}
         </Select>
       </label>
@@ -102,21 +121,23 @@ export function ComposerSettings() {
         Send message with
         <Select
           value={preferences.sendWith}
-          onChange={(event) =>
+          onValueChange={(next) =>
             setComposerPreferences({
               ...preferences,
-              sendWith: event.target.value as "Enter" | "Shift+Enter",
+              sendWith: next as "Enter" | "Shift+Enter",
             })
           }
         >
-          <option>Enter</option>
-          <option>Shift+Enter</option>
+          <SelectItem value="Enter">Enter</SelectItem>
+          <SelectItem value="Shift+Enter">Shift+Enter</SelectItem>
         </Select>
       </label>
-      <p className="muted">
-        {preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} inserts a newline. Ctrl/⌘+Enter
-        queues while working. Messages normally steer the current turn. Ctrl/⌘+. stops it without
-        clearing your draft.
+      <p className="muted shortcut-help">
+        {preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} newline
+        <br />
+        {shortcutModifier}+Enter queue while running
+        <br />
+        {shortcutModifier}+. stop
       </p>
       <label className="check-label">
         <Checkbox

@@ -19,16 +19,16 @@ import {
   type McpValueSource,
   type McpToolInfo,
 } from "@harness/mcp/client";
-import { Button, Input, Select, Textarea } from "../ui.tsx";
+import { Button, Input, Select, SelectItem, Textarea } from "../ui.tsx";
 
 function PermissionOptions({ inherit = false }: { inherit?: boolean }) {
   return (
     <>
-      {inherit && <option value="">Inherit</option>}
+      {inherit && <SelectItem value="">Inherit</SelectItem>}
       {toolPermissionSchema.options.map((value) => (
-        <option key={value} value={value}>
+        <SelectItem key={value} value={value}>
           {value === "ask-human" ? "Ask human" : value[0]!.toUpperCase() + value.slice(1)}
-        </option>
+        </SelectItem>
       ))}
     </>
   );
@@ -67,8 +67,8 @@ function Sources({
             Source
             <Select
               value={source.type}
-              onChange={(event) => {
-                const type = event.currentTarget.value;
+              onValueChange={(next) => {
+                const type = next;
                 update(
                   name,
                   type === "literal"
@@ -79,9 +79,9 @@ function Sources({
                 );
               }}
             >
-              <option value="literal">Plaintext value</option>
-              <option value="env">Host environment</option>
-              <option value="secret">Stored credential slot</option>
+              <SelectItem value="literal">Plaintext value</SelectItem>
+              <SelectItem value="env">Host environment</SelectItem>
+              <SelectItem value="secret">Stored credential slot</SelectItem>
             </Select>
           </label>
           <label>
@@ -153,19 +153,19 @@ function CredentialSource({
         <Select
           aria-label="Source"
           value={value?.type ?? ""}
-          onChange={(event) =>
+          onValueChange={(next) =>
             change(
-              event.currentTarget.value === "env"
+              next === "env"
                 ? { type: "env", name: "" }
-                : event.currentTarget.value === "secret"
+                : next === "secret"
                   ? { type: "secret", slot: "api-key" }
                   : undefined,
             )
           }
         >
-          {optional && <option value="">None</option>}
-          <option value="env">Host environment</option>
-          <option value="secret">Stored credential slot</option>
+          {optional && <SelectItem value="">None</SelectItem>}
+          <SelectItem value="env">Host environment</SelectItem>
+          <SelectItem value="secret">Stored credential slot</SelectItem>
         </Select>
       </label>
       {value && (
@@ -296,13 +296,13 @@ export function McpSettings({
             {category === "readOnly" ? "Read-only tools" : "Other or unknown tools"}
             <Select
               value={config.defaults[category]}
-              onChange={(event) =>
+              onValueChange={(next) =>
                 run(() =>
                   save({
                     ...config,
                     defaults: {
                       ...config.defaults,
-                      [category]: toolPermissionSchema.parse(event.currentTarget.value),
+                      [category]: toolPermissionSchema.parse(next),
                     },
                   }),
                 )
@@ -317,19 +317,19 @@ export function McpSettings({
         Server
         <Select
           value={originalId ?? ""}
-          onChange={(event) => {
-            const key = event.currentTarget.value;
+          onValueChange={(next) => {
+            const key = next;
             setOriginalId(key || undefined);
             setId(key);
             setServer(key ? structuredClone(config.servers[key]) : undefined);
             setSecret("");
           }}
         >
-          <option value="">Select a server</option>
+          <SelectItem value="">Select a server</SelectItem>
           {Object.keys(config.servers).map((key) => (
-            <option key={key} value={key}>
+            <SelectItem key={key} value={key}>
               {key}
-            </option>
+            </SelectItem>
           ))}
         </Select>
       </label>
@@ -371,18 +371,18 @@ export function McpSettings({
             <Select
               aria-label="Transport"
               value={server.transport.type}
-              onChange={(event) =>
+              onValueChange={(next) =>
                 update({
                   ...server,
                   transport:
-                    event.currentTarget.value === "stdio"
+                    next === "stdio"
                       ? { type: "stdio", executable: "", args: [], env: {} }
                       : { type: "http", url: "https://", headers: {}, auth: { type: "none" } },
                 })
               }
             >
-              <option value="stdio">Local stdio</option>
-              <option value="http">Hosted HTTP</option>
+              <SelectItem value="stdio">Local stdio</SelectItem>
+              <SelectItem value="http">Hosted HTTP</SelectItem>
             </Select>
           </label>
           {server.transport.type === "stdio" ? (
@@ -474,25 +474,25 @@ export function McpSettings({
                 <Select
                   aria-label="Authentication"
                   value={server.transport.auth.type}
-                  onChange={(event) => {
+                  onValueChange={(next) => {
                     if (server.transport.type === "http")
                       update({
                         ...server,
                         transport: {
                           ...server.transport,
                           auth:
-                            event.currentTarget.value === "oauth"
+                            next === "oauth"
                               ? { type: "oauth", scopes: [] }
-                              : event.currentTarget.value === "bearer"
+                              : next === "bearer"
                                 ? { type: "bearer", token: { type: "secret", slot: "api-key" } }
                                 : { type: "none" },
                         },
                       });
                   }}
                 >
-                  <option value="none">None / custom headers</option>
-                  <option value="bearer">Bearer token</option>
-                  <option value="oauth">OAuth (DCR supported)</option>
+                  <SelectItem value="none">None / custom headers</SelectItem>
+                  <SelectItem value="bearer">Bearer token</SelectItem>
+                  <SelectItem value="oauth">OAuth (DCR supported)</SelectItem>
                 </Select>
               </label>
               {server.transport.auth.type === "bearer" && (
@@ -590,11 +590,10 @@ export function McpSettings({
                 {category === "readOnly" ? "Read-only tools" : "Other or unknown tools"}
                 <Select
                   value={server.defaults[category] ?? ""}
-                  onChange={(event) => {
+                  onValueChange={(next) => {
                     const defaults = { ...server.defaults };
                     delete defaults[category];
-                    if (event.currentTarget.value)
-                      defaults[category] = toolPermissionSchema.parse(event.currentTarget.value);
+                    if (next) defaults[category] = toolPermissionSchema.parse(next);
                     update({ ...server, defaults });
                   }}
                 >
@@ -610,12 +609,11 @@ export function McpSettings({
                 {name}
                 <Select
                   value={permission}
-                  onChange={(event) => {
-                    const next = { ...server.tools };
-                    delete next[name];
-                    if (event.currentTarget.value)
-                      next[name] = toolPermissionSchema.parse(event.currentTarget.value);
-                    update({ ...server, tools: next });
+                  onValueChange={(permission) => {
+                    const tools = { ...server.tools };
+                    delete tools[name];
+                    if (permission) tools[name] = toolPermissionSchema.parse(permission);
+                    update({ ...server, tools });
                   }}
                 >
                   <PermissionOptions inherit />
@@ -639,9 +637,7 @@ export function McpSettings({
             </datalist>
             <Select
               value={toolPermission}
-              onChange={(event) =>
-                setToolPermission(toolPermissionSchema.parse(event.currentTarget.value))
-              }
+              onValueChange={(next) => setToolPermission(toolPermissionSchema.parse(next))}
             >
               <PermissionOptions />
             </Select>

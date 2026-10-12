@@ -10,6 +10,8 @@ import {
   type ComposerPreferences,
 } from "./preferences.ts";
 
+export const shortcutModifier = navigator.platform.includes("Mac") ? "⌘" : "Ctrl";
+
 const media = window.matchMedia("(prefers-color-scheme: dark)");
 const nativeWindow = isTauri() ? getCurrentWindow() : undefined;
 let appearance = readAppearance(
@@ -31,6 +33,10 @@ function applyAppearance() {
   document.documentElement.dataset.theme =
     appearance.theme === "system" ? (media.matches ? "dark" : "light") : appearance.theme;
   document.documentElement.style.setProperty("--accent", appearance.accent);
+  document.documentElement.style.setProperty(
+    "--conversation-font-size",
+    `${appearance.conversationFontSize}px`,
+  );
   document.documentElement.style.setProperty("--edge", `${appearance.depth}px`);
   document.documentElement.style.setProperty("--control-radius", `${appearance.radius}px`);
 }
