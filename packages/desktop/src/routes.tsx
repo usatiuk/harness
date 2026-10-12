@@ -528,7 +528,7 @@ export function createDesktopRouter(
       .find((model) => modelKey(model.provider, model.model) === selection);
     const presets = catalog?.presets ?? [];
     const [backend, setBackend] = useState<string>(settings.settings.sandbox);
-    const [toolMode, setToolMode] = useState("direct");
+    const [toolMode, setToolMode] = useState<string>(settings.settings.toolMode);
     const backendAvailable = backend !== "native" || settings.platform === "linux";
     const available = session.domain
       .availableModels()
@@ -2044,6 +2044,21 @@ export function createDesktopRouter(
             action: async ({ request }) => {
               const data = await request.formData();
               const cwd = field(data, "cwd");
+              const [provider, model] = field(data, "model").split("\u0000");
+              if (
+                !session.domain
+                  .availableModels()
+                  .some((entry) => entry.provider === provider && entry.model === model)
+              )
+                throw new Error("Select an available model");
+              await session.client.peer.request(
+                appSettingsUpdateRequest,
+                appSettingsUpdateRequest.params.parse({
+                  model: { provider, model, preset: field(data, "preset") || null },
+                  sandbox: field(data, "sandbox"),
+                  toolMode: field(data, "toolMode"),
+                }),
+              );
               const id = await session.create(
                 cwd,
                 field(data, "model"),

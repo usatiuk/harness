@@ -24,6 +24,7 @@ const settings = z.strictObject({
     timeoutSeconds: z.number().positive().max(2147483).default(30),
   }),
   sandbox: z.enum(["local", "native", "docker"]),
+  toolMode: z.enum(["direct", "hybrid", "code-only"]),
 });
 const providerSettingSchema = z.strictObject({
   key: z.string().min(1),
@@ -76,7 +77,16 @@ export const appSettingsRequest = defineRequest({
 export const appSettingsUpdateRequest = defineRequest({
   direction: "client-to-server",
   method: "app.settings.update",
-  params: settings,
+  params: settings.partial().transform((patch) => ({
+    ...(patch.model === undefined ? {} : { model: patch.model }),
+    ...(patch.conversationTitleModel === undefined
+      ? {}
+      : { conversationTitleModel: patch.conversationTitleModel }),
+    ...(patch.approval === undefined ? {} : { approval: patch.approval }),
+    ...(patch.autoApproval === undefined ? {} : { autoApproval: patch.autoApproval }),
+    ...(patch.sandbox === undefined ? {} : { sandbox: patch.sandbox }),
+    ...(patch.toolMode === undefined ? {} : { toolMode: patch.toolMode }),
+  })),
   result: z.null(),
 });
 export const appProviderConfigUpdateRequest = defineRequest({

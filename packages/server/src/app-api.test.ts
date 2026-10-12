@@ -4,7 +4,66 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
 import { buildServerHarness, buildServerComposition } from "./index.ts";
-import { appSettingsUpdateRequest } from "./client-protocol.ts";
+import { appSettingsRequest, appSettingsUpdateRequest } from "./client-protocol.ts";
+import { readGlobalSettings, updateGlobalSettings } from "@harness/config";
+
+it("saves creation defaults without changing unrelated global settings", async () => {
+  const home = await mkdtemp(join(tmpdir(), "harness-creation-defaults-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  vi.stubEnv("OPENAI_API_KEY", "");
+  vi.stubEnv("ANTHROPIC_API_KEY", "");
+  vi.stubEnv("OPENCODE_API_KEY", "");
+  await updateGlobalSettings(home, (doc) => ({
+    ...doc,
+    tools: { allow: ["read_file"] },
+    plugins: { approval: { inWorkspace: "deny" } },
+  }));
+  const pair = createInProcessMessageConnectionPair();
+  const harness = await buildServerHarness(pair.right);
+  const client = new HarnessClient({
+    connection: pair.left,
+    client: { name: "defaults-test", version: "1" },
+  });
+  try {
+    await client.start();
+    const before = await client.peer.request(appSettingsRequest, {});
+    await client.peer.request(appSettingsUpdateRequest, {
+      model: { provider: "demo", model: "demo-1", preset: "high" },
+      sandbox: "docker",
+      toolMode: "hybrid",
+    });
+    const saved = await client.peer.request(appSettingsRequest, {});
+    expect(saved.settings).toEqual({
+      ...before.settings,
+      model: { provider: "demo", model: "demo-1", preset: "high" },
+      sandbox: "docker",
+      toolMode: "hybrid",
+    });
+    expect((await readGlobalSettings(home)).tools).toEqual({
+      allow: ["read_file"],
+      mode: "hybrid",
+    });
+    const created = await client.create({});
+    expect(created.config).toMatchObject({
+      model: { provider: "demo", model: "demo-1", preset: "high" },
+      tools: { mode: "hybrid" },
+      plugins: { sandbox: { backend: "docker" } },
+    });
+    await client.peer.request(appSettingsUpdateRequest, {
+      model: { provider: "demo", model: "demo-1", preset: null },
+    });
+    expect((await readGlobalSettings(home)).model).toEqual({ provider: "demo", model: "demo-1" });
+    expect((await readGlobalSettings(home)).tools).toEqual({
+      allow: ["read_file"],
+      mode: "hybrid",
+    });
+  } finally {
+    client.closeConnection();
+    await harness.close();
+    vi.unstubAllEnvs();
+    await rm(home, { recursive: true, force: true });
+  }
+});
 
 it("logs the failed RPC method and error class without exception content", async () => {
   const home = await mkdtemp(join(tmpdir(), "harness-diagnostic-"));

@@ -34,6 +34,12 @@ not merely the server home. Do not seed or restore fixture accounts in dev stora
 
 ## Compact tools and live activities
 
+Creation defaults are checked through the production browser form and real
+application RPC: model/preset, sandbox and tool mode survive the next form, while
+unrelated approval settings and tool allow lists remain unchanged. Clearing a
+preset preserves other defaults. The full check passes 1,298 tests (38 skipped),
+and all 31 Chromium cases pass. Tests use isolated homes and mocked browser state.
+
 The [desktop follow-up](plans/interface/2026-10-11-compact-tools-activities.md)
 uses production routes in Chromium to verify combined reasoning/tool work summaries, compact
 one-line argument previews, expanded output, running-only activities, one-second

@@ -139,6 +139,11 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 
 ## Recent delivery
 
+Desktop creation now saves model/preset, sandbox and tool interface to the selected
+host's global defaults. It reuses the settings API with partial updates and reads
+the saved tool mode on reopening. Full checks pass 1,298 tests (38 skipped) and
+all 31 browser cases; unrelated settings and tool permissions are preserved.
+
 The [compact tools and live activities follow-up](docs/plans/interface/2026-10-11-compact-tools-activities.md)
 groups desktop reasoning and tool calls behind compact collapsed work summaries,
 with flat child calls, Eval boundaries, right-side tool chevrons and failure-only labels.

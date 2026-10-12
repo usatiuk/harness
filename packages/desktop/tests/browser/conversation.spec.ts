@@ -420,6 +420,35 @@ test("production model picker distinguishes same-label IDs and exposes advertise
     .toEqual({ provider: "fixture", model: "test" });
 });
 
+test("new conversation choices become host defaults for the next creation", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  await page.getByRole("button", { name: "Choose model", exact: true }).click();
+  await page.getByRole("combobox", { name: "New conversation preset" }).selectOption("high");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Choose execution options" }).click();
+  await page.getByRole("combobox", { name: "Sandbox", exact: true }).selectOption("docker");
+  await page.getByRole("combobox", { name: "Tool interface", exact: true }).selectOption("hybrid");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Create conversation", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toEqual({
+      model: { provider: "fixture", model: "test", preset: "high" },
+      sandbox: "docker",
+      toolMode: "hybrid",
+    });
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  await page.getByRole("button", { name: "Choose model", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "New conversation preset" })).toHaveValue("high");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Choose execution options" }).click();
+  await expect(page.getByRole("combobox", { name: "Sandbox", exact: true })).toHaveValue("docker");
+  await expect(page.getByRole("combobox", { name: "Tool interface", exact: true })).toHaveValue(
+    "hybrid",
+  );
+});
+
 test("production composer retains new drafts and permits Stop during delivery acknowledgement", async ({
   page,
 }) => {

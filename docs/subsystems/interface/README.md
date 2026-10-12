@@ -457,6 +457,11 @@ Inline approvals, activities, usage, send/queue/steer/interrupt, model/preset,
 sandbox controls, provider/default settings, and client-owned drafts/appearance
 complete v1. Unavailable configured models/backends remain explicit choices;
 creation requires an available model and a platform-supported backend.
+Submitting the creation form saves its model, preset, sandbox and tool interface
+as global defaults on the selected host before creating the conversation. The
+existing settings API accepts partial updates, preserving unrelated policies and
+tool permissions. Saving must succeed before creation; reopening the form reads
+the saved defaults, including tool mode, rather than resetting it to Direct.
 
 Desktop model choices use the existing Radix Select and Tooltip primitives:
 provider/model names stay prominent, differing exact IDs are dimmed, and token

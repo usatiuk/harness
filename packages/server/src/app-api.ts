@@ -183,6 +183,7 @@ export function registerAppApi(
           ? { ...titles.model, preset: titles.model.preset ?? null }
           : null,
         sandbox: sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).backend,
+        toolMode: doc.tools?.mode ?? "direct",
       },
     };
   });
@@ -197,47 +198,64 @@ export function registerAppApi(
             ...(settings.model.preset === null ? {} : { preset: settings.model.preset }),
           });
         }
-        await updateGlobalPluginConfig(defaultHome(), "approval", settings.approval);
-        await updateGlobalPluginConfig(
-          defaultHome(),
-          "auto-approval",
-          {
-            enabled: settings.autoApproval.enabled,
-            timeoutSeconds: settings.autoApproval.timeoutSeconds,
-            ...(settings.autoApproval.model
-              ? {
-                  model: {
-                    provider: settings.autoApproval.model.provider,
-                    model: settings.autoApproval.model.model,
-                    ...(settings.autoApproval.model.preset === null
-                      ? {}
-                      : { preset: settings.autoApproval.model.preset }),
-                  },
-                }
-              : {}),
-          },
-          { replace: true },
-        );
-        await updateGlobalPluginConfig(
-          defaultHome(),
-          "conversation-titles",
-          {
-            ...(settings.conversationTitleModel
-              ? {
-                  model: {
-                    provider: settings.conversationTitleModel.provider,
-                    model: settings.conversationTitleModel.model,
-                    ...(settings.conversationTitleModel.preset === null
-                      ? {}
-                      : { preset: settings.conversationTitleModel.preset }),
-                  },
-                }
-              : {}),
-          },
-          { replace: true },
-        );
-        await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });
-        await service.refreshPluginDefaults(["approval", "auto-approval", "conversation-titles"]);
+        const changedPlugins: string[] = [];
+        if (settings.approval) {
+          await updateGlobalPluginConfig(defaultHome(), "approval", settings.approval);
+          changedPlugins.push("approval");
+        }
+        if (settings.autoApproval) {
+          await updateGlobalPluginConfig(
+            defaultHome(),
+            "auto-approval",
+            {
+              enabled: settings.autoApproval.enabled,
+              timeoutSeconds: settings.autoApproval.timeoutSeconds,
+              ...(settings.autoApproval.model
+                ? {
+                    model: {
+                      provider: settings.autoApproval.model.provider,
+                      model: settings.autoApproval.model.model,
+                      ...(settings.autoApproval.model.preset === null
+                        ? {}
+                        : { preset: settings.autoApproval.model.preset }),
+                    },
+                  }
+                : {}),
+            },
+            { replace: true },
+          );
+          changedPlugins.push("auto-approval");
+        }
+        if (settings.conversationTitleModel !== undefined) {
+          await updateGlobalPluginConfig(
+            defaultHome(),
+            "conversation-titles",
+            {
+              ...(settings.conversationTitleModel
+                ? {
+                    model: {
+                      provider: settings.conversationTitleModel.provider,
+                      model: settings.conversationTitleModel.model,
+                      ...(settings.conversationTitleModel.preset === null
+                        ? {}
+                        : { preset: settings.conversationTitleModel.preset }),
+                    },
+                  }
+                : {}),
+            },
+            { replace: true },
+          );
+          changedPlugins.push("conversation-titles");
+        }
+        if (settings.sandbox)
+          await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });
+        const toolMode = settings.toolMode;
+        if (toolMode)
+          await updateGlobalSettings(defaultHome(), (doc) => ({
+            ...doc,
+            tools: { ...doc.tools, mode: toolMode },
+          }));
+        if (changedPlugins.length) await service.refreshPluginDefaults(changedPlugins);
         return null;
       }),
     ),
