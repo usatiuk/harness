@@ -959,6 +959,51 @@ test("eval boundaries keep child tools flat with right chevrons and failure-only
   await page.screenshot({ path: test.info().outputPath("eval-boundaries.png") });
 });
 
+test("live work survives completed calls and interleaves new reasoning until the turn ends", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showLivePreview());
+  const preview = page.getByLabel("Recent work");
+  const summary = page.locator(".tool-group > summary");
+  await expect(preview).toBeVisible();
+  await page.evaluate(() => window.composerFixture.completeSteps(false));
+  await expect(preview).toBeVisible();
+  await expect(summary).toContainText("Working");
+  await preview.locator("button").last().click();
+  const group = page.locator(".tool-group");
+  await expect(group).toHaveAttribute("open", "");
+  await expect(preview).toBeHidden();
+  await group.locator(".reasoning > summary").click();
+  await expect(group.locator(".reasoning p")).toContainText("Latest reasoning tail.");
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await summary.click();
+  await expect(preview).toBeVisible();
+  await page.evaluate(() => window.composerFixture.appendPreviewReasoning(""));
+  await expect(preview.locator("button")).toHaveCount(4);
+  await page.evaluate(() =>
+    window.composerFixture.appendPreviewReasoning("New reasoning after the calls. ".repeat(200)),
+  );
+  await expect(preview.locator("button")).toHaveCount(3);
+  await expect(preview.locator(".preview-reasoning")).toHaveCount(2);
+  await expect(preview.locator(":scope > *")).toHaveClass([
+    "preview-tool",
+    "preview-reasoning",
+    "preview-tool",
+    "preview-tool",
+    "preview-reasoning",
+  ]);
+  await expect(preview).toContainText("New reasoning after the calls.");
+  await expect(summary).toContainText("Working");
+  for (const status of ["completed", "failed", "aborted"] as const) {
+    if (status !== "completed") await page.evaluate(() => window.composerFixture.showLivePreview());
+    await page.evaluate((status) => window.composerFixture.completeSteps(status), status);
+    await expect(preview).toHaveCount(0);
+    await expect(summary).toContainText("Worked");
+  }
+});
+
 test("live quiet previews bound long reasoning and never duplicate expanded content", async ({
   page,
 }) => {
@@ -969,7 +1014,7 @@ test("live quiet previews bound long reasoning and never duplicate expanded cont
   const preview = page.getByLabel("Recent work");
   const reasoning = preview.locator(".preview-reasoning");
   await expect(preview).toBeVisible();
-  await expect(preview.locator("button")).toHaveCount(2);
+  await expect(preview.locator("button")).toHaveCount(4);
   await expect(preview).not.toContainText("old.ts");
   await expect(reasoning).toContainText("Latest reasoning tail.");
   expect((await reasoning.textContent())!.length).toBeLessThanOrEqual(2000);
@@ -977,10 +1022,11 @@ test("live quiet previews bound long reasoning and never duplicate expanded cont
     page.evaluate((budget) => {
       const element = document.querySelector<HTMLElement>(".live-step-preview .preview-reasoning");
       if (!element) return false;
-      const lines = element.clientHeight / parseFloat(getComputedStyle(element).lineHeight);
+      const lines =
+        element.getBoundingClientRect().height / parseFloat(getComputedStyle(element).lineHeight);
       return lines > 0 && lines <= budget;
     }, budget);
-  await expect.poll(() => boundedLines(3)).toBe(true);
+  await expect.poll(() => boundedLines(1)).toBe(true);
   await expect(group.getByTestId("tool-call")).toHaveCount(0);
   await expect(group.locator(".cell.reasoning")).toHaveCount(0);
   await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);

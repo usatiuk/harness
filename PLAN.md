@@ -156,7 +156,9 @@ all 31 browser cases; unrelated settings and tool permissions are preserved.
 The [compact tools and live activities follow-up](docs/plans/interface/2026-10-11-compact-tools-activities.md)
 groups desktop reasoning and tool calls behind compact collapsed work summaries,
 with flat child calls, Eval boundaries, right-side tool chevrons and failure-only labels.
-Active collapsed groups show a quiet, bounded five-line preview. Desktop
+Active collapsed groups show a quiet, bounded five-line preview. The current
+turn keeps its latest work group active between calls, with tool/reasoning entries
+interleaved and elapsed completion tied to terminal turn state. Desktop
 loads earlier history automatically near the top, and shows only running activities
 with automatic one-second output refresh. Subagent previews include streamed
 assistant text. Validation and qualification limits are recorded in the

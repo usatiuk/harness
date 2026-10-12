@@ -202,9 +202,8 @@ export function ConversationCanvas({
                         followExpansion.current =
                           atBottom &&
                           row.kind === "steps" &&
-                          row.steps.some(({ cell }) =>
-                            cell.kind === "reasoning" ? cell.streaming : !cell.status,
-                          ) &&
+                          row.observedTiming !== undefined &&
+                          row.observedTiming.completedAt === undefined &&
                           !summary.parentElement!.hasAttribute("open");
                     }}
                   >

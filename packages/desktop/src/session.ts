@@ -222,7 +222,10 @@ export class DesktopSession {
       view.cursor = page.nextCursor;
       view.items = await this.decodeHistory(id, page.entries);
       view.state = init(view.items, decodeUsageSummary(attachment.usage));
-      view.transcript.update(view.state.cells);
+      view.transcript.update(
+        view.state.cells,
+        view.state.turn.status === "running" ? view.state.turn.id : undefined,
+      );
       subscriptions.push(
         this.domain.subscribe(id, (event) => {
           if (isKernelEvent(event) && event.type === "title.changed") {
@@ -238,14 +241,20 @@ export class DesktopSession {
             if (!view.items.some((current) => current.id === item.id)) view.items.push(item);
           }
           view.state = reduce(view.state, event, Date.now());
-          view.transcript.update(view.state.cells);
+          view.transcript.update(
+            view.state.cells,
+            view.state.turn.status === "running" ? view.state.turn.id : undefined,
+          );
           this.changed();
         }),
       );
       subscriptions.push(
         this.plugins.subscribe(id, (event) => {
           view.state = reduce(view.state, event, Date.now());
-          view.transcript.update(view.state.cells);
+          view.transcript.update(
+            view.state.cells,
+            view.state.turn.status === "running" ? view.state.turn.id : undefined,
+          );
           this.changed();
         }),
       );
@@ -308,7 +317,10 @@ export class DesktopSession {
       ],
       itemIds: seed.itemIds,
     };
-    view.transcript.update(view.state.cells);
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
     this.changed();
   }
 

@@ -1008,14 +1008,12 @@ export function createDesktopRouter(
   }
 
   function WorkPreview({ steps, expand }: { steps: TranscriptStep[]; expand: () => void }) {
-    const recent: { step: TranscriptStep; lines: number }[] = [];
-    let remaining = 5;
-    for (let index = steps.length - 1; index >= 0 && remaining > 0; index--) {
-      const step = steps[index]!;
-      const lines = step.cell.kind === "reasoning" ? remaining : 1;
-      recent.unshift({ step, lines });
-      remaining -= lines;
-    }
+    const recent = steps
+      .filter(({ cell }) => cell.kind !== "reasoning" || cell.text.trim() !== "")
+      .slice(-5)
+      .map((step) => ({ step, lines: 1 }));
+    const reasoning = recent.findLast(({ step }) => step.cell.kind === "reasoning");
+    if (reasoning) reasoning.lines += 5 - recent.length;
     return (
       <div className="live-step-preview" aria-label="Recent work">
         {recent.map(({ step, lines }) => {
@@ -1053,9 +1051,8 @@ export function createDesktopRouter(
     const calls = row.steps.filter(
       (step) => step.cell.kind === "tool" && !("boundary" in step && step.boundary === "result"),
     ).length;
-    const working = row.steps.some(({ cell }) =>
-      cell.kind === "reasoning" ? cell.streaming : !cell.status,
-    );
+    const working =
+      row.observedTiming !== undefined && row.observedTiming.completedAt === undefined;
     // Completed tool-only history has comparable server timestamps. Historical
     // reasoning starts do not; live groups use desktop-observed timing instead.
     const historicalTools = row.steps.every(({ cell }) => cell.kind === "tool");

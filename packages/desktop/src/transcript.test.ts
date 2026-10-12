@@ -178,7 +178,7 @@ it("observes live group elapsed time with the client clock regardless of server 
       args: {},
       startedAt: 40_000,
     };
-    transcript.update([thought, tool]);
+    transcript.update([thought, tool], "turn");
     expect(toolGroup(transcript.rows[0]!).observedTiming).toEqual({ startedAt: 100_000 });
     vi.setSystemTime(101_000);
     const earlier: Extract<Cell, { kind: "tool" }> = {
@@ -187,7 +187,7 @@ it("observes live group elapsed time with the client clock regardless of server 
       status: "ok",
       completedAt: 40_500,
     };
-    transcript.update([earlier, thought, tool]);
+    transcript.update([earlier, thought, tool], "turn");
     expect(toolGroup(transcript.rows[0]!).observedTiming).toEqual({ startedAt: 100_000 });
     vi.setSystemTime(102_000);
     transcript.update([
@@ -209,6 +209,35 @@ it("observes live group elapsed time with the client clock regardless of server 
     const reopened = new DesktopTranscript();
     reopened.update([{ ...tool, status: "ok", completedAt: 42_000 }]);
     expect(toolGroup(reopened.rows[0]!).observedTiming).toBeUndefined();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("keeps elapsed timing through settled calls and ends it on a terminal turn with unchanged cells", () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(100000);
+    const transcript = new DesktopTranscript();
+    const cells: Cell[] = [
+      { kind: "tool", turnId: "turn", callId: "read", name: "read", args: {}, startedAt: 100000 },
+    ];
+    transcript.update(cells, "turn");
+    vi.setSystemTime(102000);
+    const settled: Cell[] = [
+      { ...(cells[0] as Extract<Cell, { kind: "tool" }>), status: "ok", completedAt: 102000 },
+    ];
+    transcript.update(settled, "turn");
+    expect(toolGroup(transcript.rows[0]!).observedTiming).toEqual({ startedAt: 100000 });
+    vi.setSystemTime(112000);
+    transcript.update(settled);
+    expect(toolGroup(transcript.rows[0]!).observedTiming).toEqual({
+      startedAt: 100000,
+      completedAt: 112000,
+    });
+    vi.setSystemTime(120000);
+    transcript.update(settled);
+    expect(toolGroup(transcript.rows[0]!).observedTiming?.completedAt).toBe(112000);
   } finally {
     vi.useRealTimers();
   }

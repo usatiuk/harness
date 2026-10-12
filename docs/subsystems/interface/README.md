@@ -425,10 +425,13 @@ boundaries. Child calls stay independently visible without opening their parent;
 results follow the last available descendant, including nested Eval calls.
 Desktop rows distinguish messages from nonrecursive, nonempty step groups.
 Active collapsed groups show a quiet tail of recent tools and actual reasoning,
-with a shared five-visible-line budget. Each tool occupies one line; reasoning
-uses the remaining lines and renders only its last 2,000 characters. Wrapped
+with a shared five-visible-line budget. The last five nonempty tool/reasoning
+entries stay in chronological order, with one line each; unused lines go to the
+newest reasoning entry. Reasoning renders only its last 2,000 characters. Wrapped
 reasoning clips from the top so its latest lines remain visible. Native open-state
-CSS hides the preview immediately on expansion; completion removes it. The group
+CSS hides the preview immediately on expansion. The latest group for the current
+running turn remains active between calls; completed, failed or aborted turn state
+ends its elapsed timing and removes the preview. The group
 open attribute and lazy body change in one React commit. Preview tool buttons
 activate the existing summary, preserving focus. When already following, active
 group expansion records one pending follow request. Finished-group inspection

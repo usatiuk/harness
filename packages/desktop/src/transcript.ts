@@ -37,8 +37,11 @@ export class DesktopTranscript {
   private keys = new Map<Cell, string>();
   private sequence = 0;
 
-  update(cells: readonly Cell[]): void {
-    if (cells === this.cells) return;
+  update(cells: readonly Cell[], activeTurnId?: string): void {
+    if (cells === this.cells) {
+      this.updateTiming(activeTurnId, Date.now());
+      return;
+    }
     const previousTimings = new Map<string, { startedAt: number; completedAt?: number }>();
     for (const row of this.rows) {
       if (row.kind === "steps" && row.observedTiming)
@@ -119,17 +122,27 @@ export class DesktopTranscript {
       const previous = row.steps
         .map((step) => previousTimings.get(step.key))
         .find((timing) => timing !== undefined);
-      const working = row.steps.some(({ cell }) =>
-        cell.kind === "reasoning" ? cell.streaming : !cell.status,
-      );
-      if (working) row.observedTiming = { startedAt: previous?.startedAt ?? now };
-      else if (previous)
-        row.observedTiming = {
-          startedAt: previous.startedAt,
-          completedAt: previous.completedAt ?? now,
-        };
+      if (previous) row.observedTiming = previous;
     }
+    this.updateTiming(activeTurnId, now);
     this.keys = keys;
     this.cells = cells;
+  }
+
+  private updateTiming(activeTurnId: string | undefined, now: number): void {
+    const active =
+      activeTurnId === undefined
+        ? undefined
+        : this.rows.findLast(
+            (row) =>
+              row.kind === "steps" && row.steps.some(({ cell }) => cell.turnId === activeTurnId),
+          );
+    for (const row of this.rows) {
+      if (row.kind !== "steps") continue;
+      const previous = row.observedTiming;
+      if (row === active) row.observedTiming = { startedAt: previous?.startedAt ?? now };
+      else if (previous && previous.completedAt === undefined)
+        row.observedTiming = { ...previous, completedAt: now };
+    }
   }
 }

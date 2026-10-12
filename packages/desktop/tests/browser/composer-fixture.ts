@@ -27,7 +27,8 @@ declare global {
       failHistory: boolean;
       releaseHistory(): void;
       insertReasoning(): void;
-      completeSteps(): void;
+      completeSteps(finishTurn?: false | "completed" | "failed" | "aborted"): void;
+      appendPreviewReasoning(text: string): void;
       finishActivity(): void;
       peekCalls: number;
       peekOutput: string;
@@ -181,7 +182,10 @@ const session = {
       ...view.state,
       cells: [...earlier, ...view.state.cells],
     };
-    view.transcript.update(view.state.cells);
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
     changed();
   },
   plugins: {
@@ -283,7 +287,10 @@ window.composerFixture = {
         createdAt: index,
       })),
     };
-    view.transcript.update(view.state.cells);
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
     changed();
   },
   seedCollapsedHistory() {
@@ -302,7 +309,10 @@ window.composerFixture = {
         },
       ],
     };
-    view.transcript.update(view.state.cells);
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
     changed();
   },
   insertReasoning() {
@@ -319,12 +329,16 @@ window.composerFixture = {
       ...view.state,
       cells: [view.state.cells[0]!, thought, ...view.state.cells.slice(1)],
     };
-    view.transcript.update(view.state.cells);
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
     changed();
   },
-  completeSteps() {
+  completeSteps(finishTurn: false | "completed" | "failed" | "aborted" = "completed") {
     view.state = {
       ...view.state,
+      ...(finishTurn ? { turn: { id: "turn", status: finishTurn } } : {}),
       cells: view.state.cells.map((cell) =>
         cell.kind === "tool"
           ? { ...cell, status: "ok", completedAt: cell.startedAt + 12_000 }
@@ -333,7 +347,10 @@ window.composerFixture = {
             : cell,
       ),
     };
-    view.transcript.update(view.state.cells);
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
     changed();
   },
   peekCalls: 0,
@@ -361,6 +378,7 @@ window.composerFixture = {
         { kind: "user", id: "user", turnId: "turn", text: "Check authentication", createdAt: 0 },
         {
           kind: "tool",
+          turnId: "turn",
           callId: "read",
           name: "read_file",
           args: { path: "credentials.ts", note: "Long arguments ".repeat(100) },
@@ -370,6 +388,7 @@ window.composerFixture = {
         },
         {
           kind: "tool",
+          turnId: "turn",
           callId: "search",
           name: "glob",
           args: { pattern: "**/*.ts" },
@@ -384,7 +403,28 @@ window.composerFixture = {
         },
       ],
     };
-    view.transcript.update(view.state.cells);
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
+    changed();
+  },
+  appendPreviewReasoning(text: string) {
+    const last = view.state.cells.at(-1);
+    view.state = {
+      ...view.state,
+      cells:
+        last?.kind === "reasoning" && last.streaming
+          ? [...view.state.cells.slice(0, -1), { ...last, text }]
+          : [
+              ...view.state.cells,
+              { kind: "reasoning", turnId: "turn", text, streaming: true, startedAt: Date.now() },
+            ],
+    };
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
     changed();
   },
   showLivePreview(reasoningOnly = false) {
@@ -407,6 +447,7 @@ window.composerFixture = {
       running = false,
     ): Extract<Cell, { kind: "tool" }> => ({
       kind: "tool",
+      turnId: "turn",
       callId,
       name,
       args,
@@ -415,6 +456,7 @@ window.composerFixture = {
     });
     view.state = {
       ...view.state,
+      turn: { id: "turn", status: "running", startedAt },
       cells: reasoningOnly
         ? [reasoning]
         : [
@@ -430,16 +472,21 @@ window.composerFixture = {
             call("preview-exec", "exec", { command: "npm test -- auth" }, true),
           ],
     };
-    view.transcript.update(view.state.cells);
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
     changed();
   },
   showEval() {
     const startedAt = Date.now() - 12_000;
     view.state = {
       ...view.state,
+      turn: { id: "turn", status: "completed" },
       cells: [
         {
           kind: "tool",
+          turnId: "turn",
           callId: "eval",
           name: "eval",
           args: { code: "await tools.read_file({path: 'auth.ts'})" },
@@ -450,6 +497,7 @@ window.composerFixture = {
         },
         {
           kind: "tool",
+          turnId: "turn",
           callId: "read",
           parentCallId: "eval",
           name: "read_file",
@@ -461,6 +509,7 @@ window.composerFixture = {
         },
         {
           kind: "tool",
+          turnId: "turn",
           callId: "exec",
           parentCallId: "eval",
           name: "exec",
@@ -472,7 +521,10 @@ window.composerFixture = {
         },
       ],
     };
-    view.transcript.update(view.state.cells);
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
     changed();
   },
   showLongToolRun() {
@@ -488,7 +540,10 @@ window.composerFixture = {
         output: `Wrote file-${index}.txt`,
       })),
     };
-    view.transcript.update(view.state.cells);
+    view.transcript.update(
+      view.state.cells,
+      view.state.turn.status === "running" ? view.state.turn.id : undefined,
+    );
     changed();
   },
   finishActivity() {

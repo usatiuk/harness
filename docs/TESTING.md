@@ -46,6 +46,13 @@ passes 1,316 tests (38 skipped), and all 32 browser cases pass.
 
 ## Compact tools and live activities
 
+Live-preview regressions retain recent calls between settled steps and the next
+model response, exclude empty reasoning, interleave new reasoning with calls,
+keep long reasoning bounded, and remove previews for completed/failed/aborted
+turns. Expansion during that waiting gap retains follow and hides duplicate
+preview content. Transcript timing coverage verifies terminal updates with an
+unchanged cell array and a stable final elapsed label.
+
 Creation defaults are checked through the production browser form and real
 application RPC: model/preset, sandbox and tool mode survive the next form, while
 unrelated approval settings and tool allow lists remain unchanged. Clearing a

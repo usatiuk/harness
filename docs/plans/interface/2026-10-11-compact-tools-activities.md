@@ -353,3 +353,42 @@ large-reasoning repetitions pass with the measurement prerequisite. Light and
 dark fixture screenshots were inspected. Tests used mocked/isolated fixtures;
 the developer profile and credentials were not changed. Native WebView2 and
 live-provider qualification remain outside this Linux run.
+
+## Turn-boundary live preview correction (2026-10-12)
+
+Status: Verified; release pending
+
+Individual tool/reasoning completion previously hid the quiet preview during the
+next provider wait, and a newly appended reasoning block consumed all five lines.
+Use the existing running-turn identity at desktop transcript updates to keep the
+latest matching group's existing timing open until terminal turn state. Timing is
+reconciled even if cells are unchanged. No new stored state or timer is needed.
+The renderer uses that timing to label the group and show its collapsed preview.
+
+Select the last five nonempty tool/reasoning entries in chronological order. Each
+gets one line; spare lines go to the newest reasoning entry. Preserve the existing
+2,000-character reasoning tail, CSS bounds, lazy expansion and synchronous preview
+hiding. Server/protocol/activity behavior remains unchanged.
+
+- [x] Implement existing-turn lifetime and bounded interleaving.
+- [x] Verify completed-call waits, empty/new/long reasoning, expansion, terminal
+      turn removal, and elapsed completion without a changed cell array.
+- [ ] Complete scoped review, full check, commit/push and patch release.
+
+The focused transcript suite passes seven cases. Browser fixture corrections
+reflect real current-turn IDs, required running start time, finalized Eval turns,
+and updates to one streamed reasoning cell. One-line geometry uses fractional
+bounding height because integer clientHeight rounds 19.8px to 20px.
+
+Final `npm run check` passes typecheck, lint, formatting and 1,317 tests (38
+skipped); all 33 Chromium cases pass. Three scoped reviewers checked correctness,
+simplicity and evidence. Review found two consumers still using cell completion:
+elapsed timing and expansion-follow. Both now use the same existing turn-boundary
+timing. The unit test freezes completion even without changed cells; browser
+coverage expands long reasoning during a settled-call wait and checks all three
+terminal turn statuses. No new stored state, timers, protocol or backend changes.
+
+One intermediate browser run reported an 88px gap in the existing composer-resize
+case. The affected path and CSS are unchanged, and the final full browser run
+passes it without a patch. No timeout or assertion was weakened. The underlying
+intermittent resize cause is not established; it is not claimed fixed here.
