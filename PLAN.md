@@ -144,7 +144,9 @@ adds a positive input-token setting to GUI/TUI host defaults. Automatic uses 85%
 of the model input budget; configured values can lower it, with the existing
 output/headroom safety cap. Existing usage checkpoints, compaction strategy,
 and loaded-runtime caching remain unchanged. Full checks pass 1,316 tests
-(38 skipped), plus all 32 browser cases; release evidence is tracked in the plan.
+(38 skipped), plus all 32 browser cases. Published in
+[v0.1.8](https://github.com/usatiuk/harness/releases/tag/v0.1.8) after all three
+platform builds passed; detailed evidence is tracked in the plan.
 
 Desktop creation now saves model/preset, sandbox and tool interface to the selected
 host's global defaults. It reuses the settings API with partial updates and reads

@@ -1,6 +1,6 @@
 # Global compaction threshold
 
-Status: Active
+Status: Complete
 
 ## Outcome and scope
 
@@ -28,7 +28,7 @@ new preference store, plugin package, or per-conversation control.
       the nullable scalar; both explain loaded-conversation restart requirements.
 - [x] Verification: focused threshold/checkpoint tests, real RPC persistence,
       GUI/TUI setting and clearing, full check, and independent scoped review.
-- [ ] Delivery: commit, push, run patch release, and publish after all jobs pass.
+- [x] Delivery: commit, push, run patch release, and publish after all jobs pass.
 
 ## Evidence and review
 
@@ -49,3 +49,14 @@ Tiny synthetic token budgets initially crossed thresholds because appended
 message metadata also counts; representative budgets preserve the no-fold cases.
 Browser Settings initially targeted the hidden Defaults tab; navigation was fixed.
 Tests use isolated temporary homes and the browser fixture, preserving dev profiles.
+
+## Delivery
+
+Implementation commit `87814f9` and the preceding desktop creation-defaults commit
+`f673c34` were pushed to main. Release version commit `065f406` bumps to 0.1.8.
+[Release workflow](https://github.com/usatiuk/harness/actions/runs/38288840094)
+passed source validation, Windows x64, Linux x64 glibc, macOS arm64 builds and
+release assembly/signature verification. All 19 assets were present in the draft.
+[v0.1.8](https://github.com/usatiuk/harness/releases/tag/v0.1.8) was published on
+2026-10-12. Native GUI interaction was not exercised; GUI behavior is covered by
+the Chromium fixture, and TUI settings/persistence use a real isolated server.
