@@ -356,7 +356,7 @@ live-provider qualification remain outside this Linux run.
 
 ## Turn-boundary live preview correction (2026-10-12)
 
-Status: Verified; release pending
+Status: Complete
 
 Individual tool/reasoning completion previously hid the quiet preview during the
 next provider wait, and a newly appended reasoning block consumed all five lines.
@@ -373,7 +373,7 @@ hiding. Server/protocol/activity behavior remains unchanged.
 - [x] Implement existing-turn lifetime and bounded interleaving.
 - [x] Verify completed-call waits, empty/new/long reasoning, expansion, terminal
       turn removal, and elapsed completion without a changed cell array.
-- [ ] Complete scoped review, full check, commit/push and patch release.
+- [x] Complete scoped review, full check, commit/push and patch release.
 
 The focused transcript suite passes seven cases. Browser fixture corrections
 reflect real current-turn IDs, required running start time, finalized Eval turns,
@@ -392,3 +392,14 @@ One intermediate browser run reported an 88px gap in the existing composer-resiz
 case. The affected path and CSS are unchanged, and the final full browser run
 passes it without a patch. No timeout or assertion was weakened. The underlying
 intermittent resize cause is not established; it is not claimed fixed here.
+
+The isolated pre-change composer-resize baseline also passes eight runs. No causal
+connection to this fix was found; the transient failure remains unconfirmed.
+Implementation `07d87a8` was committed and pushed; release version `a76a6a0`
+bumps to 0.1.9. The
+[release workflow](https://github.com/usatiuk/harness/actions/runs/38291231264)
+passed source checks, Windows x64, Linux x64 glibc and macOS arm64 builds,
+plus release assembly/signature verification. All 19 assets were present before
+[v0.1.9](https://github.com/usatiuk/harness/releases/tag/v0.1.9) was published on
+2026-10-12. Native GUI interaction was not exercised; browser fixtures cover the
+production preview and expansion surfaces without touching developer profiles.

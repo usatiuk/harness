@@ -158,7 +158,9 @@ groups desktop reasoning and tool calls behind compact collapsed work summaries,
 with flat child calls, Eval boundaries, right-side tool chevrons and failure-only labels.
 Active collapsed groups show a quiet, bounded five-line preview. The current
 turn keeps its latest work group active between calls, with tool/reasoning entries
-interleaved and elapsed completion tied to terminal turn state. Desktop
+interleaved and elapsed completion tied to terminal turn state. The correction
+ships in [v0.1.9](https://github.com/usatiuk/harness/releases/tag/v0.1.9), with
+1,317 tests passing (38 skipped) and all 33 browser cases passing. Desktop
 loads earlier history automatically near the top, and shows only running activities
 with automatic one-second output refresh. Subagent previews include streamed
 assistant text. Validation and qualification limits are recorded in the
