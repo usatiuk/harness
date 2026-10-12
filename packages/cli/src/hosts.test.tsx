@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { writeFile, rm, readFile, mkdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { deviceAuthFixture } from "@harness/testkit";
+import { setAuthStore } from "@harness/config";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
@@ -251,6 +252,9 @@ it("renders both Local OAuth methods, displays a device code and cancels when le
   const path = await home();
   vi.stubEnv("HARNESS_HOME", path);
   vi.stubEnv("LOCALAPPDATA", join(path, "credentials"));
+  if (process.platform !== "win32") vi.stubEnv("HOME", path);
+  // A Harness profile does not isolate the OS keyring or the default credential file.
+  await setAuthStore(path, process.platform === "win32" ? "dpapi" : "file");
   for (const name of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
     vi.stubEnv(name, "");
   const network = await deviceAuthFixture(path);
@@ -300,6 +304,15 @@ it("renders both Local OAuth methods, displays a device code and cancels when le
     await openAuth();
     await vi.waitFor(() => expect(ui.lastFrame()).toContain("Signed in; restart this host"));
     expect(ui.lastFrame()).not.toContain(network.refreshToken);
+    const credentials = await readFile(
+      process.platform === "win32"
+        ? join(path, "credentials", "Harness", "credentials.dpapi")
+        : join(path, ".harness", "credentials.json"),
+    );
+    expect(credentials.length).toBeGreaterThan(0);
+    expect(credentials.includes(Buffer.from(network.refreshToken))).toBe(
+      process.platform !== "win32",
+    );
   } finally {
     ui.unmount();
   }
