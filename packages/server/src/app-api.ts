@@ -11,9 +11,17 @@ import { approvalConfigSchema } from "@harness/approval";
 import { conversationTitlesConfigSchema } from "@harness/conversation-titles";
 import { autoApprovalConfigSchema } from "@harness/auto-approval";
 import { sandboxConfigSchema } from "@harness/sandbox";
-import type { HarnessRpcSession, HarnessService } from "@harness/service";
+import {
+  projectConversationPage,
+  type HarnessRpcSession,
+  type HarnessService,
+} from "@harness/service";
 import { ErrorCodes, ResponseError } from "vscode-jsonrpc";
-import { ProviderCredentialError, ProviderSignInError } from "@harness/protocol";
+import {
+  ProviderCredentialError,
+  ProviderSignInError,
+  type ConversationId,
+} from "@harness/protocol";
 import {
   prepareProviderEntries,
   providerPlugins,
@@ -24,6 +32,8 @@ import { join } from "node:path";
 import { credentialStoreForLogin, credentialStoreForRead } from "./credential-store.ts";
 import {
   appAuthLoginRequest,
+  appConversationProjectsRequest,
+  appConversationListRequest,
   appAuthLogoutRequest,
   appAuthUrlNotification,
   appSettingsRequest,
@@ -124,6 +134,24 @@ export function registerAppApi(
       }),
     );
   };
+  session.onRequest(appConversationListRequest, ({ cursor, limit, order, filter }) =>
+    projectConversationPage(
+      service,
+      limit,
+      cursor === null ? undefined : { ...cursor, id: cursor.id as ConversationId },
+      { order, ...(filter ?? {}), excludedState: { plugin: "subagents", key: "spawn" } },
+    ),
+  );
+  session.onRequest(appConversationProjectsRequest, async ({ limit, cursor }) => {
+    const projects = await service.listConversationProjects(limit, cursor ?? undefined, {
+      plugin: "subagents",
+      key: "spawn",
+    });
+    return {
+      projects: projects.map((project) => ({ ...project })),
+      nextCursor: projects.length === limit ? { ...projects.at(-1)! } : null,
+    };
+  });
   session.onRequest(appProvidersRequest, () => track(listProviders()));
   session.onRequest(appProviderConfigUpdateRequest, (params) =>
     track(

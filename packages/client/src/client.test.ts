@@ -31,6 +31,7 @@ const attachment: AttachResult = {
     head: null,
     title: null,
     createdAt: 0,
+    lastUsedAt: 0,
     config: {
       instructions: "",
       model: { provider: "test", model: "test", preset: null },
@@ -48,6 +49,7 @@ const attachment: AttachResult = {
         head: null,
         title: null,
         createdAt: 0,
+        lastUsedAt: 0,
         config: {
           instructions: "",
           model: { provider: "test", model: "test", preset: null },

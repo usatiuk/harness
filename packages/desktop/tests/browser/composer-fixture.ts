@@ -18,6 +18,8 @@ declare global {
     composerFixture: {
       calls: Delivery[];
       showToolsAndActivities(serverSkew?: number): void;
+      seedSidebar(): void;
+      switchSidebarScope(scope: string): void;
       showEval(): void;
       showLivePreview(reasoningOnly?: boolean): void;
       showLongToolRun(): void;
@@ -55,6 +57,7 @@ const view: ConversationView = {
     head: null,
     title: null,
     createdAt: 0,
+    lastUsedAt: 0,
     config: { instructions: "Fixture", model: { provider: "fixture", model: "test" } },
   },
   state: { ...emptyState, turn: { id: "turn", status: "running", startedAt: 0 } },
@@ -117,6 +120,8 @@ const calls: Delivery[] = [];
 const settingsWrites: unknown[] = [];
 const creations: Array<Parameters<DesktopSession["client"]["create"]>[0]> = [];
 const providerWrites: { provider: string; patch: Record<string, boolean> }[] = [];
+let sidebarScope = "composer-fixture";
+let sidebarRows: (typeof view.conversation)[] = [];
 let pending: Deferred | undefined;
 let stopping: Deferred | undefined;
 const domain = {
@@ -205,6 +210,27 @@ const session = {
   client: {
     async create(params: Parameters<DesktopSession["client"]["create"]>[0]) {
       creations.push(params);
+      if (sidebarRows.length) {
+        const row = {
+          ...view.conversation,
+          id: "sidebar-created" as ConversationId,
+          workspaceRoot: params?.cwd ?? null,
+          lastUsedAt: 2000,
+          title: "New chat",
+        };
+        sidebarRows.unshift(row);
+        session.recents.rows.unshift(row);
+        return {
+          ...row,
+          config: {
+            instructions: "Fixture",
+            model: { provider: "fixture", model: "test", preset: null },
+            tools: null,
+            plugins: {},
+            compaction: null,
+          },
+        };
+      }
       return {
         ...view.conversation,
         config: {
@@ -249,23 +275,121 @@ const session = {
   },
   changed,
   disconnected: undefined as string | undefined,
-  conversations: [view.conversation],
+  recents: {
+    rows: [view.conversation],
+    cursor: null as { lastUsedAt: number; id: string } | null,
+    loading: false,
+    loaded: true,
+    error: null,
+  },
+  projects: {
+    rows: [],
+    cursor: null,
+    loading: false,
+    loaded: true,
+    error: null,
+  } as DesktopSession["projects"],
+  projectPages: new Map<
+    string,
+    {
+      rows: (typeof view.conversation)[];
+      cursor: { lastUsedAt: number; id: string } | null;
+      loading: boolean;
+      loaded: boolean;
+      error: string | null;
+    }
+  >(),
+  async loadProjects() {},
+  async loadProject(root: string, more = false) {
+    const rows = sidebarRows.filter((row) => row.workspaceRoot === root);
+    const previous = session.projectPages.get(root);
+    const count = more ? (previous?.rows.length ?? 0) + 5 : 5;
+    session.projectPages.set(root, {
+      rows: rows.slice(0, count),
+      cursor:
+        count < rows.length
+          ? { lastUsedAt: rows[count - 1]!.lastUsedAt, id: rows[count - 1]!.id }
+          : null,
+      loading: false,
+      loaded: true,
+      error: null,
+    });
+    changed();
+  },
+  async list(more = false) {
+    if (!sidebarRows.length) return;
+    const count = more ? session.recents.rows.length + 20 : 20;
+    session.recents = {
+      rows: sidebarRows.slice(0, count),
+      cursor:
+        count < sidebarRows.length
+          ? { lastUsedAt: sidebarRows[count - 1]!.lastUsedAt, id: sidebarRows[count - 1]!.id }
+          : null,
+      loading: false,
+      loaded: true,
+      error: null,
+    };
+    changed();
+  },
+  async refreshSidebar() {},
   views: new Map([[id, view]]),
-  listLoaded: true,
-  listCursor: null,
+
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => listeners.delete(listener);
   },
   snapshot: () => revision,
-  storageKey: (key: string) => `composer-fixture:${key}`,
+  storageKey: (key: string) => `${sidebarScope}:${key}`,
   readSettings: () => Promise.resolve(settings),
-  load: () => Promise.resolve(view),
+  load: (requested: string) => {
+    const conversation = sidebarRows.find((row) => row.id === requested);
+    if (!conversation) return Promise.resolve(view);
+    const selected = { ...view, conversation };
+    session.views.set(conversation.id, selected);
+    return Promise.resolve(selected);
+  },
 };
 window.composerFixture = {
+  switchSidebarScope(scope) {
+    sidebarScope = scope;
+    changed();
+  },
+  seedSidebar() {
+    sidebarRows = ["/work/a/repo", "/work/b/repo", "/work/older"]
+      .flatMap((workspaceRoot, folder) =>
+        Array.from({ length: 25 }, (_, index) => ({
+          ...view.conversation,
+          id: `sidebar-${folder}-${index}` as ConversationId,
+          workspaceRoot,
+          title: `Chat ${folder}-${index}`,
+          createdAt: index,
+          lastUsedAt: 1000 - index * 3 - folder,
+        })),
+      )
+      .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+    session.recents = {
+      rows: sidebarRows.slice(0, 20),
+      cursor: { lastUsedAt: sidebarRows[19]!.lastUsedAt, id: sidebarRows[19]!.id },
+      loading: false,
+      loaded: true,
+      error: null,
+    };
+    session.projects = {
+      rows: ["/work/a/repo", "/work/b/repo", "/work/older"].map((workspaceRoot, index) => ({
+        workspaceRoot,
+        lastUsedAt: 1000 - index,
+      })),
+      cursor: null,
+      loading: false,
+      loaded: true,
+      error: null,
+    };
+    session.projectPages.clear();
+    changed();
+  },
   setTitle(title) {
     view.conversation = { ...view.conversation, title };
-    session.conversations = [view.conversation];
+    session.recents.rows = [view.conversation];
     changed();
   },
   calls,

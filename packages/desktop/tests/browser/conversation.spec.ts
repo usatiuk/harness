@@ -1078,3 +1078,86 @@ test("live quiet previews bound long reasoning and never duplicate expanded cont
   await expect.poll(() => boundedLines(5)).toBe(true);
   await page.screenshot({ path: test.info().outputPath("quiet-live-preview.png") });
 });
+
+test("sidebar groups all folders, pages five chats, and keeps hidden projects in Recents", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  const recents = page.locator(".sidebar-section").first();
+  const project = page.locator('.sidebar-project:has(> summary[title="/work/a/repo"])');
+  await expect(recents.getByRole("link")).toHaveCount(20);
+  await expect(page.locator(".sidebar-project")).toHaveCount(3);
+  await expect(project.getByRole("link")).toHaveCount(5);
+  await page.screenshot({ path: test.info().outputPath("sidebar-folders.png") });
+  await project.getByRole("button", { name: "Show more", exact: true }).click();
+  await expect(project.getByRole("link")).toHaveCount(10);
+  await project.locator(":scope > summary").click();
+  await expect(project).not.toHaveAttribute("open");
+  await project.locator(":scope > summary").hover();
+  await project.getByRole("button", { name: "Hide project /work/a/repo", exact: true }).click();
+  await expect(project).toHaveCount(0);
+  await expect(recents.getByRole("link", { name: "Chat 0-0", exact: true })).toBeVisible();
+  await recents.getByRole("link", { name: "Chat 0-0", exact: true }).click();
+  await expect(project).toHaveCount(1);
+  await expect(project).not.toHaveAttribute("open");
+  await recents.getByRole("button", { name: "Show more", exact: true }).click();
+  await expect(recents.getByRole("link")).toHaveCount(40);
+});
+
+test("sidebar resize and visibility persist, while project preferences stay host scoped", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  const separator = page.getByRole("separator", { name: "Resize sidebar" });
+  await expect(separator).toHaveAttribute("aria-valuenow", "220");
+  await separator.press("End");
+  await expect(separator).toHaveAttribute("aria-valuenow", "400");
+  await separator.press("Home");
+  await expect(separator).toHaveAttribute("aria-valuenow", "160");
+  const box = (await separator.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 50);
+  await page.mouse.down();
+  await page.mouse.move(310, box.y + 50);
+  await page.mouse.up();
+  await expect(separator).toHaveAttribute("aria-valuenow", "310");
+  await separator.press("ArrowLeft");
+  await expect(separator).toHaveAttribute("aria-valuenow", "300");
+  const project = page.locator('.sidebar-project:has(> summary[title="/work/b/repo"])');
+  await project.locator(":scope > summary").hover();
+  await project.getByRole("button", { name: "Hide project /work/b/repo", exact: true }).click();
+  await page.getByRole("button", { name: "Hide sidebar", exact: true }).click();
+  await expect(page.locator(".sidebar")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Show sidebar", exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Show sidebar", exact: true }).click();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  await expect(separator).toHaveAttribute("aria-valuenow", "300");
+  await expect(project).toHaveCount(0);
+  await page.evaluate(() => window.composerFixture.switchSidebarScope("another-host"));
+  await expect(project).toHaveCount(1);
+  await expect(separator).toHaveAttribute("aria-valuenow", "300");
+  await page.evaluate(() => window.composerFixture.switchSidebarScope("composer-fixture"));
+  await expect(project).toHaveCount(0);
+});
+
+test("creating a chat restores its hidden folder without clearing collapse preferences", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  const project = page.locator('.sidebar-project:has(> summary[title="/work/b/repo"])');
+  await project.locator(":scope > summary").click();
+  await project.locator(":scope > summary").hover();
+  await project.getByRole("button", { name: "Hide project /work/b/repo", exact: true }).click();
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  await page.getByRole("textbox", { name: "Project folder" }).fill("/work/b/repo");
+  await page.getByRole("button", { name: "Create conversation", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "New chat", exact: true })).toBeVisible();
+  await expect(project).toHaveCount(1);
+  await expect(project).not.toHaveAttribute("open");
+});

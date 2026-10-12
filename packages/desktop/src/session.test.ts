@@ -297,15 +297,15 @@ it("updates saved titles in both the loaded view and cached conversation list th
     await desktop.start();
     const conversation = await desktop.domain.createConversation();
     const id = conversation.id;
-    desktop.conversations = [conversation];
+    desktop.recents.rows = [conversation];
     const view = await desktop.load(conversation.id);
     await desktop.client.deliver(conversation.id, "first message", "send");
     await service.whenIdle(id);
     await vi.waitFor(() => expect(view.conversation.title).toBe("first message"));
-    expect(desktop.conversations.find((row) => row.id === id)?.title).toBe("first message");
+    expect(desktop.recents.rows.find((row) => row.id === id)?.title).toBe("first message");
     release();
     await vi.waitFor(() => expect(view.conversation.title).toBe("Fix conversation naming"));
-    expect(desktop.conversations.find((row) => row.id === id)?.title).toBe(
+    expect(desktop.recents.rows.find((row) => row.id === id)?.title).toBe(
       "Fix conversation naming",
     );
   } finally {

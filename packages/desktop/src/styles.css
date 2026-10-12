@@ -102,7 +102,8 @@ textarea.input {
 }
 .app {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  position: relative;
+  grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr);
   height: 100%;
 }
 .sidebar {
@@ -1285,9 +1286,6 @@ main {
   }
 }
 @media (max-width: 600px) {
-  .app {
-    grid-template-columns: 140px minmax(0, 1fr);
-  }
   .sidebar {
     padding: 14px 6px;
   }
@@ -1366,4 +1364,100 @@ main {
   .context-ring {
     border: 2px solid ButtonText;
   }
+}
+
+/* Sidebar presentation is local; project membership remains conversation metadata. */
+.app.sidebar-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+.sidebar {
+  position: relative;
+  min-width: 0;
+}
+.sidebar[hidden] {
+  display: none;
+}
+.sidebar-heading {
+  gap: 4px;
+}
+.sidebar-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 5;
+}
+.sidebar-resize:hover,
+.sidebar-resize:focus-visible {
+  background: var(--muted-ink);
+  opacity: 0.35;
+  outline: none;
+}
+.sidebar-show {
+  position: absolute;
+  top: 12px;
+  left: 10px;
+  z-index: 5;
+}
+.sidebar-hidden .page,
+.sidebar-hidden .conversation-header {
+  padding-left: 52px;
+}
+.sidebar-section > summary,
+.sidebar-project > summary {
+  user-select: none;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 2px;
+}
+.sidebar-section > summary {
+  color: var(--muted-ink);
+}
+.sidebar-project > summary {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.sidebar-project > summary::before {
+  content: "›";
+  font-size: 14px;
+  width: 10px;
+  flex-shrink: 0;
+}
+.sidebar-project[open] > summary::before {
+  transform: rotate(90deg);
+}
+.project-label {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sidebar-project > summary .icon-control {
+  width: 22px;
+  height: 22px;
+  opacity: 0;
+}
+.sidebar-project > summary:hover .icon-control,
+.sidebar-project > summary:focus-within .icon-control {
+  opacity: 1;
+}
+.project-conversations {
+  padding-left: 10px;
+}
+.sidebar-more {
+  margin: 3px 0;
+  font-size: 11px;
+}
+.sidebar-error {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.sidebar-loading {
+  display: block;
+  font-size: 11px;
+  padding: 3px;
 }

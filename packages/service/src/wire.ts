@@ -1,3 +1,4 @@
+import type { HarnessService } from "./service.ts";
 import type {
   Conversation,
   Item,
@@ -10,6 +11,8 @@ import type {
   WireItem,
   WireModelInfo,
   WireUsageSummary,
+  ConversationPageCursor,
+  ConversationListOptions,
 } from "@harness/protocol";
 import {
   jsonValueSchema,
@@ -77,6 +80,7 @@ export const projectConversation = (conversation: Conversation): WireConversatio
     overrides: jsonValueSchema.parse(conversation.overrides),
     head: conversation.head,
     createdAt: conversation.createdAt,
+    lastUsedAt: conversation.lastUsedAt,
     config: projectConversationConfig(conversation.config),
   });
 
@@ -135,3 +139,27 @@ export const projectModelInfo = (model: ModelInfo): WireModelInfo =>
         }
       : null,
   });
+
+export async function projectConversationPage(
+  service: HarnessService,
+  limit: number,
+  before?: ConversationPageCursor,
+  options: ConversationListOptions = {},
+) {
+  const records = await service.listConversationPage(limit, before, options);
+  const conversations: WireConversation[] = [];
+  for (const record of records) {
+    const conversation = await service.getConversation(record.id);
+    if (conversation !== undefined) conversations.push(projectConversation(conversation));
+  }
+  const last = records.at(-1);
+  return {
+    conversations,
+    nextCursor:
+      records.length < limit || last === undefined
+        ? null
+        : options.order === "lastUsed"
+          ? { lastUsedAt: last.lastUsedAt, id: last.id }
+          : { createdAt: last.createdAt, id: last.id },
+  };
+}

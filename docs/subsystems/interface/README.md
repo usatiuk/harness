@@ -392,6 +392,26 @@ route navigation leaves work running. Detachment clears stale views and
 subscriptions so retry performs a fresh attach. Sidebar pagination survives
 action revalidation.
 
+The desktop sidebar has collapsible Recents and folder-derived Projects. Recents
+starts with 20 chats; each project starts with five and adds five on Show more.
+Folder summaries are paged in batches of 50. The application list view shares the
+core conversation paging/projection boundary and excludes durable subagent spawn
+marks before limiting results. Ordering and folder filtering happen in the store,
+so older pages and child-heavy folders remain correct. Folder names have full-path
+tooltips; duplicate names use their full path as the label.
+
+Only successfully accepted nonempty user input (including queued input) advances
+`lastUsedAt`; new chats use creation time. Opening, Stop, approvals, agent output
+and tool activity do not change it. Sidebar data refreshes after accepted sends,
+creation and connection reload, preserving loaded page counts without polling.
+The global desktop preference stores visibility and width (220px by default,
+160–400px, constrained to leave main-content space). The resize edge supports
+pointer dragging and keyboard arrows/Home/End; a show button remains available
+while hidden. Section collapse and project hiding/collapse use the existing
+host/server preference namespace. Hiding affects only the group, leaving its chats
+in Recents. Opening or creating a chat there unhides it without changing collapse.
+There are no project records, lifecycle settings or filesystem discovery.
+
 `@harness/client-features` shares plugin clients, transcript reduction, and edit
 presentation with the TUI. Plugin browser entry points expose schemas and pure
 presentation without importing execution or native dependencies. A virtualized

@@ -1026,6 +1026,47 @@ describe("Engine — turn cycle", () => {
 });
 
 describe("Engine — delivery seam", () => {
+  it("rejects a failed recency write before admitting or executing the input", async () => {
+    const { store, engine, events } = setup([]);
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    vi.spyOn(store, "recordUserInput").mockImplementation(() => {
+      throw new Error("recency write failed");
+    });
+    await expect(engine.deliver(conversation.id, userInput("hello"))).rejects.toThrow(
+      "recency write failed",
+    );
+    await engine.whenIdle(conversation.id);
+    expect(await store.listItems(conversation.id)).toEqual([]);
+    expect(turnStatuses(events)).toEqual([]);
+    expect((await store.getConversation(conversation.id))?.lastUsedAt).toBe(conversation.createdAt);
+  });
+
+  it("changes recency only for nonempty user input, including queued input", async () => {
+    const provider = new GateProvider("done");
+    const { store, engine } = setup([], { providers: () => [provider] });
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    await engine.prepare(conversation.id);
+    expect((await store.getConversation(conversation.id))?.lastUsedAt).toBe(conversation.createdAt);
+    await engine.deliver(conversation.id, userInput("first"));
+    const first = (await store.getConversation(conversation.id))!.lastUsedAt;
+    await engine.deliver(conversation.id, userInput("queued"), "queue");
+    const queued = (await store.getConversation(conversation.id))!.lastUsedAt;
+    expect(queued).toBeGreaterThan(first);
+    await engine.deliver(
+      conversation.id,
+      {
+        source: { kind: "plugin", pluginId: "activity" },
+        content: [{ type: "text", text: "completed" }],
+      },
+      "queue",
+    );
+    expect((await store.getConversation(conversation.id))?.lastUsedAt).toBe(queued);
+    await engine.deliver(conversation.id, { source: { kind: "user" }, content: [] }, "interrupt");
+    provider.release();
+    await engine.whenIdle(conversation.id);
+    expect((await store.getConversation(conversation.id))?.lastUsedAt).toBe(queued);
+  });
+
   it("runs two rapid sends as two turns, in order", async () => {
     const { store, engine, events } = setup([textStep("one"), textStep("two")]);
     const conv = await store.createConversation(newConversationInput(CONFIG));

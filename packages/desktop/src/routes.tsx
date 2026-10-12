@@ -1,3 +1,4 @@
+import { SidebarLayout } from "./components/sidebar.tsx";
 import { McpSettings } from "./components/mcp-settings.tsx";
 import { DesktopUpdates } from "./components/desktop-updates.tsx";
 import { ModelSelect, modelKey } from "./components/model-select.tsx";
@@ -65,8 +66,6 @@ import { ConversationCanvas } from "./components/conversation-canvas.tsx";
 import { AppearanceControls, ComposerSettings } from "./components/appearance-controls.tsx";
 import {
   FolderOpen,
-  Plus,
-  Settings as SettingsIcon,
   Send,
   Square,
   ChevronDown,
@@ -120,9 +119,6 @@ export function createDesktopRouter(
           await session.plugins.approvals.respond(field(data, "requestId"), decision);
           return { ok: true };
         }
-        case "list-more":
-          await session.list(true);
-          return { ok: true };
         case "older":
           await session.older(field(data, "conversationId"));
           return { ok: true };
@@ -143,6 +139,7 @@ export function createDesktopRouter(
               );
             throw error;
           }
+          await session.refreshSidebar();
           if (localStorage.getItem(session.storageKey(`draft:${id}`)) === field(data, "text"))
             localStorage.removeItem(session.storageKey(`draft:${id}`));
           return { ok: true };
@@ -419,64 +416,39 @@ export function createDesktopRouter(
   function Layout() {
     useLive();
     const navigation = useNavigation();
-    const more = useFetcher<ActionResult>();
+    const renderConversation = (conversation: Conversation) => {
+      const view = session.views.get(conversation.id);
+      const status = view?.approvals.size
+        ? "Approval needed"
+        : view?.state.turn.status === "running"
+          ? "Running"
+          : view?.state.turn.status === "failed"
+            ? "Failed"
+            : "";
+      return (
+        <NavLink
+          key={conversation.id}
+          to={`/conversations/${conversation.id}`}
+          title={conversation.workspaceRoot ?? undefined}
+        >
+          <span className="conversation-title">{conversationLabel(conversation, view)}</span>
+          {status && (
+            <span
+              className={`conversation-status-mark ${view?.approvals.size ? "approval-status" : view?.state.turn.status === "failed" ? "failed-status" : ""}`}
+              aria-label={status}
+              title={status}
+            />
+          )}
+        </NavLink>
+      );
+    };
     return (
-      <div className="app">
-        <aside className="sidebar">
-          <div className="sidebar-heading">
-            {connections.controls}
-            <Link
-              to="/new"
-              className="new-conversation"
-              aria-label="New conversation"
-              title="New conversation"
-            >
-              <Plus size={15} aria-hidden="true" />
-            </Link>
-          </div>
-          <nav aria-label="Conversations" className="conversation-list">
-            {session.conversations.map((conversation) => {
-              const view = session.views.get(conversation.id);
-              const status = view?.approvals.size
-                ? "Approval needed"
-                : view?.state.turn.status === "running"
-                  ? "Running"
-                  : view?.state.turn.status === "failed"
-                    ? "Failed"
-                    : "";
-              return (
-                <NavLink
-                  key={conversation.id}
-                  to={`/conversations/${conversation.id}`}
-                  title={conversation.workspaceRoot ?? undefined}
-                >
-                  <span className="conversation-title">
-                    {conversationLabel(conversation, view)}
-                  </span>
-                  {status && (
-                    <span
-                      className={`conversation-status-mark ${view?.approvals.size ? "approval-status" : view?.state.turn.status === "failed" ? "failed-status" : ""}`}
-                      aria-label={status}
-                      title={status}
-                    />
-                  )}
-                </NavLink>
-              );
-            })}
-            {session.listCursor && (
-              <more.Form method="post" action="/actions">
-                <Input type="hidden" name="intent" value="list-more" />
-                <Button type="submit" disabled={more.state !== "idle"}>
-                  Load more
-                </Button>
-              </more.Form>
-            )}
-            <ActionFeedback data={more.data} />
-          </nav>
-          <NavLink to="/settings" className="settings-link">
-            <SettingsIcon size={15} aria-hidden="true" /> Settings
-          </NavLink>
-        </aside>
+      <SidebarLayout
+        key={session.storageKey("sidebar-groups")}
+        session={session}
+        controls={connections.controls}
+        renderConversation={renderConversation}
+      >
         <main>
           {session.disconnected && (
             <div className="connection-error" role="alert">
@@ -497,7 +469,7 @@ export function createDesktopRouter(
             )}
           <Outlet />
         </main>
-      </div>
+      </SidebarLayout>
     );
   }
   function Welcome() {
@@ -2054,7 +2026,9 @@ export function createDesktopRouter(
         loader: async (): Promise<RootData> => {
           const [settings] = await Promise.all([
             session.readSettings(),
-            session.listLoaded ? undefined : session.list(),
+            session.recents.loaded || session.recents.loading || session.recents.error
+              ? undefined
+              : session.refreshSidebar(),
           ]);
           return { settings };
         },

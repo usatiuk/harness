@@ -1100,3 +1100,26 @@ Conversation-title delivery passes `npm run check -- --maxWorkers=2`: 1,289 test
 passed, 38 skipped; four affected Chromium cases and three independent reviews
 pass. See the [delivery plan](plans/interface/2026-10-11-conversation-titles.md)
 for corrected test assumptions and qualification limits.
+
+## Adjustable sidebar regressions
+
+The shared store contract verifies accepted-input recency, creation-order callers,
+folder filtering and subagent exclusion before pagination. SQLite tests cover the
+version-7 upgrade, restart persistence and stable Unicode folder ties; in-memory
+tests use the same binary tie ordering. Core regressions distinguish accepted and
+queued user input from plugin deliveries and empty Stop, and verify a failed
+recency write rejects before inbox admission or turn creation.
+
+A real in-process RPC/desktop-session regression uses 66 folders and 120 subagents
+to verify bounded pages beyond the initial page, exclusion before limits, accepted
+send refresh, preservation of loaded counts and creation refresh. Its home and
+workspace folders are temporary; it uses a fake model and no developer credentials.
+Three production-route browser cases cover five-chat increments, Recents paging,
+hide/open/create reappearance, collapse retention, duplicate names, host-scoped
+preferences, reload persistence, pointer/keyboard resizing and hidden navigation.
+Browser fixtures do not launch the developer desktop profile.
+
+Delivery validation on October 12: `npm run check` passes with 1,325 tests and
+38 existing skips; all 36 browser regressions pass. A focused sidebar screenshot
+run also passes, and the rendered layout was inspected. This establishes browser
+and RPC behavior, not rebuilt AppImage GUI qualification.

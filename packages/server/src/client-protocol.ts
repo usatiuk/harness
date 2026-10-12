@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { defineNotification, defineRequest, compactionThresholdSchema } from "@harness/protocol";
+import {
+  defineNotification,
+  defineRequest,
+  compactionThresholdSchema,
+  conversationListRequest,
+} from "@harness/protocol";
 
 const model = z.strictObject({
   provider: z.string().min(1),
@@ -127,3 +132,25 @@ export const appAuthUrlNotification = defineNotification({
   }),
 });
 export type AppSettings = z.infer<typeof appSettingsRequest.result>;
+
+const projectSummary = z.strictObject({ workspaceRoot: z.string(), lastUsedAt: z.number().int() });
+export const appConversationProjectsRequest = defineRequest({
+  direction: "client-to-server",
+  method: "app.conversations.projects",
+  params: z.strictObject({
+    limit: z.number().int().positive().max(100),
+    cursor: projectSummary.nullable(),
+  }),
+  result: z.strictObject({
+    projects: z.array(projectSummary),
+    nextCursor: projectSummary.nullable(),
+  }),
+});
+
+/** Same conversation paging boundary, with the application's top-level visibility rule. */
+export const appConversationListRequest = defineRequest({
+  direction: "client-to-server",
+  method: "app.conversations.list",
+  params: conversationListRequest.params,
+  result: conversationListRequest.result,
+});

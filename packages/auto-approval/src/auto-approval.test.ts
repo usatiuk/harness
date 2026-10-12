@@ -25,6 +25,7 @@ const conversation = {
   head: null,
   title: null,
   createdAt: 0,
+  lastUsedAt: 0,
   config: {
     instructions: "",
     model: { provider: "fake", model: "main" },

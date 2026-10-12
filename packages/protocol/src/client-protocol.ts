@@ -123,6 +123,7 @@ export const wireConversationSchema = z.strictObject({
   overrides: z.record(z.string(), jsonValueSchema),
   head: idSchema.nullable(),
   createdAt: z.number().int(),
+  lastUsedAt: z.number().int(),
   config: wireConversationConfigSchema,
 });
 export type WireConversation = z.infer<typeof wireConversationSchema>;
@@ -246,10 +247,10 @@ export const conversationGetRequest = defineRequest({
   result: wireConversationSchema.nullable(),
 });
 
-const conversationCursorSchema = z.strictObject({
-  createdAt: z.number().int(),
-  id: idSchema,
-});
+const conversationCursorSchema = z.union([
+  z.strictObject({ createdAt: z.number().int(), id: idSchema }),
+  z.strictObject({ lastUsedAt: z.number().int(), id: idSchema }),
+]);
 
 export const conversationListRequest = defineRequest({
   direction: "client-to-server",
@@ -257,6 +258,8 @@ export const conversationListRequest = defineRequest({
   params: z.strictObject({
     cursor: conversationCursorSchema.nullable(),
     limit: positiveInteger.max(MAX_CONVERSATION_PAGE_SIZE),
+    order: z.enum(["created", "lastUsed"]).default("created"),
+    filter: z.strictObject({ workspaceRoot: z.string().nullable() }).nullable().default(null),
   }),
   result: z.strictObject({
     conversations: z.array(wireConversationSchema),

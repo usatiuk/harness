@@ -69,7 +69,7 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-The current SQLite format is version 7. Fresh databases receive the complete
+The current SQLite format is version 8. Fresh databases receive the complete
 schema atomically. Version 3 receives an explicit additive upgrade for nullable
 request purpose/duration and indexed latest-agent, terminal-turn and turn-usage
 lookups. History and billing totals remain intact; unclassified purpose/timing cannot
@@ -79,7 +79,13 @@ receive context-checkpoint eligibility; historical billing totals remain intact,
 but their unclassified input counts cannot establish prompt size. New ordinary
 invocations default to eligible; native-search billing marks them ineligible.
 Versions 3–6 also receive a nullable conversation title; existing titles remain
-unset and history/accounting stay intact. Other versions and unversioned populated
+unset and history/accounting stay intact. Versions 3–7 then receive indexed
+`last_used_at` metadata, initially backfilled from creation time. Historic user-role
+messages also include plugin deliveries, so they cannot reliably establish
+accepted user-input recency. A synchronous store write advances this value before
+nonempty user input enters the inbox; failure rejects admission without starting
+a turn. Recent chat and folder-summary queries apply exclusion/filtering before
+bounded keyset pagination. Other versions and unversioned populated
 databases fail with compatible-upgrade
 guidance before persistent journal-mode changes. Regression checks compare original
 database bytes after rejection under exclusive ownership.

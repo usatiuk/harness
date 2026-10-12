@@ -27,6 +27,8 @@ import {
   appAuthLoginRequest,
   appAuthUrlNotification,
   appSettingsRequest,
+  appConversationProjectsRequest,
+  appConversationListRequest,
   type AppSettings,
 } from "@harness/server/client-protocol";
 import { DesktopTranscript } from "./transcript.ts";
@@ -41,6 +43,23 @@ export interface ConversationView {
   cursor: string | null;
 }
 
+type ConversationCursor = NonNullable<Awaited<ReturnType<HarnessClient["list"]>>["nextCursor"]>;
+type Project = { workspaceRoot: string; lastUsedAt: number };
+export interface SidebarPage<T, Cursor> {
+  rows: T[];
+  cursor: Cursor | null;
+  loading: boolean;
+  loaded: boolean;
+  error: string | null;
+}
+const emptyPage = <T, Cursor>(): SidebarPage<T, Cursor> => ({
+  rows: [],
+  cursor: null,
+  loading: false,
+  loaded: false,
+  error: null,
+});
+
 /** Presentation lifetime is application-wide; route unmounts do not detach roots. */
 export class DesktopSession {
   readonly client: HarnessClient;
@@ -51,9 +70,9 @@ export class DesktopSession {
   readonly loads = new Map<string, Promise<ConversationView>>();
   private readonly historyLoads = new Map<ConversationView, Promise<void>>();
   private readonly subscriptions = new Map<string, Array<() => void>>();
-  conversations: Conversation[] = [];
-  listLoaded = false;
-  listCursor: { createdAt: number; id: string } | null = null;
+  recents = emptyPage<Conversation, ConversationCursor>();
+  projects = emptyPage<Project, Project>();
+  readonly projectPages = new Map<string, SidebarPage<Conversation, ConversationCursor>>();
   settings: AppSettings | undefined;
   authUrl: string | undefined;
   authCode: string | null = null;
@@ -153,29 +172,110 @@ export class DesktopSession {
     this.authAttempt?.abort();
   }
   async list(more = false): Promise<void> {
-    const page = await this.client.list({
-      limit: 50,
-      ...(more && this.listCursor ? { cursor: this.listCursor } : {}),
-    });
-    const topLevel = await this.plugins.topLevel(
-      page.conversations.map((row) => row.id as ConversationId),
-    );
-    const rows = page.conversations
-      .filter((row) => topLevel.has(row.id as ConversationId))
-      .map(decodeConversation);
-    this.conversations = more
-      ? [
-          ...this.conversations,
-          ...rows.filter((row) => !this.conversations.some((current) => current.id === row.id)),
-        ]
-      : rows;
-    for (const { conversation } of this.views.values()) {
-      if (!this.conversations.some((row) => row.id === conversation.id))
-        this.conversations.unshift(conversation);
-    }
-    this.listCursor = page.nextCursor;
-    this.listLoaded = true;
+    if (!more) this.recents = emptyPage();
+    await this.loadConversations(this.recents, 20);
+  }
+
+  private async loadConversations(
+    page: SidebarPage<Conversation, ConversationCursor>,
+    count: number,
+    workspaceRoot?: string,
+  ): Promise<void> {
+    if (page.loading || (page.loaded && page.cursor === null)) return;
+    page.loading = true;
+    page.error = null;
     this.changed();
+    try {
+      const rows: Conversation[] = [];
+      let cursor = page.cursor;
+      let remaining = count;
+      do {
+        const limit = Math.min(100, remaining);
+        const result = await this.client.peer.request(appConversationListRequest, {
+          limit,
+          order: "lastUsed",
+          cursor,
+          filter: workspaceRoot === undefined ? null : { workspaceRoot },
+        });
+        rows.push(...result.conversations.map(decodeConversation));
+        cursor = result.nextCursor;
+        remaining -= limit;
+      } while (remaining > 0 && cursor !== null);
+      page.rows = [
+        ...page.rows,
+        ...rows.filter((row) => !page.rows.some((previous) => previous.id === row.id)),
+      ];
+      page.cursor = cursor;
+      page.loaded = true;
+    } catch (error) {
+      page.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      page.loading = false;
+      this.changed();
+    }
+  }
+
+  async loadProjects(more = false, count = 50): Promise<void> {
+    if (!more) this.projects = emptyPage();
+    const page = this.projects;
+    if (page.loading || (page.loaded && page.cursor === null)) return;
+    page.loading = true;
+    page.error = null;
+    this.changed();
+    try {
+      const rows: Project[] = [];
+      let cursor = page.cursor;
+      do {
+        const result = await this.client.peer.request(appConversationProjectsRequest, {
+          limit: Math.min(100, count - rows.length),
+          cursor,
+        });
+        rows.push(...result.projects);
+        cursor = result.nextCursor;
+      } while (rows.length < count && cursor !== null);
+      page.rows = [
+        ...page.rows,
+        ...rows.filter(
+          (row) => !page.rows.some((previous) => previous.workspaceRoot === row.workspaceRoot),
+        ),
+      ];
+      page.cursor = cursor;
+      page.loaded = true;
+    } catch (error) {
+      page.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      page.loading = false;
+      this.changed();
+    }
+  }
+
+  async loadProject(workspaceRoot: string, more = false): Promise<void> {
+    let page = this.projectPages.get(workspaceRoot);
+    if (page?.loading) return;
+    if (!page || !more) {
+      page = emptyPage();
+      this.projectPages.set(workspaceRoot, page);
+    }
+    await this.loadConversations(page, 5, workspaceRoot);
+  }
+
+  async refreshSidebar(): Promise<void> {
+    const loaded = [...this.projectPages].map(
+      ([root, page]) => [root, Math.max(5, page.rows.length)] as const,
+    );
+    const recentCount = Math.max(20, this.recents.rows.length);
+    const projectCount = Math.max(50, this.projects.rows.length);
+    this.recents = emptyPage();
+    this.projectPages.clear();
+    await Promise.all([
+      this.loadConversations(this.recents, recentCount),
+      this.loadProjects(false, projectCount),
+      ...loaded.map(async ([root, count]) => {
+        const page = emptyPage<Conversation, ConversationCursor>();
+        this.projectPages.set(root, page);
+        await this.loadConversations(page, count, root);
+      }),
+    ]);
   }
 
   load(raw: string): Promise<ConversationView> {
@@ -230,7 +330,7 @@ export class DesktopSession {
         this.domain.subscribe(id, (event) => {
           if (isKernelEvent(event) && event.type === "title.changed") {
             view.conversation = { ...view.conversation, title: event.title };
-            this.conversations = this.conversations.map((row) =>
+            this.recents.rows = this.recents.rows.map((row) =>
               row.id === id ? { ...row, title: event.title } : row,
             );
           }
@@ -348,8 +448,7 @@ export class DesktopSession {
       plugins: { sandbox: { backend: sandbox } },
     };
     const conversation = decodeConversation(await this.client.create({ cwd, overrides }));
-    this.conversations.unshift(conversation);
-    this.changed();
+    await this.refreshSidebar();
     return conversation.id;
   }
 }

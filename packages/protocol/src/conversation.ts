@@ -41,6 +41,8 @@ export interface ConversationRecord {
   /** Saved display title; null until the first user message. */
   title: string | null;
   createdAt: number;
+  /** Creation time until the latest accepted nonempty user input. */
+  lastUsedAt: number;
 }
 
 /**

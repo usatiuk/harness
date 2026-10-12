@@ -5,6 +5,9 @@ import type {
   Conversation,
   ConversationId,
   ConversationPageCursor,
+  ConversationListOptions,
+  ConversationProject,
+  ConversationProjectCursor,
   ConversationRecord,
   ConversationRunner,
   DeliveryIntent,
@@ -383,8 +386,17 @@ export class HarnessService implements ConversationRunner {
   listConversationPage(
     limit: number,
     before?: ConversationPageCursor,
+    options?: ConversationListOptions,
   ): Promise<ConversationRecord[]> {
-    return this.#store.listConversationPage(limit, before);
+    return this.#store.listConversationPage(limit, before, options);
+  }
+
+  listConversationProjects(
+    limit: number,
+    before?: ConversationProjectCursor,
+    excludedState?: { plugin: string; key: string },
+  ): Promise<ConversationProject[]> {
+    return this.#store.listConversationProjects(limit, before, excludedState);
   }
 
   getItem(conversationId: ConversationId, itemId: ItemId): Promise<Item | undefined> {

@@ -26,6 +26,7 @@ interface ConversationsTable {
   head: string | null;
   title: string | null;
   created_at: number;
+  last_used_at: number;
 }
 
 interface TurnsTable {
@@ -104,8 +105,11 @@ CREATE TABLE conversations (
   overrides TEXT NOT NULL DEFAULT '{}',
   head TEXT REFERENCES items(id),
   title TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL
 );
+CREATE INDEX conversations_recent ON conversations(last_used_at DESC, id DESC);
+CREATE INDEX conversations_workspace_recent ON conversations(workspace_root, last_used_at DESC, id DESC);
 
 CREATE TABLE turns (
   id TEXT PRIMARY KEY,
@@ -182,7 +186,7 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-export const STORE_SCHEMA_VERSION = 7;
+export const STORE_SCHEMA_VERSION = 8;
 
 /** Fresh schema or explicit additive v3–v6 upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
@@ -213,6 +217,13 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
     }
     if (version === 6) {
       db.exec("ALTER TABLE conversations ADD COLUMN title TEXT;");
+      version = 7;
+    }
+    if (version === 7) {
+      db.exec(`ALTER TABLE conversations ADD COLUMN last_used_at INTEGER NOT NULL DEFAULT 0;
+        UPDATE conversations SET last_used_at = created_at;
+        CREATE INDEX conversations_recent ON conversations(last_used_at DESC, id DESC);
+        CREATE INDEX conversations_workspace_recent ON conversations(workspace_root, last_used_at DESC, id DESC);`);
       db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }

@@ -46,6 +46,7 @@ import { RpcServer } from "./rpc-server.ts";
 import { HarnessRpcHost } from "./rpc-host.ts";
 import {
   projectConversation,
+  projectConversationPage,
   projectConversationConfig,
   projectItem,
   projectModelInfo,
@@ -242,27 +243,14 @@ export class HarnessRpcSession {
       return conversation === undefined ? null : projectConversation(conversation);
     });
 
-    this.onRequest(conversationListRequest, async ({ cursor, limit }) => {
-      const records = await this.#service.listConversationPage(
+    this.onRequest(conversationListRequest, ({ cursor, limit, order, filter }) =>
+      projectConversationPage(
+        this.#service,
         limit,
-        cursor === null
-          ? undefined
-          : { createdAt: cursor.createdAt, id: cursor.id as ConversationId },
-      );
-      const conversations = [];
-      for (const record of records) {
-        const conversation = await this.#service.getConversation(record.id);
-        if (conversation !== undefined) conversations.push(projectConversation(conversation));
-      }
-      const last = records.at(-1);
-      return {
-        conversations,
-        nextCursor:
-          records.length < limit || last === undefined
-            ? null
-            : { createdAt: last.createdAt, id: last.id },
-      };
-    });
+        cursor === null ? undefined : { ...cursor, id: cursor.id as ConversationId },
+        { order, ...(filter ?? {}) },
+      ),
+    );
 
     this.onRequest(conversationAttachRequest, ({ conversationId }, signal) =>
       this.#attach(conversationId as ConversationId, signal),

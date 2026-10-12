@@ -7,6 +7,9 @@ import type {
   ByteRange,
   Clock,
   ConversationPageCursor,
+  ConversationListOptions,
+  ConversationProject,
+  ConversationProjectCursor,
   ConversationId,
   ConversationOverrides,
   ConversationRecord,
@@ -109,13 +112,15 @@ export class SqliteStore implements Store {
   }
 
   async createConversation(input: NewConversationRecord): Promise<ConversationRecord> {
+    const createdAt = this.clock.now();
     const record: ConversationRecord = {
       id: this.ids.conversationId(),
       workspaceRoot: input.workspaceRoot,
       overrides: input.overrides,
       head: null,
       title: null,
-      createdAt: this.clock.now(),
+      createdAt,
+      lastUsedAt: createdAt,
     };
     await this.#k
       .insertInto("conversations")
@@ -126,6 +131,7 @@ export class SqliteStore implements Store {
         head: null,
         title: null,
         created_at: record.createdAt,
+        last_used_at: record.lastUsedAt,
       })
       .execute();
     return record;
@@ -185,23 +191,80 @@ export class SqliteStore implements Store {
   async listConversationPage(
     limit: number,
     before?: ConversationPageCursor,
+    options: ConversationListOptions = {},
   ): Promise<ConversationRecord[]> {
     if (!Number.isInteger(limit) || limit <= 0) throw new Error("limit must be a positive integer");
+    const recent = options.order === "lastUsed";
+    if (before && recent !== "lastUsedAt" in before) throw new Error("cursor order mismatch");
+    const column = recent ? "last_used_at" : "created_at";
     let query = this.#k.selectFrom("conversations").selectAll();
-    if (before !== undefined) {
+    if (options.excludedState) {
+      const { plugin, key } = options.excludedState;
+      query = query.where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom("plugin_state")
+              .select("conversation_id")
+              .whereRef("plugin_state.conversation_id", "=", "conversations.id")
+              .where("plugin", "=", plugin)
+              .where("key", "=", key),
+          ),
+        ),
+      );
+    }
+    if (options.workspaceRoot !== undefined)
+      query = query.where(
+        "workspace_root",
+        options.workspaceRoot === null ? "is" : "=",
+        options.workspaceRoot,
+      );
+    if (before) {
+      const cutoff = "lastUsedAt" in before ? before.lastUsedAt : before.createdAt;
       query = query.where((eb) =>
         eb.or([
-          eb("created_at", "<", before.createdAt),
-          eb.and([eb("created_at", "=", before.createdAt), eb("id", "<", before.id)]),
+          eb(column, "<", cutoff),
+          eb.and([eb(column, "=", cutoff), eb("id", "<", before.id)]),
         ]),
       );
     }
-    const rows = await query
-      .orderBy("created_at", "desc")
-      .orderBy("id", "desc")
-      .limit(limit)
-      .execute();
-    return rows.map(rowToRecord);
+    return (await query.orderBy(column, "desc").orderBy("id", "desc").limit(limit).execute()).map(
+      rowToRecord,
+    );
+  }
+
+  recordUserInput(id: ConversationId): number {
+    const lastUsedAt = this.clock.now();
+    const result = this.#db
+      .prepare("UPDATE conversations SET last_used_at = ? WHERE id = ?")
+      .run(lastUsedAt, id);
+    if (result.changes === 0) throw new Error(`unknown conversation: ${id}`);
+    return lastUsedAt;
+  }
+
+  async listConversationProjects(
+    limit: number,
+    before?: ConversationProjectCursor,
+    excludedState?: { plugin: string; key: string },
+  ): Promise<ConversationProject[]> {
+    const query = `SELECT workspace_root AS workspaceRoot, MAX(last_used_at) AS lastUsedAt
+      FROM conversations AS c WHERE workspace_root IS NOT NULL
+      AND (? IS NULL OR NOT EXISTS (SELECT 1 FROM plugin_state AS p WHERE p.conversation_id = c.id AND p.plugin = ? AND p.key = ?))
+      GROUP BY workspace_root
+      HAVING ? IS NULL OR MAX(last_used_at) < ? OR (MAX(last_used_at) = ? AND workspace_root < ?)
+      ORDER BY lastUsedAt DESC, workspace_root DESC LIMIT ?`;
+    return this.#db
+      .prepare(query)
+      .all(
+        excludedState?.plugin ?? null,
+        excludedState?.plugin ?? null,
+        excludedState?.key ?? null,
+        before?.lastUsedAt ?? null,
+        before?.lastUsedAt ?? null,
+        before?.lastUsedAt ?? null,
+        before?.workspaceRoot ?? null,
+        limit,
+      ) as ConversationProject[];
   }
 
   // Atomic read-then-write of seq/parent + head. Native IMMEDIATE txn (Kysely only issues
@@ -670,6 +733,7 @@ function rowToRecord(row: Database["conversations"]): ConversationRecord {
     overrides: JSON.parse(row.overrides) as ConversationOverrides,
     head: row.head as ItemId | null,
     createdAt: row.created_at,
+    lastUsedAt: row.last_used_at,
   };
 }
 

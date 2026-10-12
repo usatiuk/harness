@@ -1,6 +1,9 @@
 import type {
   Clock,
   ConversationPageCursor,
+  ConversationListOptions,
+  ConversationProject,
+  ConversationProjectCursor,
   ContextBuild,
   ConversationId,
   ConversationOverrides,
@@ -47,13 +50,15 @@ export class InMemoryStore implements Store {
   ) {}
 
   async createConversation(input: NewConversationRecord): Promise<ConversationRecord> {
+    const createdAt = this.clock.now();
     const record: ConversationRecord = {
       id: this.ids.conversationId(),
       workspaceRoot: input.workspaceRoot,
       overrides: input.overrides,
       head: null,
       title: null,
-      createdAt: this.clock.now(),
+      createdAt,
+      lastUsedAt: createdAt,
     };
     this.#conversations.set(record.id, record);
     this.#items.set(record.id, []);
@@ -104,14 +109,73 @@ export class InMemoryStore implements Store {
   async listConversationPage(
     limit: number,
     before?: ConversationPageCursor,
+    options: ConversationListOptions = {},
   ): Promise<ConversationRecord[]> {
     if (!Number.isInteger(limit) || limit <= 0) throw new Error("limit must be a positive integer");
-    return this.#sortedConversations()
+    const recent = options.order === "lastUsed";
+    if (before && recent !== "lastUsedAt" in before) throw new Error("cursor order mismatch");
+    const value = (record: ConversationRecord) => (recent ? record.lastUsedAt : record.createdAt);
+    const cutoff = before
+      ? "lastUsedAt" in before
+        ? before.lastUsedAt
+        : before.createdAt
+      : undefined;
+    return [...this.#conversations.values()]
       .filter(
         (record) =>
-          before === undefined ||
-          record.createdAt < before.createdAt ||
-          (record.createdAt === before.createdAt && record.id < before.id),
+          (options.workspaceRoot === undefined || record.workspaceRoot === options.workspaceRoot) &&
+          (!options.excludedState ||
+            !this.#pluginState.has(
+              pluginStateKey(options.excludedState.plugin, record.id, options.excludedState.key),
+            )) &&
+          (before === undefined ||
+            value(record) < cutoff! ||
+            (value(record) === cutoff && record.id < before.id)),
+      )
+      .sort((a, b) => value(b) - value(a) || b.id.localeCompare(a.id))
+      .slice(0, limit);
+  }
+
+  recordUserInput(id: ConversationId): number {
+    const record = this.#conversations.get(id);
+    if (!record) throw new Error(`unknown conversation: ${id}`);
+    const lastUsedAt = this.clock.now();
+    this.#conversations.set(id, { ...record, lastUsedAt });
+    return lastUsedAt;
+  }
+
+  async listConversationProjects(
+    limit: number,
+    before?: ConversationProjectCursor,
+    excludedState?: { plugin: string; key: string },
+  ): Promise<ConversationProject[]> {
+    const groups = new Map<string, number>();
+    for (const record of this.#conversations.values()) {
+      if (
+        record.workspaceRoot === null ||
+        (excludedState &&
+          this.#pluginState.has(pluginStateKey(excludedState.plugin, record.id, excludedState.key)))
+      )
+        continue;
+      groups.set(
+        record.workspaceRoot,
+        Math.max(groups.get(record.workspaceRoot) ?? -Infinity, record.lastUsedAt),
+      );
+    }
+    return [...groups]
+      .map(([workspaceRoot, lastUsedAt]) => ({ workspaceRoot, lastUsedAt }))
+      .filter(
+        (project) =>
+          !before ||
+          project.lastUsedAt < before.lastUsedAt ||
+          (project.lastUsedAt === before.lastUsedAt &&
+            Buffer.compare(Buffer.from(project.workspaceRoot), Buffer.from(before.workspaceRoot)) <
+              0),
+      )
+      .sort(
+        (a, b) =>
+          b.lastUsedAt - a.lastUsedAt ||
+          Buffer.compare(Buffer.from(b.workspaceRoot), Buffer.from(a.workspaceRoot)),
       )
       .slice(0, limit);
   }

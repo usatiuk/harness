@@ -23,10 +23,19 @@ export interface ByteRange {
   length: number;
 }
 
-export interface ConversationPageCursor {
-  createdAt: number;
-  id: ConversationId;
+export type ConversationPageCursor =
+  { createdAt: number; id: ConversationId } | { lastUsedAt: number; id: ConversationId };
+
+export interface ConversationListOptions {
+  order?: "created" | "lastUsed";
+  workspaceRoot?: string | null;
+  excludedState?: { plugin: string; key: string };
 }
+export interface ConversationProject {
+  workspaceRoot: string;
+  lastUsedAt: number;
+}
+export type ConversationProjectCursor = ConversationProject;
 
 /**
  * Persistence boundary. The item log is the only durable state. The store deals in
@@ -59,7 +68,16 @@ export interface Store {
   listConversationPage(
     limit: number,
     before?: ConversationPageCursor,
+    options?: ConversationListOptions,
   ): Promise<ConversationRecord[]>;
+  /** Commit synchronously before inbox acceptance, so write failure cannot reject accepted input. */
+  recordUserInput(id: ConversationId): number;
+  /** Folder groups, derived from conversation metadata; excludes a composition-owned mark. */
+  listConversationProjects(
+    limit: number,
+    before?: ConversationProjectCursor,
+    excludedState?: { plugin: string; key: string },
+  ): Promise<ConversationProject[]>;
 
   /**
    * Append-only. Assigns `seq`/`createdAt`, links `parent` to the current `head`,

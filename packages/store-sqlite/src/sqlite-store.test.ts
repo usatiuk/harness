@@ -66,6 +66,59 @@ describe("SqliteStore (durable-only)", () => {
     reopened.close();
   });
 
+  it("upgrades v7 recency from creation time and preserves it and titles across restart", async () => {
+    const path = tempDb();
+    const before = new SqliteStore(path, counterIdGenerator(), fixedClock(100));
+    const conversation = await before.createConversation(record());
+    await before.updateConversationTitle(conversation.id, "Existing title", null);
+    before.close();
+    const previous = new BetterSqlite3(path);
+    previous.exec(
+      "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at;",
+    );
+    previous.pragma("user_version = 7");
+    previous.close();
+    const upgraded = new SqliteStore(path, counterIdGenerator(), fixedClock(200));
+    expect(await upgraded.getConversation(conversation.id)).toMatchObject({
+      title: "Existing title",
+      lastUsedAt: conversation.createdAt,
+    });
+    const timestamp = upgraded.recordUserInput(conversation.id);
+    upgraded.close();
+    const restarted = new SqliteStore(path);
+    try {
+      expect(await restarted.getConversation(conversation.id)).toMatchObject({
+        title: "Existing title",
+        lastUsedAt: timestamp,
+      });
+    } finally {
+      restarted.close();
+    }
+  });
+
+  it("paginates tied folder paths in SQLite binary order", async () => {
+    const store = new SqliteStore(":memory:", counterIdGenerator(), { now: () => 1 });
+    try {
+      for (const workspaceRoot of ["/a", "/_a", "/A", "/\ue000", "/😀"])
+        await store.createConversation({ ...record(), workspaceRoot });
+      const seen: string[] = [];
+      let cursor: { workspaceRoot: string; lastUsedAt: number } | undefined;
+      do {
+        const page = await store.listConversationProjects(1, cursor);
+        if (!page.length) break;
+        seen.push(page[0]!.workspaceRoot);
+        cursor = page[0];
+      } while (cursor !== undefined);
+      expect(seen).toEqual(
+        ["/a", "/_a", "/A", "/\ue000", "/😀"].sort((a, b) =>
+          Buffer.compare(Buffer.from(b), Buffer.from(a)),
+        ),
+      );
+    } finally {
+      store.close();
+    }
+  });
+
   it.each([0, 2, 999])(
     "rejects an unsupported database format %i without rewriting it",
     (version) => {
@@ -157,7 +210,9 @@ describe("SqliteStore (durable-only)", () => {
             ? "ALTER TABLE model_usage DROP COLUMN input_tokens_are_context;"
             : "SELECT 1;",
       );
-      previous.exec("ALTER TABLE conversations DROP COLUMN title;");
+      previous.exec(
+        "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN title;",
+      );
       previous.pragma(`user_version = ${version}`);
       previous.close();
       const after = new SqliteStore(path);

@@ -159,6 +159,11 @@ export class Engine {
       if (input.source.kind === "plugin") return;
       throw new Error("cannot deliver input during conversation deactivation");
     }
+    if (
+      input.source.kind === "user" &&
+      input.content.some((block) => block.type !== "text" || block.text.length > 0)
+    )
+      this.store.recordUserInput(conversationId);
     applyDelivery(runtime, { input, intent });
     this.#emitInbox(runtime);
     this.#ensureRunning(runtime);

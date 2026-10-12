@@ -94,6 +94,7 @@ export const decodeConversation = (conversation: WireConversation): Conversation
   overrides: conversation.overrides,
   head: conversation.head as ItemId | null,
   createdAt: conversation.createdAt,
+  lastUsedAt: conversation.lastUsedAt,
   config: decodeConversationConfig(conversation.config),
 });
 
@@ -289,7 +290,7 @@ export class HarnessDomainClient implements HarnessClientService {
 
   async listConversations(): Promise<Conversation[]> {
     const conversations: Conversation[] = [];
-    let cursor: { createdAt: number; id: string } | undefined;
+    let cursor: { createdAt: number; id: string } | { lastUsedAt: number; id: string } | undefined;
     for (;;) {
       const page = await this.#client.list({
         ...(cursor === undefined ? {} : { cursor }),

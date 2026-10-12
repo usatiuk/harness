@@ -1,10 +1,15 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
 import { buildServerHarness, buildServerComposition } from "./index.ts";
-import { appSettingsRequest, appSettingsUpdateRequest } from "./client-protocol.ts";
+import {
+  appSettingsRequest,
+  appSettingsUpdateRequest,
+  appConversationListRequest,
+  appConversationProjectsRequest,
+} from "./client-protocol.ts";
 import { readGlobalSettings, updateGlobalSettings } from "@harness/config";
 
 it("saves creation defaults without changing unrelated global settings", async () => {
@@ -206,6 +211,109 @@ it("shares composition shutdown drainage and refuses new connections while stopp
     release();
     await composition.close();
     vi.unstubAllEnvs();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("pages recent root chats and every folder through RPC, preserving loaded counts on refresh", async () => {
+  const { HarnessService, HarnessRpcHost, HarnessRpcSession } = await import("@harness/service");
+  const { InMemoryStore } = await import("@harness/store");
+  const { FakeProvider, counterIdGenerator, fixedClock, textStep } =
+    await import("@harness/testkit");
+  const { sandboxPlugin } = await import("@harness/sandbox");
+  const { DesktopSession } = await import("../../desktop/src/session.ts");
+  const { registerAppApi } = await import("./app-api.ts");
+  const home = await mkdtemp(join(tmpdir(), "harness-sidebar-rpc-"));
+  const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+  const provider = new FakeProvider([textStep("done")]);
+  vi.spyOn(provider, "listModels").mockReturnValue([{ provider: "fake", model: "fake-1" }]);
+  const service = new HarnessService({
+    store,
+    home,
+    defaults: { model: { provider: "fake", model: "fake-1" } },
+    plugins: [{ id: "fake", providers: () => [provider] }, sandboxPlugin],
+  });
+  const host = new HarnessRpcHost(service);
+  const pair = createInProcessMessageConnectionPair();
+  const server = new HarnessRpcSession({
+    host,
+    connection: pair.right,
+    server: { name: "test", version: "1" },
+  });
+  const api = registerAppApi(server, service, {
+    signingIn: false,
+    settingsTail: Promise.resolve(),
+    active: { kind: null, entries: new Map(), statuses: new Map() },
+  });
+  const desktop = new DesktopSession(pair.left);
+  server.start();
+  try {
+    const folders = Array.from({ length: 66 }, (_, index) => join(home, `folder-${index}`));
+    for (const folder of folders) await mkdir(folder);
+    const roots: import("@harness/protocol").ConversationRecord[] = [];
+    for (const workspaceRoot of folders)
+      roots.push(await store.createConversation({ workspaceRoot, overrides: {} }));
+    for (let index = 0; index < 120; index++) {
+      const child = await store.createConversation({ workspaceRoot: folders[0]!, overrides: {} });
+      await store.putPluginState("subagents", child.id, "spawn", { parent: roots[0]!.id });
+    }
+    const childOnly = await store.createConversation({
+      workspaceRoot: join(home, "child-only"),
+      overrides: {},
+    });
+    await store.putPluginState("subagents", childOnly.id, "spawn", { parent: roots[0]!.id });
+    await desktop.start();
+    await desktop.refreshSidebar();
+    expect(desktop.recents.rows).toHaveLength(20);
+    expect(desktop.recents.rows.every((row) => roots.some((root) => root.id === row.id))).toBe(
+      true,
+    );
+    expect(desktop.projects.rows).toHaveLength(50);
+    await desktop.loadProjects(true);
+    expect(desktop.projects.rows).toHaveLength(66);
+    expect(desktop.projects.rows.some((row) => row.workspaceRoot.endsWith("child-only"))).toBe(
+      false,
+    );
+    await desktop.list(true);
+    await desktop.list(true);
+    expect(desktop.recents.rows).toHaveLength(60);
+    const old = roots[0]!;
+    const filtered = await desktop.client.peer.request(appConversationListRequest, {
+      limit: 5,
+      cursor: null,
+      order: "lastUsed",
+      filter: { workspaceRoot: folders[0]! },
+    });
+    expect(filtered.conversations.map((row) => row.id)).toEqual([old.id]);
+    await desktop.load(old.id);
+    await desktop.client.deliver(old.id, "hello", "send");
+    await service.whenIdle(old.id);
+    await desktop.refreshSidebar();
+    expect(desktop.recents.rows[0]?.id).toBe(old.id);
+    expect(desktop.recents.rows).toHaveLength(60);
+    expect(desktop.projects.rows).toHaveLength(66);
+    expect(desktop.projects.rows[0]?.workspaceRoot).toBe(folders[0]);
+    const unchanged = (await desktop.client.get(old.id))!.lastUsedAt;
+    await desktop.client.deliver(old.id, "", "interrupt");
+    expect((await desktop.client.get(old.id))!.lastUsedAt).toBe(unchanged);
+    const page = await desktop.client.peer.request(appConversationProjectsRequest, {
+      limit: 1,
+      cursor: null,
+    });
+    expect(page.projects[0]?.workspaceRoot).toBe(folders[0]);
+    const next = await desktop.client.peer.request(appConversationProjectsRequest, {
+      limit: 100,
+      cursor: page.nextCursor,
+    });
+    expect(next.projects).toHaveLength(65);
+    const id = await desktop.create(folders[1]!, "fake\u0000fake-1", "local", "direct", "");
+    expect(desktop.recents.rows[0]?.id).toBe(id);
+    expect(desktop.projects.rows[0]?.workspaceRoot).toBe(folders[1]);
+  } finally {
+    desktop.client.closeConnection();
+    await api.close();
+    await server.shutdown();
+    await host.shutdown();
     await rm(home, { recursive: true, force: true });
   }
 });

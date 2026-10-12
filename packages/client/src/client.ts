@@ -164,10 +164,19 @@ export class HarnessClient {
     return this.peer.request(conversationGetRequest, { conversationId });
   }
 
-  list(options: { cursor?: { createdAt: number; id: string }; limit?: number } = {}) {
+  list(
+    options: {
+      cursor?: { createdAt: number; id: string } | { lastUsedAt: number; id: string };
+      limit?: number;
+      order?: "created" | "lastUsed";
+      workspaceRoot?: string | null;
+    } = {},
+  ) {
     return this.peer.request(conversationListRequest, {
       cursor: options.cursor ?? null,
       limit: options.limit ?? 50,
+      order: options.order ?? "created",
+      filter: options.workspaceRoot === undefined ? null : { workspaceRoot: options.workspaceRoot },
     });
   }
 

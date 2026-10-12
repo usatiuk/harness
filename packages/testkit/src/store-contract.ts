@@ -37,6 +37,51 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect((await store.listConversations())[0]?.title).toBe("My title");
     });
 
+    it("orders accepted-input recency before paging and filters folders without promoting child activity", async () => {
+      const store = makeStore();
+      const a = await store.createConversation({ ...sampleRecord(), workspaceRoot: "/a" });
+      const b = await store.createConversation({ ...sampleRecord(), workspaceRoot: "/b" });
+      const child = await store.createConversation({
+        ...sampleRecord(),
+        workspaceRoot: "/child-only",
+      });
+      await store.putPluginState("subagents", child.id, "spawn", { parent: a.id });
+      const lastUsedAt = store.recordUserInput(a.id);
+      expect((await store.getConversation(a.id))?.lastUsedAt).toBe(lastUsedAt);
+      const options = {
+        order: "lastUsed" as const,
+        excludedState: { plugin: "subagents", key: "spawn" },
+      };
+      const first = await store.listConversationPage(1, undefined, options);
+      expect(first.map((row) => row.id)).toEqual([a.id]);
+      expect(
+        (
+          await store.listConversationPage(
+            1,
+            { lastUsedAt: first[0]!.lastUsedAt, id: a.id },
+            options,
+          )
+        ).map((row) => row.id),
+      ).toEqual([b.id]);
+      expect(
+        (await store.listConversationPage(5, undefined, { ...options, workspaceRoot: "/a" })).map(
+          (row) => row.id,
+        ),
+      ).toEqual([a.id]);
+      expect((await store.listConversationPage(5)).map((row) => row.id)).toEqual([
+        child.id,
+        b.id,
+        a.id,
+      ]);
+      const projects = await store.listConversationProjects(1, undefined, options.excludedState);
+      expect(projects.map((row) => row.workspaceRoot)).toEqual(["/a"]);
+      expect(
+        (await store.listConversationProjects(5, projects[0], options.excludedState)).map(
+          (row) => row.workspaceRoot,
+        ),
+      ).toEqual(["/b"]);
+    });
+
     it("assigns monotonic per-conversation seq on append", async () => {
       const store = makeStore();
       const conv = await store.createConversation(sampleRecord());
