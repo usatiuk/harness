@@ -181,4 +181,11 @@ dependency graph. The full check passes (1,327 tests, 38 existing skips), and th
 focused browser cases pass for reading/fade stability, support/composer growth and
 compact conversation styling. The updated screenshot was inspected. The final
 8px/28px revision passes the same three focused browser cases. The user resumed
-commit/push/release after the preview; publication is pending.
+commit/push/release after the preview.
+
+The cleanup is committed as `10e5e84`, with workflow version bump `aa5595f`.
+Release run [38312067506](https://github.com/usatiuk/harness/actions/runs/38312067506)
+passes clean-install source checks, all three native platform builds, and artifact
+signature verification. [v0.1.12](https://github.com/usatiuk/harness/releases/tag/v0.1.12)
+is published with the shorter fade and WebKit defaults restored. The reported
+scrolling cause remains unresolved; no replacement workaround is shipped.

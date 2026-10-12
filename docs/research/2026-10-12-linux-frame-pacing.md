@@ -104,3 +104,8 @@ Cleanup validation: six native library/binary tests pass against the locked
 offline dependency graph. The full repository check passes with 1,327 tests and
 38 existing skips. No replacement rendering workaround or permanent tracing API
 was added. Only the evidence is retained in the repository.
+
+The removal is delivered in `10e5e84` and published in
+[v0.1.12](https://github.com/usatiuk/harness/releases/tag/v0.1.12). Its release
+workflow passes clean-install checks, Windows/Linux/macOS native builds and
+artifact signature verification. The remaining frame-pacing question stays open.
