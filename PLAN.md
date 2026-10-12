@@ -139,6 +139,13 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 
 ## Recent delivery
 
+The [global compaction threshold](docs/plans/context/2026-10-12-global-compaction-threshold.md)
+adds a positive input-token setting to GUI/TUI host defaults. Automatic uses 85%
+of the model input budget; configured values can lower it, with the existing
+output/headroom safety cap. Existing usage checkpoints, compaction strategy,
+and loaded-runtime caching remain unchanged. Full checks pass 1,316 tests
+(38 skipped), plus all 32 browser cases; release evidence is tracked in the plan.
+
 Desktop creation now saves model/preset, sandbox and tool interface to the selected
 host's global defaults. It reuses the settings API with partial updates and reads
 the saved tool mode on reopening. Full checks pass 1,298 tests (38 skipped) and

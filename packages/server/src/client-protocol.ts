@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineNotification, defineRequest } from "@harness/protocol";
+import { defineNotification, defineRequest, compactionThresholdSchema } from "@harness/protocol";
 
 const model = z.strictObject({
   provider: z.string().min(1),
@@ -25,6 +25,7 @@ const settings = z.strictObject({
   }),
   sandbox: z.enum(["local", "native", "docker"]),
   toolMode: z.enum(["direct", "hybrid", "code-only"]),
+  compactionThresholdTokens: compactionThresholdSchema.nullable(),
 });
 const providerSettingSchema = z.strictObject({
   key: z.string().min(1),
@@ -86,6 +87,9 @@ export const appSettingsUpdateRequest = defineRequest({
     ...(patch.autoApproval === undefined ? {} : { autoApproval: patch.autoApproval }),
     ...(patch.sandbox === undefined ? {} : { sandbox: patch.sandbox }),
     ...(patch.toolMode === undefined ? {} : { toolMode: patch.toolMode }),
+    ...(patch.compactionThresholdTokens === undefined
+      ? {}
+      : { compactionThresholdTokens: patch.compactionThresholdTokens }),
   })),
   result: z.null(),
 });

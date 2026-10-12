@@ -184,6 +184,7 @@ export function registerAppApi(
           : null,
         sandbox: sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).backend,
         toolMode: doc.tools?.mode ?? "direct",
+        compactionThresholdTokens: doc.compaction?.thresholdTokens ?? null,
       },
     };
   });
@@ -256,6 +257,16 @@ export function registerAppApi(
             tools: { ...doc.tools, mode: toolMode },
           }));
         if (changedPlugins.length) await service.refreshPluginDefaults(changedPlugins);
+        const thresholdTokens = settings.compactionThresholdTokens;
+        if (thresholdTokens !== undefined)
+          await updateGlobalSettings(defaultHome(), (doc) => {
+            if (thresholdTokens === null) {
+              const remaining = { ...doc };
+              delete remaining.compaction;
+              return remaining;
+            }
+            return { ...doc, compaction: { thresholdTokens } };
+          });
         return null;
       }),
     ),

@@ -53,6 +53,7 @@ export const projectConversationConfig = (
   config: Conversation["config"],
 ): WireConversationConfig => ({
   instructions: config.instructions,
+  compaction: config.compaction ?? null,
   model: {
     provider: config.model.provider,
     model: config.model.model,

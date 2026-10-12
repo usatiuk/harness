@@ -7,7 +7,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 6 },
+        "protocolVersion": { "type": "number", "const": 7 },
         "client": {
           "type": "object",
           "properties": {
@@ -37,7 +37,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 6 },
+        "protocolVersion": { "type": "number", "const": 7 },
         "server": {
           "type": "object",
           "properties": {
@@ -339,9 +339,27 @@
               "type": "object",
               "propertyNames": { "type": "string" },
               "additionalProperties": { "$ref": "#/$defs/__schema0" }
+            },
+            "compaction": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "thresholdTokens": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["thresholdTokens"],
+                  "additionalProperties": false
+                },
+                { "type": "null" }
+              ]
             }
           },
-          "required": ["instructions", "model", "tools", "plugins"],
+          "required": ["instructions", "model", "tools", "plugins", "compaction"],
           "additionalProperties": false
         }
       },
@@ -432,9 +450,27 @@
                   "type": "object",
                   "propertyNames": { "type": "string" },
                   "additionalProperties": { "$ref": "#/$defs/__schema0" }
+                },
+                "compaction": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "thresholdTokens": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["thresholdTokens"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
                 }
               },
-              "required": ["instructions", "model", "tools", "plugins"],
+              "required": ["instructions", "model", "tools", "plugins", "compaction"],
               "additionalProperties": false
             }
           },
@@ -551,9 +587,27 @@
                     "type": "object",
                     "propertyNames": { "type": "string" },
                     "additionalProperties": { "$ref": "#/$defs/__schema0" }
+                  },
+                  "compaction": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "thresholdTokens": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["thresholdTokens"],
+                        "additionalProperties": false
+                      },
+                      { "type": "null" }
+                    ]
                   }
                 },
-                "required": ["instructions", "model", "tools", "plugins"],
+                "required": ["instructions", "model", "tools", "plugins", "compaction"],
                 "additionalProperties": false
               }
             },
@@ -676,9 +730,27 @@
                   "type": "object",
                   "propertyNames": { "type": "string" },
                   "additionalProperties": { "$ref": "#/$defs/__schema0" }
+                },
+                "compaction": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "thresholdTokens": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["thresholdTokens"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
                 }
               },
-              "required": ["instructions", "model", "tools", "plugins"],
+              "required": ["instructions", "model", "tools", "plugins", "compaction"],
               "additionalProperties": false
             }
           },
@@ -748,9 +820,27 @@
                         "type": "object",
                         "propertyNames": { "type": "string" },
                         "additionalProperties": { "$ref": "#/$defs/__schema0" }
+                      },
+                      "compaction": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "thresholdTokens": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": ["thresholdTokens"],
+                            "additionalProperties": false
+                          },
+                          { "type": "null" }
+                        ]
                       }
                     },
-                    "required": ["instructions", "model", "tools", "plugins"],
+                    "required": ["instructions", "model", "tools", "plugins", "compaction"],
                     "additionalProperties": false
                   }
                 },
@@ -1108,9 +1198,27 @@
                           "type": "object",
                           "propertyNames": { "type": "string" },
                           "additionalProperties": { "$ref": "#/$defs/__schema0" }
+                        },
+                        "compaction": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "thresholdTokens": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": ["thresholdTokens"],
+                              "additionalProperties": false
+                            },
+                            { "type": "null" }
+                          ]
                         }
                       },
-                      "required": ["instructions", "model", "tools", "plugins"],
+                      "required": ["instructions", "model", "tools", "plugins", "compaction"],
                       "additionalProperties": false
                     }
                   },
@@ -1190,9 +1298,27 @@
                                 "type": "object",
                                 "propertyNames": { "type": "string" },
                                 "additionalProperties": { "$ref": "#/$defs/__schema0" }
+                              },
+                              "compaction": {
+                                "default": null,
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "thresholdTokens": {
+                                        "type": "integer",
+                                        "exclusiveMinimum": 0,
+                                        "maximum": 9007199254740991
+                                      }
+                                    },
+                                    "required": ["thresholdTokens"],
+                                    "additionalProperties": false
+                                  },
+                                  { "type": "null" }
+                                ]
                               }
                             },
-                            "required": ["instructions", "model", "tools", "plugins"],
+                            "required": ["instructions", "model", "tools", "plugins", "compaction"],
                             "additionalProperties": false
                           }
                         },
@@ -2400,8 +2526,7 @@
                             "createdAt",
                             "type",
                             "content",
-                            "role",
-                            "phase"
+                            "role"
                           ],
                           "additionalProperties": false
                         },
@@ -2445,8 +2570,7 @@
                             "createdAt",
                             "type",
                             "content",
-                            "role",
-                            "phase"
+                            "role"
                           ],
                           "additionalProperties": false
                         }
@@ -2568,8 +2692,7 @@
                         "type",
                         "callId",
                         "name",
-                        "args",
-                        "parentCallId"
+                        "args"
                       ],
                       "additionalProperties": false
                     },
@@ -2681,11 +2804,7 @@
                         "callId",
                         "content",
                         "status",
-                        "parentCallId",
-                        "annotations",
-                        "structured",
-                        "structuredRef",
-                        "full"
+                        "annotations"
                       ],
                       "additionalProperties": false
                     },
@@ -2834,7 +2953,7 @@
                   ]
                 }
               },
-              "required": ["type", "turnId", "text", "phase"],
+              "required": ["type", "turnId", "text"],
               "additionalProperties": false
             },
             {
@@ -2891,7 +3010,7 @@
                               "enum": ["direct", "hybrid", "code-only"]
                             }
                           },
-                          "required": ["allow", "mode"],
+                          "required": ["allow"],
                           "additionalProperties": false
                         },
                         { "type": "null" }
@@ -2901,6 +3020,24 @@
                       "type": "object",
                       "propertyNames": { "type": "string" },
                       "additionalProperties": { "$ref": "#/$defs/__schema0" }
+                    },
+                    "compaction": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "thresholdTokens": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": ["thresholdTokens"],
+                          "additionalProperties": false
+                        },
+                        { "type": "null" }
+                      ]
                     }
                   },
                   "required": ["instructions", "model", "tools", "plugins"],
@@ -3112,7 +3249,6 @@
                             "usage",
                             "incomplete",
                             "cost",
-                            "costIncomplete",
                             "agentOutputTokens",
                             "agentDurationMs"
                           ],
@@ -3126,7 +3262,6 @@
                     "usage",
                     "incomplete",
                     "cost",
-                    "costIncomplete",
                     "lastInputTokens",
                     "agentContext",
                     "lastTurn"
@@ -3293,7 +3428,7 @@
         },
         "ifIdle": { "default": false, "type": "boolean" }
       },
-      "required": ["instanceId", "ifIdle"],
+      "required": ["instanceId"],
       "additionalProperties": false
     },
     "management_stop_result": {
@@ -3720,9 +3855,24 @@
               "required": ["enabled", "model", "timeoutSeconds"],
               "additionalProperties": false
             },
-            "sandbox": { "type": "string", "enum": ["local", "native", "docker"] }
+            "sandbox": { "type": "string", "enum": ["local", "native", "docker"] },
+            "toolMode": { "type": "string", "enum": ["direct", "hybrid", "code-only"] },
+            "compactionThresholdTokens": {
+              "anyOf": [
+                { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+                { "type": "null" }
+              ]
+            }
           },
-          "required": ["model", "conversationTitleModel", "approval", "autoApproval", "sandbox"],
+          "required": [
+            "model",
+            "conversationTitleModel",
+            "approval",
+            "autoApproval",
+            "sandbox",
+            "toolMode",
+            "compactionThresholdTokens"
+          ],
           "additionalProperties": false
         },
         "providers": {
@@ -3904,7 +4054,7 @@
               "maximum": 2147483
             }
           },
-          "required": ["inWorkspace", "outOfWorkspace", "humanApprovalTimeoutSeconds"],
+          "required": ["inWorkspace", "outOfWorkspace"],
           "additionalProperties": false
         },
         "autoApproval": {
@@ -3933,12 +4083,18 @@
               "maximum": 2147483
             }
           },
-          "required": ["enabled", "model", "timeoutSeconds"],
+          "required": ["enabled", "model"],
           "additionalProperties": false
         },
-        "sandbox": { "type": "string", "enum": ["local", "native", "docker"] }
+        "sandbox": { "type": "string", "enum": ["local", "native", "docker"] },
+        "toolMode": { "type": "string", "enum": ["direct", "hybrid", "code-only"] },
+        "compactionThresholdTokens": {
+          "anyOf": [
+            { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+            { "type": "null" }
+          ]
+        }
       },
-      "required": ["model", "conversationTitleModel", "approval", "autoApproval", "sandbox"],
       "additionalProperties": false
     },
     "app_settings_update_result": {
@@ -4083,7 +4239,6 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": { "config": { "$ref": "#/$defs/__schema0" } },
-      "required": ["config"],
       "additionalProperties": false,
       "$defs": {
         "__schema0": {

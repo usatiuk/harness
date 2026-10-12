@@ -563,6 +563,31 @@ test("settings saves shared Ask human and its approval timeout through the route
     });
 });
 
+test("settings saves and clears the global compaction threshold", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  const threshold = page.getByRole("spinbutton", { name: "Compaction threshold (input tokens)" });
+  await expect(threshold).toHaveValue("");
+  await threshold.fill("1200");
+  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toMatchObject({ compactionThresholdTokens: 1200 });
+  await expect(
+    page.getByText(/Restart the server to apply compaction changes/).last(),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  await expect(threshold).toHaveValue("1200");
+  await threshold.fill("");
+  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toMatchObject({ compactionThresholdTokens: null });
+});
+
 test("settings refreshes its model when authoritative defaults change", async ({ page }) => {
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "Settings", exact: true }).click();

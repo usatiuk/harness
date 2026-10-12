@@ -94,6 +94,10 @@ host connection. Desktop has a structured MCP editor; TUI edits validated JSON
 and supplies separate credential/sign-in controls. Both show safe status and
 explicit restart requirements, without owning credentials or permission logic.
 The shared approval timeout is part of their existing host-defaults editor.
+Global compaction input-token thresholds use the same settings RPC: desktop
+Defaults provides a numeric field (blank means automatic), and TUI selected-host
+defaults expose `compactionThresholdTokens` (null means automatic). Save feedback
+explains that already-loaded conversations require a server restart.
 
 Project discovery and the global-root decision compare physical paths, including
 Windows short-name aliases and junctions. Existing ancestors establish identity

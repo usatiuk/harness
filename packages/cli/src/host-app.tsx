@@ -576,6 +576,9 @@ function HostSettings({ view, onError }: { view: TuiHostView; onError: (error: s
   return (
     <>
       <Text>{`Edit defaults JSON for ${view.host.label}:`}</Text>
+      <Text dimColor>
+        compactionThresholdTokens: positive input-token count; null uses automatic (85%).
+      </Text>
       <TextInput
         defaultValue={initial}
         onSubmit={(text) => {
@@ -584,7 +587,11 @@ function HostSettings({ view, onError }: { view: TuiHostView; onError: (error: s
             const settings = appSettingsUpdateRequest.params.parse(value);
             void peer
               .request(appSettingsUpdateRequest, settings)
-              .then(() => setNotice("Host defaults saved"))
+              .then(() =>
+                setNotice(
+                  "Host defaults saved. Restart the server to apply compaction changes to already-loaded conversations.",
+                ),
+              )
               .catch((cause: unknown) => onError(formatError(cause)));
           } catch (cause) {
             onError(formatError(cause));

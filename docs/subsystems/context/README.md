@@ -103,7 +103,7 @@ The shipped model strategy supports:
   request for cache shape, but tool choice is disabled and emitted tool calls are
   rejected. Adapters forward `toolChoice: "none"` to the provider's native API.
 - **Threshold compaction:** runs before an agent request when estimated input
-  reaches `contextWindow - maxOutputTokens - headroom`.
+  reaches the effective global threshold.
 - **Overflow recovery:** one context-overflow path may compact and retry the agent
   request once.
 
@@ -112,6 +112,20 @@ fold is appended first and calls then continue through ordinary dispatch. Manual
 compaction never continues the task.
 
 Display-only search hints are omitted from model and deterministic summaries.
+
+Global `compaction.thresholdTokens` accepts a positive integer input-token count;
+unset means automatic. The effective threshold is the smaller of 85% of the
+model input budget (rounded down) and the configured value, capped by
+`contextWindow - maxOutputTokens - headroom`. When the catalog omits
+`maxInputTokens`, the input budget is `contextWindow - maxOutputTokens`. Without
+context-window/output capacity metadata, proactive compaction remains unavailable;
+manual compaction and overflow recovery retain their existing behavior.
+
+Desktop Settings and TUI selected-host defaults expose the same nullable scalar
+through `app.settings`. Clearing it removes the global setting. It cannot be set
+by projects, profiles, or conversation overrides. New conversations resolve it
+immediately; restart the server to apply changes to already-loaded conversations.
+No compaction strategy interface or live-refresh machinery is added.
 
 Capacity uses the latest compatible single-prompt usage checkpoint plus a local
 estimate for appended items. Stable instructions, tools and provider options must

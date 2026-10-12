@@ -98,6 +98,7 @@ export const wireModelConfigSchema = z.strictObject({
   preset: z.string().nullable(),
 });
 
+export const compactionThresholdSchema = z.number().int().positive();
 export const wireConversationConfigSchema = z.strictObject({
   instructions: z.string(),
   model: wireModelConfigSchema,
@@ -108,6 +109,10 @@ export const wireConversationConfigSchema = z.strictObject({
     })
     .nullable(),
   plugins: z.record(z.string(), jsonValueSchema),
+  compaction: z
+    .strictObject({ thresholdTokens: compactionThresholdSchema })
+    .nullable()
+    .default(null),
 });
 export type WireConversationConfig = z.infer<typeof wireConversationConfigSchema>;
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { jsonValueSchema } from "@harness/protocol";
+import { jsonValueSchema, compactionThresholdSchema } from "@harness/protocol";
 
 /**
  * The on-disk settings document — kernel keys plus an opaque per-plugin namespace
@@ -45,6 +45,7 @@ export const projectDocSchema = z.strictObject({
 
 export const settingsDocSchema = z.strictObject({
   ...projectDocSchema.shape,
+  compaction: z.strictObject({ thresholdTokens: compactionThresholdSchema }).optional(),
   auth: authSchema.optional(),
   providers: z
     .record(

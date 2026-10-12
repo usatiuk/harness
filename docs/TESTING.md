@@ -32,6 +32,18 @@ backends; never use `.harness-dev/source` as a test target. Native credential te
 must also isolate platform storage (including APPDATA/LOCALAPPDATA on Windows),
 not merely the server home. Do not seed or restore fixture accounts in dev storage.
 
+## Global compaction threshold
+
+The engine suite covers automatic/configured thresholds, output/headroom caps,
+missing max-input and capacity metadata, cached-input checkpoints, appended large
+tool results, and changed model/provider options. Configuration tests reject
+project-level compaction settings; protocol tests reject invalid token counts.
+Real application RPC verifies global persistence, new-conversation resolution and
+clearing without changing unrelated settings. Chromium checks the numeric Defaults
+field and clearing; Ink drives the production selected-host JSON editor against
+an isolated real server and verifies persisted values through RPC. The full check
+passes 1,316 tests (38 skipped), and all 32 browser cases pass.
+
 ## Compact tools and live activities
 
 Creation defaults are checked through the production browser form and real

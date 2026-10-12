@@ -36,6 +36,18 @@ afterEach(async () => {
 const model = { provider: "p", model: "m" };
 
 describe("resolveSettings cascade", () => {
+  it("resolves compaction only from global settings", async () => {
+    const home = await tmp();
+    const root = await tmp();
+    await writeJson(join(home, "settings.json"), { model, compaction: { thresholdTokens: 1200 } });
+    expect((await resolveSettings({ home, cwd: root, schemas })).compaction).toEqual({
+      thresholdTokens: 1200,
+    });
+    await writeJson(join(root, ".harness", "settings.json"), {
+      compaction: { thresholdTokens: 1000 },
+    });
+    await expect(resolveSettings({ home, cwd: root, schemas })).rejects.toThrow(/compaction/);
+  });
   it("layers global < project-shared < project-local", async () => {
     const home = await tmp();
     const root = await tmp();

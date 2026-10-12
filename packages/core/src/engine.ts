@@ -1690,7 +1690,13 @@ export class Engine {
       COMPACTION_HEADROOM_TOKENS,
       Math.max(MIN_COMPACTION_HEADROOM_TOKENS, Math.ceil(info.contextWindow * 0.02)),
     );
-    const threshold = info.contextWindow - info.maxOutputTokens - headroom;
+    const safeInputLimit = info.contextWindow - info.maxOutputTokens - headroom;
+    const maxInput = info.maxInputTokens ?? info.contextWindow - info.maxOutputTokens;
+    const threshold = Math.min(
+      Math.floor(0.85 * maxInput),
+      conversation.config.compaction?.thresholdTokens ?? Infinity,
+      safeInputLimit,
+    );
     const available = info.contextWindow - estimate - headroom;
     return {
       shouldCompact: threshold > 0 && estimate >= threshold,

@@ -29,6 +29,7 @@ export function testConfigResolver(): ConfigResolver {
       instructions?: string;
       model?: ModelConfig;
       tools?: { allow?: string[] };
+      compaction?: { thresholdTokens: number };
       plugins?: Record<string, unknown>;
     };
     // Mirror the real resolver, which throws rather than emit a config with no model — so a test that
@@ -38,6 +39,7 @@ export function testConfigResolver(): ConfigResolver {
       instructions: o.instructions ?? "",
       model: o.model,
       ...(o.tools ? { tools: o.tools } : {}),
+      ...(o.compaction ? { compaction: o.compaction } : {}),
       plugins: o.plugins ?? {},
     });
   };

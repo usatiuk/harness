@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   addUsage,
@@ -1563,7 +1563,11 @@ class RecordingProvider implements ModelProvider {
 
   constructor(
     steps: FakeStep[],
-    private readonly limits?: { contextWindow: number; maxOutputTokens: number },
+    private readonly limits?: {
+      contextWindow: number;
+      maxOutputTokens: number;
+      maxInputTokens?: number;
+    },
   ) {
     this.#inner = new FakeProvider(steps);
   }
@@ -1672,6 +1676,129 @@ const compactions = (items: Item[]) =>
   items.filter((i): i is Extract<Item, { type: "compaction" }> => i.type === "compaction");
 
 describe("Engine — compaction", () => {
+  it("does not proactively compact without model capacity metadata", async () => {
+    const { engine, store } = setup([textStep("one"), textStep("two")], {
+      policies: () => ({ compaction: fakeCompaction({ over: 1 }) }),
+    });
+    const conv = await store.createConversation(
+      newConversationInput({ ...CONFIG, compaction: { thresholdTokens: 1 } }),
+    );
+    await engine.deliver(conv.id, userInput("first"));
+    await engine.whenIdle(conv.id);
+    await engine.deliver(conv.id, userInput("second"));
+    await engine.whenIdle(conv.id);
+    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+    await engine.compact(conv.id);
+    expect(compactions(await store.listItems(conv.id))).toHaveLength(1);
+  });
+  it.each([
+    { input: 6200, maxInput: 8000, configured: undefined, folds: 0 },
+    { input: 7000, maxInput: 8000, configured: undefined, folds: 1 },
+    { input: 6200, maxInput: 8000, configured: 6000, folds: 1 },
+    { input: 6200, maxInput: 8000, configured: 20000, folds: 0 },
+    { input: 8000, maxInput: undefined, configured: undefined, folds: 1 },
+    { input: 8200, maxInput: 20000, configured: undefined, folds: 0 },
+    { input: 9000, maxInput: 20000, configured: undefined, folds: 1 },
+  ])(
+    "compacts at the effective threshold for $input input tokens, max $maxInput, configured $configured",
+    async ({ input, maxInput, configured, folds }) => {
+      const provider = new RecordingProvider(
+        [
+          textStep("one", undefined, {
+            inputTokens: input,
+            outputTokens: 1,
+            cachedReadTokens: Math.floor(input / 2),
+          }),
+          textStep("two"),
+        ],
+        {
+          contextWindow: 10000,
+          maxOutputTokens: 1000,
+          ...(maxInput === undefined ? {} : { maxInputTokens: maxInput }),
+        },
+      );
+      const { engine, store } = setup([], {
+        providers: () => [provider],
+        policies: () => ({ compaction: fakeCompaction({ over: 1 }) }),
+      });
+      const conv = await store.createConversation(
+        newConversationInput({
+          ...CONFIG,
+          ...(configured === undefined ? {} : { compaction: { thresholdTokens: configured } }),
+        }),
+      );
+      await engine.deliver(conv.id, userInput("first"));
+      await engine.whenIdle(conv.id);
+      await engine.deliver(conv.id, userInput("second"));
+      await engine.whenIdle(conv.id);
+      expect(compactions(await store.listItems(conv.id))).toHaveLength(folds);
+    },
+  );
+  it.each([
+    { bytes: 20, folds: 0 },
+    { bytes: 12000, folds: 1 },
+  ])(
+    "counts $bytes bytes of appended tool output against the checkpoint",
+    async ({ bytes, folds }) => {
+      const provider = new RecordingProvider(
+        [
+          toolStep(
+            "call",
+            "echo",
+            {},
+            { inputTokens: 1000, outputTokens: 1, cachedReadTokens: 500 },
+          ),
+          textStep("done"),
+        ],
+        { contextWindow: 10000, maxOutputTokens: 1000 },
+      );
+      const tool = new EchoTool();
+      vi.spyOn(tool, "execute").mockResolvedValue(okResult("x".repeat(bytes)));
+      const { engine, store } = setup([], {
+        providers: () => [provider],
+        tools: () => [tool],
+        policies: () => ({ compaction: fakeCompaction({ over: 1 }) }),
+      });
+      const conversation = await store.createConversation(
+        newConversationInput({ ...CONFIG, compaction: { thresholdTokens: 3000 } }),
+      );
+      await engine.deliver(conversation.id, userInput("run"));
+      await engine.whenIdle(conversation.id);
+      expect(provider.requests).toHaveLength(2);
+      expect(compactions(await store.listItems(conversation.id))).toHaveLength(folds);
+    },
+  );
+
+  it("does not reuse a context checkpoint from another model", async () => {
+    const limits = { contextWindow: 10000, maxOutputTokens: 2000 };
+    const provider = new RecordingProvider(
+      [
+        textStep("first", undefined, { inputTokens: 7900, outputTokens: 1, cachedReadTokens: 0 }),
+        textStep("next"),
+      ],
+      limits,
+    );
+    vi.spyOn(provider, "listModels").mockReturnValue([
+      { provider: "fake", model: "fake-1", ...limits },
+      { provider: "fake", model: "fake-2", ...limits },
+    ]);
+    const { engine, store } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: fakeCompaction({ over: 1 }) }),
+    });
+    const conversation = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conversation.id, userInput("first"));
+    await engine.whenIdle(conversation.id);
+    await engine.setModel(conversation.id, { provider: "fake", model: "fake-2" });
+    await engine.deliver(conversation.id, userInput("again"));
+    await engine.whenIdle(conversation.id);
+    expect(provider.requests.map((request) => request.modelConfig.model)).toEqual([
+      "fake-1",
+      "fake-2",
+    ]);
+    expect(compactions(await store.listItems(conversation.id))).toHaveLength(0);
+  });
+
   it.each([
     { reason: "changed provider options", previousSearch: false, inputTokensAreContext: undefined },
     { reason: "cumulative billing input", previousSearch: true, inputTokensAreContext: false },

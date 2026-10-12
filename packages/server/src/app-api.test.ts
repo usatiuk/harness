@@ -27,6 +27,15 @@ it("saves creation defaults without changing unrelated global settings", async (
   try {
     await client.start();
     const before = await client.peer.request(appSettingsRequest, {});
+    await client.peer.request(appSettingsUpdateRequest, { compactionThresholdTokens: 1200 });
+    expect(
+      (await client.peer.request(appSettingsRequest, {})).settings.compactionThresholdTokens,
+    ).toBe(1200);
+    expect((await readGlobalSettings(home)).compaction).toEqual({ thresholdTokens: 1200 });
+    expect((await client.create({})).config.compaction).toEqual({ thresholdTokens: 1200 });
+    await client.peer.request(appSettingsUpdateRequest, { compactionThresholdTokens: null });
+    expect((await readGlobalSettings(home)).compaction).toBeUndefined();
+    expect((await client.peer.request(appSettingsRequest, {})).settings).toEqual(before.settings);
     await client.peer.request(appSettingsUpdateRequest, {
       model: { provider: "demo", model: "demo-1", preset: "high" },
       sandbox: "docker",

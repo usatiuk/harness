@@ -71,6 +71,7 @@ const settings: AppSettings = {
     model: { provider: "fixture", model: "test", preset: null },
     sandbox: "local",
     toolMode: "direct",
+    compactionThresholdTokens: null,
     approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
     autoApproval: { enabled: false, model: null, timeoutSeconds: 30 },
     conversationTitleModel: null,
@@ -206,6 +207,7 @@ const session = {
           instructions: "Fixture",
           model: { provider: "fixture", model: "test", preset: null },
           tools: null,
+          compaction: null,
           plugins: {},
         },
       };

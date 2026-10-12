@@ -14,6 +14,7 @@ import { stopServer } from "@harness/connections/node";
 import { serverInfoRequest } from "@harness/connections";
 import { TuiHosts } from "./hosts.ts";
 import { HostApp } from "./host-app.tsx";
+import { appSettingsRequest } from "@harness/server/client-protocol";
 
 async function writeInput(ui: ReturnType<typeof render>, text: string): Promise<void> {
   // Flush React's effects before sending the next key to a newly mounted input.
@@ -95,6 +96,55 @@ function manager() {
   clients.push(value);
   return value;
 }
+
+it("edits and clears compaction threshold through selected-host Settings", async () => {
+  const path = await home();
+  vi.stubEnv("HARNESS_HOME", path);
+  const hosts = manager();
+  await hosts.initialize();
+  const ui = render(<HostApp hosts={hosts} />);
+  try {
+    await vi.waitFor(() => expect(hosts.selected?.presentation.activeId).toBeDefined(), {
+      timeout: 20000,
+    });
+    const edit = async (value: string) => {
+      // Creating the active conversation precedes mounting its input handlers.
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("/help"));
+      await writeInput(ui, "\u0007");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("Select host"));
+      for (let index = 0; index < 7; index++) await writeInput(ui, "\u001b[B");
+      await vi.waitFor(() => expect(ui.lastFrame()).toMatch(/[>❯].*Selected host defaults/));
+      await writeInput(ui, "\r");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("Edit defaults JSON"));
+      await vi.waitFor(() =>
+        expect(ui.lastFrame()?.replace(/\s/g, "")).toMatch(
+          /"compactionThresholdTokens":(null|1200)/,
+        ),
+      );
+      await writeInput(ui, "\u001b[D");
+      for (let index = 0; index < 4; index++) await writeInput(ui, "\u007f");
+      await writeInput(ui, value);
+      await writeInput(ui, "\r");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("Host defaults saved"));
+      await writeInput(ui, "\u001b");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("Select host"));
+      await writeInput(ui, "\u001b");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("/help"));
+    };
+    await edit("1200");
+    expect(
+      (await hosts.selected!.harness!.client.peer.request(appSettingsRequest, {})).settings
+        .compactionThresholdTokens,
+    ).toBe(1200);
+    await edit("null");
+    expect(
+      (await hosts.selected!.harness!.client.peer.request(appSettingsRequest, {})).settings
+        .compactionThresholdTokens,
+    ).toBeNull();
+  } finally {
+    ui.unmount();
+  }
+}, 30000);
 afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
   for (const path of roots.splice(0)) {

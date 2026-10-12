@@ -12,6 +12,8 @@ export interface ConversationConfig {
   model: ModelConfig;
   /** Tool scope (which tools this conversation may use). Enforced by `PluginHost.toolsFor`. */
   tools?: { allow?: string[]; mode?: ToolMode };
+  /** Global proactive compaction threshold; absent uses model capacity. */
+  compaction?: { thresholdTokens: number };
   /** Per-plugin config, validated against each plugin's schema. Read via `ConfigReader`. */
   plugins?: Record<string, unknown>;
 }

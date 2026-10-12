@@ -101,6 +101,7 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
 
   return {
     instructions: doc.instructions ?? "",
+    ...(doc.compaction ? { compaction: doc.compaction } : {}),
     model: {
       provider: doc.model.provider,
       model: doc.model.model,

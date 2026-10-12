@@ -70,6 +70,7 @@ export const decodeUsageSummary = (summary: WireUsageSummary): ModelUsageSummary
 
 export const decodeConversationConfig = (config: WireConversationConfig): ConversationConfig => ({
   instructions: config.instructions,
+  ...(config.compaction === null ? {} : { compaction: config.compaction }),
   model: {
     provider: config.model.provider,
     model: config.model.model,

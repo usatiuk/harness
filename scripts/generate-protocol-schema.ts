@@ -83,6 +83,7 @@ const definitions: Record<string, JsonValue> = {};
 const manifest = messages.map((message) => {
   const name = message.method.replaceAll(/[^A-Za-z0-9]/gu, "_");
   definitions[`${name}_params`] = z.toJSONSchema(message.params, {
+    io: "input",
     target: "draft-2020-12",
     unrepresentable: "throw",
   }) as JsonValue;

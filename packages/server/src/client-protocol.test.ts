@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { appSettingsUpdateRequest } from "./client-protocol.ts";
 
 describe("auto-approval timeout settings", () => {
+  it.each([0, -1, 1.5, Infinity, NaN])(
+    "rejects invalid compaction threshold %s",
+    (compactionThresholdTokens) => {
+      expect(appSettingsUpdateRequest.params.safeParse({ compactionThresholdTokens }).success).toBe(
+        false,
+      );
+    },
+  );
   const settings = {
     model: null,
     conversationTitleModel: null,

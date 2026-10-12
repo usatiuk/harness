@@ -33,7 +33,12 @@ import remarkGfm from "remark-gfm";
 import { editPresentation } from "@harness/client-features/edit-presentation";
 import type { Cell } from "@harness/client-features/transcript-reducer";
 import { toolPermissionSchema, type ClientApproval } from "@harness/approval/client";
-import { textOf, type Conversation, type ConversationId } from "@harness/protocol";
+import {
+  textOf,
+  compactionThresholdSchema,
+  type Conversation,
+  type ConversationId,
+} from "@harness/protocol";
 import {
   appAuthLogoutRequest,
   appSettingsUpdateRequest,
@@ -244,6 +249,11 @@ export function createDesktopRouter(
           };
         }
         case "settings": {
+          const compactionInput = field(data, "compactionThresholdTokens");
+          const compactionThresholdTokens =
+            compactionInput === ""
+              ? null
+              : compactionThresholdSchema.parse(Number(compactionInput));
           const [provider, model] = field(data, "model").split("\u0000");
           const inWorkspace = field(data, "inWorkspace");
           const outOfWorkspace = field(data, "outOfWorkspace");
@@ -298,10 +308,12 @@ export function createDesktopRouter(
                 ? { provider: titleProvider, model: titleModel, preset: titlePreset || null }
                 : null,
             sandbox,
+            compactionThresholdTokens,
           });
           return {
             ok: true,
-            message: "Settings saved. The model and sandbox defaults apply to new conversations.",
+            message:
+              "Settings saved. New conversations use these defaults. Restart the server to apply compaction changes to already-loaded conversations.",
           };
         }
         default:
@@ -1800,6 +1812,21 @@ export function createDesktopRouter(
                 <Select name="sandbox" defaultValue={settings.settings.sandbox}>
                   <SandboxOptions selected={settings.settings.sandbox} />
                 </Select>
+              </label>
+              <label>
+                Compaction threshold (input tokens)
+                <Input
+                  name="compactionThresholdTokens"
+                  type="number"
+                  min={1}
+                  step={1}
+                  defaultValue={settings.settings.compactionThresholdTokens ?? ""}
+                  placeholder="Automatic"
+                />
+                <small className="muted">
+                  Blank uses 85% of the model input budget. Restart the server to apply changes to
+                  already-loaded conversations.
+                </small>
               </label>
               <label>
                 Tools inside the workspace
