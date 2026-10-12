@@ -541,3 +541,13 @@ failures constructing/dropping a blocking HTTP runtime inside an async context;
 those paths are unchanged by child environment cleanup. Their full qualification
 remains open; no unrelated runtime-lifetime patch is included here. GUI startup
 and a rebuilt AppImage are not claimed verified by the subprocess tests.
+
+The user subsequently authorized publication. The environment fix `53e01c9` and
+sidebar commit `26fe931` are published in
+[v0.1.10](https://github.com/usatiuk/harness/releases/tag/v0.1.10). Release run
+[38303570706](https://github.com/usatiuk/harness/actions/runs/38303570706) passes the
+source check, all three platform builds and signature verification. The downloaded
+AppImage's extracted AppRun launcher completes cold headless runtime preparation
+with public release downloads and returns existing Node/server paths in a fresh
+temporary home. The interactive GUI is not launched; this startup check does not
+replace the source subprocess tests for external-child environment cleanup.

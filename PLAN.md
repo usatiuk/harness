@@ -66,15 +66,17 @@ root. They may depend on protocol and narrower feature contracts, but the kernel
 does not import provider, workspace, sandbox, approval, activity, or subagent
 packages.
 
-## Local sidebar delivery
+## Sidebar delivery
 
 The [compact sidebar plan](docs/plans/interface/2026-10-12-adjustable-sidebar.md)
 adds resizable/hidden navigation, Recents and folder-derived Projects with bounded
 server-side recent-input ordering and pagination. Preferences stay desktop-local;
 no project entities or synchronization machinery. The sidebar passes the full
-check (1,325 tests, 38 skips) and 36 browser regressions. This work and the separate
-AppImage child-environment fix are local changes only; no push or release is
-requested. Validation evidence is tracked in the delivery plans.
+check (1,325 tests, 38 skips) and 36 browser regressions. The sidebar and separate
+AppImage child-environment fix are published in `v0.1.10`; all three platform
+builds and signature verification pass. The released Linux AppImage passes cold
+headless preparation through AppRun in an isolated home. Validation evidence is
+tracked in the delivery plans.
 
 ## Release delivery complete
 

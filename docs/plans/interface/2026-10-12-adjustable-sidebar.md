@@ -70,3 +70,16 @@ It removes AppImage-injected loader/Python variables only from the external serv
 child. Desktop unit tests pass (8); two unchanged preparation integration tests
 fail on reqwest blocking-runtime teardown within an async runtime. Rebuilt AppImage
 GUI qualification is not claimed. Never test against the developer's profile or credentials.
+
+## Publication
+
+The user authorized release after local delivery. Commits `53e01c9` (AppImage) and
+`26fe931` (sidebar) are pushed. Release run
+[38303570706](https://github.com/usatiuk/harness/actions/runs/38303570706) passes its
+source gate, Windows x64/Linux x64 glibc/Apple Silicon builds and artifact signature
+verification. The workflow captures version bump `1a47083`.
+[v0.1.10](https://github.com/usatiuk/harness/releases/tag/v0.1.10) is published.
+Its exact Linux AppImage passes cold headless preparation through the extracted
+AppRun launcher in an isolated temporary home. This does not establish interactive
+GUI/tool execution; the source subprocess regressions qualify child environment
+cleanup. No developer profile or credentials were touched.
