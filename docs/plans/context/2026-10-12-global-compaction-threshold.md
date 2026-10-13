@@ -105,3 +105,19 @@ passes clean-install source validation, Windows x64/Linux x64 glibc/macOS arm64
 builds and artifact signature verification.
 [v0.1.13](https://github.com/usatiuk/harness/releases/tag/v0.1.13) is published.
 Existing running servers/conversations were not restarted as part of delivery.
+
+## Empty-summary error follow-up (October 13)
+
+The user reported empty compaction output and requested tool-call counts in the
+GUI error, stronger summary-first prompting, and commit/push/release. The cause
+of that exact live response remains unverified; the live database is intentionally
+exclusively owned and was not bypassed or stopped.
+
+The failure message now states empty text and the returned tool-call count,
+without logging raw output or arguments. Automatic compaction explicitly requires
+visible summary text first; optional continuation tools remain enabled. No
+strategy/RPC change, retry or silent fallback is added. The full check passes
+1,341 tests (38 existing skips); 133 focused engine/policy tests pass. The two new
+regressions verify zero/two tool-call counts reach the existing failed-turn error,
+no returned tools are dispatched and no empty fold is saved. Prompt compliance
+on the original live failure is not claimed. Publication is pending.

@@ -1745,7 +1745,11 @@ export class Engine {
       if (signal.aborted) throw new TurnAborted();
       if (!result) return false;
       if (textOf(result.content).trim().length === 0) {
-        throw new Error("compaction strategy returned no summary");
+        const toolCalls =
+          result.outputItems?.filter((item) => item.type === "tool_call").length ?? 0;
+        throw new Error(
+          `compaction strategy returned no summary (empty text; ${toolCalls} tool calls)`,
+        );
       }
       if (
         reason === "manual" &&

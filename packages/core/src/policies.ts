@@ -13,8 +13,10 @@ Return a self-contained summary that preserves the current objective, user requi
 constraints, decisions, completed work, relevant files and symbols, errors, and pending next steps.`;
 
 const CONTINUING_COMPACTION_PROMPT = `${COMPACTION_PROMPT}
-You may make tool calls that immediately continue the task, but the summary must be complete without
-their results. Always return non-empty summary text, even when making tool calls.`;
+First write the complete, non-empty summary as visible assistant text. Reasoning or tool calls
+alone are not a summary. The summary must stand on its own without any later tool results.
+Only after writing the summary may you make tool calls that immediately continue the task.
+If you make tool calls, your response must still include the complete summary text.`;
 
 const MANUAL_COMPACTION_PROMPT = `${COMPACTION_PROMPT}
 Return only the non-empty summary. Do not continue the task or call tools.`;

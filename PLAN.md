@@ -163,6 +163,10 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 
 ## Recent delivery
 
+The compaction empty-summary follow-up modifies the existing error to include
+empty text and returned tool-call count, and makes the automatic prompt summary-first.
+The full check passes 1,341 tests (38 skips); publication is pending.
+
 The [global compaction threshold](docs/plans/context/2026-10-12-global-compaction-threshold.md)
 adds a positive input-token setting to GUI/TUI host defaults. The partial-metadata
 follow-up is complete locally: explicit thresholds work without capacity metadata;

@@ -2106,6 +2106,52 @@ describe("Engine — compaction", () => {
     expect(compactions(await store.listItems(conv.id))).toHaveLength(1);
   });
 
+  it.each([0, 2])(
+    "reports empty compaction text and %i tool calls without dispatching them",
+    async (count) => {
+      const usage = { inputTokens: 3000, outputTokens: 10, cachedReadTokens: 0 };
+      const provider = new RecordingProvider([
+        textStep("first", undefined, usage),
+        [
+          ...Array.from({ length: count }, (_, index): ModelStreamEvent => ({
+            type: "tool_call",
+            callId: `compact-${index}`,
+            name: "echo",
+            args: { privateArgument: "do not expose" },
+          })),
+          { type: "completed", usage },
+        ],
+      ]);
+      const tool = new EchoTool();
+      const execute = vi.spyOn(tool, "execute");
+      const { engine, store, events } = setup([], {
+        providers: () => [provider],
+        tools: () => [tool],
+        policies: () => ({ compaction: modelCompaction }),
+      });
+      const conversation = await store.createConversation(
+        newConversationInput({ ...CONFIG, compaction: { thresholdTokens: 2000 } }),
+      );
+      await engine.deliver(conversation.id, userInput("first"));
+      await engine.whenIdle(conversation.id);
+      await engine.deliver(conversation.id, userInput("second"));
+      await engine.whenIdle(conversation.id);
+      const failed = events
+        .filter(isKernelEvent)
+        .find((event) => event.type === "turn.status" && event.status === "failed");
+      expect(failed?.type === "turn.status" ? failed.error : undefined).toBe(
+        `Error: compaction strategy returned no summary (empty text; ${count} tool calls)`,
+      );
+      expect(execute).not.toHaveBeenCalled();
+      expect(compactions(await store.listItems(conversation.id))).toHaveLength(0);
+      expect((await store.listModelUsage(conversation.id)).map((row) => row.purpose)).toEqual([
+        "agent",
+        "compaction",
+      ]);
+      expect(provider.requests).toHaveLength(2);
+    },
+  );
+
   it("uses the same request prefix, dispatches compaction tool calls, and continues", async () => {
     const priorPayload = {
       provider: "fake",

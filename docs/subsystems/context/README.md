@@ -149,6 +149,10 @@ can still require the existing overflow recovery.
 If automatic model compaction cannot run because context capacity is exhausted,
 the engine appends a bounded deterministic fallback containing recent canonical
 content. Other compaction failures are surfaced; they are not blindly retried.
+An empty summary error includes the number of returned tool calls, without
+exposing response text or tool arguments. The automatic prompt requires a complete
+visible summary before any optional continuation tool calls; tool-only or
+reasoning-only output is not a summary. No extra logger or retry is introduced.
 
 ## Cache and state invariants
 
