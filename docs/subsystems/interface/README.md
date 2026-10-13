@@ -701,6 +701,15 @@ database contention, and real PowerShell/Node cleanup. See
 
 ## Conversation titles
 
+The opened conversation header exposes a pencil on title hover or keyboard focus
+(always visible on touch). It edits the title inline: Enter/check saves,
+Escape/cancel discards. Saving uses `conversation.title.set`, restricted to an
+attached conversation, with a trimmed nonempty title of at most 200 characters.
+The engine reuses the conditional metadata write and `title.changed` event;
+manual titles survive reload and supersede pending automatic suggestions.
+The title event updates the header/sidebar without changing activity order or
+message history. Failures keep the editable draft visible.
+
 The server wires `@harness/conversation-titles` as a per-conversation service plugin.
 Its persisted-input hook saves a 64-character excerpt of the first root user message and starts one
 independent invocation. A usable result replaces that excerpt with a title capped

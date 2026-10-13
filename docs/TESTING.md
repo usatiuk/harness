@@ -1085,6 +1085,19 @@ delays, or a nearby condition that does not prove completion.
 
 ## Conversation naming
 
+Manual rename coverage uses real in-process RPC to verify trimming, empty/oversize
+rejection, persisted metadata, the title event and close/reattach. The isolated
+production-route browser case covers hover visibility, inline focus, Escape/cancel,
+Enter save, whitespace rejection and header/sidebar agreement. Test fixtures do
+not use developer profiles or credentials.
+
+October 13 rename validation passes 29 focused tests and the full check (1,347
+passing tests, 38 existing skips). Chromium passes 47/48 cases, including rename
+and compact header geometry. The idle/history-regrouping reading-anchor case
+fails its 1.5px position assertion in both the patch and an isolated clean
+`3633e35` baseline. Its cause remains unestablished; it is not fixed by this
+rename change. Native platform UI was not separately qualified.
+
 `conversation-titles/src/index.test.ts` uses a gated provider and real in-process
 RPC to verify saved excerpt/generated titles, independent agent completion,
 configured/default models, isolated prompt, accounting, failure/empty output,

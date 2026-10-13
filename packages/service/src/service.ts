@@ -252,6 +252,10 @@ export class HarnessService implements ConversationRunner {
     });
   }
 
+  setTitle(conversationId: ConversationId, title: string): Promise<void> {
+    return this.#engine.setTitle(conversationId, title);
+  }
+
   /** Changes the current model's preset without allowing model identity to change. */
   async setPreset(
     conversationId: ConversationId,

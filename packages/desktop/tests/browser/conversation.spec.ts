@@ -470,6 +470,40 @@ test("new conversation choices become host defaults for the next creation", asyn
   );
 });
 
+test("conversation header exposes inline rename on hover and preserves cancellation", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.locator(".conversation-heading h1")).toBeVisible();
+  const original = await page.locator(".conversation-heading h1").textContent();
+  const rename = page.getByRole("button", { name: "Rename conversation", exact: true });
+  await page.mouse.move(0, 0);
+  await expect(rename).toHaveCSS("opacity", "0");
+  await page.locator(".conversation-heading h1").hover();
+  await expect(rename).toHaveCSS("opacity", "1");
+  await rename.click();
+  const input = page.getByRole("textbox", { name: "Conversation title", exact: true });
+  await expect(input).toBeFocused();
+  await input.fill("Discard this");
+  await input.press("Escape");
+  await expect(input).toBeHidden();
+  await expect(rename).toBeFocused();
+  await expect(page.locator(".conversation-heading h1")).toHaveText(original!);
+  await rename.click();
+  await input.fill("  Renamed conversation  ");
+  await input.press("Enter");
+  await expect(input).toBeHidden();
+  await expect(page.locator(".conversation-heading h1")).toHaveText("Renamed conversation");
+  await expect(
+    page.locator(".sidebar").getByText("Renamed conversation", { exact: true }).first(),
+  ).toBeVisible();
+  await rename.click();
+  await input.fill("   ");
+  await expect(page.getByRole("button", { name: "Save title", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Cancel rename", exact: true }).click();
+  await expect(input).toBeHidden();
+});
+
 test("production composer retains new drafts and permits Stop during delivery acknowledgement", async ({
   page,
 }) => {

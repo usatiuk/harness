@@ -212,6 +212,10 @@ const session = {
   },
   domain,
   client: {
+    async setTitle(_id: string, title: string) {
+      if (!title.trim()) throw new Error("Title is empty");
+      window.composerFixture.setTitle(title.trim());
+    },
     async create(params: Parameters<DesktopSession["client"]["create"]>[0]) {
       creations.push(params);
       if (sidebarRows.length) {

@@ -76,6 +76,29 @@ const createConversation = (client: HarnessClient) =>
   });
 
 describe("HarnessRpcSession", () => {
+  it("renames an attached conversation durably and rejects empty titles", async () => {
+    const { client, store } = createHarness();
+    await client.start();
+    const conversation = await createConversation(client);
+    await client.attach(conversation.id);
+    const changed: string[] = [];
+    client.subscribe((event) => {
+      if (event.type === "conversation" && event.event.type === "title.changed")
+        changed.push(event.event.title);
+    });
+    await client.setTitle(conversation.id, "  Renamed chat  ");
+    expect((await store.getConversation(conversation.id as ConversationId))?.title).toBe(
+      "Renamed chat",
+    );
+    expect((await client.get(conversation.id))?.title).toBe("Renamed chat");
+    expect(changed).toEqual(["Renamed chat"]);
+    await expect(client.setTitle(conversation.id, "   ")).rejects.toThrow();
+    await expect(client.setTitle(conversation.id, "x".repeat(201))).rejects.toThrow();
+    expect((await client.get(conversation.id))?.title).toBe("Renamed chat");
+    await client.close(conversation.id);
+    await client.attach(conversation.id);
+    expect((await client.get(conversation.id))?.title).toBe("Renamed chat");
+  });
   it("protects turns and plugin-owned work, then closes admission once idle", async () => {
     const provider = new GateProvider("complete me");
     const resource = { busy: true, disposed: false };

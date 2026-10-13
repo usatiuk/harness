@@ -14,6 +14,7 @@ import {
   conversationItemReadRequest,
   conversationListRequest,
   conversationModelSetRequest,
+  conversationTitleSetRequest,
   conversationPluginConfigPatchRequest,
   conversationPresetSetRequest,
   conversationReloadRequest,
@@ -345,6 +346,10 @@ export class HarnessClient {
       provider,
       model,
     });
+  }
+
+  setTitle(conversationId: string, title: string) {
+    return this.peer.request(conversationTitleSetRequest, { conversationId, title });
   }
 
   setPreset(

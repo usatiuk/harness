@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `6`. It exchanges
+`initialize` is the first application request and requires protocol version `9`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -90,6 +90,9 @@ conversation, or application-wide pause exists. The snapshot and buffered suffix
 are each limited to 2 MiB; overflow fails the connection.
 
 Runtime-loading or mutating conversation and plugin requests require attachment.
+`conversation.title.set` saves a trimmed, nonempty title of at most 200 characters
+through the existing conditional metadata update and emits `title.changed`.
+Protocol 9 includes this method; older peers fail exact-version initialization.
 Close/reload synchronously stops new requests for that root. Forced close first
 aborts admitted operations and runtime turns, then waits before disposing root-owned
 services. A non-forced close reports `busy` if any tree runtime, input queue, or

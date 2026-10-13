@@ -478,6 +478,12 @@ export class Engine {
     return this.host.providers.listModels();
   }
 
+  async setTitle(conversationId: ConversationId, title: string): Promise<void> {
+    const runtime = await this.#runtime(conversationId);
+    if (!(await this.#updateTitle(runtime, title, runtime.conversation.title)))
+      throw new Error("Conversation title changed; try renaming again");
+  }
+
   /** Changes model identity atomically. The previous model's preset is never inherited. */
   async setModel(
     conversationId: ConversationId,
@@ -750,16 +756,19 @@ export class Engine {
         item,
         signal,
         model: (backgroundSignal) => this.#modelInvoker(conversation, turnId, backgroundSignal),
-        updateTitle: (title, expected) => this.#updateTitle(runtime, title, expected),
+        updateTitle: async (title, expected) => {
+          await this.#updateTitle(runtime, title, expected);
+        },
       });
     }
   }
 
-  async #updateTitle(runtime: Runtime, title: string, expected: string | null): Promise<void> {
+  async #updateTitle(runtime: Runtime, title: string, expected: string | null): Promise<boolean> {
     if (!(await this.store.updateConversationTitle(runtime.conversation.id, title, expected)))
-      return;
+      return false;
     runtime.setConversation({ ...runtime.conversation, title });
     this.#emitKernel({ type: "title.changed", conversationId: runtime.conversation.id, title });
+    return true;
   }
 
   /** Publish before the terminal event, so an attachment during this await observes completion. */

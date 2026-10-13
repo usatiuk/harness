@@ -531,6 +531,38 @@ main {
 .conversation-heading {
   min-width: 0;
 }
+.conversation-title-display,
+.conversation-title-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.conversation-title-display[hidden] {
+  display: none;
+}
+.conversation-heading .icon-control {
+  width: 22px;
+  min-height: 22px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.conversation-rename {
+  opacity: 0;
+}
+.conversation-title-display:hover .conversation-rename,
+.conversation-title-display:focus-within .conversation-rename {
+  opacity: 1;
+}
+.conversation-title-form .input {
+  width: 320px;
+  min-width: 0;
+}
+@media (pointer: coarse) {
+  .conversation-rename {
+    opacity: 1;
+  }
+}
 .conversation-header h1 {
   overflow: hidden;
   text-overflow: ellipsis;

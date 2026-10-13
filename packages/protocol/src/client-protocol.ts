@@ -374,6 +374,13 @@ export const conversationUsageRequest = defineRequest({
   result: wireUsageSummarySchema,
 });
 
+export const conversationTitleSetRequest = defineRequest({
+  direction: "client-to-server",
+  method: "conversation.title.set",
+  params: z.strictObject({ conversationId: idSchema, title: z.string().trim().min(1).max(200) }),
+  result: z.null(),
+});
+
 export const conversationModelSetRequest = defineRequest({
   direction: "client-to-server",
   method: "conversation.model.set",
@@ -470,6 +477,7 @@ export const coreRpcMessages = [
   conversationItemReadRequest,
   conversationUsageRequest,
   conversationModelSetRequest,
+  conversationTitleSetRequest,
   conversationPresetSetRequest,
   conversationPluginConfigPatchRequest,
   conversationEventNotification,

@@ -18,6 +18,7 @@ import {
   conversationItemReadRequest,
   conversationListRequest,
   conversationModelSetRequest,
+  conversationTitleSetRequest,
   conversationPluginConfigPatchRequest,
   conversationPresetSetRequest,
   conversationReloadRequest,
@@ -323,6 +324,14 @@ export class HarnessRpcSession {
       const id = conversationId as ConversationId;
       return this.runAttached(id, async () => {
         await this.#service.setModel(id, { provider, model });
+        return null;
+      });
+    });
+
+    this.onRequest(conversationTitleSetRequest, ({ conversationId, title }) => {
+      const id = conversationId as ConversationId;
+      return this.runAttached(id, async () => {
+        await this.#service.setTitle(id, title);
         return null;
       });
     });

@@ -163,6 +163,13 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 
 ## Recent delivery
 
+Inline conversation rename is implemented and validated: a header pencil
+appears on hover/focus, reusing server title persistence and events through one
+narrow RPC. Enter saves; Escape cancels. Full check passes 1,347 tests (38 existing
+skips); browser regressions pass 47 cases with one reading-anchor failure also
+reproduced on the clean baseline. Three reviews report no remaining rename
+findings. Protocol 9 requires the new RPC. No release is requested.
+
 The Codex working-budget follow-up is validated: assumed input ceilings of
 400k normally and 628k for Sol 6.1, 128k output reserve, and no combined-context
 claim. API metadata remains unchanged. The global compaction plan records the

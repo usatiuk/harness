@@ -78,6 +78,8 @@ import {
   Search,
   Terminal,
   Wrench,
+  Check,
+  X,
 } from "lucide-react";
 
 type ActionResult =
@@ -114,6 +116,9 @@ export function createDesktopRouter(
       const data = await request.formData();
       const intent = field(data, "intent");
       switch (intent) {
+        case "rename":
+          await session.client.setTitle(field(data, "conversationId"), field(data, "title"));
+          return { ok: true };
         case "approval": {
           const decision = field(data, "decision");
           if (decision !== "allow" && decision !== "deny")
@@ -1513,6 +1518,83 @@ export function createDesktopRouter(
     );
   }
 
+  function ConversationHeading({ view }: { view: ConversationView }) {
+    const rename = useFetcher<ActionResult>();
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState("");
+    const pencil = useRef<HTMLButtonElement>(null);
+    const busy = rename.state !== "idle";
+    const close = () => {
+      setEditing(false);
+      requestAnimationFrame(() => pencil.current?.focus());
+    };
+    useEffect(() => {
+      if (rename.state === "idle" && rename.data?.ok) {
+        setEditing(false);
+        requestAnimationFrame(() => pencil.current?.focus());
+      }
+    }, [rename.state, rename.data]);
+    return (
+      <div className="conversation-heading">
+        <div className="conversation-title-display" hidden={editing}>
+          <h1>{conversationLabel(view.conversation, view)}</h1>
+          <IconButton
+            ref={pencil}
+            icon={PenLine}
+            label="Rename conversation"
+            className="conversation-rename"
+            size="sm"
+            disabled={!session.client.peer.ready}
+            onClick={() => {
+              setDraft(conversationLabel(view.conversation, view));
+              setEditing(true);
+            }}
+          />
+        </div>
+        {editing && (
+          <>
+            <rename.Form method="post" action="/actions" className="conversation-title-form">
+              <Input type="hidden" name="intent" value="rename" />
+              <Input type="hidden" name="conversationId" value={view.conversation.id} />
+              <Input
+                autoFocus
+                aria-label="Conversation title"
+                name="title"
+                value={draft}
+                maxLength={200}
+                required
+                disabled={busy}
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => setDraft(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && !busy) {
+                    event.preventDefault();
+                    close();
+                  }
+                }}
+              />
+              <IconButton
+                icon={Check}
+                label="Save title"
+                type="submit"
+                size="sm"
+                disabled={busy || !draft.trim()}
+              />
+              <IconButton
+                icon={X}
+                label="Cancel rename"
+                size="sm"
+                disabled={busy}
+                onClick={close}
+              />
+            </rename.Form>
+            <ActionFeedback data={rename.data?.ok === false ? rename.data : undefined} />
+          </>
+        )}
+      </div>
+    );
+  }
+
   function ConversationPage() {
     useLive();
     const view = useLoaderData<ConversationView>();
@@ -1527,9 +1609,7 @@ export function createDesktopRouter(
         running={view.state.turn.status === "running"}
         header={
           <header className="conversation-header">
-            <div className="conversation-heading">
-              <h1>{conversationLabel(view.conversation, view)}</h1>
-            </div>
+            <ConversationHeading key={view.conversation.id} view={view} />
           </header>
         }
         history={<EarlierHistory key={view.conversation.id} view={view} />}
