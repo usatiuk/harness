@@ -122,7 +122,21 @@ it("upgrades on reconnect only when idle and never downgrades a newer owner", as
       formatVersion: 1,
       directory: older.selection,
     });
+    let stopped!: () => void;
+    const terminal = new Promise<void>((resolve) => {
+      stopped = resolve;
+    });
+    const unsubscribe = observer.subscribe((event) => {
+      if (
+        event.type === "conversation" &&
+        event.event.type === "turn.changed" &&
+        event.event.status !== "running"
+      )
+        stopped();
+    });
     await observer.deliver(conversation.id, "", "interrupt");
+    await terminal;
+    unsubscribe();
     upgraded = await ensureLocalServer(home, newer);
     expect(upgraded.identity.productVersion).toBe("0.2.0");
     expect(upgraded.identity.instanceId).not.toBe(original.identity.instanceId);

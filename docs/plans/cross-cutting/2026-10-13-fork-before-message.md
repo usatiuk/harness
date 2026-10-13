@@ -93,3 +93,14 @@ passed, 38 skipped, plus typecheck/lint/formatting. Screenshot inspected.
 The existing typography regression twice observed empty computed styles during
 initial validation; subsequent runs with an explicit connected-node assertion
 passed. The cause remains unestablished; no timeouts or assertions were weakened.
+
+## Release delivery
+
+Feature commit `551d8c3` and the earlier reasoning/discovery commit were pushed.
+The first release run stopped during validation before bumping the version:
+a Docker glob test exceeded its existing 5s deadline, and the background reconnect
+test raced interrupt acceptance against actual turn completion. The latter now
+subscribes before Stop and waits for the terminal event before requesting upgrade.
+Focused real-process/container regressions pass (25 tests); Docker was unchanged,
+and its CI timeout has not reproduced locally. No timeout increases or test retries
+were introduced. Full validation and release are continuing.
