@@ -55,8 +55,9 @@ math.
 claiming a combined context window. `reasoning` carries explicit support,
 adaptive/legacy/always-on thinking flags and advertised effort levels/defaults;
 absence means unknown and an explicit false remains false. These informational
-fields do not invent request controls or presets. The existing proactive capacity
-policy still requires a known combined context and output reservation.
+fields do not invent request controls or presets. Proactive compaction uses a known
+input bound plus an output reservation, without requiring a combined context window.
+An explicit compaction threshold remains usable when capacity metadata is incomplete.
 
 Catalogs are explicit and may apply complete per-model capacity overrides where
 the same model differs by backend. Pricing lives beside the catalog entry so

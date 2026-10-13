@@ -34,15 +34,20 @@ not merely the server home. Do not seed or restore fixture accounts in dev stora
 
 ## Global compaction threshold
 
-The engine suite covers automatic/configured thresholds, output/headroom caps,
-missing max-input and capacity metadata, cached-input checkpoints, appended large
-tool results, and changed model/provider options. Configuration tests reject
+The engine suite covers automatic/configured thresholds, partial and absent
+capacity metadata, independent input/output limits, zero automatic allowances,
+cached-input checkpoints, appended large tool results, two compactions between
+tool steps in one turn, and changed model/provider options. Explicit thresholds
+remain active when metadata is incomplete. Configuration tests reject
 project-level compaction settings; protocol tests reject invalid token counts.
 Real application RPC verifies global persistence, new-conversation resolution and
 clearing without changing unrelated settings. Chromium checks the numeric Defaults
 field and clearing; Ink drives the production selected-host JSON editor against
-an isolated real server and verifies persisted values through RPC. The full check
-passes 1,316 tests (38 skipped), and all 32 browser cases pass.
+an isolated real server and verifies persisted values through RPC. The original delivery
+passed 1,316 tests (38 skipped) and all 32 browser cases. Current follow-up
+validation passes 1,339 tests (38 existing skips), 135 focused engine/RPC/TUI
+cases and the isolated GUI save/clear regression. Detailed evidence is tracked
+in the global compaction threshold plan.
 
 ## Compact tools and live activities
 

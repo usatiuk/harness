@@ -1813,7 +1813,7 @@ export function createDesktopRouter(
                   placeholder="Automatic"
                 />
                 <small className="muted">
-                  Blank uses 85% of the model input budget. Restart the server to apply changes to
+                  Blank uses known model input/output limits. Restart the server to apply changes to
                   already-loaded conversations.
                 </small>
               </label>

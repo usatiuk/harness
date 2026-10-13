@@ -577,7 +577,7 @@ function HostSettings({ view, onError }: { view: TuiHostView; onError: (error: s
     <>
       <Text>{`Edit defaults JSON for ${view.host.label}:`}</Text>
       <Text dimColor>
-        compactionThresholdTokens: positive input-token count; null uses automatic (85%).
+        compactionThresholdTokens: positive input-token count; null uses known model limits.
       </Text>
       <TextInput
         defaultValue={initial}

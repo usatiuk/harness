@@ -60,3 +60,40 @@ release assembly/signature verification. All 19 assets were present in the draft
 [v0.1.8](https://github.com/usatiuk/harness/releases/tag/v0.1.8) was published on
 2026-10-12. Native GUI interaction was not exercised; GUI behavior is covered by
 the Chromium fixture, and TUI settings/persistence use a real isolated server.
+
+## Partial-metadata follow-up (October 13)
+
+Status: Validated; publication pending.
+
+The user reported a new Mistral GLM conversation ignoring 20k, and LiteLLM
+advertising input/output without a combined context window. The old early return
+required both combined-window and output metadata even for explicit thresholds.
+Fix this at the existing engine capacity boundary; do not infer missing catalog
+fields, add transport/output-cap policy, or change configuration lifetime.
+
+- [x] Honor configured thresholds with partial/absent metadata; derive the smallest
+      known input bound; automatic uses input minus output minus a fixed 2% input
+      cushion. Remove 85% and the bounded headroom constants.
+- [x] Cover partial combinations, independent I/O, checkpoint suffixes, immediate
+      allowance, repeated mid-turn tool compaction, and post-clear creation.
+- [x] Focused checks, Settings browser/TUI regressions, full check, scoped
+      correctness/simplicity/evidence review and owning documentation.
+
+Normal agent output caps and transport selection remain unchanged. Without known
+combined-window and output capacity, the existing compaction request cap stays
+unspecified; it is not guessed from separate limits. The fixed-percent cushion
+also applies when calculating the existing known-window compaction allowance.
+GUI compaction streaming and LiteLLM reasoning preset generation are outside this
+narrow follow-up. Loaded conversations still require server restart for settings
+changes; no live refresh is introduced. No developer profiles are touched.
+
+Follow-up validation passes: `npm run check` typecheck/lint/formatting and 1,339
+tests (38 existing skips); 135 focused engine/RPC/TUI tests; the existing isolated
+GUI threshold save/clear case; final engine/RPC recheck after scalar simplification.
+Three read-only reviewers covered correctness, simplicity and evidence/scope.
+Review findings were resolved: the no-fold fixture now leaves room for appended
+content, cleared public RPC configuration correctly asserts null while persistence
+asserts absence, and incomplete combined capacity does not invent a summary cap.
+The existing checkpoint estimator and mid-turn guard are unchanged. No real
+provider generation or running developer conversation was modified or restarted.
+The running server needs the updated source loaded before this fix applies.

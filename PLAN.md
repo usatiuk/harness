@@ -164,11 +164,14 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 ## Recent delivery
 
 The [global compaction threshold](docs/plans/context/2026-10-12-global-compaction-threshold.md)
-adds a positive input-token setting to GUI/TUI host defaults. Automatic uses 85%
-of the model input budget; configured values can lower it, with the existing
-output/headroom safety cap. Existing usage checkpoints, compaction strategy,
-and loaded-runtime caching remain unchanged. Full checks pass 1,316 tests
-(38 skipped), plus all 32 browser cases. Published in
+adds a positive input-token setting to GUI/TUI host defaults. The partial-metadata
+follow-up is complete locally: explicit thresholds work without capacity metadata;
+automatic thresholds reserve the output maximum plus 2% of usable input. Separate
+input/output limits work without a combined context window. Validation passes the
+full check (1,339 tests, 38 skips), focused engine/RPC/TUI tests and the isolated GUI
+setting regression. Publication of the validated follow-up is pending. Existing usage checkpoints, compaction strategy,
+and loaded-runtime caching remain unchanged. The original delivery passed 1,316 tests
+(38 skipped), plus all 32 browser cases, and was published in
 [v0.1.8](https://github.com/usatiuk/harness/releases/tag/v0.1.8) after all three
 platform builds passed; detailed evidence is tracked in the plan.
 

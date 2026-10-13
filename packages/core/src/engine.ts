@@ -60,8 +60,6 @@ import { reconcileConversation } from "./reconcile.ts";
 import { ModelPreview } from "./model-preview.ts";
 
 const MAX_MODEL_STEPS = 100;
-const COMPACTION_HEADROOM_TOKENS = 8_192;
-const MIN_COMPACTION_HEADROOM_TOKENS = 64;
 
 interface PendingContext {
   key: string;
@@ -1653,9 +1651,27 @@ export class Engine {
     build: NewContextBuild,
   ): Promise<{ shouldCompact: boolean; compactionOutputLimit?: number }> {
     const info = findModel(this.host.providers.listModels(), conversation.config.model);
-    if (!info?.contextWindow || !info.maxOutputTokens) {
+    const output = info?.maxOutputTokens;
+    const contextInput =
+      info?.contextWindow !== undefined && output !== undefined
+        ? info.contextWindow - output
+        : undefined;
+    const input =
+      info?.maxInputTokens === undefined
+        ? contextInput
+        : Math.min(info.maxInputTokens, contextInput ?? Infinity);
+    const headroom = input === undefined ? 0 : Math.ceil(input * 0.02);
+    // The next answer must also fit as input when the following request compacts it.
+    const automatic =
+      input !== undefined && output !== undefined
+        ? Math.max(0, input - output - headroom)
+        : undefined;
+    const threshold = Math.min(
+      conversation.config.compaction?.thresholdTokens ?? Infinity,
+      automatic ?? Infinity,
+    );
+    if (!Number.isFinite(threshold) && (info?.contextWindow === undefined || output === undefined))
       return { shouldCompact: false };
-    }
 
     let estimate: number | undefined;
     const usage = await this.store.listModelUsage(conversation.id);
@@ -1691,22 +1707,16 @@ export class Engine {
       break;
     }
     estimate ??= estimateContextTokens(build);
-    const headroom = Math.min(
-      COMPACTION_HEADROOM_TOKENS,
-      Math.max(MIN_COMPACTION_HEADROOM_TOKENS, Math.ceil(info.contextWindow * 0.02)),
-    );
-    const safeInputLimit = info.contextWindow - info.maxOutputTokens - headroom;
-    const maxInput = info.maxInputTokens ?? info.contextWindow - info.maxOutputTokens;
-    const threshold = Math.min(
-      Math.floor(0.85 * maxInput),
-      conversation.config.compaction?.thresholdTokens ?? Infinity,
-      safeInputLimit,
-    );
-    const available = info.contextWindow - estimate - headroom;
     return {
-      shouldCompact: threshold > 0 && estimate >= threshold,
-      // Use all safely available capacity, capped only by the model's normal maximum.
-      compactionOutputLimit: Math.max(0, Math.min(info.maxOutputTokens, available)),
+      shouldCompact: estimate >= threshold,
+      ...(output === undefined || info?.contextWindow === undefined
+        ? {}
+        : {
+            compactionOutputLimit: Math.max(
+              0,
+              Math.min(output, info.contextWindow - estimate - headroom),
+            ),
+          }),
     };
   }
 

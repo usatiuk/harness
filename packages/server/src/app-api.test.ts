@@ -42,6 +42,7 @@ it("saves creation defaults without changing unrelated global settings", async (
     expect((await client.create({})).config.compaction).toEqual({ thresholdTokens: 1200 });
     await client.peer.request(appSettingsUpdateRequest, { compactionThresholdTokens: null });
     expect((await readGlobalSettings(home)).compaction).toBeUndefined();
+    expect((await client.create({})).config.compaction).toBeNull();
     expect((await client.peer.request(appSettingsRequest, {})).settings).toEqual(before.settings);
     await client.peer.request(appSettingsUpdateRequest, {
       model: { provider: "demo", model: "demo-1", preset: "high" },

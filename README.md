@@ -287,8 +287,8 @@ aliases or discovered reasoning presets. Configured models remain selectable if
 catalog discovery fails, with the failure shown in provider status; credentials
 are still required and generation errors remain visible. Manual-only entries use
 the existing native Mistral transport and expose no reasoning presets. Both
-capacity limits are needed for proactive compaction; these describe model limits,
-not a generation preset. Restart the server after editing connection config.
+capacity limits support automatic compaction; an explicit threshold works even
+without capacity metadata. These describe model limits, not a generation preset. Restart the server after editing connection config.
 
 Every model call has the calling conversation's stable identity, including
 subagents, compaction and auto-approval. OpenCode Go sends it as
