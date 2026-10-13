@@ -21,7 +21,7 @@ export type TranscriptRow =
 
 const durableKey = (cell: Cell): string | undefined =>
   cell.kind === "tool"
-    ? `tool:${cell.callId}`
+    ? `tool:${cell.id ?? JSON.stringify([cell.turnId, cell.callId])}`
     : "id" in cell && cell.id
       ? `${cell.kind}:${cell.id}`
       : undefined;
@@ -78,7 +78,8 @@ export class DesktopTranscript {
       keys.set(cell, key);
       const row = { key, cell } satisfies CellRow;
       rows.push(row);
-      if (cell.kind === "tool") tools.set(cell.callId, rows.length - 1);
+      if (cell.kind === "tool")
+        tools.set(JSON.stringify([cell.turnId, cell.callId]), rows.length - 1);
     }
     // Results follow the last available descendant, without nesting or hiding
     // child calls behind the parent's argument disclosure.
@@ -87,7 +88,9 @@ export class DesktopTranscript {
     for (let index = rows.length - 1; index >= 0; index--) {
       const row = rows[index]!;
       if (row.cell.kind !== "tool") continue;
-      const parent = row.cell.parentCallId ? tools.get(row.cell.parentCallId) : undefined;
+      const parent = row.cell.parentCallId
+        ? tools.get(JSON.stringify([row.cell.turnId, row.cell.parentCallId]))
+        : undefined;
       if (parent !== undefined) ends[parent] = Math.max(ends[parent]!, ends[index]!);
       if (row.cell.name === "eval" && row.cell.status) {
         const end = ends[index]!;

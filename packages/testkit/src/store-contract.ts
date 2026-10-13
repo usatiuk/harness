@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationId, NewItem, Store, TurnId } from "@harness/protocol";
+import type { ConversationId, ItemId, NewItem, Store, TurnId } from "@harness/protocol";
 import { newConversationInput } from "./conversation.ts";
 
 const sampleRecord = () =>
@@ -23,6 +23,65 @@ const message = (conversationId: ConversationId, turnId: TurnId, text: string): 
  */
 export function storeContract(name: string, makeStore: () => Store): void {
   describe(name, () => {
+    it("forks before a user item with shared immutable ancestry and independent local records", async () => {
+      const store = makeStore();
+      const source = await store.createConversation(sampleRecord());
+      const turn = await store.createTurn(source.id);
+      const first = await store.appendItem(message(source.id, turn.id, "first"));
+      const selected = await store.appendItem(message(source.id, turn.id, "edit me"));
+      const suffix = await store.appendItem(message(source.id, turn.id, "later"));
+      const empty = await store.forkConversation(source.id, first.id, {
+        model: { provider: "fake", model: "fake-1" },
+      });
+      expect(empty.head).toBeNull();
+      expect(await store.listActiveItems(empty.id)).toEqual([]);
+      const fork = await store.forkConversation(source.id, selected.id, source.overrides);
+      expect(fork.head).toBe(first.id);
+      expect(fork.fork).toEqual({ conversationId: source.id, userMessageId: selected.id });
+      expect(await store.listOwnedItems(fork.id)).toEqual([]);
+      expect(await store.listActiveItems(fork.id)).toEqual([first]);
+      const forkTurn = await store.createTurn(fork.id);
+      const edited = await store.appendItem(message(fork.id, forkTurn.id, "edited"));
+      expect(edited.parent).toBe(first.id);
+      expect(edited.seq).toBeGreaterThan(first.seq);
+      expect(await store.listActiveItems(fork.id)).toEqual([first, edited]);
+      expect(await store.listActiveItems(source.id)).toEqual([first, selected, suffix]);
+      const nested = await store.forkConversation(fork.id, edited.id, fork.overrides);
+      expect(await store.listActiveItems(nested.id)).toEqual([first]);
+      expect((await store.listItemAncestors(edited.id, 1))[0]).toEqual(edited);
+      expect((await store.listItemAncestors(edited.parent, 1))[0]).toEqual(first);
+      await store.setHead(source.id, first.id);
+      await store.appendItem(message(source.id, turn.id, "source branch"));
+      expect(await store.listActiveItems(fork.id)).toEqual([first, edited]);
+      expect(await store.getItem(selected.id)).toEqual(selected);
+      expect((await store.summarizeModelUsage(fork.id)).usage.inputTokens).toBe(0);
+    });
+
+    it("fork validates the user target without checking its owner and does not create invalid forks", async () => {
+      const store = makeStore();
+      const source = await store.createConversation(sampleRecord());
+      const other = await store.createConversation(sampleRecord());
+      const turn = await store.createTurn(other.id);
+      const prefix = await store.appendItem(message(other.id, turn.id, "prefix"));
+      const user = await store.appendItem(message(other.id, turn.id, "user"));
+      const fork = await store.forkConversation(source.id, user.id, {});
+      expect(await store.listActiveItems(fork.id)).toEqual([prefix]);
+      const assistant = await store.appendItem({
+        conversationId: other.id,
+        turnId: turn.id,
+        type: "message",
+        role: "assistant",
+        content: [{ type: "text", text: "answer" }],
+      });
+      const before = (await store.listConversations()).length;
+      await expect(store.forkConversation(source.id, assistant.id, {})).rejects.toThrow(
+        "user message",
+      );
+      await expect(store.forkConversation(source.id, "missing" as ItemId, {})).rejects.toThrow(
+        "user message",
+      );
+      expect((await store.listConversations()).length).toBe(before);
+    });
     it("persists titles in reads and pages, and rejects stale title replacements", async () => {
       const store = makeStore();
       const conv = await store.createConversation(sampleRecord());
@@ -89,7 +148,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
       const a = await store.appendItem(message(conv.id, turn.id, "hi"));
       const b = await store.appendItem(message(conv.id, turn.id, "yo"));
       expect([a.seq, b.seq]).toEqual([0, 1]);
-      const items = await store.listItems(conv.id);
+      const items = await store.listOwnedItems(conv.id);
       expect(items.map((i) => i.seq)).toEqual([0, 1]);
     });
 
@@ -187,13 +246,14 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect((await store.listActiveItems(conv.id)).map((i) => i.id)).toEqual([a.id]);
     });
 
-    it("setHead rejects an item from another conversation", async () => {
+    it("setHead accepts an existing item regardless of physical owner", async () => {
       const store = makeStore();
       const conv = await store.createConversation(sampleRecord());
       const other = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(other.id);
       const stray = await store.appendItem(message(other.id, turn.id, "x"));
-      await expect(store.setHead(conv.id, stray.id)).rejects.toThrow();
+      await store.setHead(conv.id, stray.id);
+      expect(await store.listActiveItems(conv.id)).toEqual([stray]);
     });
 
     it("branches: the abandoned tail is off the active chain but kept in the raw log", async () => {
@@ -210,7 +270,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect(branched.seq).toBeGreaterThan(abandoned.seq); // seq keeps growing across the branch
       // Active chain skips the abandoned item; the raw log retains all three.
       expect((await store.listActiveItems(conv.id)).map((i) => i.id)).toEqual([a.id, branched.id]);
-      expect((await store.listItems(conv.id)).map((i) => i.id)).toEqual([
+      expect((await store.listOwnedItems(conv.id)).map((i) => i.id)).toEqual([
         a.id,
         abandoned.id,
         branched.id,
@@ -226,25 +286,22 @@ export function storeContract(name: string, makeStore: () => Store): void {
       const b = await store.appendItem(message(conv.id, turn.id, "b"));
       const c = await store.appendItem(message(conv.id, turn.id, "c"));
 
-      expect((await store.listItemAncestors(conv.id, c.id, 2)).map((item) => item.id)).toEqual([
-        c.id,
-        b.id,
-      ]);
-      expect((await store.listItemAncestors(conv.id, b.parent, 2)).map((item) => item.id)).toEqual([
-        a.id,
-      ]);
-      expect(await store.getItem(conv.id, b.id)).toEqual(b);
-      expect(await store.getItem(other.id, b.id)).toBeUndefined();
+      expect((await store.listItemAncestors(c.id, 2)).map((item) => item.id)).toEqual([c.id, b.id]);
+      expect((await store.listItemAncestors(b.parent, 2)).map((item) => item.id)).toEqual([a.id]);
+      expect(await store.getItem("missing" as ItemId)).toBeUndefined();
+      await store.setHead(other.id, b.id);
+      expect(await store.listActiveItems(other.id)).toEqual([a, b]);
+      expect(await store.getItem(b.id)).toEqual(b);
     });
 
-    it("listItems honors a seq range", async () => {
+    it("listOwnedItems honors a seq range", async () => {
       const store = makeStore();
       const conv = await store.createConversation(sampleRecord());
       const turn = await store.createTurn(conv.id);
       await store.appendItem(message(conv.id, turn.id, "a"));
       await store.appendItem(message(conv.id, turn.id, "b"));
       await store.appendItem(message(conv.id, turn.id, "c"));
-      const mid = await store.listItems(conv.id, { fromSeq: 1, toSeq: 1 });
+      const mid = await store.listOwnedItems(conv.id, { fromSeq: 1, toSeq: 1 });
       expect(mid.map((i) => i.seq)).toEqual([1]);
     });
 
@@ -258,7 +315,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
         type: "reasoning",
         content: [{ type: "text", text: "thinking" }],
       });
-      const [stored] = await store.listItems(conv.id);
+      const [stored] = await store.listOwnedItems(conv.id);
       expect(stored).toEqual(item);
       expect(stored?.type === "reasoning" && stored.content).toEqual([
         { type: "text", text: "thinking" },
@@ -276,7 +333,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
         key: "agents-md:src/api/AGENTS.md",
         content: [{ type: "text", text: "project rules" }],
       });
-      const [stored] = await store.listItems(conv.id);
+      const [stored] = await store.listOwnedItems(conv.id);
       expect(stored).toEqual(item);
       expect(stored?.type === "context" && stored.key).toBe("agents-md:src/api/AGENTS.md");
       // it is on the active chain (the source the model build reads)
@@ -302,7 +359,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
           },
         },
       });
-      expect((await store.listItems(conv.id))[0]).toEqual(item);
+      expect((await store.listOwnedItems(conv.id))[0]).toEqual(item);
     });
 
     it("tracks at most one running turn", async () => {

@@ -470,6 +470,74 @@ test("new conversation choices become host defaults for the next creation", asyn
   );
 });
 
+test("fork before a user message opens a new unsent draft and preserves the source draft", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showToolsAndActivities());
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("keep source draft");
+  const user = page.locator(".cell.user").first();
+  const selected = await user.locator(".user-text").textContent();
+  await user.hover();
+  await user.getByRole("button", { name: "Fork before this message" }).click();
+  await expect(page.locator(".conversation-heading h1")).toHaveText("Forked conversation");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(selected!);
+  expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([]);
+  expect(
+    await page.evaluate(() =>
+      Object.entries(localStorage).some(
+        ([key, value]) => key.endsWith("draft:fixture") && value === "keep source draft",
+      ),
+    ),
+  ).toBe(true);
+});
+
+test("message actions are small, below the text and visible on hover or focus", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          localStorage.setItem("copied-message", text);
+        },
+      },
+    });
+    window.composerFixture.showToolsAndActivities();
+  });
+  const user = page.locator(".cell.user").first();
+  const assistant = page.getByTestId("assistant-message").first();
+  const fork = user.getByRole("button", { name: "Fork before this message" });
+  const copy = assistant.getByRole("button", { name: "Copy message" });
+  await page.getByRole("link", { name: "Settings", exact: true }).hover();
+  await expect(fork).toHaveCSS("opacity", "0");
+  await expect(copy).toHaveCSS("opacity", "0");
+  const text = await user.locator(".user-text").boundingBox();
+  const action = await fork.boundingBox();
+  expect(action!.y).toBeGreaterThanOrEqual(text!.y + text!.height);
+  expect(action!.height).toBeLessThanOrEqual(20);
+  await expect(fork).toHaveCSS("border-radius", "4px");
+  await expect(copy).toHaveCSS("border-radius", "4px");
+  await user.hover();
+  await expect(fork).toHaveCSS("opacity", "1");
+  await copy.focus();
+  await expect(copy).toHaveCSS("opacity", "1");
+  const content = await assistant.locator(".message-content").boundingBox();
+  const copyBox = await copy.boundingBox();
+  expect(copyBox!.y).toBeGreaterThanOrEqual(content!.y + content!.height);
+  await copy.click();
+  await expect(assistant.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("copied-message"))).toBe(
+    "Checking the stores",
+  );
+  await expect(assistant.getByRole("button", { name: "Copy message", exact: true })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("message-actions.png") });
+});
+
 test("conversation header exposes inline rename on hover and preserves cancellation", async ({
   page,
 }) => {
@@ -1281,6 +1349,7 @@ test("conversation has a compact title, smaller prose and a quiet Markdown separ
   const metrics = await page.locator(".cell.assistant").evaluate((cell) => {
     const rule = getComputedStyle(cell.querySelector("hr")!);
     return {
+      connected: cell.isConnected,
       text: getComputedStyle(cell).fontSize,
       heading: getComputedStyle(cell.querySelector("h1")!).fontSize,
       ruleWidth: rule.borderTopWidth,
@@ -1288,6 +1357,7 @@ test("conversation has a compact title, smaller prose and a quiet Markdown separ
       headerHeight: document.querySelector(".conversation-header")!.getBoundingClientRect().height,
     };
   });
+  expect(metrics.connected).toBe(true);
   expect(metrics.text).toBe("13px");
   expect(parseFloat(metrics.heading)).toBeCloseTo(16.9, 1);
   expect(metrics.ruleWidth).toBe("1px");

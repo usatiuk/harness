@@ -132,9 +132,57 @@ export class SqliteStore implements Store {
         title: null,
         created_at: record.createdAt,
         last_used_at: record.lastUsedAt,
+        fork_origin: null,
       })
       .execute();
     return record;
+  }
+
+  async forkConversation(
+    sourceId: ConversationId,
+    userMessageId: ItemId,
+    overrides: ConversationOverrides,
+  ): Promise<ConversationRecord> {
+    return this.#db
+      .transaction(() => {
+        const source = this.#db
+          .prepare<[string], Database["conversations"]>("SELECT * FROM conversations WHERE id = ?")
+          .get(sourceId);
+        if (!source) throw new Error(`unknown conversation: ${sourceId}`);
+        const row = this.#db
+          .prepare<[string], ItemRow>("SELECT * FROM items WHERE id = ?")
+          .get(userMessageId);
+        const user = row ? rowToItem(row) : undefined;
+        if (user?.type !== "message" || user.role !== "user")
+          throw new Error("fork target must be a user message");
+        const createdAt = this.clock.now();
+        const record: ConversationRecord = {
+          id: this.ids.conversationId(),
+          workspaceRoot: source.workspace_root,
+          overrides,
+          head: user.parent,
+          title: source.title,
+          createdAt,
+          lastUsedAt: createdAt,
+          fork: { conversationId: sourceId, userMessageId },
+        };
+        this.#db
+          .prepare(
+            `INSERT INTO conversations (id, workspace_root, overrides, head, title, created_at, last_used_at, fork_origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            record.id,
+            record.workspaceRoot,
+            JSON.stringify(overrides),
+            record.head,
+            record.title,
+            createdAt,
+            createdAt,
+            JSON.stringify(record.fork),
+          );
+        return record;
+      })
+      .immediate();
   }
 
   async updateConversationTitle(
@@ -285,7 +333,7 @@ export class SqliteStore implements Store {
     return { ...input, id, seq, parent, createdAt } as Item;
   }
 
-  async listItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]> {
+  async listOwnedItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]> {
     let q = this.#k
       .selectFrom("items")
       .selectAll()
@@ -297,18 +345,14 @@ export class SqliteStore implements Store {
   }
 
   async setHead(conversationId: ConversationId, itemId: ItemId): Promise<void> {
-    // EXISTS makes "item belongs to this conversation" the precondition; zero rows updated
-    // ⇒ missing conversation or stray item.
     const res = await this.#k
       .updateTable("conversations")
       .set({ head: itemId })
       .where("id", "=", conversationId)
-      .where(
-        sql<boolean>`EXISTS (SELECT 1 FROM items WHERE id = ${itemId} AND conversation_id = ${conversationId})`,
-      )
+      .where(sql<boolean>`EXISTS (SELECT 1 FROM items WHERE id = ${itemId})`)
       .executeTakeFirst();
     if (res.numUpdatedRows === 0n) {
-      throw new Error(`item ${itemId} is not in conversation ${conversationId}`);
+      throw new Error(`unknown conversation or item: ${conversationId}/${itemId}`);
     }
   }
 
@@ -316,38 +360,33 @@ export class SqliteStore implements Store {
     // Parent-walk from head, not a seq-prefix: a rewind-then-continue leaves the active
     // chain a non-contiguous subset of seq. Empty when head IS NULL.
     const rows = await sql<ItemRow>`
-      WITH RECURSIVE chain(id) AS (
-        SELECT head FROM conversations WHERE id = ${conversationId}
+      WITH RECURSIVE chain(id, depth) AS (
+        SELECT head, 0 FROM conversations WHERE id = ${conversationId}
         UNION ALL
-        SELECT items.parent FROM items JOIN chain ON items.id = chain.id
+        SELECT items.parent, chain.depth + 1 FROM items JOIN chain ON items.id = chain.id
         WHERE items.parent IS NOT NULL
       )
-      SELECT i.* FROM items i JOIN chain ON i.id = chain.id ORDER BY i.seq ASC
+      SELECT i.* FROM items i JOIN chain ON i.id = chain.id ORDER BY chain.depth DESC
     `.execute(this.#k);
     return rows.rows.map(rowToItem);
   }
 
-  async getItem(conversationId: ConversationId, itemId: ItemId): Promise<Item | undefined> {
+  async getItem(itemId: ItemId): Promise<Item | undefined> {
     const row = await this.#k
       .selectFrom("items")
       .selectAll()
-      .where("conversation_id", "=", conversationId)
       .where("id", "=", itemId)
       .executeTakeFirst();
     return row ? rowToItem(row) : undefined;
   }
 
-  async listItemAncestors(
-    conversationId: ConversationId,
-    start: ItemId | null,
-    limit: number,
-  ): Promise<Item[]> {
+  async listItemAncestors(start: ItemId | null, limit: number): Promise<Item[]> {
     if (!Number.isInteger(limit) || limit <= 0) throw new Error("limit must be a positive integer");
     if (start === null) return [];
     const rows = await sql<ItemRow>`
       WITH RECURSIVE chain(id, depth) AS (
         SELECT id, 0 FROM items
-        WHERE id = ${start} AND conversation_id = ${conversationId}
+        WHERE id = ${start}
         UNION ALL
         SELECT items.parent, chain.depth + 1
         FROM items JOIN chain ON items.id = chain.id
@@ -638,8 +677,8 @@ export class SqliteStore implements Store {
   }
 
   #buildAppendTxn(): (p: AppendParams) => { seq: number; parent: string | null } {
-    const head = this.#db.prepare<[string], { head: string | null }>(
-      "SELECT head FROM conversations WHERE id = ?",
+    const head = this.#db.prepare<[string], { head: string | null; parent_seq: number }>(
+      "SELECT c.head, COALESCE(i.seq, -1) AS parent_seq FROM conversations c LEFT JOIN items i ON i.id = c.head WHERE c.id = ?",
     );
     const maxSeq = this.#db.prepare<[string], { m: number | null }>(
       "SELECT MAX(seq) AS m FROM items WHERE conversation_id = ?",
@@ -653,7 +692,7 @@ export class SqliteStore implements Store {
       const conv = head.get(p.conversationId);
       if (!conv) throw new Error(`unknown conversation: ${p.conversationId}`);
       const max = maxSeq.get(p.conversationId);
-      const seq = max?.m == null ? 0 : max.m + 1;
+      const seq = Math.max(max?.m ?? -1, conv.parent_seq) + 1;
       const parent = conv.head;
       insert.run(
         p.id,
@@ -732,6 +771,9 @@ function rowToRecord(row: Database["conversations"]): ConversationRecord {
     title: row.title,
     overrides: JSON.parse(row.overrides) as ConversationOverrides,
     head: row.head as ItemId | null,
+    ...(row.fork_origin === null
+      ? {}
+      : { fork: JSON.parse(row.fork_origin) as NonNullable<ConversationRecord["fork"]> }),
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at,
   };

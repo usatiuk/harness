@@ -78,6 +78,8 @@ import {
   Search,
   Terminal,
   Wrench,
+  GitFork,
+  Copy,
   Check,
   X,
 } from "lucide-react";
@@ -111,11 +113,27 @@ export function createDesktopRouter(
     useSyncExternalStore(session.subscribe, session.snapshot);
   };
 
-  async function action({ request }: ActionFunctionArgs): Promise<ActionResult> {
+  async function action({ request }: ActionFunctionArgs): Promise<ActionResult | Response> {
     try {
       const data = await request.formData();
       const intent = field(data, "intent");
       switch (intent) {
+        case "fork": {
+          const result = await session.domain.forkBefore(
+            field(data, "conversationId") as ConversationId,
+            field(data, "itemId") as import("@harness/protocol").ItemId,
+          );
+          if (result.draft.some((block) => block.type !== "text"))
+            throw new Error(
+              `Fork ${result.conversation.id} created; this composer cannot edit non-text content`,
+            );
+          localStorage.setItem(
+            session.storageKey(`draft:${result.conversation.id}`),
+            textOf(result.draft),
+          );
+          await session.refreshSidebar();
+          return redirect(`/conversations/${result.conversation.id}`);
+        }
         case "rename":
           await session.client.setTitle(field(data, "conversationId"), field(data, "title"));
           return { ok: true };
@@ -1184,6 +1202,7 @@ export function createDesktopRouter(
       return (
         <article className="cell user">
           <div className="user-text">{cell.text}</div>
+          <ForkBefore itemId={cell.id} />
         </article>
       );
     if (cell.kind === "assistant")
@@ -1194,10 +1213,13 @@ export function createDesktopRouter(
           data-phase={cell.phase ?? undefined}
         >
           {cell.phase && cell.phase !== "final_answer" && <div className="muted">{cell.phase}</div>}
-          <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
-            {cell.text}
-          </Markdown>
+          <div className="message-content">
+            <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
+              {cell.text}
+            </Markdown>
+          </div>
           {cell.streaming && <span className="stream-indicator" aria-label="Streaming" />}
+          {!cell.streaming && <CopyMessage text={cell.text} />}
         </article>
       );
     if (cell.kind === "error")
@@ -1514,6 +1536,61 @@ export function createDesktopRouter(
             </Button>
           </>
         )}
+      </div>
+    );
+  }
+
+  function CopyMessage({ text }: { text: string }) {
+    const [copied, setCopied] = useState(false);
+    const [error, setError] = useState<string>();
+    useEffect(() => {
+      if (!copied) return;
+      const timer = setTimeout(() => setCopied(false), 750);
+      return () => clearTimeout(timer);
+    }, [copied]);
+    return (
+      <div className="message-actions">
+        <IconButton
+          icon={copied ? Check : Copy}
+          label={copied ? "Copied" : "Copy message"}
+          size="sm"
+          onClick={() => {
+            void navigator.clipboard.writeText(text).then(
+              () => {
+                setCopied(true);
+                setError(undefined);
+              },
+              (cause: unknown) => setError(`Copy failed: ${errorMessage(cause)}`),
+            );
+          }}
+        />
+        {error && (
+          <span className="error" role="alert">
+            {error}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  function ForkBefore({ itemId }: { itemId: string }) {
+    const view = useLoaderData<ConversationView>();
+    const fork = useFetcher<ActionResult>();
+    return (
+      <div className="message-actions">
+        <fork.Form method="post" action="/actions">
+          <Input type="hidden" name="intent" value="fork" />
+          <Input type="hidden" name="conversationId" value={view.conversation.id} />
+          <Input type="hidden" name="itemId" value={itemId} />
+          <IconButton
+            icon={GitFork}
+            label="Fork before this message"
+            type="submit"
+            size="sm"
+            disabled={fork.state !== "idle" || !session.client.peer.ready}
+          />
+        </fork.Form>
+        <ActionFeedback data={fork.data} />
       </div>
     );
   }

@@ -139,6 +139,25 @@ const domain = {
     { provider: "fixture", model: "test-latest", label: "Fixture model" },
   ],
   defaultModel: () => view.conversation.config.model,
+  async forkBefore(_source: ConversationId, itemId: import("@harness/protocol").ItemId) {
+    const user = view.state.cells.find((cell) => cell.kind === "user" && cell.id === itemId);
+    if (user?.kind !== "user") throw new Error("fork target must be a user message");
+    const conversation = {
+      ...view.conversation,
+      id: "fixture-fork" as ConversationId,
+      title: "Forked conversation",
+    };
+    const state = {
+      ...view.state,
+      cells: [],
+      turn: { status: "idle" as const },
+    };
+    const fork = { ...view, conversation, state, transcript: new DesktopTranscript() };
+    fork.transcript.update([]);
+    session.views.set(conversation.id, fork);
+    sidebarRows.push(conversation);
+    return { conversation, draft: [{ type: "text" as const, text: user.text }] };
+  },
   deliver(_id: ConversationId, text: string, intent: DeliveryIntent) {
     calls.push({ text, intent });
     return new Promise<void>((resolve, reject) => {
@@ -151,7 +170,10 @@ const domain = {
       }
     });
   },
-} satisfies Pick<DesktopSession["domain"], "availableModels" | "defaultModel" | "deliver">;
+} satisfies Pick<
+  DesktopSession["domain"],
+  "availableModels" | "defaultModel" | "deliver" | "forkBefore"
+>;
 // Substitute only the session/data edge. Production route actions, fetchers,
 // Composer, controls, draft storage and preference handling execute unchanged.
 // Native cases qualify real RPC and server semantics separately.
@@ -354,6 +376,8 @@ const session = {
   storageKey: (key: string) => `${sidebarScope}:${key}`,
   readSettings: () => Promise.resolve(settings),
   load: (requested: string) => {
+    if (requested === "fixture-fork")
+      return Promise.resolve(session.views.get(requested as ConversationId)!);
     const conversation = sidebarRows.find((row) => row.id === requested);
     if (!conversation) return Promise.resolve(view);
     const selected = { ...view, conversation };

@@ -84,7 +84,7 @@ it("preserves per-conversation identity across retries, concurrent roots, nested
   expect(retries).toHaveLength(2);
   expect(retries[0]!.context).toBe(retries[1]!.context);
   expect(
-    (await store.listItems(root!.id)).some(
+    (await store.listOwnedItems(root!.id)).some(
       (item) => item.type === "message" && item.role === "assistant",
     ),
   ).toBe(true);

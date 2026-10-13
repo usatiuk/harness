@@ -53,6 +53,8 @@ export type Cell =
     }
   | {
       kind: "tool";
+      id?: string;
+      conversationId?: string;
       callId: string;
       parentCallId?: string;
       turnId?: string;
@@ -305,6 +307,8 @@ function reduceItem(state: State, item: Item, receivedAt?: number): State {
           ...state.cells,
           {
             kind: "tool",
+            id: item.id,
+            conversationId: item.conversationId,
             callId: item.callId,
             turnId: item.turnId,
             name: item.name,
@@ -319,7 +323,12 @@ function reduceItem(state: State, item: Item, receivedAt?: number): State {
       next = {
         ...state,
         cells: state.cells.map((cell): Cell => {
-          if (cell.kind !== "tool" || cell.callId !== item.callId) return cell;
+          if (
+            cell.kind !== "tool" ||
+            cell.callId !== item.callId ||
+            cell.conversationId !== item.conversationId
+          )
+            return cell;
           const approval = approvalAnnotationOf(item.annotations);
           const settled: Extract<Cell, { kind: "tool" }> = {
             ...cell,
@@ -345,7 +354,12 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
     return {
       ...state,
       cells: state.cells.map((cell) => {
-        if (cell.kind !== "tool" || cell.callId !== event.callId) return cell;
+        if (
+          cell.kind !== "tool" ||
+          cell.callId !== event.callId ||
+          cell.conversationId !== event.conversationId
+        )
+          return cell;
         return {
           ...cell,
           approvalProgress: { status: "reviewing", responder: "auto", model: event.model },
@@ -357,7 +371,9 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
     return {
       ...state,
       cells: state.cells.map((cell) =>
-        cell.kind === "tool" && cell.callId === event.callId
+        cell.kind === "tool" &&
+        cell.callId === event.callId &&
+        cell.conversationId === event.conversationId
           ? {
               ...cell,
               approvalProgress: {
@@ -461,7 +477,9 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
       return {
         ...state,
         cells: state.cells.map((cell) =>
-          cell.kind === "tool" && cell.callId === req.call.callId
+          cell.kind === "tool" &&
+          cell.callId === req.call.callId &&
+          cell.conversationId === event.conversationId
             ? {
                 ...cell,
                 approvalProgress: { status: "reviewing", responder: "human" },

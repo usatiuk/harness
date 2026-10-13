@@ -1192,3 +1192,10 @@ updated for custom menus but were not run on this Linux host.
 The published v0.1.11 Linux AppImage also passes isolated cold headless runtime
 preparation through extracted AppRun (exit 0, all prepared paths in the temporary
 home). This does not exercise GUI rendering or in-place updater install/restart.
+
+Fork regressions cover shared/nested history and global item reads through the
+shared store contract, SQLite schema-8 upgrade/reopen, real RPC draft hydration
+and source runtime independence, GUI draft preservation, and the TUI `/fork`
+picker. Tool-result pairing and provider request mapping cover repeated provider
+call IDs across owners. Browser fixtures and TUI doubles keep credentials and
+normal desktop profiles untouched.

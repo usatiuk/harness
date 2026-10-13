@@ -333,6 +333,16 @@ const historyEntrySchema = z.discriminatedUnion("kind", [
 ]);
 export type HistoryEntry = z.infer<typeof historyEntrySchema>;
 
+export const conversationForkBeforeRequest = defineRequest({
+  direction: "client-to-server",
+  method: "conversation.forkBefore",
+  params: z.strictObject({ conversationId: idSchema, userMessageId: idSchema }),
+  result: z.strictObject({
+    conversation: wireConversationSchema,
+    draft: historyEntrySchema.options[1],
+  }),
+});
+
 export const conversationHistoryRequest = defineRequest({
   direction: "client-to-server",
   method: "conversation.history",
@@ -477,6 +487,7 @@ export const coreRpcMessages = [
   conversationItemReadRequest,
   conversationUsageRequest,
   conversationModelSetRequest,
+  conversationForkBeforeRequest,
   conversationTitleSetRequest,
   conversationPresetSetRequest,
   conversationPluginConfigPatchRequest,

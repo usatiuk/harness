@@ -254,7 +254,7 @@ describe("auto approval integration", () => {
         });
         await fixture.service.send(conversation.id, "perform the requested project work");
         await fixture.service.whenIdle(conversation.id);
-        const result = (await fixture.store.listItems(conversation.id)).find(
+        const result = (await fixture.store.listOwnedItems(conversation.id)).find(
           (item) => item.type === "tool_result",
         );
         expect(
@@ -323,7 +323,7 @@ describe("auto approval integration", () => {
       await fixture.service.whenIdle(conversation.id);
       expect(fixture.executed).toHaveBeenCalledOnce();
       expect(fixture.reviewRequests).toHaveLength(21);
-      const items = await fixture.store.listItems(conversation.id);
+      const items = await fixture.store.listOwnedItems(conversation.id);
       const result = items.find((item) => item.type === "tool_result");
       expect(
         result?.type === "tool_result" && approvalAnnotationOf(result.annotations),
@@ -382,7 +382,7 @@ describe("auto approval integration", () => {
       await fixture.service.deliver(conversation.id, "", "interrupt");
       await fixture.service.whenIdle(conversation.id);
       expect(fixture.executed).not.toHaveBeenCalled();
-      const items = await fixture.store.listItems(conversation.id);
+      const items = await fixture.store.listOwnedItems(conversation.id);
       const result = items.find((item) => item.type === "tool_result");
       expect(result?.type === "tool_result" && result.status).toBe("error");
       expect(result?.type === "tool_result" && result.annotations).toBeUndefined();
@@ -423,7 +423,7 @@ describe("auto approval integration", () => {
       await fixture.service.send(conversation.id, "go");
       await fixture.service.whenIdle(conversation.id);
       expect(fixture.executed).not.toHaveBeenCalled();
-      const result = (await fixture.store.listItems(conversation.id)).find(
+      const result = (await fixture.store.listOwnedItems(conversation.id)).find(
         (item) => item.type === "tool_result",
       );
       const approval =

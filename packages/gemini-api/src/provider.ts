@@ -1,3 +1,4 @@
+import { toolCallKey } from "@harness/protocol";
 import { GoogleGenAI, ApiError, type Interactions } from "@google/genai";
 import {
   ModelDiscoveryError,
@@ -67,7 +68,7 @@ export function buildInteraction(
   const rawCalls = new Set(
     request.items.flatMap(({ item, payload }) =>
       item.type === "tool_call" && !isFunctionArgs(item.args) && !readSteps(payload, request)
-        ? [item.callId]
+        ? [toolCallKey(item)]
         : [],
     ),
   );
@@ -114,7 +115,7 @@ export function buildInteraction(
         break;
       case "tool_result":
         input.push(
-          rawCalls.has(item.callId)
+          rawCalls.has(toolCallKey(item))
             ? { type: "user_input", content: [{ type: "text", text: textOf(item.content) }] }
             : {
                 type: "function_result",

@@ -105,6 +105,52 @@ const mount = (
   );
 
 describe("App", () => {
+  it("forks a selected user message into an unsent draft", async () => {
+    const { service } = harness();
+    const target = {
+      type: "message",
+      id: "user-1",
+      conversationId: "c1",
+      turnId: "t1",
+      seq: 0,
+      parent: null,
+      createdAt: 0,
+      role: "user",
+      content: [{ type: "text", text: "edit this" }],
+    } as Item;
+    const forkBefore = vi.fn(async () => ({
+      conversation: { ...conversation, id: "fork" },
+      draft: target.type === "message" ? target.content : [],
+    }));
+    const deliver = vi.fn();
+    Object.assign(service, { forkBefore, deliver });
+    const drafts = new Map<string, string>();
+    const onResume = vi.fn();
+    const app = render(
+      <App
+        service={service}
+        plugins={testPlugins()}
+        conversation={conversation}
+        initialItems={[target]}
+        initialUsage={[]}
+        cwd="/tmp"
+        launchCwd="/tmp"
+        drafts={drafts}
+        onResume={onResume}
+        onReload={() => {}}
+      />,
+    );
+    app.stdin.write("/fork");
+    await flush();
+    app.stdin.write("\r");
+    await vi.waitFor(() => expect(app.lastFrame()).toContain("Fork before a user message"));
+    app.stdin.write("\r");
+    await vi.waitFor(() => expect(onResume).toHaveBeenCalledWith("fork"));
+    expect(forkBefore).toHaveBeenCalledWith("c1", "user-1");
+    expect(drafts.get("fork")).toBe("edit this");
+    expect(deliver).not.toHaveBeenCalled();
+    app.unmount();
+  });
   it("labels totals as incomplete when a provider omitted usage", () => {
     expect(
       usageLabel(

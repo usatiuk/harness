@@ -36,8 +36,10 @@ export interface ConversationRecord {
   workspaceRoot: string | null;
   /** Durable top-of-cascade settings layer; re-applied on every resolve. */
   overrides: ConversationOverrides;
-  /** Tip of the active chain; advances on each append. `null` until the first append. */
+  /** Tip of the active chain; advances on each append. `null` for empty history. */
   head: ItemId | null;
+  /** Immutable fork provenance; independent of runtime/subagent ownership. */
+  fork?: { conversationId: ConversationId; userMessageId: ItemId };
   /** Saved display title; null until the first user message. */
   title: string | null;
   createdAt: number;

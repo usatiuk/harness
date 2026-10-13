@@ -191,7 +191,7 @@ describe("Engine — turn cycle", () => {
     await engine.whenIdle(conversation.id);
     expect(executions).toBe(0);
     expect(turnStatuses(events)).toEqual(["running", "failed"]);
-    expect(toolResults(await store.listItems(conversation.id))).toMatchObject([
+    expect(toolResults(await store.listOwnedItems(conversation.id))).toMatchObject([
       { callId: "call", status: "error" },
     ]);
     expect((await store.listModelUsage(conversation.id)).map((row) => row.usage)).toEqual([
@@ -244,7 +244,7 @@ describe("Engine — turn cycle", () => {
     await engine.whenIdle(conversation.id);
     expect(executed).toBe(false);
     expect(turnStatuses(events)).toEqual(["running", "aborted"]);
-    expect(toolResults(await store.listItems(conversation.id))).toMatchObject([
+    expect(toolResults(await store.listOwnedItems(conversation.id))).toMatchObject([
       {
         callId: "call",
         status: "error",
@@ -276,7 +276,7 @@ describe("Engine — turn cycle", () => {
     await engine.whenIdle(conversation.id);
     expect(provider.requests).toHaveLength(1);
     expect(turnStatuses(events)).toEqual(["running", "completed"]);
-    const items = await store.listItems(conversation.id);
+    const items = await store.listOwnedItems(conversation.id);
     expect(shapeOf(items)).toEqual(["user:go", "provider:Searched SECRET", "assistant:finalized"]);
     expect(items.at(-1)).toMatchObject({ phase: "commentary" });
     const hint = items.find((item) => item.type === "provider_output")!;
@@ -363,7 +363,7 @@ describe("Engine — turn cycle", () => {
     await engine.whenIdle(conversation.id);
     expect(executed).toBe(false);
     expect(turnStatuses(events)).toEqual(["running", "aborted"]);
-    const items = await store.listItems(conversation.id);
+    const items = await store.listOwnedItems(conversation.id);
     expect(
       items
         .filter((item) => item.type === "message" && item.role === "assistant")
@@ -403,7 +403,7 @@ describe("Engine — turn cycle", () => {
     ]);
     expect(
       await store.getProviderPayloads(
-        (await store.listItems(conversation.id)).map((item) => item.id),
+        (await store.listOwnedItems(conversation.id)).map((item) => item.id),
       ),
     ).toEqual([]);
   });
@@ -576,7 +576,10 @@ describe("Engine — turn cycle", () => {
 
     provider.release();
     await engine.whenIdle(conv.id);
-    expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:hello", "assistant:partial"]);
+    expect(shapeOf(await store.listOwnedItems(conv.id))).toEqual([
+      "user:hello",
+      "assistant:partial",
+    ]);
   });
 
   it("force-deactivates a running conversation tree and discards queued input", async () => {
@@ -596,7 +599,7 @@ describe("Engine — turn cycle", () => {
       status: "deactivated",
     });
 
-    expect(userTexts(await store.listItems(conv.id))).toEqual(["first"]);
+    expect(userTexts(await store.listOwnedItems(conv.id))).toEqual(["first"]);
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
   });
 
@@ -852,7 +855,7 @@ describe("Engine — turn cycle", () => {
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     expect(items.map((i) => i.type)).toEqual(["message", "tool_call", "tool_result", "message"]);
     const [result] = toolResults(items);
     expect(result?.status).toBe("ok");
@@ -887,7 +890,7 @@ describe("Engine — turn cycle", () => {
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     const calls = toolCalls(items);
     const results = toolResults(items);
     expect(results.length).toBe(calls.length);
@@ -910,7 +913,7 @@ describe("Engine — turn cycle", () => {
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     const assistant = items.find((i) => i.type === "message" && i.role === "assistant");
     expect(assistant).toBeDefined();
     const payloads = await store.getProviderPayloads([assistant!.id]);
@@ -959,7 +962,7 @@ describe("Engine — turn cycle", () => {
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     const reasoning = items.find((i) => i.type === "reasoning");
     if (reasoning?.type !== "reasoning") throw new Error("expected a reasoning item");
     expect(textOf(reasoning.content)).toBe("thinking it through");
@@ -991,7 +994,7 @@ describe("Engine — turn cycle", () => {
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     expect(shapeOf(items)).toEqual([
       "user:hello",
       "reasoning:ponder",
@@ -1018,7 +1021,7 @@ describe("Engine — turn cycle", () => {
     await engine.deliver(conv.id, userInput("hello"));
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     const call = items.find((i) => i.type === "tool_call");
     const payloads = await store.getProviderPayloads([call!.id]);
     expect(payloads[0]?.payload).toEqual({ sig: "S" });
@@ -1036,7 +1039,7 @@ describe("Engine — delivery seam", () => {
       "recency write failed",
     );
     await engine.whenIdle(conversation.id);
-    expect(await store.listItems(conversation.id)).toEqual([]);
+    expect(await store.listOwnedItems(conversation.id)).toEqual([]);
     expect(turnStatuses(events)).toEqual([]);
     expect((await store.getConversation(conversation.id))?.lastUsedAt).toBe(conversation.createdAt);
   });
@@ -1079,7 +1082,7 @@ describe("Engine — delivery seam", () => {
     ]);
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     expect(userTexts(items)).toEqual(["first", "second"]);
 
     expect(turnStatuses(events).filter((s) => s === "completed")).toHaveLength(2);
@@ -1131,7 +1134,7 @@ describe("Engine — delivery seam", () => {
     });
     await engine.whenIdle(conv.id);
 
-    expect(userTexts(await store.listItems(conv.id))).toEqual(["ping"]);
+    expect(userTexts(await store.listOwnedItems(conv.id))).toEqual(["ping"]);
     expect(turnStatuses(events).filter((s) => s === "completed")).toHaveLength(1);
   });
 
@@ -1150,7 +1153,7 @@ describe("Engine — delivery seam", () => {
     gate.release();
     await engine.whenIdle(conv.id);
 
-    expect(userTexts(await store.listItems(conv.id))).toEqual(["first", "second"]);
+    expect(userTexts(await store.listOwnedItems(conv.id))).toEqual(["first", "second"]);
     expect(turnStatuses(events).filter((s) => s === "completed")).toHaveLength(2);
   });
 });
@@ -1196,7 +1199,7 @@ describe("Engine — interleaving order", () => {
     await engine.whenIdle(conv.id);
 
     // Content in emission order; both results land after the assistant content run.
-    expect(shapeOf(await store.listItems(conv.id))).toEqual([
+    expect(shapeOf(await store.listOwnedItems(conv.id))).toEqual([
       "user:go",
       "assistant:text1",
       "call:A",
@@ -1224,7 +1227,7 @@ describe("Engine — steering and queueing", () => {
     await engine.whenIdle(conv.id);
 
     // Both steers land after the tool result, in order, before the next step.
-    expect(shapeOf(await store.listItems(conv.id))).toEqual([
+    expect(shapeOf(await store.listOwnedItems(conv.id))).toEqual([
       "user:go",
       "call:c1",
       "result:c1",
@@ -1249,7 +1252,7 @@ describe("Engine — steering and queueing", () => {
     gate.release();
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     const userMsgs = items.filter(
       (i): i is Extract<Item, { type: "message" }> => i.type === "message" && i.role === "user",
     );
@@ -1302,7 +1305,7 @@ describe("Engine — interrupt", () => {
     await engine.deliver(conv.id, userInput("do this instead"), "interrupt");
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     // The abandoned call still has a (synthetic interrupted) result.
     const result = toolResults(items).find((r) => r.callId === "c1");
     expect(result?.status).toBe("error");
@@ -1336,7 +1339,7 @@ describe("Engine — interrupt", () => {
     await engine.deliver(conv.id, userInput("redo"), "interrupt");
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     // All three calls are present and answered — none dropped.
     expect(
       toolCalls(items)
@@ -1362,7 +1365,7 @@ describe("Engine — interrupt", () => {
     await engine.deliver(conv.id, noContent, "interrupt");
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     const assistant = items.find((i) => i.type === "message" && i.role === "assistant");
     expect(assistant && assistant.type === "message" ? textOf(assistant.content) : "").toBe("hel");
     expect(toolCalls(items)).toHaveLength(0); // nothing dangling
@@ -1380,7 +1383,7 @@ describe("Engine — interrupt", () => {
     await engine.deliver(conv.id, noContent, "interrupt");
     await engine.whenIdle(conv.id); // resolves only if the cooperative tool stopped
 
-    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    const result = toolResults(await store.listOwnedItems(conv.id)).find((r) => r.callId === "c1");
     expect(result?.status).toBe("error");
     expect(turnStatuses(events)).toContain("aborted");
   });
@@ -1459,7 +1462,7 @@ describe("Engine — tool middleware", () => {
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
-    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    const result = toolResults(await store.listOwnedItems(conv.id)).find((r) => r.callId === "c1");
     expect(result?.status).toBe("error");
     expect(textOf(result?.content ?? [])).toBe("denied");
     expect(state.ran).toBe(false);
@@ -1495,7 +1498,7 @@ describe("Engine — tool middleware", () => {
     await engine.whenIdle(conv.id);
 
     expect(attempts).toBe(2);
-    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    const result = toolResults(await store.listOwnedItems(conv.id)).find((r) => r.callId === "c1");
     expect(result?.status).toBe("ok");
     expect(textOf(result?.content ?? [])).toBe("2");
   });
@@ -1511,7 +1514,7 @@ describe("Engine — tool scope", () => {
     await engine.whenIdle(conv.id);
 
     // `echo` is contributed but withheld by the allow-list, so its call gets the unknown-tool result.
-    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    const result = toolResults(await store.listOwnedItems(conv.id)).find((r) => r.callId === "c1");
     expect(result?.status).toBe("error");
     expect(textOf(result?.content ?? [])).toBe("unknown tool: echo");
   });
@@ -1544,7 +1547,7 @@ describe("Engine — request/respond", () => {
     engine.respond(conv.id, requestId, { decision: "allow" });
     await engine.whenIdle(conv.id);
 
-    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    const result = toolResults(await store.listOwnedItems(conv.id)).find((r) => r.callId === "c1");
     expect(result?.status).toBe("ok");
     expect(result?.content).toEqual([{ type: "text", text: JSON.stringify({ x: 1 }) }]);
     const types = events.filter(isKernelEvent).map((e) => e.type);
@@ -1566,7 +1569,7 @@ describe("Engine — request/respond", () => {
     engine.respond(conv.id, requestId, { decision: "deny" });
     await engine.whenIdle(conv.id);
 
-    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    const result = toolResults(await store.listOwnedItems(conv.id)).find((r) => r.callId === "c1");
     expect(result?.status).toBe("error");
     expect(textOf(result?.content ?? [])).toContain("denied by approval");
     expect(state.ran).toBe(false);
@@ -1586,7 +1589,7 @@ describe("Engine — request/respond", () => {
     await engine.deliver(conv.id, noContent, "interrupt");
     await engine.whenIdle(conv.id);
 
-    const result = toolResults(await store.listItems(conv.id)).find((r) => r.callId === "c1");
+    const result = toolResults(await store.listOwnedItems(conv.id)).find((r) => r.callId === "c1");
     expect(result?.status).toBe("error");
     expect(turnStatuses(events)).toContain("aborted");
     expect(events.filter(isKernelEvent).map((e) => e.type)).toContain("request.resolved");
@@ -1689,7 +1692,7 @@ describe("Engine — rewind", () => {
     // The active chain branched off turn 1: the turn-2 items are gone from context,
     // but the raw log still retains them.
     expect(userTexts(await store.listActiveItems(conv.id))).toEqual(["first", "third"]);
-    expect(userTexts(await store.listItems(conv.id))).toEqual(["first", "second", "third"]);
+    expect(userTexts(await store.listOwnedItems(conv.id))).toEqual(["first", "second", "third"]);
 
     // The post-rewind request never saw the abandoned branch.
     const lastRequest = provider.requests.at(-1)!;
@@ -1730,9 +1733,9 @@ describe("Engine — compaction", () => {
       await engine.whenIdle(conv.id);
       await engine.deliver(conv.id, userInput("second"));
       await engine.whenIdle(conv.id);
-      expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+      expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(0);
       await engine.compact(conv.id);
-      expect(compactions(await store.listItems(conv.id))).toHaveLength(1);
+      expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(1);
     },
   );
   it("compacts immediately when the output reserve leaves no positive input allowance", async () => {
@@ -1748,7 +1751,7 @@ describe("Engine — compaction", () => {
     const conversation = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conversation.id, userInput("run"));
     await engine.whenIdle(conversation.id);
-    expect(compactions(await store.listItems(conversation.id))).toHaveLength(1);
+    expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(1);
     expect(provider.requests[0]!.items.map(({ item }) => item.type)).toEqual(["compaction"]);
   });
   it.each([{}, { contextWindow: 10000 }, { maxInputTokens: 8000 }, { maxOutputTokens: 1000 }])(
@@ -1772,7 +1775,7 @@ describe("Engine — compaction", () => {
       await engine.whenIdle(conversation.id);
       await engine.deliver(conversation.id, userInput("second"));
       await engine.whenIdle(conversation.id);
-      expect(compactions(await store.listItems(conversation.id))).toHaveLength(1);
+      expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(1);
       expect(provider.requests[1]!.items[0]!.item.type).toBe("compaction");
     },
   );
@@ -1818,7 +1821,7 @@ describe("Engine — compaction", () => {
       await engine.whenIdle(conv.id);
       await engine.deliver(conv.id, userInput("second"));
       await engine.whenIdle(conv.id);
-      expect(compactions(await store.listItems(conv.id))).toHaveLength(folds);
+      expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(folds);
     },
   );
   it.each([
@@ -1847,7 +1850,7 @@ describe("Engine — compaction", () => {
       await engine.whenIdle(conversation.id);
       await engine.deliver(conversation.id, userInput("second"));
       await engine.whenIdle(conversation.id);
-      expect(compactions(await store.listItems(conversation.id))).toHaveLength(folds);
+      expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(folds);
     },
   );
   it.each([
@@ -1881,7 +1884,7 @@ describe("Engine — compaction", () => {
       await engine.deliver(conversation.id, userInput("run"));
       await engine.whenIdle(conversation.id);
       expect(provider.requests).toHaveLength(2);
-      expect(compactions(await store.listItems(conversation.id))).toHaveLength(folds);
+      expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(folds);
     },
   );
 
@@ -1904,7 +1907,7 @@ describe("Engine — compaction", () => {
     );
     await engine.deliver(conversation.id, userInput("run"));
     await engine.whenIdle(conversation.id);
-    expect(compactions(await store.listItems(conversation.id))).toHaveLength(2);
+    expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(2);
     expect(provider.requests).toHaveLength(3);
     expect(
       provider.requests.slice(1).map((request) => request.items.map(({ item }) => item.type)),
@@ -1938,7 +1941,7 @@ describe("Engine — compaction", () => {
       "fake-1",
       "fake-2",
     ]);
-    expect(compactions(await store.listItems(conversation.id))).toHaveLength(0);
+    expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(0);
   });
 
   it.each([
@@ -1984,7 +1987,7 @@ describe("Engine — compaction", () => {
       await reopened.engine.whenIdle(conversation.id);
       expect(turnStatuses(reopened.events)).toEqual(["running", "completed"]);
       expect(next.requests).toHaveLength(1);
-      expect(compactions(await initial.store.listItems(conversation.id))).toHaveLength(0);
+      expect(compactions(await initial.store.listOwnedItems(conversation.id))).toHaveLength(0);
     },
   );
 
@@ -2011,7 +2014,7 @@ describe("Engine — compaction", () => {
     await store.updateTurn(seed.id, "completed");
     await expect(engine.compact(conversation.id)).rejects.toThrow("after completed");
     expect(turnStatuses(events)).toEqual(["running", "failed"]);
-    expect(compactions(await store.listItems(conversation.id))).toHaveLength(0);
+    expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(0);
     expect((await store.listModelUsage(conversation.id)).map((row) => row.usage)).toEqual([usage]);
   });
 
@@ -2041,7 +2044,7 @@ describe("Engine — compaction", () => {
     }
 
     // Exactly one fold (the window first exceeded 3 on turn 3), and an event for it.
-    const folds = compactions(await store.listItems(conv.id));
+    const folds = compactions(await store.listOwnedItems(conv.id));
     expect(folds.map((f) => textOf(f.content))).toEqual(["summary of 5 items"]);
     expect(
       events.filter(
@@ -2064,7 +2067,7 @@ describe("Engine — compaction", () => {
     ]);
 
     // The raw log keeps the full pre-compaction history.
-    expect(userTexts(await store.listItems(conv.id))).toEqual([
+    expect(userTexts(await store.listOwnedItems(conv.id))).toEqual([
       "first",
       "second",
       "third",
@@ -2113,7 +2116,7 @@ describe("Engine — compaction", () => {
     expect(compactions(lastBuild)).toHaveLength(0);
     expect(userTexts(lastBuild)).toEqual(["a", "d"]);
     // The summary still lives in the raw log, on the abandoned branch.
-    expect(compactions(await store.listItems(conv.id))).toHaveLength(1);
+    expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(1);
   });
 
   it.each([0, 2])(
@@ -2153,7 +2156,7 @@ describe("Engine — compaction", () => {
         `Error: compaction strategy returned no summary (empty text; ${count} tool calls)`,
       );
       expect(execute).not.toHaveBeenCalled();
-      expect(compactions(await store.listItems(conversation.id))).toHaveLength(0);
+      expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(0);
       expect((await store.listModelUsage(conversation.id)).map((row) => row.purpose)).toEqual([
         "agent",
         "compaction",
@@ -2372,8 +2375,8 @@ describe("Engine — compaction", () => {
     await engine.whenIdle(conv.id);
 
     await expect(engine.compact(conv.id)).rejects.toThrow(/cannot emit tool calls/);
-    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
-    expect(toolCalls(await store.listItems(conv.id))).toHaveLength(0);
+    expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(0);
+    expect(toolCalls(await store.listOwnedItems(conv.id))).toHaveLength(0);
     expect(turnStatuses(events).at(-1)).toBe("failed");
   });
 
@@ -2401,7 +2404,7 @@ describe("Engine — compaction", () => {
     await expect(compacting).rejects.toThrow(/turn aborted/);
     await engine.whenIdle(conv.id);
     expect(turnStatuses(events)).toEqual(["running", "aborted"]);
-    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+    expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(0);
   });
 
   it("records unknown usage before a model-backed compaction terminal error", async () => {
@@ -2555,7 +2558,7 @@ describe("Engine — compaction", () => {
     release();
 
     await expect(compacting).rejects.toThrow(/turn aborted/);
-    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+    expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(0);
     expect(turnStatuses(events)).toEqual(["running", "aborted"]);
   });
 
@@ -2594,7 +2597,7 @@ describe("Engine — compaction", () => {
     release();
 
     await expect(compacting).rejects.toThrow(/turn aborted/);
-    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+    expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(0);
     expect(turnStatuses(events)).toEqual(["running", "aborted"]);
   });
 
@@ -2706,7 +2709,7 @@ describe("Engine — compaction", () => {
 
     expect(compactionCalls).toBe(1);
     expect(providerCalls).toBe(1);
-    expect(compactions(await store.listItems(conv.id))).toHaveLength(1);
+    expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(1);
     expect(turnStatuses(events)).toEqual(["running", "failed"]);
   });
 
@@ -2739,7 +2742,7 @@ describe("Engine — compaction", () => {
     await engine.deliver(conv.id, userInput("second"));
     await engine.whenIdle(conv.id);
 
-    expect(compactions(await store.listItems(conv.id))).toHaveLength(0);
+    expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(0);
     expect((await store.listActiveItems(conv.id)).slice(0, before.length)).toEqual(before);
     expect(turnStatuses(events).at(-1)).toBe("failed");
   });
@@ -2824,7 +2827,7 @@ describe("Engine — compaction", () => {
     await engine.whenIdle(conv.id);
 
     expect(requests).toHaveLength(3);
-    const [fold] = compactions(await store.listItems(conv.id));
+    const [fold] = compactions(await store.listOwnedItems(conv.id));
     expect(fold && textOf(fold.content)).toMatch(/deterministic fallback/);
     expect(shapeOf(compactedWindow(await store.listActiveItems(conv.id))).at(-1)).toBe(
       "assistant:recovered",
@@ -2834,6 +2837,51 @@ describe("Engine — compaction", () => {
 });
 
 describe("reconcileConversation", () => {
+  it("does not let an inherited result answer a fork-owned dangling call", async () => {
+    const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+    const source = await store.createConversation(newConversationInput(CONFIG));
+    const old = await store.createTurn(source.id);
+    await store.appendItem({
+      conversationId: source.id,
+      turnId: old.id,
+      type: "tool_call",
+      callId: "same",
+      name: "echo",
+      args: {},
+    });
+    await store.appendItem({
+      conversationId: source.id,
+      turnId: old.id,
+      type: "tool_result",
+      callId: "same",
+      status: "ok",
+      content: [{ type: "text", text: "old" }],
+    });
+    const user = await store.appendItem({
+      conversationId: source.id,
+      turnId: old.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "fork" }],
+    });
+    const fork = await store.forkConversation(source.id, user.id, {});
+    const fresh = await store.createTurn(fork.id);
+    await store.appendItem({
+      conversationId: fork.id,
+      turnId: fresh.id,
+      type: "tool_call",
+      callId: "same",
+      name: "echo",
+      args: {},
+    });
+    await reconcileConversation(store, fork.id);
+    expect(toolResults(await store.listOwnedItems(fork.id))).toMatchObject([
+      { callId: "same", status: "error" },
+    ]);
+    expect(toolResults(await store.listOwnedItems(source.id))).toMatchObject([
+      { callId: "same", status: "ok" },
+    ]);
+  });
   it("closes a dangling tool_call and fails the turn", async () => {
     const store = new InMemoryStore(counterIdGenerator(), fixedClock());
     const conv = await store.createConversation(newConversationInput(CONFIG));
@@ -2849,7 +2897,7 @@ describe("reconcileConversation", () => {
 
     await reconcileConversation(store, conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     const [result] = toolResults(items);
     expect(result?.callId).toBe("x");
     expect(result?.status).toBe("error");
@@ -2884,7 +2932,7 @@ describe("Engine — crash reconciliation on load", () => {
 
     // The dangling call is closed with the synthetic error result, the stale turn is
     // gone (failed), and a brand-new turn ran to completion on top of the repaired log.
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     const [result] = toolResults(items);
     expect(result?.callId).toBe("stuck");
     expect(result?.status).toBe("error");
@@ -2907,7 +2955,7 @@ describe("Engine — crash reconciliation on load", () => {
     await engine.whenIdle(conv.id);
 
     // Reconcile must not synthesize results or fail the live turn on a clean log.
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     expect(toolResults(items)).toHaveLength(0);
     expect(turnStatuses(events)).toEqual(["running", "completed"]);
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
@@ -3043,7 +3091,7 @@ describe("Engine — context injection", () => {
     await interrupt;
     await engine.whenIdle(conv.id);
 
-    const items = await store.listItems(conv.id);
+    const items = await store.listOwnedItems(conv.id);
     expect(items.filter((item) => item.type === "context")).toHaveLength(1);
     expect(items.findIndex((item) => item.type === "context")).toBeGreaterThan(
       items.findIndex((item) => item.type === "tool_result" && item.callId === "c1"),
@@ -3059,7 +3107,7 @@ describe("Engine — context injection", () => {
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
-    const userMsg = (await store.listItems(conv.id)).find(
+    const userMsg = (await store.listOwnedItems(conv.id)).find(
       (i) => i.type === "message" && i.role === "user",
     )!;
     await engine.rewind(conv.id, userMsg.id);
@@ -3071,7 +3119,7 @@ describe("Engine — context injection", () => {
     // The active chain carries exactly one context item (the re-injected one).
     expect(ctxOf(await store.listActiveItems(conv.id))).toHaveLength(1);
     // The raw log retains both the abandoned and the re-injected copy.
-    expect(ctxOf(await store.listItems(conv.id))).toHaveLength(2);
+    expect(ctxOf(await store.listOwnedItems(conv.id))).toHaveLength(2);
   });
 });
 
@@ -3082,7 +3130,7 @@ describe("Engine — model middleware", () => {
     const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("yo"));
     await engine.whenIdle(conv.id);
-    expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:yo", "assistant:hi"]);
+    expect(shapeOf(await store.listOwnedItems(conv.id))).toEqual(["user:yo", "assistant:hi"]);
   });
 
   it("lets a retry middleware re-issue a step that failed before the first event", async () => {
@@ -3123,7 +3171,10 @@ describe("Engine — model middleware", () => {
     await engine.whenIdle(conv.id);
     expect(calls).toBe(2);
     expect(turnStatuses(events)).toEqual(["running", "completed"]);
-    expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:go", "assistant:recovered"]);
+    expect(shapeOf(await store.listOwnedItems(conv.id))).toEqual([
+      "user:go",
+      "assistant:recovered",
+    ]);
   });
 
   it("lets a middleware short-circuit without calling the provider", async () => {
@@ -3156,7 +3207,7 @@ describe("Engine — model middleware", () => {
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
     expect(providerCalled).toBe(false);
-    expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:go", "assistant:canned"]);
+    expect(shapeOf(await store.listOwnedItems(conv.id))).toEqual(["user:go", "assistant:canned"]);
   });
 });
 
@@ -3458,7 +3509,7 @@ describe("Engine — usage recording", () => {
 
     const rows = await store.listModelUsage(conv.id);
     expect(rows.map((r) => r.usage)).toEqual([u1, u2]);
-    const [item] = await store.listItems(conv.id);
+    const [item] = await store.listOwnedItems(conv.id);
     expect(rows.map((r) => r.turnId)).toEqual([item!.turnId, item!.turnId]);
     for (const row of rows) {
       expect(row.provider).toBe("fake");
@@ -3541,7 +3592,7 @@ describe("Engine — usage recording", () => {
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
 
-    expect(shapeOf(await store.listItems(conv.id))).toEqual(["user:go", "assistant:partial"]);
+    expect(shapeOf(await store.listOwnedItems(conv.id))).toEqual(["user:go", "assistant:partial"]);
     expect((await store.listModelUsage(conv.id)).map((row) => row.usage)).toEqual([usage]);
     expect(turnStatuses(events)).toContain("failed");
     expect(
@@ -3576,12 +3627,12 @@ describe("Engine — usage recording", () => {
     await engine.whenIdle(conv.id);
 
     expect(executions).toBe(0);
-    expect(shapeOf(await store.listItems(conv.id))).toEqual([
+    expect(shapeOf(await store.listOwnedItems(conv.id))).toEqual([
       "user:go",
       "call:call-1",
       "result:call-1",
     ]);
-    expect(toolResults(await store.listItems(conv.id))).toMatchObject([
+    expect(toolResults(await store.listOwnedItems(conv.id))).toMatchObject([
       { callId: "call-1", status: "error" },
     ]);
     expect(turnStatuses(events)).toContain("failed");

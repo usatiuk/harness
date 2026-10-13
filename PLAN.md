@@ -163,6 +163,15 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 
 ## Recent delivery
 
+The [fork-before-message implementation](docs/plans/cross-cutting/2026-10-13-fork-before-message.md)
+is implemented and validated: independent conversations share immutable ancestry,
+GUI/TUI actions preload editable drafts, and tool pairing preserves creating-owner
+identity. Protocol 11 and SQLite schema 9 carry the fork operation/provenance.
+Full checks pass (1,373 tests, 38 skipped), plus six affected browser regressions.
+The message-action follow-up adds small hover/focus bars below content (Fork for
+user messages, Copy for assistant messages). Three affected browser checks and the
+full check pass. UI review is complete; commit, push and release are authorized.
+
 The [reasoning/discovery follow-up](docs/plans/models/2026-10-13-reasoning-and-discovery.md)
 is validated: LiteLLM advertised effort presets, generic OR-of-AND tool search,
 scoped MCP availability hints and essential tools in Hybrid/code-only. Hybrid

@@ -1,3 +1,4 @@
+import { toolCallKey } from "@harness/protocol";
 import {
   textOf,
   zeroUsage,
@@ -63,11 +64,11 @@ export class DemoProvider implements ModelProvider {
     const discoveryIds = new Set(
       request.items.flatMap(({ item }) =>
         item.type === "tool_call" && ["tool_search", "tool_describe"].includes(item.name)
-          ? [item.callId]
+          ? [toolCallKey(item)]
           : [],
       ),
     );
-    if (last?.type === "tool_result" && !discoveryIds.has(last.callId)) {
+    if (last?.type === "tool_result" && !discoveryIds.has(toolCallKey(last))) {
       const text = "Done — ran your message through the command tool.";
       await delay(DEMO_LATENCY_MS, signal);
       if (signal.aborted) return;
@@ -88,7 +89,11 @@ export class DemoProvider implements ModelProvider {
     const tools = request.tools ?? [];
     if (tools.some((tool) => tool.name === "eval")) {
       const definitions = request.items.flatMap(({ item }) => {
-        if (item.type !== "tool_result" || item.status !== "ok" || !discoveryIds.has(item.callId))
+        if (
+          item.type !== "tool_result" ||
+          item.status !== "ok" ||
+          !discoveryIds.has(toolCallKey(item))
+        )
           return [];
         const data = JSON.parse(textOf(item.content)) as {
           tools?: { input: { name: string } }[];
@@ -101,7 +106,7 @@ export class DemoProvider implements ModelProvider {
         ...definitions.map((tool) => tool.input.name),
       ].find((name) => ["powershell", "bash"].includes(name));
       if (!shell) {
-        if (last?.type === "tool_result" && discoveryIds.has(last.callId))
+        if (last?.type === "tool_result" && discoveryIds.has(toolCallKey(last)))
           throw new Error("demo provider requires a command tool");
         yield {
           type: "tool_call",

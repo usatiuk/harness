@@ -157,6 +157,26 @@ export class HarnessService implements ConversationRunner {
     }
   }
 
+  async forkBefore(conversationId: ConversationId, userMessageId: ItemId) {
+    const source = await this.#store.getConversation(conversationId);
+    if (!source) throw new Error(`unknown conversation: ${conversationId}`);
+    const { config, toolNames } = await this.#engine.forkSettings(conversationId);
+    const overrides = {
+      model: config.model,
+      instructions: config.instructions,
+      tools: { mode: config.tools?.mode ?? "direct", allow: toolNames },
+      plugins: Object.fromEntries(
+        Object.entries(config.plugins ?? {}).filter(([id]) => !this.#globalPlugins.has(id)),
+      ),
+    };
+    const resolved = await this.#resolveConfig({ workspaceRoot: source.workspaceRoot, overrides });
+    const record = await this.#store.forkConversation(conversationId, userMessageId, overrides);
+    const user = await this.#store.getItem(userMessageId);
+    if (user?.type !== "message" || user.role !== "user")
+      throw new Error("fork lost its immutable user message");
+    return { conversation: { ...record, config: resolved }, draft: user.content };
+  }
+
   /** Pair a durable record with its freshly resolved config — the resolved view clients consume. */
   async #resolve(record: ConversationRecord): Promise<Conversation> {
     return { ...record, config: await this.#resolveConfig(record) };
@@ -403,16 +423,12 @@ export class HarnessService implements ConversationRunner {
     return this.#store.listConversationProjects(limit, before, excludedState);
   }
 
-  getItem(conversationId: ConversationId, itemId: ItemId): Promise<Item | undefined> {
-    return this.#store.getItem(conversationId, itemId);
+  getItem(itemId: ItemId): Promise<Item | undefined> {
+    return this.#store.getItem(itemId);
   }
 
-  listItemAncestors(
-    conversationId: ConversationId,
-    start: ItemId | null,
-    limit: number,
-  ): Promise<Item[]> {
-    return this.#store.listItemAncestors(conversationId, start, limit);
+  listItemAncestors(start: ItemId | null, limit: number): Promise<Item[]> {
+    return this.#store.listItemAncestors(start, limit);
   }
 
   usageSummary(id: ConversationId): Promise<ModelUsageSummary> {

@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `10`. It exchanges
+`initialize` is the first application request and requires protocol version `11`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -218,3 +218,14 @@ internal failures retain the generic protocol error treatment.
 
 Conversation records include nullable `title` metadata. Protocol 6 adds
 `title.changed` updates and the application settings naming model/preset.
+
+### Fork before a user message
+
+`conversation.forkBefore` accepts `conversationId` and `userMessageId`, returning
+a new conversation and a bounded item reference for the selected draft. The client
+hydrates it through ordinary item-range reads. The target must exist and be a user
+message; no item ownership or ancestry-membership check applies. The new head is
+the target's parent. Source attachment governs RPC lifetime, not item access.
+Forks capture effective model, instructions, tool scope and conversation-scoped
+plugin configuration; host-owned configuration stays global. No active turn,
+usage, approval, activity or subagent lifetime is copied.

@@ -1,3 +1,4 @@
+import { toolCallKey } from "@harness/protocol";
 import type { Item } from "@harness/protocol";
 
 /**
@@ -13,12 +14,12 @@ export function reviewerWindow(items: readonly Item[]): Item[] {
   const recent = items.filter((item) => item.type === "tool_call" && item.parentCallId).slice(-16);
   const ids = new Set(
     [...failures, ...recent].map((item) =>
-      item.type === "tool_result" || item.type === "tool_call" ? item.callId : "",
+      item.type === "tool_result" || item.type === "tool_call" ? toolCallKey(item) : "",
     ),
   );
-  return items.filter((item) => {
+  return items.filter((item, index) => {
     if ((item.type === "tool_call" || item.type === "tool_result") && item.parentCallId)
-      return ids.has(item.callId);
-    return fold < 0 || item.seq >= items[fold]!.seq;
+      return ids.has(toolCallKey(item));
+    return fold < 0 || index >= fold;
   });
 }

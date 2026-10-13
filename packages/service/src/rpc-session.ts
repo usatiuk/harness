@@ -18,6 +18,7 @@ import {
   conversationItemReadRequest,
   conversationListRequest,
   conversationModelSetRequest,
+  conversationForkBeforeRequest,
   conversationTitleSetRequest,
   conversationPluginConfigPatchRequest,
   conversationPresetSetRequest,
@@ -328,6 +329,26 @@ export class HarnessRpcSession {
       });
     });
 
+    this.onRequest(conversationForkBeforeRequest, ({ conversationId, userMessageId }) =>
+      this.runAttached(conversationId as ConversationId, async () => {
+        const item = await this.#service.getItem(userMessageId as ItemId);
+        if (item?.type !== "message" || item.role !== "user")
+          throw new Error("fork target must be a user message");
+        const { conversation } = await this.#service.forkBefore(
+          conversationId as ConversationId,
+          userMessageId as ItemId,
+        );
+        return {
+          conversation: projectConversation(conversation),
+          draft: {
+            kind: "itemRef" as const,
+            itemId: item.id,
+            byteLength: Buffer.byteLength(JSON.stringify(projectItem(item)), "utf8"),
+          },
+        };
+      }),
+    );
+
     this.onRequest(conversationTitleSetRequest, ({ conversationId, title }) => {
       const id = conversationId as ConversationId;
       return this.runAttached(id, async () => {
@@ -455,7 +476,7 @@ export class HarnessRpcSession {
     if (conversation === undefined) throw new Error(`unknown conversation: ${conversationId}`);
     const anchor = (params.anchor ?? conversation.head) as ItemId | null;
     const start = (params.cursor ?? anchor) as ItemId | null;
-    const items = await this.#service.listItemAncestors(conversationId, start, HISTORY_READ_BATCH);
+    const items = await this.#service.listItemAncestors(start, HISTORY_READ_BATCH);
     const entries: HistoryEntry[] = [];
     let used = 0;
     let nextCursor: ItemId | null = null;
@@ -486,10 +507,7 @@ export class HarnessRpcSession {
     offset: number;
     maxBytes: number;
   }) {
-    const item = await this.#service.getItem(
-      params.conversationId as ConversationId,
-      params.itemId as ItemId,
-    );
+    const item = await this.#service.getItem(params.itemId as ItemId);
     if (item === undefined) throw new Error(`unknown item: ${params.itemId}`);
     const bytes = Buffer.from(JSON.stringify(projectItem(item)), "utf8");
     const end = Math.min(bytes.byteLength, params.offset + params.maxBytes);

@@ -30,6 +30,18 @@ Items are immutable after append. Streaming deltas stay in memory; finalization
 appends once. Graceful interruption preserves partial readable content, while a
 hard crash may lose an unfinalized preview.
 
+Forks share immutable ancestry: `forkConversation` creates one independent record
+whose head is the selected user message's parent, including null for a first
+message. Its optional fork origin is provenance, separate from runtime children.
+Schema 9 adds nullable fork origin to existing databases. Item IDs are global;
+`getItem` and bounded ancestor reads cross creating-conversation ownership. Head
+updates accept any existing item. `listOwnedItems` reads a creating conversation's
+raw log; `listActiveItems` orders the selected parent chain by traversal position,
+never by owner-local sequence. New appends retain the fork as physical owner and
+start above both the inherited head and the local log. Usage and turn ownership
+remain local. Internal tool pairing uses creating conversation plus provider call
+ID; provider IDs and opaque payloads remain unchanged.
+
 ## Related records
 
 Tool calls and results may carry `parentCallId` linking a computed operation to
@@ -69,7 +81,7 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-The current SQLite format is version 8. Fresh databases receive the complete
+The current SQLite format is version 9. Fresh databases receive the complete
 schema atomically. Version 3 receives an explicit additive upgrade for nullable
 request purpose/duration and indexed latest-agent, terminal-turn and turn-usage
 lookups. History and billing totals remain intact; unclassified purpose/timing cannot

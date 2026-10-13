@@ -531,6 +531,37 @@ main {
 .conversation-heading {
   min-width: 0;
 }
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  margin-top: 2px;
+}
+.cell.user .message-actions {
+  justify-content: flex-end;
+}
+.message-actions .icon-control {
+  opacity: 0;
+  width: 20px;
+  min-height: 20px;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--muted-ink);
+}
+.message-actions .icon {
+  width: 13px;
+  height: 13px;
+}
+.cell:hover .message-actions .icon-control,
+.message-actions:focus-within .icon-control {
+  opacity: 1;
+}
+@media (pointer: coarse) {
+  .message-actions .icon-control {
+    opacity: 1;
+  }
+}
 .conversation-title-display,
 .conversation-title-form {
   display: flex;
@@ -673,15 +704,16 @@ main {
   padding-left: 24px;
 }
 .cell.user {
-  background: var(--surface-subtle);
   width: fit-content;
   max-width: min(85%, 660px);
   margin: 24px max(var(--chat-inset), calc((100% - var(--chat-width)) / 2 + var(--chat-inset))) 18px
     auto;
-  padding: 10px 12px;
-  border-radius: 12px 12px 4px 12px;
+  padding: 0;
 }
 .user-text {
+  background: var(--surface-subtle);
+  padding: 10px 12px;
+  border-radius: 12px 12px 4px 12px;
   white-space: pre-wrap;
 }
 .cell.assistant code:not(pre code) {

@@ -1,3 +1,4 @@
+import { toolCallKey } from "@harness/protocol";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   textOf,
@@ -55,7 +56,7 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
   let user: ContentBlockParam[] = [];
   const rawCallIds = new Set(
     request.items.flatMap(({ item }) =>
-      item.type === "tool_call" && typeof item.args === "string" ? [item.callId] : [],
+      item.type === "tool_call" && typeof item.args === "string" ? [toolCallKey(item)] : [],
     ),
   );
 
@@ -86,7 +87,7 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
         item.type === "tool_call")
     ) {
       flushUser();
-      const rawCall = item.type === "tool_call" && rawCallIds.has(item.callId);
+      const rawCall = item.type === "tool_call" && rawCallIds.has(toolCallKey(item));
       assistant.push(
         ...native.filter(
           (block) => !rawCall || block.type !== "tool_use" || block.id !== item.callId,
@@ -114,7 +115,7 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
       case "tool_call":
         flushUser();
         assistant.push(
-          rawCallIds.has(item.callId)
+          rawCallIds.has(toolCallKey(item))
             ? { type: "text", text: `Tool ${item.name}: ${String(item.args)}` }
             : { type: "tool_use", id: item.callId, name: item.name, input: item.args },
         );
@@ -122,7 +123,7 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
       case "tool_result":
         flushAssistant();
         user.push(
-          rawCallIds.has(item.callId)
+          rawCallIds.has(toolCallKey(item))
             ? { type: "text", text: textOf(item.content) }
             : {
                 type: "tool_result",

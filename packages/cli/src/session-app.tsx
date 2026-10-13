@@ -79,6 +79,7 @@ export function Root({
   const [generation, setGeneration] = useState(0);
   const [transitioning, setTransitioning] = useState<string | undefined>();
   const [notice, setNotice] = useState<{ id: number; text: string }>();
+  const [localDrafts] = useState(() => new Map<string, string>());
   const [error, setError] = useState<string>();
   const noticeId = useRef(0);
   const transitionInFlight = useRef(false);
@@ -214,7 +215,7 @@ export function Root({
       launchCwd={cwd}
       onResume={resume}
       {...(onHosts ? { onHosts } : {})}
-      {...(drafts ? { drafts } : {})}
+      drafts={drafts ?? localDrafts}
       onReload={(mutation) =>
         requestActivation({ targetId: session.conversation.id, ...(mutation ? { mutation } : {}) })
       }

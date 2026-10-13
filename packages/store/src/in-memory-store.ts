@@ -36,6 +36,7 @@ const pluginStateKey = (plugin: string, conversationId: ConversationId, key: str
 export class InMemoryStore implements Store {
   readonly #conversations = new Map<ConversationId, ConversationRecord>();
   readonly #items = new Map<ConversationId, Item[]>();
+  readonly #byId = new Map<ItemId, Item>();
   readonly #turns = new Map<TurnId, Turn>();
   readonly #payloads = new Map<ItemId, ProviderPayload>();
   readonly #pluginState = new Map<string, unknown>();
@@ -59,6 +60,32 @@ export class InMemoryStore implements Store {
       title: null,
       createdAt,
       lastUsedAt: createdAt,
+    };
+    this.#conversations.set(record.id, record);
+    this.#items.set(record.id, []);
+    return record;
+  }
+
+  async forkConversation(
+    sourceId: ConversationId,
+    userMessageId: ItemId,
+    overrides: ConversationOverrides,
+  ): Promise<ConversationRecord> {
+    const source = this.#conversations.get(sourceId);
+    if (!source) throw new Error(`unknown conversation: ${sourceId}`);
+    const user = this.#byId.get(userMessageId);
+    if (user?.type !== "message" || user.role !== "user")
+      throw new Error("fork target must be a user message");
+    const createdAt = this.clock.now();
+    const record: ConversationRecord = {
+      id: this.ids.conversationId(),
+      workspaceRoot: source.workspaceRoot,
+      overrides,
+      head: user.parent,
+      title: source.title,
+      createdAt,
+      lastUsedAt: createdAt,
+      fork: { conversationId: sourceId, userMessageId },
     };
     this.#conversations.set(record.id, record);
     this.#items.set(record.id, []);
@@ -189,16 +216,21 @@ export class InMemoryStore implements Store {
     const item: Item = {
       ...input,
       id: this.ids.itemId(),
-      seq: log.length,
+      seq:
+        Math.max(
+          log.at(-1)?.seq ?? -1,
+          conversation.head ? this.#byId.get(conversation.head)!.seq : -1,
+        ) + 1,
       parent: conversation.head,
       createdAt: this.clock.now(),
     };
     log.push(item);
+    this.#byId.set(item.id, item);
     this.#conversations.set(conversation.id, { ...conversation, head: item.id });
     return item;
   }
 
-  async listItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]> {
+  async listOwnedItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]> {
     const log = this.#items.get(conversationId) ?? [];
     const from = range?.fromSeq ?? 0;
     const to = range?.toSeq ?? Number.POSITIVE_INFINITY;
@@ -210,43 +242,34 @@ export class InMemoryStore implements Store {
     if (!conversation) {
       throw new Error(`unknown conversation: ${conversationId}`);
     }
-    const log = this.#items.get(conversationId) ?? [];
-    if (!log.some((i) => i.id === itemId)) {
-      throw new Error(`item ${itemId} is not in conversation ${conversationId}`);
+    if (!this.#byId.has(itemId)) {
+      throw new Error(`unknown item: ${itemId}`);
     }
     this.#conversations.set(conversationId, { ...conversation, head: itemId });
   }
 
   async listActiveItems(conversationId: ConversationId): Promise<Item[]> {
     const conversation = this.#conversations.get(conversationId);
-    const log = this.#items.get(conversationId) ?? [];
-    const byId = new Map(log.map((i) => [i.id, i]));
     const chain: Item[] = [];
     for (let id = conversation?.head ?? null; id !== null;) {
-      const item = byId.get(id);
-      if (!item) break;
+      const item = this.#byId.get(id);
+      if (!item) throw new Error(`missing history item: ${id}`);
       chain.push(item);
       id = item.parent;
     }
     return chain.reverse();
   }
 
-  async getItem(conversationId: ConversationId, itemId: ItemId): Promise<Item | undefined> {
-    return this.#items.get(conversationId)?.find((item) => item.id === itemId);
+  async getItem(itemId: ItemId): Promise<Item | undefined> {
+    return this.#byId.get(itemId);
   }
 
-  async listItemAncestors(
-    conversationId: ConversationId,
-    start: ItemId | null,
-    limit: number,
-  ): Promise<Item[]> {
+  async listItemAncestors(start: ItemId | null, limit: number): Promise<Item[]> {
     if (!Number.isInteger(limit) || limit <= 0) throw new Error("limit must be a positive integer");
-    const log = this.#items.get(conversationId) ?? [];
-    const byId = new Map(log.map((item) => [item.id, item]));
     const page: Item[] = [];
     for (let id = start; id !== null && page.length < limit;) {
-      const item = byId.get(id);
-      if (!item) break;
+      const item = this.#byId.get(id);
+      if (!item) throw new Error(`unknown item: ${id}`);
       page.push(item);
       id = item.parent;
     }

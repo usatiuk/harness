@@ -46,6 +46,8 @@ export interface CommandContext {
   /** Quit the app. */
   exit: () => void;
   manageHosts?: () => void;
+  /** Open the earlier-message fork picker. */
+  fork: () => void;
 }
 
 export interface Command {
@@ -85,6 +87,11 @@ export const commands: Command[] = [
     run: (ctx, args) => ctx.resume(args[0]),
   },
   { name: "reload", summary: "reload the current conversation", run: (ctx) => ctx.reload() },
+  {
+    name: "fork",
+    summary: "fork before a user message and edit its draft",
+    run: (ctx) => ctx.fork(),
+  },
   {
     name: "model",
     summary: "switch model (/model <id>, or /model to pick)",

@@ -1,11 +1,13 @@
+import { z } from "zod";
 import { HarnessRpcHost } from "@harness/service";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   conversationAttachRequest,
   conversationEventNotification,
   type ConversationId,
-  type Plugin,
+  type PluginEntry,
   type ModelProvider,
+  type ModelRequest,
 } from "@harness/protocol";
 import {
   HarnessClient,
@@ -16,6 +18,9 @@ import { InMemoryStore } from "@harness/store";
 import {
   FakeProvider,
   GateProvider,
+  GateTool,
+  fakeCompaction,
+  toolStep,
   counterIdGenerator,
   fixedClock,
   textStep,
@@ -38,7 +43,7 @@ afterEach(async () => {
 
 const createHarness = (
   steps: ConstructorParameters<typeof FakeProvider>[0] | ModelProvider = [textStep("done")],
-  plugins: Plugin[] = [],
+  plugins: PluginEntry[] = [],
   onError?: (error: unknown, method?: string) => void,
 ) => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
@@ -76,6 +81,195 @@ const createConversation = (client: HarnessClient) =>
   });
 
 describe("HarnessRpcSession", () => {
+  it("forks through real RPC, reads an inherited prefix and sends only the edited draft in a new root", async () => {
+    const requests: ModelRequest[] = [];
+    const fake = new FakeProvider([
+      textStep("first answer"),
+      textStep("second answer"),
+      textStep("fork answer"),
+    ]);
+    const { client, service, store } = createHarness({
+      provider: fake.provider,
+      capabilities: () => fake.capabilities(),
+      listModels: () => fake.listModels(),
+      validateConfig: () => {},
+      stream: (request) => {
+        requests.push(request);
+        return fake.stream();
+      },
+    });
+    await client.start();
+    const source = await createConversation(client);
+    await client.attach(source.id);
+    await client.deliver(source.id, "first", "send");
+    await service.whenIdle(source.id as ConversationId);
+    const prefix = await store.listActiveItems(source.id as ConversationId);
+    const assistant = prefix.at(-1)!;
+    const payload = {
+      itemId: assistant.id,
+      provider: "fake",
+      model: "fake-1",
+      type: "opaque-test",
+      version: 1,
+      payload: { native: "unchanged" },
+    };
+    await store.putProviderPayload(payload);
+    const ref = await store.putBlob(new TextEncoder().encode("complete output"));
+    await store.appendItem({
+      conversationId: assistant.conversationId,
+      turnId: assistant.turnId,
+      type: "tool_call",
+      callId: "prefix",
+      name: "echo",
+      args: {},
+    });
+    const result = await store.appendItem({
+      conversationId: assistant.conversationId,
+      turnId: assistant.turnId,
+      type: "tool_result",
+      callId: "prefix",
+      status: "ok",
+      content: [{ type: "text", text: "preview" }],
+      full: ref,
+    });
+    await client.deliver(source.id, "second\nfull draft", "send");
+    await service.whenIdle(source.id as ConversationId);
+    const history = await store.listActiveItems(source.id as ConversationId);
+    const user = history.find(
+      (item) => item.type === "message" && item.role === "user" && item.seq > 0,
+    )!;
+    const domain = new HarnessDomainClient(client);
+    const fork = await domain.forkBefore(source.id as ConversationId, user.id);
+    expect(fork.draft).toEqual([{ type: "text", text: "second\nfull draft" }]);
+    expect(fork.conversation.head).toBe(user.parent);
+    expect(service.rootConversationOf(fork.conversation.id)).toBe(fork.conversation.id);
+    await client.attach(fork.conversation.id);
+    expect((await client.history({ conversationId: fork.conversation.id })).entries).toHaveLength(
+      4,
+    );
+    expect((await client.usage(fork.conversation.id)).usage.inputTokens).toBe(0);
+    await client.deliver(fork.conversation.id, "edited", "send");
+    await service.whenIdle(fork.conversation.id);
+    const active = await store.listActiveItems(fork.conversation.id);
+    expect(active.slice(0, 4)).toEqual(history.slice(0, 4));
+    expect(active[4]!.parent).toBe(user.parent);
+    expect(active[4]!.conversationId).toBe(fork.conversation.id);
+    expect(requests[2]!.items.find(({ item }) => item.id === assistant.id)?.payload).toEqual(
+      payload,
+    );
+    expect(requests[2]!.items.find(({ item }) => item.id === result.id)?.item).toMatchObject({
+      id: result.id,
+      content: [{ type: "text", text: "preview" }],
+    });
+    expect(active.find((item) => item.id === result.id)).toEqual(result);
+    expect(new TextDecoder().decode(await store.getBlob(ref))).toBe("complete output");
+    expect(requests[2]!.items.some(({ item }) => item.id === user.id)).toBe(false);
+    expect(await store.listActiveItems(source.id as ConversationId)).toEqual(history);
+  });
+
+  it("forks before a steered user message after its tool batch completes", async () => {
+    const gate = new GateTool();
+    const { client, service, store } = createHarness(
+      [toolStep("call", "gate", {}), textStep("done")],
+      [{ id: "gate", tools: () => [gate] }],
+    );
+    await client.start();
+    const source = await createConversation(client);
+    await client.attach(source.id);
+    await client.deliver(source.id, "first", "send");
+    await gate.started;
+    await client.deliver(source.id, "steered draft", "steer");
+    gate.release();
+    await service.whenIdle(source.id as ConversationId);
+    const items = await store.listActiveItems(source.id as ConversationId);
+    const steer = items.find(
+      (item) =>
+        item.type === "message" &&
+        item.role === "user" &&
+        item.content.some((part) => part.type === "text" && part.text === "steered draft"),
+    )!;
+    const fork = await service.forkBefore(source.id as ConversationId, steer.id);
+    expect((await store.listActiveItems(fork.conversation.id)).at(-1)).toMatchObject({
+      type: "tool_result",
+      callId: "call",
+    });
+    expect(fork.draft).toEqual([{ type: "text", text: "steered draft" }]);
+    await client.attach(fork.conversation.id);
+    expect(fork.conversation.config.tools?.allow).toEqual(["gate"]);
+  });
+  it("snapshots effective settings and compacts inherited history independently", async () => {
+    const { client, service, store } = createHarness(
+      [textStep("answer")],
+      [
+        {
+          id: "local",
+          configSchema: z.object({ choice: z.string().default("default") }),
+          create: () => ({ id: "local" }),
+        },
+        {
+          id: "host",
+          configScope: "global",
+          configSchema: z.object({ choice: z.string().default("host") }),
+          create: () => ({ id: "host" }),
+        },
+        { id: "compact", policies: () => ({ compaction: fakeCompaction({ over: 0 }) }) },
+      ],
+    );
+    await client.start();
+    const source = await client.create({
+      overrides: {
+        instructions: "snapshot me",
+        model: { provider: "fake", model: "fake-1" },
+        tools: { mode: "direct", allow: [] },
+        plugins: { local: { choice: "chosen" } },
+      },
+    });
+    await client.attach(source.id);
+    await client.deliver(source.id, "first", "send");
+    await service.whenIdle(source.id as ConversationId);
+    const turn = await store.createTurn(source.id as ConversationId);
+    const user = await store.appendItem({
+      conversationId: source.id as ConversationId,
+      turnId: turn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "draft" }],
+    });
+    await store.updateTurn(turn.id, "completed");
+    const before = await store.listActiveItems(source.id as ConversationId);
+    const { conversation: fork } = await service.forkBefore(source.id as ConversationId, user.id);
+    expect(fork.config.instructions).toBe("snapshot me");
+    expect(fork.config.model).toEqual({ provider: "fake", model: "fake-1" });
+    expect(fork.config.tools).toEqual({ mode: "direct", allow: [] });
+    expect(fork.config.plugins?.local).toEqual({ choice: "chosen" });
+    expect(fork.overrides.plugins).toEqual({ local: { choice: "chosen" } });
+    await service.compact(fork.id);
+    expect((await store.listOwnedItems(fork.id)).at(-1)).toMatchObject({
+      type: "compaction",
+      conversationId: fork.id,
+    });
+    expect(await store.listActiveItems(source.id as ConversationId)).toEqual(before);
+  });
+  it("forks while the source is running without inheriting or cancelling its turn", async () => {
+    const provider = new GateProvider("source done");
+    const { client, service, store } = createHarness(provider);
+    await client.start();
+    const source = await createConversation(client);
+    await client.attach(source.id);
+    await client.deliver(source.id, "source task", "send");
+    await provider.started;
+    const user = (await store.listActiveItems(source.id as ConversationId)).find(
+      (item) => item.type === "message" && item.role === "user",
+    )!;
+    const { conversation } = await service.forkBefore(source.id as ConversationId, user.id);
+    expect(await store.getActiveTurn(conversation.id)).toBeUndefined();
+    expect(await store.getActiveTurn(source.id as ConversationId)).toBeDefined();
+    await client.attach(conversation.id);
+    await client.deliver(conversation.id, "", "interrupt");
+    expect(await store.getActiveTurn(source.id as ConversationId)).toBeDefined();
+    provider.release();
+    await service.whenIdle(source.id as ConversationId);
+  });
   it("renames an attached conversation durably and rejects empty titles", async () => {
     const { client, store } = createHarness();
     await client.start();

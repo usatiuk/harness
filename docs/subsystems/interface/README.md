@@ -738,3 +738,17 @@ uses the first turn's conversation model. Changes refresh loaded configurations
 and affect future naming attempts. The saved title crosses protocol 6 in reads,
 pages and `title.changed` events; desktop headers/sidebar and TUI resume choices
 use it. No retry, periodic naming, separate queue or manual rename UI is added.
+
+### Forking an earlier draft
+
+The desktop user-message hover/focus action below the bubble and TUI `/fork` picker open an
+independent conversation before the selected user message, with its text in the
+ordinary editable composer draft. Neither action sends the draft or overwrites
+the source draft. The source can keep running. Non-text content stays persisted;
+text-only composers report the created fork ID rather than silently drop it.
+
+Desktop message action bars reserve a small row below content: user messages offer
+Fork, completed assistant messages offer Copy. Icons appear on hover or keyboard
+focus (always on touch), without shifting message text. Copy uses the message
+Markdown text through the browser clipboard API, shows success for 750ms and
+reports failures inline.

@@ -31,6 +31,34 @@ const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
 });
 
 describe("buildChatParams", () => {
+  it("does not treat a fork-owned JSON call as an inherited raw call with the same ID", () => {
+    const entries = ["source", "fork"].flatMap((owner) => [
+      {
+        item: item({
+          type: "tool_call",
+          conversationId: owner as Item["conversationId"],
+          callId: "same",
+          name: "echo",
+          args: owner === "source" ? "raw" : { text: "new" },
+        }),
+      },
+      {
+        item: item({
+          type: "tool_result",
+          conversationId: owner as Item["conversationId"],
+          callId: "same",
+          status: "ok",
+          content: [{ type: "text", text: owner }],
+        }),
+      },
+    ]);
+    const messages = buildChatParams(baseRequest(entries)).messages;
+    expect(messages[2]).toEqual({ role: "user", content: "source" });
+    expect(messages.at(-1)).toEqual({ role: "tool", tool_call_id: "same", content: "fork" });
+    expect(messages[3]).toMatchObject({
+      tool_calls: [{ id: "same", function: { arguments: '{"text":"new"}' } }],
+    });
+  });
   it("omits foreign or unbound reasoning and renders raw-string historical calls as text", () => {
     const params = buildChatParams({
       ...baseRequest([]),

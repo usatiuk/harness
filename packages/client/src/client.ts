@@ -14,6 +14,7 @@ import {
   conversationItemReadRequest,
   conversationListRequest,
   conversationModelSetRequest,
+  conversationForkBeforeRequest,
   conversationTitleSetRequest,
   conversationPluginConfigPatchRequest,
   conversationPresetSetRequest,
@@ -350,6 +351,10 @@ export class HarnessClient {
 
   setTitle(conversationId: string, title: string) {
     return this.peer.request(conversationTitleSetRequest, { conversationId, title });
+  }
+
+  forkBefore(conversationId: string, userMessageId: string) {
+    return this.peer.request(conversationForkBeforeRequest, { conversationId, userMessageId });
   }
 
   setPreset(

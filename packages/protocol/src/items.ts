@@ -126,3 +126,7 @@ export const itemSchema = z.discriminatedUnion("type", [
     key: z.string(),
   }),
 ]);
+
+/** Provider call IDs are unique only within the conversation that created them. */
+export const toolCallKey = (call: { conversationId: string; callId: string }): string =>
+  JSON.stringify([call.conversationId, call.callId]);

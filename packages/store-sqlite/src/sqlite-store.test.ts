@@ -38,6 +38,45 @@ describe("SqliteStore (durable-only)", () => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
+  it("persists a shared fork and upgrades schema 8 without copying history", async () => {
+    const path = tempDb();
+    const first = new SqliteStore(path);
+    const source = await first.createConversation(record());
+    const turn = await first.createTurn(source.id);
+    const prefix = await first.appendItem({
+      conversationId: source.id,
+      turnId: turn.id,
+      type: "message",
+      role: "assistant",
+      content: [{ type: "text", text: "prefix" }],
+    });
+    const user = await first.appendItem({
+      conversationId: source.id,
+      turnId: turn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "edit me" }],
+    });
+    first.close();
+    const db = new BetterSqlite3(path);
+    db.exec("ALTER TABLE conversations DROP COLUMN fork_origin; PRAGMA user_version = 8");
+    db.close();
+    const upgraded = new SqliteStore(path);
+    const fork = await upgraded.forkConversation(source.id, user.id, {});
+    upgraded.close();
+    const reopened = new SqliteStore(path);
+    try {
+      expect((await reopened.getConversation(fork.id))?.fork).toEqual({
+        conversationId: source.id,
+        userMessageId: user.id,
+      });
+      expect(await reopened.listActiveItems(fork.id)).toEqual([prefix]);
+      expect(await reopened.listOwnedItems(fork.id)).toEqual([]);
+      expect(await reopened.listActiveItems(source.id)).toEqual([prefix, user]);
+    } finally {
+      reopened.close();
+    }
+  });
   it("rejects a duplicate tool_result for the same callId (partial unique index)", async () => {
     const store = new SqliteStore(":memory:", counterIdGenerator(), fixedClock());
     const conv = await store.createConversation(record());
@@ -61,7 +100,7 @@ describe("SqliteStore (durable-only)", () => {
     first.close();
 
     const reopened = new SqliteStore(path);
-    const items = await reopened.listItems(conv.id);
+    const items = await reopened.listOwnedItems(conv.id);
     expect(items).toEqual([item]);
     reopened.close();
   });
@@ -74,7 +113,7 @@ describe("SqliteStore (durable-only)", () => {
     before.close();
     const previous = new BetterSqlite3(path);
     previous.exec(
-      "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at;",
+      "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN fork_origin;",
     );
     previous.pragma("user_version = 7");
     previous.close();
@@ -211,13 +250,13 @@ describe("SqliteStore (durable-only)", () => {
             : "SELECT 1;",
       );
       previous.exec(
-        "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN title;",
+        "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN title; ALTER TABLE conversations DROP COLUMN fork_origin;",
       );
       previous.pragma(`user_version = ${version}`);
       previous.close();
       const after = new SqliteStore(path);
       try {
-        expect(await after.listItems(conv.id)).toEqual([item]);
+        expect(await after.listOwnedItems(conv.id)).toEqual([item]);
         expect((await after.getConversation(conv.id))?.title).toBeNull();
         await after.updateConversationTitle(conv.id, "Saved title", null);
         expect((await after.summarizeModelUsage(conv.id)).lastTurn).toMatchObject({
@@ -239,7 +278,7 @@ describe("SqliteStore (durable-only)", () => {
       const reopened = new SqliteStore(path);
       try {
         expect((await reopened.getConversation(conv.id))?.title).toBe("Saved title");
-        expect(await reopened.listItems(conv.id)).toEqual([item]);
+        expect(await reopened.listOwnedItems(conv.id)).toEqual([item]);
       } finally {
         reopened.close();
       }

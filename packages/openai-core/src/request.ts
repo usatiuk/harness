@@ -1,3 +1,4 @@
+import { toolCallKey } from "@harness/protocol";
 import type OpenAI from "openai";
 import type {
   ContentBlock,
@@ -74,10 +75,10 @@ function toInputItem(
       };
     }
     case "tool_call":
-      if (rawCallIds.has(item.callId))
+      if (rawCallIds.has(toolCallKey(item)))
         return { role: "assistant", content: `Tool ${item.name}: ${String(item.args)}` };
       // A freeform tool's canonical args are the raw input string; round-trip it natively.
-      if (freeformCallIds.has(item.callId)) {
+      if (freeformCallIds.has(toolCallKey(item))) {
         return {
           type: "custom_tool_call",
           call_id: item.callId,
@@ -92,8 +93,8 @@ function toInputItem(
         arguments: JSON.stringify(item.args),
       };
     case "tool_result":
-      if (rawCallIds.has(item.callId)) return { role: "user", content: textOf(item.content) };
-      if (freeformCallIds.has(item.callId)) {
+      if (rawCallIds.has(toolCallKey(item))) return { role: "user", content: textOf(item.content) };
+      if (freeformCallIds.has(toolCallKey(item))) {
         return {
           type: "custom_tool_call_output",
           call_id: item.callId,
@@ -151,14 +152,15 @@ export function buildResponseParams(
   );
   const freeformCallIds = new Set<string>();
   for (const { item } of request.items) {
-    if (item.type === "tool_call" && freeformNames.has(item.name)) freeformCallIds.add(item.callId);
+    if (item.type === "tool_call" && freeformNames.has(item.name))
+      freeformCallIds.add(toolCallKey(item));
   }
   const rawCallIds = new Set(
     request.items.flatMap(({ item }) =>
       item.type === "tool_call" &&
       typeof item.args === "string" &&
-      !freeformCallIds.has(item.callId)
-        ? [item.callId]
+      !freeformCallIds.has(toolCallKey(item))
+        ? [toolCallKey(item)]
         : [],
     ),
   );
@@ -277,7 +279,7 @@ export function buildChatParams(
     (assistant ??= { role: "assistant", content: null });
   const rawCallIds = new Set(
     request.items.flatMap(({ item }) =>
-      item.type === "tool_call" && typeof item.args === "string" ? [item.callId] : [],
+      item.type === "tool_call" && typeof item.args === "string" ? [toolCallKey(item)] : [],
     ),
   );
 
@@ -319,7 +321,7 @@ export function buildChatParams(
         break;
       case "tool_call":
         {
-          if (rawCallIds.has(item.callId)) {
+          if (rawCallIds.has(toolCallKey(item))) {
             flushAssistant();
             messages.push({
               role: "assistant",
@@ -339,7 +341,7 @@ export function buildChatParams(
         // tool_result.status is not transmitted — same as the Responses transport.
         flushAssistant();
         messages.push(
-          rawCallIds.has(item.callId)
+          rawCallIds.has(toolCallKey(item))
             ? { role: "user", content: textOf(item.content) }
             : { role: "tool", tool_call_id: item.callId, content: textOf(item.content) },
         );

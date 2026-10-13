@@ -223,6 +223,10 @@ export interface HarnessClientService {
   ): Promise<void>;
   send(id: ConversationId, text: string): Promise<void>;
   compact(id: ConversationId): Promise<"compacted" | "noop">;
+  forkBefore(
+    id: ConversationId,
+    userMessageId: ItemId,
+  ): Promise<{ conversation: Conversation; draft: import("@harness/protocol").ContentBlock[] }>;
   setModel(id: ConversationId, model: { provider: string; model: string }): Promise<void>;
   setPreset(
     id: ConversationId,
@@ -389,6 +393,14 @@ export class HarnessDomainClient implements HarnessClientService {
 
   async compact(id: ConversationId): Promise<"compacted" | "noop"> {
     return (await this.#client.compact(id)).status;
+  }
+
+  async forkBefore(id: ConversationId, userMessageId: ItemId) {
+    const result = await this.#client.forkBefore(id, userMessageId);
+    const item = decodeItem(await this.#client.readItem(id, result.draft));
+    if (item.type !== "message" || item.role !== "user")
+      throw new Error("fork draft must be a user message");
+    return { conversation: decodeConversation(result.conversation), draft: item.content };
   }
 
   async deleteConversationIfEmpty(id: ConversationId): Promise<void> {

@@ -1,3 +1,4 @@
+import { toolCallKey } from "@harness/protocol";
 import { z } from "zod";
 import {
   textOf,
@@ -126,7 +127,7 @@ export function buildMistralRequest(request: ModelRequest) {
     selected.flatMap(({ item, payload }) => {
       if (item.type !== "tool_call") return [];
       const raw = matchingPayload(payload, request, "mistral-tool-arguments");
-      return raw === undefined ? [] : [[item.callId, z.string().parse(raw)] as const];
+      return raw === undefined ? [] : [[toolCallKey(item), z.string().parse(raw)] as const];
     }),
   );
   const rawCalls = new Set(
@@ -135,8 +136,8 @@ export function buildMistralRequest(request: ModelRequest) {
       typeof item.args === "string" &&
       !covered.has(index) &&
       !bundles.has(index) &&
-      !nativeArguments.has(item.callId)
-        ? [item.callId]
+      !nativeArguments.has(toolCallKey(item))
+        ? [toolCallKey(item)]
         : [],
     ),
   );
@@ -176,7 +177,7 @@ export function buildMistralRequest(request: ModelRequest) {
         break;
       case "tool_call":
         inputs.push(
-          rawCalls.has(item.callId)
+          rawCalls.has(toolCallKey(item))
             ? {
                 type: "message.input",
                 role: "assistant",
@@ -186,13 +187,13 @@ export function buildMistralRequest(request: ModelRequest) {
                 type: "function.call",
                 tool_call_id: item.callId,
                 name: item.name,
-                arguments: nativeArguments.get(item.callId) ?? JSON.stringify(item.args),
+                arguments: nativeArguments.get(toolCallKey(item)) ?? JSON.stringify(item.args),
               },
         );
         break;
       case "tool_result":
         inputs.push(
-          rawCalls.has(item.callId)
+          rawCalls.has(toolCallKey(item))
             ? { type: "message.input", role: "user", content: textOf(item.content) }
             : {
                 type: "function.result",

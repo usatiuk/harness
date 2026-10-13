@@ -491,6 +491,19 @@ export class Engine {
       throw new Error("Conversation title changed; try renaming again");
   }
 
+  async forkSettings(conversationId: ConversationId) {
+    const runtime = await this.#runtime(conversationId);
+    const conversation = runtime.conversation;
+    const tools = await this.#resolveTools(conversation, runtime);
+    return {
+      config: conversation.config,
+      toolNames: tools
+        .schemas()
+        .map((tool) => tool.name)
+        .filter((name) => name !== EVALUATOR_NAME && !isDiscoveryTool(name)),
+    };
+  }
+
   /** Changes model identity atomically. The previous model's preset is never inherited. */
   async setModel(
     conversationId: ConversationId,

@@ -1,3 +1,4 @@
+import { toolCallKey } from "@harness/protocol";
 import type { ConversationId, Item, Store } from "@harness/protocol";
 
 const isToolCall = (item: Item): item is Extract<Item, { type: "tool_call" }> =>
@@ -20,8 +21,12 @@ export async function reconcileConversation(
   // already off-context and need not be closed.
   const items = await store.listActiveItems(conversationId);
 
-  const answered = new Set(items.filter((i) => i.type === "tool_result").map((i) => i.callId));
-  const dangling = items.filter(isToolCall).filter((call) => !answered.has(call.callId));
+  const answered = new Set(
+    items.filter((i) => i.type === "tool_result").map((i) => toolCallKey(i)),
+  );
+  const dangling = items.filter(isToolCall).filter((call) => !answered.has(toolCallKey(call)));
+  if (dangling.some((call) => call.conversationId !== conversationId))
+    throw new Error("inherited history contains an unfinished tool call");
 
   for (const call of dangling) {
     await store.appendItem({

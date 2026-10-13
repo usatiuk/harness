@@ -25,6 +25,33 @@ const worked = (duration = 0): Extract<State["cells"][number], { kind: "worked" 
 });
 
 describe("transcript reducer", () => {
+  it("keeps inherited and fork-owned tool results separate when provider IDs repeat", () => {
+    const entries = ["source", "fork"].flatMap((conversationId) => [
+      item({
+        id: `${conversationId}-call`,
+        conversationId,
+        turnId: conversationId,
+        type: "tool_call",
+        callId: "same",
+        name: "read",
+        args: {},
+      }),
+      item({
+        id: `${conversationId}-result`,
+        conversationId,
+        turnId: conversationId,
+        type: "tool_result",
+        callId: "same",
+        status: "ok",
+        content: text(`${conversationId} output`),
+      }),
+    ]);
+    expect(
+      init(entries)
+        .cells.filter((cell) => cell.kind === "tool")
+        .map((cell) => cell.output),
+    ).toEqual(["source output", "fork output"]);
+  });
   it("uses client receipt times for live reasoning despite server clock skew", () => {
     const streamed = reduce(
       emptyState,
@@ -138,6 +165,8 @@ describe("transcript reducer", () => {
     expect(state.cells).toEqual([
       {
         kind: "tool",
+        id: "tc1",
+        conversationId: "c",
         callId: "k1",
         turnId: "t1",
         name: "bash",
@@ -454,6 +483,8 @@ describe("transcript reducer", () => {
     expect(state.cells).toEqual([
       {
         kind: "tool",
+        id: "tc1",
+        conversationId: "c",
         callId: "k1",
         turnId: "t1",
         name: "bash",
@@ -556,6 +587,8 @@ describe("transcript reducer", () => {
       { kind: "user", id: "u1", turnId: "t1", text: "hi", createdAt: 0 },
       {
         kind: "tool",
+        id: "tc1",
+        conversationId: "c",
         callId: "k1",
         turnId: "t1",
         name: "bash",

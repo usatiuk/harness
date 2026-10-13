@@ -1,3 +1,4 @@
+import { toolCallKey } from "@harness/protocol";
 import { z } from "zod";
 import {
   jsonValueSchema,
@@ -20,7 +21,7 @@ function learned(items: readonly Item[]): Set<string> {
   const calls = new Set(
     items.flatMap((item) =>
       item.type === "tool_call" && !item.parentCallId && isDiscoveryTool(item.name)
-        ? [item.callId]
+        ? [toolCallKey(item)]
         : [],
     ),
   );
@@ -29,7 +30,7 @@ function learned(items: readonly Item[]): Set<string> {
       item.type === "tool_result" &&
       !item.parentCallId &&
       item.status === "ok" &&
-      calls.has(item.callId)
+      calls.has(toolCallKey(item))
         ? deliveredNames.parse(item.annotations?.toolDiscovery ?? [])
         : [],
     ),

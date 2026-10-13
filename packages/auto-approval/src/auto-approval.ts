@@ -95,7 +95,11 @@ export const defaultReviewContext: ReviewContextBuilder = ({
   const selected: ModelRequest["items"] = [];
   let current: Item | undefined;
   for (const item of items) {
-    if (item.type === "tool_call" && item.callId === request.call.callId) {
+    if (
+      item.type === "tool_call" &&
+      item.conversationId === conversation.id &&
+      item.callId === request.call.callId
+    ) {
       current = item;
       continue;
     }
@@ -142,7 +146,7 @@ export const defaultReviewContext: ReviewContextBuilder = ({
           asMessage(
             item,
             "user",
-            `[tool result: ${item.status}; call id: ${item.callId}${item.parentCallId ? `; parent: ${item.parentCallId}` : ""}]\n${boundToolResult(textOf(item.content))}${item.structured === undefined ? "" : `\nstructured result: ${boundToolResult(safeJson(item.structured))}`}${item.structuredRef ? `\nstructured JSON preview: ${structuredPreviews?.get(item.callId) ?? "[not loaded]"}\nstructured output reference: ${safeJson(item.structuredRef)}` : ""}`,
+            `[tool result: ${item.status}; call id: ${item.callId}${item.parentCallId ? `; parent: ${item.parentCallId}` : ""}]\n${boundToolResult(textOf(item.content))}${item.structured === undefined ? "" : `\nstructured result: ${boundToolResult(safeJson(item.structured))}`}${item.structuredRef ? `\nstructured JSON preview: ${structuredPreviews?.get(item.id) ?? "[not loaded]"}\nstructured output reference: ${safeJson(item.structuredRef)}` : ""}`,
           ),
         );
         break;
@@ -319,7 +323,7 @@ function autoApprovalMiddleware(
             length: TOOL_RESULT_CHARS - TOOL_RESULT_HEAD,
           });
           structuredPreviews.set(
-            item.callId,
+            item.id,
             `${new TextDecoder().decode(head)}\n…[truncated]…\n${new TextDecoder().decode(tail)}`,
           );
         }

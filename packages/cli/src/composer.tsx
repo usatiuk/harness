@@ -62,6 +62,8 @@ export function Composer({
   }, [open, onMenuOpenChange]);
 
   const reset = (): void => {
+    // Submission may unmount the composer before its value effect can run.
+    onValueChange?.("");
     setValue("");
     setCursor(0);
     setActive(0);

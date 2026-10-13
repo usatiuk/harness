@@ -214,3 +214,13 @@ Engine tests cover delivery intents, cancellation, tool ordering, parallel calls
 middleware composition, requests, rewind, compaction, context building, model
 switching, usage, and reconciliation. Service tests cover configuration-aware
 creation/load and event-facing behavior. Full validation is `npm run check`.
+
+### Shared fork history
+
+A fork snapshots effective conversation settings and tool availability into
+ordinary overrides and starts a separate runtime root. Immutable item ownership
+records creation and accounting; it does not restrict history reads. Parent-chain
+context retains original IDs and provider payloads across owners. Reconciliation
+pairs tools within their creating conversation and never repairs an inherited
+unfinished call by mutating source turns. Normal steers flush after tool dispatch
+completes, so their fork boundaries contain complete tool pairs.

@@ -44,6 +44,12 @@ export type ConversationProjectCursor = ConversationProject;
  */
 export interface Store {
   createConversation(input: NewConversationRecord): Promise<ConversationRecord>;
+  /** Atomically fork the prefix before a user item; shared items remain immutable. */
+  forkConversation(
+    source: ConversationId,
+    userMessageId: ItemId,
+    overrides: ConversationOverrides,
+  ): Promise<ConversationRecord>;
   /** Updates metadata only when the current title equals the captured value. */
   updateConversationTitle(
     id: ConversationId,
@@ -85,20 +91,16 @@ export interface Store {
    */
   appendItem(input: NewItem): Promise<Item>;
   /** The raw log in `seq` order (full history, including abandoned branches). */
-  listItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]>;
+  listOwnedItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]>;
 
-  /** Move `head` (linear rewind). Throws if `itemId` is not in the conversation. */
+  /** Move head to an existing item, irrespective of physical owner. */
   setHead(conversationId: ConversationId, itemId: ItemId): Promise<void>;
-  /** Items on `head`'s ancestor chain, in `seq` order. The context-build source. */
+  /** Items on head's ancestor chain, oldest first by chain position, across owners. */
   listActiveItems(conversationId: ConversationId): Promise<Item[]>;
-  /** One immutable item, scoped to its owning conversation. */
-  getItem(conversationId: ConversationId, itemId: ItemId): Promise<Item | undefined>;
+  /** One immutable item by its globally unique ID. */
+  getItem(itemId: ItemId): Promise<Item | undefined>;
   /** Newest-first parent walk beginning at `start`, bounded by item count. */
-  listItemAncestors(
-    conversationId: ConversationId,
-    start: ItemId | null,
-    limit: number,
-  ): Promise<Item[]>;
+  listItemAncestors(start: ItemId | null, limit: number): Promise<Item[]>;
 
   createTurn(conversationId: ConversationId): Promise<Turn>;
   updateTurn(id: TurnId, status: TurnStatus): Promise<Turn>;

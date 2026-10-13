@@ -9,9 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import { Box, Static, Text, useApp, useInput, useStdout, useWindowSize } from "ink";
-import { ConfirmInput, Spinner } from "@inkjs/ui";
+import { ConfirmInput, Spinner, Select } from "@inkjs/ui";
 import {
   findModel,
+  formatError,
+  textOf,
+  type ItemId,
   isKernelEvent,
   type Conversation,
   type HarnessEvent,
@@ -191,6 +194,7 @@ export function App({
   const model = config.model;
   const [modelPicking, setModelPicking] = useState(false);
   const [presetPicking, setPresetPicking] = useState(false);
+  const [forkPicking, setForkPicking] = useState(false);
   const [showActivities, setShowActivities] = useState(false);
   const [showSandbox, setShowSandbox] = useState(false);
   const [verbose, setVerbose] = useState(false);
@@ -317,6 +321,7 @@ export function App({
     }
     if (key.ctrl && input === "c") {
       // Cancel the topmost overlay; in the main view the composer clears/interrupts instead.
+      if (forkPicking) return setForkPicking(false);
       if (showActivities) return setShowActivities(false);
       if (showSandbox) return setShowSandbox(false);
       if (modelPicking) return setModelPicking(false);
@@ -324,7 +329,8 @@ export function App({
       return;
     }
     if (!key.escape) return;
-    if (showActivities) setShowActivities(false);
+    if (forkPicking) setForkPicking(false);
+    else if (showActivities) setShowActivities(false);
     else if (showSandbox) setShowSandbox(false);
     else if (modelPicking) setModelPicking(false);
     else if (presetPicking) setPresetPicking(false);
@@ -421,6 +427,7 @@ export function App({
         busy ? note("wait for or interrupt the current turn before reloading") : onReload(),
       pickModel: () => setModelPicking(true),
       pickPreset: () => setPresetPicking(true),
+      fork: () => setForkPicking(true),
       showActivities: () => setShowActivities(true),
       showSandbox: () => setShowSandbox(true),
       sandbox: sandboxView,
@@ -498,6 +505,39 @@ export function App({
                 }}
                 onCancel={() => {
                   report(plugins.approvals.respond(pending.requestId, "deny"));
+                }}
+              />
+            </Box>
+          ) : forkPicking ? (
+            <Box flexDirection="column">
+              <Text>Fork before a user message</Text>
+              <Select
+                options={[
+                  ...state.cells
+                    .filter((cell) => cell.kind === "user")
+                    .toReversed()
+                    .map((cell) => ({
+                      label:
+                        cell.kind === "user" ? cell.text.replace(/\s+/gu, " ").slice(0, 80) : "",
+                      value: cell.id,
+                    })),
+                  { label: "Cancel", value: "cancel" },
+                ]}
+                onChange={(itemId) => {
+                  setForkPicking(false);
+                  if (itemId === "cancel") return;
+                  void service
+                    .forkBefore(conversation.id, itemId as ItemId)
+                    .then((result) => {
+                      if (result.draft.some((block) => block.type !== "text"))
+                        throw new Error(
+                          `Fork ${result.conversation.id} created; this composer cannot edit non-text content`,
+                        );
+                      if (!drafts) throw new Error("Fork draft storage is unavailable");
+                      drafts.set(result.conversation.id, textOf(result.draft));
+                      onResume(result.conversation.id);
+                    })
+                    .catch((error: unknown) => note(`fork failed: ${formatError(error)}`));
                 }}
               />
             </Box>

@@ -72,6 +72,7 @@ class HistoryAnchor extends Component<AnchorProps> {
               step.key === firstStep.key ||
               (step.cell.kind === "tool" &&
                 firstStep.cell.kind === "tool" &&
+                step.cell.turnId === firstStep.cell.turnId &&
                 step.cell.callId === firstStep.cell.parentCallId),
           ),
       );

@@ -103,7 +103,9 @@ it("keeps previews ephemeral and finalized phases, reasoning and search hints du
     });
     await client.send(conversation.id, "go");
     await preview;
-    expect((await store.listItems(conversation.id)).map((item) => item.type)).toEqual(["message"]);
+    expect((await store.listOwnedItems(conversation.id)).map((item) => item.type)).toEqual([
+      "message",
+    ]);
     expect(JSON.stringify(await client.getItems(conversation.id))).not.toContain("temporary");
     release();
     await service.whenIdle(conversation.id);
@@ -158,7 +160,7 @@ it("keeps previews ephemeral and finalized phases, reasoning and search hints du
     store.close();
     const reopened = new SqliteStore(path);
     try {
-      expect(await reopened.listItems(conversation.id)).toEqual(items);
+      expect(await reopened.listOwnedItems(conversation.id)).toEqual(items);
       expect((await reopened.listModelUsage(conversation.id))[0]).toMatchObject({
         providerUsage: { searches: 1 },
         costIncomplete: true,
