@@ -129,7 +129,7 @@ published.
 
 ## Codex working-budget mapping (October 13)
 
-Status: Implemented and validated; publication pending.
+Status: Implemented, validated and published in v0.1.15.
 
 The user authorized a pragmatic capacity mapping and commit/push/release. The
 Codex catalog's blanket 272k combined window, inherited 128k API output limit and
@@ -151,3 +151,10 @@ Focused checks pass 152 tests; `npm run check` passes 1,346 tests (38 existing
 skips). Three independent reviews report no blocking findings. Backend hard
 limits remain unqualified. Clients cannot display a context percentage without
 a combined-context capacity; raw input counts remain available.
+
+Implementation `e2f02ce` is pushed; workflow version bump `4607e48` is synchronized
+locally. [Release run 38466574537](https://github.com/usatiuk/harness/actions/runs/38466574537)
+passes clean-install source checks, all three native builds and artifact signature
+verification. [v0.1.15](https://github.com/usatiuk/harness/releases/tag/v0.1.15) is
+published, including the Linux AppImage. Native runtime and live backend capacity
+were not separately qualified by this release.

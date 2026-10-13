@@ -167,7 +167,8 @@ The Codex working-budget follow-up is validated: assumed input ceilings of
 400k normally and 628k for Sol 6.1, 128k output reserve, and no combined-context
 claim. API metadata remains unchanged. The global compaction plan records the
 assumption and limits of qualification. Focused checks pass 152 tests; the full
-check passes 1,346 tests (38 existing skips). Publication is pending.
+check passes 1,346 tests (38 existing skips). Published in `v0.1.15`; all three
+native builds and artifact signature verification passed.
 
 The compaction empty-summary follow-up modifies the existing error to include
 empty text and returned tool-call count, and makes the automatic prompt summary-first.
