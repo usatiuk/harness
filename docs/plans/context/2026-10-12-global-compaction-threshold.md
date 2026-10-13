@@ -63,7 +63,7 @@ the Chromium fixture, and TUI settings/persistence use a real isolated server.
 
 ## Partial-metadata follow-up (October 13)
 
-Status: Validated; publication pending.
+Status: Complete; published in v0.1.13.
 
 The user reported a new Mistral GLM conversation ignoring 20k, and LiteLLM
 advertising input/output without a combined context window. The old early return
@@ -97,3 +97,11 @@ asserts absence, and incomplete combined capacity does not invent a summary cap.
 The existing checkpoint estimator and mid-turn guard are unchanged. No real
 provider generation or running developer conversation was modified or restarted.
 The running server needs the updated source loaded before this fix applies.
+
+The user authorized release. Implementation `da6b32a` is pushed, and workflow
+version bump `66cfd3b` is synchronized locally.
+[Release run 38449490152](https://github.com/usatiuk/harness/actions/runs/38449490152)
+passes clean-install source validation, Windows x64/Linux x64 glibc/macOS arm64
+builds and artifact signature verification.
+[v0.1.13](https://github.com/usatiuk/harness/releases/tag/v0.1.13) is published.
+Existing running servers/conversations were not restarted as part of delivery.

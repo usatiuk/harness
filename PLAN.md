@@ -169,7 +169,8 @@ follow-up is complete locally: explicit thresholds work without capacity metadat
 automatic thresholds reserve the output maximum plus 2% of usable input. Separate
 input/output limits work without a combined context window. Validation passes the
 full check (1,339 tests, 38 skips), focused engine/RPC/TUI tests and the isolated GUI
-setting regression. Publication of the validated follow-up is pending. Existing usage checkpoints, compaction strategy,
+setting regression. The follow-up is published in `v0.1.13`; all three platform builds and signature
+verification pass. Existing usage checkpoints, compaction strategy,
 and loaded-runtime caching remain unchanged. The original delivery passed 1,316 tests
 (38 skipped), plus all 32 browser cases, and was published in
 [v0.1.8](https://github.com/usatiuk/harness/releases/tag/v0.1.8) after all three
