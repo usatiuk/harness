@@ -120,4 +120,9 @@ strategy/RPC change, retry or silent fallback is added. The full check passes
 1,341 tests (38 existing skips); 133 focused engine/policy tests pass. The two new
 regressions verify zero/two tool-call counts reach the existing failed-turn error,
 no returned tools are dispatched and no empty fold is saved. Prompt compliance
-on the original live failure is not claimed. Publication is pending.
+on the original live failure is not claimed. Implementation `7701045` is pushed;
+workflow version bump `f4d72db` is synchronized locally.
+[Release run 38453302777](https://github.com/usatiuk/harness/actions/runs/38453302777)
+passes clean-install source checks, all three native builds and signature
+verification. [v0.1.14](https://github.com/usatiuk/harness/releases/tag/v0.1.14) is
+published.
