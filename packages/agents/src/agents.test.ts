@@ -37,7 +37,10 @@ const setup = (workspaceRoot: string) => {
   return { serviceOf, source, middleware };
 };
 
-const sourceContext = (service: (key: string) => unknown): ContextSourceContext => ({ service });
+const sourceContext = (service: (key: string) => unknown): ContextSourceContext => ({
+  service,
+  toolNames: [],
+});
 
 const instructionItem = (key: string, content: string): Item =>
   ({ type: "context", key, content: [{ type: "text", text: content }] }) as Item;

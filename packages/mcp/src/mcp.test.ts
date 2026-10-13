@@ -11,7 +11,13 @@ import { FakeProvider, toolStep, textStep } from "@harness/testkit";
 import { createApprovalPlugin } from "@harness/approval";
 import { autoApprovalPlugin } from "@harness/auto-approval";
 import { QuickJsEvaluator } from "@harness/code-mode";
-import { isKernelEvent, type Item, type ToolMode } from "@harness/protocol";
+import {
+  isKernelEvent,
+  textOf,
+  type Item,
+  type ToolMode,
+  type ModelRequest,
+} from "@harness/protocol";
 import { McpRuntime, mcpConfigSchema } from "./index.ts";
 import { fixtureSchema, httpFixture } from "./testing-fixture.ts";
 import { scopedSecrets } from "./credentials.ts";
@@ -25,8 +31,10 @@ async function execute(
   options: {
     human?: "allow" | "deny";
     scoped?: boolean;
+    allow?: string[];
     interruptWhen?: Promise<void>;
     auto?: boolean;
+    requests?: ModelRequest[];
   } = {},
 ) {
   const name = runtime.tools().find((tool) => tool.rawName === rawName)!.name;
@@ -52,7 +60,21 @@ async function execute(
       plugins: { approval: { humanApprovalTimeoutSeconds: 0.02, ...config } },
     },
     plugins: [
-      { id: "fake", providers: () => [provider] },
+      {
+        id: "fake",
+        providers: () => [
+          {
+            provider: provider.provider,
+            capabilities: () => provider.capabilities(),
+            validateConfig: () => {},
+            listModels: () => provider.listModels(),
+            stream: (request) => {
+              options.requests?.push(request);
+              return provider.stream();
+            },
+          },
+        ],
+      },
       createApprovalPlugin((name) => !runtime.ownsTool(name)),
       runtime.plugin(),
       ...(options.auto ? [autoApprovalPlugin] : []),
@@ -65,7 +87,11 @@ async function execute(
       ? {
           parentId: parent.id,
           overrides: {
-            tools: { allow: [runtime.tools().find((t) => t.rawName === "echo/with spaces")!.name] },
+            tools: {
+              allow: options.allow ?? [
+                runtime.tools().find((t) => t.rawName === "echo/with spaces")!.name,
+              ],
+            },
           },
         }
       : options.auto
@@ -131,8 +157,22 @@ it("discovers a real stdio process with host env/secret sources, preserves JSON 
     )[0]!;
     expect(tool.input).toMatchObject({ kind: "json-schema", schema: fixtureSchema });
     expect(tool.name).toMatch(/^[A-Za-z0-9_-]{1,64}$/u);
+    const source = runtime.plugin().create({ get: async <C>() => ({}) as C }).contextSources!()[0]!;
+    expect(await source.instructions({ service: () => undefined, toolNames: [] })).toEqual([]);
+    expect(
+      textOf(await source.instructions({ service: () => undefined, toolNames: [tool.name] })),
+    ).toContain("Available MCP servers: local");
     for (const mode of ["direct", "code-only"] as const) {
-      const items = await execute(runtime, "echo/with spaces", { value: "accepted" }, mode);
+      const requests: ModelRequest[] = [];
+      const items = await execute(
+        runtime,
+        "echo/with spaces",
+        { value: "accepted" },
+        mode,
+        {},
+        { requests },
+      );
+      expect(textOf(requests[0]!.instructions)).toContain("Available MCP servers: local");
       expect(items.filter((item) => item.type === "tool_result")).toContainEqual(
         expect.objectContaining({
           status: "ok",
@@ -253,6 +293,7 @@ it("resolves global/server/exact-tool policies through direct and code calls, in
           expect(result(items)?.status).toBe(test.expected);
         }
         expect(fixture.calls.length - before).toBe(test.expected === "ok" ? 2 : 0);
+        const scopedRequests: ModelRequest[] = [];
         expect(
           result(
             await execute(
@@ -261,10 +302,28 @@ it("resolves global/server/exact-tool policies through direct and code calls, in
               { value: "withheld" },
               "code-only",
               {},
-              { scoped: true },
+              { scoped: true, requests: scopedRequests },
             ),
           ),
         ).toMatchObject({ status: "error" });
+        expect(textOf(scopedRequests[0]!.instructions)).toContain("Available MCP servers: s");
+        expect(
+          scopedRequests[0]!.tools!.find((tool) => tool.name === "eval")!.description,
+        ).not.toContain(runtime.tools().find((tool) => tool.rawName === "mutate")!.name);
+        const emptyScope: ModelRequest[] = [];
+        expect(
+          result(
+            await execute(
+              runtime,
+              "mutate",
+              { value: "withheld" },
+              "code-only",
+              {},
+              { scoped: true, allow: [], requests: emptyScope },
+            ),
+          )?.status,
+        ).toBe("error");
+        expect(textOf(emptyScope[0]!.instructions)).not.toContain("Available MCP servers:");
         expect(fixture.calls.length - before).toBe(test.expected === "ok" ? 2 : 0);
       } finally {
         await runtime.close();

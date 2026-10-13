@@ -70,7 +70,13 @@ async function setup(
   tools: Tool[] = [],
   mode: ToolMode = "code-only",
   pluginConfig: Record<string, unknown> = {},
-  options: { store?: Store; execution?: Plugin | null; compaction?: CompactionStrategy } = {},
+  options: {
+    store?: Store;
+    execution?: Plugin | null;
+    compaction?: CompactionStrategy;
+    allow?: string[];
+    fileTools?: "string_replace" | "apply_patch" | "text_editor";
+  } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "harness-code-"));
   roots.push(root);
@@ -86,7 +92,10 @@ async function setup(
   const requests: ModelRequest[] = [];
   const recorded: ModelProvider = {
     provider: provider.provider,
-    capabilities: () => provider.capabilities(),
+    capabilities: () => ({
+      ...provider.capabilities(),
+      ...(options.fileTools ? { fileTools: options.fileTools } : {}),
+    }),
     validateConfig: () => {},
     listModels: () => [],
     stream: (request) => {
@@ -102,7 +111,7 @@ async function setup(
     codeEvaluator: new QuickJsEvaluator(),
     defaults: {
       model: { provider: "fake", model: "fake-1" },
-      tools: { mode },
+      tools: { mode, ...(options.allow ? { allow: options.allow } : {}) },
       plugins: { approval: { outOfWorkspace: "allow" }, ...pluginConfig },
     },
     plugins: [
@@ -153,11 +162,41 @@ const discoveryOutput = (items: Item[], id: string) =>
   };
 
 describe("ordinary tool discovery", () => {
+  it("hybrid declares only essential tools and gates ordinary direct calls consistently", async () => {
+    const fixture = await setup(
+      [
+        toolStep("essential-direct", "basic", {}),
+        toolStep("other-direct", "other", {}),
+        evalStep('return await tools.call("other", {});'),
+        textStep("done"),
+      ],
+      [
+        { ...catalogTool("basic"), exposure: { direct: true, code: true }, essential: true },
+        { ...catalogTool("other"), exposure: { direct: true, code: true } },
+      ],
+      "hybrid",
+      {},
+      { execution: null },
+    );
+    const items = await fixture.run();
+    expect(fixture.requests[0]!.tools!.map((tool) => tool.name)).toEqual([
+      "basic",
+      "eval",
+      "tool_describe",
+      "tool_search",
+    ]);
+    expect(results(items).find((item) => item.callId === "essential-direct")?.status).toBe("ok");
+    expect(results(items).find((item) => item.callId === "other-direct")?.status).toBe("error");
+    expect(results(items).find((item) => item.parentCallId === "outer")?.status).toBe("ok");
+    expect(
+      fixture.requests[0]!.tools!.find((tool) => tool.name === "eval")?.description,
+    ).not.toContain('"name":"basic"');
+  });
   it("offers discovery in every mode and never promotes deferred tools to direct calls", async () => {
     for (const mode of ["direct", "hybrid", "code-only"] as const) {
       const fixture = await setup(
         [
-          toolStep("search", "tool_search", { query: "catalog" }),
+          toolStep("search", "tool_search", { queries: ["catalog"] }),
           toolStep("describe", "tool_describe", { name: "catalog_item" }),
           toolStep("guess", "catalog_item", {}),
           ...(mode === "direct" ? [] : [evalStep('return await tools.call("catalog_item", {});')]),
@@ -192,13 +231,13 @@ describe("ordinary tool discovery", () => {
     const tools = Array.from({ length: 15 }, (_, i) =>
       catalogTool(`catalog_${String(i).padStart(2, "0")}`),
     );
-    tools[0] = { ...tools[0]!, exposure: { direct: true, code: true } };
+    tools[0] = { ...tools[0]!, exposure: { direct: true, code: true }, essential: true };
     const fixture = await setup(
       [
         toolStep("pre-described", "tool_describe", { name: "catalog_13" }),
-        toolStep("first", "tool_search", { query: "catalog" }),
-        toolStep("overlap", "tool_search", { query: "fixture catalog" }),
-        toolStep("again", "tool_search", { query: "catalog" }),
+        toolStep("first", "tool_search", { queries: ["catalog"] }),
+        toolStep("overlap", "tool_search", { queries: ["fixture catalog"] }),
+        toolStep("again", "tool_search", { queries: ["catalog"] }),
         toolStep("describe1", "tool_describe", { name: "catalog_00" }),
         toolStep("describe2", "tool_describe", { name: "catalog_00" }),
         textStep("done"),
@@ -226,16 +265,16 @@ describe("ordinary tool discovery", () => {
   it("derives discovery from the current branch across reload, actual compaction, and rewind", async () => {
     const fixture = await setup(
       [
-        toolStep("learn", "tool_search", { query: "catalog" }),
+        toolStep("learn", "tool_search", { queries: ["catalog"] }),
         textStep("done"),
-        toolStep("reload", "tool_search", { query: "catalog" }),
+        toolStep("reload", "tool_search", { queries: ["catalog"] }),
         textStep("done"),
         textStep("summary"),
-        toolStep("fold", "tool_search", { query: "catalog" }),
+        toolStep("fold", "tool_search", { queries: ["catalog"] }),
         textStep("done"),
-        toolStep("rewind-known", "tool_search", { query: "catalog" }),
+        toolStep("rewind-known", "tool_search", { queries: ["catalog"] }),
         textStep("done"),
-        toolStep("rewind-new", "tool_search", { query: "catalog" }),
+        toolStep("rewind-new", "tool_search", { queries: ["catalog"] }),
         textStep("done"),
       ],
       [catalogTool("catalog_item")],
@@ -262,9 +301,9 @@ describe("ordinary tool discovery", () => {
     for (const execution of [localExecutionPlugin, null]) {
       const fixture = await setup(
         [
-          toolStep("search", "tool_search", { query: "catalog" }),
+          toolStep("search", "tool_search", { queries: ["catalog"] }),
           toolStep("large", "tool_describe", { name: "catalog_large" }),
-          toolStep("again", "tool_search", { query: "catalog" }),
+          toolStep("again", "tool_search", { queries: ["catalog"] }),
           textStep("done"),
         ],
         [
@@ -319,8 +358,8 @@ describe("ordinary tool discovery", () => {
     }
     const fixture = await setup(
       [
-        toolStep("cancel", "tool_search", { query: "catalog" }),
-        toolStep("next", "tool_search", { query: "catalog" }),
+        toolStep("cancel", "tool_search", { queries: ["catalog"] }),
+        toolStep("next", "tool_search", { queries: ["catalog"] }),
         evalStep('return await tools.call("tool_describe", {name:"catalog_item"});'),
         textStep("done"),
       ],
@@ -361,8 +400,8 @@ describe("ordinary tool discovery", () => {
       const description = "x".repeat(room);
       const fixture = await setup(
         [
-          toolStep("first", "tool_search", { query: "catalog" }),
-          toolStep("next", "tool_search", { query: "catalog" }),
+          toolStep("first", "tool_search", { queries: ["catalog"] }),
+          toolStep("next", "tool_search", { queries: ["catalog"] }),
           textStep("done"),
         ],
         [catalogTool(fittingName, description), catalogTool(oversizedName, "x".repeat(70000))],
@@ -386,11 +425,11 @@ describe("ordinary tool discovery", () => {
     const terms = Array.from({ length: 33 }, (_, i) => `t${i}`);
     const fixture = await setup(
       [
-        toolStep("valid", "tool_search", { query: terms.slice(0, 32).join(" ") }),
-        toolStep("invalid", "tool_search", { query: terms.join(" ") }),
+        toolStep("valid", "tool_search", { queries: [terms.slice(0, 32).join(" ")] }),
+        toolStep("invalid", "tool_search", { queries: [terms.join(" ")] }),
         textStep("done"),
       ],
-      [catalogTool("catalog_item", terms[0])],
+      [catalogTool("catalog_item", terms.join(" "))],
     );
     const items = await fixture.run();
     expect(discoveryOutput(items, "valid").tools).toHaveLength(1);
@@ -399,6 +438,97 @@ describe("ordinary tool discovery", () => {
     expect(textOf(invalid.content)).toContain("32 terms");
     expect(invalid.annotations?.toolDiscovery).toBeUndefined();
   });
+
+  it("ANDs words within each query and ORs alternatives without a plugin-specific filter", async () => {
+    const fixture = await setup(
+      [
+        toolStep("search", "tool_search", { queries: ["gitlab issues", "gitlab merge requests"] }),
+        textStep("done"),
+      ],
+      [
+        catalogTool("gitlab_issue", "gitlab issues"),
+        catalogTool("gitlab_merge", "gitlab merge requests"),
+        catalogTool("other_issue", "another server issues"),
+      ],
+    );
+    const items = await fixture.run();
+    expect(
+      discoveryOutput(items, "search")
+        .tools.map((tool) => tool.input.name)
+        .sort(),
+    ).toEqual(["gitlab_issue", "gitlab_merge"]);
+  });
+
+  it("keeps essential tools out of discovery and rejects direct calls in code-only", async () => {
+    const fixture = await setup(
+      [
+        toolStep("search", "tool_search", { queries: ["essential"] }),
+        toolStep("direct", "essential_tool", {}),
+        evalStep('return await tools.call("essential_tool", {});'),
+        textStep("done"),
+      ],
+      [{ ...catalogTool("essential_tool", "essential fixture"), essential: true }],
+    );
+    const items = await fixture.run();
+    expect(discoveryOutput(items, "search").tools).toEqual([]);
+    expect(results(items).find((item) => item.callId === "direct")?.status).toBe("error");
+    expect(results(items).find((item) => item.parentCallId === "outer")?.status).toBe("ok");
+  });
+
+  it("keeps upfront definitions scoped and present after compaction", async () => {
+    const fixture = await setup(
+      [textStep("done"), textStep("summary"), textStep("done again")],
+      [
+        { ...catalogTool("allowed_tool"), essential: true },
+        { ...catalogTool("excluded_tool"), essential: true },
+      ],
+      "code-only",
+      {},
+      { allow: ["allowed_tool"], compaction: modelCompaction },
+    );
+    await fixture.run();
+    await fixture.svc.compact(fixture.conversation.id);
+    await fixture.run();
+    for (const request of fixture.requests.filter((request) =>
+      request.tools?.some((tool) => tool.name === "eval"),
+    )) {
+      const description = request.tools!.find((tool) => tool.name === "eval")!.description;
+      expect(description).toContain('"name":"allowed_tool"');
+      expect(description).not.toContain('"name":"excluded_tool"');
+    }
+  });
+
+  it.each(["apply_patch", "text_editor"] as const)(
+    "uses the model's %s workspace roster upfront",
+    async (fileTools) => {
+      const fixture = await setup([textStep("done")], [], "code-only", {}, { fileTools });
+      await fixture.run();
+      const description = fixture.requests[0]!.tools!.find(
+        (tool) => tool.name === "eval",
+      )!.description;
+      expect(description).toContain(
+        `"name":"${fileTools === "text_editor" ? "str_replace_based_edit_tool" : "apply_patch"}"`,
+      );
+    },
+  );
+
+  it.each(["direct", "hybrid", "code-only"] as const)(
+    "describes workspace contracts upfront only in %s code-only mode",
+    async (mode) => {
+      const fixture = await setup([textStep("done")], [], mode);
+      await fixture.run();
+      const tools = fixture.requests[0]!.tools!;
+      const evaluator = tools.find((tool) => tool.name === "eval");
+      if (mode === "code-only") {
+        expect(tools.map((tool) => tool.name)).not.toContain("bash");
+        expect(evaluator?.description).toContain('"name":"bash"');
+        expect(evaluator?.description).toContain("inside eval only");
+        expect(evaluator?.description).toContain('"name":"read_file"');
+      } else {
+        expect(evaluator?.description ?? "").not.toContain("inside eval only");
+      }
+    },
+  );
 });
 
 describe("recorded code-mode execution", () => {
@@ -482,10 +612,11 @@ describe("recorded code-mode execution", () => {
       ...deferred,
       name: "entry",
       exposure: { direct: true, code: false },
+      essential: true,
     };
     const fixture = await setup(
       [
-        toolStep("search", "tool_search", { query: "issue" }),
+        toolStep("search", "tool_search", { queries: ["issue"] }),
         toolStep("shell", "tool_describe", {
           name: process.platform === "win32" ? "powershell" : "bash",
         }),
@@ -751,7 +882,7 @@ describe("recorded code-mode execution", () => {
         evalStep(
           'return await tools.call("subagent", {agent:"reader", task:"attempt unavailable writer"});',
         ),
-        toolStep("child-search", "tool_search", { query: "write_file" }),
+        toolStep("child-search", "tool_search", { queries: ["write_file"] }),
         toolStep("child-describe", "tool_describe", { name: "write_file" }),
         toolStep("child-eval", "eval", {
           code: 'return await tools.call("write_file", {path:"forbidden.txt",content:"bad"});',
@@ -1193,7 +1324,7 @@ describe("recorded code-mode execution", () => {
     const escaping = Object.assign(sandbox, { unconfined: new LocalExecutionContext(null) });
     const fixture = await setup(
       [
-        toolStep("search-wrapper", "tool_search", { query: "deferred_execution" }),
+        toolStep("search-wrapper", "tool_search", { queries: ["deferred_execution"] }),
         toolStep("describe-wrapper", "tool_describe", { name: "deferred_execution" }),
         toolStep("guess-wrapper", "deferred_execution", {}),
         evalStep('return await tools.call("deferred_execution", {});'),
@@ -1292,7 +1423,7 @@ describe("recorded code-mode execution", () => {
       evalStep(
         'const {paths} = await tools.call("glob", {pattern:"*.txt"}); return (await Promise.all(paths.map(path => tools.call("read_file", {path})))).map(file => file.text.length);',
       ),
-      toolStep("query", "tool_search", { query: "x ".repeat(500000) }),
+      toolStep("query", "tool_search", { queries: ["x ".repeat(500000)] }),
       textStep("done"),
     ]);
     await Promise.all(

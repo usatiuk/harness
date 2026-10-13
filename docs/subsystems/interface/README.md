@@ -701,6 +701,11 @@ database contention, and real PowerShell/Node cleanup. See
 
 ## Conversation titles
 
+The tool interface choice is labeled Hybrid in desktop creation; selected-host
+TUI Settings edits the same `toolMode: "hybrid"` value. Hybrid offers essential
+tools directly and other tools through discovery/eval. It is the shared server
+fallback when no explicit tool mode is saved; saved Direct and Code-only remain.
+
 The opened conversation header exposes a pencil on title hover or keyboard focus
 (always visible on touch). It edits the title inline: Enter/check saves,
 Escape/cancel discards. Saving uses `conversation.title.set`, restricted to an

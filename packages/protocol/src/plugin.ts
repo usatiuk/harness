@@ -14,6 +14,7 @@ import type { ProviderTypeContributions } from "./provider-instance.ts";
 /** Per-conversation context for cache-stable prompt/project instruction sources. */
 export interface ContextSourceContext {
   service(key: string): unknown;
+  readonly toolNames: readonly string[];
 }
 
 /** Contributes prompt fragments / project context into the cache-stable prefix. */

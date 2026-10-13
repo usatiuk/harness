@@ -164,6 +164,28 @@ export class LiteLLMProvider implements ModelProvider {
       )
         delete profile.defaultPreset;
       let transport = profile.transport ?? this.#config.defaultTransport;
+      if (profile.presets === undefined && profile.reasoning?.effortLevels !== undefined) {
+        const efforts = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+        profile = {
+          ...profile,
+          presets: Object.fromEntries(
+            efforts
+              .filter(
+                (effort) =>
+                  profile.reasoning!.effortLevels!.includes(effort) &&
+                  (transport !== "anthropic-messages" || !["none", "minimal"].includes(effort)),
+              )
+              .map((effort) => [effort, { reasoningEffort: effort }]),
+          ),
+        };
+        const defaultEffort = profile.reasoning?.defaultEffort;
+        if (
+          profile.defaultPreset === undefined &&
+          defaultEffort &&
+          Object.hasOwn(profile.presets!, defaultEffort)
+        )
+          profile.defaultPreset = defaultEffort;
+      }
       try {
         validateProfile(profile, transport);
       } catch {

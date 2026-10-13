@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `9`. It exchanges
+`initialize` is the first application request and requires protocol version `10`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.

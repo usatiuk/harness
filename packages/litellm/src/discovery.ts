@@ -149,6 +149,27 @@ function agreedMetadata<T>(
   return known.length === group.length ? valid[0] : undefined;
 }
 
+function legacyEfforts(info: Record<string, unknown>): string[] | undefined {
+  const flags = Object.fromEntries(
+    ["none", "minimal", "low", "xhigh", "max"].map((level) => [
+      level,
+      info[`supports_${level}_reasoning_effort`],
+    ]),
+  );
+  const known = Object.values(flags).filter((value) => value != null);
+  if (!known.length || known.some((value) => typeof value !== "boolean")) return undefined;
+  // Legacy flags cannot exclude medium/high. Off needs explicit support; no provider guessing.
+  return [
+    ...(flags.none === true ? ["none"] : []),
+    ...(flags.minimal !== false ? ["minimal"] : []),
+    ...(flags.low !== false ? ["low"] : []),
+    "medium",
+    "high",
+    ...(flags.xhigh === true ? ["xhigh"] : []),
+    ...(flags.max === true ? ["max"] : []),
+  ];
+}
+
 /** Only exact aliases from the public index may be enriched by deployment metadata. */
 export function enrichModels(
   ids: string[],
@@ -203,8 +224,15 @@ export function enrichModels(
       const value = agreedMetadata(group, field, z.boolean(), id, field, diagnostics);
       if (value !== undefined) reasoning[target] = value;
     }
+    const claims = group.map((info) => ({
+      ...info,
+      reasoning_effort_levels:
+        info.supports_reasoning === false
+          ? []
+          : (info.reasoning_effort_levels ?? legacyEfforts(info)),
+    }));
     const levels = agreedMetadata(
-      group,
+      claims,
       "reasoning_effort_levels",
       modelReasoningInfoSchema.shape.effortLevels
         .unwrap()
@@ -213,7 +241,7 @@ export function enrichModels(
       "reasoning effort levels",
       diagnostics,
     );
-    if (levels) reasoning.effortLevels = levels;
+    if (levels !== undefined) reasoning.effortLevels = levels;
     const defaultEffort = agreedMetadata(
       group,
       "default_reasoning_effort",

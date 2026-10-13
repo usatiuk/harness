@@ -37,23 +37,26 @@ export const workspacePlugin: Plugin = {
     const functionTool = (tool: Parameters<typeof executionFunctionTool>[1]) =>
       executionFunctionTool(execution, tool);
     const base = [managed(new GlobTool()), functionTool(new CommandTool(execution.shellKind))];
-    switch (caps.fileTools) {
-      case "apply_patch":
-        return [
-          ...base,
-          managed(new ReadFileTool()),
-          functionTool(new WriteTool()),
-          executionApplyPatchTool(execution),
-        ];
-      case "text_editor":
-        return [...base, executionTextEditorTool(execution)];
-      case "string_replace":
-        return [
-          ...base,
-          managed(new ReadFileTool()),
-          functionTool(new WriteTool()),
-          functionTool(new EditTool()),
-        ];
-    }
+    const roster = () => {
+      switch (caps.fileTools) {
+        case "apply_patch":
+          return [
+            ...base,
+            managed(new ReadFileTool()),
+            functionTool(new WriteTool()),
+            executionApplyPatchTool(execution),
+          ];
+        case "text_editor":
+          return [...base, executionTextEditorTool(execution)];
+        case "string_replace":
+          return [
+            ...base,
+            managed(new ReadFileTool()),
+            functionTool(new WriteTool()),
+            functionTool(new EditTool()),
+          ];
+      }
+    };
+    return roster().map((tool) => Object.assign(tool, { essential: true }));
   },
 };

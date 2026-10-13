@@ -49,33 +49,42 @@ function result(data: unknown, names: string[]): ToolResult {
   };
 }
 
-function matches(tools: ToolSet, query: string, known: ReadonlySet<string>): ToolContract[] {
-  const words = [
+function matches(tools: ToolSet, queries: string[], known: ReadonlySet<string>): ToolContract[] {
+  const groups = queries.map((query) => [
     ...new Set(
       query
         .toLowerCase()
         .split(/[^\p{L}\p{N}_]+/u)
         .filter(Boolean),
     ),
-  ];
-  if (words.length > 32) throw new Error("tool search query exceeds 32 terms");
+  ]);
+  if (groups.some((words) => words.length === 0))
+    throw new Error("tool search queries require keywords");
+  if (groups.reduce((count, words) => count + words.length, 0) > 32)
+    throw new Error("tool search query exceeds 32 terms");
   return tools
     .schemas()
     .filter((schema) => tools.exposes(schema.name, "code") && !known.has(schema.name))
     .map((schema) => ({
       schema,
-      score: words.reduce(
-        (sum, word) =>
-          sum +
-          (schema.name.toLowerCase().includes(word)
-            ? 3
-            : schema.description.toLowerCase().includes(word)
-              ? 1
-              : 0),
-        0,
+      score: Math.max(
+        ...groups.map((words) =>
+          words.every((word) => `${schema.name} ${schema.description}`.toLowerCase().includes(word))
+            ? words.reduce(
+                (sum, word) =>
+                  sum +
+                  (schema.name.toLowerCase().includes(word)
+                    ? 3
+                    : schema.description.toLowerCase().includes(word)
+                      ? 1
+                      : 0),
+                0,
+              )
+            : 0,
+        ),
       ),
     }))
-    .filter(({ score }) => words.length === 0 || score > 0)
+    .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score || a.schema.name.localeCompare(b.schema.name))
     .map(({ schema }) => tools.contract(schema.name)!);
 }
@@ -90,8 +99,13 @@ export function discoveryTools(
     {
       name: SEARCH_NAME,
       description:
-        "Find tool definitions by names and descriptions. Returns up to 12 new definitions, including descriptions and input/output schemas. Already declared or discovered tools are omitted until compaction. more means some matches were omitted: repeat for remaining fitting definitions, or narrow the query for oversized matches. Deferred tools are callable through eval, not directly. Use tool_describe to inspect or refresh a known tool.",
-      input: { kind: "function", schema: z.strictObject({ query: z.string().max(512) }) },
+        'Find tool definitions by keywords in names and descriptions. Each query requires all its words (AND); queries are alternatives (OR). Example: {"queries":["gitlab issues","gitlab merge requests"]}. Use short keywords, not sentences. Returns up to 12 new definitions, including descriptions and input/output schemas. Already declared or discovered tools are omitted until compaction. more means some matches were omitted: repeat for remaining fitting definitions, or narrow the query for oversized matches. Deferred tools are callable through eval, not directly. Use tool_describe to inspect or refresh a known tool.',
+      input: {
+        kind: "function",
+        schema: z.strictObject({
+          queries: z.array(z.string().trim().min(1).max(512)).min(1).max(8),
+        }),
+      },
       exposure: { direct: true, code: false },
       execute: async (args, ctx) => {
         const known = learned(await active());
@@ -101,7 +115,7 @@ export function discoveryTools(
         const oversized: string[] = [];
         const oversizedCandidates: string[] = [];
         let more = false;
-        for (const definition of matches(tools, (args as { query: string }).query, known)) {
+        for (const definition of matches(tools, (args as { queries: string[] }).queries, known)) {
           if (
             Buffer.byteLength(JSON.stringify({ tools: [definition], oversized: [], more: false })) >
             RESULT_BYTES

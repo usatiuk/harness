@@ -948,6 +948,15 @@ delays, or a nearby condition that does not prove completion.
   oversized omissions are checked with the shipped output plugin and without an
   execution backend. Core discovery is absent from the guest and nested calls to
   discovery entry points are rejected.
+  October 13 adds OR-of-AND keyword queries, shared Hybrid declaration/admission
+  gating, essential contracts in code-only but not duplicated in Hybrid, scoped
+  contracts across actual compaction and model-specific file rosters. MCP request
+  fixtures verify child scopes and omit hints for empty scopes. LiteLLM fixtures
+  exercise exact/legacy/empty effort sets, defaults/off request parameters and
+  configured overrides. Selected-host TUI Settings verifies the shared Hybrid
+  default and label. Full checks pass 1,360 tests (38 existing skips); 80 focused
+  tests and two desktop browser cases pass. Live gateway/native UI qualification
+  remains separate.
 - Runtime tests reject runaway code/jobs/getters, empty-message failures, memory,
   output, argument/name/result/cumulative data and submission limits. Ordinary
   search bounds queries independently. Eight

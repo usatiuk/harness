@@ -48,7 +48,13 @@ import {
 } from "@harness/protocol";
 import type { PluginHost } from "./plugin-host.ts";
 import { ToolSet } from "./registry.ts";
-import { evaluatorTool, EVALUATOR_NAME, modelSchemas } from "./code-mode.ts";
+import {
+  evaluatorTool,
+  EVALUATOR_NAME,
+  modelSchemas,
+  upfrontTools,
+  allowsDirect,
+} from "./code-mode.ts";
 import { discoveryTools, isDiscoveryTool } from "./tool-discovery.ts";
 import { parseToolArgs } from "./tools.ts";
 import { compactedWindow, estimateContextTokens, fallbackCompaction } from "./policies.ts";
@@ -262,6 +268,7 @@ export class Engine {
           conversation,
           modelSchemas(toolSet, conversation.config.tools?.mode ?? "direct"),
           runtime,
+          toolSet,
         );
         const folded = await this.#compact(
           "manual",
@@ -803,7 +810,7 @@ export class Engine {
     let recoveredOverflow = false;
     let compactedBeforeAttempt = false;
     for (let step = 0; step < MAX_MODEL_STEPS; step++) {
-      const draft = await this.#assembleContext(conversation, toolSchemas, runtime);
+      const draft = await this.#assembleContext(conversation, toolSchemas, runtime, toolSet);
       if (provider.providerOptions !== undefined) draft.providerOptions = provider.providerOptions;
       const capacity = await this.#contextCapacity(conversation, draft);
       if (capacity.shouldCompact && !compactedBeforeAttempt) {
@@ -1119,8 +1126,7 @@ export class Engine {
     const mode = conversation.config.tools?.mode ?? "direct";
     const available = call.parentCallId
       ? toolSet.exposes(call.name, "code")
-      : toolSet.exposes(call.name, "direct") &&
-        (mode !== "code-only" || call.name === EVALUATOR_NAME || isDiscoveryTool(call.name));
+      : allowsDirect(toolSet, call.name, mode);
     const outcome = signal.aborted
       ? { result: interruptedResult(), completed: false }
       : terminalError
@@ -1405,7 +1411,7 @@ export class Engine {
         ...(
           await Promise.all(
             this.host.contextSources.map((source) =>
-              source.instructions({ service: (key) => this.#service(runtime, key) }),
+              source.instructions({ service: (key) => this.#service(runtime, key), toolNames: [] }),
             ),
           )
         ).flat(),
@@ -1813,14 +1819,18 @@ export class Engine {
       toolMeta: (name) => tools.metaOf(name),
     });
     const mode = conversation.config.tools?.mode ?? "direct";
+    const upfront = mode === "code-only" ? upfrontTools(catalog) : [];
     const controls = discoveryTools(
       catalog,
-      modelSchemas(catalog, mode).map((schema) => schema.name),
+      [
+        ...modelSchemas(catalog, mode).map((schema) => schema.name),
+        ...upfront.map((tool) => tool.input.name),
+      ],
       async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
     );
     if (mode !== "direct") {
       if (!this.codeEvaluator) throw new Error("code mode selected but no evaluator is configured");
-      controls.push(evaluatorTool(this.codeEvaluator));
+      controls.push(evaluatorTool(this.codeEvaluator, upfront));
     }
     return new ToolSet(
       [...catalog.values(), ...controls],
@@ -1837,6 +1847,7 @@ export class Engine {
     conversation: Conversation,
     tools: ToolSchema[],
     runtime: Runtime,
+    scopedTools: ToolSet,
   ): Promise<NewContextBuild> {
     // Use the active chain (not the raw log): after a rewind, abandoned-branch items
     // must stay out of context. Read `head` from the store, never off the cached
@@ -1857,7 +1868,18 @@ export class Engine {
       });
     const payloadList = await this.store.getProviderPayloads(items.map((i) => i.id));
     const payloads = new Map(payloadList.map((p) => [p.itemId, p]));
-    const sourceContext = { service: (key: string) => this.#service(runtime, key) };
+    const mode = conversation.config.tools?.mode ?? "direct";
+    const sourceContext = {
+      service: (key: string) => this.#service(runtime, key),
+      toolNames: scopedTools
+        .schemas()
+        .filter(
+          (schema) =>
+            allowsDirect(scopedTools, schema.name, mode) ||
+            (scopedTools.exposes(schema.name, "code") && mode !== "direct"),
+        )
+        .map((schema) => schema.name),
+    };
     const sourceInstructions = (
       await Promise.all(
         this.host.contextSources.map((source) => source.instructions(sourceContext)),

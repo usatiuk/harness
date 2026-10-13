@@ -431,6 +431,29 @@ export class McpRuntime {
         return {
           id: "mcp",
           tools: () => this.#catalog.map((tool) => tool.tool),
+          contextSources: () => [
+            {
+              id: "mcp-availability",
+              instructions: async ({ toolNames }) => {
+                const available = new Set(toolNames);
+                const servers = [
+                  ...new Set(
+                    this.#catalog
+                      .filter((tool) => available.has(tool.name))
+                      .map((tool) => tool.serverId),
+                  ),
+                ].sort();
+                return servers.length
+                  ? [
+                      {
+                        type: "text",
+                        text: `Available MCP servers: ${servers.join(", ")}. Search tool names and descriptions using these server names together with task keywords.`,
+                      },
+                    ]
+                  : [];
+              },
+            },
+          ],
           toolMiddleware: () => [
             {
               id: "mcp",

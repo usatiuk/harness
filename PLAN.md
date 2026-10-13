@@ -163,6 +163,14 @@ runtime preparation is verified on all four targets. The standalone CLI is unaff
 
 ## Recent delivery
 
+The [reasoning/discovery follow-up](docs/plans/models/2026-10-13-reasoning-and-discovery.md)
+is validated: LiteLLM advertised effort presets, generic OR-of-AND tool search,
+scoped MCP availability hints and essential tools in Hybrid/code-only. Hybrid
+remains the shared server's unset-setting default and is labeled consistently in
+GUI/TUI. Protocol 10 represents the new metadata/search semantics. Full checks pass
+1,360 tests (38 existing skips), 80 focused tests and two scoped browser cases;
+three independent reviews report no blocking findings. Commit only is requested.
+
 Inline conversation rename is implemented and validated: a header pencil
 appears on hover/focus, reusing server title persistence and events through one
 narrow RPC. Enter saves; Escape cancels. Full check passes 1,347 tests (38 existing

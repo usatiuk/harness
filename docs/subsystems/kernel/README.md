@@ -114,14 +114,29 @@ Function inputs can supply Zod or an already-authored JSON Schema with a parser.
 Core preserves the advertised JSON Schema and invokes its parser at the ordinary
 argument boundary, so external tool adapters do not need lossy schema conversion.
 
-`tools.mode` defaults to `direct`. `hybrid` offers direct tools and the core
-`eval` entry point. The ordinary core `tool_search` and `tool_describe` tools are
+The shared server defaults `tools.mode` to `hybrid`; explicit settings win. The
+bare engine retains `direct` when no mode is supplied. `hybrid` offers essential
+direct-enabled tools and the core `eval` entry point; other tools use discovery
+and eval. `direct` still offers all direct-enabled tools. The ordinary core
+`tool_search` and `tool_describe` tools are
 immediately available in every mode. `code-only` runs capabilities through `eval`
 and rejects guessed ordinary direct calls, including after discovery. Deferred
 tools have code exposure only. The evaluator itself is
 direct-only and cannot recurse. Enabling code mode without an injected evaluator
 fails explicitly. The server injects `@harness/code-mode`; core imports only its
 protocol contract.
+
+Workspace tools mark themselves `essential`: the agent needs them for basic work
+without discovery. In code-only, their scoped resolved contracts are included
+inside eval's instructions and remain unavailable as direct calls. Hybrid declares
+them normally, without repeating contracts inside eval. Rebuilding request context
+after compaction preserves this upfront information. Context sources receive only
+currently scoped callable tool names; MCP owns the short available-server hint.
+Core contains no MCP server registry or search filter.
+
+Search takes `queries`, one to eight keyword strings of at most 512 characters.
+Words within each query are ANDed; queries are ORed. There are at most 32 terms
+across queries. Blank/punctuation-only queries fail instead of browsing the catalog.
 
 Search excludes initially declared names and paired successful discovery results
 in the context since the latest compaction. Rewind and reload derive the set from

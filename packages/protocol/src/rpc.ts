@@ -41,7 +41,7 @@ export const defineNotification = <P extends JsonValue>(
   definition: Omit<RpcNotification<P>, "kind">,
 ): RpcNotification<P> => ({ kind: "notification", ...definition });
 
-export const HARNESS_PROTOCOL_VERSION = 9 as const;
+export const HARNESS_PROTOCOL_VERSION = 10 as const;
 export const REQUEST_CANCELLED_ERROR_CODE = -32800 as const;
 
 export const peerInfoSchema = z.strictObject({

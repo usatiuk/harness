@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CodeEvaluator, Tool, ToolMode } from "@harness/protocol";
+import type { CodeEvaluator, Tool, ToolMode, ToolContract } from "@harness/protocol";
 import { ToolSet } from "./registry.ts";
 import { isDiscoveryTool } from "./tool-discovery.ts";
 
@@ -19,10 +19,21 @@ use activity tools to inspect/wait. No filesystem, network, process, imports, ti
 are ambient. Discover tools on demand; unavailable names cannot bypass scope. Computation, memory,
 output, and tool submissions are bounded. No replay, rollback, or persistent variables.`;
 
-export function evaluatorTool(evaluator: CodeEvaluator): Tool {
+export function upfrontTools(tools: ToolSet): ToolContract[] {
+  return tools
+    .schemas()
+    .filter((schema) => tools.exposes(schema.name, "code") && tools.get(schema.name).essential)
+    .map((schema) => tools.contract(schema.name)!);
+}
+
+export function evaluatorTool(evaluator: CodeEvaluator, upfront: ToolContract[] = []): Tool {
   return {
     name: EVALUATOR_NAME,
-    description: DESCRIPTION,
+    description:
+      DESCRIPTION +
+      (upfront.length
+        ? `\nThe following tools are already described for use inside eval only. Invoke them with await tools.call(name, args), not as direct calls. For example: await tools.call(${JSON.stringify(upfront[0]!.input.name)}, args).\n${JSON.stringify(upfront)}`
+        : ""),
     input: { kind: "function", schema: z.strictObject({ code: z.string().max(64 * 1024) }) },
     exposure: { direct: true, code: false },
     execute: async (args, ctx) => {
@@ -33,11 +44,15 @@ export function evaluatorTool(evaluator: CodeEvaluator): Tool {
 }
 
 export function modelSchemas(tools: ToolSet, mode: ToolMode) {
-  return tools
-    .schemas()
-    .filter(
-      (schema) =>
-        tools.exposes(schema.name, "direct") &&
-        (mode !== "code-only" || schema.name === EVALUATOR_NAME || isDiscoveryTool(schema.name)),
-    );
+  return tools.schemas().filter((schema) => allowsDirect(tools, schema.name, mode));
+}
+
+export function allowsDirect(tools: ToolSet, name: string, mode: ToolMode): boolean {
+  return (
+    tools.exposes(name, "direct") &&
+    (mode === "direct" ||
+      name === EVALUATOR_NAME ||
+      isDiscoveryTool(name) ||
+      (mode === "hybrid" && tools.get(name).essential === true))
+  );
 }

@@ -107,7 +107,7 @@ export class DemoProvider implements ModelProvider {
           type: "tool_call",
           callId: `call-${++this.#calls}`,
           name: "tool_search",
-          args: { query: "powershell bash" },
+          args: { queries: ["powershell", "bash"] },
         };
         yield { type: "completed", usage: ZERO_USAGE };
         return;

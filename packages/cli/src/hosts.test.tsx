@@ -117,6 +117,11 @@ it("edits and clears compaction threshold through selected-host Settings", async
       await vi.waitFor(() => expect(ui.lastFrame()).toMatch(/[>❯].*Selected host defaults/));
       await writeInput(ui, "\r");
       await vi.waitFor(() => expect(ui.lastFrame()).toContain("Edit defaults JSON"));
+      expect(ui.lastFrame()).toContain("Hybrid");
+      expect(
+        (await hosts.selected!.harness!.client.peer.request(appSettingsRequest, {})).settings
+          .toolMode,
+      ).toBe("hybrid");
       await vi.waitFor(() =>
         expect(ui.lastFrame()?.replace(/\s/g, "")).toMatch(
           /"compactionThresholdTokens":(null|1200)/,

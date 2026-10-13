@@ -375,6 +375,18 @@ must agree on each annotation field. Invalid/conflicting metadata is diagnostic;
 configured fields take precedence. `apply_patch` requires Responses. Unknown
 models use `string_replace`; reasoning support alone never invents effort presets.
 
+When explicit presets are absent, agreed effort levels generate ordinary presets
+with the same names and request effort values. An agreed supported default effort
+sets the default preset. Exact `reasoning_effort_levels`, including an empty list,
+take precedence over legacy flags. Otherwise each deployment's per-level flags
+derive a set, which must agree across the alias. Legacy medium/high are implicit;
+minimal/low are omitted when explicitly false; xhigh/max and off require explicit
+true flags. Off is conservative rather than inferred from provider/model names.
+Missing metadata does not produce a generic effort ladder. Configured or annotated
+presets, including an empty map, override generated presets. Messages does not
+generate none/minimal effort presets because its existing effort contract does
+not accept them; explicit thinking configuration remains unchanged.
+
 Adapters reuse OpenAI/Anthropic implementation packages with gateway credentials.
 They keep the outer instance ID and public alias in opaque payloads. Matching
 saved reasoning requires its original Responses or Messages transport and a

@@ -48,7 +48,7 @@ export const modelReasoningInfoSchema = z.strictObject({
   adaptiveThinking: z.boolean().optional(),
   legacyThinking: z.boolean().optional(),
   alwaysOn: z.boolean().optional(),
-  effortLevels: z.array(z.string().min(1).max(32)).min(1).max(32).optional(),
+  effortLevels: z.array(z.string().min(1).max(32)).max(32).optional(),
   defaultEffort: z.string().min(1).max(32).optional(),
 });
 export type ModelReasoningInfo = z.infer<typeof modelReasoningInfoSchema>;

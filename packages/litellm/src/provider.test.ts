@@ -84,6 +84,41 @@ function continuation(first: ModelStreamEvent[], base: ModelRequest): ModelReque
 }
 
 describe("LiteLLM discovery", () => {
+  it("prefers exact effort lists and conservatively resolves legacy flags per deployment", () => {
+    const infos = [
+      { reasoning_effort_levels: ["low", "max"], supports_none_reasoning_effort: true },
+      { reasoning_effort_levels: [], supports_low_reasoning_effort: true },
+      { supports_reasoning: true },
+      {
+        supports_none_reasoning_effort: true,
+        supports_minimal_reasoning_effort: false,
+        supports_low_reasoning_effort: false,
+        supports_xhigh_reasoning_effort: true,
+      },
+      { supports_reasoning: false, reasoning_effort_levels: ["high"] },
+    ];
+    const result = enrichModels(
+      infos.map((_, i) => String(i)),
+      { data: infos.map((model_info, i) => ({ model_name: String(i), model_info })) },
+    );
+    expect(result.models.map((model) => model.profile.reasoning?.effortLevels)).toEqual([
+      ["low", "max"],
+      [],
+      undefined,
+      ["high", "medium", "none", "xhigh"],
+      [],
+    ]);
+    const mixed = enrichModels(["mixed"], {
+      data: [
+        { model_name: "mixed", model_info: { supports_low_reasoning_effort: true } },
+        { model_name: "mixed", model_info: { supports_low_reasoning_effort: false } },
+      ],
+    });
+    expect(mixed.models[0]?.profile.reasoning?.effortLevels).toBeUndefined();
+    expect(mixed.diagnostics).toContain(
+      "Model 'mixed' has conflicting reasoning effort levels metadata",
+    );
+  });
   it("rejects invalid configured reasoning defaults and drops only invalid remote defaults", () => {
     const reasoning = { supported: true, effortLevels: ["low"], defaultEffort: "high" };
     expect(() =>
@@ -167,7 +202,7 @@ describe("LiteLLM discovery", () => {
     );
   });
 
-  it("keeps advertised reasoning informational without inventing request controls", async () => {
+  it("offers advertised reasoning presets and sends the selected effort", async () => {
     const gateway = await httpGateway((req, res) => {
       if (req.path.endsWith("/v1/models")) return json(res, { data: [{ id: "coding" }] });
       if (req.path.endsWith("/model/info"))
@@ -191,11 +226,105 @@ describe("LiteLLM discovery", () => {
       "key",
     );
     await provider.refreshModels(signal);
-    expect(provider.listModels()[0]).toMatchObject({ reasoning: { supported: true }, presets: [] });
+    expect(provider.listModels()[0]).toMatchObject({
+      reasoning: { supported: true },
+      presets: [{ value: "low" }, { value: "high" }],
+    });
     await collect(provider, request());
     expect(gateway.requests.at(-1)?.body.include).toBeUndefined();
     expect(gateway.requests.at(-1)?.body.reasoning).toBeUndefined();
+    await collect(provider, {
+      ...request(),
+      modelConfig: { provider: "work", model: "coding", preset: "high" },
+    });
+    expect(gateway.requests.at(-1)?.body.reasoning).toEqual({ effort: "high" });
+    const overridden = new LiteLLMProvider(
+      "work",
+      liteLLMConfigSchema.parse({
+        baseUrl: gateway.url,
+        defaultTransport: "openai-responses",
+        models: { coding: { presets: {} } },
+      }),
+      "key",
+    );
+    await overridden.refreshModels(signal);
+    expect(overridden.listModels()[0]?.presets).toEqual([]);
   });
+
+  it.each(["openai-completions", "openai-responses", "anthropic-messages"] as const)(
+    "uses the advertised default and transport-compatible generated presets over %s",
+    async (transport) => {
+      const gateway = await httpGateway((req, res) => {
+        if (req.path.endsWith("/v1/models")) return json(res, { data: [{ id: "coding" }] });
+        if (req.path.endsWith("/model/info"))
+          return json(res, {
+            data: [
+              {
+                model_name: "coding",
+                model_info: {
+                  reasoning_effort_levels: ["none", "low", "high"],
+                  default_reasoning_effort: "low",
+                },
+              },
+            ],
+          });
+        if (transport === "openai-completions")
+          return sse(res, [
+            { choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] },
+          ]);
+        if (transport === "anthropic-messages")
+          return sse(res, [
+            {
+              type: "message_start",
+              message: {
+                id: "msg",
+                role: "assistant",
+                model: "coding",
+                content: [],
+                usage: { input_tokens: 1, output_tokens: 0 },
+              },
+            },
+            {
+              type: "message_delta",
+              delta: { stop_reason: "end_turn" },
+              usage: { output_tokens: 0 },
+            },
+            { type: "message_stop" },
+          ]);
+        return sse(res, [{ type: "response.completed", response: {} }]);
+      });
+      gateways.push(gateway);
+      const provider = new LiteLLMProvider(
+        "work",
+        liteLLMConfigSchema.parse({ baseUrl: gateway.url, defaultTransport: transport }),
+        "key",
+      );
+      await provider.refreshModels(signal);
+      expect(provider.listModels()[0]?.defaultPreset).toBe("low");
+      await collect(provider, request());
+      const body = gateway.requests.at(-1)!.body;
+      expect(
+        transport === "openai-completions"
+          ? body.reasoning_effort
+          : transport === "openai-responses"
+            ? (body.reasoning as { effort: string }).effort
+            : (body.output_config as { effort: string }).effort,
+      ).toBe("low");
+      if (transport !== "anthropic-messages") {
+        await collect(provider, {
+          ...request(),
+          modelConfig: { provider: "work", model: "coding", preset: "none" },
+        });
+        const off = gateway.requests.at(-1)!.body;
+        expect(
+          transport === "openai-completions"
+            ? off.reasoning_effort
+            : (off.reasoning as { effort: string }).effort,
+        ).toBe("none");
+      } else
+        expect(provider.listModels()[0]?.presets).toEqual([{ value: "low" }, { value: "high" }]);
+    },
+  );
 
   it("propagates deterministic fetch defects even when cancellation races them", async () => {
     const controller = new AbortController();
