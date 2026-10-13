@@ -17,7 +17,8 @@ describe("createCodexProvider", () => {
     const gpt = provider.listModels().find((model) => model.model === "gpt-5.5");
 
     expect(provider.provider).toBe(CODEX_PROVIDER);
-    expect(gpt?.contextWindow).toBe(272_000);
+    expect(gpt?.contextWindow).toBeUndefined();
+    expect(gpt?.maxInputTokens).toBe(400_000);
     expect(gpt?.maxOutputTokens).toBe(128_000);
     const models = provider.listModels();
     expect(models.map((entry) => entry.model)).toEqual([
@@ -32,7 +33,9 @@ describe("createCodexProvider", () => {
     ]);
     expect(models.find((entry) => entry.model === "gpt-6.1-sol")?.defaultPreset).toBe("low");
     for (const model of models) {
-      expect(model.contextWindow).toBe(272_000);
+      expect(model.contextWindow).toBeUndefined();
+      expect(model.maxInputTokens).toBe(model.model === "gpt-6.1-sol" ? 628_000 : 400_000);
+      expect(model.maxOutputTokens).toBe(128_000);
       expect(model.presets?.map((entry) => entry.value)).not.toContain("none");
       expect(model.presets?.map((entry) => entry.value)).not.toContain("ultra");
     }

@@ -161,7 +161,14 @@ and individual model pages. API effort defaults remain `medium`; Astra and
 
 Codex follows the [ChatGPT roster](https://learn.chatgpt.com/docs/models), including
 GPT-5.5 until its announced 2026-10-14 retirement. Backend metadata in the local
-Codex model cache advertises a 272,000-token context and `low` through `max`
+Codex model cache reports working windows of 272,000 tokens for most models and
+500,000 for GPT-6.1 Sol, with a 95% effective-window hint. Harness treats these as
+already-output-reserved operational budgets, **an explicit assumption rather than
+verified backend capacity**. The configured input ceilings are 400,000 for other
+Codex models and 628,000 for Sol 6.1, with a 128,000 output reserve and no claimed
+combined context window. The shared compaction policy therefore triggers around
+264,000 and 487,440 input tokens; it does not reproduce Codex's separate 5% margin.
+Public API model windows remain unchanged. The cache advertises `low` through `max`
 efforts on GPT-5.6/6 (`low` through `xhigh` on 5.5); Sol 6.1 and Sol 5.6 default
 to `low`, the others to `medium`. These differ from public API controls/capacity.
 `ultra` is Codex orchestration and is not a Harness provider preset. Account and

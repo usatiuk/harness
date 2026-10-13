@@ -17,7 +17,8 @@ import { buildChatParams } from "./request.ts";
 import { toModelEvents, toChatEvents } from "./stream.ts";
 
 export interface OpenAIModelLimits {
-  contextWindow: number;
+  contextWindow?: number;
+  maxInputTokens?: number;
   maxOutputTokens: number;
 }
 
@@ -250,7 +251,8 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
         model: m.model,
         presets: m.presets,
         defaultPreset: m.defaultPreset,
-        contextWindow: m.contextWindow,
+        ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
+        ...(m.maxInputTokens === undefined ? {} : { maxInputTokens: m.maxInputTokens }),
         maxOutputTokens: m.maxOutputTokens,
         pricing: m.pricing,
       };

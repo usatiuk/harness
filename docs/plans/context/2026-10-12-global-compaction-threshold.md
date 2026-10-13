@@ -126,3 +126,28 @@ workflow version bump `f4d72db` is synchronized locally.
 passes clean-install source checks, all three native builds and signature
 verification. [v0.1.14](https://github.com/usatiuk/harness/releases/tag/v0.1.14) is
 published.
+
+## Codex working-budget mapping (October 13)
+
+Status: Implemented and validated; publication pending.
+
+The user authorized a pragmatic capacity mapping and commit/push/release. The
+Codex catalog's blanket 272k combined window, inherited 128k API output limit and
+shared input/output reservation caused an automatic threshold of only 13,120.
+The local Codex cache now reports 500k for Sol 6.1 and 272k for most other models,
+with a 95% effective-window hint. Treating those working windows as already
+output-reserved is the accepted **assumption, not a verified backend contract**.
+
+Expose input ceilings of 628,000 for Sol 6.1 and 400,000 for other Codex models,
+retain 128,000 output, and leave combined context unknown. Automatic thresholds
+become 487,440 and 264,000 with the shared 2% cushion. Do not copy public API
+combined windows into Codex or change the API model catalog, pricing, presets,
+transport, output-cap support or compaction engine policy. The shared OpenAI
+catalog type/projector now permits either input or combined-context metadata.
+Catalog tests verify the public fields; independent-limit engine regressions
+cover representative requests on either side of both thresholds.
+
+Focused checks pass 152 tests; `npm run check` passes 1,346 tests (38 existing
+skips). Three independent reviews report no blocking findings. Backend hard
+limits remain unqualified. Clients cannot display a context percentage without
+a combined-context capacity; raw input counts remain available.

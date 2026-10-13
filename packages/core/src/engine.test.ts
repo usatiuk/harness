@@ -1821,25 +1821,35 @@ describe("Engine — compaction", () => {
       expect(compactions(await store.listItems(conv.id))).toHaveLength(folds);
     },
   );
-  it("automatically compacts using independent input/output limits without a context window", async () => {
-    const provider = new RecordingProvider(
-      [
-        textStep("one", undefined, { inputTokens: 7000, outputTokens: 1, cachedReadTokens: 0 }),
-        textStep("two"),
-      ],
-      { maxInputTokens: 8000, maxOutputTokens: 1000 },
-    );
-    const { engine, store } = setup([], {
-      providers: () => [provider],
-      policies: () => ({ compaction: fakeCompaction({ over: 1 }) }),
-    });
-    const conversation = await store.createConversation(newConversationInput(CONFIG));
-    await engine.deliver(conversation.id, userInput("first"));
-    await engine.whenIdle(conversation.id);
-    await engine.deliver(conversation.id, userInput("second"));
-    await engine.whenIdle(conversation.id);
-    expect(compactions(await store.listItems(conversation.id))).toHaveLength(1);
-  });
+  it.each([
+    { maxInput: 8000, maxOutput: 1000, input: 7000, folds: 1 },
+    { maxInput: 400000, maxOutput: 128000, input: 100000, folds: 0 },
+    { maxInput: 400000, maxOutput: 128000, input: 260000, folds: 0 },
+    { maxInput: 400000, maxOutput: 128000, input: 268000, folds: 1 },
+    { maxInput: 628000, maxOutput: 128000, input: 480000, folds: 0 },
+    { maxInput: 628000, maxOutput: 128000, input: 490000, folds: 1 },
+  ])(
+    "uses independent limits $maxInput/$maxOutput for $input input tokens",
+    async ({ maxInput, maxOutput, input, folds }) => {
+      const provider = new RecordingProvider(
+        [
+          textStep("one", undefined, { inputTokens: input, outputTokens: 1, cachedReadTokens: 0 }),
+          textStep("two"),
+        ],
+        { maxInputTokens: maxInput, maxOutputTokens: maxOutput },
+      );
+      const { engine, store } = setup([], {
+        providers: () => [provider],
+        policies: () => ({ compaction: fakeCompaction({ over: 1 }) }),
+      });
+      const conversation = await store.createConversation(newConversationInput(CONFIG));
+      await engine.deliver(conversation.id, userInput("first"));
+      await engine.whenIdle(conversation.id);
+      await engine.deliver(conversation.id, userInput("second"));
+      await engine.whenIdle(conversation.id);
+      expect(compactions(await store.listItems(conversation.id))).toHaveLength(folds);
+    },
+  );
   it.each([
     { bytes: 20, folds: 0 },
     { bytes: 12000, folds: 1 },
