@@ -170,7 +170,9 @@ identity. Protocol 11 and SQLite schema 9 carry the fork operation/provenance.
 Full checks pass (1,373 tests, 38 skipped), plus six affected browser regressions.
 The message-action follow-up adds small hover/focus bars below content (Fork for
 user messages, Copy for assistant messages). Three affected browser checks and the
-full check pass. UI review is complete; commit, push and release are authorized.
+full check pass. Published in [v0.1.16](https://github.com/usatiuk/harness/releases/tag/v0.1.16).
+Hosted checks, all three platform builds and signed update metadata verification
+passed after correcting the reconnect test's interrupt-completion prerequisite.
 
 The [reasoning/discovery follow-up](docs/plans/models/2026-10-13-reasoning-and-discovery.md)
 is validated: LiteLLM advertised effort presets, generic OR-of-AND tool search,

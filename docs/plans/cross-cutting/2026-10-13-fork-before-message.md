@@ -1,6 +1,6 @@
 # Fork before a user message
 
-Status: Complete. Message-action follow-up validated; commit, push and release authorized.
+Status: Complete. Validated, committed, pushed and published in v0.1.16.
 
 ## Goal
 
@@ -103,4 +103,11 @@ test raced interrupt acceptance against actual turn completion. The latter now
 subscribes before Stop and waits for the terminal event before requesting upgrade.
 Focused real-process/container regressions pass (25 tests); Docker was unchanged,
 and its CI timeout has not reproduced locally. No timeout increases or test retries
-were introduced. Full validation and release are continuing.
+were introduced. Full validation passed again (1,373 tests, 38 skipped).
+
+The follow-up fix is `04e4c36`. Release run
+[38478708925](https://github.com/usatiuk/harness/actions/runs/38478708925) passed
+checks, all three platform builds and release metadata verification. Version-bump
+commit `1110fa4` is tagged `v0.1.16`; the [release](https://github.com/usatiuk/harness/releases/tag/v0.1.16)
+is published as latest with 19 assets. Platform publisher signing remains
+unconfigured; update metadata and desktop updater artifacts carry signatures.
