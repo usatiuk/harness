@@ -4,6 +4,7 @@ import {
   defineRequest,
   compactionThresholdSchema,
   conversationListRequest,
+  jsonValueSchema,
 } from "@harness/protocol";
 
 const model = z.strictObject({
@@ -97,6 +98,17 @@ export const appSettingsUpdateRequest = defineRequest({
       : { compactionThresholdTokens: patch.compactionThresholdTokens }),
   })),
   result: z.null(),
+});
+export const appProviderCreateRequest = defineRequest({
+  direction: "client-to-server",
+  method: "app.providers.create",
+  params: z.strictObject({
+    id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/),
+    label: z.string().trim().min(1).max(200),
+    type: z.string().min(1),
+    config: z.record(z.string(), jsonValueSchema),
+  }),
+  result: z.strictObject({ restartRequired: z.literal(true) }),
 });
 export const appProviderConfigUpdateRequest = defineRequest({
   direction: "client-to-server",

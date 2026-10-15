@@ -161,6 +161,16 @@ chooses source-checkout paths although Tauri correctly built a packaged app.
 The correction uses Tauri's own `dev` cfg and ships in `v0.1.3`; its packaged
 runtime preparation is verified on all four targets. The standalone CLI is unaffected.
 
+## Provider and MCP settings delivery
+
+[Provider/MCP settings](docs/plans/cross-cutting/2026-10-15-provider-mcp-settings.md)
+is implemented and validated: LiteLLM GUI setup, visible text selection, compact
+MCP auth/configuration and safe failure details. Full check passes (1,376 tests,
+38 skipped) with six affected browser regressions and three independent reviews.
+Gemini's schema-output issue is resolved upstream; no local workaround was added.
+Native Windows/GitLab qualification remains explicit in the delivery plan. Changes
+are validated; commit, push and release are authorized.
+
 ## Recent delivery
 
 The [fork-before-message implementation](docs/plans/cross-cutting/2026-10-13-fork-before-message.md)

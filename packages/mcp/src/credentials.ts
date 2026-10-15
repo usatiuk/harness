@@ -15,8 +15,8 @@ export class McpRegistrationRequired extends McpAuthRequired {
   }
 }
 export class McpUnavailable extends Error {
-  constructor() {
-    super("MCP connection unavailable");
+  constructor(message = "MCP connection unavailable") {
+    super(message);
   }
 }
 export class McpCredentialUnavailable extends McpUnavailable {

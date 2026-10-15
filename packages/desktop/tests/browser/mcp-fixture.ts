@@ -92,11 +92,15 @@ const client = {
   },
 } as unknown as HarnessClient;
 root.render(
-  h(McpSettings, {
-    client,
-    openUrl: async (url) => {
-      window.mcpFixture.opened.push(url);
-    },
-    restart: async () => {},
-  }),
+  h(
+    "section",
+    { className: "settings-page" },
+    h(McpSettings, {
+      client,
+      openUrl: async (url) => {
+        window.mcpFixture.opened.push(url);
+      },
+      restart: async () => {},
+    }),
+  ),
 );

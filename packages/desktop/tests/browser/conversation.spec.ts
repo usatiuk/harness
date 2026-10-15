@@ -726,6 +726,54 @@ test("settings refreshes its model when authoritative defaults change", async ({
     .toMatchObject({ model: { provider: "fixture", model: "test-latest" } });
 });
 
+test("adds a LiteLLM gateway from Settings and clears the API key draft", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Providers", exact: true }).click();
+  await page.getByText("Add LiteLLM gateway", { exact: true }).click();
+  const form = page.locator(".provider-add");
+  await form.getByLabel("Provider ID", { exact: true }).fill("work-gateway");
+  await form.getByLabel("Label", { exact: true }).fill("Work LiteLLM");
+  await form.getByLabel("Gateway URL", { exact: true }).fill("https://gateway.example.com");
+  await form.getByLabel("API key", { exact: true }).fill("fixture-private");
+  await form.getByRole("button", { name: "Add gateway", exact: true }).click();
+  await expect(form.getByRole("status")).toContainText("Restart");
+  await expect(form.getByLabel("API key", { exact: true })).toHaveValue("");
+  expect(await page.evaluate(() => window.composerFixture.providerCreates)).toEqual([
+    {
+      id: "work-gateway",
+      type: "litellm",
+      label: "Work LiteLLM",
+      config: { baseUrl: "https://gateway.example.com", apiKey: { stored: true } },
+    },
+  ]);
+  await expect(page.locator("body")).not.toContainText("fixture-private");
+});
+
+for (const theme of ["light", "dark"] as const)
+  test(`user message selection is distinct from its bubble in ${theme} mode`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto(url + "?composer");
+    await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+    await page.evaluate(() => window.composerFixture.showToolsAndActivities());
+    const user = page.locator(".user-text").first();
+    await expect(user).toBeVisible();
+    const colors = await user.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const selected = window.getSelection()!;
+      selected.removeAllRanges();
+      selected.addRange(range);
+      return {
+        selected: selected.toString(),
+        background: getComputedStyle(element).backgroundColor,
+        highlight: getComputedStyle(element, "::selection").backgroundColor,
+      };
+    });
+    expect(colors.selected).toBe("Check authentication");
+    expect(colors.highlight).not.toBe(colors.background);
+  });
+
 test("provider settings expose and save native web search for supported connections", async ({
   page,
 }) => {

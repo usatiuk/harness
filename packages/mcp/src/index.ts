@@ -187,21 +187,26 @@ export class McpRuntime {
         if (!isExternal(error)) throw error;
         this.#statuses.set(
           id,
-          this.#status(id, error instanceof McpAuthRequired ? "auth-required" : "unavailable"),
+          this.#status(
+            id,
+            error instanceof McpAuthRequired ? "auth-required" : "unavailable",
+            mcpFailureMessage(error),
+          ),
         );
       }
     }
   }
-  #status(id: string, status: Status["status"]): Status {
+  #status(id: string, status: Status["status"], detail?: string): Status {
     return {
       id,
       status,
       detail:
-        status === "auth-required"
+        detail ??
+        (status === "auth-required"
           ? "Credentials or sign-in required"
           : status === "unavailable"
             ? "MCP connection unavailable"
-            : null,
+            : null),
       toolCount: this.#catalog.filter((tool) => tool.serverId === id).length,
       authenticated: status === "ready",
       signingIn: false,
@@ -280,6 +285,8 @@ export class McpRuntime {
     const target = targetIdentity(config.transport),
       store = this.#store(id, "credential");
     let transport: Transport;
+    let httpStatus: number | undefined;
+    let stage = "initialization";
     if (config.transport.type === "stdio") {
       const env = Object.fromEntries(
         await Promise.all(
@@ -330,7 +337,9 @@ export class McpRuntime {
           const outgoing = new Headers(init?.headers);
           if (new URL(url).href === target)
             for (const [key, value] of headers) outgoing.set(key, value);
-          return authFetch(input, { ...init, headers: outgoing });
+          const response = await authFetch(input, { ...init, headers: outgoing });
+          httpStatus = response.ok ? undefined : response.status;
+          return response;
         },
       });
     }
@@ -352,12 +361,38 @@ export class McpRuntime {
     combined.addEventListener("abort", abort, { once: true });
     try {
       await client.connect(transport, { signal: combined, timeout: 30_000 });
+      httpStatus = undefined;
+      stage = "tool discovery";
       const descriptors = (await client.listTools({}, { signal: combined, timeout: 30_000 })).tools;
       if (descriptors.length > 1_000 || JSON.stringify(descriptors).length > 2_000_000)
         throw new McpUnavailable();
       return { connection: { client, transport }, descriptors };
     } catch (error) {
       await transport.close();
+      if (signal?.aborted || this.#lifetime.signal.aborted) throw error;
+      if (error instanceof McpAuthRequired || error instanceof McpCredentialUnavailable)
+        throw error;
+      if (httpStatus !== undefined && isExternal(error))
+        throw new McpUnavailable(`MCP ${stage} failed (HTTP ${httpStatus})`);
+      if (combined.aborted) throw new McpUnavailable(`MCP ${stage} timed out`);
+      if (isExternal(error)) {
+        const code =
+          error instanceof Error &&
+          "code" in error &&
+          typeof error.code === "string" &&
+          [
+            "ENOENT",
+            "ECONNREFUSED",
+            "ECONNRESET",
+            "EACCES",
+            "EPERM",
+            "ETIMEDOUT",
+            "EPIPE",
+          ].includes(error.code)
+            ? ` (${error.code})`
+            : "";
+        throw new McpUnavailable(`MCP ${stage} failed${code}`);
+      }
       throw error;
     } finally {
       combined.removeEventListener("abort", abort);
@@ -380,6 +415,7 @@ export class McpRuntime {
           return this.#status(
             id,
             error instanceof McpAuthRequired ? "auth-required" : "unavailable",
+            mcpFailureMessage(error),
           );
         }
       })(),
@@ -512,7 +548,7 @@ function isExternal(error: unknown): boolean {
 }
 
 export function mcpFailureMessage(error: unknown): string | undefined {
-  if (error instanceof McpCredentialUnavailable) return error.message;
+  if (error instanceof McpUnavailable) return error.message;
   if (error instanceof McpAuthRequired) return error.message;
   if (isExternal(error)) return "MCP authentication or connection failed";
   return undefined;

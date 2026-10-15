@@ -752,3 +752,27 @@ Fork, completed assistant messages offer Copy. Icons appear on hover or keyboard
 focus (always on touch), without shifting message text. Copy uses the message
 Markdown text through the browser clipboard API, shows success for 750ms and
 reports failures inline.
+
+### Provider and MCP setup
+
+Desktop Providers offers Add LiteLLM gateway: ID, label, gateway URL and optional
+API key. The existing app RPC validates/persists the provider configuration, then
+the ordinary auth RPC writes its key to the selected credential backend. A failed
+key write leaves a visible saved provider so the user can retry. Restart activates
+its model catalog; credentials never enter settings JSON. Protocol 12 adds provider
+creation, without a new provider registry or schema-form framework.
+
+MCP uses a compact server list. Basic fields cover local command or HTTP endpoint
+and authentication. Bearer setup exposes one password field bound to the existing
+secret reference; blank keeps the stored value. OAuth exposes Sign in after Save.
+Headers, environment sources, token references, client metadata/scopes and policy
+overrides stay in collapsed Advanced sections. Test uses saved configuration and
+does not replace the startup catalog. Status distinguishes saved/authenticated
+state from active tools; restart remains explicit. Classified failures report a
+safe stage and HTTP status/process code, never response bodies, SDK messages, URLs
+or credentials. GitLab enterprise availability still depends on its instance;
+successful OAuth alone does not prove MCP initialization/tool discovery succeeds.
+
+Text selection uses native Highlight/HighlightText colors, distinct from the
+user-message bubble in both themes. Native Windows rendering is not qualified by
+the Linux browser fixture checks.

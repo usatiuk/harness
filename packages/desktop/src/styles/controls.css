@@ -23,8 +23,8 @@ button:disabled {
   outline-offset: 3px;
 }
 ::selection {
-  background: var(--surface-subtle);
-  color: var(--ink);
+  background: Highlight;
+  color: HighlightText;
 }
 .control {
   display: inline-flex;

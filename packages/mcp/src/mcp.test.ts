@@ -380,6 +380,56 @@ it("uses real HTTP with target-bound header credentials, exact tool rules and on
   }
 });
 
+it("shows the failed stage and HTTP status without exposing remote bodies or credentials", async () => {
+  const fixture = await httpFixture({
+    before: (_request, response) => {
+      response
+        .writeHead(403, { "content-type": "text/plain" })
+        .end("private bearer-token and internal response");
+      return true;
+    },
+  });
+  const config = mcpConfigSchema.parse({
+    servers: { gitlab: { transport: { type: "http", url: fixture.url } } },
+  });
+  const runtime = new McpRuntime(config, new MemorySecretStore());
+  try {
+    await runtime.initialize();
+    const status = (await runtime.statuses())[0]!;
+    expect(status).toMatchObject({
+      status: "unavailable",
+      detail: "MCP initialization failed (HTTP 403)",
+    });
+    expect(await runtime.test("gitlab", config.servers.gitlab!)).toMatchObject({
+      detail: status.detail,
+    });
+    expect(JSON.stringify(status)).not.toContain("private");
+    expect(JSON.stringify(status)).not.toContain(fixture.origin);
+  } finally {
+    await runtime.close();
+    await fixture.close();
+  }
+});
+
+it("reports tool discovery failure separately from initialization", async () => {
+  const fixture = await httpFixture({
+    catalog: () => ({ tools: [{ name: "bad", inputSchema: "private malformed schema" }] as never }),
+  });
+  const config = mcpConfigSchema.parse({
+    servers: { server: { transport: { type: "http", url: fixture.url } } },
+  });
+  const runtime = new McpRuntime(config, new MemorySecretStore());
+  try {
+    await runtime.initialize();
+    const status = (await runtime.statuses())[0]!;
+    expect(status).toMatchObject({ status: "unavailable", detail: "MCP tool discovery failed" });
+    expect(status.detail).not.toContain("private");
+  } finally {
+    await runtime.close();
+    await fixture.close();
+  }
+});
+
 it("isolates an unavailable server and never hot-reloads the startup catalog during Test", async () => {
   const fixture = await httpFixture();
   const runtime = new McpRuntime(

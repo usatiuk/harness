@@ -1595,3 +1595,54 @@ main {
   line-height: 1.5;
   margin: 6px 0;
 }
+
+.mcp-server-list {
+  display: grid;
+  gap: 2px;
+}
+.mcp-server-list > button {
+  justify-content: space-between;
+  padding: 5px 7px;
+  min-height: 28px;
+}
+.mcp-server-list small {
+  color: var(--muted-ink);
+  font-size: 11px;
+  font-weight: 400;
+}
+.mcp-advanced > summary,
+.provider-add > summary {
+  cursor: pointer;
+  color: var(--muted-ink);
+  font-size: 12px;
+  padding: 4px 0;
+  user-select: none;
+}
+.mcp-advanced[open],
+.provider-add[open] {
+  display: grid;
+  gap: 8px;
+}
+.mcp-server-list > button[aria-pressed="true"] {
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+
+.settings-page .mcp-settings {
+  gap: 8px 12px;
+  max-width: 640px;
+}
+.mcp-settings > :is(p, details, fieldset, .mcp-server-list) {
+  grid-column: 1 / -1;
+}
+.mcp-settings > p {
+  margin: 2px 0;
+}
+.mcp-settings .mcp-server-list > button {
+  width: 100%;
+}
+
+.mcp-actions {
+  grid-column: 1 / -1;
+  gap: 6px;
+}

@@ -1,3 +1,5 @@
+import { MemorySecretStore } from "@harness/secrets";
+import * as credentials from "./credential-store.ts";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,11 +8,82 @@ import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/cl
 import { buildServerHarness, buildServerComposition } from "./index.ts";
 import {
   appSettingsRequest,
+  appProviderCreateRequest,
+  appAuthLoginRequest,
+  appProvidersRequest,
   appSettingsUpdateRequest,
   appConversationListRequest,
   appConversationProjectsRequest,
 } from "./client-protocol.ts";
 import { readGlobalSettings, updateGlobalSettings } from "@harness/config";
+
+it("creates a LiteLLM provider through RPC without storing its key in settings", async () => {
+  const home = await mkdtemp(join(tmpdir(), "harness-provider-create-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  for (const name of [
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENCODE_API_KEY",
+    "MISTRAL_API_KEY",
+    "MISTRAL_VIBE_API_KEY",
+  ])
+    vi.stubEnv(name, "");
+  const store = new MemorySecretStore();
+  vi.spyOn(credentials, "credentialStoreForRead").mockResolvedValue({ store, kind: "file" });
+  vi.spyOn(credentials, "credentialStoreForLogin").mockResolvedValue({ store, kind: "file" });
+  const pair = createInProcessMessageConnectionPair();
+  const harness = await buildServerHarness(pair.right);
+  const client = new HarnessClient({
+    connection: pair.left,
+    client: { name: "setup-test", version: "1" },
+  });
+  const selection = {
+    id: "work-gateway",
+    label: "Work LiteLLM",
+    type: "litellm",
+    config: { baseUrl: "https://gateway.example.com", apiKey: { stored: true } },
+  };
+  try {
+    await client.start();
+    await expect(
+      client.peer.request(appProviderCreateRequest, {
+        ...selection,
+        config: { baseUrl: "file:///invalid" },
+      }),
+    ).rejects.toThrow();
+    expect((await readGlobalSettings(home)).providers).toBeUndefined();
+    await expect(client.peer.request(appProviderCreateRequest, selection)).resolves.toEqual({
+      restartRequired: true,
+    });
+    await expect(client.peer.request(appProviderCreateRequest, selection)).rejects.toThrow(
+      "already exists",
+    );
+    await client.peer.request(appAuthLoginRequest, {
+      provider: selection.id,
+      key: "fixture-private",
+      flow: "browser",
+    });
+    const saved = await readGlobalSettings(home);
+    expect(saved.providers?.[selection.id]).toEqual({
+      type: "litellm",
+      label: selection.label,
+      config: selection.config,
+    });
+    expect(JSON.stringify(saved)).not.toContain("fixture-private");
+    expect(
+      (await client.peer.request(appProvidersRequest, {})).find(
+        (provider) => provider.id === selection.id,
+      ),
+    ).toMatchObject({ label: selection.label, authenticated: true, registered: false });
+    expect(await store.get("provider-instance:work-gateway:api-key")).toBe("fixture-private");
+  } finally {
+    client.closeConnection();
+    await harness.close();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    await rm(home, { recursive: true, force: true });
+  }
+});
 
 it("saves creation defaults without changing unrelated global settings", async () => {
   const home = await mkdtemp(join(tmpdir(), "harness-creation-defaults-"));

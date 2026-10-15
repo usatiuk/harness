@@ -42,6 +42,7 @@ declare global {
       creations: Array<Parameters<DesktopSession["client"]["create"]>[0]>;
       setDefaultModel(model: string): void;
       setTitle(title: string): void;
+      providerCreates: unknown[];
       providerWrites: { provider: string; patch: Record<string, boolean> }[];
       failProviderSave: boolean;
       settle(reject?: boolean): void;
@@ -121,6 +122,7 @@ const changed = () => {
 const calls: Delivery[] = [];
 const settingsWrites: unknown[] = [];
 const creations: Array<Parameters<DesktopSession["client"]["create"]>[0]> = [];
+const providerCreates: unknown[] = [];
 const providerWrites: { provider: string; patch: Record<string, boolean> }[] = [];
 let sidebarScope = "composer-fixture";
 let sidebarRows: (typeof view.conversation)[] = [];
@@ -283,6 +285,27 @@ const session = {
           Object.assign(settings.settings, params);
           return null;
         }
+        if (definition.method === "app.providers.create") {
+          providerCreates.push(params);
+          const value = params as { id: string; label: string; type: string };
+          settings.providers.push({
+            id: value.id,
+            label: value.label,
+            type: value.type,
+            kind: "api-key",
+            canStore: true,
+            authenticated: false,
+            detail: null,
+            credentialSource: null,
+            registered: false,
+            catalog: "missing-credentials",
+            modelCount: 0,
+            diagnostics: [],
+            settings: [],
+          });
+          return { restartRequired: true };
+        }
+        if (definition.method === "app.auth.login") return { restartRequired: true };
         if (definition.method === "app.providers.config.update") {
           if (window.composerFixture.failProviderSave) throw new Error("Provider save failed");
           const update = params as { provider: string; patch: Record<string, boolean> };
@@ -298,6 +321,11 @@ const session = {
         throw new Error(`Unexpected fixture RPC: ${definition.method}`);
       },
     },
+  },
+  login(input: unknown, signal?: AbortSignal) {
+    return session.client.peer.request({ method: "app.auth.login" }, input).then(() => {
+      signal?.throwIfAborted();
+    });
   },
   settings,
   create(...args: Parameters<DesktopSession["create"]>) {
@@ -745,6 +773,7 @@ window.composerFixture = {
   setDefaultModel(model) {
     settings.settings.model = { provider: "fixture", model, preset: null };
   },
+  providerCreates,
   providerWrites,
   failProviderSave: false,
   settle(reject = false) {

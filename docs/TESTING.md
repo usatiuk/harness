@@ -1199,3 +1199,11 @@ and source runtime independence, GUI draft preservation, and the TUI `/fork`
 picker. Tool-result pairing and provider request mapping cover repeated provider
 call IDs across owners. Browser fixtures and TUI doubles keep credentials and
 normal desktop profiles untouched.
+
+Provider/MCP settings regressions exercise creation, duplicate/schema rejection,
+credential separation and restart status through real RPC with isolated temporary
+homes and in-memory credential backends. MCP fixtures verify stage/HTTP diagnostics
+without remote-body leakage. Browser checks cover basic bearer/OAuth setup, expert
+configuration preservation, OAuth cleanup, LiteLLM setup and distinct selection
+colors in both themes. Native Windows selection and the user's enterprise GitLab
+instance still need real-platform/instance qualification.

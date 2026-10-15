@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `11`. It exchanges
+`initialize` is the first application request and requires protocol version `12`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -229,3 +229,10 @@ the target's parent. Source attachment governs RPC lifetime, not item access.
 Forks capture effective model, instructions, tool scope and conversation-scoped
 plugin configuration; host-owned configuration stays global. No active turn,
 usage, approval, activity or subagent lifetime is copied.
+
+`app.providers.create` persists a new named provider instance after validation by
+the existing contributed provider type. Duplicate IDs (including built-ins) are
+rejected. It accepts configuration, never a credential value; the existing auth
+request stores the API key separately. Restart activates the new provider/catalog.
+Desktop currently offers a focused LiteLLM setup form rather than a generic schema
+editor. A failed key write leaves the saved provider visible for credential retry.

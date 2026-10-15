@@ -44,6 +44,7 @@ import {
   appAuthLogoutRequest,
   appSettingsUpdateRequest,
   appProviderConfigUpdateRequest,
+  appProviderCreateRequest,
   type AppSettings,
 } from "@harness/server/client-protocol";
 import type { TranscriptRow, TranscriptStep } from "./transcript.ts";
@@ -246,6 +247,31 @@ export function createDesktopRouter(
             restartRequired: true,
             message: "Stored credentials removed. Restart Harness to apply the change.",
           };
+        case "add-litellm": {
+          const id = field(data, "id").trim();
+          await session.client.peer.request(appProviderCreateRequest, {
+            id,
+            type: "litellm",
+            label: field(data, "label").trim() || id,
+            config: { baseUrl: field(data, "baseUrl").trim(), apiKey: { stored: true } },
+          });
+          const key = field(data, "key");
+          if (key) {
+            try {
+              await session.login({ provider: id, key, flow: "browser" }, request.signal);
+            } catch (error) {
+              throw new Error(
+                `Provider saved, but the API key was not stored: ${errorMessage(error)}. Use its sign-in field to try again.`,
+                { cause: error },
+              );
+            }
+          }
+          return {
+            ok: true,
+            restartRequired: true,
+            message: "LiteLLM saved. Restart the server to load its models.",
+          };
+        }
         case "provider-settings": {
           const provider = session.settings?.providers.find(
             (entry) => entry.id === field(data, "provider"),
@@ -2072,6 +2098,7 @@ export function createDesktopRouter(
                 after a restart.
               </p>
             </div>
+            <AddLiteLLM />
             {settings.providers.map((provider) => (
               <Provider key={provider.id} provider={provider} />
             ))}
@@ -2119,6 +2146,54 @@ export function createDesktopRouter(
       </section>
     );
   }
+  function AddLiteLLM() {
+    const save = useFetcher<ActionResult>();
+    return (
+      <details className="provider-add">
+        <summary>Add LiteLLM gateway</summary>
+        <save.Form
+          method="post"
+          action="/actions"
+          className="form-grid"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            void save.submit(data, { method: "post", action: "/actions" });
+            const key = event.currentTarget.elements.namedItem("key");
+            if (key instanceof HTMLInputElement) key.value = "";
+          }}
+        >
+          <Input type="hidden" name="intent" value="add-litellm" />
+          <label>
+            Provider ID
+            <Input
+              name="id"
+              required
+              pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}"
+              placeholder="work-gateway"
+            />
+          </label>
+          <label>
+            Label
+            <Input name="label" placeholder="Work LiteLLM" maxLength={200} />
+          </label>
+          <label>
+            Gateway URL
+            <Input name="baseUrl" type="url" required placeholder="https://litellm.example.com" />
+          </label>
+          <label>
+            API key
+            <Input name="key" type="password" autoComplete="off" />
+          </label>
+          <Button type="submit" disabled={save.state !== "idle" || Boolean(session.disconnected)}>
+            Add gateway
+          </Button>
+        </save.Form>
+        <ActionFeedback data={save.data} />
+      </details>
+    );
+  }
+
   function AuxiliaryModelFields({
     model,
     prefix,

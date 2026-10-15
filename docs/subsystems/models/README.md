@@ -498,3 +498,9 @@ and configured affinity using `encrypted_content_affinity`. Actual vendor
 cryptographic acceptance remains credential-dependent. Packaged Windows tests
 exercise secure named key storage, restart discovery, visible model metadata,
 generation and reopening saved unavailable selections. See [testing guidance](../../TESTING.md).
+
+LiteLLM gateways with the Gemini schema-result `$ref`/`$defs` failure need an
+upstream version containing [PR #38284](https://github.com/BerriAI/litellm/pull/38284).
+Harness keeps tool output unchanged and adds no local compatibility transformation.
+The GUI can add a named LiteLLM instance through the existing global provider
+configuration and credential boundaries; a server restart activates discovery.

@@ -61,8 +61,10 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   await page.getByLabel("Server ID", { exact: true }).fill("local");
   await page.getByLabel("Executable", { exact: true }).fill("node");
   await page.getByLabel("Arguments (one per line)").fill("server.js\n--verbose");
+  await page.getByText("Advanced local settings", { exact: true }).click();
   await page.getByRole("button", { name: "Add value", exact: true }).click();
   await page.getByLabel("Host variable name", { exact: true }).fill("TOKEN");
+  await page.getByText("Tool permissions", { exact: true }).click();
   await page.getByLabel("Exact MCP tool name").fill("mutate");
   await chooseDropdown(
     page,
@@ -76,12 +78,6 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   await page.getByRole("button", { name: "Add tool rule" }).click();
   await page.getByRole("button", { name: "Save server", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Saved");
-  await page.getByLabel("Credential", { exact: true }).fill("private-value");
-  await expect(page.getByLabel("Credential", { exact: true })).toHaveAttribute("type", "password");
-  await page.getByRole("button", { name: "Replace credential" }).click();
-  await expect(page.getByLabel("Credential", { exact: true })).toHaveValue("");
-  await expect(page.getByRole("status")).toContainText("Credential stored");
-  await expect(page.locator("body")).not.toContainText("private-value");
   await page.getByRole("button", { name: "Test saved connection" }).click();
   await expect(page.getByRole("status")).toContainText("ready · 2 tools");
   await page.getByRole("button", { name: "Add server", exact: true }).click();
@@ -89,16 +85,25 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   await chooseDropdown(page, page.getByLabel("Transport", { exact: true }), "http");
   await page.getByLabel("HTTP endpoint", { exact: true }).fill("https://example.com/mcp");
   await chooseDropdown(page, page.getByLabel("Authentication", { exact: true }), "oauth");
+  await expect(page.getByLabel("Credential slot", { exact: true })).not.toBeVisible();
+  await page.getByText("Advanced OAuth settings", { exact: true }).click();
   await page.getByLabel("Pre-registered client ID", { exact: true }).fill("registered");
   const secret = page
     .locator("fieldset")
     .filter({ has: page.locator("legend", { hasText: "OAuth client secret" }) });
   await chooseDropdown(page, secret.getByLabel("Source", { exact: true }), "secret");
   await secret.getByLabel("Credential slot", { exact: true }).fill("client-key");
+  await page.getByText("Custom headers", { exact: true }).click();
   await page.getByRole("button", { name: "Add value", exact: true }).click();
   await page.getByLabel("Host variable name", { exact: true }).fill("CUSTOM_HEADER");
   await page.getByRole("button", { name: "Save server", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Saved");
+  await page.getByText("Manage stored credentials", { exact: true }).click();
+  await page.getByLabel("Slot", { exact: true }).fill("client-key");
+  await page.getByLabel("Credential", { exact: true }).fill("private-value");
+  await page.getByRole("button", { name: "Replace credential" }).click();
+  await expect(page.getByLabel("Credential", { exact: true })).toHaveValue("");
+  await expect(page.locator("body")).not.toContainText("private-value");
   const saved = await page.evaluate(
     () =>
       window.mcpFixture.calls.filter((call) => call.method === "plugin.mcp.settings.set").at(-1)
@@ -176,4 +181,56 @@ test("cancels an owned OAuth attempt when saving removes its server", async ({ p
       window.mcpFixture.calls.filter((call) => call.method === "plugin.mcp.auth.cancel"),
     ),
   ).toEqual([{ method: "plugin.mcp.auth.cancel", params: { attemptId: "fixture-attempt" } }]);
+});
+
+test("keeps bearer setup to a password field and hides slot configuration", async ({ page }) => {
+  await page.goto(url);
+  await page.getByRole("button", { name: "Add server", exact: true }).click();
+  await page.getByLabel("Server ID", { exact: true }).fill("bearer");
+  await chooseDropdown(page, page.getByLabel("Transport", { exact: true }), "http");
+  await page.getByLabel("HTTP endpoint", { exact: true }).fill("https://example.com/mcp");
+  await chooseDropdown(page, page.getByLabel("Authentication", { exact: true }), "bearer");
+  await expect(page.getByLabel("Credential slot", { exact: true })).not.toBeVisible();
+  await page.getByLabel("Bearer token", { exact: true }).fill("private-bearer");
+  await page.getByRole("button", { name: "Save server", exact: true }).click();
+  await expect(page.getByLabel("Bearer token", { exact: true })).toHaveValue("");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.mcpFixture.calls.filter((call) => call.method === "plugin.mcp.credentials.set"),
+      ),
+    )
+    .toContainEqual({
+      method: "plugin.mcp.credentials.set",
+      params: { serverId: "bearer", slot: "api-key", value: "private-bearer" },
+    });
+  await page.screenshot({ path: test.info().outputPath("mcp-basic.png"), fullPage: true });
+  await page.getByText("Manage stored credentials", { exact: true }).click();
+  await page.getByLabel("Slot", { exact: true }).fill("custom-header");
+  await page.getByLabel("Credential", { exact: true }).fill("private-header");
+  const writesBefore = await page.evaluate(
+    () =>
+      window.mcpFixture.calls.filter((call) => call.method === "plugin.mcp.credentials.set").length,
+  );
+  await page.getByRole("button", { name: "Save server", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Saved");
+  expect(
+    await page.evaluate(
+      () =>
+        window.mcpFixture.calls.filter((call) => call.method === "plugin.mcp.credentials.set")
+          .length,
+    ),
+  ).toBe(writesBefore);
+  await page.getByRole("button", { name: "Replace credential", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          window.mcpFixture.calls
+            .filter((call) => call.method === "plugin.mcp.credentials.set")
+            .at(-1)?.params,
+      ),
+    )
+    .toEqual({ serverId: "bearer", slot: "custom-header", value: "private-header" });
+  await expect(page.getByRole("button", { name: "Restart server", exact: true })).toBeVisible();
 });

@@ -41,6 +41,7 @@ import {
   type ProviderStatus,
   appSettingsUpdateRequest,
   appProviderConfigUpdateRequest,
+  appProviderCreateRequest,
 } from "./client-protocol.ts";
 
 /** Concrete application configuration/auth composition, separate from core dispatch. */
@@ -153,6 +154,39 @@ export function registerAppApi(
     };
   });
   session.onRequest(appProvidersRequest, () => track(listProviders()));
+  session.onRequest(appProviderCreateRequest, (params) =>
+    track(
+      serializeSettings(async () => {
+        lifetime.signal.throwIfAborted();
+        const { store } = await credentialStoreForRead(defaultHome());
+        await updateGlobalSettings(defaultHome(), (doc) => {
+          if (prepareProviderEntries(doc)(store).has(params.id) || params.id === "demo")
+            return invalid("Provider ID already exists");
+          const updated = {
+            ...doc,
+            providers: {
+              ...doc.providers,
+              [params.id]: { type: params.type, label: params.label, config: params.config },
+            },
+          };
+          try {
+            prepareProviderEntries(updated);
+          } catch (error) {
+            if (error instanceof ProviderConfigurationError) return invalid(error.message);
+            if (
+              !providerPlugins.some((plugin) =>
+                plugin.providerTypes?.().some((type) => type.type === params.type),
+              )
+            )
+              return invalid("Unknown provider type");
+            throw error;
+          }
+          return updated;
+        });
+        return { restartRequired: true as const };
+      }),
+    ),
+  );
   session.onRequest(appProviderConfigUpdateRequest, (params) =>
     track(
       serializeSettings(async () => {

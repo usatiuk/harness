@@ -111,6 +111,7 @@ function Sources({
             />
           </label>
           <Button
+            size="sm"
             onClick={() => {
               const next = { ...values };
               delete next[name];
@@ -122,6 +123,7 @@ function Sources({
         </div>
       ))}
       <Button
+        size="sm"
         onClick={() => {
           let key = header ? "X-Header" : "VARIABLE";
           while (key in values) key += "_";
@@ -205,6 +207,7 @@ export function McpSettings({
   const [busy, setBusy] = useState(false);
   const [slot, setSlot] = useState("api-key"),
     [secret, setSecret] = useState("");
+  const [bearerToken, setBearerToken] = useState("");
   const [attempt, setAttempt] = useState<{
     attemptId: string;
     serverId: string;
@@ -281,61 +284,69 @@ export function McpSettings({
   if (!config) return <p>{notice ?? "Reading MCP settings…"}</p>;
   const status = data!.active.find((entry) => entry.id === id);
   return (
-    <div className="form-grid">
-      <p>
-        Servers and credentials belong to this host. Enabling a server uses its read-only
-        declarations under your configured rules. Changes require a server restart.
-      </p>
+    <div className="form-grid mcp-settings">
       <p className="muted">
-        Credential backend: {data!.credentialBackend ?? "selected on first credential write"}
+        Configure servers for this host. Save, test the connection, then restart to activate tools.
       </p>
-      <fieldset>
-        <legend>MCP defaults</legend>
-        {(["readOnly", "other"] as const).map((category) => (
-          <label key={category}>
-            {category === "readOnly" ? "Read-only tools" : "Other or unknown tools"}
-            <Select
-              value={config.defaults[category]}
-              onValueChange={(next) =>
-                run(() =>
-                  save({
-                    ...config,
-                    defaults: {
-                      ...config.defaults,
-                      [category]: toolPermissionSchema.parse(next),
-                    },
-                  }),
-                )
-              }
-            >
-              <PermissionOptions />
-            </Select>
-          </label>
-        ))}
-      </fieldset>
-      <label>
-        Server
-        <Select
-          value={originalId ?? ""}
-          onValueChange={(next) => {
-            const key = next;
-            setOriginalId(key || undefined);
-            setId(key);
-            setServer(key ? structuredClone(config.servers[key]) : undefined);
-            setSecret("");
-          }}
-        >
-          <SelectItem value="">Select a server</SelectItem>
-          {Object.keys(config.servers).map((key) => (
-            <SelectItem key={key} value={key}>
-              {key}
-            </SelectItem>
+      <details className="mcp-advanced">
+        <summary>Default tool permissions</summary>
+        <fieldset>
+          <legend>MCP defaults</legend>
+          {(["readOnly", "other"] as const).map((category) => (
+            <label key={category}>
+              {category === "readOnly" ? "Read-only tools" : "Other or unknown tools"}
+              <Select
+                value={config.defaults[category]}
+                onValueChange={(next) =>
+                  run(() =>
+                    save({
+                      ...config,
+                      defaults: {
+                        ...config.defaults,
+                        [category]: toolPermissionSchema.parse(next),
+                      },
+                    }),
+                  )
+                }
+              >
+                <PermissionOptions />
+              </Select>
+            </label>
           ))}
-        </Select>
-      </label>
+        </fieldset>
+      </details>
+      <div className="mcp-server-list" aria-label="MCP servers">
+        {Object.entries(config.servers).map(([key, entry]) => {
+          const active = data!.active.find((status) => status.id === key);
+          return (
+            <Button
+              size="sm"
+              key={key}
+              variant="ghost"
+              aria-pressed={originalId === key}
+              onClick={() => {
+                setOriginalId(key);
+                setId(key);
+                setServer(structuredClone(entry));
+                setSecret("");
+                setBearerToken("");
+                setNotice(undefined);
+              }}
+            >
+              <span>{key}</span>
+              <small>
+                {entry.transport.type === "http" ? "Remote" : "Local"} ·{" "}
+                {active?.status ?? "Restart required"}
+              </small>
+            </Button>
+          );
+        })}
+      </div>
       <Button
+        size="sm"
         onClick={() => {
           setSecret("");
+          setBearerToken("");
           setOriginalId(undefined);
           setId("");
           setServer({
@@ -358,9 +369,10 @@ export function McpSettings({
               onChange={(event) => setId(event.currentTarget.value)}
             />
           </label>
-          <label>
+          <label className="check-label">
             Enabled
             <input
+              className="native-check"
               type="checkbox"
               checked={server.enabled}
               onChange={(event) => update({ ...server, enabled: event.currentTarget.checked })}
@@ -418,33 +430,38 @@ export function McpSettings({
                   }}
                 />
               </label>
-              <label>
-                Working directory
-                <Input
-                  value={server.transport.cwd ?? ""}
-                  onChange={(event) => {
-                    if (server.transport.type === "stdio") {
-                      const transport = { ...server.transport };
-                      delete transport.cwd;
-                      update({
-                        ...server,
-                        transport: {
-                          ...transport,
-                          ...(event.currentTarget.value ? { cwd: event.currentTarget.value } : {}),
-                        },
-                      });
-                    }
+              <details className="mcp-advanced">
+                <summary>Advanced local settings</summary>
+                <label>
+                  Working directory
+                  <Input
+                    value={server.transport.cwd ?? ""}
+                    onChange={(event) => {
+                      if (server.transport.type === "stdio") {
+                        const transport = { ...server.transport };
+                        delete transport.cwd;
+                        update({
+                          ...server,
+                          transport: {
+                            ...transport,
+                            ...(event.currentTarget.value
+                              ? { cwd: event.currentTarget.value }
+                              : {}),
+                          },
+                        });
+                      }
+                    }}
+                  />
+                </label>
+                <Sources
+                  values={server.transport.env}
+                  header={false}
+                  change={(env) => {
+                    if (server.transport.type === "stdio")
+                      update({ ...server, transport: { ...server.transport, env } });
                   }}
                 />
-              </label>
-              <Sources
-                values={server.transport.env}
-                header={false}
-                change={(env) => {
-                  if (server.transport.type === "stdio")
-                    update({ ...server, transport: { ...server.transport, env } });
-                }}
-              />
+              </details>
             </>
           ) : (
             <>
@@ -461,20 +478,25 @@ export function McpSettings({
                   }}
                 />
               </label>
-              <Sources
-                values={server.transport.headers}
-                header
-                change={(headers) => {
-                  if (server.transport.type === "http")
-                    update({ ...server, transport: { ...server.transport, headers } });
-                }}
-              />
+              <details className="mcp-advanced">
+                <summary>Custom headers</summary>
+                <Sources
+                  values={server.transport.headers}
+                  header
+                  change={(headers) => {
+                    if (server.transport.type === "http")
+                      update({ ...server, transport: { ...server.transport, headers } });
+                  }}
+                />
+              </details>
               <label>
                 Authentication
                 <Select
                   aria-label="Authentication"
                   value={server.transport.auth.type}
                   onValueChange={(next) => {
+                    setSecret("");
+                    setBearerToken("");
                     if (server.transport.type === "http")
                       update({
                         ...server,
@@ -492,24 +514,58 @@ export function McpSettings({
                 >
                   <SelectItem value="none">None / custom headers</SelectItem>
                   <SelectItem value="bearer">Bearer token</SelectItem>
-                  <SelectItem value="oauth">OAuth (DCR supported)</SelectItem>
+                  <SelectItem value="oauth">Browser sign-in (OAuth / DCR)</SelectItem>
                 </Select>
               </label>
               {server.transport.auth.type === "bearer" && (
-                <CredentialSource
-                  label="Bearer token"
-                  value={server.transport.auth.token}
-                  change={(token) => {
-                    if (server.transport.type === "http" && token)
-                      update({
-                        ...server,
-                        transport: { ...server.transport, auth: { type: "bearer", token } },
-                      });
-                  }}
-                />
+                <>
+                  {server.transport.auth.token.type === "secret" ? (
+                    <label>
+                      Bearer token
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        value={bearerToken}
+                        placeholder={
+                          status?.credentials.some(
+                            (credential) =>
+                              server.transport.type === "http" &&
+                              server.transport.auth.type === "bearer" &&
+                              server.transport.auth.token.type === "secret" &&
+                              credential.slot === server.transport.auth.token.slot &&
+                              credential.present,
+                          )
+                            ? "Stored · leave blank to keep"
+                            : "Enter token"
+                        }
+                        onChange={(event) => setBearerToken(event.currentTarget.value)}
+                      />
+                    </label>
+                  ) : (
+                    <p className="muted">Token comes from host environment.</p>
+                  )}
+                  <details className="mcp-advanced">
+                    <summary>Advanced token source</summary>
+                    <CredentialSource
+                      label="Bearer token source"
+                      value={server.transport.auth.token}
+                      change={(token) => {
+                        if (server.transport.type === "http" && token) {
+                          setSecret("");
+                          setBearerToken("");
+                          update({
+                            ...server,
+                            transport: { ...server.transport, auth: { type: "bearer", token } },
+                          });
+                        }
+                      }}
+                    />
+                  </details>
+                </>
               )}
               {server.transport.auth.type === "oauth" && (
-                <>
+                <details className="mcp-advanced">
+                  <summary>Advanced OAuth settings</summary>
                   <p className="muted">
                     Leave client ID empty for DCR. A supplied metadata URL is also supported.
                   </p>
@@ -579,95 +635,123 @@ export function McpSettings({
                       });
                     }}
                   />
-                </>
+                </details>
               )}
             </>
           )}
-          <fieldset>
-            <legend>Server permission defaults</legend>
-            {(["readOnly", "other"] as const).map((category) => (
-              <label key={category}>
-                {category === "readOnly" ? "Read-only tools" : "Other or unknown tools"}
-                <Select
-                  value={server.defaults[category] ?? ""}
-                  onValueChange={(next) => {
-                    const defaults = { ...server.defaults };
-                    delete defaults[category];
-                    if (next) defaults[category] = toolPermissionSchema.parse(next);
-                    update({ ...server, defaults });
-                  }}
-                >
-                  <PermissionOptions inherit />
-                </Select>
+          <details className="mcp-advanced">
+            <summary>Tool permissions</summary>
+            <fieldset>
+              <legend>Server permission defaults</legend>
+              {(["readOnly", "other"] as const).map((category) => (
+                <label key={category}>
+                  {category === "readOnly" ? "Read-only tools" : "Other or unknown tools"}
+                  <Select
+                    value={server.defaults[category] ?? ""}
+                    onValueChange={(next) => {
+                      const defaults = { ...server.defaults };
+                      delete defaults[category];
+                      if (next) defaults[category] = toolPermissionSchema.parse(next);
+                      update({ ...server, defaults });
+                    }}
+                  >
+                    <PermissionOptions inherit />
+                  </Select>
+                </label>
+              ))}
+            </fieldset>
+            <fieldset>
+              <legend>Tool overrides</legend>
+              {Object.entries(server.tools).map(([name, permission]) => (
+                <label key={name}>
+                  {name}
+                  <Select
+                    value={permission}
+                    onValueChange={(permission) => {
+                      const tools = { ...server.tools };
+                      delete tools[name];
+                      if (permission) tools[name] = toolPermissionSchema.parse(permission);
+                      update({ ...server, tools });
+                    }}
+                  >
+                    <PermissionOptions inherit />
+                  </Select>
+                </label>
+              ))}
+              <label>
+                Exact MCP tool name
+                <Input
+                  value={toolName}
+                  onChange={(event) => setToolName(event.currentTarget.value)}
+                  list="mcp-tool-names"
+                />
               </label>
-            ))}
-          </fieldset>
-          <fieldset>
-            <legend>Tool overrides</legend>
-            {Object.entries(server.tools).map(([name, permission]) => (
-              <label key={name}>
-                {name}
-                <Select
-                  value={permission}
-                  onValueChange={(permission) => {
-                    const tools = { ...server.tools };
-                    delete tools[name];
-                    if (permission) tools[name] = toolPermissionSchema.parse(permission);
-                    update({ ...server, tools });
-                  }}
-                >
-                  <PermissionOptions inherit />
-                </Select>
-              </label>
-            ))}
-            <label>
-              Exact MCP tool name
-              <Input
-                value={toolName}
-                onChange={(event) => setToolName(event.currentTarget.value)}
-                list="mcp-tool-names"
-              />
-            </label>
-            <datalist id="mcp-tool-names">
-              {tools
-                .filter((tool) => tool.serverId === id)
-                .map((tool) => (
-                  <option key={tool.name} value={tool.rawName} />
-                ))}
-            </datalist>
-            <Select
-              value={toolPermission}
-              onValueChange={(next) => setToolPermission(toolPermissionSchema.parse(next))}
-            >
-              <PermissionOptions />
-            </Select>
-            <Button
-              disabled={!toolName}
-              onClick={() => {
-                update({ ...server, tools: { ...server.tools, [toolName]: toolPermission } });
-                setToolName("");
-              }}
-            >
-              Add tool rule
-            </Button>
-          </fieldset>
-          <Button
-            disabled={busy || !id}
-            variant="accent"
-            onClick={() =>
-              run(async () => {
-                if (!originalId && Object.hasOwn(config.servers, id))
-                  throw new Error("Server ID already exists");
-                await save({ ...config, servers: { ...config.servers, [id]: server } });
-                setOriginalId(id);
-              })
-            }
-          >
-            Save server
-          </Button>
-          {originalId && (
-            <>
+              <datalist id="mcp-tool-names">
+                {tools
+                  .filter((tool) => tool.serverId === id)
+                  .map((tool) => (
+                    <option key={tool.name} value={tool.rawName} />
+                  ))}
+              </datalist>
+              <Select
+                value={toolPermission}
+                onValueChange={(next) => setToolPermission(toolPermissionSchema.parse(next))}
+              >
+                <PermissionOptions />
+              </Select>
               <Button
+                size="sm"
+                disabled={!toolName}
+                onClick={() => {
+                  update({ ...server, tools: { ...server.tools, [toolName]: toolPermission } });
+                  setToolName("");
+                }}
+              >
+                Add tool rule
+              </Button>
+            </fieldset>
+          </details>
+          <div className="button-row mcp-actions">
+            <Button
+              size="sm"
+              disabled={busy || !id}
+              variant="accent"
+              onClick={() =>
+                run(async () => {
+                  if (!originalId && Object.hasOwn(config.servers, id))
+                    throw new Error("Server ID already exists");
+                  await save({ ...config, servers: { ...config.servers, [id]: server } });
+                  setOriginalId(id);
+                  if (
+                    bearerToken &&
+                    server.transport.type === "http" &&
+                    server.transport.auth.type === "bearer" &&
+                    server.transport.auth.token.type === "secret"
+                  ) {
+                    const value = bearerToken;
+                    setBearerToken("");
+                    try {
+                      await client.peer.request(mcpCredentialSet, {
+                        serverId: id,
+                        slot: server.transport.auth.token.slot,
+                        value,
+                      });
+                    } catch (cause) {
+                      throw new Error(
+                        `Server saved, but token was not stored: ${cause instanceof Error ? cause.message : "Credential write failed"}`,
+                        { cause },
+                      );
+                    }
+                    await refresh();
+                  }
+                })
+              }
+            >
+              Save server
+            </Button>
+            {originalId && (
+              <Button
+                size="sm"
                 disabled={busy}
                 onClick={() =>
                   run(async () => {
@@ -681,13 +765,23 @@ export function McpSettings({
               >
                 Remove server
               </Button>
+            )}
+          </div>
+          {originalId && (
+            <>
               <p>
-                {status?.status} · {status?.toolCount ?? 0} active tools
+                Active: {status?.status ?? "Not loaded"} · {status?.toolCount ?? 0} tools
                 {status?.authenticated ? " · credentials available" : ""}
                 {status?.signingIn ? " · signing in" : ""}
               </p>
               {status?.detail && <p>{status.detail}</p>}
+              {status?.authenticated && status.status !== "ready" && (
+                <p className="muted">
+                  Signed in; test the saved connection, then restart to activate tools.
+                </p>
+              )}
               <Button
+                size="sm"
                 disabled={busy}
                 onClick={() =>
                   run(async () => {
@@ -700,56 +794,74 @@ export function McpSettings({
               >
                 Test saved connection
               </Button>
-              <fieldset>
-                <legend>Stored credentials</legend>
-                <label>
-                  Slot
-                  <Input value={slot} onChange={(event) => setSlot(event.currentTarget.value)} />
-                </label>
-                <label>
-                  Credential
-                  <Input
-                    type="password"
-                    autoComplete="off"
-                    value={secret}
-                    onChange={(event) => setSecret(event.currentTarget.value)}
-                  />
-                </label>
-                <Button
-                  disabled={busy || !slot || !secret}
-                  onClick={() => {
-                    const value = secret;
-                    setSecret("");
-                    run(async () => {
-                      await client.peer.request(mcpCredentialSet, { serverId: id, slot, value });
-                      await refresh();
-                      setNotice("Credential stored. Restart to activate changes.");
-                    });
-                  }}
-                >
-                  Replace credential
-                </Button>
-                <Button
-                  disabled={busy || !slot}
-                  onClick={() =>
-                    run(async () => {
-                      await client.peer.request(mcpCredentialDelete, { serverId: id, slot });
-                      await refresh();
-                      setNotice("Stored credential removed. Restart to activate changes.");
-                    })
-                  }
-                >
-                  Delete credential
-                </Button>
-                {status?.credentials.map((credential) => (
-                  <p key={credential.slot}>
-                    {credential.slot}: {credential.present ? "Stored" : "Missing"}
-                  </p>
-                ))}
-              </fieldset>
+              {((server.transport.type === "http" &&
+                server.transport.auth.type === "oauth" &&
+                server.transport.auth.clientSecret) ||
+                (status?.credentials.length ?? 0) > 0) && (
+                <details className="mcp-advanced">
+                  <summary>Manage stored credentials</summary>
+                  <fieldset>
+                    <legend>Stored credentials</legend>
+                    <label>
+                      Slot
+                      <Input
+                        value={slot}
+                        onChange={(event) => setSlot(event.currentTarget.value)}
+                      />
+                    </label>
+                    <label>
+                      Credential
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        value={secret}
+                        onChange={(event) => setSecret(event.currentTarget.value)}
+                      />
+                    </label>
+                    <Button
+                      size="sm"
+                      disabled={busy || !slot || !secret}
+                      onClick={() => {
+                        const value = secret;
+                        setSecret("");
+                        run(async () => {
+                          await client.peer.request(mcpCredentialSet, {
+                            serverId: id,
+                            slot,
+                            value,
+                          });
+                          await refresh();
+                          setNotice("Credential stored. Restart to activate changes.");
+                        });
+                      }}
+                    >
+                      Replace credential
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={busy || !slot}
+                      onClick={() =>
+                        run(async () => {
+                          await client.peer.request(mcpCredentialDelete, { serverId: id, slot });
+                          await refresh();
+                          setNotice("Stored credential removed. Restart to activate changes.");
+                        })
+                      }
+                    >
+                      Delete credential
+                    </Button>
+                    {status?.credentials.map((credential) => (
+                      <p key={credential.slot}>
+                        {credential.slot}: {credential.present ? "Stored" : "Missing"}
+                      </p>
+                    ))}
+                  </fieldset>
+                </details>
+              )}
               {server.transport.type === "http" && server.transport.auth.type === "oauth" && (
-                <>
+                <div className="button-row mcp-actions">
                   <Button
+                    size="sm"
                     disabled={busy || !!attempt || !!status?.signingIn}
                     onClick={() =>
                       run(async () => {
@@ -768,6 +880,7 @@ export function McpSettings({
                     Sign in with OAuth
                   </Button>
                   <Button
+                    size="sm"
                     disabled={busy}
                     onClick={() =>
                       run(async () => {
@@ -779,7 +892,7 @@ export function McpSettings({
                   >
                     Sign out
                   </Button>
-                </>
+                </div>
               )}
             </>
           )}
@@ -807,6 +920,7 @@ export function McpSettings({
             <Input value={callback} onChange={(event) => setCallback(event.currentTarget.value)} />
           </label>
           <Button
+            size="sm"
             disabled={busy || !callback}
             onClick={() => {
               const callbackUrl = callback;
@@ -826,6 +940,7 @@ export function McpSettings({
             Complete sign-in
           </Button>
           <Button
+            size="sm"
             disabled={busy}
             onClick={() =>
               run(async () => {
@@ -840,20 +955,25 @@ export function McpSettings({
           </Button>
         </fieldset>
       )}
-      <Button
-        disabled={busy}
-        onClick={() =>
-          run(async () => {
-            await refresh();
-            setNotice("Status refreshed");
-          })
-        }
-      >
-        Refresh status
-      </Button>
-      {(data!.restartRequired || notice?.includes("Restart") || notice?.includes("restart")) && (
-        <Button onClick={() => run(restart)}>Restart server</Button>
-      )}
+      <div className="button-row mcp-actions">
+        <Button
+          size="sm"
+          disabled={busy}
+          onClick={() =>
+            run(async () => {
+              await refresh();
+              setNotice("Status refreshed");
+            })
+          }
+        >
+          Refresh status
+        </Button>
+        {(data!.restartRequired || notice?.includes("Restart") || notice?.includes("restart")) && (
+          <Button size="sm" onClick={() => run(restart)}>
+            Restart server
+          </Button>
+        )}
+      </div>
       {notice && <p role="status">{notice}</p>}
     </div>
   );
