@@ -96,6 +96,8 @@ const customProviderBase = z.strictObject({
 
 /** Model-scoped fields shared by every transport's model entries. */
 const customModelBase = z.strictObject({
+  /** Display name; the configured model key remains the API and conversation identity. */
+  label: z.string().trim().min(1).optional(),
   /** Model context window in tokens; capacity math (auto-compaction) applies when set. */
   contextWindow: z.number().int().positive().optional(),
   /** Model max output in tokens; reserved when estimating whether the next input fits. */

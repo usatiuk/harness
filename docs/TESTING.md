@@ -1273,3 +1273,13 @@ passed; the full Vitest suite passes with `TMPDIR=/var/tmp` (1,394 passed,
 causing the unrelated `server/src/worktrees.test.ts` Git-discovery failure. The
 same regression passes unchanged with the alternate temporary directory; no
 product assertion, timeout or worktree implementation was changed to mask it.
+
+Custom-provider model display labels: optional model-scoped labels flow through
+existing ModelInfo catalogs while preserving opaque model IDs for configuration,
+validation and API calls. Three transport-boundary regressions cover readable
+labels and rejecting labels used as IDs. Full check passes 1,397 tests with 41
+gated skips, plus typecheck/lint/format. The first sandboxed run could not create
+Vitest's /var/tmp workspace; rerunning outside the sandbox with TMPDIR=/var/tmp
+passes. Dev Qwen base and MAI investigation-test entries use readable labels and
+normal stored credentials; user controls restarting Harness, so live desktop
+label visibility is not claimed.

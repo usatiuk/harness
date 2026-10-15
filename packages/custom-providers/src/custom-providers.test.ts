@@ -407,6 +407,30 @@ describe("configured provider types", () => {
       ]);
     },
   );
+  it.each(["openai-responses-compatible", "openai-completions-compatible", "anthropic-compatible"])(
+    "keeps %s model identity separate from its readable label",
+    async (type) => {
+      const model = "tinker://checkpoint/sampler_weights/model";
+      const provider = await configuredProvider("local", type, {
+        endpoint: "http://localhost:8000/v1",
+        apiKey: "dummy",
+        models: { [model]: { label: "Qwen 27B · Investigation test", contextWindow: 262144 } },
+      });
+      expect(provider.listModels()).toEqual([
+        {
+          provider: "local",
+          model,
+          label: "Qwen 27B · Investigation test",
+          contextWindow: 262144,
+          presets: [],
+        },
+      ]);
+      expect(() => provider.validateConfig({ provider: "local", model })).not.toThrow();
+      expect(() =>
+        provider.validateConfig({ provider: "local", model: "Qwen 27B · Investigation test" }),
+      ).toThrow(/unknown model/);
+    },
+  );
   it("constructs several configured types through the same instance boundary", async () => {
     const providers = await configuredProviders({
       providers: {

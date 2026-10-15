@@ -221,7 +221,7 @@ Responses shape (with the `sendInstructionsAsSystem` opt-in above) and
 `fileTools: "apply_patch"` on every model). Each entry strictly scopes only what an
 endpoint owns — `endpoint`, `apiKey`, and the responses-only
 `sendInstructionsAsSystem` opt-in — while each served model carries its own
-`fileTools`, `contextWindow`, `maxOutputTokens`, and `presets` under
+`fileTools`, `contextWindow`, `maxOutputTokens`, optional display `label`, and `presets` under
 `models.<id>`. One entry can therefore serve several models on a shared server
 across different trained dialects and sampling knobs (e.g. an OVMS endpoint
 running both a completion-tuned and a responses-tuned model).
@@ -514,3 +514,5 @@ upstream version containing [PR #38284](https://github.com/BerriAI/litellm/pull/
 Harness keeps tool output unchanged and adds no local compatibility transformation.
 The GUI can add a named LiteLLM instance through the existing global provider
 configuration and credential boundaries; a server restart activates discovery.
+
+Custom model labels flow through the existing ModelInfo catalog to GUI/TUI selectors. They do not replace the model key in API requests, settings identity or pinned conversation configuration; opaque checkpoint paths can therefore have readable names.
