@@ -1,3 +1,13 @@
+import {
+  worktreeRepositoryRequest,
+  worktreeCreateConversationRequest,
+  WORKTREES_CLIENT_CONTRACT_VERSION,
+  worktreeOptionsRequest,
+  worktreeSwitchRequest,
+  worktreeManagedRequest,
+  worktreeRemoveRequest,
+} from "@harness/worktrees/client";
+import type { ManagedWorktree, WorkspaceSelection, WorktreeInfo } from "@harness/protocol";
 import type { ConversationId, HarnessEvent, ContentBlock } from "@harness/protocol";
 import type { HarnessClient } from "@harness/client";
 import {
@@ -9,6 +19,8 @@ import {
   type ActivityState,
 } from "@harness/activities/client";
 import {
+  sandboxEnvironmentsRequest,
+  sandboxEnvironmentControlRequest,
   SANDBOX_CLIENT_CONTRACT_VERSION,
   sandboxEventNotification,
   sandboxRebuildRequest,
@@ -32,6 +44,7 @@ export interface ActivitiesView {
   kill(id: string): void | Promise<void>;
 }
 export const FEATURE_PLUGIN_CONTRACTS = [
+  { id: "worktrees", version: WORKTREES_CLIENT_CONTRACT_VERSION },
   { id: "activities", version: ACTIVITIES_CLIENT_CONTRACT_VERSION },
   { id: "sandbox", version: SANDBOX_CLIENT_CONTRACT_VERSION },
   { id: "workspace", version: WORKSPACE_CLIENT_CONTRACT_VERSION },
@@ -47,6 +60,25 @@ export interface ShellRun {
 }
 
 export interface HarnessPlugins {
+  worktreeRepository(path: string): Promise<string | null>;
+  createWorktreeConversation(
+    cwd: string,
+    overrides: Record<string, unknown>,
+  ): Promise<import("@harness/protocol").WireConversation>;
+  dockerEnvironments(
+    limit: number,
+    before?: string,
+  ): Promise<
+    Array<{ id: string; workspaceRoot: string | null; running: boolean; containers: number }>
+  >;
+  controlDockerEnvironment(id: string, action: "stop" | "remove"): Promise<void>;
+  workspaceOptions(
+    id: ConversationId,
+  ): Promise<{ original: string; current: string; worktrees: WorktreeInfo[] } | null>;
+  switchWorkspace(id: ConversationId, selection: WorkspaceSelection): Promise<void>;
+  managedWorktrees(limit: number, before?: string): Promise<ManagedWorktree[]>;
+  removeWorktree(path: string, force: boolean): Promise<void>;
+
   readonly approvals: Pick<ApprovalClient, "subscribe" | "respond">;
   subscribe(rootId: ConversationId, listener: (event: HarnessEvent) => void): () => void;
   runningActivities(rootId: ConversationId): number;
@@ -70,6 +102,34 @@ export class HarnessPluginClient implements HarnessPlugins {
   readonly #sandbox = new Map<string, SandboxState>();
   readonly #listeners = new Map<string, Set<(event: HarnessEvent) => void>>();
   readonly #shells = new Map<string, (shellId: string, event: ShellClientEvent) => void>();
+
+  dockerEnvironments(limit: number, before?: string) {
+    return this.#client.peer.request(sandboxEnvironmentsRequest, { limit, before: before ?? null });
+  }
+  async controlDockerEnvironment(id: string, action: "stop" | "remove"): Promise<void> {
+    await this.#client.peer.request(sandboxEnvironmentControlRequest, { id, action });
+  }
+  worktreeRepository(path: string) {
+    return this.#client.peer.request(worktreeRepositoryRequest, { path });
+  }
+  createWorktreeConversation(cwd: string, overrides: Record<string, unknown>) {
+    return this.#client.peer.request(
+      worktreeCreateConversationRequest,
+      worktreeCreateConversationRequest.params.parse({ cwd, overrides }),
+    );
+  }
+  workspaceOptions(id: ConversationId) {
+    return this.#client.peer.request(worktreeOptionsRequest, { conversationId: id });
+  }
+  async switchWorkspace(id: ConversationId, selection: WorkspaceSelection): Promise<void> {
+    await this.#client.peer.request(worktreeSwitchRequest, { conversationId: id, selection });
+  }
+  managedWorktrees(limit: number, before?: string) {
+    return this.#client.peer.request(worktreeManagedRequest, { limit, before: before ?? null });
+  }
+  async removeWorktree(path: string, force: boolean): Promise<void> {
+    await this.#client.peer.request(worktreeRemoveRequest, { path, force });
+  }
 
   constructor(client: HarnessClient, approvals: ApprovalClient) {
     this.#client = client;

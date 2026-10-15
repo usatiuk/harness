@@ -1,3 +1,4 @@
+import { worktreeDirectory, worktreesConfigSchema } from "@harness/worktrees";
 import {
   defaultHome,
   readGlobalSettings,
@@ -247,6 +248,8 @@ export function registerAppApi(
         sandbox: sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).backend,
         toolMode: doc.tools?.mode ?? "hybrid",
         compactionThresholdTokens: doc.compaction?.thresholdTokens ?? null,
+        worktreeDirectory:
+          worktreesConfigSchema.parse(doc.plugins?.["worktrees"] ?? {}).directory ?? null,
       },
     };
   });
@@ -319,6 +322,21 @@ export function registerAppApi(
             tools: { ...doc.tools, mode: toolMode },
           }));
         if (changedPlugins.length) await service.refreshPluginDefaults(changedPlugins);
+        if (settings.worktreeDirectory !== undefined) {
+          const directory = settings.worktreeDirectory;
+          if (directory !== null) {
+            try {
+              worktreeDirectory(directory);
+            } catch {
+              invalid("Worktree directory must be an absolute path");
+            }
+          }
+          await updateGlobalSettings(defaultHome(), (doc) => {
+            const plugins = { ...doc.plugins };
+            plugins["worktrees"] = directory === null ? {} : { directory };
+            return { ...doc, plugins };
+          });
+        }
         const thresholdTokens = settings.compactionThresholdTokens;
         if (thresholdTokens !== undefined)
           await updateGlobalSettings(defaultHome(), (doc) => {

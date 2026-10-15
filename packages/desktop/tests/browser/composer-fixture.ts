@@ -21,6 +21,8 @@ declare global {
       seedSidebar(longTitles?: boolean): void;
       markUnread(id: string): void;
       showMarkdown(): void;
+      worktreeSwitches: unknown[];
+      worktreeDeletes: unknown[];
       switchSidebarScope(scope: string): void;
       showEval(): void;
       showLivePreview(reasoningOnly?: boolean): void;
@@ -79,6 +81,7 @@ const settings: AppSettings = {
     sandbox: "local",
     toolMode: "direct",
     compactionThresholdTokens: null,
+    worktreeDirectory: null,
     approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
     autoApproval: { enabled: false, model: null, timeoutSeconds: 30 },
     conversationTitleModel: null,
@@ -220,6 +223,51 @@ const session = {
     changed();
   },
   plugins: {
+    async createWorktreeConversation(
+      cwd: string,
+      overrides: Record<string, import("@harness/protocol").JsonValue>,
+    ) {
+      window.composerFixture.worktreeSwitches.push({ kind: "create", cwd });
+      view.conversation = {
+        ...view.conversation,
+        workspaceRoot: "D:\\worktrees\\one",
+        originalWorkspaceRoot: cwd,
+      };
+      return session.client.create({ cwd: "D:\\worktrees\\one", overrides });
+    },
+    async worktreeRepository(cwd: string) {
+      return cwd.includes("not-git") ? null : cwd;
+    },
+    async workspaceOptions() {
+      return {
+        original: "D:\\example",
+        current: view.conversation.workspaceRoot,
+        worktrees: [
+          { path: "D:\\example", branch: "main", head: "initial", locked: false },
+          { path: "D:\\worktrees\\one", branch: "harness/one", head: "initial", locked: false },
+        ],
+      };
+    },
+    async switchWorkspace(_id: string, selection: { kind: string; path?: string }) {
+      window.composerFixture.worktreeSwitches.push(selection);
+      view.conversation = {
+        ...view.conversation,
+        workspaceRoot:
+          selection.kind === "original" ? "D:\\example" : (selection.path ?? "D:\\worktrees\\one"),
+        originalWorkspaceRoot: "D:\\example",
+      };
+      changed();
+    },
+    async managedWorktrees() {
+      return [{ path: "D:\\worktrees\\one", repository: "D:\\example", createdAt: 1 }];
+    },
+    async removeWorktree(path: string, force: boolean) {
+      window.composerFixture.worktreeDeletes.push({ path, force });
+    },
+    async dockerEnvironments() {
+      return [];
+    },
+    async controlDockerEnvironment() {},
     runningActivities: () =>
       view.state.activities.filter((activity) => activity.status === undefined).length,
     activities: () => ({
@@ -414,6 +462,8 @@ const session = {
   },
 };
 window.composerFixture = {
+  worktreeSwitches: [],
+  worktreeDeletes: [],
   switchSidebarScope(scope) {
     sidebarScope = scope;
     changed();

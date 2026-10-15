@@ -1,9 +1,11 @@
+import { defaultHome } from "@harness/config";
+import { linkedGitDirectories } from "@harness/worktrees";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { stat } from "node:fs/promises";
+import { mkdir, realpath, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, relative, sep, posix } from "node:path";
 import { captureText } from "./docker-cli.ts";
 
 import { DEFAULT_DEVCONTAINER_CONFIG } from "./config.ts";
@@ -17,11 +19,12 @@ import { DEFAULT_DEVCONTAINER_CONFIG } from "./config.ts";
  * the same container, so containers can't leak or fork by working directory.
  */
 export async function containerRoot(start: string): Promise<string> {
-  let dir = resolve(start);
+  const physical = await realpath(start);
+  let dir = physical;
   for (;;) {
     if (await isDirectory(join(dir, ".devcontainer"))) return dir;
     const parent = dirname(dir);
-    if (parent === dir) return resolve(start);
+    if (parent === dir) return physical;
     dir = parent;
   }
 }
@@ -29,8 +32,9 @@ export async function containerRoot(start: string): Promise<string> {
 async function isDirectory(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isDirectory();
-  } catch {
-    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
 }
 
@@ -74,17 +78,24 @@ export function workspaceLabel(root: string): string {
 }
 
 /** Recipe identity also names the Compose project; id labels alone do not isolate Compose. */
-export function environmentName(root: string, configPath: string): string {
+export function workspaceProjectPrefix(root: string, scope: string): string {
+  const path = process.platform === "win32" ? resolve(root).toLowerCase() : resolve(root);
+  return `harness_${scope}_${createHash("sha256").update(path).digest("hex").slice(0, 16)}_`;
+}
+
+export function environmentName(root: string, configPath: string, scope?: string): string {
   const canonical = (path: string) =>
     process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
   const identity = JSON.stringify([canonical(root), canonical(resolve(root, configPath))]);
-  return `harness_${createHash("sha256").update(identity).digest("hex").slice(0, 16)}`;
+  return `${scope ? workspaceProjectPrefix(root, scope) : "harness_"}${createHash("sha256").update(identity).digest("hex").slice(0, 16)}`;
 }
 
-export const environmentLabel = (root: string, configPath: string): string =>
-  `harness.environment=${environmentName(root, configPath)}`;
+export const environmentLabel = (root: string, configPath: string, scope?: string): string =>
+  `harness.environment=${environmentName(root, configPath, scope)}`;
 
 export interface ProvisionOptions {
+  scope?: string;
+  metadataRoot?: string;
   /** Devcontainer config path relative to the workspace; only passed through when non-default. */
   configPath: string;
   /** The CLI process has started and may create owned resources. Never called on validation/spawn failure. */
@@ -127,22 +138,82 @@ export async function provisionDevcontainer(
     "--id-label",
     HARNESS_OWNER_LABEL,
     "--id-label",
-    environmentLabel(root, opts.configPath),
+    environmentLabel(root, opts.configPath, opts.scope),
     "--log-format",
     "json",
   ];
+  if (opts.scope)
+    args.push(
+      "--id-label",
+      `harness.server=${opts.scope}`,
+      "--id-label",
+      `harness.workspace.root=${root}`,
+    );
   // The CLI auto-discovers the default config; only point it elsewhere when asked.
   if (opts.configPath && opts.configPath !== DEFAULT_DEVCONTAINER_CONFIG) {
     args.push("--config", resolve(root, opts.configPath));
   }
 
   const { cmd, pre } = devcontainerCmd();
+  const git = await linkedGitDirectories(root);
+  if (git && process.platform !== "win32") {
+    // Preserve ordinary Git discovery, including nested repositories and git -C.
+    args.push(
+      "--mount",
+      `type=bind,source=${git.common},target=${git.common}`,
+      "--mount",
+      `type=bind,source=${root},target=${root}`,
+    );
+  } else if (git) {
+    const inspected = await captureText(
+      cmd,
+      [
+        ...pre,
+        "read-configuration",
+        "--workspace-folder",
+        root,
+        "--config",
+        resolve(root, opts.configPath),
+        "--log-format",
+        "json",
+      ],
+      { ...(opts.signal ? { signal: opts.signal } : {}) },
+    );
+    if (inspected.exitCode !== 0)
+      throw new Error("Cannot resolve devcontainer workspace for linked Git metadata");
+    const configuration = JSON.parse(inspected.stdout.trim()) as {
+      workspace?: { workspaceFolder?: string };
+    };
+    const folder = configuration.workspace?.workspaceFolder;
+    if (!folder || !posix.isAbsolute(folder))
+      throw new Error("Devcontainer configuration omitted its container workspace folder");
+    const target = `/harness/git/${environmentName(root, opts.configPath, opts.scope)}`;
+    const metadata = join(
+      opts.metadataRoot ?? join(defaultHome(), "docker"),
+      environmentName(root, opts.configPath, opts.scope),
+    );
+    await mkdir(metadata, { recursive: true });
+    const link = join(metadata, "gitdir");
+    await writeFile(
+      link,
+      `gitdir: ${posix.join(target, relative(git.common, git.private).split(sep).join("/"))}\n`,
+    );
+    args.push(
+      "--mount",
+      `type=bind,source=${git.common},target=${target}`,
+      "--mount",
+      `type=bind,source=${link},target=${posix.join(folder, ".git")}`,
+    );
+  }
   return new Promise<Provisioned>((resolvePromise, reject) => {
     const child = spawn(cmd, [...pre, ...args], {
       windowsHide: true,
       cwd: root,
       signal: opts.signal,
-      env: { ...process.env, COMPOSE_PROJECT_NAME: environmentName(root, opts.configPath) },
+      env: {
+        ...process.env,
+        COMPOSE_PROJECT_NAME: environmentName(root, opts.configPath, opts.scope),
+      },
     });
     child.once("spawn", () => opts.onStarted?.());
     let stdout = "";
@@ -256,20 +327,24 @@ function tail(s: string): string {
 
 /**
  * Tears down the workspace's container(s) by id-label (`rm -f`), returning how many were removed.
- * Reserved for explicit teardown (`stop()`/`rebuild()` and the standalone `harness sandbox stop`);
- * idle reaping uses `docker stop` instead.
+ * Explicit removal/rebuild only; stopping preserves containers, networks and volumes.
  */
-export async function stopSandbox(hostRoot: string, configPath?: string): Promise<number> {
+export async function removeSandbox(
+  hostRoot: string,
+  configPath?: string,
+  scope?: string,
+): Promise<number> {
   // Same `.devcontainer/` root key as `provisionDevcontainer`, so `stop` from a subdirectory targets
   // the container that was built — no leak, no spurious "no sandbox container running".
   const root = await containerRoot(hostRoot);
   const filters = [`label=${workspaceLabel(root)}`, `label=${HARNESS_OWNER_LABEL}`];
-  if (configPath !== undefined) filters.push(`label=${environmentLabel(root, configPath)}`);
+  if (configPath !== undefined) filters.push(`label=${environmentLabel(root, configPath, scope)}`);
+  if (scope) filters.push(`label=harness.server=${scope}`);
   const ids = new Set(
     await dockerIds("ps", ["-aq", ...filters.flatMap((filter) => ["--filter", filter])]),
   );
   if (configPath !== undefined) {
-    const project = environmentName(root, configPath);
+    const project = environmentName(root, configPath, scope);
     // Compose sidecars do not receive devcontainer id labels. The explicitly assigned owned
     // project name covers them even when provisioning was aborted before returning a handle.
     for (const id of await dockerIds("ps", [
@@ -290,6 +365,31 @@ export async function stopSandbox(hostRoot: string, configPath?: string): Promis
   return ids.size;
 }
 
+/** Stop all environment containers, preserving container state, networks and volumes. */
+export async function stopSandbox(
+  hostRoot: string,
+  configPath?: string,
+  scope?: string,
+): Promise<number> {
+  const root = await containerRoot(hostRoot);
+  const filters = [`label=${workspaceLabel(root)}`, `label=${HARNESS_OWNER_LABEL}`];
+  if (scope) filters.push(`label=harness.server=${scope}`);
+  if (configPath) filters.push(`label=${environmentLabel(root, configPath, scope)}`);
+  const ids = new Set(
+    await dockerIds("ps", ["-q", ...filters.flatMap((filter) => ["--filter", filter])]),
+  );
+  if (configPath) {
+    for (const id of await dockerIds("ps", [
+      "-q",
+      "--filter",
+      `label=com.docker.compose.project=${environmentName(root, configPath, scope)}`,
+    ]))
+      ids.add(id);
+  }
+  if (ids.size) await checkedDocker(["stop", ...ids]);
+  return ids.size;
+}
+
 async function checkedDocker(args: string[]): Promise<string> {
   const result = await captureText("docker", args);
   if (result.exitCode !== 0)
@@ -301,24 +401,4 @@ async function checkedDocker(args: string[]): Promise<string> {
 
 async function dockerIds(command: string, args: string[]): Promise<string[]> {
   return (await checkedDocker([command, ...args])).split("\n").filter(Boolean);
-}
-
-/**
- * Removes stopped harness-owned containers older than `maxAgeHours`. Best-effort startup sweep.
- * Note: `docker container prune` only touches stopped containers, so a still-running container left
- * by a crashed harness is NOT reaped here — it is instead reused next time the workspace is opened
- * (warm reuse by id-label). Reaping running orphans needs a liveness signal (heartbeat); deferred.
- */
-export async function reapStoppedSandboxes(maxAgeHours = 168): Promise<void> {
-  await captureText("docker", [
-    "container",
-    "prune",
-    "-f",
-    "--filter",
-    `label=${HARNESS_OWNER_LABEL}`,
-    "--filter",
-    `until=${maxAgeHours}h`,
-  ]).catch(() => {
-    // docker absent or daemon down — nothing to reap, and the sandbox is opt-in anyway
-  });
 }

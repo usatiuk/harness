@@ -1,3 +1,10 @@
+import { realpath } from "node:fs/promises";
+import {
+  WorktreeManager,
+  WorktreesDefinition,
+  worktreeDirectory,
+  worktreesConfigSchema,
+} from "@harness/worktrees";
 import { conversationTitlesPlugin } from "@harness/conversation-titles";
 import { McpRuntime, MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp";
 import { registerMcpApi } from "./mcp.ts";
@@ -7,12 +14,19 @@ import { assertSelectedServer } from "@harness/connections/local";
 import {
   defaultHome,
   readGlobalSettings,
+  loadMergedSettings,
   setAuthStore,
   validateGlobalPluginScopes,
 } from "@harness/config";
 import { SqliteStore } from "@harness/store-sqlite";
 import { type ModelConfig, type PluginEntry } from "@harness/protocol";
-import { reapStoppedSandboxes, sandboxPlugin } from "@harness/sandbox";
+import {
+  sandboxWorkspaceRequest,
+  sandboxConfigSchema,
+  sandboxEnvironmentsRequest,
+  sandboxEnvironmentControlRequest,
+  createSandboxRuntime,
+} from "@harness/sandbox";
 import { activitiesPlugin } from "@harness/activities";
 import { agentsPlugin } from "@harness/agents";
 import { outputPlugin } from "@harness/output";
@@ -69,11 +83,22 @@ export async function buildServerComposition(
       assertSelectedServer(defaultHome(), process.env["HARNESS_SERVER_SELECTION"]),
   });
   const subagents = new SubagentsDefinition();
+  let closeForDockerFailure: (() => Promise<void>) | undefined;
+  const sandbox = createSandboxRuntime(defaultHome(), () => {
+    if (!closeForDockerFailure)
+      throw new Error("Docker guardian failed before server composition was ready");
+    console.error(JSON.stringify({ event: "server.failure", subsystem: "docker-guardian" }));
+    void closeForDockerFailure().catch(() =>
+      console.error(
+        JSON.stringify({ event: "server.shutdown-failed", subsystem: "docker-guardian" }),
+      ),
+    );
+  });
   let mcp: McpRuntime | undefined;
   let startedHost: HarnessRpcHost | undefined;
   try {
     const settings = await readGlobalSettings(defaultHome());
-    validateGlobalPluginScopes(settings, new Set(["mcp"]), "global settings", true);
+    validateGlobalPluginScopes(settings, new Set(["mcp", "worktrees"]), "global settings", true);
     const prepare = prepareProviderEntries(
       settings,
       providerPlugins,
@@ -99,11 +124,19 @@ export async function buildServerComposition(
     const mcpRuntime = mcp;
     const registry = prepare(secrets);
     const built = await bootstrapProviders(registry, signal);
+    const worktrees = new WorktreeManager(store, async () => {
+      const doc = await readGlobalSettings(defaultHome());
+      return worktreeDirectory(
+        worktreesConfigSchema.parse(doc.plugins?.["worktrees"] ?? {}).directory,
+      );
+    });
+    const worktreesDefinition = new WorktreesDefinition();
     const plugins: PluginEntry[] = [...providerPlugins, built.plugin, conversationTitlesPlugin];
     const fallbackModel = built.defaultModel;
     plugins.push(
       { id: "demo", providers: () => [new DemoProvider()] },
-      sandboxPlugin,
+      sandbox.plugin,
+      worktreesDefinition,
       activitiesPlugin,
       outputPlugin,
       workspacePlugin,
@@ -120,6 +153,8 @@ export async function buildServerComposition(
     const service = new HarnessService({
       codeEvaluator: new QuickJsEvaluator(),
       store,
+      worktrees,
+      removeWorkspaceEnvironment: (path) => sandbox.environments.removeWorkspace(path),
       plugins,
       defaults: {
         model: resolvedFallback,
@@ -129,10 +164,10 @@ export async function buildServerComposition(
         },
       },
     });
-    void reapStoppedSandboxes();
     // Late-bind the runner so the subagents tool can spawn/observe/abort children. Mirrors the
     // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
     subagents.bindRunner(service);
+    worktreesDefinition.bind(service);
     const host = new HarnessRpcHost(service);
     startedHost = host;
     const sessions = new Map<HarnessRpcSession, { close(): Promise<void> }>();
@@ -167,6 +202,37 @@ export async function buildServerComposition(
           ),
       });
       registerFeatureServer(rpcSession);
+      rpcSession.onRequest(sandboxWorkspaceRequest, async ({ path, action }) => {
+        const root = await realpath(path);
+        return service.runWorkspaceOperation(root, async () => {
+          const managed = await store.getManagedWorktree(root);
+          const settings = await loadMergedSettings(defaultHome(), managed?.repository ?? root);
+          const config = sandboxConfigSchema.parse(settings.plugins?.["sandbox"] ?? {});
+          const owner = { emit: () => {} };
+          const environment = await sandbox.environments.acquire(root, config.docker, owner);
+          try {
+            if (action === "stop") {
+              await environment.stop();
+              return null;
+            }
+            const handle = await environment.start();
+            return {
+              containerId: handle.containerId,
+              remoteUser: handle.remoteUser,
+              remoteWorkspaceFolder: handle.remoteWorkspaceFolder,
+            };
+          } finally {
+            await environment.release(owner);
+          }
+        });
+      });
+      rpcSession.onRequest(sandboxEnvironmentsRequest, (params) =>
+        sandbox.environments.inventory(params.limit, params.before ?? undefined),
+      );
+      rpcSession.onRequest(sandboxEnvironmentControlRequest, async (params) => {
+        await sandbox.environments.control(params.id, params.action);
+        return null;
+      });
       const app = registerAppApi(rpcSession, service, appState);
       const mcpApi = registerMcpApi(rpcSession, mcpRuntime, defaultHome());
       const appApi = {
@@ -207,7 +273,11 @@ export async function buildServerComposition(
         } finally {
           try {
             try {
-              await mcpRuntime.close();
+              try {
+                await sandbox.close();
+              } finally {
+                await mcpRuntime.close();
+              }
             } finally {
               subagents.resetSession();
             }
@@ -217,11 +287,17 @@ export async function buildServerComposition(
         }
       }
     };
+    closeForDockerFailure = close;
     return { service, host, store, connect, close };
   } catch (error) {
     const cleanupErrors: unknown[] = [];
     try {
       await startedHost?.shutdown();
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    try {
+      await sandbox.close();
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
     }

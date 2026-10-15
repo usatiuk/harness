@@ -1,118 +1,188 @@
+import { stat } from "node:fs/promises";
+import { dockerInventory, controlDockerWorkspace } from "./docker-inventory.ts";
+import { environmentName, workspaceProjectPrefix } from "./devcontainer.ts";
 import { resolve } from "node:path";
-import { captureText } from "./docker-cli.ts";
 import {
   containerRoot,
   provisionDevcontainer,
   stopSandbox,
+  removeSandbox,
   type Provisioned,
   type SandboxStatus,
 } from "./devcontainer.ts";
 import type { DockerSandboxConfig } from "./config.ts";
 
 export interface DockerOwner {
-  readonly idleTimeoutMinutes: number;
   emit(status: SandboxStatus): void;
 }
 
-/** One pool per sandbox plugin composition, never process-global or owned by the kernel. */
+/** Workspace lifetime is independent of conversation views. The server owns close(). */
 export class DockerEnvironmentPool {
   readonly #environments = new Map<string, DockerEnvironment>();
+  #closing = false;
+
+  constructor(
+    readonly scope?: string,
+    private readonly beforeStart?: () => Promise<void>,
+    private readonly metadataRoot?: string,
+  ) {}
 
   async acquire(
     hostRoot: string,
     config: DockerSandboxConfig,
     owner: DockerOwner,
   ): Promise<DockerEnvironment> {
+    if (this.#closing) throw new Error("Docker environment manager is closing");
     const root = await containerRoot(hostRoot);
+    if (this.#closing) throw new Error("Docker environment manager is closing");
     const configPath = resolve(root, config.configPath);
-    const pathKey = (path: string) => (process.platform === "win32" ? path.toLowerCase() : path);
-    const key = JSON.stringify([pathKey(root), pathKey(configPath)]);
-    for (;;) {
-      let environment = this.#environments.get(key);
-      if (environment?.closing) {
-        await environment.closing;
-        continue;
-      }
-      if (!environment) {
-        environment = new DockerEnvironment(root, configPath, () => {
-          if (this.#environments.get(key) === environment) this.#environments.delete(key);
-        });
-        this.#environments.set(key, environment);
-      }
-      environment.attach(owner);
-      return environment;
+    const identity = [root, configPath].map((path) =>
+      process.platform === "win32" ? path.toLowerCase() : path,
+    );
+    const key = JSON.stringify(identity);
+    let environment = this.#environments.get(key);
+    if (!environment) {
+      environment = new DockerEnvironment(
+        root,
+        configPath,
+        this.scope,
+        this.beforeStart,
+        this.metadataRoot,
+      );
+      this.#environments.set(key, environment);
     }
+    environment.attach(owner);
+    return environment;
+  }
+
+  list() {
+    return [...this.#environments.values()];
+  }
+
+  async inventory(limit: number, before?: string) {
+    if (!this.scope) throw new Error("Docker manager has no server ownership scope");
+    return (await dockerInventory(this.scope))
+      .filter((row) => !before || row.id > before)
+      .slice(0, limit)
+      .map((row) => ({
+        id: row.id,
+        workspaceRoot: row.workspaceRoot,
+        running: row.running,
+        containers: row.containers.length,
+      }));
+  }
+
+  async control(id: string, action: "stop" | "remove"): Promise<void> {
+    if (!this.scope) throw new Error("Docker manager has no server ownership scope");
+    const entry = [...this.#environments].find(
+      ([, environment]) =>
+        environmentName(environment.root, environment.configPath, this.scope) === id,
+    );
+    if (entry) {
+      if (action === "stop") await entry[1].stop();
+      else await entry[1].remove();
+    } else await controlDockerWorkspace(this.scope, id, action);
+  }
+
+  async removeWorkspace(root: string): Promise<void> {
+    for (const [key, environment] of this.#environments) {
+      if (environment.root !== root) continue;
+      await environment.remove();
+      await environment.close();
+      this.#environments.delete(key);
+    }
+    if (this.scope) {
+      if (this.metadataRoot) {
+        const marker = await stat(this.metadataRoot).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return undefined;
+          throw error;
+        });
+        if (!marker) return;
+      }
+      for (const workspace of await dockerInventory(this.scope)) {
+        if (
+          workspace.workspaceRoot === root ||
+          workspace.id.startsWith(workspaceProjectPrefix(root, this.scope))
+        )
+          await controlDockerWorkspace(this.scope, workspace.id, "remove");
+      }
+    }
+  }
+
+  async close(): Promise<void> {
+    this.#closing = true;
+    const results = await Promise.allSettled(this.list().map((environment) => environment.close()));
+    const errors = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason as unknown] : [],
+    );
+    if (errors.length) throw new AggregateError(errors, "Could not stop Docker environments");
   }
 }
 
-/** Owns the physical resource. Conversation views own their IO/process handles separately. */
+/** Physical environment; a conversation view owns only its own IO and processes. */
 export class DockerEnvironment {
   readonly #owners = new Set<DockerOwner>();
   #provision: Promise<Provisioned> | undefined;
   #abort: AbortController | undefined;
+  #queuedStarts = new AbortController();
   #transition: Promise<void> = Promise.resolve();
-  #idleTimer: ReturnType<typeof setTimeout> | undefined;
-  #busy = 0;
-  #used = false;
+  #stopped = false;
+  #removed = false;
+  #closed = false;
   closing: Promise<void> | undefined;
 
   constructor(
     readonly root: string,
     readonly configPath: string,
-    readonly onClosed: () => void,
+    readonly scope?: string,
+    private readonly beforeStart?: () => Promise<void>,
+    private readonly metadataRoot?: string,
   ) {}
 
   attach(owner: DockerOwner): void {
-    if (this.closing) throw new Error("cannot attach to a closing Docker environment");
     if (this.#owners.has(owner)) throw new Error("Docker owner already attached");
     this.#owners.add(owner);
-    this.#touch();
   }
 
-  release(owner: DockerOwner): Promise<void> {
+  async release(owner: DockerOwner): Promise<void> {
     if (!this.#owners.delete(owner)) throw new Error("Docker owner is not attached");
-    if (this.#owners.size > 0) {
-      this.#touch();
-      return Promise.resolve();
-    }
-    this.#clearIdleTimer();
-    this.#abort?.abort();
-    this.closing = this.#mutate(() => this.#stop(false)).finally(this.onClosed);
-    return this.closing;
   }
 
-  /** Held through provisioning and every IO/command until its observable completion. */
-  beginActivity(): () => void {
-    if (this.closing) throw new Error("Docker environment is closing");
-    this.#busy++;
-    this.#touch();
-    let ended = false;
-    return () => {
-      if (ended) throw new Error("Docker activity already ended");
-      ended = true;
-      this.#busy--;
-      this.#touch();
-    };
+  /** Opening a conversation explicitly resumes a stopped environment. */
+  start(): Promise<Provisioned> {
+    const queued = this.#queuedStarts.signal;
+    return this.#mutate(async () => {
+      queued.throwIfAborted();
+      if (this.#closed) throw new Error("Docker environment manager is closed");
+      this.#removed = false;
+      this.#stopped = false;
+      return this.#startProvision();
+    });
+  }
+
+  close(): Promise<void> {
+    this.#closed = true;
+    return this.stop();
   }
 
   async ready(): Promise<Provisioned> {
     await this.#transition;
-    if (this.closing) throw new Error("Docker environment is closing");
-    this.#touch();
+    if (this.#closed) throw new Error("Docker environment manager is closed");
+    if (this.#removed) throw new Error("Docker environment was removed");
+    if (this.#stopped)
+      throw new Error("Docker environment is stopped; reopen the conversation to start it");
     return this.#startProvision();
   }
 
   isProvisioned(): boolean {
-    return this.#provision !== undefined;
+    return this.#provision !== undefined && !this.#stopped;
   }
 
-  /** Current handle for killing a view's own processes; never provisions during teardown. */
   async current(): Promise<Provisioned | undefined> {
     return this.#provision?.catch(() => undefined);
   }
 
   async invalidate(handle: Provisioned): Promise<void> {
-    // A stale IO failure cannot discard a new handle installed by a shared rebuild.
     const provision = this.#provision;
     const current = await provision?.catch(() => undefined);
     if (this.#provision === provision && current === handle) this.#provision = undefined;
@@ -120,23 +190,50 @@ export class DockerEnvironment {
 
   stop(): Promise<void> {
     this.#warn("Stopping");
-    return this.#mutate(() => this.#stop(true));
+    this.#stopped = true;
+    this.#cancelProvision();
+    return this.#mutate(async () => {
+      this.#stopped = true;
+      await this.#drainProvision();
+      if (this.#removed) return;
+      await stopSandbox(this.root, this.configPath, this.scope);
+    });
+  }
+
+  remove(): Promise<void> {
+    this.#warn("Removing");
+    this.#stopped = true;
+    this.#cancelProvision();
+    return this.#mutate(async () => {
+      this.#stopped = true;
+      await this.#drainProvision();
+      await removeSandbox(this.root, this.configPath, this.scope);
+      this.#removed = true;
+    });
   }
 
   rebuild(signal?: AbortSignal): Promise<void> {
     this.#warn("Rebuilding");
+    this.#cancelProvision();
+    const queued = this.#queuedStarts.signal;
     return this.#mutate(async () => {
-      if (signal?.aborted) throw new Error("sandbox rebuild cancelled");
-      await this.#stop(true);
-      if (signal?.aborted || this.closing) throw new Error("sandbox rebuild cancelled");
-      const cancel = () => {
-        if (this.#owners.size === 1) this.#abort?.abort();
-      };
+      queued.throwIfAborted();
+      if (this.#closed) throw new Error("Docker environment manager is closed");
+      signal?.throwIfAborted();
+      await this.#drainProvision();
+      await removeSandbox(this.root, this.configPath, this.scope);
+      signal?.throwIfAborted();
+      queued.throwIfAborted();
+      this.#stopped = false;
+      this.#removed = false;
+      const cancel = () => this.#abort?.abort();
       signal?.addEventListener("abort", cancel, { once: true });
       try {
         await this.#startProvision();
       } catch (error) {
-        if (signal?.aborted) await this.#stop(false);
+        this.#stopped = true;
+        await this.#drainProvision();
+        await stopSandbox(this.root, this.configPath, this.scope);
         throw error;
       } finally {
         signal?.removeEventListener("abort", cancel);
@@ -144,7 +241,13 @@ export class DockerEnvironment {
     });
   }
 
-  #mutate(action: () => Promise<void>): Promise<void> {
+  #cancelProvision(): void {
+    this.#queuedStarts.abort(new Error("Docker start cancelled"));
+    this.#queuedStarts = new AbortController();
+    this.#abort?.abort();
+  }
+
+  #mutate<T>(action: () => Promise<T>): Promise<T> {
     const result = this.#transition.then(action, action);
     this.#transition = result.then(
       () => undefined,
@@ -157,56 +260,31 @@ export class DockerEnvironment {
     if (this.#provision) return this.#provision;
     const abort = new AbortController();
     this.#abort = abort;
-    let started = false;
-    const provision = provisionDevcontainer(this.root, {
-      configPath: this.configPath,
-      signal: abort.signal,
-      onStarted: () => {
-        started = true;
-        this.#used = true;
-      },
-      onStatus: (status) => {
-        for (const owner of this.#owners) owner.emit(status);
-      },
-    })
-      .catch(async (error: unknown) => {
-        // Failed builds may have created labeled resources before returning a handle. Reap before
-        // admitting a retry. Explicit stop/last release owns cleanup of an aborted attempt.
-        if (started && !abort.signal.aborted) {
-          try {
-            await stopSandbox(this.root, this.configPath);
-            this.#used = false;
-          } catch (cleanupError) {
-            throw new AggregateError(
-              [error, cleanupError],
-              "Docker provisioning and cleanup failed",
-              { cause: cleanupError },
-            );
-          }
-        }
-        throw error;
-      })
-      .finally(() => {
-        if (this.#provision === provision && abort.signal.aborted) this.#provision = undefined;
+    const provision = (async () => {
+      await this.beforeStart?.();
+      abort.signal.throwIfAborted();
+      return provisionDevcontainer(this.root, {
+        configPath: this.configPath,
+        ...(this.scope ? { scope: this.scope } : {}),
+        ...(this.metadataRoot ? { metadataRoot: this.metadataRoot } : {}),
+        signal: abort.signal,
+        onStatus: (status) => {
+          for (const owner of this.#owners) owner.emit(status);
+        },
       });
+    })();
     this.#provision = provision;
-    // Rejections remain observable to all users of the attempt; a later operation can retry.
     void provision.catch(() => {
       if (this.#provision === provision) this.#provision = undefined;
     });
     return provision;
   }
 
-  async #stop(explicit: boolean): Promise<void> {
-    this.#clearIdleTimer();
-    this.#abort?.abort();
+  async #drainProvision(): Promise<void> {
     const provision = this.#provision;
+    await provision?.catch(() => undefined);
     this.#provision = undefined;
     this.#abort = undefined;
-    await provision?.catch(() => undefined);
-    if (explicit || this.#used) await stopSandbox(this.root, this.configPath);
-    this.#used = false;
-    this.#clearIdleTimer();
   }
 
   #warn(action: string): void {
@@ -214,71 +292,5 @@ export class DockerEnvironment {
     const message = `${action} the shared Docker environment affects ${this.#owners.size} conversations and may interrupt their running commands.`;
     for (const owner of this.#owners)
       owner.emit({ type: "sandbox.status", phase: "warning", message });
-  }
-
-  #touch(): void {
-    this.#clearIdleTimer();
-    if (this.closing || this.#owners.size === 0) return;
-    const timeouts = [...this.#owners].map((owner) => owner.idleTimeoutMinutes);
-    if (timeouts.includes(0)) return;
-    this.#idleTimer = setTimeout(() => void this.#reapIfIdle(), Math.max(...timeouts) * 60_000);
-    this.#idleTimer.unref();
-  }
-
-  #clearIdleTimer(): void {
-    if (this.#idleTimer !== undefined) clearTimeout(this.#idleTimer);
-    this.#idleTimer = undefined;
-  }
-
-  async #reapIfIdle(): Promise<void> {
-    this.#idleTimer = undefined;
-    if (this.#busy > 0 || this.closing) {
-      this.#touch();
-      return;
-    }
-    const h = await this.current();
-    if (!h) return;
-    const probe = await captureText("docker", [
-      "exec",
-      h.containerId,
-      "sh",
-      "-c",
-      'entries=$(ls -1 /dev/pts 2>/dev/null) || exit 1; printf "%s\\n" "$entries" | awk \'NF && $0 != "ptmx" { n++ } END { print n+0 }\'',
-    ]).catch(() => undefined);
-    if (!probe || probe.exitCode !== 0 || Number(probe.stdout.trim()) > 0) {
-      this.#touch();
-      return;
-    }
-    // IO/controls may arrive while the interactive-session probe is outstanding.
-    if (this.#idleTimer !== undefined || this.#busy > 0 || this.closing) return;
-    await this.#mutate(async () => {
-      if (this.#idleTimer !== undefined || this.#busy > 0 || this.closing) return;
-      const current = await this.current();
-      if (current !== h) return;
-      const stopped = await captureText("docker", ["stop", h.containerId]).catch(
-        (error: unknown) => {
-          // The CLI may become unavailable between the probe and stop. This is a process edge;
-          // preserve the handle and retry only at the next bounded idle boundary.
-          if (
-            !(error instanceof Error) ||
-            !("code" in error) ||
-            (error.code !== "ENOENT" && error.code !== "EACCES" && error.code !== "EPERM")
-          )
-            throw error;
-          for (const owner of this.#owners)
-            owner.emit({
-              type: "sandbox.status",
-              phase: "error",
-              message: `Could not idle-stop Docker (${error.code}); retaining the environment.`,
-            });
-          return undefined;
-        },
-      );
-      if (!stopped || stopped.exitCode !== 0) {
-        this.#touch();
-        return;
-      }
-      this.#provision = undefined;
-    });
   }
 }

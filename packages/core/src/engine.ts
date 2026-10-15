@@ -1,3 +1,5 @@
+import { WorkspaceOperationError } from "@harness/protocol";
+import { relative, isAbsolute } from "node:path";
 import { InteractionTimeoutError, type RequestOptions } from "@harness/protocol";
 import { randomUUID } from "node:crypto";
 import {
@@ -107,6 +109,8 @@ export class Engine {
   /** Each observer with its optional conversation scope; unscoped ones see every event. */
   readonly #observers: { observer: Observer; scope?: ConversationId }[];
   readonly #runtimes = new Map<ConversationId, Runtime>();
+  readonly #deletingWorkspaces = new Set<string>();
+  readonly #workspaceOperations = new Map<string, number>();
   readonly #loading = new Map<ConversationId, Promise<Runtime>>();
   /** Ephemeral ownership for loaded roots and children created during this process. */
   readonly #roots = new Map<ConversationId, ConversationId>();
@@ -159,10 +163,29 @@ export class Engine {
       throw new Error("cannot deliver input during conversation deactivation");
     }
     const runtime = await this.#runtime(conversationId);
+    this.assertWorkspaceAvailable(runtime.conversation.workspaceRoot);
     if (this.#rootScopeUnavailable(conversationId)) {
       if (input.source.kind === "plugin") return;
       throw new Error("cannot deliver input during conversation deactivation");
     }
+    if (runtime.workspaceSwitch) {
+      if (intent === "interrupt") {
+        runtime.workspaceSwitch.controller.abort();
+        await runtime.workspaceSwitch.done.catch(() => undefined);
+      } else
+        throw new WorkspaceOperationError("Workspace switch in progress; retry after it completes");
+    }
+    if (runtime.preparation) {
+      if (intent === "interrupt") {
+        runtime.preparation.controller.abort();
+        await runtime.preparation.done.catch(() => undefined);
+      } else throw new Error("Workspace is preparing; retry after it completes");
+    }
+    if (
+      this.#rootScopeUnavailable(conversationId) ||
+      this.#runtimes.get(conversationId) !== runtime
+    )
+      throw new Error("Conversation closed during workspace interruption");
     if (
       input.source.kind === "user" &&
       input.content.some((block) => block.type !== "text" || block.text.length > 0)
@@ -183,19 +206,35 @@ export class Engine {
     const root = this.#rootOf(conversationId);
     if (conversationId === root) this.#closedRoots.delete(root);
     const runtime = await this.#runtime(conversationId);
+    this.assertWorkspaceAvailable(runtime.conversation.workspaceRoot);
     if (this.#rootScopeUnavailable(conversationId)) {
       throw new Error("cannot prepare a conversation during deactivation");
     }
     const execution = this.#service(runtime, "execution") as
-      { bind?: (emit: (event: PluginEvent) => void) => void | Promise<unknown> } | undefined;
-    await execution?.bind?.((event) => {
-      if (
-        this.#runtimes.get(conversationId) === runtime &&
-        !this.#rootScopeUnavailable(conversationId)
-      ) {
-        this.#emitPlugin({ conversationId, ...event });
-      }
-    });
+      | {
+          bind?: (emit: (event: PluginEvent) => void) => void | Promise<unknown>;
+          prepare?: (signal?: AbortSignal) => Promise<void>;
+        }
+      | undefined;
+    if (runtime.preparation) return runtime.preparation.done;
+    const controller = new AbortController();
+    const done = Promise.resolve()
+      .then(async () => {
+        await execution?.bind?.((event) => {
+          if (
+            this.#runtimes.get(conversationId) === runtime &&
+            !this.#rootScopeUnavailable(conversationId)
+          )
+            this.#emitPlugin({ conversationId, ...event });
+        });
+        controller.signal.throwIfAborted();
+        await execution?.prepare?.(controller.signal);
+      })
+      .finally(() => {
+        runtime.preparation = undefined;
+      });
+    runtime.preparation = { controller, done };
+    return done;
   }
 
   /**
@@ -382,8 +421,13 @@ export class Engine {
   isSessionBusy(conversationId: ConversationId): boolean {
     const rootId = this.#rootOf(conversationId);
     return (
-      this.#treeRuntimes(rootId).some((runtime) => runtime.running || runtime.inbox.length > 0) ||
-      this.#treeHasDeactivationBlocker(rootId)
+      this.#treeRuntimes(rootId).some(
+        (runtime) =>
+          runtime.running ||
+          runtime.inbox.length > 0 ||
+          runtime.workspaceSwitch !== undefined ||
+          runtime.preparation !== undefined,
+      ) || this.#treeHasDeactivationBlocker(rootId)
     );
   }
 
@@ -410,6 +454,17 @@ export class Engine {
       const runtimes = this.#treeRuntimes(rootId);
 
       this.cancel(rootId);
+      for (const runtime of runtimes) {
+        runtime.workspaceSwitch?.controller.abort();
+        runtime.preparation?.controller.abort();
+      }
+      await Promise.allSettled(
+        runtimes.flatMap((runtime) =>
+          [runtime.workspaceSwitch, runtime.preparation].flatMap((operation) =>
+            operation ? [operation.done] : [],
+          ),
+        ),
+      );
       await Promise.all(runtimes.map((runtime) => runtime.whenIdle()));
 
       // Providers are registered outside-in; dispose in reverse so orchestration/resources (for
@@ -468,6 +523,9 @@ export class Engine {
 
   /** Resolve-and-cache a service for a runtime, building it from its provider on first use. */
   #service(runtime: Runtime, key: string): unknown {
+    this.assertWorkspaceAvailable(runtime.conversation.workspaceRoot);
+    if (runtime.workspaceSwitch && !runtime.workspaceSwitch.deferred)
+      throw new WorkspaceOperationError("Workspace switch in progress");
     if (runtime.services.has(key)) return runtime.services.get(key);
     if (
       this.#runtimes.get(runtime.conversation.id) !== runtime ||
@@ -540,6 +598,223 @@ export class Engine {
     return (await this.#updateOverrides(conversationId, { model })).model;
   }
 
+  assertWorkspaceAvailable(path: string | null): void {
+    if (!path) return;
+    for (const root of this.#deletingWorkspaces) {
+      const suffix = relative(root, path);
+      if (
+        !isAbsolute(suffix) &&
+        suffix !== ".." &&
+        !suffix.startsWith("../") &&
+        !suffix.startsWith("..\\")
+      )
+        throw new WorkspaceOperationError("Worktree deletion is in progress");
+    }
+  }
+
+  /** Short administrative workspace preparation also excludes checkout deletion. */
+  async runWorkspaceOperation<T>(path: string, operation: () => Promise<T>): Promise<T> {
+    this.assertWorkspaceAvailable(path);
+    this.#workspaceOperations.set(path, (this.#workspaceOperations.get(path) ?? 0) + 1);
+    try {
+      return await operation();
+    } finally {
+      const count = this.#workspaceOperations.get(path)! - 1;
+      if (count) this.#workspaceOperations.set(path, count);
+      else this.#workspaceOperations.delete(path);
+    }
+  }
+
+  async deleteWorkspace(path: string, remove: () => Promise<void>): Promise<void> {
+    this.assertWorkspaceAvailable(path);
+    this.assertWorkspaceIdle(path);
+    this.#deletingWorkspaces.add(path);
+    try {
+      await remove();
+    } finally {
+      this.#deletingWorkspaces.delete(path);
+    }
+  }
+
+  assertWorkspaceIdle(path: string): void {
+    for (const active of this.#workspaceOperations.keys()) {
+      const suffix = relative(path, active);
+      if (
+        !isAbsolute(suffix) &&
+        suffix !== ".." &&
+        !suffix.startsWith("../") &&
+        !suffix.startsWith("..\\")
+      )
+        throw new WorkspaceOperationError(
+          "Workspace preparation is in progress; wait before deleting it",
+        );
+    }
+    for (const runtime of this.#runtimes.values()) {
+      if (
+        [runtime.pendingWorkspace, runtime.workspaceSwitch?.target].some((target) => {
+          if (!target) return false;
+          const suffix = relative(path, target);
+          return (
+            !isAbsolute(suffix) &&
+            suffix !== ".." &&
+            !suffix.startsWith("../") &&
+            !suffix.startsWith("..\\")
+          );
+        })
+      )
+        throw new WorkspaceOperationError("A conversation is switching into this worktree");
+      const cwd = runtime.conversation.workspaceRoot;
+      if (!cwd) continue;
+      const suffix = relative(path, cwd);
+      if (
+        isAbsolute(suffix) ||
+        suffix === ".." ||
+        suffix.startsWith("../") ||
+        suffix.startsWith("..\\")
+      )
+        continue;
+      if (
+        runtime.pendingWorkspace === path ||
+        this.isSessionBusy(this.#rootOf(runtime.conversation.id))
+      )
+        throw new WorkspaceOperationError(
+          "Stop conversations and background work in this worktree before deleting it",
+        );
+    }
+  }
+
+  async switchWorkspace(
+    conversationId: ConversationId,
+    resolveTarget: (signal: AbortSignal) => Promise<string>,
+    deferred = false,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const runtime = await this.#runtime(conversationId);
+    this.assertWorkspaceAvailable(runtime.conversation.workspaceRoot);
+    signal?.throwIfAborted();
+    if (runtime.workspaceSwitch || runtime.preparation || runtime.pendingWorkspace)
+      throw new WorkspaceOperationError("A workspace switch is already pending");
+    if (this.#treeHasDeactivationBlocker(this.#rootOf(conversationId)))
+      throw new WorkspaceOperationError(
+        "Stop background activities and subagents before switching workspaces",
+      );
+    if (deferred && !runtime.currentTurnId)
+      throw new Error("No active turn for deferred workspace switch");
+    if (!deferred && (runtime.running || runtime.inbox.length))
+      throw new WorkspaceOperationError(
+        "Wait for the conversation to become idle before switching workspaces",
+      );
+    await this.#replaceWorkspace(runtime, resolveTarget, deferred, signal);
+  }
+
+  #replaceWorkspace(
+    runtime: Runtime,
+    resolveTarget: string | ((signal: AbortSignal) => Promise<string>),
+    deferred = false,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const controller = new AbortController();
+    const combined = AbortSignal.any([
+      controller.signal,
+      ...[runtime.controller?.signal, signal].filter(
+        (value): value is AbortSignal => value !== undefined,
+      ),
+    ]);
+    const operation = {
+      deferred,
+      target: typeof resolveTarget === "string" ? resolveTarget : undefined,
+      controller,
+      done: Promise.resolve(),
+    };
+    operation.done = Promise.resolve()
+      .then(async () => {
+        combined.throwIfAborted();
+        const target =
+          typeof resolveTarget === "string" ? resolveTarget : await resolveTarget(combined);
+        operation.target = target;
+        combined.throwIfAborted();
+        this.assertWorkspaceAvailable(target);
+        if (deferred) runtime.pendingWorkspace = target;
+        else await this.#commitWorkspace(runtime, target, combined);
+      })
+      .finally(() => {
+        runtime.workspaceSwitch = undefined;
+      });
+    runtime.workspaceSwitch = operation;
+    return operation.done;
+  }
+
+  async #commitWorkspace(
+    runtime: Runtime,
+    workspaceRoot: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (this.#treeHasDeactivationBlocker(this.#rootOf(runtime.conversation.id)))
+      throw new WorkspaceOperationError(
+        "Stop background activities and subagents before switching workspaces",
+      );
+    const previous = runtime.conversation;
+    if (!previous.workspaceRoot)
+      throw new Error("Projectless conversations cannot switch worktrees");
+    if (previous.workspaceRoot === workspaceRoot) return;
+    signal.throwIfAborted();
+    const replacements = new Map<string, unknown>();
+    let committed = false;
+    try {
+      const next = {
+        ...previous,
+        workspaceRoot,
+        originalWorkspaceRoot: previous.originalWorkspaceRoot ?? previous.workspaceRoot,
+      };
+      for (const provider of this.host.services.values()) {
+        if (provider.scope === "workspace") replacements.set(provider.key, provider.for(next));
+      }
+      const execution = replacements.get("execution") as
+        | {
+            bind?: (emit: (event: PluginEvent) => void) => void | Promise<unknown>;
+            prepare?: (signal?: AbortSignal) => Promise<void>;
+          }
+        | undefined;
+      await execution?.bind?.((event) =>
+        this.#emitPlugin({ conversationId: previous.id, ...event }),
+      );
+      await execution?.prepare?.(signal);
+      signal.throwIfAborted();
+      if (this.#rootScopeUnavailable(previous.id)) throw new Error("Conversation is closing");
+      this.assertWorkspaceAvailable(workspaceRoot);
+      const record = await this.store.updateConversationWorkspace(previous.id, workspaceRoot);
+      const oldServices = new Map<string, unknown>();
+      for (const [key, service] of replacements) {
+        if (runtime.services.has(key)) oldServices.set(key, runtime.services.get(key));
+        runtime.services.set(key, service);
+      }
+      runtime.setConversation({ ...record, config: runtime.conversation.config });
+      committed = true;
+      this.#emitKernel({
+        type: "workspace.changed",
+        conversationId: previous.id,
+        workspaceRoot,
+        originalWorkspaceRoot: next.originalWorkspaceRoot,
+      });
+      const disposed = await Promise.allSettled(
+        [...oldServices].map(([key, service]) =>
+          Promise.resolve().then(() => this.host.services.get(key)?.dispose?.(service)),
+        ),
+      );
+      const failures = disposed.filter((result) => result.status === "rejected");
+      if (failures.length)
+        throw new Error("Workspace switched, but previous workspace cleanup failed");
+    } finally {
+      if (!committed) {
+        await Promise.all(
+          [...replacements].map(([key, service]) =>
+            Promise.resolve().then(() => this.host.services.get(key)?.dispose?.(service)),
+          ),
+        );
+      }
+    }
+  }
+
   /** Applies the already-validated durable plugin override layer. */
   async updatePluginOverrides(
     conversationId: ConversationId,
@@ -557,7 +832,9 @@ export class Engine {
     const record = await this.store.getConversation(conversationId);
     if (!record) throw new Error(`unknown conversation: ${conversationId}`);
     const config = await this.resolveConfig(record);
-    this.#runtimes.get(conversationId)?.setConversation({ ...record, config });
+    const runtime = this.#runtimes.get(conversationId);
+    if (runtime && !this.#rootScopeUnavailable(conversationId))
+      runtime.setConversation({ ...runtime.conversation, overrides: record.overrides, config });
     this.#emitKernel({ type: "config.changed", conversationId, config });
     return config;
   }
@@ -753,6 +1030,7 @@ export class Engine {
         });
       }
     } finally {
+      runtime.pendingWorkspace = undefined;
       runtime.currentTurnId = undefined;
       runtime.controller = undefined;
     }
@@ -817,8 +1095,8 @@ export class Engine {
     // here rather than per step.
     const provider = this.host.providers.get(conversation.config.model.provider);
     provider.validateConfig(conversation.config.model);
-    const toolSet = await this.#resolveTools(conversation, runtime);
-    const toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "direct");
+    let toolSet = await this.#resolveTools(conversation, runtime);
+    let toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "direct");
     const pricing = this.#pricingFor(conversation.config.model);
     let recoveredOverflow = false;
     let compactedBeforeAttempt = false;
@@ -1022,7 +1300,39 @@ export class Engine {
       await this.#dispatchCalls(calls, toolSet, conversation, turnId, signal, runtime);
 
       // --- Finalize. ---
-      if (signal.aborted) throw new TurnAborted();
+      if (signal.aborted) {
+        runtime.pendingWorkspace = undefined;
+        throw new TurnAborted();
+      }
+      if (runtime.pendingWorkspace) {
+        const target = runtime.pendingWorkspace;
+        runtime.pendingWorkspace = undefined;
+        let text: string;
+        const oldRoot = conversation.workspaceRoot;
+        try {
+          await this.#replaceWorkspace(runtime, target);
+          text = `Working directory switched from ${oldRoot} to ${target}. No files moved. Earlier relative output paths belong to ${oldRoot}; do not resolve them against the new checkout.`;
+        } catch (error) {
+          text = `Workspace switch failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
+        if (runtime.conversation.workspaceRoot !== oldRoot) {
+          conversation = {
+            ...conversation,
+            workspaceRoot: runtime.conversation.workspaceRoot,
+            originalWorkspaceRoot: runtime.conversation.originalWorkspaceRoot!,
+          };
+          toolSet = await this.#resolveTools(conversation, runtime);
+          toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "direct");
+        }
+        const item = await this.store.appendItem({
+          conversationId: conversation.id,
+          turnId,
+          type: "context",
+          key: "workspace-switch",
+          content: [{ type: "text", text }],
+        });
+        this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
+      }
       if (calls.length === 0) {
         return; // final, non-tool response: the turn is done
       }
@@ -1901,6 +2211,14 @@ export class Engine {
     const instructions: ContentBlock[] = [
       { type: "text", text: conversation.config.instructions },
       { type: "text", text: "Cite sources using Markdown links." },
+      ...(conversation.workspaceRoot
+        ? [
+            {
+              type: "text" as const,
+              text: `Current working directory: ${conversation.workspaceRoot}. Files and saved outputs are not moved when switching workspaces; use recorded absolute output paths or switch back to the originating workspace.${conversation.originalWorkspaceRoot ? ` Original checkout: ${conversation.originalWorkspaceRoot}. Historical relative .harness output paths from before workspace switching belong to that checkout.` : ""}`,
+            },
+          ]
+        : []),
       ...sourceInstructions,
     ];
 

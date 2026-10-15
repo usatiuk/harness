@@ -108,7 +108,10 @@ it("edits and clears compaction threshold through selected-host Settings", async
     await vi.waitFor(() => expect(hosts.selected?.presentation.activeId).toBeDefined(), {
       timeout: 20000,
     });
-    const edit = async (value: string) => {
+    const edit = async (
+      value: string,
+      key: "compactionThresholdTokens" | "worktreeDirectory" = "compactionThresholdTokens",
+    ) => {
       // Creating the active conversation precedes mounting its input handlers.
       await vi.waitFor(() => expect(ui.lastFrame()).toContain("/help"));
       await writeInput(ui, "\u0007");
@@ -127,8 +130,16 @@ it("edits and clears compaction threshold through selected-host Settings", async
           /"compactionThresholdTokens":(null|1200)/,
         ),
       );
-      await writeInput(ui, "\u001b[D");
-      for (let index = 0; index < 4; index++) await writeInput(ui, "\u007f");
+      const { settings } = await hosts.selected!.harness!.client.peer.request(
+        appSettingsRequest,
+        {},
+      );
+      const json = JSON.stringify(settings);
+      const token = JSON.stringify(settings[key]);
+      const end =
+        json.indexOf(JSON.stringify(key) + ":") + (JSON.stringify(key) + ":").length + token.length;
+      for (let index = end; index < json.length; index++) await writeInput(ui, "\u001b[D");
+      for (let index = 0; index < token.length; index++) await writeInput(ui, "\u007f");
       await writeInput(ui, value);
       await writeInput(ui, "\r");
       await vi.waitFor(() => expect(ui.lastFrame()).toContain("Host defaults saved"));
@@ -146,6 +157,16 @@ it("edits and clears compaction threshold through selected-host Settings", async
     expect(
       (await hosts.selected!.harness!.client.peer.request(appSettingsRequest, {})).settings
         .compactionThresholdTokens,
+    ).toBeNull();
+    await edit(JSON.stringify(join(path, "worktrees")), "worktreeDirectory");
+    expect(
+      (await hosts.selected!.harness!.client.peer.request(appSettingsRequest, {})).settings
+        .worktreeDirectory,
+    ).toBe(join(path, "worktrees"));
+    await edit("null", "worktreeDirectory");
+    expect(
+      (await hosts.selected!.harness!.client.peer.request(appSettingsRequest, {})).settings
+        .worktreeDirectory,
     ).toBeNull();
   } finally {
     ui.unmount();

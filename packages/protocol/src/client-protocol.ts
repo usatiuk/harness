@@ -119,6 +119,7 @@ export type WireConversationConfig = z.infer<typeof wireConversationConfigSchema
 export const wireConversationSchema = z.strictObject({
   id: idSchema,
   workspaceRoot: z.string().nullable(),
+  originalWorkspaceRoot: z.string().nullable().default(null),
   title: z.string().nullable(),
   overrides: z.record(z.string(), jsonValueSchema),
   head: idSchema.nullable(),
@@ -447,6 +448,11 @@ export const wireConversationEventSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("head.changed"), head: idSchema.nullable() }),
   z.strictObject({ type: z.literal("config.changed"), config: wireConversationConfigSchema }),
   z.strictObject({ type: z.literal("title.changed"), title: z.string() }),
+  z.strictObject({
+    type: z.literal("workspace.changed"),
+    workspaceRoot: z.string(),
+    originalWorkspaceRoot: z.string(),
+  }),
   z.strictObject({
     type: z.literal("usage.changed"),
     summary: wireUsageSummarySchema,

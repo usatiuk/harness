@@ -348,6 +348,14 @@ export class DesktopSession {
           )
             this.unread.add(id);
 
+          if (isKernelEvent(event) && event.type === "workspace.changed") {
+            view.conversation = {
+              ...view.conversation,
+              workspaceRoot: event.workspaceRoot,
+              originalWorkspaceRoot: event.originalWorkspaceRoot,
+            };
+            void this.refreshSidebar();
+          }
           if (isKernelEvent(event) && event.type === "title.changed") {
             view.conversation = { ...view.conversation, title: event.title };
             this.recents.rows = this.recents.rows.map((row) =>
@@ -450,6 +458,7 @@ export class DesktopSession {
     sandbox: string,
     toolMode: string,
     preset: string,
+    newWorktree = false,
   ): Promise<string> {
     const [provider, modelId] = model.split("\u0000");
     if (!provider || !modelId) throw new Error("Select a model");
@@ -467,7 +476,11 @@ export class DesktopSession {
       tools: { mode: toolMode },
       plugins: { sandbox: { backend: sandbox } },
     };
-    const conversation = decodeConversation(await this.client.create({ cwd, overrides }));
+    const conversation = decodeConversation(
+      newWorktree
+        ? await this.plugins.createWorktreeConversation(cwd, overrides)
+        : await this.client.create({ cwd, overrides }),
+    );
     await this.refreshSidebar();
     return conversation.id;
   }

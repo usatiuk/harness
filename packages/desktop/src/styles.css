@@ -1646,3 +1646,48 @@ main {
   grid-column: 1 / -1;
   gap: 6px;
 }
+
+.conversation-branch.control {
+  min-height: 22px;
+  height: 22px;
+  padding: 0 4px;
+  line-height: 1;
+  color: var(--muted-ink);
+  font-size: 11px;
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worktree-management-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.worktree-management-row > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inline-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.worktree-options {
+  display: grid;
+  gap: 4px;
+}
+.worktree-options .control {
+  justify-content: flex-start;
+  text-align: left;
+}
+.worktree-path {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}

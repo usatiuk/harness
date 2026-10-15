@@ -180,6 +180,7 @@ const middleware: ToolMiddleware = {
 
 const service: ServiceProvider = {
   key: SERVICE_KEY,
+  scope: "workspace",
   for: (conversation) => new AgentsInstructions(conversation.workspaceRoot),
 };
 

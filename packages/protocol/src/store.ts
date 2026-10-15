@@ -42,7 +42,17 @@ export type ConversationProjectCursor = ConversationProject;
  * `ConversationRecord` (durable identity + overrides) — it never sees the resolved `config`, which
  * the service derives from the settings cascade on load.
  */
+export type ManagedWorktree = {
+  path: string;
+  repository: string;
+  createdAt: number;
+};
+
 export interface Store {
+  putManagedWorktree(worktree: ManagedWorktree): Promise<void>;
+  getManagedWorktree(path: string): Promise<ManagedWorktree | undefined>;
+  listManagedWorktrees(limit: number, before?: string): Promise<ManagedWorktree[]>;
+  deleteManagedWorktree(path: string): Promise<void>;
   createConversation(input: NewConversationRecord): Promise<ConversationRecord>;
   /** Atomically fork the prefix before a user item; shared items remain immutable. */
   forkConversation(
@@ -56,6 +66,11 @@ export interface Store {
     title: string,
     expected: string | null,
   ): Promise<boolean>;
+  /** Change execution directory while preserving the original settings root. */
+  updateConversationWorkspace(
+    id: ConversationId,
+    workspaceRoot: string,
+  ): Promise<ConversationRecord>;
   getConversation(id: ConversationId): Promise<ConversationRecord | undefined>;
   /**
    * Deletes the conversation iff still empty (head === null and no turn was ever

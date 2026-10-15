@@ -46,3 +46,40 @@ export const sandboxStopRequest = defineRequest({
 
 export type SandboxState = z.infer<typeof sandboxStateSchema>;
 export type SandboxSnapshot = z.infer<typeof sandboxSnapshotSchema>;
+
+export const sandboxEnvironmentsRequest = defineRequest({
+  direction: "client-to-server",
+  method: "plugin.sandbox.environments",
+  params: z.strictObject({
+    limit: z.number().int().positive().max(100),
+    before: z.string().nullable(),
+  }),
+  result: z.array(
+    z.strictObject({
+      id: z.string(),
+      workspaceRoot: z.string().nullable(),
+      running: z.boolean(),
+      containers: z.number().int().nonnegative(),
+    }),
+  ),
+});
+export const sandboxEnvironmentControlRequest = defineRequest({
+  direction: "client-to-server",
+  method: "plugin.sandbox.environmentControl",
+  params: z.strictObject({ id: z.string(), action: z.enum(["stop", "remove"]) }),
+  result: z.null(),
+});
+
+/** Local CLI owns terminal attachment; the server owns provisioning and environment lifetime. */
+export const sandboxWorkspaceRequest = defineRequest({
+  direction: "client-to-server",
+  method: "plugin.sandbox.workspace",
+  params: z.strictObject({ path: z.string().min(1), action: z.enum(["start", "stop"]) }),
+  result: z
+    .strictObject({
+      containerId: z.string(),
+      remoteUser: z.string(),
+      remoteWorkspaceFolder: z.string(),
+    })
+    .nullable(),
+});

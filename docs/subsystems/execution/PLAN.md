@@ -29,7 +29,7 @@ only with matching implementation evidence.
 - Provider-owned execution tools.
 - LSP/edit diagnostics until selected over MCP callable tools as the next vertical
   plugin.
-- Remote SSH/worktree substrates without a concrete product workflow.
+- Additional execution substrates without a concrete product workflow.
 - Parsing arbitrary shell commands to infer exact file targets or permissions.
 - Durable background processes across Harness restarts.
 - A policy language beyond existing tool rules and request middleware.

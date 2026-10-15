@@ -1392,7 +1392,7 @@ test("conversation has a compact title, smaller prose and a quiet Markdown separ
     window.composerFixture.showMarkdown();
   });
   await expect(page.locator(".cell.assistant hr")).toHaveCount(1);
-  await expect(page.locator(".conversation-header")).toHaveText("Building a Teaching Assistant");
+  await expect(page.locator(".conversation-header h1")).toHaveText("Building a Teaching Assistant");
   await expect(page.locator(".workspace-path")).toHaveCount(0);
   const metrics = await page.locator(".cell.assistant").evaluate((cell) => {
     const rule = getComputedStyle(cell.querySelector("hr")!);
@@ -1486,4 +1486,86 @@ test("sidebar headings and chat titles do not select text on double click", asyn
   }
   await page.locator('.sidebar-recents a[href$="/sidebar-0-0"]').dblclick();
   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+});
+
+test("worktree selection stays subtle, refuses running switches and switches back without moving history", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("button", { name: "main", exact: true }).click();
+  await expect(page.getByRole("button", { name: "New worktree", exact: true })).toBeDisabled();
+  await expect(page.getByText("Stop the conversation before switching.")).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("worktree-selection.png") });
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.composerFixture.completeSteps("completed"));
+  await page.getByRole("button", { name: "main", exact: true }).click();
+  await page.getByRole("button", { name: "New worktree", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.worktreeSwitches))
+    .toEqual([{ kind: "new" }]);
+  await expect(page.locator(".conversation-branch")).toContainText("harness/one");
+  await page.getByRole("button", { name: "Original checkout", exact: true }).click();
+  await expect(page.locator(".conversation-branch")).toContainText("main");
+  await expect(page.locator(".composer")).toBeVisible();
+});
+test("worktree manager requires explicit destructive confirmation", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Worktrees", exact: true }).click();
+  await expect(page.getByText("D:\\worktrees\\one", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  expect(await page.evaluate(() => window.composerFixture.worktreeDeletes)).toEqual([]);
+  await page.getByRole("button", { name: "Delete worktree", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.worktreeDeletes))
+    .toEqual([{ path: "D:\\worktrees\\one", force: true }]);
+});
+
+test("Settings saves and clears the server worktree directory", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  const field = page.getByRole("textbox", { name: "Worktree directory" });
+  await field.fill("/server/custom worktrees");
+  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window.composerFixture.settingsWrites.at(-1) as { worktreeDirectory?: string })
+            ?.worktreeDirectory,
+      ),
+    )
+    .toBe("/server/custom worktrees");
+  await field.fill("");
+  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window.composerFixture.settingsWrites.at(-1) as { worktreeDirectory?: string | null })
+            ?.worktreeDirectory,
+      ),
+    )
+    .toBeNull();
+});
+
+test("creation disables worktrees for non-Git folders and uses worktree creation for eligible ones", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  const folder = page.getByRole("textbox", { name: "Project folder", exact: true });
+  const worktree = page.getByRole("checkbox", { name: "Start in a new Git worktree" });
+  await folder.fill("/not-git");
+  await expect(worktree).toBeDisabled();
+  await folder.fill("/source/repository");
+  await expect(worktree).toBeEnabled();
+  await worktree.check();
+  await page.getByRole("button", { name: "Create conversation", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.worktreeSwitches))
+    .toEqual([{ kind: "create", cwd: "/source/repository" }]);
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
 });

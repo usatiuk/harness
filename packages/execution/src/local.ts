@@ -1,4 +1,4 @@
-import { createWriteStream, mkdirSync, writeFileSync } from "node:fs";
+import { createWriteStream, mkdirSync, writeFileSync, statSync } from "node:fs";
 import { spawn as nodeSpawn } from "node:child_process";
 import { mkdir, readdir, readFile, rm, stat as fsStat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
@@ -34,6 +34,11 @@ export class LocalExecutionContext implements ExecutionContext {
 
   constructor(readonly workspaceRoot: string | null) {}
 
+  async prepare(): Promise<void> {
+    if (this.workspaceRoot && !(await fsStat(this.workspaceRoot)).isDirectory())
+      throw new Error(`Workspace is not a directory: ${this.workspaceRoot}`);
+  }
+
   async read(path: string, range?: ByteRange): Promise<Uint8Array> {
     const buf = await readFile(this.#resolve(path));
     return range ? buf.subarray(range.offset, range.offset + range.length) : buf;
@@ -49,6 +54,7 @@ export class LocalExecutionContext implements ExecutionContext {
   }
 
   async write(path: string, bytes: Uint8Array): Promise<void> {
+    await this.prepare();
     const abs = this.#resolve(path);
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, bytes);
@@ -173,6 +179,7 @@ export class LocalOutputStore implements OutputStore {
 
   #ensureDir(): void {
     const root = this.#root();
+    if (!statSync(root).isDirectory()) throw new Error(`Workspace is not a directory: ${root}`);
     mkdirSync(join(root, ".harness", this.conversationId, "outputs"), { recursive: true });
     try {
       writeFileSync(join(root, ".harness", ".gitignore"), "*\n");
@@ -189,7 +196,7 @@ export class LocalOutputStore implements OutputStore {
     // process, and the in-memory view already carries the outcome.
     stream.on("error", () => {});
     return {
-      path: rel,
+      path: resolve(this.#root(), rel),
       write: (chunk) => void stream.write(chunk),
       close: async (footer) => {
         if (footer) stream.write(footer);
@@ -202,6 +209,6 @@ export class LocalOutputStore implements OutputStore {
     this.#ensureDir();
     const rel = this.#rel(id);
     await writeFile(resolve(this.#root(), rel), text);
-    return rel;
+    return resolve(this.#root(), rel);
   }
 }

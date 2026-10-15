@@ -169,7 +169,7 @@ export function App({
   conversation,
   initialItems,
   initialUsage,
-  cwd,
+  cwd: initialCwd,
   launchCwd,
   onResume,
   onReload,
@@ -185,6 +185,7 @@ export function App({
     init(initialItems, initialUsage),
   );
   const [config, setConfig] = useState(conversation.config);
+  const [cwd, setCwd] = useState(initialCwd);
   const [initialSandboxBackend] = useState<SandboxBackend>(
     () => sandboxConfigSchema.parse(conversation.config.plugins?.["sandbox"] ?? {}).backend,
   );
@@ -239,6 +240,7 @@ export function App({
       // leak into this reducer.
       service.subscribe(conversation.id, (event) => {
         dispatch({ type: "event", event, receivedAt: Date.now() });
+        if (isKernelEvent(event) && event.type === "workspace.changed") setCwd(event.workspaceRoot);
         if (isKernelEvent(event) && event.type === "config.changed") {
           setConfig(event.config);
         }
@@ -415,6 +417,7 @@ export function App({
   const ctx: CommandContext = useMemo(
     () => ({
       service,
+      plugins,
       conversationId: conversation.id,
       cwd,
       model,
@@ -446,6 +449,7 @@ export function App({
       busy,
       exit,
       sandboxView,
+      plugins,
       onHosts,
     ],
   );

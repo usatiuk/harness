@@ -1,3 +1,4 @@
+import { linkedGitDirectories } from "@harness/worktrees";
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { realpathSync } from "node:fs";
@@ -54,6 +55,7 @@ export class NativeExecutionContext implements ExecutionContext {
   readonly shellKind = "bash" as const;
   readonly unconfined: LocalExecutionContext;
   readonly #managedTools = new Set<string>();
+  #gitDirectory: string | undefined;
 
   constructor(
     workspaceRoot: string | null,
@@ -92,6 +94,12 @@ export class NativeExecutionContext implements ExecutionContext {
       );
     }
     this.unconfined = new LocalExecutionContext(this.workspaceRoot);
+  }
+
+  async prepare(): Promise<void> {
+    this.#gitDirectory = this.workspaceRoot
+      ? (await linkedGitDirectories(this.workspaceRoot))?.common
+      : undefined;
   }
 
   read(path: string, range?: ByteRange): Promise<Uint8Array> {
@@ -151,6 +159,8 @@ export class NativeExecutionContext implements ExecutionContext {
         this.workspaceRoot,
       );
     }
+    if (this.#gitDirectory && this.config.workspaceWrite)
+      args.push("--bind", this.#gitDirectory, this.#gitDirectory);
     // The process already inherits Harness's environment. Avoid a login shell: host profile
     // scripts can attempt IPC through services intentionally absent from the private /run (for
     // example Ubuntu im-config invokes systemd-cat and leaks journald errors into command output).

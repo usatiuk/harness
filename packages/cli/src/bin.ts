@@ -24,6 +24,7 @@ program
       "harness cache prune [--apply] previews or removes unused downloads.",
   )
   .version(PRODUCT_VERSION)
+  .option("--worktree", "start a new conversation in a new Git worktree")
   .option("--model <id>", "model id override")
   .option("--cwd <dir>", "working directory for the session")
   .option("--connect-stdio", "run the server as a local stdio child process")
@@ -31,6 +32,7 @@ program
   .option("--host <id>", "select a saved host from client.json")
   .action(
     async (opts: {
+      worktree?: boolean;
       model?: string;
       cwd?: string;
       connectStdio?: boolean;
@@ -38,6 +40,7 @@ program
       host?: string;
     }) => {
       await launch({
+        worktree: opts.worktree,
         model: opts.model,
         cwd: opts.cwd,
         connectStdio: opts.connectStdio,
@@ -61,6 +64,7 @@ program
   .description("resume a conversation (omit the id to pick from a list)")
   .action(async (id: string | undefined, _opts: unknown, cmd: Command) => {
     const globals: {
+      worktree?: boolean;
       model?: string;
       cwd?: string;
       connectStdio?: boolean;
@@ -69,6 +73,7 @@ program
     } = cmd.optsWithGlobals();
     await launch({
       resume: true,
+      worktree: globals.worktree,
       conversationId: id,
       model: globals.model,
       cwd: globals.cwd,

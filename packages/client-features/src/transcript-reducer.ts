@@ -499,6 +499,7 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
         ...state,
         pending: state.pending.filter(({ requestId }) => requestId !== event.requestId),
       };
+    case "workspace.changed":
     case "title.changed":
       return state;
     case "config.changed":

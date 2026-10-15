@@ -333,8 +333,7 @@ The global setting (also configurable with `/sandbox`) is:
       "backend": "native",
       "native": { "workspaceWrite": true, "network": true },
       "docker": {
-        "configPath": ".devcontainer/devcontainer.json",
-        "idleTimeoutMinutes": 10
+        "configPath": ".devcontainer/devcontainer.json"
       }
     }
   }
@@ -352,8 +351,23 @@ The headless service supports independent concurrent conversations; the TUI
 continues to show one conversation. Model/preset choices are pinned at creation,
 while an explicit selection also sets the global default for new conversations.
 Docker conversations using the same project/devcontainer recipe share an
-environment. Closing one releases its own work; the last close removes the
-owned environment. Shared stop/rebuild warns affected conversations and proceeds.
+environment. Closing a conversation releases its own work while the environment
+stays alive. Stop retains containers and state; reopening starts them. Server exit
+stops owned containers, including Compose sidecars. A guardian also stops them if
+the server is killed. Remove discards containers/networks and retains volumes.
+Shared stop/rebuild warns affected conversations and proceeds.
+
+New conversations can start in a Git worktree; the branch control beside the title
+switches idle conversations between worktrees and their original checkout. No dirty
+files or history are copied. Settings → Worktrees lists managed checkouts and Docker
+environments. Deleting a checkout retains its branch/history and requires explicit
+confirmation to discard dirty files. The global worktree directory lives in Settings
+→ Defaults (`plugins.worktrees.directory`); unset uses `~/.harness/worktrees` on the
+selected server. TUI offers `--worktree`, `/worktree` and `/docker` commands and the
+same directory in selected-host Settings. Agent tools switch only at the user's
+request and apply after the current tool batch. See the
+[execution architecture](docs/subsystems/execution/README.md#worktrees-and-workspace-switching)
+for lifecycle and recovery details.
 
 Routine Native calls run inside Bubblewrap without approval. Harness-executed function tools can
 opt into explicit host escape with `executionFunctionTool`; their schema then exposes

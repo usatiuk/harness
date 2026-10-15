@@ -32,6 +32,7 @@ const settings = z.strictObject({
   sandbox: z.enum(["local", "native", "docker"]),
   toolMode: z.enum(["direct", "hybrid", "code-only"]),
   compactionThresholdTokens: compactionThresholdSchema.nullable(),
+  worktreeDirectory: z.string().trim().min(1).nullable(),
 });
 const providerSettingSchema = z.strictObject({
   key: z.string().min(1),
@@ -93,6 +94,9 @@ export const appSettingsUpdateRequest = defineRequest({
     ...(patch.autoApproval === undefined ? {} : { autoApproval: patch.autoApproval }),
     ...(patch.sandbox === undefined ? {} : { sandbox: patch.sandbox }),
     ...(patch.toolMode === undefined ? {} : { toolMode: patch.toolMode }),
+    ...(patch.worktreeDirectory === undefined
+      ? {}
+      : { worktreeDirectory: patch.worktreeDirectory }),
     ...(patch.compactionThresholdTokens === undefined
       ? {}
       : { compactionThresholdTokens: patch.compactionThresholdTokens }),

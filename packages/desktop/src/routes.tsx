@@ -1,3 +1,9 @@
+import {
+  NewWorktreeOption,
+  WorktreeControl,
+  ManagedWorktrees,
+  ManagedDockerEnvironments,
+} from "./components/worktree-controls.tsx";
 import { SidebarLayout } from "./components/sidebar.tsx";
 import { McpSettings } from "./components/mcp-settings.tsx";
 import { DesktopUpdates } from "./components/desktop-updates.tsx";
@@ -25,6 +31,7 @@ import {
   useRouteLoaderData,
   useRevalidator,
   useSearchParams,
+  useParams,
   type ActionFunctionArgs,
 } from "react-router";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -68,6 +75,7 @@ import { ConversationCanvas } from "./components/conversation-canvas.tsx";
 import { AppearanceControls, ComposerSettings } from "./components/appearance-controls.tsx";
 import {
   FolderOpen,
+  GitBranch,
   LoaderCircle,
   Send,
   Square,
@@ -357,6 +365,7 @@ export function createDesktopRouter(
                 : null,
             sandbox,
             compactionThresholdTokens,
+            worktreeDirectory: field(data, "worktreeDirectory").trim() || null,
           });
           return {
             ok: true,
@@ -483,6 +492,10 @@ export function createDesktopRouter(
           title={conversation.workspaceRoot ?? undefined}
         >
           <span className="conversation-title">{conversationLabel(conversation, view)}</span>
+          {conversation.originalWorkspaceRoot &&
+            conversation.workspaceRoot !== conversation.originalWorkspaceRoot && (
+              <GitBranch size={12} aria-label="Worktree" />
+            )}
           {status === "Running" ? (
             <LoaderCircle
               size={12}
@@ -563,8 +576,11 @@ export function createDesktopRouter(
   }
   function NewConversation() {
     const { settings } = useRouteLoaderData<RootData>("app")!;
+    const [search] = useSearchParams();
     const [cwd, setCwd] = useState(
-      localStorage.getItem(session.storageKey("last-directory")) ?? settings.cwd,
+      search.get("cwd") ??
+        localStorage.getItem(session.storageKey("last-directory")) ??
+        settings.cwd,
     );
     const navigation = useNavigation();
     const defaultModel = settings.settings.model ?? session.domain.defaultModel();
@@ -618,6 +634,7 @@ export function createDesktopRouter(
               <p className="muted">Enter a project path on {connections.label}.</p>
             )}
           </div>
+          <NewWorktreeOption session={session} cwd={cwd} />
           <Input type="hidden" name="model" value={selection} />
           <Input type="hidden" name="preset" value={preset} />
           <Input type="hidden" name="sandbox" value={backend} />
@@ -1641,6 +1658,11 @@ export function createDesktopRouter(
       <div className="conversation-heading">
         <div className="conversation-title-display" hidden={editing}>
           <h1>{conversationLabel(view.conversation, view)}</h1>
+          <WorktreeControl
+            session={session}
+            conversation={view.conversation}
+            running={view.state.turn.status === "running"}
+          />
           <IconButton
             ref={pencil}
             icon={PenLine}
@@ -1915,6 +1937,7 @@ export function createDesktopRouter(
       "Defaults",
       "Providers",
       "MCP",
+      "Worktrees",
       "Application",
     ] as const;
     const requested = search.get("section");
@@ -1984,6 +2007,17 @@ export function createDesktopRouter(
                 <Select name="sandbox" defaultValue={settings.settings.sandbox}>
                   <SandboxOptions selected={settings.settings.sandbox} />
                 </Select>
+              </label>
+              <label>
+                Worktree directory
+                <Input
+                  name="worktreeDirectory"
+                  defaultValue={settings.settings.worktreeDirectory ?? ""}
+                  placeholder="~/.harness/worktrees"
+                />
+                <span className="muted">
+                  On the selected server. Used for new worktrees; existing ones stay in place.
+                </span>
               </label>
               <label>
                 Compaction threshold (input tokens)
@@ -2130,6 +2164,13 @@ export function createDesktopRouter(
               </div>
             )}
           </Tabs.Content>
+          <Tabs.Content value="worktrees" className="settings-panel">
+            <div className="section-heading">
+              <h2>Worktrees</h2>
+            </div>
+            <ManagedWorktrees session={session} />
+            <ManagedDockerEnvironments session={session} />
+          </Tabs.Content>
           <Tabs.Content value="application" forceMount className="settings-panel">
             <div className="section-heading">
               <h2>Application</h2>
@@ -2249,9 +2290,32 @@ export function createDesktopRouter(
   function RouteError() {
     const error = useRouteError();
     const revalidator = useRevalidator();
+    const { conversationId } = useParams();
+    const [conversation, setConversation] = useState<Conversation>();
+    useEffect(() => {
+      let current = true;
+      if (conversationId)
+        void session.domain
+          .getConversation(conversationId as ConversationId)
+          .then((value) => {
+            if (current) setConversation(value);
+          })
+          .catch(() => undefined);
+      return () => {
+        current = false;
+      };
+    }, [conversationId]);
     return (
       <section className="page">
         <h1>Could not open this view</h1>
+        {conversation?.originalWorkspaceRoot && (
+          <WorktreeControl
+            session={session}
+            conversation={conversation}
+            running={false}
+            onSwitched={() => void revalidator.revalidate()}
+          />
+        )}
         <p className="error" role="alert">
           {errorMessage(error)}
         </p>
@@ -2301,6 +2365,14 @@ export function createDesktopRouter(
                   .some((entry) => entry.provider === provider && entry.model === model)
               )
                 throw new Error("Select an available model");
+              const id = await session.create(
+                cwd,
+                field(data, "model"),
+                field(data, "sandbox"),
+                field(data, "toolMode"),
+                field(data, "preset"),
+                data.get("newWorktree") === "on",
+              );
               await session.client.peer.request(
                 appSettingsUpdateRequest,
                 appSettingsUpdateRequest.params.parse({
@@ -2308,13 +2380,6 @@ export function createDesktopRouter(
                   sandbox: field(data, "sandbox"),
                   toolMode: field(data, "toolMode"),
                 }),
-              );
-              const id = await session.create(
-                cwd,
-                field(data, "model"),
-                field(data, "sandbox"),
-                field(data, "toolMode"),
-                field(data, "preset"),
               );
               localStorage.setItem(session.storageKey("last-directory"), cwd);
               return redirect(`/conversations/${id}`);

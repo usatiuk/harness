@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { Kysely, SqliteDialect, sql } from "kysely";
 import type {
+  ManagedWorktree,
   ByteRange,
   Clock,
   ConversationPageCursor,
@@ -111,11 +112,43 @@ export class SqliteStore implements Store {
     this.#db.close();
   }
 
+  async putManagedWorktree(tree: ManagedWorktree): Promise<void> {
+    await this.#k
+      .insertInto("managed_worktrees")
+      .values({ path: tree.path, repository: tree.repository, created_at: tree.createdAt })
+      .execute();
+  }
+  async getManagedWorktree(path: string): Promise<ManagedWorktree | undefined> {
+    const row = await this.#k
+      .selectFrom("managed_worktrees")
+      .selectAll()
+      .where("path", "=", path)
+      .executeTakeFirst();
+    return row
+      ? { path: row.path, repository: row.repository, createdAt: row.created_at }
+      : undefined;
+  }
+  async listManagedWorktrees(limit: number, before?: string): Promise<ManagedWorktree[]> {
+    let query = this.#k.selectFrom("managed_worktrees").selectAll().orderBy("path").limit(limit);
+    if (before) query = query.where("path", ">", before);
+    return (await query.execute()).map((row) => ({
+      path: row.path,
+      repository: row.repository,
+      createdAt: row.created_at,
+    }));
+  }
+  async deleteManagedWorktree(path: string): Promise<void> {
+    await this.#k.deleteFrom("managed_worktrees").where("path", "=", path).execute();
+  }
+
   async createConversation(input: NewConversationRecord): Promise<ConversationRecord> {
     const createdAt = this.clock.now();
     const record: ConversationRecord = {
       id: this.ids.conversationId(),
       workspaceRoot: input.workspaceRoot,
+      ...(input.originalWorkspaceRoot
+        ? { originalWorkspaceRoot: input.originalWorkspaceRoot }
+        : {}),
       overrides: input.overrides,
       head: null,
       title: null,
@@ -127,6 +160,7 @@ export class SqliteStore implements Store {
       .values({
         id: record.id,
         workspace_root: record.workspaceRoot,
+        original_workspace_root: record.originalWorkspaceRoot ?? null,
         overrides: JSON.stringify(record.overrides),
         head: null,
         title: null,
@@ -159,6 +193,9 @@ export class SqliteStore implements Store {
         const record: ConversationRecord = {
           id: this.ids.conversationId(),
           workspaceRoot: source.workspace_root,
+          ...(source.original_workspace_root
+            ? { originalWorkspaceRoot: source.original_workspace_root }
+            : {}),
           overrides,
           head: user.parent,
           title: source.title,
@@ -168,7 +205,7 @@ export class SqliteStore implements Store {
         };
         this.#db
           .prepare(
-            `INSERT INTO conversations (id, workspace_root, overrides, head, title, created_at, last_used_at, fork_origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO conversations (id, workspace_root, overrides, head, title, created_at, last_used_at, fork_origin, original_workspace_root) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             record.id,
@@ -179,6 +216,7 @@ export class SqliteStore implements Store {
             createdAt,
             createdAt,
             JSON.stringify(record.fork),
+            record.originalWorkspaceRoot ?? null,
           );
         return record;
       })
@@ -199,6 +237,21 @@ export class SqliteStore implements Store {
     if (result.numUpdatedRows === 0n && !(await this.getConversation(id)))
       throw new Error(`unknown conversation: ${id}`);
     return result.numUpdatedRows > 0n;
+  }
+
+  async updateConversationWorkspace(
+    id: ConversationId,
+    workspaceRoot: string,
+  ): Promise<ConversationRecord> {
+    const result = this.#db
+      .prepare(
+        `UPDATE conversations
+      SET original_workspace_root = COALESCE(original_workspace_root, workspace_root), workspace_root = ?
+      WHERE id = ? AND workspace_root IS NOT NULL RETURNING *`,
+      )
+      .get(workspaceRoot, id) as Database["conversations"] | undefined;
+    if (!result) throw new Error(`Unknown or projectless conversation: ${id}`);
+    return rowToRecord(result);
   }
 
   async getConversation(id: ConversationId): Promise<ConversationRecord | undefined> {
@@ -768,6 +821,7 @@ function rowToRecord(row: Database["conversations"]): ConversationRecord {
   return {
     id: row.id as ConversationId,
     workspaceRoot: row.workspace_root,
+    ...(row.original_workspace_root ? { originalWorkspaceRoot: row.original_workspace_root } : {}),
     title: row.title,
     overrides: JSON.parse(row.overrides) as ConversationOverrides,
     head: row.head as ItemId | null,

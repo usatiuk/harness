@@ -7,7 +7,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 12 },
+        "protocolVersion": { "type": "number", "const": 13 },
         "client": {
           "type": "object",
           "properties": {
@@ -37,7 +37,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 12 },
+        "protocolVersion": { "type": "number", "const": 13 },
         "server": {
           "type": "object",
           "properties": {
@@ -62,6 +62,345 @@
       },
       "required": ["protocolVersion", "server", "plugins"],
       "additionalProperties": false
+    },
+    "plugin_worktrees_options_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "conversationId": { "type": "string" } },
+      "required": ["conversationId"],
+      "additionalProperties": false
+    },
+    "plugin_worktrees_options_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "original": { "type": "string" },
+            "current": { "type": "string" },
+            "worktrees": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": { "type": "string" },
+                  "branch": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                  "head": { "type": "string" },
+                  "locked": { "type": "boolean" }
+                },
+                "required": ["path", "branch", "head", "locked"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["original", "current", "worktrees"],
+          "additionalProperties": false
+        },
+        { "type": "null" }
+      ]
+    },
+    "plugin_worktrees_switch_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "conversationId": { "type": "string" },
+        "selection": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": { "kind": { "type": "string", "const": "original" } },
+              "required": ["kind"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": { "kind": { "type": "string", "const": "new" } },
+              "required": ["kind"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": { "type": "string", "const": "existing" },
+                "path": { "type": "string", "minLength": 1 }
+              },
+              "required": ["kind", "path"],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": ["conversationId", "selection"],
+      "additionalProperties": false
+    },
+    "plugin_worktrees_switch_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "path": { "type": "string" }, "deferred": { "type": "boolean" } },
+      "required": ["path", "deferred"],
+      "additionalProperties": false
+    },
+    "plugin_worktrees_list_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "limit": { "type": "integer", "exclusiveMinimum": 0, "maximum": 100 },
+        "before": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+      },
+      "required": ["limit", "before"],
+      "additionalProperties": false
+    },
+    "plugin_worktrees_list_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "repository": { "type": "string" },
+          "createdAt": { "type": "number" }
+        },
+        "required": ["path", "repository", "createdAt"],
+        "additionalProperties": false
+      }
+    },
+    "plugin_worktrees_remove_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "path": { "type": "string" }, "force": { "type": "boolean" } },
+      "required": ["path", "force"],
+      "additionalProperties": false
+    },
+    "plugin_worktrees_remove_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "null"
+    },
+    "plugin_sandbox_workspace_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "enum": ["start", "stop"] }
+      },
+      "required": ["path", "action"],
+      "additionalProperties": false
+    },
+    "plugin_sandbox_workspace_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "containerId": { "type": "string" },
+            "remoteUser": { "type": "string" },
+            "remoteWorkspaceFolder": { "type": "string" }
+          },
+          "required": ["containerId", "remoteUser", "remoteWorkspaceFolder"],
+          "additionalProperties": false
+        },
+        { "type": "null" }
+      ]
+    },
+    "plugin_sandbox_environments_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "limit": { "type": "integer", "exclusiveMinimum": 0, "maximum": 100 },
+        "before": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+      },
+      "required": ["limit", "before"],
+      "additionalProperties": false
+    },
+    "plugin_sandbox_environments_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "running": { "type": "boolean" },
+          "containers": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": ["id", "workspaceRoot", "running", "containers"],
+        "additionalProperties": false
+      }
+    },
+    "plugin_sandbox_environmentControl_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "type": "string", "enum": ["stop", "remove"] }
+      },
+      "required": ["id", "action"],
+      "additionalProperties": false
+    },
+    "plugin_sandbox_environmentControl_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "null"
+    },
+    "plugin_worktrees_repository_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "path": { "type": "string" } },
+      "required": ["path"],
+      "additionalProperties": false
+    },
+    "plugin_worktrees_repository_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "plugin_worktrees_createConversation_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "cwd": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "overrides": {
+          "type": "object",
+          "propertyNames": { "type": "string" },
+          "additionalProperties": { "$ref": "#/$defs/__schema0" }
+        }
+      },
+      "required": ["cwd", "overrides"],
+      "additionalProperties": false,
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "boolean" },
+            { "type": "number" },
+            { "type": "string" },
+            { "type": "array", "items": { "$ref": "#/$defs/__schema0" } },
+            {
+              "type": "object",
+              "propertyNames": { "type": "string" },
+              "additionalProperties": { "$ref": "#/$defs/__schema0" }
+            }
+          ]
+        }
+      }
+    },
+    "plugin_worktrees_createConversation_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "originalWorkspaceRoot": {
+          "default": null,
+          "anyOf": [{ "type": "string" }, { "type": "null" }]
+        },
+        "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "overrides": {
+          "type": "object",
+          "propertyNames": { "type": "string" },
+          "additionalProperties": { "$ref": "#/$defs/__schema0" }
+        },
+        "head": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "createdAt": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "lastUsedAt": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "config": {
+          "type": "object",
+          "properties": {
+            "instructions": { "type": "string" },
+            "model": {
+              "type": "object",
+              "properties": {
+                "provider": { "type": "string" },
+                "model": { "type": "string" },
+                "preset": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+              },
+              "required": ["provider", "model", "preset"],
+              "additionalProperties": false
+            },
+            "tools": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "allow": {
+                      "anyOf": [
+                        { "type": "array", "items": { "type": "string" } },
+                        { "type": "null" }
+                      ]
+                    },
+                    "mode": {
+                      "default": "direct",
+                      "type": "string",
+                      "enum": ["direct", "hybrid", "code-only"]
+                    }
+                  },
+                  "required": ["allow", "mode"],
+                  "additionalProperties": false
+                },
+                { "type": "null" }
+              ]
+            },
+            "plugins": {
+              "type": "object",
+              "propertyNames": { "type": "string" },
+              "additionalProperties": { "$ref": "#/$defs/__schema0" }
+            },
+            "compaction": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "thresholdTokens": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["thresholdTokens"],
+                  "additionalProperties": false
+                },
+                { "type": "null" }
+              ]
+            }
+          },
+          "required": ["instructions", "model", "tools", "plugins", "compaction"],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "workspaceRoot",
+        "originalWorkspaceRoot",
+        "title",
+        "overrides",
+        "head",
+        "createdAt",
+        "lastUsedAt",
+        "config"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "boolean" },
+            { "type": "number" },
+            { "type": "string" },
+            { "type": "array", "items": { "$ref": "#/$defs/__schema0" } },
+            {
+              "type": "object",
+              "propertyNames": { "type": "string" },
+              "additionalProperties": { "$ref": "#/$defs/__schema0" }
+            }
+          ]
+        }
+      }
     },
     "server_models_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -285,6 +624,10 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "originalWorkspaceRoot": {
+          "default": null,
+          "anyOf": [{ "type": "string" }, { "type": "null" }]
+        },
         "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
         "overrides": {
           "type": "object",
@@ -370,6 +713,7 @@
       "required": [
         "id",
         "workspaceRoot",
+        "originalWorkspaceRoot",
         "title",
         "overrides",
         "head",
@@ -410,6 +754,10 @@
           "properties": {
             "id": { "type": "string", "minLength": 1 },
             "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+            "originalWorkspaceRoot": {
+              "default": null,
+              "anyOf": [{ "type": "string" }, { "type": "null" }]
+            },
             "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
             "overrides": {
               "type": "object",
@@ -495,6 +843,7 @@
           "required": [
             "id",
             "workspaceRoot",
+            "originalWorkspaceRoot",
             "title",
             "overrides",
             "head",
@@ -593,6 +942,10 @@
             "properties": {
               "id": { "type": "string", "minLength": 1 },
               "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+              "originalWorkspaceRoot": {
+                "default": null,
+                "anyOf": [{ "type": "string" }, { "type": "null" }]
+              },
               "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
               "overrides": {
                 "type": "object",
@@ -678,6 +1031,7 @@
             "required": [
               "id",
               "workspaceRoot",
+              "originalWorkspaceRoot",
               "title",
               "overrides",
               "head",
@@ -759,6 +1113,10 @@
           "properties": {
             "id": { "type": "string", "minLength": 1 },
             "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+            "originalWorkspaceRoot": {
+              "default": null,
+              "anyOf": [{ "type": "string" }, { "type": "null" }]
+            },
             "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
             "overrides": {
               "type": "object",
@@ -844,6 +1202,7 @@
           "required": [
             "id",
             "workspaceRoot",
+            "originalWorkspaceRoot",
             "title",
             "overrides",
             "head",
@@ -863,6 +1222,10 @@
                 "properties": {
                   "id": { "type": "string", "minLength": 1 },
                   "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                  "originalWorkspaceRoot": {
+                    "default": null,
+                    "anyOf": [{ "type": "string" }, { "type": "null" }]
+                  },
                   "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                   "overrides": {
                     "type": "object",
@@ -948,6 +1311,7 @@
                 "required": [
                   "id",
                   "workspaceRoot",
+                  "originalWorkspaceRoot",
                   "title",
                   "overrides",
                   "head",
@@ -1247,6 +1611,10 @@
                   "properties": {
                     "id": { "type": "string", "minLength": 1 },
                     "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "originalWorkspaceRoot": {
+                      "default": null,
+                      "anyOf": [{ "type": "string" }, { "type": "null" }]
+                    },
                     "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                     "overrides": {
                       "type": "object",
@@ -1332,6 +1700,7 @@
                   "required": [
                     "id",
                     "workspaceRoot",
+                    "originalWorkspaceRoot",
                     "title",
                     "overrides",
                     "head",
@@ -1351,6 +1720,10 @@
                         "properties": {
                           "id": { "type": "string", "minLength": 1 },
                           "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "originalWorkspaceRoot": {
+                            "default": null,
+                            "anyOf": [{ "type": "string" }, { "type": "null" }]
+                          },
                           "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "overrides": {
                             "type": "object",
@@ -1438,6 +1811,7 @@
                         "required": [
                           "id",
                           "workspaceRoot",
+                          "originalWorkspaceRoot",
                           "title",
                           "overrides",
                           "head",
@@ -2534,6 +2908,10 @@
           "properties": {
             "id": { "type": "string", "minLength": 1 },
             "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+            "originalWorkspaceRoot": {
+              "default": null,
+              "anyOf": [{ "type": "string" }, { "type": "null" }]
+            },
             "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
             "overrides": {
               "type": "object",
@@ -2619,6 +2997,7 @@
           "required": [
             "id",
             "workspaceRoot",
+            "originalWorkspaceRoot",
             "title",
             "overrides",
             "head",
@@ -3325,6 +3704,16 @@
                 "title": { "type": "string" }
               },
               "required": ["type", "title"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": { "type": "string", "const": "workspace.changed" },
+                "workspaceRoot": { "type": "string" },
+                "originalWorkspaceRoot": { "type": "string" }
+              },
+              "required": ["type", "workspaceRoot", "originalWorkspaceRoot"],
               "additionalProperties": false
             },
             {
@@ -4133,6 +4522,9 @@
                 { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
                 { "type": "null" }
               ]
+            },
+            "worktreeDirectory": {
+              "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
             }
           },
           "required": [
@@ -4142,7 +4534,8 @@
             "autoApproval",
             "sandbox",
             "toolMode",
-            "compactionThresholdTokens"
+            "compactionThresholdTokens",
+            "worktreeDirectory"
           ],
           "additionalProperties": false
         },
@@ -4350,6 +4743,10 @@
             "properties": {
               "id": { "type": "string", "minLength": 1 },
               "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+              "originalWorkspaceRoot": {
+                "default": null,
+                "anyOf": [{ "type": "string" }, { "type": "null" }]
+              },
               "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
               "overrides": {
                 "type": "object",
@@ -4435,6 +4832,7 @@
             "required": [
               "id",
               "workspaceRoot",
+              "originalWorkspaceRoot",
               "title",
               "overrides",
               "head",
@@ -4653,7 +5051,8 @@
             { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
             { "type": "null" }
           ]
-        }
+        },
+        "worktreeDirectory": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] }
       },
       "additionalProperties": false
     },
@@ -5123,6 +5522,69 @@
       "direction": "client-to-server",
       "params": { "$ref": "#/$defs/initialize_params" },
       "result": { "$ref": "#/$defs/initialize_result" }
+    },
+    {
+      "method": "plugin.worktrees.options",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_worktrees_options_params" },
+      "result": { "$ref": "#/$defs/plugin_worktrees_options_result" }
+    },
+    {
+      "method": "plugin.worktrees.switch",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_worktrees_switch_params" },
+      "result": { "$ref": "#/$defs/plugin_worktrees_switch_result" }
+    },
+    {
+      "method": "plugin.worktrees.list",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_worktrees_list_params" },
+      "result": { "$ref": "#/$defs/plugin_worktrees_list_result" }
+    },
+    {
+      "method": "plugin.worktrees.remove",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_worktrees_remove_params" },
+      "result": { "$ref": "#/$defs/plugin_worktrees_remove_result" }
+    },
+    {
+      "method": "plugin.sandbox.workspace",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_sandbox_workspace_params" },
+      "result": { "$ref": "#/$defs/plugin_sandbox_workspace_result" }
+    },
+    {
+      "method": "plugin.sandbox.environments",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_sandbox_environments_params" },
+      "result": { "$ref": "#/$defs/plugin_sandbox_environments_result" }
+    },
+    {
+      "method": "plugin.sandbox.environmentControl",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_sandbox_environmentControl_params" },
+      "result": { "$ref": "#/$defs/plugin_sandbox_environmentControl_result" }
+    },
+    {
+      "method": "plugin.worktrees.repository",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_worktrees_repository_params" },
+      "result": { "$ref": "#/$defs/plugin_worktrees_repository_result" }
+    },
+    {
+      "method": "plugin.worktrees.createConversation",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_worktrees_createConversation_params" },
+      "result": { "$ref": "#/$defs/plugin_worktrees_createConversation_result" }
     },
     {
       "method": "server.models",

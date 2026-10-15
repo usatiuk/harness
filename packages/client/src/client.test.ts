@@ -27,6 +27,7 @@ const attachment: AttachResult = {
   root: {
     id: "root",
     workspaceRoot: null,
+    originalWorkspaceRoot: null,
     overrides: {},
     head: null,
     title: null,
@@ -45,6 +46,7 @@ const attachment: AttachResult = {
       conversation: {
         id: "root",
         workspaceRoot: null,
+        originalWorkspaceRoot: null,
         overrides: {},
         head: null,
         title: null,

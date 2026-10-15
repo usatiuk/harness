@@ -45,6 +45,7 @@ vi.mock("node:child_process", async (original) => ({
   },
 }));
 
+const { DockerEnvironmentPool } = await import("./docker-environment.ts");
 const { DockerExecutionContext } = await import("./docker.ts");
 const { dockerSandboxConfigSchema } = await import("./config.ts");
 const { capture } = await import("./docker-cli.ts");
@@ -88,22 +89,27 @@ describe("Docker process terminal lifetime", () => {
     expect(state.cleanupQueries).toBe(0);
   });
 
-  it("awaits actual devcontainer close before partial-build cleanup", async () => {
+  it("server shutdown awaits actual devcontainer close before stopping partial resources", async () => {
     const project = await mkdtemp(join(tmpdir(), "harness-build-lifetime-"));
     created.push(project);
     await mkdir(join(project, ".devcontainer"));
     await writeFile(join(project, ".devcontainer", "devcontainer.json"), "{}");
+    const pool = new DockerEnvironmentPool();
     const context = new DockerExecutionContext(
       project,
       dockerSandboxConfigSchema.parse({ idleTimeoutMinutes: 0 }),
+      pool,
     );
     const io = context.read("file");
     const rejected = expect(io).rejects.toThrow("cancelled");
     await vi.waitFor(() => expect(state.child).toBeDefined());
     let disposed = false;
-    const disposal = context.dispose().then(() => {
-      disposed = true;
-    });
+    const disposal = context
+      .dispose()
+      .then(() => pool.close())
+      .then(() => {
+        disposed = true;
+      });
     await vi.waitFor(() => expect(state.aborted).toBe(true));
     expect(disposed).toBe(false);
     expect(state.cleanupQueries).toBe(0);

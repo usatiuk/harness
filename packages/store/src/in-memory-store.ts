@@ -1,4 +1,5 @@
 import type {
+  ManagedWorktree,
   Clock,
   ConversationPageCursor,
   ConversationListOptions,
@@ -34,6 +35,7 @@ const pluginStateKey = (plugin: string, conversationId: ConversationId, key: str
 
 /** Reference, non-durable Store. The contract suite (testkit) holds the spec. */
 export class InMemoryStore implements Store {
+  readonly #worktrees = new Map<string, ManagedWorktree>();
   readonly #conversations = new Map<ConversationId, ConversationRecord>();
   readonly #items = new Map<ConversationId, Item[]>();
   readonly #byId = new Map<ItemId, Item>();
@@ -50,11 +52,30 @@ export class InMemoryStore implements Store {
     private readonly clock: Clock = systemClock,
   ) {}
 
+  async putManagedWorktree(worktree: ManagedWorktree): Promise<void> {
+    this.#worktrees.set(worktree.path, { ...worktree });
+  }
+  async getManagedWorktree(path: string): Promise<ManagedWorktree | undefined> {
+    return this.#worktrees.get(path);
+  }
+  async listManagedWorktrees(limit: number, before?: string): Promise<ManagedWorktree[]> {
+    return [...this.#worktrees.values()]
+      .filter((tree) => !before || tree.path > before)
+      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+      .slice(0, limit);
+  }
+  async deleteManagedWorktree(path: string): Promise<void> {
+    this.#worktrees.delete(path);
+  }
+
   async createConversation(input: NewConversationRecord): Promise<ConversationRecord> {
     const createdAt = this.clock.now();
     const record: ConversationRecord = {
       id: this.ids.conversationId(),
       workspaceRoot: input.workspaceRoot,
+      ...(input.originalWorkspaceRoot
+        ? { originalWorkspaceRoot: input.originalWorkspaceRoot }
+        : {}),
       overrides: input.overrides,
       head: null,
       title: null,
@@ -80,6 +101,9 @@ export class InMemoryStore implements Store {
     const record: ConversationRecord = {
       id: this.ids.conversationId(),
       workspaceRoot: source.workspaceRoot,
+      ...(source.originalWorkspaceRoot
+        ? { originalWorkspaceRoot: source.originalWorkspaceRoot }
+        : {}),
       overrides,
       head: user.parent,
       title: source.title,
@@ -102,6 +126,22 @@ export class InMemoryStore implements Store {
     if (record.title !== expected) return false;
     this.#conversations.set(id, { ...record, title });
     return true;
+  }
+
+  async updateConversationWorkspace(
+    id: ConversationId,
+    workspaceRoot: string,
+  ): Promise<ConversationRecord> {
+    const record = this.#conversations.get(id);
+    if (!record) throw new Error(`unknown conversation: ${id}`);
+    if (!record.workspaceRoot) throw new Error("Projectless conversations cannot switch worktrees");
+    const updated = {
+      ...record,
+      workspaceRoot,
+      originalWorkspaceRoot: record.originalWorkspaceRoot ?? record.workspaceRoot,
+    };
+    this.#conversations.set(id, updated);
+    return updated;
   }
 
   async getConversation(id: ConversationId): Promise<ConversationRecord | undefined> {

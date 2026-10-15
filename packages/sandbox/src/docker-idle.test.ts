@@ -1,165 +1,125 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EventEmitter } from "node:events";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-// No docker daemon: the container handle is a fixed stub, and the docker CLI is spied so we can
-// assert (and steer) the idle reaper's `docker stop` / pty-probe calls. A fake child stands in for
-// `nodeSpawn` so a "running command" can be held in flight.
 const state = vi.hoisted(() => ({
-  handle: { containerId: "cid", remoteUser: "root", remoteWorkspaceFolder: "/work" },
-  child: undefined as undefined | EventEmitter,
-  spawnStarted: undefined as undefined | (() => void),
-  captureText:
-    vi.fn<
-      (bin: string, args: string[]) => Promise<{ stdout: string; stderr: string; exitCode: number }>
-    >(),
+  provision: vi.fn(),
+  stop: vi.fn(),
+  remove: vi.fn(),
+  handle: { containerId: "retained", remoteUser: "root", remoteWorkspaceFolder: "/work" },
 }));
-const captureText = state.captureText;
-
-vi.mock("./devcontainer.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./devcontainer.ts")>()),
-  provisionDevcontainer: () => Promise.resolve(state.handle),
-  stopSandbox: vi.fn(() => Promise.resolve(1)),
+vi.mock("./devcontainer.ts", async (original) => ({
+  ...(await original<typeof import("./devcontainer.ts")>()),
+  containerRoot: async (path: string) => path,
+  provisionDevcontainer: state.provision,
+  stopSandbox: state.stop,
+  removeSandbox: state.remove,
 }));
-
-vi.mock("./docker-cli.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./docker-cli.ts")>()),
-  captureText: state.captureText,
-  capture: () => Promise.resolve({ stdout: Buffer.from(""), stderr: "", exitCode: 0 }),
+vi.mock("./docker-cli.ts", () => ({
+  captureText: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+  capture: async () => ({ stdout: Buffer.from("file"), stderr: "", exitCode: 0 }),
 }));
-
-vi.mock("node:child_process", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("node:child_process")>()),
-  spawn: () => {
-    state.spawnStarted?.();
-    return state.child;
-  },
-}));
-
 const { DockerExecutionContext } = await import("./docker.ts");
+const { DockerEnvironmentPool } = await import("./docker-environment.ts");
 const { dockerSandboxConfigSchema } = await import("./config.ts");
-
-const make = (over: Record<string, unknown> = {}) =>
-  new DockerExecutionContext("/work", dockerSandboxConfigSchema.parse(over));
-
-/** The `docker stop <id>` calls the idle reaper made. */
-const stopCalls = () => captureText.mock.calls.filter((c) => c[1][0] === "stop");
-
-const fakeChild = (): EventEmitter => {
-  const child = new EventEmitter() as EventEmitter & {
-    stdout: EventEmitter;
-    stderr: EventEmitter;
-    pid: number;
-    kill: () => void;
-  };
-  child.stdout = new EventEmitter();
-  child.stderr = new EventEmitter();
-  child.pid = 4242;
-  child.kill = () => {};
-  return child;
-};
-
 beforeEach(() => {
   vi.useFakeTimers();
-  captureText.mockReset();
-  // Default: every docker exec succeeds; the pty probe reports no interactive session.
-  captureText.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
-  state.child = undefined;
-  state.spawnStarted = undefined;
+  state.provision.mockReset().mockResolvedValue(state.handle);
+  state.stop.mockReset().mockResolvedValue(1);
+  state.remove.mockReset().mockResolvedValue(1);
 });
 afterEach(() => vi.useRealTimers());
 
-describe("DockerExecutionContext idle reaping", () => {
-  it("retains the handle and rearms after a Docker stop launch failure", async () => {
-    const ctx = make({ idleTimeoutMinutes: 1 });
-    await ctx.stat("x");
-    const statuses: string[] = [];
-    await ctx.bind((event) => statuses.push(String(event.message)));
-    captureText.mockImplementation(async (_bin, args) => {
-      if (args[0] === "stop")
-        throw Object.assign(new Error("Docker CLI unavailable"), { code: "ENOENT" });
-      return { stdout: "0", stderr: "", exitCode: 0 };
-    });
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(ctx.isProvisioned()).toBe(true);
-    expect(vi.getTimerCount()).toBe(1);
-    expect(statuses).toEqual(["Could not idle-stop Docker (ENOENT); retaining the environment."]);
-    await ctx.stat("still usable");
-    captureText.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(stopCalls()).toHaveLength(2);
-    expect(ctx.isProvisioned()).toBe(false);
-  });
+it("retains environments after idle time and last view release; server close stops without removal", async () => {
+  const pool = new DockerEnvironmentPool();
+  const context = new DockerExecutionContext(
+    "/work",
+    dockerSandboxConfigSchema.parse({ idleTimeoutMinutes: 1 }),
+    pool,
+  );
+  await context.prepare();
+  await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+  await context.dispose();
+  expect(state.stop).not.toHaveBeenCalled();
+  expect(state.remove).not.toHaveBeenCalled();
+  await pool.close();
+  expect(state.stop).toHaveBeenCalledOnce();
+  expect(state.remove).not.toHaveBeenCalled();
+});
 
-  it("stops a genuinely idle container after the window and drops the handle", async () => {
-    const ctx = make({ idleTimeoutMinutes: 1 });
-    await ctx.stat("x"); // first IO provisions + arms the idle timer
-    expect(ctx.isProvisioned()).toBe(true);
+it("keeps explicit Stop stopped until reopen, then reuses provisioning; Remove is separate", async () => {
+  const pool = new DockerEnvironmentPool();
+  const context = new DockerExecutionContext("/work", dockerSandboxConfigSchema.parse({}), pool);
+  await context.prepare();
+  await context.stop();
+  await expect(context.read("file")).rejects.toThrow("is stopped");
+  expect(state.provision).toHaveBeenCalledTimes(1);
+  await context.prepare();
+  expect(new TextDecoder().decode(await context.read("file"))).toBe("file");
+  expect(state.provision).toHaveBeenCalledTimes(2);
+  await pool.list()[0]!.remove();
+  expect(state.remove).toHaveBeenCalledOnce();
+  await expect(context.read("file")).rejects.toThrow("was removed");
+  await context.prepare();
+  expect(state.provision).toHaveBeenCalledTimes(3);
+  await context.dispose();
+});
 
-    await vi.advanceTimersByTimeAsync(60_000);
+it("keeps separate environments for roots sharing an absolute recipe", async () => {
+  const pool = new DockerEnvironmentPool();
+  const config = dockerSandboxConfigSchema.parse({ configPath: "/shared/devcontainer.json" });
+  const first = new DockerExecutionContext("/first", config, pool);
+  const second = new DockerExecutionContext("/second", config, pool);
+  await first.prepare();
+  await second.prepare();
+  expect(pool.list().map((environment) => environment.root)).toEqual(["/first", "/second"]);
+  await first.stop();
+  await expect(first.read("file")).rejects.toThrow("stopped");
+  await expect(second.read("file")).resolves.toBeDefined();
+  await first.dispose();
+  await second.dispose();
+  await pool.close();
+});
 
-    expect(stopCalls()).toHaveLength(1);
-    expect(stopCalls()[0]?.[1]).toEqual(["stop", "cid"]);
-    // Handle dropped → the next IO re-provisions (restarting the stopped container).
-    expect(ctx.isProvisioned()).toBe(false);
-  });
+it.each(["stop", "remove"] as const)(
+  "serializes a concurrent open before later %s",
+  async (action) => {
+    const pool = new DockerEnvironmentPool();
+    const owner = { emit: () => {} };
+    const environment = await pool.acquire("/work", dockerSandboxConfigSchema.parse({}), owner);
+    const opening = environment.start();
+    const rejected = expect(opening).rejects.toThrow("cancelled");
+    await environment[action]();
+    await rejected;
+    await expect(environment.ready()).rejects.toThrow(action === "stop" ? "stopped" : "removed");
+    expect(state.provision).not.toHaveBeenCalled();
+    await environment.release(owner);
+  },
+);
+it("rejects late acquisitions and stale views after terminal server close", async () => {
+  const pool = new DockerEnvironmentPool();
+  const owner = { emit: () => {} };
+  const acquiring = pool.acquire("/work", dockerSandboxConfigSchema.parse({}), owner);
+  await pool.close();
+  await expect(acquiring).rejects.toThrow("closing");
+  expect(pool.list()).toHaveLength(0);
+  const another = new DockerEnvironmentPool();
+  const environment = await another.acquire("/work", dockerSandboxConfigSchema.parse({}), owner);
+  await environment.start();
+  await another.close();
+  await expect(environment.start()).rejects.toThrow("closed");
+  await expect(environment.rebuild()).rejects.toThrow("closed");
+  await environment.release(owner);
+});
 
-  it("re-arms on later IO, so an active container isn't stopped early", async () => {
-    const ctx = make({ idleTimeoutMinutes: 1 });
-    await ctx.stat("x");
-    await vi.advanceTimersByTimeAsync(40_000); // most of the window…
-    await ctx.stat("y"); // …then IO resets it
-    await vi.advanceTimersByTimeAsync(40_000); // 80s total, only 40s since the reset
-    expect(stopCalls()).toHaveLength(0);
-
-    await vi.advanceTimersByTimeAsync(20_000); // now 60s since the reset
-    expect(stopCalls()).toHaveLength(1);
-  });
-
-  it("does not stop while an interactive session is attached; re-arms instead", async () => {
-    const ctx = make({ idleTimeoutMinutes: 1 });
-    await ctx.stat("x");
-
-    captureText.mockResolvedValue({ stdout: "1", stderr: "", exitCode: 0 }); // a pty is present
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(stopCalls()).toHaveLength(0); // busy → re-armed, not reaped
-
-    captureText.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 }); // session left
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(stopCalls()).toHaveLength(1);
-  });
-
-  it("does not stop while a spawned command is in flight; reaps after it ends", async () => {
-    const ctx = make({ idleTimeoutMinutes: 1 });
-    state.child = fakeChild();
-    const started = new Promise<void>((resolve) => {
-      state.spawnStarted = resolve;
-    });
-    const proc = ctx.spawn("sleep 999");
-    await started;
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(stopCalls()).toHaveLength(0); // in-flight → re-armed
-
-    state.child.emit("close", 0, null); // command finishes
-    await proc.exit;
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(stopCalls()).toHaveLength(1);
-  });
-
-  it("disables idle reaping when idleTimeoutMinutes is 0", async () => {
-    const ctx = make({ idleTimeoutMinutes: 0 });
-    await ctx.stat("x");
-    await vi.advanceTimersByTimeAsync(60 * 60_000); // an hour
-    expect(stopCalls()).toHaveLength(0);
-  });
-
-  it("clears the idle timer on explicit stop()", async () => {
-    const ctx = make({ idleTimeoutMinutes: 1 });
-    await ctx.stat("x");
-    expect(vi.getTimerCount()).toBe(1); // idle timer armed
-    await ctx.stop();
-    expect(vi.getTimerCount()).toBe(0); // ...and actually cleared, not just left to no-op on fire
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(stopCalls()).toHaveLength(0);
-  });
+it("does not skip a later Stop after Remove and a queued reopen", async () => {
+  const pool = new DockerEnvironmentPool();
+  const owner = { emit: () => {} };
+  const environment = await pool.acquire("/work", dockerSandboxConfigSchema.parse({}), owner);
+  await environment.remove();
+  const opening = environment.start();
+  const rejected = expect(opening).rejects.toThrow("cancelled");
+  await environment.stop();
+  await rejected;
+  expect(state.provision).not.toHaveBeenCalled();
+  await expect(environment.ready()).rejects.toThrow("removed");
+  await environment.release(owner);
 });

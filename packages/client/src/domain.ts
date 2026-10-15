@@ -90,6 +90,9 @@ export const decodeConversationConfig = (config: WireConversationConfig): Conver
 export const decodeConversation = (conversation: WireConversation): Conversation => ({
   id: conversation.id as ConversationId,
   workspaceRoot: conversation.workspaceRoot,
+  ...(conversation.originalWorkspaceRoot
+    ? { originalWorkspaceRoot: conversation.originalWorkspaceRoot }
+    : {}),
   title: conversation.title,
   overrides: conversation.overrides,
   head: conversation.head as ItemId | null,
@@ -547,6 +550,13 @@ export class HarnessDomainClient implements HarnessClientService {
         };
       case "head.changed":
         return { type: "head.changed", conversationId, head: event.head as ItemId | null };
+      case "workspace.changed":
+        return {
+          type: "workspace.changed",
+          conversationId,
+          workspaceRoot: event.workspaceRoot,
+          originalWorkspaceRoot: event.originalWorkspaceRoot,
+        };
       case "title.changed":
         return { type: "title.changed", conversationId, title: event.title };
       case "config.changed":

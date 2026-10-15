@@ -1,3 +1,4 @@
+import { decodeConversation } from "@harness/client";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Box, Text, render, useApp, useInput } from "ink";
 import { Select, Spinner, TextInput, ConfirmInput, PasswordInput } from "@inkjs/ui";
@@ -79,10 +80,11 @@ export function HostApp({ hosts, options = {} }: { hosts: TuiHosts; options?: La
             ? resolve(workspace ?? process.cwd())
             : (workspace ?? (await harness.client.peer.request(appSettingsRequest, {})).cwd);
         if (!mounted) return;
-        const conversation = await harness.service.createConversation({
-          cwd,
-          overrides: launchOverrides(harness.fallbackModel, options.model),
-        });
+        const overrides = launchOverrides(harness.fallbackModel, options.model);
+        const conversation =
+          generation === 0 && options.worktree
+            ? decodeConversation(await harness.plugins.createWorktreeConversation(cwd, overrides))
+            : await harness.service.createConversation({ cwd, overrides });
         if (!mounted) {
           await harness.service.deleteConversationIfEmpty(conversation.id);
           return;
@@ -104,6 +106,7 @@ export function HostApp({ hosts, options = {} }: { hosts: TuiHosts; options?: La
     hosts,
     options.conversationId,
     options.resume,
+    options.worktree,
     options.model,
     workspace,
   ]);
@@ -578,6 +581,7 @@ function HostSettings({ view, onError }: { view: TuiHostView; onError: (error: s
       <Text>{`Edit defaults JSON for ${view.host.label}:`}</Text>
       <Text dimColor>
         compactionThresholdTokens: positive input-token count; null uses known model limits.
+        worktreeDirectory: absolute server path; null uses ~/.harness/worktrees.
       </Text>
       <Text dimColor>
         toolMode: hybrid = Hybrid (essential tools direct, other tools through eval); direct =

@@ -1,3 +1,4 @@
+import { testPlugins } from "./test-plugins.ts";
 import { describe, expect, it, vi } from "vitest";
 import type { ConversationId } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
@@ -6,6 +7,7 @@ import { runCommand, type CommandContext } from "./commands.ts";
 const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   service: {} as unknown as HarnessService,
   conversationId: "c1" as ConversationId,
+  plugins: testPlugins(),
   cwd: "/work",
   model: { provider: "openai", model: "gpt-5.1" },
   config: {
@@ -290,4 +292,48 @@ describe("runCommand", () => {
     expect(setPluginConfig).not.toHaveBeenCalled();
     expect(ctx.note).toHaveBeenCalledWith("usage: /auto-approve [on|off]");
   });
+});
+
+it("switches, pages and explicitly force-deletes worktrees through client plugins", async () => {
+  const switchWorkspace = vi.fn().mockResolvedValue(undefined);
+  const removeWorktree = vi.fn().mockResolvedValue(undefined);
+  const managedWorktrees = vi.fn().mockResolvedValue([]);
+  const ctx = makeCtx({
+    plugins: testPlugins({ switchWorkspace, removeWorktree, managedWorktrees }),
+  });
+  runCommand("/worktree use /a path/worktree", ctx);
+  await vi.waitFor(() => expect(ctx.note).toHaveBeenCalledWith("workspace switched"));
+  expect(switchWorkspace).toHaveBeenCalledWith("c1", {
+    kind: "existing",
+    path: "/a path/worktree",
+  });
+  runCommand("/worktree delete /a path/worktree", ctx);
+  await vi.waitFor(() => expect(removeWorktree).toHaveBeenCalledWith("/a path/worktree", false));
+  runCommand("/worktree delete --force /a path/worktree", ctx);
+  await vi.waitFor(() => expect(removeWorktree).toHaveBeenCalledWith("/a path/worktree", true));
+  runCommand("/worktree managed /last path", ctx);
+  await vi.waitFor(() => expect(managedWorktrees).toHaveBeenCalledWith(20, "/last path"));
+});
+it("reports refused worktree switches and manages Docker without direct process access", async () => {
+  const controlDockerEnvironment = vi.fn().mockResolvedValue(undefined);
+  const ctx = makeCtx({
+    plugins: testPlugins({
+      switchWorkspace: async () => {
+        throw new Error("Stop background work");
+      },
+      controlDockerEnvironment,
+    }),
+  });
+  runCommand("/worktree new", ctx);
+  await vi.waitFor(() =>
+    expect(ctx.note).toHaveBeenCalledWith("worktree: Error: Stop background work"),
+  );
+  runCommand("/docker stop environment", ctx);
+  await vi.waitFor(() =>
+    expect(controlDockerEnvironment).toHaveBeenCalledWith("environment", "stop"),
+  );
+  runCommand("/docker remove environment", ctx);
+  await vi.waitFor(() =>
+    expect(controlDockerEnvironment).toHaveBeenCalledWith("environment", "remove"),
+  );
 });

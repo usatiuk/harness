@@ -557,6 +557,12 @@ export class HarnessRpcSession {
         return { type: "reasoning.delta", turnId: event.turnId, text: event.text };
       case "head.changed":
         return { type: "head.changed", head: event.head };
+      case "workspace.changed":
+        return {
+          type: "workspace.changed",
+          workspaceRoot: event.workspaceRoot,
+          originalWorkspaceRoot: event.originalWorkspaceRoot,
+        };
       case "title.changed":
         return { type: "title.changed", title: event.title };
       case "config.changed":

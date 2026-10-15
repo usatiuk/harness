@@ -1,5 +1,12 @@
 # Harness plan
 
+The [worktrees and Docker lifecycle plan](docs/plans/cross-cutting/2026-10-15-worktrees-docker-lifecycle.md)
+records conversation workspace switching, configurable managed worktrees, and
+workspace-owned Docker environments with stop/preserve and crash cleanup.
+Implemented with GUI/TUI/agent controls, linked Git support, safe switching and
+managed cleanup. Full local checks, browser and real Docker/Compose/native cases
+pass; the delivery plan records evidence and native Windows qualification limits.
+
 ## Goals
 
 The [auto-approval revamp](docs/plans/execution/2026-10-11-auto-approval-revamp.md)
@@ -476,7 +483,7 @@ client. The approved [desktop v1 delivery](docs/plans/interface/2026-10-03-deskt
 is complete with full local validation, three independent reviews, and eleven
 native E2E scenarios against the staged Windows release outside the checkout
 without system Node. The NSIS installer builds; installation and other desktop
-platforms remain unqualified. TUI parallel presentation and worktrees remain outside
+platforms remain unqualified. TUI parallel presentation remains outside
 scope. Existing provider reliability and native containment
 priorities below remain active follow-up.
 

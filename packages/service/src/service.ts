@@ -1,3 +1,5 @@
+import { realpath } from "node:fs/promises";
+import { WorkspaceOperationError } from "@harness/protocol";
 import type {
   ConversationConfig,
   NewConversationRecord,
@@ -22,6 +24,8 @@ import type {
   Plugin,
   PluginEntry,
   Store,
+  WorktreeOperations,
+  WorkspaceSelection,
 } from "@harness/protocol";
 import { isPluginDefinition } from "@harness/protocol";
 import { Engine, PluginHost, type DeactivationResult } from "@harness/core";
@@ -49,11 +53,15 @@ export interface HarnessServiceOptions {
    */
   defaults?: SettingsDoc;
   codeEvaluator?: CodeEvaluator;
+  worktrees?: WorktreeOperations;
+  removeWorkspaceEnvironment?: (path: string) => Promise<void>;
 }
 
 export interface CreateConversationOptions {
   /** Project search root; absent ⇒ projectless (no project settings, no workspace). */
   cwd?: string;
+  newWorktree?: boolean;
+  signal?: AbortSignal;
   /**
    * The conversation's durable `overrides` (top cascade layer), e.g. a CLI-chosen model or seed
    * instructions. Re-applied on every resolve, so it survives resume.
@@ -73,6 +81,8 @@ export type EventListener = (event: HarnessEvent) => void;
  */
 export class HarnessService implements ConversationRunner {
   readonly #store: Store;
+  readonly #worktrees: WorktreeOperations | undefined;
+  readonly #removeWorkspaceEnvironment: ((path: string) => Promise<void>) | undefined;
   readonly #engine: Engine;
   readonly #home: string;
   readonly #schemas = new Map<string, ZodType>();
@@ -83,6 +93,8 @@ export class HarnessService implements ConversationRunner {
 
   constructor(options: HarnessServiceOptions) {
     this.#store = options.store;
+    this.#worktrees = options.worktrees;
+    this.#removeWorkspaceEnvironment = options.removeWorkspaceEnvironment;
     this.#home = options.home ?? defaultHome();
     const defaults = options.defaults;
     // Safe to close over `#schemas`: the plugin loop below populates it before this is ever
@@ -93,7 +105,9 @@ export class HarnessService implements ConversationRunner {
         schemas: this.#schemas,
         globalPlugins: this.#globalPlugins,
         ...(defaults !== undefined ? { defaults } : {}),
-        ...(record.workspaceRoot !== null ? { cwd: record.workspaceRoot } : {}),
+        ...((record.originalWorkspaceRoot ?? record.workspaceRoot) !== null
+          ? { cwd: record.originalWorkspaceRoot ?? record.workspaceRoot! }
+          : {}),
         overrides: record.overrides,
       });
     // Late-binds `#engine.configFor` — `#engine` is assigned below, before any tool call (the only
@@ -125,6 +139,7 @@ export class HarnessService implements ConversationRunner {
    * freshly resolved config. Config is never stored — it is re-derived on every load.
    */
   async createConversation(options: CreateConversationOptions = {}): Promise<Conversation> {
+    const cwd = options.cwd ? await realpath(options.cwd) : undefined;
     let overrides = options.overrides ?? {};
     if (options.parentId !== undefined) {
       const parent = this.#engine.configFor(options.parentId);
@@ -141,8 +156,24 @@ export class HarnessService implements ConversationRunner {
         overrides,
       ) as Record<string, unknown>;
     }
-    const input = { workspaceRoot: options.cwd ?? null, overrides };
+    const parentRecord = options.parentId
+      ? await this.#store.getConversation(options.parentId)
+      : undefined;
+    const owned = cwd ? await this.#store.getManagedWorktree(cwd) : undefined;
+    const originalWorkspaceRoot = parentRecord?.originalWorkspaceRoot ?? owned?.repository;
+    const input = {
+      workspaceRoot: cwd ?? null,
+      overrides,
+      ...(originalWorkspaceRoot ? { originalWorkspaceRoot } : {}),
+    };
     const config = await this.#resolveConfig(input);
+    if (options.newWorktree) {
+      if (!cwd || options.parentId)
+        throw new Error("New worktree requires a top-level conversation with a Git checkout");
+      const tree = await this.#worktreeOperations().create(cwd, options.signal);
+      input.originalWorkspaceRoot = originalWorkspaceRoot ?? cwd;
+      input.workspaceRoot = tree.path;
+    }
     // Insert the complete selection atomically; global model defaults only select new records.
     const record = await this.#store.createConversation({
       ...input,
@@ -157,6 +188,79 @@ export class HarnessService implements ConversationRunner {
     }
   }
 
+  worktreeRepository(path: string) {
+    return this.#worktreeOperations().repository(path);
+  }
+
+  async workspaceOptions(conversationId: ConversationId) {
+    const record = await this.#store.getConversation(conversationId);
+    if (!record?.workspaceRoot) throw new WorkspaceOperationError("Conversation has no workspace");
+    const original = record.originalWorkspaceRoot ?? record.workspaceRoot;
+    if ((await this.#worktreeOperations().repository(original)) === null) return null;
+    return {
+      original,
+      current: record.workspaceRoot,
+      worktrees: await this.#worktreeOperations().list(original),
+    };
+  }
+
+  async selectWorkspace(
+    conversationId: ConversationId,
+    selection: WorkspaceSelection,
+    deferred = false,
+    signal?: AbortSignal,
+  ) {
+    const record = await this.#store.getConversation(conversationId);
+    if (!record?.workspaceRoot) throw new WorkspaceOperationError("Conversation has no workspace");
+    if (!deferred && this.isSessionBusy(this.rootConversationOf(conversationId)))
+      throw new WorkspaceOperationError(
+        "Stop the conversation and background work before switching workspaces",
+      );
+    const original = record.originalWorkspaceRoot ?? record.workspaceRoot;
+    const manager = this.#worktreeOperations();
+    let path = record.workspaceRoot;
+    await this.#engine.switchWorkspace(
+      conversationId,
+      async (operationSignal) => {
+        if (selection.kind === "original") path = original;
+        else if (selection.kind === "new")
+          path = (await manager.create(record.workspaceRoot!, operationSignal)).path;
+        else {
+          const tree = (await manager.list(original)).find((tree) => tree.path === selection.path);
+          if (!tree)
+            throw new WorkspaceOperationError("Selected worktree belongs to another repository");
+          path = tree.path;
+        }
+        await manager.inspect(path);
+        return path;
+      },
+      deferred,
+      signal,
+    );
+    return { path, deferred };
+  }
+
+  runWorkspaceOperation<T>(path: string, operation: () => Promise<T>): Promise<T> {
+    return this.#engine.runWorkspaceOperation(path, operation);
+  }
+
+  async removeWorktree(path: string, force: boolean): Promise<void> {
+    await this.#engine.deleteWorkspace(path, async () => {
+      await this.#worktreeOperations().validateRemoval(path, force);
+      await this.#removeWorkspaceEnvironment?.(path);
+      await this.#worktreeOperations().remove(path, force);
+    });
+  }
+
+  managedWorktrees(limit: number, before?: string) {
+    return this.#worktreeOperations().managed(limit, before);
+  }
+
+  #worktreeOperations(): WorktreeOperations {
+    if (!this.#worktrees) throw new Error("Worktree support is not configured");
+    return this.#worktrees;
+  }
+
   async forkBefore(conversationId: ConversationId, userMessageId: ItemId) {
     const source = await this.#store.getConversation(conversationId);
     if (!source) throw new Error(`unknown conversation: ${conversationId}`);
@@ -169,7 +273,13 @@ export class HarnessService implements ConversationRunner {
         Object.entries(config.plugins ?? {}).filter(([id]) => !this.#globalPlugins.has(id)),
       ),
     };
-    const resolved = await this.#resolveConfig({ workspaceRoot: source.workspaceRoot, overrides });
+    const resolved = await this.#resolveConfig({
+      workspaceRoot: source.workspaceRoot,
+      ...(source.originalWorkspaceRoot
+        ? { originalWorkspaceRoot: source.originalWorkspaceRoot }
+        : {}),
+      overrides,
+    });
     const record = await this.#store.forkConversation(conversationId, userMessageId, overrides);
     const user = await this.#store.getItem(userMessageId);
     if (user?.type !== "message" || user.role !== "user")

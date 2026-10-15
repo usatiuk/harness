@@ -1,6 +1,6 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { posix, relative, sep } from "node:path";
+import { isAbsolute, posix, relative, sep } from "node:path";
 import type { ByteRange, PluginEvent, ToolCall } from "@harness/protocol";
 import type {
   ExecutionContext,
@@ -50,7 +50,6 @@ export class DockerExecutionContext implements ExecutionContext {
   ) {
     this.workspaceRoot = hostRoot;
     this.#owner = {
-      idleTimeoutMinutes: config.idleTimeoutMinutes,
       emit: (event) => {
         if (!this.#disposed) this.#emit?.(event);
       },
@@ -70,6 +69,10 @@ export class DockerExecutionContext implements ExecutionContext {
     // Return the already-observed acquisition, rather than minting an unobserved rejected promise
     // when a synchronous tool accessor rebinds events. Prepare and IO await the same lifetime.
     return this.#environment;
+  }
+
+  async prepare(signal?: AbortSignal): Promise<void> {
+    await this.#whileOpen((await this.#openEnvironment()).start(), signal);
   }
 
   async read(path: string, range?: ByteRange): Promise<Uint8Array> {
@@ -169,11 +172,7 @@ export class DockerExecutionContext implements ExecutionContext {
     const exit = new Promise<{ code: number | null; signal: string | null }>(
       (res) => (resolveExit = res),
     );
-    // A running command keeps the container busy: bump the in-flight count so an idle reap can't stop
-    // it, and restart the idle clock when it ends.
-    let endActivity: (() => void) | undefined;
     void exit.then(() => {
-      endActivity?.();
       this.#processes.delete(handle);
     });
 
@@ -199,7 +198,6 @@ export class DockerExecutionContext implements ExecutionContext {
     // bridging its stream/exit into the SpawnedProcess we return immediately.
     const ready = this.#openEnvironment().then(async (environment) => {
       if (killed) return undefined;
-      endActivity = environment.beginActivity();
       return this.#whileOpen(environment.ready());
     });
     void ready.then(
@@ -338,6 +336,11 @@ export class DockerExecutionContext implements ExecutionContext {
 
   /** Resolve a tool path (relative to the workspace, or absolute) to a container path. */
   #cpath(h: Provisioned, path: string): string {
+    if (this.workspaceRoot && isAbsolute(path)) {
+      const suffix = relative(this.workspaceRoot, path);
+      if (!isAbsolute(suffix) && suffix !== ".." && !suffix.startsWith(`..${sep}`))
+        return posix.resolve(this.#workspaceFolder(h), suffix.split(sep).join("/"));
+    }
     return posix.resolve(this.#workspaceFolder(h), path);
   }
 
@@ -363,15 +366,12 @@ export class DockerExecutionContext implements ExecutionContext {
     build: (h: Provisioned) => Promise<R>,
   ): Promise<R> {
     const environment = await this.#openEnvironment();
-    const endActivity = environment.beginActivity();
-    try {
+    {
       const handle = await this.#whileOpen(environment.ready());
       const r = await build(handle);
       if (r.exitCode === 0 || !this.#isGone(r.stderr)) return r;
       await environment.invalidate(handle);
       return await build(await this.#whileOpen(environment.ready()));
-    } finally {
-      endActivity();
     }
   }
 

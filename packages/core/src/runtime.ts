@@ -27,6 +27,17 @@ export class Runtime {
   readonly inbox: Delivery[] = [];
   /** Whether the detached drain loop is currently active. */
   running = false;
+  /** Deferred tool-requested selection, applied only after the entire batch settles. */
+  pendingWorkspace: string | undefined;
+  preparation: { controller: AbortController; done: Promise<void> } | undefined;
+  workspaceSwitch:
+    | {
+        deferred: boolean;
+        target: string | undefined;
+        controller: AbortController;
+        done: Promise<void>;
+      }
+    | undefined;
   /** The in-flight turn id; present only while a turn runs. Liveness signal. */
   currentTurnId: TurnId | undefined;
   /** The in-flight turn's abort handle; present only while a turn runs. */

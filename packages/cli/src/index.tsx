@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { render } from "ink";
 import type { ConversationId, ModelConfig } from "@harness/protocol";
+import { decodeConversation } from "@harness/client";
 import type { HarnessClientService } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import { type ProviderStatus } from "@harness/server/client-protocol";
@@ -78,6 +79,8 @@ function notifyModel(
 
 /** Parses launch flags into a running TUI: new session, resume by id, or resume picker. */
 export async function launch(opts: LaunchOptions = {}): Promise<void> {
+  if (opts.worktree && (opts.resume || opts.conversationId))
+    throw new Error("--worktree only applies to new conversations");
   if (!opts.connectStdio) return launchConnected(opts);
 
   if (opts.ssh !== undefined || opts.host !== undefined) {
@@ -100,10 +103,9 @@ export async function launch(opts: LaunchOptions = {}): Promise<void> {
       // `--model` overrides the model id on the fallback provider (a dev convenience); otherwise
       // the settings cascade picks the model, falling back to `fallbackModel` only when none is set.
       const overrides = launchOverrides(fallbackModel, opts.model);
-      const conversation = await service.createConversation({
-        cwd,
-        overrides,
-      });
+      const conversation = opts.worktree
+        ? decodeConversation(await plugins.createWorktreeConversation(cwd, overrides))
+        : await service.createConversation({ cwd, overrides });
       console.log(`conversation ${conversation.id}\n`);
       created.add(conversation.id);
       await service.prepare(conversation.id);

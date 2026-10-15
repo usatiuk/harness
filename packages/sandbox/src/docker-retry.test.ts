@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock("./devcontainer.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./devcontainer.ts")>()),
+  containerRoot: async (path: string) => path,
   provisionDevcontainer: () => {
     state.provisions++;
     return Promise.resolve(state.handle);

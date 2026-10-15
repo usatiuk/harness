@@ -4,8 +4,8 @@ import type { ToolMode } from "./tools.ts";
 
 /**
  * A conversation's resolved settings — DERIVED from the cascade + the durable `overrides` layer on
- * every load, never stored. `workspaceRoot` is deliberately NOT here: it is conversation identity
- * (see {@link ConversationRecord}), fixed at creation, not a resolved setting.
+ * every load, never stored. `workspaceRoot` is deliberately NOT here: it selects execution
+ * (see {@link ConversationRecord}), not a resolved setting.
  */
 export interface ConversationConfig {
   instructions: string;
@@ -32,8 +32,10 @@ export type ConversationOverrides = Record<string, unknown>;
  */
 export interface ConversationRecord {
   id: ConversationId;
-  /** The execution workspace root; `null` when projectless. Identity, fixed at creation. */
+  /** Current execution directory; `null` when projectless. */
   workspaceRoot: string | null;
+  /** Original checkout and settings root, retained when execution switches workspaces. */
+  originalWorkspaceRoot?: string;
   /** Durable top-of-cascade settings layer; re-applied on every resolve. */
   overrides: ConversationOverrides;
   /** Tip of the active chain; advances on each append. `null` for empty history. */
@@ -61,6 +63,8 @@ export type ConfigResolver = (record: ConversationRecord) => Promise<Conversatio
 /** The durable fields a caller supplies to create a conversation; the store assigns the rest. */
 export type NewConversationRecord = {
   workspaceRoot: string | null;
+  /** Original checkout and settings root, retained when execution switches workspaces. */
+  originalWorkspaceRoot?: string;
   overrides: ConversationOverrides;
 };
 

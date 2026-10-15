@@ -1,3 +1,14 @@
+import { WorkspaceOperationError } from "@harness/protocol";
+import { ResponseError } from "vscode-jsonrpc";
+import { projectConversation } from "@harness/service";
+import {
+  worktreeRepositoryRequest,
+  worktreeCreateConversationRequest,
+  worktreeOptionsRequest,
+  worktreeSwitchRequest,
+  worktreeManagedRequest,
+  worktreeRemoveRequest,
+} from "@harness/worktrees/client";
 import type { ConversationId, JsonValue, RpcNotification } from "@harness/protocol";
 import { conversationOf } from "@harness/protocol";
 
@@ -31,6 +42,52 @@ import {
 export function registerFeatureServer(session: HarnessRpcSession): void {
   const host = session.host;
   const service = host.service;
+  const worktreeOperation = async <T>(run: () => Promise<T>): Promise<T> => {
+    try {
+      return await run();
+    } catch (error) {
+      if (error instanceof WorkspaceOperationError) throw new ResponseError(-32000, error.message);
+      throw error;
+    }
+  };
+  session.onRequest(worktreeRepositoryRequest, (params) =>
+    worktreeOperation(() => service.worktreeRepository(params.path)),
+  );
+  session.onRequest(worktreeCreateConversationRequest, (params, signal) =>
+    worktreeOperation(async () =>
+      projectConversation(
+        await service.createConversation({
+          ...(params.cwd ? { cwd: params.cwd } : {}),
+          overrides: params.overrides,
+          newWorktree: true,
+          signal,
+        }),
+      ),
+    ),
+  );
+  session.onRequest(worktreeOptionsRequest, (params) =>
+    worktreeOperation(() => service.workspaceOptions(params.conversationId as ConversationId)),
+  );
+  session.onRequest(worktreeSwitchRequest, (params, signal) =>
+    worktreeOperation(() =>
+      service.selectWorkspace(
+        params.conversationId as ConversationId,
+        params.selection,
+        false,
+        signal,
+      ),
+    ),
+  );
+  session.onRequest(worktreeManagedRequest, (params) =>
+    worktreeOperation(() => service.managedWorktrees(params.limit, params.before ?? undefined)),
+  );
+  session.onRequest(worktreeRemoveRequest, (params) =>
+    worktreeOperation(async () => {
+      await service.removeWorktree(params.path, params.force);
+      return null;
+    }),
+  );
+
   const send = <P extends JsonValue>(definition: RpcNotification<P>, params: P): void => {
     void session.notify(definition, params).catch(() => {
       session.server.peer.terminateProtocol("failed to send a plugin event");

@@ -23,9 +23,9 @@ owned execution tools are intentionally unsupported in the current composition.
 - Registration of tools wholly mediated by the substrate.
 - Optional explicitly approved access to an unconfined host context.
 
-The kernel carries this context as the per-conversation `"execution"` service but
-does not call its methods. Workspace, approval, agents, output, activities, and
-the TUI resolve the same cached instance.
+The kernel carries this context as the workspace-scoped `"execution"` service.
+Activation explicitly prepares it; workspace, approval, agents, output and
+activities resolve the same cached instance. Clients use the public RPC boundary.
 
 ## Workspace tools and dialects
 
@@ -64,31 +64,82 @@ symlink. This limitation is documented and blocks stronger isolation claims.
 
 ### Docker
 
-Uses the project's dev-container configuration and provisions lazily. One concrete
-environment pool belongs to each sandbox plugin composition, keyed by canonical
-project and config path. Compatible conversations share provisioning and the
-physical environment; each execution view retains its own cwd mapping, processes,
-IO cancellation, output namespace, and event channel. The project may be an
-ancestor of the conversation cwd; paths preserve that relative subdirectory.
-There is no Docker-to-host escape path.
+Uses the project's dev-container configuration. The server composition owns an
+environment pool keyed by canonical workspace and resolved recipe path. Compatible
+conversations share the physical environment; each execution view retains its own
+cwd mapping, processes, IO cancellation, output namespace and event channel.
+The project may be an ancestor of the conversation cwd. There is no Docker-to-host
+escape path.
 
-Ordinary close aborts and awaits only that view's IO/processes, then releases its
-ownership. Other owners keep the environment and in-flight provisioning. Final
-release cancels and awaits provisioning before removing owned containers,
-Compose sidecars, and networks. Recipe-derived labels and `COMPOSE_PROJECT_NAME`
-align sharing and cleanup identity. Persistent volumes keep existing behavior.
-Explicit shared stop/rebuild emits a warning to affected conversations and acts;
-it may interrupt their commands. The TUI displays the warning through its existing
-status flow; this does not add parallel TUI support.
+Opening a Docker conversation prepares its environment. Closing a view drains only
+its own IO/processes and releases its attachment; environments remain alive with
+no views. Explicit Stop stops the primary container and Compose sidecars while
+preserving container state. Reopening resumes it. Remove discards containers and
+owned Compose networks; named volumes remain. Server shutdown stops all owned
+environments. The former `idleTimeoutMinutes` input is accepted for saved-file
+compatibility and discarded; there is no idle timer.
 
-Idle accounting aggregates all IO and commands. Interactive sessions prevent
-idle stopping. The longest owner's timeout wins; any zero disables idle stopping.
-The workspace container stops after idle and restarts lazily. Compose sidecars
-remain until explicit stop or final release. Ownership remains while loaded.
+Stable server-home labels and workspace/recipe-derived Compose project names align
+sharing, management and cleanup. Inventory queries Docker explicitly, including
+sidecar-only and network-only remnants; there is no mirrored container registry or
+polling. A home-local Docker metadata directory records whether this server has
+used Docker, so deleting a local-only worktree does not require a Docker daemon.
+`harness sandbox shell/stop` uses the same shared local server; the CLI owns only
+the terminal attachment.
 
-Tools and client controls resolve the same backend within an activation. Explicit
-reload and sandbox configuration changes dispose that view before constructing
+Before provisioning, a stop-only guardian container (`node:24.21.0-alpine`)
+subscribes to Docker start events through the selected daemon socket and verifies
+its daemon identity. Server stdin EOF triggers a stop sweep and continued stopping
+of later owned starts, covering an in-flight devcontainer CLI after server SIGKILL.
+A replacement same-home server establishes its subscriber before retiring the old
+guardian. Existing SQLite ownership excludes two live servers for one home.
+Guardian failure closes the server rather than continuing unguarded. Graceful
+shutdown drains views, stops all owned environments and retires the guardian.
+Rootless Unix sockets and Docker Desktop are supported; other remote Docker
+endpoints fail clearly before provisioning. The guardian needs Docker socket access,
+just like the server; it does not delete containers or volumes.
+
+Shared Stop/Rebuild warns affected views and may interrupt their commands. Reload
+and backend configuration changes dispose the conversation view before constructing
 the next. Selection never silently falls back to a less confined backend.
+
+## Worktrees and workspace switching
+
+`@harness/worktrees` owns Git commands, managed-checkout ownership, the global
+storage setting and agent tools. `HarnessService` owns conversation selection;
+execution backends own their physical environments. No project records or generic
+workspace-provider framework are introduced.
+
+A managed worktree starts at current HEAD on a generated `harness/<uuid>` branch;
+dirty and ignored files are not copied. Storage defaults to `~/.harness/worktrees`
+on the selected server and accepts an absolute configured directory. Existing
+locations remain valid after the setting changes. Git is authoritative for current
+branches and registrations; the store keeps only managed path, repository and
+creation time.
+
+A conversation retains its original workspace for settings resolution and a mutable
+current workspace for execution. Forks/children preserve that origin. Switching
+moves no files/history. Only workspace-scoped services (execution and project
+instructions) are replaced. User switches require an idle conversation tree;
+background activities and subagents block switching and deletion. Agent-requested
+switches reserve preparation/cancellation immediately but commit only after the
+whole tool batch, including parallel/nested eval calls. Other calls in that batch
+use the old directory. The next request rebuilds instructions/tools and receives a
+workspace-change context item. New execution is prepared before durable selection
+changes; failures preserve the old selection.
+
+Deletion validates managed ownership and dirty-file permission, removes the Docker
+environment, removes the Git checkout, then drops ownership. It retains branches
+and history. Explicit confirmation permits discarding dirty/untracked files; locked
+or primary checkouts remain protected. An ownership write failure after successful
+Git removal can be retried. Running work or an in-flight switch blocks deletion.
+Idle conversations pointing at a deleted checkout fail on open instead of recreating
+it; the workspace control can switch back to the original checkout.
+
+Native confinement exposes linked Git common metadata for writes when workspace
+writes are enabled. POSIX Docker mounts preserve absolute Git metadata and checkout
+paths. Windows Docker mounts translate the checkout's `.git` link without global
+`GIT_DIR`/`GIT_WORK_TREE` overrides, preserving nested repository discovery.
 
 ## Approval
 
@@ -176,7 +227,10 @@ Short results remain inline. The output plugin preserves large results in the
 substrate's `.harness/<conversation>/outputs` store and returns a bounded model-
 facing view plus its path. Streaming processes use the same store when they move
 to the background. Output files are auto-gitignored and remain inspectable by the
-model through ordinary workspace tools.
+model through ordinary workspace tools. New references are absolute host paths;
+Docker maps paths within its workspace to the container mount. Old relative
+references stay anchored to the earlier workspace by the switch context; files
+are never moved or silently looked up in a different checkout.
 
 ## Accepted invariants
 
@@ -193,7 +247,8 @@ model through ordinary workspace tools.
 
 - `packages/execution`: IO contract, local backend, process and boundary helpers.
 - `packages/workspace`: model-shaped file/command tools and process activities.
-- `packages/sandbox`: native and Docker backends plus configuration.
+- `packages/sandbox`: native/Docker execution and server-owned environment lifetime.
+- `packages/worktrees`: Git operations, ownership and agent tools.
 - `packages/approval`, `packages/auto-approval`: authorization middleware.
 - `packages/output`: output bounding and preservation.
 
@@ -201,5 +256,5 @@ model through ordinary workspace tools.
 
 Tests cover path boundaries, process-tree termination, stream decoding, tool
 dialects, patch parsing, output spill, approval classification/annotations,
-auto-approval integration, Docker lifecycle/retry/idle behavior, and native
+auto-approval integration, Docker sharing/retention/stop/crash behavior, and native
 namespace configuration. Native integration tests are platform/capability gated.

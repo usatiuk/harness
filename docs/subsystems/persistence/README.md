@@ -13,7 +13,8 @@ A conversation record stores:
 
 - Its id and creation time.
 - A nullable display title, updated independently of immutable history.
-- A workspace root, or `null` for a projectless conversation.
+- A current workspace root, or `null` for a projectless conversation, and an optional
+  original workspace root retained across switching, forks and children.
 - A durable settings-override object.
 - `head`, the current leaf item or `null` before the first append.
 
@@ -81,8 +82,11 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-The current SQLite format is version 9. Fresh databases receive the complete
-schema atomically. Version 3 receives an explicit additive upgrade for nullable
+The current SQLite format is version 10. Version 9 receives an additive original
+workspace column and indexed managed-worktree ownership table; existing workspace
+selection/history stays intact. Managed ownership stores path/repository/creation
+time only; Git remains authoritative for branch and registration facts.
+Fresh databases receive the complete schema atomically. Version 3 receives an explicit additive upgrade for nullable
 request purpose/duration and indexed latest-agent, terminal-turn and turn-usage
 lookups. History and billing totals remain intact; unclassified purpose/timing cannot
 establish historical throughput or an agent checkpoint. Versions 3/4 then receive
@@ -131,7 +135,8 @@ and TUI database use, not arbitrary external credential/settings writers.
 
 The store persists workspace identity and overrides, not a resolved
 `ConversationConfig`. `HarnessService` re-runs the settings cascade on creation,
-load, and configuration change, so global/project settings can evolve without
+load, and configuration change against the original workspace (falling back to
+current workspace for older records), so global/project settings can evolve without
 rewriting stored conversations while explicit conversation overrides survive
 resume.
 

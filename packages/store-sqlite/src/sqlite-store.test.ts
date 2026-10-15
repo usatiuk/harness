@@ -59,7 +59,9 @@ describe("SqliteStore (durable-only)", () => {
     });
     first.close();
     const db = new BetterSqlite3(path);
-    db.exec("ALTER TABLE conversations DROP COLUMN fork_origin; PRAGMA user_version = 8");
+    db.exec(
+      "ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees; PRAGMA user_version = 8",
+    );
     db.close();
     const upgraded = new SqliteStore(path);
     const fork = await upgraded.forkConversation(source.id, user.id, {});
@@ -113,7 +115,7 @@ describe("SqliteStore (durable-only)", () => {
     before.close();
     const previous = new BetterSqlite3(path);
     previous.exec(
-      "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN fork_origin;",
+      "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees;",
     );
     previous.pragma("user_version = 7");
     previous.close();
@@ -250,7 +252,7 @@ describe("SqliteStore (durable-only)", () => {
             : "SELECT 1;",
       );
       previous.exec(
-        "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN title; ALTER TABLE conversations DROP COLUMN fork_origin;",
+        "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN title; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees;",
       );
       previous.pragma(`user_version = ${version}`);
       previous.close();

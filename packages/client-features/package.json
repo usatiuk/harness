@@ -29,6 +29,7 @@
     "@harness/auto-approval": "*",
     "@harness/subagents": "*",
     "@harness/workspace": "*",
-    "@harness/execution": "*"
+    "@harness/execution": "*",
+    "@harness/worktrees": "*"
   }
 }

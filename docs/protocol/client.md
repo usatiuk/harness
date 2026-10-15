@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `12`. It exchanges
+`initialize` is the first application request and requires protocol version `13`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -236,3 +236,20 @@ rejected. It accepts configuration, never a credential value; the existing auth
 request stores the API key separately. Restart activates the new provider/catalog.
 Desktop currently offers a focused LiteLLM setup form rather than a generic schema
 editor. A failed key write leaves the saved provider visible for credential retry.
+
+## Worktree selection and Docker management
+
+Protocol 13 carries nullable `originalWorkspaceRoot` and `workspace.changed`.
+Current workspace drives execution/sidebar folders; original workspace drives
+configuration. Both survive forks/restart. The `worktrees` v1 contract exposes
+Git eligibility, creation, options, switching and paged managed ownership/removal.
+Options return null for a non-Git project. Agent tools use the same service and
+defer selection until the entire tool batch ends; client switching requires idle
+work. Expected workspace refusals have safe actionable RPC errors.
+
+The `sandbox` contract includes paged environment inventory and explicit Stop/
+Remove. `plugin.sandbox.workspace` is the local CLI's narrow start/stop seam;
+it returns container/user/workspace details for terminal attachment. The server
+owns provisioning, deletion exclusion and physical lifetime. Closing the CLI
+connection does not remove its environment. See the
+[execution subsystem](../subsystems/execution/README.md) for retention/crash behavior.

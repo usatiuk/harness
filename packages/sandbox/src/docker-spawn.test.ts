@@ -20,6 +20,7 @@ vi.mock("node:child_process", async (importOriginal) => ({
 
 vi.mock("./devcontainer.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./devcontainer.ts")>()),
+  containerRoot: async (path: string) => path,
   provisionDevcontainer: () =>
     Promise.resolve({ containerId: "container", remoteUser: "root", remoteWorkspaceFolder: "/w" }),
 }));

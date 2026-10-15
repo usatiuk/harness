@@ -1,3 +1,11 @@
+import {
+  worktreeRepositoryRequest,
+  worktreeCreateConversationRequest,
+  worktreeOptionsRequest,
+  worktreeSwitchRequest,
+  worktreeManagedRequest,
+  worktreeRemoveRequest,
+} from "@harness/worktrees/client";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
@@ -21,6 +29,9 @@ import {
   approvalsSnapshotSchema,
 } from "@harness/approval";
 import {
+  sandboxWorkspaceRequest,
+  sandboxEnvironmentsRequest,
+  sandboxEnvironmentControlRequest,
   sandboxEventNotification,
   sandboxRebuildRequest,
   sandboxSnapshotSchema,
@@ -53,6 +64,15 @@ import { mcpRpcMessages } from "@harness/mcp/client";
 
 const messages: readonly RpcMessage[] = [
   initializeRequest,
+  worktreeOptionsRequest,
+  worktreeSwitchRequest,
+  worktreeManagedRequest,
+  worktreeRemoveRequest,
+  sandboxWorkspaceRequest,
+  sandboxEnvironmentsRequest,
+  sandboxEnvironmentControlRequest,
+  worktreeRepositoryRequest,
+  worktreeCreateConversationRequest,
   ...coreRpcMessages,
   serverInfoRequest,
   serverStopRequest,

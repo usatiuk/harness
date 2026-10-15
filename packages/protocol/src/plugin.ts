@@ -43,6 +43,8 @@ export interface ConversationInputContext {
  * live resources may dispose its value when that conversation tree is deactivated.
  */
 export interface ServiceProvider {
+  /** Workspace services are replaced when a conversation switches its execution directory. */
+  readonly scope?: "workspace";
   readonly key: string;
   for(conversation: Conversation): unknown;
   /** Runs after an input is persisted, before agent work resumes. */

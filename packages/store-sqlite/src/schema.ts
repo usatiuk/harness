@@ -8,6 +8,7 @@ import type BetterSqlite3 from "better-sqlite3";
  */
 export interface Database {
   conversations: ConversationsTable;
+  managed_worktrees: { path: string; repository: string; created_at: number };
   turns: TurnsTable;
   items: ItemsTable;
   provider_payloads: ProviderPayloadsTable;
@@ -21,6 +22,7 @@ interface ConversationsTable {
   id: string;
   /** The execution workspace root; NULL when projectless. */
   workspace_root: string | null;
+  original_workspace_root: string | null;
   /** Durable settings-overrides layer, JSON. Config itself is resolved on load, never stored. */
   overrides: string;
   head: string | null;
@@ -99,10 +101,16 @@ interface ModelUsageTable {
 // conversations⇄items cycle needs no ordering or DEFERRABLE — the append order satisfies
 // every FK (item before head advances; head starts NULL). The only delete
 // (deleteConversationIfEmpty) targets rows nothing references, so plain REFERENCES still holds.
+const WORKTREE_SCHEMA = `CREATE TABLE managed_worktrees (
+  path TEXT PRIMARY KEY, repository TEXT NOT NULL, created_at INTEGER NOT NULL
+);`;
+
 const SCHEMA = `
+${WORKTREE_SCHEMA}
 CREATE TABLE conversations (
   id TEXT PRIMARY KEY,
   workspace_root TEXT,
+  original_workspace_root TEXT,
   overrides TEXT NOT NULL DEFAULT '{}',
   head TEXT REFERENCES items(id),
   title TEXT,
@@ -188,7 +196,7 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-export const STORE_SCHEMA_VERSION = 9;
+export const STORE_SCHEMA_VERSION = 10;
 
 /** Fresh schema or explicit additive v3–v6 upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
@@ -230,6 +238,11 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
     }
     if (version === 8) {
       db.exec("ALTER TABLE conversations ADD COLUMN fork_origin TEXT;");
+      version = 9;
+    }
+    if (version === 9) {
+      db.exec("ALTER TABLE conversations ADD COLUMN original_workspace_root TEXT;");
+      db.exec(WORKTREE_SCHEMA);
       db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }

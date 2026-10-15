@@ -1207,3 +1207,39 @@ without remote-body leakage. Browser checks cover basic bearer/OAuth setup, expe
 configuration preservation, OAuth cleanup, LiteLLM setup and distinct selection
 colors in both themes. Native Windows selection and the user's enterprise GitLab
 instance still need real-platform/instance qualification.
+
+### Managed worktrees and workspace-owned Docker
+
+`service/src/workspace-switch.test.ts` covers complete-batch switching (including
+real QuickJS parallel calls), refreshed instructions/execution, overlapping config
+resolution, forced-close cancellation and deletion admission. `worktrees/src/git.test.ts`
+uses real isolated repositories for dirty/primary protection, failed creation and
+post-Git persistence failure recovery. `server/src/worktrees.test.ts` uses actual
+RPC/SQLite restart with temporary home and memory credentials; `cli/src/hosts.test.tsx`
+saves/clears the directory through Ink Settings. Browser regressions exercise
+creation eligibility, branch switching, confirmation and directory settings.
+
+Local qualification: `npm run check` passed 1,391 tests (41 gated skips); all 58
+browser cases passed using `PLAYWRIGHT_BROWSERS_PATH=/tmp/harness-playwright-browsers`.
+The outer sandbox inserts an empty `/tmp/.git`; run the real non-Git RPC fixture
+outside it rather than changing Git discovery expectations.
+
+Run real Docker qualification with:
+
+```sh
+HARNESS_DOCKER_INTEGRATION=1 npx vitest run packages/sandbox/src/docker-guardian.integration.test.ts packages/sandbox/src/worktrees.integration.test.ts packages/sandbox/src/docker-sharing.integration.test.ts
+HARNESS_DOCKER_INTEGRATION=1 npx vitest run packages/server/src/worktrees.test.ts
+HARNESS_NATIVE_INTEGRATION=1 npx vitest run packages/sandbox/src/worktrees.integration.test.ts
+```
+
+Docker/Compose cases passed six scenarios plus one separately passing real-RPC
+scenario. Native Git commit passed separately outside the outer namespace sandbox.
+The fixtures isolate homes, Git configuration, Docker client configuration and
+ownership; they never reuse the development profile or credential store. Tests
+wait for actual lifecycle state. Images/build cache may remain, while fixture
+containers/networks are removed. Named volumes follow product retention policy.
+
+Windows translated Git-link behavior is exercised with real Linux containers;
+actual Windows Docker Desktop mounts/transport remain unqualified. Compose uses an
+explicitly built fixture image to avoid upstream Bake's generated-Dockerfile
+filesystem entitlement issue. The product still uses the devcontainer CLI.

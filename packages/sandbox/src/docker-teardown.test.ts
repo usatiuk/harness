@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const events = vi.hoisted(() => ({ log: [] as string[], aborted: false }));
 vi.mock("./devcontainer.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./devcontainer.ts")>()),
+  containerRoot: async (path: string) => path,
   provisionDevcontainer: (_root: string, opts: import("./devcontainer.ts").ProvisionOptions) =>
     new Promise((_resolve, reject) => {
       opts.onStarted?.();
@@ -15,6 +16,10 @@ vi.mock("./devcontainer.ts", async (importOriginal) => ({
         reject(new Error("aborted"));
       });
     }),
+  removeSandbox: async () => {
+    events.log.push("removeSandbox");
+    return 0;
+  },
   stopSandbox: async () => {
     events.log.push("stopSandbox");
     return 0;
@@ -82,11 +87,12 @@ describe("DockerExecutionContext.stop (mid-provision teardown)", () => {
     controller.abort();
     await expect(rebuild).rejects.toThrow(/aborted|cancelled/);
     await vi.waitFor(() =>
-      expect(events.log).toEqual(["stopSandbox", "provision-settled", "stopSandbox"]),
+      expect(events.log).toEqual(["removeSandbox", "provision-settled", "stopSandbox"]),
     );
     expect(ctx.isProvisioned()).toBe(false);
 
-    const reused = ctx.read("x").catch(() => {});
+    await expect(ctx.read("x")).rejects.toThrow("stopped");
+    const reused = ctx.prepare().catch(() => {});
     await vi.waitFor(() => expect(ctx.isProvisioned()).toBe(true));
     await ctx.stop();
     await reused;

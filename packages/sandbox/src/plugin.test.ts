@@ -48,7 +48,6 @@ describe("sandboxPlugin execution provider", () => {
       native: { workspaceWrite: true, network: true },
       docker: {
         configPath: ".devcontainer/devcontainer.json",
-        idleTimeoutMinutes: 10,
       },
     });
   });

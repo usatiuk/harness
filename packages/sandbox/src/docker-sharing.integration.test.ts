@@ -1,15 +1,16 @@
+import { dockerTestEnvironment } from "./docker.test-support.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SpawnedProcess } from "@harness/execution";
 import { InMemoryStore } from "@harness/store";
 import { HarnessService } from "@harness/service";
 import { sandboxPlugin } from "./plugin.ts";
 import { DockerExecutionContext } from "./docker.ts";
 import { captureText } from "./docker-cli.ts";
-import { environmentName, isSandboxStatus, stopSandbox } from "./devcontainer.ts";
+import { environmentName, isSandboxStatus, removeSandbox } from "./devcontainer.ts";
 
 const dockerIds = async (kind: "ps" | "network", project: string): Promise<string[]> => {
   const args = kind === "ps" ? ["ps", "-aq"] : ["network", "ls", "-q"];
@@ -65,6 +66,10 @@ describe.runIf(process.env.HARNESS_DOCKER_INTEGRATION === "1")(
       if (info.status !== 0 || info.stdout.trim() !== "linux")
         throw new Error(`Linux Docker daemon required: ${info.stderr || info.error?.message}`);
       const project = await mkdtemp(join(tmpdir(), "harness-shared-compose-"));
+      const clientDirectory = await mkdtemp(join(tmpdir(), "harness-docker-client-"));
+      for (const [key, value] of Object.entries(await dockerTestEnvironment(clientDirectory)))
+        vi.stubEnv(key, value);
+      const image = `harness-compose-fixture-${basename(project).toLowerCase()}`;
       const directory = join(project, ".devcontainer");
       const subdirectory = join(project, "subdir");
       const configPath = join(directory, "devcontainer.json"),
@@ -79,6 +84,10 @@ describe.runIf(process.env.HARNESS_DOCKER_INTEGRATION === "1")(
           plugins: { sandbox: { backend: "docker", docker: { idleTimeoutMinutes: 0 } } },
         },
         plugins: [sandboxPlugin],
+      });
+      const statuses: string[] = [];
+      service.subscribe((event) => {
+        if (isSandboxStatus(event) && event.message) statuses.push(event.message);
       });
       const roots: Array<Awaited<ReturnType<typeof service.createConversation>>> = [];
       const attach = async (cwd = project, overrides = {}) => {
@@ -97,9 +106,11 @@ describe.runIf(process.env.HARNESS_DOCKER_INTEGRATION === "1")(
           join(directory, "Dockerfile"),
           "FROM debian:stable-slim\nRUN apt-get update -qq && apt-get install -y -qq procps && rm -rf /var/lib/apt/lists/*\n",
         );
+        const built = await captureText("docker", ["build", "-t", image, directory]);
+        if (built.exitCode !== 0) throw new Error(`Fixture image build failed: ${built.stderr}`);
         await writeFile(
           join(directory, "compose.yaml"),
-          "services:\n  workspace:\n    build: .\n    command: sleep infinity\n    volumes:\n      - ../:/workspaces/project\n  sidecar:\n    image: debian:stable-slim\n    command: sleep infinity\n",
+          `services:\n  workspace:\n    image: ${image}\n    command: sleep infinity\n    volumes:\n      - ../:/workspaces/project\n  sidecar:\n    image: debian:stable-slim\n    command: sleep infinity\n`,
         );
         const config = {
           name: "Harness ownership integration",
@@ -166,19 +177,43 @@ describe.runIf(process.env.HARNESS_DOCKER_INTEGRATION === "1")(
         );
         await service.deactivateSession(b.id);
         expect(await dockerIds("ps", firstProject)).toHaveLength(2);
+        await command(c.execution, "printf retained > /tmp/harness-retained-state");
+        await c.execution.stop();
+        expect(await dockerIds("ps", firstProject)).toHaveLength(2);
+        const states = await captureText("docker", [
+          "inspect",
+          "--format",
+          "{{.State.Running}}",
+          ...(await dockerIds("ps", firstProject)),
+        ]);
+        expect(states.stdout.trim().split("\n")).toEqual(["false", "false"]);
+        await service.prepare(c.id);
+        expect((await command(c.execution, "cat /tmp/harness-retained-state")).trim()).toBe(
+          "retained",
+        );
         await service.deactivateSession(c.id);
-        expect(await dockerIds("ps", firstProject)).toEqual([]);
-        expect(await dockerIds("network", firstProject)).toEqual([]);
+        expect(await dockerIds("ps", firstProject)).toHaveLength(2);
+        expect((await dockerIds("network", firstProject)).length).toBeGreaterThan(0);
         expect(await dockerIds("ps", alternateProject)).toHaveLength(2);
         await service.deactivateSession(alternate.id);
-        expect(await dockerIds("ps", alternateProject)).toEqual([]);
-        expect(await dockerIds("network", alternateProject)).toEqual([]);
+        expect(await dockerIds("ps", alternateProject)).toHaveLength(2);
+        expect((await dockerIds("network", alternateProject)).length).toBeGreaterThan(0);
+      } catch (error) {
+        throw new Error(`${String(error)}\nFixture provisioning status:\n${statuses.join("\n")}`, {
+          cause: error,
+        });
       } finally {
         await Promise.allSettled(
           roots.map((root) => service.deactivateSession(root.id, { force: true })),
         );
-        await Promise.all([stopSandbox(project, configPath), stopSandbox(project, alternatePath)]);
+        await Promise.all([
+          removeSandbox(project, configPath),
+          removeSandbox(project, alternatePath),
+        ]);
+        await captureText("docker", ["image", "rm", image]);
         await rm(project, { recursive: true, force: true });
+        await rm(clientDirectory, { recursive: true, force: true });
+        vi.unstubAllEnvs();
       }
     }, 240_000);
   },

@@ -28,6 +28,7 @@ export type KernelEvent = ConversationEvent &
     | { type: "request.resolved"; requestId: string }
     | { type: "config.changed"; config: ConversationConfig }
     | { type: "title.changed"; title: string }
+    | { type: "workspace.changed"; workspaceRoot: string; originalWorkspaceRoot: string }
     // `inbox`: snapshot of accepted-but-not-yet-injected input (queue/steer), re-emitted on
     // every inbox mutation; `pending: []` means it drained.
     | { type: "inbox"; pending: { intent: DeliveryIntent; text: string }[] }
@@ -56,6 +57,7 @@ const KERNEL_EVENT_TYPES = new Set<KernelEvent["type"]>([
   "request.resolved",
   "config.changed",
   "title.changed",
+  "workspace.changed",
   "inbox",
   "usage.changed",
 ]);

@@ -102,6 +102,8 @@ export interface ExecutionContext {
    * May return existing backend initialization for prepare to await. Tool rebinding is synchronous;
    * the backend must observe that promise's rejection and expose failure through its IO/disposal.
    */
+  /** Explicit conversation open/resume; may start a retained environment. */
+  prepare?(signal?: AbortSignal): Promise<void>;
   bind?(emit: (event: PluginEvent) => void): void | Promise<unknown>;
 }
 

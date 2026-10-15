@@ -1,6 +1,8 @@
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginEvent, ConversationId } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
@@ -25,6 +27,7 @@ vi.mock("./devcontainer.ts", async (original) => ({
     return state.provision(root, options);
   },
   stopSandbox: state.stop,
+  removeSandbox: state.stop,
 }));
 vi.mock("./docker-cli.ts", () => ({ capture: state.capture, captureText: state.captureText }));
 vi.mock("node:child_process", async (original) => ({
@@ -54,24 +57,35 @@ const handle = () => ({
 const makeService = (idleTimeoutMinutes = 0) =>
   new HarnessService({
     store: new InMemoryStore(),
-    home: "/nonexistent-harness-home",
+    home: join(state.project, "home"),
     defaults: {
       model: { provider: "fake", model: "fake" },
       plugins: { sandbox: { backend: "docker", docker: { idleTimeoutMinutes } } },
     },
     plugins: [sandboxPlugin],
   });
-async function attach(service: HarnessService, cwd = state.project, overrides = {}) {
+async function attach(
+  service: HarnessService,
+  cwd = state.project,
+  overrides = {},
+  prepare = true,
+) {
   const conversation = await service.createConversation({ cwd, overrides });
-  await service.prepare(conversation.id);
+  const preparing = service.prepare(conversation.id);
+  if (prepare) await preparing;
+  else {
+    void preparing.catch(() => undefined);
+    await vi.waitFor(() => expect(service.service(conversation.id, "execution")).toBeDefined());
+  }
   return {
     id: conversation.id,
     execution: service.service(conversation.id, "execution") as DockerExecutionContext,
   };
 }
 
-beforeEach(() => {
-  state.project = resolve("D:/audit-shared-project");
+beforeEach(async () => {
+  state.project = await mkdtemp(join(tmpdir(), "harness-sharing-"));
+  await mkdir(join(state.project, "subdir"));
   state.children = [];
   state.nextId = 0;
   state.provision.mockReset().mockImplementation(async () => handle());
@@ -95,39 +109,23 @@ beforeEach(() => {
     return { stdout: "0", stderr: "", exitCode: 0 };
   });
 });
-afterEach(() => vi.useRealTimers());
+afterEach(async () => {
+  vi.useRealTimers();
+  await rm(state.project, { recursive: true, force: true });
+});
 
 describe("shared Docker conversation ownership", () => {
-  it("uses the longest owner timeout and updates it after release", async () => {
+  it("retains a shared environment across idle time and final conversation release", async () => {
     vi.useFakeTimers();
     const service = makeService(1),
       a = await attach(service),
-      b = await attach(service, state.project, {
-        plugins: { sandbox: { docker: { idleTimeoutMinutes: 2 } } },
-      });
+      b = await attach(service);
     await a.execution.read("file");
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(state.captureText.mock.calls.some(([, args]) => args[0] === "stop")).toBe(false);
-    await service.deactivateSession(b.id);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(state.captureText.mock.calls.filter(([, args]) => args[0] === "stop")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
     await service.deactivateSession(a.id);
-  });
-
-  it("disables shared idle stopping while any owner disables its timeout", async () => {
-    vi.useFakeTimers();
-    const service = makeService(1),
-      a = await attach(service),
-      b = await attach(service, state.project, {
-        plugins: { sandbox: { docker: { idleTimeoutMinutes: 0 } } },
-      });
-    await a.execution.read("file");
-    await vi.advanceTimersByTimeAsync(60 * 60_000);
-    expect(state.captureText.mock.calls.some(([, args]) => args[0] === "stop")).toBe(false);
     await service.deactivateSession(b.id);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(state.captureText.mock.calls.filter(([, args]) => args[0] === "stop")).toHaveLength(1);
-    await service.deactivateSession(a.id);
+    expect(state.stop).not.toHaveBeenCalled();
+    expect(state.captureText.mock.calls.some(([, args]) => args[0] === "stop")).toBe(false);
   });
 
   it("cancels and awaits A's file-operation client while B retains the environment", async () => {
@@ -165,7 +163,7 @@ describe("shared Docker conversation ownership", () => {
     expect(b.execution.isProvisioned()).toBe(true);
     await service.deactivateSession(b.id);
   });
-  it("closing an unused A preserves B's running command; last release cleans the environment", async () => {
+  it("closing A preserves B's command; last release only cleans conversation processes", async () => {
     const service = makeService(),
       a = await attach(service),
       b = await attach(service);
@@ -184,7 +182,7 @@ describe("shared Docker conversation ownership", () => {
     );
     await service.deactivateSession(b.id);
     await expect(process.exit).resolves.toMatchObject({ signal: "SIGTERM" });
-    expect(state.stop).toHaveBeenCalledTimes(1);
+    expect(state.stop).not.toHaveBeenCalled();
   });
 
   it("closing A detaches its provisioning wait without aborting B's shared build", async () => {
@@ -198,13 +196,13 @@ describe("shared Docker conversation ownership", () => {
       return handle();
     });
     const service = makeService(),
-      a = await attach(service),
-      b = await attach(service);
+      a = await attach(service, state.project, {}, false),
+      b = await attach(service, state.project, {}, false);
     const readA = a.execution.read("A");
     const rejectedA = expect(readA).rejects.toThrow("cancelled");
     const readB = b.execution.read("B");
     await vi.waitFor(() => expect(state.provision).toHaveBeenCalledTimes(1));
-    await service.deactivateSession(a.id);
+    await service.deactivateSession(a.id, { force: true });
     await rejectedA;
     expect(signal.aborted).toBe(false);
     expect(state.stop).not.toHaveBeenCalled();
@@ -223,8 +221,8 @@ describe("shared Docker conversation ownership", () => {
       return handle();
     });
     const service = makeService(),
-      a = await attach(service),
-      b = await attach(service);
+      a = await attach(service, state.project, {}, false),
+      b = await attach(service, state.project, {}, false);
     const processA = a.execution.spawn("A"),
       processB = b.execution.spawn("B");
     await vi.waitFor(() => expect(state.provision).toHaveBeenCalledTimes(1));
@@ -288,7 +286,7 @@ describe("shared Docker conversation ownership", () => {
     ]);
   });
 
-  it("counts B's command when A is idle, then idle-stops the shared handle after completion", async () => {
+  it("keeps the shared environment alive after all commands complete", async () => {
     vi.useFakeTimers();
     const service = makeService(1),
       a = await attach(service),
@@ -302,9 +300,9 @@ describe("shared Docker conversation ownership", () => {
     finish(state.children[0]!.child);
     await process.exit;
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(state.captureText.mock.calls.filter(([, args]) => args[0] === "stop")).toHaveLength(1);
-    expect(a.execution.isProvisioned()).toBe(false);
-    expect(b.execution.isProvisioned()).toBe(false);
+    expect(state.captureText.mock.calls.filter(([, args]) => args[0] === "stop")).toHaveLength(0);
+    expect(a.execution.isProvisioned()).toBe(true);
+    expect(b.execution.isProvisioned()).toBe(true);
     await Promise.all([service.deactivateSession(a.id), service.deactivateSession(b.id)]);
   });
 });

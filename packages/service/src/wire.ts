@@ -76,6 +76,7 @@ export const projectConversation = (conversation: Conversation): WireConversatio
   wireConversationSchema.parse({
     id: conversation.id,
     workspaceRoot: conversation.workspaceRoot,
+    originalWorkspaceRoot: conversation.originalWorkspaceRoot ?? null,
     title: conversation.title,
     overrides: jsonValueSchema.parse(conversation.overrides),
     head: conversation.head,

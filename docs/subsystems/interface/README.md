@@ -776,3 +776,21 @@ successful OAuth alone does not prove MCP initialization/tool discovery succeeds
 Text selection uses native Highlight/HighlightText colors, distinct from the
 user-message bubble in both themes. Native Windows rendering is not qualified by
 the Linux browser fixture checks.
+
+### Worktree and Docker management
+
+The creation form offers a new-worktree choice for Git folders. The subtle branch
+control beside the conversation title switches to a new/existing worktree or the
+original checkout; it is disabled during running turns and the server also checks
+background work. Sidebar grouping still follows current folder paths, with a
+worktree icon immediately before status indicators. Settings → Defaults configures
+the selected server's storage directory; Settings → Worktrees pages managed
+checkouts and Docker environments. Deletion uses explicit confirmation, retaining
+branches/history; Docker Stop preserves state while Remove discards containers
+and keeps volumes. Failed opens retain a workspace control for recovery.
+
+TUI supports `--worktree` at creation, `/worktree` for list/new/original/use/managed/
+delete (`--force` explicitly discards dirty files), and `/docker` list/stop/remove.
+Host Settings exposes nullable `worktreeDirectory`. All these use the same plugin
+RPC boundary and server-owned lifetimes. Local sandbox shell/stop utility commands
+also use the shared local server instead of provisioning independent containers.

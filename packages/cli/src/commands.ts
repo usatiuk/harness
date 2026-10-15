@@ -1,3 +1,4 @@
+import type { HarnessPlugins } from "@harness/client-features";
 import {
   formatError,
   modelId,
@@ -18,6 +19,7 @@ export const presetsFor = (service: HarnessClientService, model: ModelConfig): P
 /** What a slash command can act on. Kept narrow on purpose. */
 export interface CommandContext {
   service: HarnessClientService;
+  plugins: HarnessPlugins;
   conversationId: ConversationId;
   /** This conversation's workspace root. */
   cwd: string;
@@ -61,6 +63,84 @@ export interface Command {
 // Whitespace-split args suffice while commands take at most a bare id; defer a
 // quote-aware tokenizer + schema until one needs structured arguments.
 export const commands: Command[] = [
+  {
+    name: "docker",
+    summary: "manage workspace environments: /docker [list [cursor]|stop <id>|remove <id>]",
+    run: (ctx, args) => {
+      const run = async () => {
+        if (!args[0] || args[0] === "list") {
+          const rows = await ctx.plugins.dockerEnvironments(20, args[1]);
+          ctx.note(
+            rows
+              .map(
+                (row) =>
+                  `${row.id} · ${row.running ? "running" : "stopped"} · ${row.workspaceRoot ?? "Compose environment"}`,
+              )
+              .join("\n") || "no managed Docker environments",
+          );
+          if (rows.length === 20) ctx.note(`/docker list ${rows.at(-1)!.id} — next page`);
+        } else if ((args[0] === "stop" || args[0] === "remove") && args[1]) {
+          await ctx.plugins.controlDockerEnvironment(args[1], args[0]);
+          ctx.note(
+            args[0] === "stop"
+              ? "environment stopped; state retained"
+              : "environment removed; volumes retained",
+          );
+        } else ctx.note("usage: /docker [list [cursor]|stop <id>|remove <id>]");
+      };
+      void run().catch((error: unknown) => ctx.note(`docker: ${formatError(error)}`));
+    },
+  },
+
+  {
+    name: "worktree",
+    summary:
+      "list/switch worktrees: /worktree [new|original|use <path>|managed|delete [--force] <path>]",
+    run: (ctx, args) => {
+      const run = async () => {
+        const action = args[0];
+        if (!action || action === "list") {
+          const options = await ctx.plugins.workspaceOptions(ctx.conversationId);
+          if (!options) {
+            ctx.note("This conversation is not in a Git repository");
+            return;
+          }
+          ctx.note(
+            options.worktrees
+              .map(
+                (tree) =>
+                  `${tree.path === options.current ? "* " : "  "}${tree.branch ?? "detached"} · ${tree.path}`,
+              )
+              .join("\n"),
+          );
+        } else if (action === "new" || action === "original") {
+          await ctx.plugins.switchWorkspace(ctx.conversationId, { kind: action });
+          ctx.note("workspace switched");
+        } else if (action === "use" && args.length > 1) {
+          await ctx.plugins.switchWorkspace(ctx.conversationId, {
+            kind: "existing",
+            path: args.slice(1).join(" "),
+          });
+          ctx.note("workspace switched");
+        } else if (action === "managed") {
+          const rows = await ctx.plugins.managedWorktrees(20, args.slice(1).join(" ") || undefined);
+          ctx.note(rows.map((tree) => tree.path).join("\n") || "no managed worktrees");
+          if (rows.length === 20) ctx.note(`/worktree managed ${rows.at(-1)!.path} — next page`);
+        } else if (action === "delete" && args.length > 1) {
+          const force = args[1] === "--force";
+          const path = args.slice(force ? 2 : 1).join(" ");
+          if (!path) throw new Error("Specify the worktree path");
+          await ctx.plugins.removeWorktree(path, force);
+          ctx.note("worktree and Docker environment deleted; branch/history retained");
+        } else
+          ctx.note(
+            "usage: /worktree [list|new|original|use <path>|managed [cursor]|delete [--force] <path>]",
+          );
+      };
+      void run().catch((error: unknown) => ctx.note(`worktree: ${formatError(error)}`));
+    },
+  },
+
   {
     name: "hosts",
     summary: "open the agent command center",
