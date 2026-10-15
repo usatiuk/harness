@@ -1266,3 +1266,10 @@ call, unavailable historical invocation linkage, cross-branch rejection, opaque
 artifact exclusion, and byte-limited native-input omission. A 35 MB stored earlier
 input cannot break an otherwise small vote; the backfill RPC stays below 3 MiB.
 No provider, tool replay, running shared server, or desktop is started by this test.
+
+Earlier-decision capture validation: typecheck, lint, formatting and diff checks
+passed; the full Vitest suite passes with `TMPDIR=/var/tmp` (1,394 passed,
+41 gated skips). The default tool environment injects an empty `/tmp/.git` marker,
+causing the unrelated `server/src/worktrees.test.ts` Git-discovery failure. The
+same regression passes unchanged with the alternate temporary directory; no
+product assertion, timeout or worktree implementation was changed to mask it.
