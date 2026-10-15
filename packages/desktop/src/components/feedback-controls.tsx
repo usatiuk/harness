@@ -8,7 +8,8 @@ import {
   feedbackRetryRequest,
 } from "@harness/feedback/client";
 import type { DesktopSession } from "../session.ts";
-import { Button, Checkbox, Input } from "../ui.tsx";
+import { ThumbsUp, ThumbsDown } from "lucide-react";
+import { Button, Checkbox, Input, IconButton, PopoverControl } from "../ui.tsx";
 
 type Status = Awaited<ReturnType<typeof readStatus>>;
 function readStatus(session: DesktopSession) {
@@ -34,7 +35,6 @@ export function FeedbackControls({
 }) {
   const { id } = useParams();
   const [status, setStatus] = useState<Status>();
-  const [vote, setVote] = useState<"up" | "down">();
   const [comment, setComment] = useState("");
   const [result, setResult] = useState<{ id: string; status: string; url: string }>();
   const [error, setError] = useState("");
@@ -45,17 +45,56 @@ export function FeedbackControls({
   }, [session]);
   if (!itemId || !id || !status?.enabled || !status.configured) return null;
   return (
-    <div className="feedback-controls">
-      {!result && (
-        <>
-          <Button variant="ghost" onClick={() => setVote("up")} aria-pressed={vote === "up"}>
-            Thumbs up
-          </Button>
-          <Button variant="ghost" onClick={() => setVote("down")} aria-pressed={vote === "down"}>
-            Thumbs down
-          </Button>
-          {vote && (
+    <span className="feedback-controls">
+      {(["up", "down"] as const).map((vote) => (
+        <PopoverControl
+          key={vote}
+          label={vote === "up" ? "Positive feedback" : "Negative feedback"}
+          trigger={
+            <IconButton
+              icon={vote === "up" ? ThumbsUp : ThumbsDown}
+              label={vote === "up" ? "Thumbs up" : "Thumbs down"}
+              size="sm"
+            />
+          }
+        >
+          {result ? (
             <>
+              <p role="status">
+                Feedback{" "}
+                {result.status === "delivered" ? "delivered" : "saved; queued for delivery"}.
+              </p>
+              <Button
+                onClick={() => void openUrl(result.url).catch(() => setError("Could not open MAI"))}
+              >
+                Open case in MAI
+              </Button>
+            </>
+          ) : (
+            <form
+              className="form-grid"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setBusy(true);
+                setError("");
+                void session.client.peer
+                  .request(feedbackVoteRequest, {
+                    id: identity,
+                    conversationId: id,
+                    itemId,
+                    vote,
+                    comment,
+                  })
+                  .then(setResult)
+                  .catch(() =>
+                    setError(
+                      "Could not confirm feedback. Retry with the same vote and comment; the case ID is preserved.",
+                    ),
+                  )
+                  .finally(() => setBusy(false));
+              }}
+            >
+              <strong>{vote === "up" ? "What worked?" : "What should change?"}</strong>
               <Input
                 aria-label="Optional feedback comment"
                 placeholder="Optional comment"
@@ -63,50 +102,15 @@ export function FeedbackControls({
                 disabled={busy}
                 onChange={(event) => setComment(event.target.value)}
               />
-              <Button
-                disabled={busy}
-                onClick={() => {
-                  setBusy(true);
-                  setError("");
-                  void session.client.peer
-                    .request(feedbackVoteRequest, {
-                      id: identity,
-                      conversationId: id,
-                      itemId,
-                      vote,
-                      comment,
-                    })
-                    .then(setResult)
-                    .catch(() =>
-                      setError(
-                        "Could not confirm feedback. Retry with the same comment; the case ID is preserved.",
-                      ),
-                    )
-                    .finally(() => setBusy(false));
-                }}
-              >
-                Save feedback
+              <Button variant="accent" type="submit" disabled={busy}>
+                {busy ? "Saving…" : "Save feedback"}
               </Button>
-            </>
+            </form>
           )}
-        </>
-      )}
-      {result && (
-        <>
-          <span role="status">
-            Feedback{" "}
-            {result.status === "delivered" ? "delivered" : "saved locally; queued for delivery"}.
-          </span>
-          <Button
-            variant="ghost"
-            onClick={() => void openUrl(result.url).catch(() => setError("Could not open MAI"))}
-          >
-            Open case in MAI
-          </Button>
-        </>
-      )}
-      {error && <p role="alert">{error}</p>}
-    </div>
+          {error && <p role="alert">{error}</p>}
+        </PopoverControl>
+      ))}
+    </span>
   );
 }
 
@@ -151,8 +155,8 @@ export function FeedbackSettings({ session }: { session: DesktopSession }) {
               event.preventDefault();
               const data = new FormData(event.currentTarget);
               const endpoint = data.get("endpoint"),
-                tokenEnv = data.get("tokenEnv");
-              if (typeof endpoint !== "string" || typeof tokenEnv !== "string") {
+                token = data.get("token");
+              if (typeof endpoint !== "string" || typeof token !== "string") {
                 setError("Missing feedback connection settings");
                 return;
               }
@@ -161,7 +165,7 @@ export function FeedbackSettings({ session }: { session: DesktopSession }) {
                   session.client.peer.request(feedbackConfigureRequest, {
                     enabled: data.get("enabled") === "on",
                     endpoint,
-                    tokenEnv,
+                    token: token || null,
                   }),
                 true,
               );
@@ -184,26 +188,28 @@ export function FeedbackSettings({ session }: { session: DesktopSession }) {
                 Reachable from the Harness server, such as http://127.0.0.1:7331.
               </small>
             </label>
-            <details>
-              <summary>Connection details</summary>
-              <label>
-                Token environment variable
-                <Input name="tokenEnv" defaultValue={status.tokenEnv} required disabled={busy} />
-              </label>
-              <p className="muted">
-                Set this variable in the Harness server environment, then restart the server. The
-                token itself stays out of settings.
-              </p>
-            </details>
+            <label>
+              MAI token
+              <Input
+                name="token"
+                type="password"
+                autoComplete="off"
+                placeholder={
+                  status.configured ? "Saved · leave blank to keep it" : "Paste the token from MAI"
+                }
+                disabled={busy}
+              />
+              <small className="muted">
+                Saved in Harness’s credential store. Never included in settings or feedback.
+              </small>
+            </label>
             <Button type="submit" variant="accent" disabled={busy || Boolean(session.disconnected)}>
               {busy ? "Please wait…" : "Save feedback settings"}
             </Button>
           </form>
           <p className="muted" role="status">
-            {saved && "Saved. Reopen the conversation to update its feedback buttons. "}
-            {status.configured
-              ? "Token available"
-              : "Token missing — set the environment variable above"}
+            {saved && "Saved. "}
+            {status.configured ? "Token available" : "Token missing — paste your MAI token above"}
             {` · ${status.pending} queued · ${status.failed} delivery failures`}
           </p>
           <Button

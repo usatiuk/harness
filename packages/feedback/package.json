@@ -19,6 +19,7 @@
     "@harness/protocol": "*",
     "@harness/config": "*",
     "@harness/service": "*",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@harness/secrets": "*"
   }
 }

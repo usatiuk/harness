@@ -111,21 +111,22 @@ export async function buildServerComposition(
       join(defaultHome(), "settings.json"),
     );
     const { store: secrets, kind } = await credentialStoreForRead(defaultHome());
-    let mcpSecrets = secrets;
-    let mcpStoreKind = kind;
-    mcp = new McpRuntime(settings.plugins?.["mcp"] ?? {}, {
-      get: (key) => mcpSecrets.get(key),
-      delete: (key) => mcpSecrets.delete(key),
-      async set(key, value) {
-        if (mcpStoreKind === null) {
+    let pluginSecrets = secrets;
+    let pluginStoreKind = kind;
+    const pluginCredentials = {
+      get: (key: string) => pluginSecrets.get(key),
+      delete: (key: string) => pluginSecrets.delete(key),
+      async set(key: string, value: string) {
+        if (pluginStoreKind === null) {
           const selected = await credentialStoreForLogin(defaultHome());
           await selected.store.set(key, value);
           await setAuthStore(defaultHome(), selected.kind);
-          mcpSecrets = selected.store;
-          mcpStoreKind = selected.kind;
-        } else await mcpSecrets.set(key, value);
+          pluginSecrets = selected.store;
+          pluginStoreKind = selected.kind;
+        } else await pluginSecrets.set(key, value);
       },
-    });
+    };
+    mcp = new McpRuntime(settings.plugins?.["mcp"] ?? {}, pluginCredentials);
     await mcp.initialize(signal);
     const mcpRuntime = mcp;
     const registry = prepare(secrets);
@@ -175,7 +176,7 @@ export async function buildServerComposition(
     // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
     subagents.bindRunner(service);
     worktreesDefinition.bind(service);
-    const feedback = new FeedbackRuntime(defaultHome(), store);
+    const feedback = new FeedbackRuntime(defaultHome(), store, pluginCredentials);
     await feedback.start();
     const host = new HarnessRpcHost(service);
     startedHost = host;

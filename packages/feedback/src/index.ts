@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { readGlobalSettings, updateGlobalPluginConfig } from "@harness/config";
 import type { Store, ConversationId, ItemId, Item } from "@harness/protocol";
+import type { SecretStore } from "@harness/secrets";
 import type { HarnessRpcSession } from "@harness/service";
 import {
   feedbackSettingsSchema,
@@ -15,6 +16,8 @@ import {
 } from "./client.ts";
 
 const execute = promisify(execFile);
+export const feedbackTokenKey = (endpoint: string): string =>
+  `feedback:${encodeURIComponent(endpoint.replace(/\/+$/u, ""))}:token`;
 const MAX_BYTES = 32 * 1024 * 1024;
 export const feedbackPlugin = {
   id: "feedback",
@@ -24,7 +27,6 @@ export const feedbackPlugin = {
 };
 interface Pending {
   endpoint: string;
-  tokenEnv: string;
   body: unknown;
   status: "queued" | "delivered";
   attempts: number;
@@ -40,6 +42,7 @@ export class FeedbackRuntime {
   constructor(
     private readonly home: string,
     private readonly store: Store,
+    private readonly secrets: SecretStore,
   ) {
     this.directory = join(home, "feedback");
   }
@@ -109,7 +112,7 @@ export class FeedbackRuntime {
     }
     return {
       ...config,
-      configured: Boolean(config.endpoint && process.env[config.tokenEnv]),
+      configured: Boolean(await this.secrets.get(feedbackTokenKey(config.endpoint))),
       pending,
       failed,
     };
@@ -123,8 +126,8 @@ export class FeedbackRuntime {
         const entry = JSON.parse(await readFile(join(this.directory, path), "utf8")) as Pending;
         if (entry.status === "delivered") continue;
         // A settings edit cannot silently reroute previously captured private evidence.
-        if (entry.endpoint !== config.endpoint || entry.tokenEnv !== config.tokenEnv) continue;
-        const token = process.env[entry.tokenEnv];
+        if (entry.endpoint !== config.endpoint) continue;
+        const token = await this.secrets.get(feedbackTokenKey(entry.endpoint));
         if (!token) continue;
         entry.attempts++;
         try {
@@ -154,7 +157,8 @@ export class FeedbackRuntime {
   }
   register(session: HarnessRpcSession): void {
     session.onRequest(feedbackStatusRequest, () => this.status());
-    session.onRequest(feedbackConfigureRequest, async (config) => {
+    session.onRequest(feedbackConfigureRequest, async ({ token, ...config }) => {
+      if (token !== null) await this.secrets.set(feedbackTokenKey(config.endpoint), token);
       await updateGlobalPluginConfig(this.home, "feedback", config, { replace: true });
       return null;
     });
@@ -164,7 +168,7 @@ export class FeedbackRuntime {
     });
     session.onRequest(feedbackVoteRequest, async (params) => {
       const config = await this.config();
-      if (!config.enabled || !process.env[config.tokenEnv])
+      if (!config.enabled || !(await this.secrets.get(feedbackTokenKey(config.endpoint))))
         throw new Error("Feedback is disabled or not configured");
       const conversationId = params.conversationId as ConversationId;
       return session.runAttached(conversationId, async () => {
@@ -327,7 +331,6 @@ export class FeedbackRuntime {
           throw new Error("Evidence exceeds 32 MiB; vote was not saved");
         await this.save(params.id, {
           endpoint: config.endpoint,
-          tokenEnv: config.tokenEnv,
           body,
           status: "queued",
           attempts: 0,

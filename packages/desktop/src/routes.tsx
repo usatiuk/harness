@@ -1005,7 +1005,9 @@ export function createDesktopRouter(
       >
         {open && (
           <>
-            <FeedbackControls session={session} itemId={cell.id} />
+            <div className="message-actions">
+              <FeedbackControls session={session} itemId={cell.id} />
+            </div>
             {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
             {edit &&
               edit.files.map((file, index) => (
@@ -1220,7 +1222,9 @@ export function createDesktopRouter(
         title={label}
         onToggle={(event) => setOpen(event.currentTarget.open)}
       >
-        <FeedbackControls session={session} itemId={cell.id} />
+        <div className="message-actions">
+          <FeedbackControls session={session} itemId={cell.id} />
+        </div>
         {open && (
           <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
             {cell.text}
@@ -1265,8 +1269,12 @@ export function createDesktopRouter(
             </Markdown>
           </div>
           {cell.streaming && <span className="stream-indicator" aria-label="Streaming" />}
-          {!cell.streaming && <CopyMessage text={cell.text} />}
-          {!cell.streaming && <FeedbackControls session={session} itemId={cell.id} />}
+          {!cell.streaming && (
+            <div className="message-actions">
+              <CopyMessage text={cell.text} />
+              <FeedbackControls session={session} itemId={cell.id} />
+            </div>
+          )}
         </article>
       );
     if (cell.kind === "error")
@@ -1596,7 +1604,7 @@ export function createDesktopRouter(
       return () => clearTimeout(timer);
     }, [copied]);
     return (
-      <div className="message-actions">
+      <>
         <IconButton
           icon={copied ? Check : Copy}
           label={copied ? "Copied" : "Copy message"}
@@ -1616,7 +1624,7 @@ export function createDesktopRouter(
             {error}
           </span>
         )}
-      </div>
+      </>
     );
   }
 

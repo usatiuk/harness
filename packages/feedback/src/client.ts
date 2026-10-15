@@ -5,10 +5,6 @@ export const feedbackSettingsSchema = z
   .strictObject({
     enabled: z.boolean().default(false),
     endpoint: z.string().url().default("http://127.0.0.1:7331"),
-    tokenEnv: z
-      .string()
-      .regex(/^[A-Z_][A-Z0-9_]*$/u)
-      .default("MAI_TOKEN"),
   })
   .superRefine((value, ctx) => {
     const url = new URL(value.endpoint);
@@ -33,7 +29,6 @@ export const feedbackStatusRequest = defineRequest({
     enabled: z.boolean(),
     configured: z.boolean(),
     endpoint: z.string(),
-    tokenEnv: z.string(),
     pending: z.number().int(),
     failed: z.number().int(),
   }),
@@ -41,7 +36,7 @@ export const feedbackStatusRequest = defineRequest({
 export const feedbackConfigureRequest = defineRequest({
   direction: "client-to-server",
   method: "plugin.feedback.configure",
-  params: feedbackSettingsSchema,
+  params: feedbackSettingsSchema.extend({ token: z.string().min(1).max(16000).nullable() }),
   result: z.null(),
 });
 export const feedbackVoteRequest = defineRequest({

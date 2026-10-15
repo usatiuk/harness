@@ -7,14 +7,21 @@ MAI never reads Harness SQLite directly or executes agent tools.
 
 ## Configuration and user flow
 
-Settings → Feedback edits global `feedback` configuration: `enabled`,
-`endpoint`, and `tokenEnv` (default `MAI_TOKEN`). It has its own Feedback tab,
-separate from MCP servers. The form uses shared controls and layout; token-variable
-setup is under Connection details. Credentials come from the server
-environment and are never configuration values. HTTPS is required except for
-loopback HTTP. URL credentials, queries and fragments are rejected. Controls
-appear only when enabled and configured. Restart the server for environment
-changes and reopen the conversation after configuration changes.
+Settings → Feedback edits global `feedback` configuration: `enabled` and
+`endpoint`. Paste the MAI token in its masked field. Saving uses the existing
+Harness credential backend, scoped to the controller endpoint. Leaving the field
+blank keeps the saved token. The token never appears in configuration, status,
+or outbox records. The form uses shared controls and layout in its own tab,
+separate from MCP servers. HTTPS is required except for loopback HTTP; URL
+credentials, queries and fragments are rejected. Vote icons appear beside Copy
+on completed assistant messages when enabled and a stored token is available.
+Tool and reasoning details also have vote controls. Selecting a thumb opens an
+optional comment popover.
+
+Earlier development configuration used `plugins.feedback.tokenEnv`. Remove that
+obsolete property once from `settings.json`, then paste the token in Feedback
+settings. The dev home used for this implementation has already been updated.
+No environment variable is required.
 
 A vote targets a durable assistant, reasoning or tool item with an optional
 comment and stable client-generated ID. The runtime checks branch access and
@@ -62,3 +69,10 @@ provider training/serving remain separate acceptance checks. See sibling
 
 The settings-tab/form correction passes the full check (1,394 passed, 41 gated
 skips). Native rendering of the revised form remains a user walkthrough check.
+
+The endpoint-scoped secret-store and Copy-row icon changes pass the full check
+(1,394 passed, 41 gated skips), plus the focused RPC regression. That regression
+covers first-use credential-backend selection, omission from settings/status/
+outbox, endpoint isolation and retained tokens on ordinary settings saves. The
+running dev server also reports enabled/configured after the token was saved to
+its existing keyring. Native visual acceptance remains with the user.

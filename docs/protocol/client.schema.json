@@ -76,11 +76,10 @@
         "enabled": { "type": "boolean" },
         "configured": { "type": "boolean" },
         "endpoint": { "type": "string" },
-        "tokenEnv": { "type": "string" },
         "pending": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
         "failed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
       },
-      "required": ["enabled", "configured", "endpoint", "tokenEnv", "pending", "failed"],
+      "required": ["enabled", "configured", "endpoint", "pending", "failed"],
       "additionalProperties": false
     },
     "plugin_feedback_configure_params": {
@@ -89,8 +88,11 @@
       "properties": {
         "enabled": { "default": false, "type": "boolean" },
         "endpoint": { "default": "http://127.0.0.1:7331", "type": "string", "format": "uri" },
-        "tokenEnv": { "default": "MAI_TOKEN", "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" }
+        "token": {
+          "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 16000 }, { "type": "null" }]
+        }
       },
+      "required": ["token"],
       "additionalProperties": false
     },
     "plugin_feedback_configure_result": {

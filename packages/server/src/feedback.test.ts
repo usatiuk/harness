@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
@@ -18,7 +18,7 @@ import { buildServerHarness } from "./index.ts";
 it("collects a rich vote case through RPC, queues offline delivery, and retries the same identity", async () => {
   const home = await mkdtemp(join(tmpdir(), "feedback-rpc-"));
   vi.stubEnv("HARNESS_HOME", home);
-  vi.stubEnv("MAI_TOKEN", "fixture-controller-token");
+  vi.stubEnv("MAI_TOKEN", "");
   for (const key of [
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
@@ -27,8 +27,13 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
     "MISTRAL_VIBE_API_KEY",
   ])
     vi.stubEnv(key, "");
+  const secretStore = new MemorySecretStore();
   vi.spyOn(credentials, "credentialStoreForRead").mockResolvedValue({
     store: new MemorySecretStore(),
+    kind: null,
+  });
+  const chooseStore = vi.spyOn(credentials, "credentialStoreForLogin").mockResolvedValue({
+    store: secretStore,
     kind: "file",
   });
   let online = false;
@@ -66,8 +71,16 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
     await client.peer.request(feedbackConfigureRequest, {
       enabled: true,
       endpoint: `http://127.0.0.1:${address.port}`,
-      tokenEnv: "MAI_TOKEN",
+      token: "fixture-controller-token",
     });
+    const status = await client.peer.request(feedbackStatusRequest, {});
+    expect(status.configured).toBe(true);
+    expect(chooseStore).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(status)).not.toContain("fixture-controller-token");
+    const { readGlobalSettings } = await import("@harness/config");
+    expect(JSON.stringify(await readGlobalSettings(home))).not.toContain(
+      "fixture-controller-token",
+    );
     const conversation = await harness.service.createConversation({
       overrides: { model: { provider: "demo", model: "demo-1" } },
     });
@@ -101,6 +114,23 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
     });
     await client.peer.request(feedbackRetryRequest, {});
     expect((await client.peer.request(feedbackStatusRequest, {})).pending).toBe(1);
+    expect(await readFile(join(home, "feedback", `${id}.json`), "utf8")).not.toContain(
+      "fixture-controller-token",
+    );
+    await client.peer.request(feedbackConfigureRequest, {
+      enabled: true,
+      endpoint: "http://127.0.0.1:1",
+      token: null,
+    });
+    expect((await client.peer.request(feedbackStatusRequest, {})).configured).toBe(false);
+    await client.peer.request(feedbackRetryRequest, {});
+    expect((await client.peer.request(feedbackStatusRequest, {})).pending).toBe(1);
+    await client.peer.request(feedbackConfigureRequest, {
+      enabled: true,
+      endpoint: `http://127.0.0.1:${address.port}`,
+      token: null,
+    });
+    expect((await client.peer.request(feedbackStatusRequest, {})).configured).toBe(true);
     online = true;
     await client.peer.request(feedbackRetryRequest, {});
     expect((await client.peer.request(feedbackStatusRequest, {})).pending).toBe(0);
@@ -120,8 +150,8 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
     ).rejects.toThrow();
     await client.peer.request(feedbackConfigureRequest, {
       enabled: false,
+      token: null,
       endpoint: `http://127.0.0.1:${address.port}`,
-      tokenEnv: "MAI_TOKEN",
     });
     await expect(
       client.peer.request(feedbackVoteRequest, { ...params, id: randomUUID() }),

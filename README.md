@@ -497,12 +497,12 @@ while `agents` independently supplies hierarchical project instructions around t
 
 ## Optional learning feedback
 
-The source checkout includes `@harness/feedback`. Configure Settings → Learning
-feedback with your MAI endpoint and server-side token environment-variable name
-(default `MAI_TOKEN`), then enable it. Restart the server after setting credentials
-and reopen the conversation after changing feedback configuration. Conditional
-thumbs up/down capture a case with an optional comment; they do not train or
-switch models. Delivery is durable and retries when MAI becomes available.
+The source checkout includes `@harness/feedback`. In Settings → Feedback, enter
+your MAI endpoint and token, then enable it. The token goes into Harness’s normal
+credential store, scoped to the endpoint; it is never saved in settings JSON.
+Thumbs up/down sit beside Copy on completed assistant messages. Optional comments
+create feedback cases; votes do not start training or switch models. Delivery is
+durable and retries when MAI becomes available.
 
 See [feedback integration](docs/subsystems/feedback/README.md) and the sibling
 [MAI setup](../mai/README.md) for the separate review/training web app.
