@@ -76,3 +76,14 @@ covers first-use credential-backend selection, omission from settings/status/
 outbox, endpoint isolation and retained tokens on ordinary settings saves. The
 running dev server also reports enabled/configured after the token was saved to
 its existing keyring. Native visual acceptance remains with the user.
+
+A follow-up fixed the client’s route parameter: conversation routes expose
+`conversationId`, not `id`. The previous guard silently hid every vote control.
+The user confirmed the corrected buttons appear in the dev app. A browser
+regression covers Copy-row icons and submission from the actual conversation
+route, using the existing full-router fixture. Do not launch `desktop:dev` for
+the user; they explicitly asked to control desktop startup themselves.
+
+The route fix passes the full Harness check (1,394 passed, 41 gated skips). The
+new browser regression is authored but has not been executed; the user confirmed
+the buttons are visible in the actual dev app.

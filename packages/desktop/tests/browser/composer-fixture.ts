@@ -17,6 +17,7 @@ declare global {
   interface Window {
     composerFixture: {
       calls: Delivery[];
+      feedbackCalls: unknown[];
       showToolsAndActivities(serverSkew?: number): void;
       seedSidebar(longTitles?: boolean): void;
       markUnread(id: string): void;
@@ -123,6 +124,7 @@ const changed = () => {
   for (const listener of listeners) listener();
 };
 const calls: Delivery[] = [];
+const feedbackCalls: unknown[] = [];
 const settingsWrites: unknown[] = [];
 const creations: Array<Parameters<DesktopSession["client"]["create"]>[0]> = [];
 const providerCreates: unknown[] = [];
@@ -325,6 +327,22 @@ const session = {
     peer: {
       ready: true,
       request: async (definition: { method: string }, params: unknown) => {
+        if (definition.method === "plugin.feedback.status")
+          return {
+            enabled: true,
+            configured: true,
+            endpoint: "http://127.0.0.1:7331",
+            pending: 0,
+            failed: 0,
+          };
+        if (definition.method === "plugin.feedback.vote") {
+          feedbackCalls.push(params);
+          return {
+            id: (params as { id: string }).id,
+            status: "queued",
+            url: "http://127.0.0.1:7331/#/feedback/fixture",
+          };
+        }
         if (definition.method === "plugin.mcp.settings.get")
           return { config: {}, active: [], restartRequired: false, credentialBackend: null };
         if (definition.method === "plugin.mcp.tools.list") return [];
@@ -530,6 +548,7 @@ window.composerFixture = {
     changed();
   },
   calls,
+  feedbackCalls,
   historyCalls: 0,
   failHistory: false,
   releaseHistory() {

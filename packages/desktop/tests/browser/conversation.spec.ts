@@ -1569,3 +1569,32 @@ test("creation disables worktrees for non-Git folders and uses worktree creation
     .toEqual([{ kind: "create", cwd: "/source/repository" }]);
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
 });
+
+test("feedback icons share Copy’s row and submit the actual conversation route", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.evaluate(() => window.composerFixture.showMarkdown());
+  const message = page.getByTestId("assistant-message");
+  await message.hover();
+  const actions = message.locator(".message-actions");
+  await expect(actions.getByRole("button", { name: "Copy message" })).toBeVisible();
+  await expect(actions.getByRole("button", { name: "Thumbs up", exact: true })).toBeVisible();
+  await actions.getByRole("button", { name: "Thumbs down", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "Optional feedback comment" })
+    .fill("Keep the original API");
+  await page.getByRole("button", { name: "Save feedback", exact: true }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Negative feedback" }).getByRole("status"),
+  ).toContainText("saved");
+  expect(await page.evaluate(() => window.composerFixture.feedbackCalls)).toEqual([
+    expect.objectContaining({
+      conversationId: "fixture",
+      itemId: "markdown",
+      vote: "down",
+      comment: "Keep the original API",
+    }),
+  ]);
+});

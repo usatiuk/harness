@@ -33,7 +33,7 @@ export function FeedbackControls({
   session: DesktopSession;
   itemId: string | undefined;
 }) {
-  const { id } = useParams();
+  const { conversationId } = useParams();
   const [status, setStatus] = useState<Status>();
   const [comment, setComment] = useState("");
   const [result, setResult] = useState<{ id: string; status: string; url: string }>();
@@ -43,7 +43,7 @@ export function FeedbackControls({
   useEffect(() => {
     void readCached(session).then(setStatus, () => setStatus(undefined));
   }, [session]);
-  if (!itemId || !id || !status?.enabled || !status.configured) return null;
+  if (!itemId || !conversationId || !status?.enabled || !status.configured) return null;
   return (
     <span className="feedback-controls">
       {(["up", "down"] as const).map((vote) => (
@@ -80,7 +80,7 @@ export function FeedbackControls({
                 void session.client.peer
                   .request(feedbackVoteRequest, {
                     id: identity,
-                    conversationId: id,
+                    conversationId,
                     itemId,
                     vote,
                     comment,
