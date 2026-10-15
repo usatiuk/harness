@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineRequest } from "@harness/protocol";
+import { defineRequest, jsonValueSchema } from "@harness/protocol";
 
 export const feedbackSettingsSchema = z
   .strictObject({
@@ -60,4 +60,26 @@ export const feedbackRetryRequest = defineRequest({
   method: "plugin.feedback.retry",
   params: z.strictObject({}),
   result: z.null(),
+});
+
+/** Recorded model decisions, not prompts reconstructed from displayed history. */
+export const feedbackDecisionSchema = z.strictObject({
+  id: z.string(),
+  item_ids: z.array(z.string()),
+  original_outputs: z.array(jsonValueSchema),
+  native_request: jsonValueSchema.nullable(),
+  limitations: z.array(z.string()),
+});
+export type FeedbackDecision = z.infer<typeof feedbackDecisionSchema>;
+export const feedbackDecisionsRequest = defineRequest({
+  direction: "client-to-server",
+  method: "plugin.feedback.decisions",
+  params: z.strictObject({ conversationId: z.string(), itemId: z.string() }),
+  result: z.strictObject({
+    version: z.literal(1),
+    conversationId: z.string(),
+    itemId: z.string(),
+    decisions: z.array(feedbackDecisionSchema),
+    limitations: z.array(z.string()),
+  }),
 });

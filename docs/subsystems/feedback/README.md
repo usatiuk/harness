@@ -52,7 +52,23 @@ already queued cases. Successful delivery retains only a small receipt under
 MAI imports case IDs idempotently. A vote never approves a proposal, submits a
 training job or promotes a candidate.
 
-Typed RPCs: `plugin.feedback.status`, `.configure`, `.vote`, and `.retry`. Schemas
+A final-message vote also includes earlier recorded model decisions, so teachers
+can propose repairing the first unwanted action instead of only its final summary.
+Attempts are admitted through the selected item, with full outputs of each admitted
+generation (including parallel sibling tool calls). Each decision carries recorded
+invocation identity, item IDs, exposed reasoning/actions and the actual native chat
+input when available. Inputs are never reconstructed from transcript rows. Added
+contexts share the 32 MiB case limit; missing or omitted input is labeled instead
+of preventing collection of an otherwise valid case.
+
+`plugin.feedback.decisions` reads this same decision view through an attached
+conversation, returning `version`, `conversationId`, `itemId`, `decisions` and
+`limitations`. Its response is bounded to 3 MiB, below the RPC frame limit; oversized
+native inputs or decision entries are explicitly omitted. It performs no tool or
+provider calls and can supplement an already collected case without direct database
+access. Historical items without capture remain unavailable.
+
+Typed RPCs: `plugin.feedback.status`, `.configure`, `.vote`, `.decisions`, and `.retry`. Schemas
 are included in the generated client protocol. The standalone MAI web app owns
 clarifications, review, export, cloud training and manual keep/reject records.
 Candidate models use existing provider configuration and an explicit `trained`
@@ -87,3 +103,10 @@ the user; they explicitly asked to control desktop startup themselves.
 The route fix passes the full Harness check (1,394 passed, 41 gated skips). The
 new browser regression is authored but has not been executed; the user confirmed
 the buttons are visible in the actual dev app.
+
+Earlier-decision capture and the backfill RPC pass typecheck, lint, formatting,
+the focused public RPC regression, and the full Vitest suite (1,394 passed,
+41 gated skips). This tool environment exposes an empty `/tmp/.git` marker,
+which breaks the unrelated Git-discovery fixture; using `TMPDIR=/var/tmp`
+passes that fixture unchanged and the complete suite. No shared server or
+desktop was restarted, and existing feedback still needs explicit RPC backfill.

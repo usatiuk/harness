@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { readGlobalSettings, updateGlobalPluginConfig } from "@harness/config";
-import type { Store, ConversationId, ItemId, Item } from "@harness/protocol";
+import type { Store, ConversationId, ItemId } from "@harness/protocol";
 import type { SecretStore } from "@harness/secrets";
 import type { HarnessRpcSession } from "@harness/service";
 import {
@@ -13,12 +13,20 @@ import {
   feedbackConfigureRequest,
   feedbackVoteRequest,
   feedbackRetryRequest,
+  feedbackDecisionsRequest,
 } from "./client.ts";
+
+import {
+  feedbackBranch,
+  feedbackDecisions,
+  nativeChatRequest,
+  MAX_EVIDENCE_BYTES,
+} from "./evidence.ts";
 
 const execute = promisify(execFile);
 export const feedbackTokenKey = (endpoint: string): string =>
   `feedback:${encodeURIComponent(endpoint.replace(/\/+$/u, ""))}:token`;
-const MAX_BYTES = 32 * 1024 * 1024;
+const MAX_BYTES = MAX_EVIDENCE_BYTES;
 export const feedbackPlugin = {
   id: "feedback",
   configScope: "global" as const,
@@ -166,6 +174,21 @@ export class FeedbackRuntime {
       await this.retry();
       return null;
     });
+    session.onRequest(feedbackDecisionsRequest, (params) =>
+      session.runAttached(params.conversationId as ConversationId, async () => {
+        const branch = await feedbackBranch(
+          this.store,
+          params.conversationId as ConversationId,
+          params.itemId as ItemId,
+        );
+        return {
+          version: 1 as const,
+          conversationId: params.conversationId,
+          itemId: params.itemId,
+          ...(await feedbackDecisions(this.store, branch, 3 * 1024 * 1024)),
+        };
+      }),
+    );
     session.onRequest(feedbackVoteRequest, async (params) => {
       const config = await this.config();
       if (!config.enabled || !(await this.secrets.get(feedbackTokenKey(config.endpoint))))
@@ -203,50 +226,8 @@ export class FeedbackRuntime {
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
-        const conversation = await this.store.getConversation(conversationId);
-        if (!conversation) throw new Error("Unknown conversation");
-        const selected = await this.store.getItem(params.itemId as ItemId);
-        if (
-          !selected ||
-          !["message", "reasoning", "tool_call"].includes(selected.type) ||
-          (selected.type === "message" && selected.role !== "assistant")
-        )
-          throw new Error("Feedback requires assistant behavior");
-        const transcript: Item[] = [];
-        let head = conversation.head;
-        while (head) {
-          const page = await this.store.listItemAncestors(head, 128);
-          transcript.push(...page);
-          head = page.at(-1)?.parent ?? null;
-          if (Buffer.byteLength(JSON.stringify(transcript)) > MAX_BYTES)
-            throw new Error("Evidence exceeds 32 MiB; no silent truncation was performed");
-        }
-        transcript.reverse();
-        if (!transcript.some((item) => item.id === selected.id))
-          throw new Error("Selected item is not on this conversation branch");
-        let decision: Item = selected;
-        if (decision.type === "tool_call" && decision.parentCallId) {
-          const nested = decision;
-          decision =
-            transcript.find(
-              (item) =>
-                item.type === "tool_call" &&
-                item.callId === nested.parentCallId &&
-                item.turnId === nested.turnId,
-            ) ?? decision;
-        }
-        const link = (await this.store.getPluginState(
-          "model-evidence",
-          decision.conversationId,
-          `item:${decision.id}`,
-        )) as { attemptId?: string } | undefined;
-        const trace = link?.attemptId
-          ? ((await this.store.getPluginState(
-              "model-evidence",
-              decision.conversationId,
-              link.attemptId,
-            )) as { request?: unknown; nativeRequest?: unknown; limitation?: string })
-          : undefined;
+        const branch = await feedbackBranch(this.store, conversationId, params.itemId as ItemId);
+        const { conversation, selected, decision, trace, annotatedTranscript, links } = branch;
         let repository: unknown = { status: "not_available" };
         if (conversation.workspaceRoot) {
           try {
@@ -271,30 +252,9 @@ export class FeedbackRuntime {
             repository = { status: "capture_unavailable_or_over_limit" };
           }
         }
-        const payloads = await this.store.getProviderPayloads(
-          transcript.filter((item) => item.type === "reasoning").map((item) => item.id),
+        const originalOutputs = annotatedTranscript.filter(
+          (item) => branch.attemptId && links.get(item.id) === branch.attemptId,
         );
-        const reasoningKinds = new Map(
-          payloads.map((payload) => [
-            payload.itemId,
-            payload.type === "chat_reasoning" ? "exposed_text" : "summary_or_provider_artifact",
-          ]),
-        );
-        const annotatedTranscript = transcript.map((item) =>
-          item.type === "reasoning"
-            ? { ...item, reasoningKind: reasoningKinds.get(item.id) ?? "unknown" }
-            : item,
-        );
-        const originalOutputs = [];
-        if (link?.attemptId)
-          for (const item of annotatedTranscript) {
-            const source = (await this.store.getPluginState(
-              "model-evidence",
-              item.conversationId,
-              `item:${item.id}`,
-            )) as { attemptId?: string } | undefined;
-            if (source?.attemptId === link.attemptId) originalOutputs.push(item);
-          }
         const effective = trace?.request as
           { items?: { item: unknown; payload?: unknown }[] } | undefined;
         const exportedRequest = effective
@@ -302,7 +262,6 @@ export class FeedbackRuntime {
           : null;
         // Opaque provider-native reasoning stays in Harness. Chat request bodies
         // contain explicit text and function calls; other native formats are not SFT inputs here.
-        const native = trace?.nativeRequest as { messages?: unknown[] } | undefined;
         const body = {
           version: 1,
           id: params.id,
@@ -314,9 +273,9 @@ export class FeedbackRuntime {
             conversation,
             selected,
             decision,
-            invocation_id: link?.attemptId ?? null,
+            invocation_id: branch.attemptId ?? null,
             effective_request: exportedRequest,
-            native_request: native?.messages ? native : null,
+            native_request: nativeChatRequest(trace),
             transcript: annotatedTranscript,
             original_outputs: originalOutputs,
             repository,
@@ -329,9 +288,29 @@ export class FeedbackRuntime {
         };
         if (Buffer.byteLength(JSON.stringify(body)) > MAX_BYTES)
           throw new Error("Evidence exceeds 32 MiB; vote was not saved");
+        const earlier = await feedbackDecisions(
+          this.store,
+          branch,
+          MAX_BYTES - Buffer.byteLength(JSON.stringify(body)) - 64,
+        );
+        const enriched = {
+          ...body,
+          evidence: {
+            ...body.evidence,
+            decisions: earlier.decisions,
+            limitations: [...body.evidence.limitations, ...earlier.limitations],
+          },
+        };
+        if (Buffer.byteLength(JSON.stringify(enriched)) > MAX_BYTES) {
+          enriched.evidence.decisions = [];
+          enriched.evidence.limitations = [
+            ...body.evidence.limitations.slice(0, -1),
+            "Opaque artifacts excluded. Earlier decisions omitted: 32 MiB capture limit.",
+          ];
+        }
         await this.save(params.id, {
           endpoint: config.endpoint,
-          body,
+          body: enriched,
           status: "queued",
           attempts: 0,
         });

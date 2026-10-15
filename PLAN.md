@@ -531,7 +531,9 @@ invocations remain opt-in qualification.
 ## Optional feedback capture (2026-10-15)
 
 Implemented conditional desktop votes and settings through `@harness/feedback`,
-with durable authenticated case delivery to sibling MAI. Capture preserves
+with durable authenticated case delivery to sibling MAI. Votes include bounded
+earlier-decision inputs and outputs, and a read-only `.decisions` RPC supports
+backfilling existing cases through the server boundary. Capture preserves
 original behavior separately from effective/native decision input and explicitly
 labels missing linkage and reasoning limits. Native request capture retains
 existing context-build and middleware identity behavior. See the
