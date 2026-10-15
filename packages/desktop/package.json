@@ -37,7 +37,8 @@
     "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.3.3",
     "vscode-jsonrpc": "^8.2.0",
-    "@harness/mcp": "*"
+    "@harness/mcp": "*",
+    "@harness/feedback": "*"
   },
   "devDependencies": {
     "@harness/service": "*",

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { WorkspaceOperationError } from "@harness/protocol";
 import { relative, isAbsolute } from "node:path";
 import { InteractionTimeoutError, type RequestOptions } from "@harness/protocol";
@@ -23,6 +24,7 @@ import {
   type HarnessEvent,
   type Item,
   type ItemId,
+  type JsonValue,
   type KernelEvent,
   type ModelConfig,
   type ModelIdentity,
@@ -34,6 +36,7 @@ import {
   type ModelPricing,
   type ModelProvider,
   type ModelRequest,
+  type ModelCallContext,
   type ModelStreamEvent,
   type NewContextBuild,
   type Observer,
@@ -1129,13 +1132,15 @@ export class Engine {
         ...(build.providerOptions !== undefined ? { providerOptions: build.providerOptions } : {}),
       };
 
+      let evidenceId: string | undefined;
+      const evidenceByEvent = new WeakMap<ModelStreamEvent, string>();
       const calls: ToolCall[] = [];
       let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
       let sawOutput = false;
       const preview = new ModelPreview();
       const savePartial = async (): Promise<void> => {
         const partial = preview.takePartial();
-        if (partial) await this.#appendOutputItem(partial, conversation, turnId);
+        if (partial) await this.#appendOutputItem(partial, conversation, turnId, evidenceId);
       };
 
       // --- Consume phase: assistant content, in emission order. ---
@@ -1162,8 +1167,16 @@ export class Engine {
         await this.#publishUsage(conversation.id);
       };
       try {
-        const stream = this.#streamModel(conversation.id, request, signal, provider, toolSet);
+        const stream = this.#streamModel(
+          conversation.id,
+          request,
+          signal,
+          provider,
+          toolSet,
+          evidenceByEvent,
+        );
         for await (const event of stream) {
+          evidenceId = evidenceByEvent.get(event);
           if (completed)
             throw new Error("provider emitted an event after completed", {
               cause: completed.error,
@@ -1199,15 +1212,15 @@ export class Engine {
             case "message":
             case "reasoning": {
               sawOutput = true;
-              await this.#appendOutputItem(event, conversation, turnId);
+              await this.#appendOutputItem(event, conversation, turnId, evidenceId);
               break;
             }
             case "provider_output":
-              await this.#appendOutputItem(event, conversation, turnId);
+              await this.#appendOutputItem(event, conversation, turnId, evidenceId);
               break;
             case "tool_call": {
               sawOutput = true;
-              const call = await this.#appendOutputItem(event, conversation, turnId);
+              const call = await this.#appendOutputItem(event, conversation, turnId, evidenceId);
               if (call) calls.push(call);
               break;
             }
@@ -1351,6 +1364,7 @@ export class Engine {
     output: ModelOutputItem,
     conversation: Conversation,
     turnId: TurnId,
+    evidenceId?: string,
   ): Promise<ToolCall | undefined> {
     if (output.type !== "tool_call") {
       const base = {
@@ -1368,6 +1382,10 @@ export class Engine {
             }
           : { ...base, type: output.type },
       );
+      if (evidenceId)
+        await this.store.putPluginState("model-evidence", conversation.id, `item:${item.id}`, {
+          attemptId: evidenceId,
+        });
       if (output.payload)
         await this.store.putProviderPayload({ ...output.payload, itemId: item.id });
       this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
@@ -1381,6 +1399,10 @@ export class Engine {
       name: output.name,
       args: output.args,
     });
+    if (evidenceId)
+      await this.store.putPluginState("model-evidence", conversation.id, `item:${item.id}`, {
+        attemptId: evidenceId,
+      });
     if (output.payload) await this.store.putProviderPayload({ ...output.payload, itemId: item.id });
     this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
     return { callId: output.callId, name: output.name, args: output.args };
@@ -1827,8 +1849,17 @@ export class Engine {
     signal: AbortSignal,
     provider: ModelProvider,
     toolSet?: ToolSet,
+    evidenceByEvent?: WeakMap<ModelStreamEvent, string>,
   ): AsyncIterable<ModelStreamEvent> {
-    const context = { conversationId };
+    const store = this.store;
+    const context: ModelCallContext = { conversationId };
+    const captureScope = new AsyncLocalStorage<((body: JsonValue) => Promise<void>) | undefined>();
+    if (evidenceByEvent)
+      context.captureRequest = async (body) => {
+        const capture = captureScope.getStore();
+        if (!capture) throw new Error("Native request capture has no invocation scope");
+        await capture(body);
+      };
     return runModelChain(
       this.host.modelMiddleware,
       request,
@@ -1838,8 +1869,37 @@ export class Engine {
         toolMeta: (name) => toolSet?.metaOf(name),
       },
       async function* (nextRequest) {
+        let attemptId: string | undefined;
+        let capture: ((body: JsonValue) => Promise<void>) | undefined;
+        if (evidenceByEvent) {
+          attemptId = randomUUID();
+          const capturedId = attemptId;
+          const trace = {
+            request: nextRequest,
+            nativeRequest: null as JsonValue | null,
+            limitation:
+              "Native body not exposed by this adapter; canonical effective request recorded.",
+          };
+          await store.putPluginState("model-evidence", conversationId, capturedId, trace);
+          capture = async (body) => {
+            trace.nativeRequest = body;
+            trace.limitation =
+              "Provider-side token rendering is not inspectable; native request body recorded.";
+            await store.putPluginState("model-evidence", conversationId, capturedId, trace);
+          };
+        }
         try {
-          yield* provider.stream(nextRequest, signal, context);
+          const iterator = provider.stream(nextRequest, signal, context)[Symbol.asyncIterator]();
+          try {
+            for (;;) {
+              const result = await captureScope.run(capture, () => iterator.next());
+              if (result.done) break;
+              if (attemptId) evidenceByEvent!.set(result.value, attemptId);
+              yield result.value;
+            }
+          } finally {
+            if (iterator.return) await captureScope.run(capture, () => iterator.return!());
+          }
         } catch (error) {
           // Preserve context-limit recovery; classify other provider failures at their boundary.
           if (error instanceof ContextWindowExceededError) throw error;

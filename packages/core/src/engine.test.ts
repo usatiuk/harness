@@ -3669,3 +3669,97 @@ describe("Engine — usage recording", () => {
     expect(usageEvent?.summary.cost ?? null).toBeCloseTo(expected, 10);
   });
 });
+
+it("binds buffered middleware output to its producing request rather than the latest attempt", async () => {
+  const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+  const provider = new FakeProvider([textStep("first answer"), textStep("discarded answer")]);
+  const middleware: ModelMiddleware = {
+    id: "buffered-attempts",
+    async *wrap(request, _context, next) {
+      const first: ModelStreamEvent[] = [];
+      for await (const event of next({ ...request, prompt: "first effective prompt" }))
+        first.push(event);
+      for await (const event of next({ ...request, prompt: "second effective prompt" })) {
+        void event;
+      }
+      yield* first;
+    },
+  };
+  const engine = new Engine(
+    store,
+    new PluginHost([
+      { id: "fake", providers: () => [provider], modelMiddleware: () => [middleware] },
+    ]),
+    testConfigResolver(),
+  );
+  const conversation = await store.createConversation(newConversationInput(CONFIG));
+  await engine.deliver(conversation.id, userInput("go"));
+  await engine.whenIdle(conversation.id);
+  const item = (await store.listActiveItems(conversation.id)).find(
+    (candidate) => candidate.type === "message" && candidate.role === "assistant",
+  );
+  expect(item).toBeDefined();
+  const link = (await store.getPluginState(
+    "model-evidence",
+    conversation.id,
+    `item:${item!.id}`,
+  )) as { attemptId: string };
+  const trace = (await store.getPluginState("model-evidence", conversation.id, link.attemptId)) as {
+    request: ModelRequest;
+  };
+  expect(trace.request.prompt).toBe("first effective prompt");
+});
+
+it("isolates native capture for concurrent attempts sharing the same request object", async () => {
+  const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+  let index = 0;
+  const base: ModelProvider = new FakeProvider([]);
+  const provider: ModelProvider = {
+    provider: base.provider,
+    capabilities: (model) => base.capabilities(model),
+    validateConfig: (config) => base.validateConfig(config),
+    listModels: () => base.listModels(),
+    async *stream(_request, _signal, context) {
+      const attempt = ++index;
+      await Promise.resolve();
+      await context.captureRequest?.({
+        messages: [{ role: "user", content: `native-${attempt}` }],
+      });
+      yield* textStep(`answer-${attempt}`);
+    },
+  };
+  const middleware: ModelMiddleware = {
+    id: "concurrent-attempts",
+    async *wrap(request, _context, next) {
+      const collect = async () => {
+        const events: ModelStreamEvent[] = [];
+        for await (const event of next(request)) events.push(event);
+        return events;
+      };
+      const [first] = await Promise.all([collect(), collect()]);
+      yield* first;
+    },
+  };
+  const engine = new Engine(
+    store,
+    new PluginHost([
+      { id: "fake", providers: () => [provider], modelMiddleware: () => [middleware] },
+    ]),
+    testConfigResolver(),
+  );
+  const conversation = await store.createConversation(newConversationInput(CONFIG));
+  await engine.deliver(conversation.id, userInput("go"));
+  await engine.whenIdle(conversation.id);
+  const item = (await store.listActiveItems(conversation.id)).find(
+    (candidate) => candidate.type === "message" && candidate.role === "assistant",
+  );
+  const link = (await store.getPluginState(
+    "model-evidence",
+    conversation.id,
+    `item:${item!.id}`,
+  )) as { attemptId: string };
+  const trace = (await store.getPluginState("model-evidence", conversation.id, link.attemptId)) as {
+    nativeRequest: unknown;
+  };
+  expect(trace.nativeRequest).toEqual({ messages: [{ role: "user", content: "native-1" }] });
+});

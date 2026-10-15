@@ -494,3 +494,15 @@ the public client boundary. Tools and model providers are plugin contributions
 wired in at the `server` composition root. Providers declare
 which file-tool dialect a model expects; `workspace` owns and executes every concrete file tool,
 while `agents` independently supplies hierarchical project instructions around those calls.
+
+## Optional learning feedback
+
+The source checkout includes `@harness/feedback`. Configure Settings → Learning
+feedback with your MAI endpoint and server-side token environment-variable name
+(default `MAI_TOKEN`), then enable it. Restart the server after setting credentials
+and reopen the conversation after changing feedback configuration. Conditional
+thumbs up/down capture a case with an optional comment; they do not train or
+switch models. Delivery is durable and retries when MAI becomes available.
+
+See [feedback integration](docs/subsystems/feedback/README.md) and the sibling
+[MAI setup](../mai/README.md) for the separate review/training web app.

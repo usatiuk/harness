@@ -527,3 +527,14 @@ invocations remain opt-in qualification.
 - `docs/DEFERRED.md` records known limitations intentionally outside active work.
 - Public types, implementation, and executable tests remain the final authority
   when documentation drifts.
+
+## Optional feedback capture (2026-10-15)
+
+Implemented conditional desktop votes and settings through `@harness/feedback`,
+with durable authenticated case delivery to sibling MAI. Capture preserves
+original behavior separately from effective/native decision input and explicitly
+labels missing linkage and reasoning limits. Native request capture retains
+existing context-build and middleware identity behavior. See the
+[architecture](docs/subsystems/feedback/README.md). MAI owns human review and
+separately submitted cloud training; this integration never trains or promotes
+on a vote. Live provider checks and native feedback UI qualification remain open.

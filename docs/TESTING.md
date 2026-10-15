@@ -1243,3 +1243,16 @@ Windows translated Git-link behavior is exercised with real Linux containers;
 actual Windows Docker Desktop mounts/transport remain unqualified. Compose uses an
 explicitly built fixture image to avoid upstream Bake's generated-Dockerfile
 filesystem entitlement issue. The product still uses the devcontainer CLI.
+
+## MAI feedback capture
+
+`server/src/feedback.test.ts` exercises real RPC/SQLite capture against a temporary
+HTTP receiver: disabled configuration, queued offline delivery, explicit retry,
+stable case identity and exclusion of opaque artifacts. Core engine regressions
+check per-output attribution through buffered middleware and concurrent attempts
+using the same request object, plus existing context-build and stable logical-call
+identity guarantees. OpenAI adapter capture occurs after native request rendering.
+All fixtures use temporary homes and deterministic providers. Native clicking of
+the new desktop controls and live teacher/training/serving requests are not
+established by these tests. MAI's separate browser fixture covers review through
+a frozen dataset and unsubmitted training preview.

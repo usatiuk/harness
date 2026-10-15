@@ -258,6 +258,8 @@ export type ModelStreamEvent =
 /** Invocation identity is independent of prompt content and survives logical retries. */
 export interface ModelCallContext {
   readonly conversationId: ConversationId;
+  /** Effective body only; never headers/credentials. Await before transport submission. */
+  captureRequest?: (body: JsonValue) => Promise<void>;
 }
 
 export interface ModelProvider {

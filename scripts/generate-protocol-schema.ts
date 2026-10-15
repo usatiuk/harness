@@ -1,4 +1,10 @@
 import {
+  feedbackStatusRequest,
+  feedbackConfigureRequest,
+  feedbackVoteRequest,
+  feedbackRetryRequest,
+} from "@harness/feedback/client";
+import {
   worktreeRepositoryRequest,
   worktreeCreateConversationRequest,
   worktreeOptionsRequest,
@@ -64,6 +70,10 @@ import { mcpRpcMessages } from "@harness/mcp/client";
 
 const messages: readonly RpcMessage[] = [
   initializeRequest,
+  feedbackStatusRequest,
+  feedbackConfigureRequest,
+  feedbackVoteRequest,
+  feedbackRetryRequest,
   worktreeOptionsRequest,
   worktreeSwitchRequest,
   worktreeManagedRequest,

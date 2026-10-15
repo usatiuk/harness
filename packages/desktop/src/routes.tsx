@@ -1,3 +1,4 @@
+import { FeedbackControls, FeedbackSettings } from "./components/feedback-controls.tsx";
 import {
   NewWorktreeOption,
   WorktreeControl,
@@ -1004,6 +1005,7 @@ export function createDesktopRouter(
       >
         {open && (
           <>
+            <FeedbackControls session={session} itemId={cell.id} />
             {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
             {edit &&
               edit.files.map((file, index) => (
@@ -1218,6 +1220,7 @@ export function createDesktopRouter(
         title={label}
         onToggle={(event) => setOpen(event.currentTarget.open)}
       >
+        <FeedbackControls session={session} itemId={cell.id} />
         {open && (
           <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
             {cell.text}
@@ -1263,6 +1266,7 @@ export function createDesktopRouter(
           </div>
           {cell.streaming && <span className="stream-indicator" aria-label="Streaming" />}
           {!cell.streaming && <CopyMessage text={cell.text} />}
+          {!cell.streaming && <FeedbackControls session={session} itemId={cell.id} />}
         </article>
       );
     if (cell.kind === "error")
@@ -2118,6 +2122,7 @@ export function createDesktopRouter(
           </Tabs.Content>
           <Tabs.Content value="mcp" forceMount className="settings-panel">
             <h2>MCP servers</h2>
+            <FeedbackSettings session={session} />
             <McpSettings
               client={session.client}
               openUrl={openUrl}

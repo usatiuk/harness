@@ -37,6 +37,16 @@ credential state. Connections map it to their native headers. Shared SDK
 transports accept a connection-owned `requestHeaders(context)` callback and pass
 its result as per-call request options, without mutating shared client defaults.
 
+`ModelCallContext.captureRequest` optionally records the serialized native body
+after adapter formatting and before transport. OpenAI chat and Responses adapters
+implement it. Core keeps the logical call context stable while async-local scope
+links each provider attempt and emitted event to its own captured request, including
+buffered middleware and concurrent retries. Evidence is stored separately in
+plugin state, without adding context builds or prompt content. A displayed
+transcript is not the native input; unsupported adapters and synthetic events
+have explicitly unavailable native linkage. See the
+[feedback integration](../feedback/README.md).
+
 `ModelConfig` is one atomic `{provider, model, preset?}` selection. A model
 identity change never carries a preset, even when the destination exposes the
 same preset token; preset selection is a separate, current-model operation.

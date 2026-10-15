@@ -1,3 +1,4 @@
+import { jsonValueSchema } from "@harness/protocol";
 import type OpenAI from "openai";
 import type {
   PresetInfo,
@@ -189,6 +190,7 @@ export abstract class OpenAIResponsesTransport {
     try {
       const client = await this.#credentials.client(signal);
       const params = this.buildParams(request);
+      await context.captureRequest?.(jsonValueSchema.parse(JSON.parse(JSON.stringify(params))));
       const stream = await client.responses.create(params, {
         signal,
         ...(this.#requestHeaders ? { headers: this.#requestHeaders(context) } : {}),
@@ -305,6 +307,7 @@ export class OpenAIChatTransport {
     try {
       const client = await this.#credentials.client(signal);
       const params = this.buildParams(request);
+      await context.captureRequest?.(jsonValueSchema.parse(JSON.parse(JSON.stringify(params))));
       const stream = await client.chat.completions.create(params, {
         signal,
         ...(this.#requestHeaders ? { headers: this.#requestHeaders(context) } : {}),

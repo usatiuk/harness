@@ -78,6 +78,7 @@
     "@harness/connections": "*",
     "@harness/mcp": "*",
     "@harness/conversation-titles": "*",
-    "@harness/worktrees": "*"
+    "@harness/worktrees": "*",
+    "@harness/feedback": "*"
   }
 }

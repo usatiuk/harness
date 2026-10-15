@@ -1,3 +1,4 @@
+import { FeedbackRuntime, feedbackPlugin } from "@harness/feedback";
 import { realpath } from "node:fs/promises";
 import {
   WorktreeManager,
@@ -98,7 +99,12 @@ export async function buildServerComposition(
   let startedHost: HarnessRpcHost | undefined;
   try {
     const settings = await readGlobalSettings(defaultHome());
-    validateGlobalPluginScopes(settings, new Set(["mcp", "worktrees"]), "global settings", true);
+    validateGlobalPluginScopes(
+      settings,
+      new Set(["mcp", "worktrees", "feedback"]),
+      "global settings",
+      true,
+    );
     const prepare = prepareProviderEntries(
       settings,
       providerPlugins,
@@ -144,6 +150,7 @@ export async function buildServerComposition(
       mcpRuntime.plugin(),
       agentsPlugin,
       autoApprovalPlugin,
+      feedbackPlugin,
       subagents,
       { id: "compaction", policies: () => ({ compaction: modelCompaction }) },
     );
@@ -168,6 +175,8 @@ export async function buildServerComposition(
     // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
     subagents.bindRunner(service);
     worktreesDefinition.bind(service);
+    const feedback = new FeedbackRuntime(defaultHome(), store);
+    await feedback.start();
     const host = new HarnessRpcHost(service);
     startedHost = host;
     const sessions = new Map<HarnessRpcSession, { close(): Promise<void> }>();
@@ -202,6 +211,7 @@ export async function buildServerComposition(
           ),
       });
       registerFeatureServer(rpcSession);
+      feedback.register(rpcSession);
       rpcSession.onRequest(sandboxWorkspaceRequest, async ({ path, action }) => {
         const root = await realpath(path);
         return service.runWorkspaceOperation(root, async () => {
@@ -261,6 +271,7 @@ export async function buildServerComposition(
         // both lifetimes before disposing sessions or the store, including failures.
         const results = await Promise.allSettled([
           host.shutdown(),
+          feedback.close(),
           ...[...sessions.values()].map((app) => app.close()),
         ]);
         const errors = results.flatMap((result) =>

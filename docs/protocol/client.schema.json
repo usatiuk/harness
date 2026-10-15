@@ -63,6 +63,78 @@
       "required": ["protocolVersion", "server", "plugins"],
       "additionalProperties": false
     },
+    "plugin_feedback_status_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "plugin_feedback_status_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "configured": { "type": "boolean" },
+        "endpoint": { "type": "string" },
+        "tokenEnv": { "type": "string" },
+        "pending": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+        "failed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+      },
+      "required": ["enabled", "configured", "endpoint", "tokenEnv", "pending", "failed"],
+      "additionalProperties": false
+    },
+    "plugin_feedback_configure_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "enabled": { "default": false, "type": "boolean" },
+        "endpoint": { "default": "http://127.0.0.1:7331", "type": "string", "format": "uri" },
+        "tokenEnv": { "default": "MAI_TOKEN", "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" }
+      },
+      "additionalProperties": false
+    },
+    "plugin_feedback_configure_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "null"
+    },
+    "plugin_feedback_vote_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "conversationId": { "type": "string" },
+        "itemId": { "type": "string" },
+        "vote": { "type": "string", "enum": ["up", "down"] },
+        "comment": { "default": "", "type": "string", "maxLength": 16000 }
+      },
+      "required": ["id", "conversationId", "itemId", "vote"],
+      "additionalProperties": false
+    },
+    "plugin_feedback_vote_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "status": { "type": "string", "enum": ["queued", "delivered"] },
+        "url": { "type": "string" }
+      },
+      "required": ["id", "status", "url"],
+      "additionalProperties": false
+    },
+    "plugin_feedback_retry_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "plugin_feedback_retry_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "null"
+    },
     "plugin_worktrees_options_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -5522,6 +5594,34 @@
       "direction": "client-to-server",
       "params": { "$ref": "#/$defs/initialize_params" },
       "result": { "$ref": "#/$defs/initialize_result" }
+    },
+    {
+      "method": "plugin.feedback.status",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_feedback_status_params" },
+      "result": { "$ref": "#/$defs/plugin_feedback_status_result" }
+    },
+    {
+      "method": "plugin.feedback.configure",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_feedback_configure_params" },
+      "result": { "$ref": "#/$defs/plugin_feedback_configure_result" }
+    },
+    {
+      "method": "plugin.feedback.vote",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_feedback_vote_params" },
+      "result": { "$ref": "#/$defs/plugin_feedback_vote_result" }
+    },
+    {
+      "method": "plugin.feedback.retry",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_feedback_retry_params" },
+      "result": { "$ref": "#/$defs/plugin_feedback_retry_result" }
     },
     {
       "method": "plugin.worktrees.options",

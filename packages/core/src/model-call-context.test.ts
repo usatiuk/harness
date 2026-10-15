@@ -97,5 +97,7 @@ it("preserves per-conversation identity across retries, concurrent roots, nested
   const resumed = createEngine();
   await resumed.deliver(root!.id, input);
   await resumed.whenIdle(root!.id);
-  expect(calls.at(-1)?.context).toEqual({ conversationId: root!.id });
+  expect(calls.at(-1)?.context.conversationId).toBe(root!.id);
+  expect(calls.at(-1)?.context.captureRequest).toBeTypeOf("function");
+  expect(Object.keys(calls.at(-1)!.context)).toEqual(["conversationId", "captureRequest"]);
 });
