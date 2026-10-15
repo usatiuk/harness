@@ -1940,6 +1940,7 @@ export function createDesktopRouter(
       "Composer",
       "Defaults",
       "Providers",
+      "Feedback",
       "MCP",
       "Worktrees",
       "Application",
@@ -2120,9 +2121,11 @@ export function createDesktopRouter(
             </p>
             <ActionFeedback data={save.data} />
           </Tabs.Content>
+          <Tabs.Content value="feedback" className="settings-panel">
+            <FeedbackSettings session={session} />
+          </Tabs.Content>
           <Tabs.Content value="mcp" forceMount className="settings-panel">
             <h2>MCP servers</h2>
-            <FeedbackSettings session={session} />
             <McpSettings
               client={session.client}
               openUrl={openUrl}

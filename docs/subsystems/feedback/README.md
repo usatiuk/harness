@@ -7,8 +7,10 @@ MAI never reads Harness SQLite directly or executes agent tools.
 
 ## Configuration and user flow
 
-Settings → Learning feedback edits global `feedback` configuration: `enabled`,
-`endpoint`, and `tokenEnv` (default `MAI_TOKEN`). Credentials come from the server
+Settings → Feedback edits global `feedback` configuration: `enabled`,
+`endpoint`, and `tokenEnv` (default `MAI_TOKEN`). It has its own Feedback tab,
+separate from MCP servers. The form uses shared controls and layout; token-variable
+setup is under Connection details. Credentials come from the server
 environment and are never configuration values. HTTPS is required except for
 loopback HTTP. URL credentials, queries and fragments are rejected. Controls
 appear only when enabled and configured. Restart the server for environment
@@ -57,3 +59,6 @@ cover buffered events and concurrent same-request attempts. Full repository
 checks cover desktop types/lint; native clicking of the new controls and live
 provider training/serving remain separate acceptance checks. See sibling
 [MAI validation](../../../../mai/docs/TESTING.md).
+
+The settings-tab/form correction passes the full check (1,394 passed, 41 gated
+skips). Native rendering of the revised form remains a user walkthrough check.

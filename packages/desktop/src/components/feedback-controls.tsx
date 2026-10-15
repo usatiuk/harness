@@ -8,7 +8,7 @@ import {
   feedbackRetryRequest,
 } from "@harness/feedback/client";
 import type { DesktopSession } from "../session.ts";
-import { Button, Input } from "../ui.tsx";
+import { Button, Checkbox, Input } from "../ui.tsx";
 
 type Status = Awaited<ReturnType<typeof readStatus>>;
 function readStatus(session: DesktopSession) {
@@ -113,73 +113,114 @@ export function FeedbackControls({
 export function FeedbackSettings({ session }: { session: DesktopSession }) {
   const [status, setStatus] = useState<Status>();
   const [error, setError] = useState("");
-  const refresh = () => {
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const refresh = async () => {
     reads.delete(session);
-    void readCached(session)
-      .then(setStatus)
-      .catch(() => setError("Feedback settings unavailable"));
+    setStatus(await readCached(session));
   };
-  useEffect(refresh, [session]);
+  useEffect(() => {
+    reads.delete(session);
+    void readCached(session).then(setStatus, () => setError("Feedback settings unavailable"));
+  }, [session]);
+  async function update(action: () => Promise<unknown>, saving = false) {
+    setBusy(true);
+    setError("");
+    setSaved(false);
+    try {
+      await action();
+      await refresh();
+      setSaved(saving);
+    } catch {
+      setError("Could not update feedback settings. Check the server connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <section>
-      <h2>Learning feedback</h2>
-      <p>Send voted execution evidence to your MAI controller. No training starts from a vote.</p>
-      {status && (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            const endpoint = data.get("endpoint"),
-              tokenEnv = data.get("tokenEnv");
-            if (typeof endpoint !== "string" || typeof tokenEnv !== "string") {
-              setError("Missing feedback settings");
-              return;
-            }
-            void session.client.peer
-              .request(feedbackConfigureRequest, {
-                enabled: data.get("enabled") === "on",
-                endpoint,
-                tokenEnv,
-              })
-              .then(refresh)
-              .catch(() => setError("Could not save feedback settings"));
-          }}
-        >
-          <label>
-            <input type="checkbox" name="enabled" defaultChecked={status.enabled} /> Enable thumbs
-            up/down
-          </label>
-          <label>
-            MAI endpoint
-            <Input name="endpoint" type="url" defaultValue={status.endpoint} required />
-          </label>
-          <label>
-            Token environment variable
-            <Input name="tokenEnv" defaultValue={status.tokenEnv} required />
-          </label>
-          <p>
-            Set that variable in the Harness server environment. Votes appear when enabled and a
-            token is available. Reopen the conversation after changing settings.
+    <>
+      <div className="section-heading">
+        <h2>Learning feedback</h2>
+        <p className="muted">Send thumbs up/down and the relevant execution to MAI for review.</p>
+      </div>
+      {status ? (
+        <>
+          <form
+            className="form-grid composer-settings"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              const endpoint = data.get("endpoint"),
+                tokenEnv = data.get("tokenEnv");
+              if (typeof endpoint !== "string" || typeof tokenEnv !== "string") {
+                setError("Missing feedback connection settings");
+                return;
+              }
+              void update(
+                () =>
+                  session.client.peer.request(feedbackConfigureRequest, {
+                    enabled: data.get("enabled") === "on",
+                    endpoint,
+                    tokenEnv,
+                  }),
+                true,
+              );
+            }}
+          >
+            <label className="check-label">
+              <Checkbox name="enabled" defaultChecked={status.enabled} disabled={busy} />
+              Show feedback buttons in conversations
+            </label>
+            <label>
+              MAI address
+              <Input
+                name="endpoint"
+                type="url"
+                defaultValue={status.endpoint}
+                required
+                disabled={busy}
+              />
+              <small className="muted">
+                Reachable from the Harness server, such as http://127.0.0.1:7331.
+              </small>
+            </label>
+            <details>
+              <summary>Connection details</summary>
+              <label>
+                Token environment variable
+                <Input name="tokenEnv" defaultValue={status.tokenEnv} required disabled={busy} />
+              </label>
+              <p className="muted">
+                Set this variable in the Harness server environment, then restart the server. The
+                token itself stays out of settings.
+              </p>
+            </details>
+            <Button type="submit" variant="accent" disabled={busy || Boolean(session.disconnected)}>
+              {busy ? "Please wait…" : "Save feedback settings"}
+            </Button>
+          </form>
+          <p className="muted" role="status">
+            {saved && "Saved. Reopen the conversation to update its feedback buttons. "}
+            {status.configured
+              ? "Token available"
+              : "Token missing — set the environment variable above"}
+            {` · ${status.pending} queued · ${status.failed} delivery failures`}
           </p>
-          <Button type="submit">Save feedback settings</Button>
           <Button
-            type="button"
-            onClick={() =>
-              void session.client.peer
-                .request(feedbackRetryRequest, {})
-                .then(refresh)
-                .catch(() => setError("Retry failed"))
-            }
+            variant="ghost"
+            disabled={busy || !status.pending}
+            onClick={() => void update(() => session.client.peer.request(feedbackRetryRequest, {}))}
           >
             Retry queued delivery
           </Button>
-          <p role="status">
-            {status.pending} queued · {status.failed} delivery failures ·{" "}
-            {status.configured ? "Token configured" : "Token missing"}
+          <p className="muted">
+            A vote saves a feedback case. Teachers and training start separately in MAI.
           </p>
-        </form>
+        </>
+      ) : (
+        !error && <p className="muted">Loading feedback settings…</p>
       )}
       {error && <p role="alert">{error}</p>}
-    </section>
+    </>
   );
 }
