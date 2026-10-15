@@ -1217,7 +1217,10 @@ uses real isolated repositories for dirty/primary protection, failed creation an
 post-Git persistence failure recovery. `server/src/worktrees.test.ts` uses actual
 RPC/SQLite restart with temporary home and memory credentials; `cli/src/hosts.test.tsx`
 saves/clears the directory through Ink Settings. Browser regressions exercise
-creation eligibility, branch switching, confirmation and directory settings.
+creation eligibility, branch switching, confirmation and directory settings. A
+desktop browser fixture pins the new-conversation worktree option to the compact
+check-label rendering (16px native checkbox, no full-width input-field styling)
+with its form submission and non-repository disable behavior.
 
 Local qualification: `npm run check` passed 1,391 tests (41 gated skips); all 58
 browser cases passed using `PLAYWRIGHT_BROWSERS_PATH=/tmp/harness-playwright-browsers`.
@@ -1256,3 +1259,10 @@ All fixtures use temporary homes and deterministic providers. Native clicking of
 the new desktop controls and live teacher/training/serving requests are not
 established by these tests. MAI's separate browser fixture covers review through
 a frozen dataset and unsubmitted training preview.
+
+The feedback RPC regression also covers a final-message vote exposing earlier
+actual decisions, parallel sibling outputs retained when voting on the first
+call, unavailable historical invocation linkage, cross-branch rejection, opaque
+artifact exclusion, and byte-limited native-input omission. A 35 MB stored earlier
+input cannot break an otherwise small vote; the backfill RPC stays below 3 MiB.
+No provider, tool replay, running shared server, or desktop is started by this test.

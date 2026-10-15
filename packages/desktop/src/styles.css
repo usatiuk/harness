@@ -411,6 +411,9 @@ main {
   grid-column: 1 / -1;
   font-size: 12px;
 }
+.creation-form .check-label {
+  margin-top: 12px;
+}
 .creation-footer {
   display: flex;
   align-items: center;
@@ -1677,12 +1680,6 @@ main {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.inline-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .worktree-options {
   display: grid;
   gap: 4px;

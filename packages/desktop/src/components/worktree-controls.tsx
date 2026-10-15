@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { GitBranch } from "lucide-react";
 import type { Conversation, ManagedWorktree, WorkspaceSelection } from "@harness/protocol";
 import type { DesktopSession } from "../session.ts";
-import { Button, Confirmation, PopoverControl, Input } from "../ui.tsx";
+import { Button, Checkbox, Confirmation, PopoverControl } from "../ui.tsx";
 
 export function WorktreeControl({
   session,
@@ -344,14 +344,13 @@ export function NewWorktreeOption({ session, cwd }: { session: DesktopSession; c
   const eligible = result?.cwd === cwd && result.repository !== null;
   return (
     <>
-      <label className="inline-checkbox">
-        <Input
-          type="checkbox"
+      <label className="check-label">
+        <Checkbox
           name="newWorktree"
           disabled={!eligible}
           checked={eligible && selected}
           onChange={(event) => setSelected(event.currentTarget.checked)}
-        />{" "}
+        />
         Start in a new Git worktree
       </label>
       {result?.cwd === cwd && result.error && <p role="alert">{result.error}</p>}
