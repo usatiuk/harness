@@ -23,6 +23,6 @@
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
     "openai": "^7.27.0",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.11"
   }
 }

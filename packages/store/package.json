@@ -15,6 +15,6 @@
   },
   "devDependencies": {
     "@harness/testkit": "*",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.11"
   }
 }
