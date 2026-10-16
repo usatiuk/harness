@@ -1,13 +1,15 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { ensureLocalServer } from "./connect.ts";
+import { canonicalHome, privateRuntimeDirectory } from "./local.ts";
 
 it("reports only bounded diagnostics from the current failed startup, including retries", async () => {
-  const home = await realpath(await mkdtemp(join(tmpdir(), "harness-startup-error-")));
-  const directory = join(home, ".running-server");
-  await mkdir(directory, { mode: 0o700 });
+  const root = await mkdtemp(join(tmpdir(), "harness-startup-error-"));
+  // Let the production home creator establish ownership, including elevated Windows.
+  const home = await canonicalHome(join(root, "home"));
+  const directory = await privateRuntimeDirectory(home);
   const log = join(directory, "startup.log");
   await writeFile(log, "stale failure\n");
   try {
@@ -34,6 +36,6 @@ it("reports only bounded diagnostics from the current failed startup, including 
     );
     expect(await readFile(log, "utf8")).toContain("stale failure");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
   }
 });

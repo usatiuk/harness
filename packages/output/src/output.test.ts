@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -52,7 +52,8 @@ const passthrough = (result: ToolResult) => () => Promise.resolve(result);
 
 describe("outputBoundMiddleware", () => {
   it("spills oversized output to a file and shows a head view + pointer", async () => {
-    const ctx = ctxWith({}, new LocalExecutionContext(await tmpRoot()));
+    const root = await tmpRoot();
+    const ctx = ctxWith({}, new LocalExecutionContext(root));
     const result = await outputBoundMiddleware().wrap(
       { callId: "g", name: "command", args: {} },
       ctx,
@@ -60,9 +61,13 @@ describe("outputBoundMiddleware", () => {
     );
     const out = text(result.forModel);
     expect(out).toContain("output truncated");
-    expect(out).toContain(".harness/conv/outputs/out_");
+    expect(out).toContain(join(".harness", "conv", "outputs", "out_"));
     expect(out).toContain("line 0"); // head shown
     expect(out).not.toContain("line 999"); // tail elided from the inline view
+    const directory = join(root, ".harness", "conv", "outputs");
+    const files = await readdir(directory);
+    expect(files).toEqual([expect.stringMatching(/^out_/)]);
+    expect(await readFile(join(directory, files[0]!), "utf8")).toBe(oversized);
   });
 
   it("skips addressableOutput tools", async () => {

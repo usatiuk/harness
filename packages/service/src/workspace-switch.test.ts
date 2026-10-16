@@ -2,7 +2,7 @@ import { QuickJsEvaluator } from "@harness/code-mode";
 import { executionOf } from "@harness/execution";
 import { Engine, PluginHost } from "@harness/core";
 import { afterEach, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
@@ -29,7 +29,7 @@ afterEach(async () => {
 it.each(["direct", "code-only"] as const)(
   "%s switches only after a complete batch and refreshes directory-dependent instructions and tools",
   async (mode) => {
-    const root = await mkdtemp(join(tmpdir(), "harness-switch-"));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "harness-switch-")));
     roots.push(root);
     const first = join(root, "first");
     const second = join(root, "second");

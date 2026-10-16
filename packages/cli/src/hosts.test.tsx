@@ -284,14 +284,19 @@ it("renders both Local OAuth methods, displays a device code and cancels when le
   for (const name of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
     vi.stubEnv(name, "");
   const network = await deviceAuthFixture(path);
+  const workspace = join(path, "workspace");
+  // HOME isolates credentials; an explicit project also isolates discovery from
+  // the checkout's real account ancestors after that HOME substitution.
+  await mkdir(join(workspace, ".harness"), { recursive: true });
   const hosts = new TuiHosts(
     {},
     { ...launch, env: { NODE_OPTIONS: `--import=${pathToFileURL(network.preload).href}` } },
   );
   clients.push(hosts);
   await hosts.initialize();
-  const ui = render(<HostApp hosts={hosts} />);
+  const ui = render(<HostApp hosts={hosts} options={{ cwd: workspace }} />);
   const openAuth = async () => {
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("/help"));
     await writeInput(ui, "\u0007");
     await vi.waitFor(() => expect(ui.lastFrame()).toContain("Select host"));
     for (let i = 0; i < 6; i++) await writeInput(ui, "\u001b[B");
@@ -311,9 +316,10 @@ it("renders both Local OAuth methods, displays a device code and cancels when le
     await writeInput(ui, "\r");
   };
   try {
-    await vi.waitFor(() => expect(hosts.selected?.presentation.activeId).toBeDefined(), {
-      timeout: 20000,
-    });
+    await vi.waitFor(
+      () => expect(hosts.selected?.presentation.activeId, ui.lastFrame()).toBeDefined(),
+      { timeout: 20000 },
+    );
     await openAuth();
     await vi.waitFor(() => expect(ui.lastFrame()).toContain("Code: FIXTURE-CODE"));
     expect(ui.lastFrame()).toContain("https://auth.openai.com/codex/device");

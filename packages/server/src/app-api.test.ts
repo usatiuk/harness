@@ -1,6 +1,6 @@
 import { MemorySecretStore } from "@harness/secrets";
 import * as credentials from "./credential-store.ts";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
@@ -299,7 +299,7 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
   const { sandboxPlugin } = await import("@harness/sandbox");
   const { DesktopSession } = await import("../../desktop/src/session.ts");
   const { registerAppApi } = await import("./app-api.ts");
-  const home = await mkdtemp(join(tmpdir(), "harness-sidebar-rpc-"));
+  const home = await realpath(await mkdtemp(join(tmpdir(), "harness-sidebar-rpc-")));
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const provider = new FakeProvider([textStep("done")]);
   vi.spyOn(provider, "listModels").mockReturnValue([{ provider: "fake", model: "fake-1" }]);

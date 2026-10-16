@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { resolve, join } from "node:path";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginEvent, ConversationId } from "@harness/protocol";
@@ -84,7 +84,7 @@ async function attach(
 }
 
 beforeEach(async () => {
-  state.project = await mkdtemp(join(tmpdir(), "harness-sharing-"));
+  state.project = await realpath(await mkdtemp(join(tmpdir(), "harness-sharing-")));
   await mkdir(join(state.project, "subdir"));
   state.children = [];
   state.nextId = 0;

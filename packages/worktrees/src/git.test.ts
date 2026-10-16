@@ -1,7 +1,7 @@
 import { InMemoryStore } from "@harness/store";
 import { WorktreeManager } from "./manager.ts";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), "harness-worktrees-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "harness-worktrees-")));
   roots.push(root);
   vi.stubEnv("GIT_CONFIG_GLOBAL", join(root, "no-global-config"));
   vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");

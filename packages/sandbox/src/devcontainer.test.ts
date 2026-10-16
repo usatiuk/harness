@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { containerRoot } from "./devcontainer.ts";
 
 const created: string[] = [];
 async function tmp(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "hsbx-"));
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "hsbx-")));
   created.push(dir);
   return dir;
 }

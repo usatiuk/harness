@@ -520,8 +520,9 @@ describe("ordinary tool discovery", () => {
       const tools = fixture.requests[0]!.tools!;
       const evaluator = tools.find((tool) => tool.name === "eval");
       if (mode === "code-only") {
-        expect(tools.map((tool) => tool.name)).not.toContain("bash");
-        expect(evaluator?.description).toContain('"name":"bash"');
+        const shell = process.platform === "win32" ? "powershell" : "bash";
+        expect(tools.map((tool) => tool.name)).not.toContain(shell);
+        expect(evaluator?.description).toContain(`"name":"${shell}"`);
         expect(evaluator?.description).toContain("inside eval only");
         expect(evaluator?.description).toContain('"name":"read_file"');
       } else {

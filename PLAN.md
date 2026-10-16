@@ -465,7 +465,7 @@ As of 2026-10-10, Harness provides:
 | Context and compaction      | [Architecture](docs/subsystems/context/README.md)       | Observe v1; add another strategy only for a demonstrated need.                                                     |
 | Orchestration               | [Architecture](docs/subsystems/orchestration/README.md) | [MCP tools and settings plan](docs/plans/cross-cutting/2026-10-10-mcp-tools-and-settings.md)                       |
 | Configuration and interface | [Architecture](docs/subsystems/interface/README.md)     | [Diagnostics and supportability](docs/subsystems/interface/PLAN.md)                                                |
-| Testing                     | [Architecture](docs/subsystems/testing/README.md)       | [Evidence for active reliability and security work](docs/subsystems/testing/PLAN.md)                               |
+| Testing                     | [Architecture](docs/subsystems/testing/README.md)       | [CI recovery and evidence for active reliability/security work](docs/subsystems/testing/PLAN.md)                   |
 
 ## Near-term order
 

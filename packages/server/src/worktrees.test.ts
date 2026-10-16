@@ -1,7 +1,7 @@
 import { sandboxWorkspaceRequest } from "@harness/sandbox";
 import { dockerTestEnvironment } from "../../sandbox/src/docker.test-support.ts";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -21,7 +21,7 @@ import { buildServerHarness } from "./index.ts";
 import * as credentials from "./credential-store.ts";
 
 it("persists worktree settings, selection, configuration origin, fork metadata and management through real RPC and SQLite restart", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "harness-worktree-rpc-"));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "harness-worktree-rpc-")));
   const home = join(directory, "home");
   const repository = join(directory, "repository");
   vi.stubEnv("HARNESS_HOME", home);

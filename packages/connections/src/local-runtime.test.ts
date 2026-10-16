@@ -19,12 +19,13 @@ it("executes the captured Node and complete SQLite payload without another cache
         ? `macos-${process.arch === "arm64" ? "arm64" : "x64"}`
         : "linux-x64-glibc";
   const payload = join(home, "server", `0.1.0-${target}`);
-  const node = join(root, process.platform === "win32" ? "captured-node.exe" : "captured-node");
+  // Native preparation captures an executable in place. Relocating a Homebrew
+  // binary breaks its relative libnode linkage and is not this consumer's contract.
+  const node = process.execPath;
   const require = createRequire(import.meta.url);
   let usage: { close(): void } | undefined;
   try {
     await mkdir(payload, { recursive: true });
-    await cp(process.execPath, node);
     for (const name of ["better-sqlite3", "bindings", "file-uri-to-path"]) {
       const manifest = require.resolve(`${name}/package.json`);
       await cp(dirname(manifest), join(payload, "node_modules", name), { recursive: true });
@@ -42,6 +43,7 @@ it("executes the captured Node and complete SQLite payload without another cache
       payload,
     });
     const runtime = await prepareLocalRuntime(descriptor, home);
+    expect(runtime.launch.executable).toBe(node);
     usage = runtime.launch.retainUse?.();
     const result = await promisify(execFile)(runtime.launch.executable, runtime.launch.args, {
       cwd: root,
