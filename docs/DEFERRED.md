@@ -5,6 +5,23 @@ current change. Keep entries concrete: state the limitation, consequence, reason
 for deferral, and the condition that should reopen it. Package-local follow-up may
 instead live in the owning execution plan or an issue.
 
+## macOS check failures outside the validated Ubuntu evidence
+
+`npm run check -- --maxWorkers=2` fails 31 tests across 14 files on macOS
+(v0.1.21 tree at `2bdebaa`), identically with and without unrelated local
+changes. A clean-tree comparison on the same machine reproduced the exact same
+failing files: server startup/provider integration, server process and app API,
+sandbox docker-sharing and devcontainer, code-mode QuickJS runaway bounds,
+connections captured-runtime execution, worktrees git, and service
+workspace-switch. Documented passing evidence in `TESTING.md` is Ubuntu with
+Node 24.21.0; the suite is not currently qualified on macOS.
+
+Consequence: full local validation is not green on macOS, so changes there need
+targeted test evidence plus a clean-tree comparison to separate pre-existing
+failures from regressions. Reopen when qualifying the suite on macOS — likely
+candidates to investigate are platform-dependent runtime capture, Docker
+availability, and timing bounds.
+
 ## Desktop updates after backend startup failure
 
 Desktop updates currently live in Settings, which is unavailable when initial

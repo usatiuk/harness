@@ -211,6 +211,9 @@ The [Node 24 refresh](plans/cross-cutting/2026-10-11-node24-dependencies.md) pas
 `npm run dev -- --help`, `npm run prepare:remote`, and the desktop frontend build
 also pass. Final `npm audit` reports zero vulnerabilities. These checks do not
 qualify native desktop UI, signed release installation/updates, or live providers.
+The same `npm run check` invocation is not green on macOS; the pre-existing
+failures are tracked in
+[deferred work](DEFERRED.md#macos-check-failures-outside-the-validated-ubuntu-evidence).
 
 The Zod 4.6.5 bump fails the MCP RPC malformed-settings assertion; both cases
 pass against the original dependency lockfile, and retaining Zod 4.4.3 restores
