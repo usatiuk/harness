@@ -1321,3 +1321,22 @@ previously documented failures remain: the QuickJS runaway-loop timeout and the
 TUI OAuth overlay fixture. No timeout or assertion was changed. Three independent
 read-only reviews are complete. Installed non-development activation remains
 pending; its older strict schema cannot yet accept `sessionIdHeader`.
+
+## Source desktop native build
+
+`connections/src/native-build.test.ts` runs the real build script in a temporary
+checkout fixture, substituting the Cargo/target edges. It checks recovery of a
+missing addon, fresh-file publication using a retained hard link, preservation of
+the prior addon when copying fails, and temporary-file cleanup. On macOS, the real
+`npm run desktop:dev --workspace @harness/desktop -- --help` path restored the
+missing addon without starting the desktop or a server. Loading `@harness/native` under
+Node 26.9.0 and checking its code signature both succeeded. This is startup
+preparation evidence, not a visible app walkthrough or Windows loaded-file test.
+
+Full validation for this correction used the user's Node 26.9.0 outside the
+sandbox with `TMPDIR=/private/tmp npm run check -- --maxWorkers=2`. Typechecking,
+lint and formatting pass; 1,408 tests pass and 63 skip. Three failures remain:
+the documented QuickJS/TUI OAuth fixtures and the existing captured-runtime test.
+That test copies only the Homebrew Node executable, which cannot run at the new
+path without `libnode.147.dylib`; it does not test the source desktop launcher,
+which retains the original executable path. No assertions or timeouts were changed.

@@ -196,6 +196,9 @@ The isolated stdio TUI removes its own empty conversations when it exits.
 The desktop owns one disposable Node bridge per connected entry. Installed builds
 use paths prepared by the shared native bootstrap; Tauri development runs workspace
 code with developer Node.
+The desktop dev command builds the required Node native addon before starting
+Tauri. Native builds copy to a fresh sibling file and rename it into place, so
+macOS does not reuse code-signing state for an overwritten library inode.
 Native close blocks new admission, cancels blocked writes, and closes every
 bridge concurrently. A 20-second bridge deadline terminates that child and exits
 unsuccessfully. Each server persists independently. Native preparation captures

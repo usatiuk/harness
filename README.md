@@ -35,7 +35,10 @@ Rust 1.90 or newer for the native binding. The
 monorepo uses npm workspaces; cross-package
 imports resolve to TypeScript **source** in dev via the `development` export
 condition — no TypeScript compilation step is needed to run or test. The
-`npm ci` builds the native binding; development and tests run from the checkout.
+`npm ci` builds the native binding; `npm run desktop:dev` rebuilds it before
+launching Tauri, including when the generated addon has been deleted. Native
+builds publish a fresh file atomically rather than overwrite a loaded library.
+Development and tests run from the checkout.
 Stop source CLI/desktop processes before `npm ci` or `npm run native:build`:
 Windows locks loaded native modules. Installed apps use their own immutable copies.
 Use the same Node major version for dependency installation and development.
