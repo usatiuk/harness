@@ -51,9 +51,24 @@ fixture. The initial Node 26 run had an SQLite ABI mismatch; the initial sandbox
 runs additionally hit canonical temp-path and server-process restrictions. No
 assertions or timeouts were weakened. Parser fix commit: `c870955`.
 
-The installed non-development server remains 0.1.20 and does not understand
+At the last local inspection, the installed non-development server was 0.1.20
+and did not understand
 `sessionIdHeader`. Do not insert that setting into its strict settings document
 before upgrading the runtime. After installation, set
 `providers.openrouter.config.sessionIdHeader` to `x-session-id`. Source changes
 are not a claim that the installed server or upstream cache behavior is verified.
-No application installation, release publication, or paid generation was performed.
+No application installation or paid generation was performed.
+
+## Published release
+
+[v0.1.21](https://github.com/usatiuk/harness/releases/tag/v0.1.21) is published
+from version commit `d567cbc`, following parser `c870955`, routing `7b816e7`,
+native-build correction `66be1e7`, and lockfile-order normalization `1b4c055`.
+[Release run 38918810170](https://github.com/usatiuk/harness/actions/runs/38918810170)
+passes the full Ubuntu source gate (1,430 tests pass, 44 skip), all three platform
+builds, and signed draft assembly/verification. The published release has 19
+assets. The downloaded release manifest verifies with the production native
+verifier and names Windows x64, Linux x64 and macOS arm64. Anonymous reads of the
+versioned manifest and latest updater feed return HTTP 200 and version 0.1.21.
+This publishes the source changes; the local non-development activation task above
+remains open rather than being inferred from release availability.

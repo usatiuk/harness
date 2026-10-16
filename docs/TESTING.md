@@ -1340,3 +1340,12 @@ the documented QuickJS/TUI OAuth fixtures and the existing captured-runtime test
 That test copies only the Homebrew Node executable, which cannot run at the new
 path without `libnode.147.dylib`; it does not test the source desktop launcher,
 which retains the original executable path. No assertions or timeouts were changed.
+
+The subsequent v0.1.21 release workflow
+([38918810170](https://github.com/usatiuk/harness/actions/runs/38918810170)) passes
+the full Ubuntu/Node 24 source gate: 1,430 tests pass and 44 skip. Windows, Linux
+and macOS artifact builds and signed metadata/updater verification pass. All 19
+assets are published. Production native verification of the downloaded manifest
+passes; anonymous manifest and latest-updater-feed reads return HTTP 200 and
+version 0.1.21. This does not establish installed desktop update execution or
+upstream cache-hit behavior.

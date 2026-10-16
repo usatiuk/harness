@@ -2,10 +2,12 @@
 
 The [session routing and chat finish follow-up](docs/plans/models/2026-10-16-session-routing-and-chat-finish.md)
 adds conversation cache keys, shared provider session headers, and a regression
-fix for repeated terminal choices in Chat usage tails. Source validation and three read-only reviews are complete: 1,408 tests pass,
-63 skip, and the two documented QuickJS/TUI OAuth failures remain. The installed
-non-development server has not been upgraded; its new header setting remains
-pending to preserve compatibility.
+fix for repeated terminal choices in Chat usage tails. Published in
+[v0.1.21](https://github.com/usatiuk/harness/releases/tag/v0.1.21), alongside the
+source-desktop native-addon rebuild fix. Hosted source validation passes 1,430
+tests with 44 skipped; Windows, Linux and macOS builds and signed-artifact
+verification pass. Non-development header-setting activation remains unverified
+until a compatible runtime is installed.
 
 The [worktrees and Docker lifecycle plan](docs/plans/cross-cutting/2026-10-15-worktrees-docker-lifecycle.md)
 records conversation workspace switching, configurable managed worktrees, and
