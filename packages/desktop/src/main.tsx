@@ -13,6 +13,7 @@ import { DesktopSession } from "./session.ts";
 import { DesktopHosts, type HostView } from "./hosts.ts";
 import { ConnectionEditor, HostControls } from "./connections-menu.tsx";
 import { createDesktopRouter } from "./routes.tsx";
+import { persistDesktopRoute } from "./route-persistence.ts";
 import { Button, Tooltip } from "./ui.tsx";
 import { Monitor, LoaderCircle, TriangleAlert } from "lucide-react";
 import { WindowShell } from "./window-shell.tsx";
@@ -44,11 +45,7 @@ function SessionRoutes({
     [session, view.host.id, view.host.kind, view.host.label, onManage, hostTrigger],
   );
   useEffect(() => {
-    const unsubscribe = router.subscribe((state) => {
-      const route = state.location.pathname + state.location.search;
-      localStorage.setItem(session.storageKey("route"), route);
-      window.history.replaceState(null, "", `#${route}`);
-    });
+    const unsubscribe = persistDesktopRoute(router, session.storageKey("route"));
     return () => {
       unsubscribe();
       router.dispose();

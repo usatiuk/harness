@@ -1357,3 +1357,22 @@ assets are published. Production native verification of the downloaded manifest
 passes; anonymous manifest and latest-updater-feed reads return HTTP 200 and
 version 0.1.21. This does not establish installed desktop update execution or
 upstream cache-hit behavior.
+
+## Desktop route persistence
+
+`desktop/src/route-persistence.test.ts` exercises the real memory router with
+120 idle-fetcher disposals (the virtualized fork-button cleanup path), 40
+background action submissions and repeated revalidation. These same-URL updates
+must cause no additional storage or browser-history writes. Navigation coverage
+includes conversation changes, Settings queries, same-URL replacement, back,
+redirects, unsubscribe and per-host remounts. Browser history is substituted to
+count writes; actual native WebKit scrolling and its history rate limit remain
+unqualified by this regression.
+
+Validation on October 16: both focused regressions pass. `TMPDIR=/var/tmp npm run
+check` passes typecheck, lint and formatting; Vitest reports 1,434 passed, 41
+skipped and one failure in the previously documented TUI OAuth fixture
+(`cli/src/hosts.test.tsx:314`, waiting for the initial active conversation).
+Running that test file separately reproduces the same failure (four tests pass).
+Its root cause remains unestablished; no TUI assertions or timeouts were changed.
+Three independent read-only reviews report no blocking findings.

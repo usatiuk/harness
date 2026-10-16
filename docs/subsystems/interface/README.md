@@ -406,6 +406,11 @@ route navigation leaves work running. Detachment clears stale views and
 subscriptions so retry performs a fresh attach. Sidebar pagination survives
 action revalidation.
 
+The memory router's pathname and query are saved per host and mirrored into the
+window hash only when the route changes. Fetcher cleanup and background router
+updates do not rewrite browser history, avoiding WebView history rate limits
+during transcript virtualization and conversation switching.
+
 The desktop sidebar puts collapsible folder-derived Projects above Recents. Recents
 starts with 20 chats; each project starts with five and adds five on Show more.
 Folder summaries are paged in batches of 50. The application list view shares the
