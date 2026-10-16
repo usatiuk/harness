@@ -145,7 +145,9 @@ function pump() {
   if (closed) return;
   try {
     if (runtime.hasPendingJob()) {
-      const jobs = guest(() => runtime.executePendingJobs(1));
+      // Amortize scheduler overhead without draining an unbounded microtask
+      // queue. Yield between batches so host replies can still settle promises.
+      const jobs = guest(() => runtime.executePendingJobs(256));
       if (jobs.error) {
         let error;
         try {

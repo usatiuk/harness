@@ -45,6 +45,19 @@ describe("QuickJS evaluator", () => {
       expect(textOf(result.forModel)).toMatch(/interrupt|computation/);
     }
   });
+  it("settles host replies while the guest continuously schedules microtasks", async () => {
+    const result = await evaluate(`
+      let settled = false;
+      const reply = tools.call("a", "reply").then(value => {
+        settled = true;
+        return value;
+      });
+      while (!settled) await Promise.resolve();
+      return await reply;
+    `);
+    expect(result.status).toBe("ok");
+    expect(textOf(result.forModel)).toBe('{"name":"a","args":"reply"}');
+  });
   it.each([
     // A retained allocation at the limit exceeds the heap's remaining capacity.
     // Filling giant arrays instead can hit computation limits before memory.

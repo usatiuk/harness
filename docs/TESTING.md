@@ -1376,3 +1376,32 @@ skipped and one failure in the previously documented TUI OAuth fixture
 Running that test file separately reproduces the same failure (four tests pass).
 Its root cause remains unestablished; no TUI assertions or timeouts were changed.
 Three independent read-only reviews report no blocking findings.
+
+## CI and local fixture recovery
+
+The [October 16 recovery plan](plans/process/2026-10-16-ci-and-local-test-recovery.md)
+records the first failing Windows run and each established cause. Fixture roots
+are physical paths where APIs intentionally canonicalize identities; shell roster
+assertions use PowerShell on Windows. The startup-diagnostic fixture uses the
+production home creator instead of precreating a potentially foreign-owned
+Windows directory. Output coverage checks native separators and full spilled bytes.
+
+The TUI OAuth fixture uses a marked temporary workspace alongside its substituted
+credential home and waits for the actual conversation UI before sending keys.
+This prevents the developer account's global settings from becoming a project
+layer after `HOME` substitution. The captured-runtime consumer test executes the
+captured Node in place, preserving Homebrew dynamic-library linkage; separate
+prepared-server tests already verify retention of a distinct captured path.
+
+QuickJS retains its original one-second cumulative interpreter budget and test
+timeouts. It processes at most 256 pending jobs before yielding, with a new
+regression proving host replies can settle during continuous guest microtasks.
+The recovery plan distinguishes a controlled scheduler-delay experiment from
+native macOS evidence.
+
+Local `npm run check` with ordinary temporary-directory defaults passes:
+1,436 tests, 41 gated skips, typecheck, lint and formatting. The native CI command
+passes 11 Rust tests. Three independent reviews found no remaining blocking
+issues after removing an ineffective Git-ceiling fixture setting. Hosted Windows
+verification and a native macOS rerun remain pending; these local results are Linux
+with Node 24.21.0.

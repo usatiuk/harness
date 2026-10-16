@@ -214,6 +214,9 @@ and 32 distinct terms, returning at most twelve contracts. Waiting on tools or
 human approvals consumes no interpreter CPU. Cancellation terminates the worker
 and closes its bridge before outer completion. Unsupported content blocks fail
 explicitly; the current protocol and `emitContent` support text only.
+Pending microtasks execute in batches of at most 256 before yielding to host
+messages. This bounds each batch and avoids paying an event-loop scheduling
+delay for every microtask; all interpreter work still consumes the same CPU budget.
 
 Structured data passes through result middleware alongside presentation content.
 Middleware that redacts or restricts results must handle both representations.

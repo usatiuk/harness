@@ -22,6 +22,12 @@ failures from regressions. Reopen when qualifying the suite on macOS — likely
 candidates to investigate are platform-dependent runtime capture, Docker
 availability, and timing bounds.
 
+The [CI recovery](plans/process/2026-10-16-ci-and-local-test-recovery.md) corrects
+shared fixture path aliases, isolated OAuth project discovery, captured-runtime
+relocation and QuickJS per-microtask scheduler overhead. Local Linux evidence is
+tracked there; the historical macOS failure count requires a fresh native run
+before it can be retired or narrowed.
+
 ## Desktop updates after backend startup failure
 
 Desktop updates currently live in Settings, which is unavailable when initial
