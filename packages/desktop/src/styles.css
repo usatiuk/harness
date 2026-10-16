@@ -370,6 +370,7 @@ main {
 }
 .connection-empty-state .error {
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .connection-empty-state .control {
   margin-top: 10px;

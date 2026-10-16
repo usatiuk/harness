@@ -113,13 +113,17 @@ function stalledPeer() {
   const started = new Promise<void>((resolve) => {
     connected = resolve;
   });
+  pair.right.onRequest("initialize", () => {
+    connected();
+    return new Promise<never>(() => undefined);
+  });
+  pair.right.listen();
   native.command.mockResolvedValue(defaultClientConfig());
   native.connect.mockImplementation(async (_target, onClosed: (message: string) => void) => {
     native.disconnect.mockImplementation(async () => {
       onClosed("Harness server disconnected");
       pair.right.dispose();
     });
-    connected();
     return { connection: pair.left, close: () => native.disconnect(1) };
   });
   return started;
@@ -209,6 +213,22 @@ it("readiness expiry closes the stalled peer and reports the deadline", async ()
   expect(hosts.selected?.error).toBe("Connection readiness timed out");
   expect(hosts.selected?.session).toBeUndefined();
   expect(hosts.selected?.progress).toBeUndefined();
+});
+
+it("reconnect rejects with the startup diagnostic instead of the pending RPC disposal error", async () => {
+  const hosts = new DesktopHosts();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const started = stalledPeer();
+    const connecting = attempt === 0 ? hosts.initialize() : hosts.reconnect("local");
+    const diagnostic = `Startup attempt ${attempt}: unsupported settings format`;
+    const result = attempt === 0 ? connecting : expect(connecting).rejects.toThrow(diagnostic);
+    await started;
+    const onClosed = native.connect.mock.lastCall![1] as (message: string) => void;
+    onClosed(diagnostic);
+    connections.at(-2)!.dispose();
+    await result;
+    expect(hosts.selected?.error).toBe(diagnostic);
+  }
 });
 
 it("restores presentation for the same server and isolates a changed target under one saved entry", async () => {

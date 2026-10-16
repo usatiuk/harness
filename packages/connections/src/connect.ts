@@ -114,12 +114,28 @@ async function ensureOwnedServer(
   let childError: Error | undefined;
   let candidate: { child: ChildProcess; closed: Promise<void> } | undefined;
   let attempts = 0;
+  let logStart = 0;
+  const startupFailure = async (message: string): Promise<Error> => {
+    const path = join(directory, "startup.log");
+    const log = await open(path, "r");
+    try {
+      const { size } = await log.stat();
+      const start = Math.max(logStart, size - 8192);
+      const buffer = Buffer.alloc(Math.max(0, size - start));
+      const { bytesRead } = await log.read(buffer, 0, buffer.length, start);
+      const diagnostics = buffer.subarray(0, bytesRead).toString("utf8").trim();
+      return new Error(`${message}; see ${path}${diagnostics ? `\n${diagnostics}` : ""}`);
+    } finally {
+      await log.close();
+    }
+  };
   const start = async () => {
     signal?.throwIfAborted();
     const log = await open(join(directory, "startup.log"), "a", 0o600);
     exited = undefined;
     attempts++;
     try {
+      logStart = (await log.stat()).size;
       signal?.throwIfAborted();
       const usage = launch.retainUse?.();
       let child: ChildProcess;
@@ -189,9 +205,7 @@ async function ensureOwnedServer(
     signal?.throwIfAborted();
     if (childError !== undefined) throw childError;
     if (exited !== undefined && exited !== 76)
-      throw new Error(
-        `Server startup failed (exit ${String(exited)}); see ${join(directory, "startup.log")}`,
-      );
+      throw await startupFailure(`Server startup failed (exit ${String(exited)})`);
     const discovery = await readDiscovery(home);
     if (discovery !== null) {
       try {
@@ -248,7 +262,7 @@ async function ensureOwnedServer(
     }
     await delay(50, undefined, { signal });
   }
-  throw new Error(`Server did not become ready; see ${join(directory, "startup.log")}`);
+  throw await startupFailure("Server did not become ready");
 }
 
 /** A bridge has no execution ownership. EOF only closes its authenticated socket. */

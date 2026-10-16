@@ -507,6 +507,20 @@ old handle remains readable. A real bridge against an authenticated paused recei
 detachment with outbound backpressure. Registry tests include concurrent edits
 by separate client processes.
 
+`connections/src/connect.test.ts` launches real failing child processes to verify
+current-attempt startup diagnostics, exclusion of stale log output, silent failures
+and the 8 KiB bound. Desktop host tests use real RPC peers with a stalled initialize
+request to verify that reconnect rejects with the retained startup diagnostic
+instead of RPC disposal text. Rebuilt native desktop display remains unqualified.
+The 2026-10-16 correction passes 21 focused tests and all 14 real server lifecycle
+tests outside the desktop sandbox. The full check with pinned Node 24, canonical
+`TMPDIR=/private/tmp` and two workers passes typechecking, lint and formatting;
+1,375 tests pass and 63 skip. Two failures remain: the QuickJS runaway-loop test
+times out and the TUI OAuth fixture never reaches its active overlay. Their causes
+are unresolved by this scoped correction. The initial sandbox run also encountered
+temporary-path alias assertions and child file-watcher `EMFILE` failures; canonical
+paths and the unsandboxed rerun eliminate those failures.
+
 Architecture-correction regressions exercise shared-registry route replacement,
 removal and metadata retention through real in-process RPC peers. Native-adapter
 tests substitute Tauri to verify normal/protocol/malformed/oversized/write/ack

@@ -99,6 +99,11 @@ tracked in the delivery plans.
 
 ## Release delivery complete
 
+The startup-error display correction includes the current failed attempt's bounded
+log output and preserves that diagnostic on desktop reconnect. Settings formats
+remain strict; no configuration migration is added. Source regressions cover the
+launcher and reconnect rejection; installed desktop qualification remains open.
+
 `v0.1.7` is published with the Linux AppImage startup correction: home ownership
 validation reads the OS effective UID directly instead of spawning host `id -u`,
 which failed under bundled libraries in `v0.1.6`. Full checks, native regressions

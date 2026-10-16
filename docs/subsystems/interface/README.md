@@ -227,6 +227,9 @@ staging only under exclusive cache ownership, retaining persistent data and the
 server selection. Missing releases download again; source builds need redeployment.
 Cooperative cancellation drains final pipe writes while awaiting cleanup;
 startup failure diagnostics take precedence over transport/teardown errors.
+Failed Local startup includes the last 8 KiB of the current attempt's log in
+the connection error, alongside its log path. Reconnect rejects with the same
+diagnostic shown by the host view, preserving it through pending RPC disposal.
 The release simplification and platform qualification remain in progress under
 the [delivery plan](../../plans/cross-cutting/2026-10-10-release-installation-updates.md).
 Settings → Application offers an explicit desktop update check and install/restart

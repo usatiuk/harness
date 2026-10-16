@@ -160,15 +160,23 @@ export class DesktopHosts {
       return view;
     } catch (error) {
       const cancelled = signal.aborted || ready?.aborted;
+      const failure = new Error("Connection failed", { cause: error });
       try {
         await view.closeTransport?.();
+      } catch (cleanupError) {
+        failure.cause = new AggregateError(
+          [error, cleanupError],
+          "Connection and bridge teardown failed",
+        );
       } finally {
         const message = error instanceof Error ? error.message : String(error);
         view.error = cancelled ? message : (transportError ?? message);
         delete view.closeTransport;
         delete view.session;
       }
-      throw error;
+      // Reconnect callers render the rejection, so it must match the host view.
+      failure.message = view.error;
+      throw failure;
     } finally {
       delete view.progress;
       this.changed();
