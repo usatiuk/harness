@@ -85,3 +85,20 @@ Full local `npm run check` passes with ordinary temporary-directory defaults:
 independent read-only reviews report no remaining blocking findings after removal
 of an ineffective Git-ceiling fixture setting. Windows hosted execution and an
 actual macOS rerun have not yet been established.
+
+### First hosted verification
+
+[Run 38970353309](https://github.com/usatiuk/harness/actions/runs/38970353309)
+passes the complete Ubuntu job. Windows passes all 14 original failing assertions
+and reports 1,423 passing tests, 53 skips, and one newly reached failure: the
+startup-diagnostics test takes 5,318 ms against its unchanged five-second limit.
+That test combines private-home/runtime setup and three real startup attempts;
+Windows additionally launches PowerShell for each ownership/ACL check. Move
+fixture setup/cleanup into hooks and separate the repeated-attempt diagnostic
+scenario from the independent 8 KiB bound scenario. Retain every assertion, real
+process/security boundary, and original test timeout; verify the split in the next
+hosted run.
+
+The split passes locally, and the complete local check passes again: 1,437 tests,
+41 skips, typecheck, lint and formatting. An independent follow-up review confirms
+both scenarios retain the original assertions and security/process edges.

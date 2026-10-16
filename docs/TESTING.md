@@ -1405,3 +1405,11 @@ passes 11 Rust tests. Three independent reviews found no remaining blocking
 issues after removing an ineffective Git-ceiling fixture setting. Hosted Windows
 verification and a native macOS rerun remain pending; these local results are Linux
 with Node 24.21.0.
+
+The first hosted recovery run passes Ubuntu and all 14 original Windows failures.
+Windows then reaches an aggregate five-second timeout in the diagnostic fixture,
+which combined home/runtime setup with three real startup attempts and their
+PowerShell security checks. Fixture setup/cleanup now uses hooks; repeated-start
+and 8 KiB bound scenarios are separate tests with every original assertion and
+unchanged timeouts. Full local validation after that split passes 1,437 tests
+with 41 skips; repeat Windows qualification is pending in the recovery plan.
