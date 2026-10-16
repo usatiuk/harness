@@ -711,6 +711,13 @@ main {
 .cell ol {
   padding-left: 24px;
 }
+/* Tailwind preflight sets list-style: none globally; restore markers in transcript. */
+.cell ul {
+  list-style: disc;
+}
+.cell ol {
+  list-style: decimal;
+}
 .cell.user {
   width: fit-content;
   max-width: min(85%, 660px);

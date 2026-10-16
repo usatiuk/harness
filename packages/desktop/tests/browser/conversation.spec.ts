@@ -538,6 +538,18 @@ test("message actions are small, below the text and visible on hover or focus", 
   await page.screenshot({ path: test.info().outputPath("message-actions.png") });
 });
 
+test("transcript list markers survive the Tailwind preflight reset", async ({ page }) => {
+  await page.evaluate(() =>
+    window.canvasFixture.appendAssistant("- bullet one\n- bullet two\n\n1. first\n2. second\n"),
+  );
+  const message = page.locator(".cell.assistant").last();
+  await expect(message.locator("ul li").first()).toHaveText("bullet one");
+  await expect(message.locator("ol li").first()).toHaveText("first");
+  // Tailwind preflight sets list-style: none globally; transcript lists must restore markers.
+  await expect(message.locator("ul")).toHaveCSS("list-style-type", "disc");
+  await expect(message.locator("ol")).toHaveCSS("list-style-type", "decimal");
+});
+
 test("conversation header exposes inline rename on hover and preserves cancellation", async ({
   page,
 }) => {

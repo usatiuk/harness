@@ -18,7 +18,7 @@ declare global {
       setRunning(value: boolean): void;
       setSupport(value: boolean): void;
       start(): void;
-      appendAssistant(): void;
+      appendAssistant(text?: string): void;
       appendTool(): void;
     };
   }
@@ -99,13 +99,13 @@ window.canvasFixture = {
     running = true;
     changed();
   },
-  appendAssistant() {
+  appendAssistant(text = "# Latest\n\n" + "A streaming paragraph.\n\n".repeat(60)) {
     cells = [
       ...cells,
       {
         kind: "assistant",
         turnId: "live",
-        text: "# Latest\n\n" + "A streaming paragraph.\n\n".repeat(60),
+        text,
         streaming: true,
       },
     ];
