@@ -4,6 +4,7 @@ import type { Stream } from "openai/core/streaming";
 import {
   ContextWindowExceededError,
   ModelDiscoveryError,
+  sessionIdHeaders,
   type ModelCallContext,
   type ModelCapabilities,
   type ModelConfig,
@@ -151,7 +152,7 @@ export class MistralProvider implements ModelProvider {
         body: { ...params, completion_args: completionArgs },
         stream: true,
         signal,
-        headers: { "x-affinity": context.conversationId, Accept: "text/event-stream" },
+        headers: { ...sessionIdHeaders(context, "x-affinity"), Accept: "text/event-stream" },
         fetchOptions: { redirect: "manual" },
       });
       yield* mistralEvents(stream, this.provider, request.modelConfig.model, signal);

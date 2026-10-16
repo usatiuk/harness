@@ -10,7 +10,11 @@ import { EchoTool } from "@harness/testkit";
 import { configuredProviders } from "./provider-fixture.ts";
 
 const fake = vi.hoisted(() => ({
-  calls: [] as { params: Record<string, unknown>; signal: AbortSignal }[],
+  calls: [] as {
+    params: Record<string, unknown>;
+    signal: AbortSignal;
+    headers?: Record<string, string>;
+  }[],
   credentials: [] as { apiKey: string; baseURL?: string }[],
   cancelMode: false,
   onBlocked: undefined as (() => void) | undefined,
@@ -23,8 +27,15 @@ vi.mock("@harness/openai-api", () => ({
       client: async () => ({
         chat: {
           completions: {
-            create: async (params: Record<string, unknown>, options: { signal: AbortSignal }) => {
-              fake.calls.push({ params, signal: options.signal });
+            create: async (
+              params: Record<string, unknown>,
+              options: { signal: AbortSignal; headers?: Record<string, string> },
+            ) => {
+              fake.calls.push({
+                params,
+                signal: options.signal,
+                ...(options.headers ? { headers: options.headers } : {}),
+              });
               const call = fake.calls.length;
               return {
                 async *[Symbol.asyncIterator]() {
@@ -56,7 +67,7 @@ vi.mock("@harness/openai-api", () => ({
                     };
                     yield { choices: [{ delta: {}, finish_reason: "tool_calls" }] };
                     yield {
-                      choices: [],
+                      choices: [{ delta: { content: "" }, finish_reason: "tool_calls" }],
                       usage: { prompt_tokens: 10, completion_tokens: 2, prompt_tokens_details: {} },
                     };
                   } else {
@@ -100,6 +111,7 @@ describe("custom provider public boundary", () => {
             type: "openai-completions-compatible",
             config: {
               endpoint: "http://localhost:8000/v1",
+              sessionIdHeader: "x-session-id",
               apiKey: "literal-test-key",
               models: { m: { presets: { fast: { temperature: 0.2 } } } },
             },
@@ -127,6 +139,10 @@ describe("custom provider public boundary", () => {
       { apiKey: "literal-test-key", baseURL: "http://localhost:8000/v1" },
     ]);
     expect(fake.calls).toHaveLength(2);
+    for (const call of fake.calls) {
+      expect(call.params.prompt_cache_key).toBe(conversation.id);
+      expect(call.headers).toEqual({ "x-session-id": conversation.id });
+    }
     expect(fake.calls[0]?.params).toMatchObject({ model: "m", temperature: 0.2 });
     expect(fake.calls[0]?.params.tools).toMatchObject([
       { type: "function", function: { name: "echo" } },

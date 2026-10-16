@@ -1,3 +1,4 @@
+import { sessionIdHeaders } from "@harness/protocol";
 import { OpenAIResponsesTransport, buildResponseParams } from "@harness/openai-core";
 import { apiKeyCredentials } from "@harness/openai-api";
 import type { ContentBlock, ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
@@ -16,6 +17,7 @@ export interface CustomOpenAIProviderOptions {
   /** Registry name; the config key that defined this provider. */
   id: string;
   endpoint: string;
+  sessionIdHeader?: string;
   apiKey: string;
   /** Every model this endpoint serves, keyed by model id. Each carries its own capacity and presets. */
   models: Record<string, CustomOpenAIModelConfig>;
@@ -35,6 +37,7 @@ export class CustomOpenAIProvider extends OpenAIResponsesTransport {
   constructor(opts: CustomOpenAIProviderOptions) {
     super({
       provider: opts.id,
+      requestHeaders: (context) => sessionIdHeaders(context, opts.sessionIdHeader),
       credentials: apiKeyCredentials({ apiKey: opts.apiKey, baseURL: opts.endpoint }),
     });
     this.#models = new Map(Object.entries(opts.models));

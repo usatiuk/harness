@@ -17,6 +17,9 @@ function buildProvider(id: string, config: CustomProviderConfig, apiKey: string)
       return new CustomOpenAIProvider({
         id,
         endpoint: config.endpoint,
+        ...(config.sessionIdHeader !== undefined
+          ? { sessionIdHeader: config.sessionIdHeader }
+          : {}),
         apiKey,
         models: config.models,
         ...(config.sendInstructionsAsSystem !== undefined
@@ -27,6 +30,9 @@ function buildProvider(id: string, config: CustomProviderConfig, apiKey: string)
       return new CustomOpenAICompletionsProvider({
         id,
         endpoint: config.endpoint,
+        ...(config.sessionIdHeader !== undefined
+          ? { sessionIdHeader: config.sessionIdHeader }
+          : {}),
         apiKey,
         models: config.models,
       });
@@ -34,6 +40,9 @@ function buildProvider(id: string, config: CustomProviderConfig, apiKey: string)
       return new CustomAnthropicProvider({
         id,
         endpoint: config.endpoint,
+        ...(config.sessionIdHeader !== undefined
+          ? { sessionIdHeader: config.sessionIdHeader }
+          : {}),
         apiKey,
         models: config.models,
       });

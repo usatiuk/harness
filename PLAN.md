@@ -1,5 +1,12 @@
 # Harness plan
 
+The [session routing and chat finish follow-up](docs/plans/models/2026-10-16-session-routing-and-chat-finish.md)
+adds conversation cache keys, shared provider session headers, and a regression
+fix for repeated terminal choices in Chat usage tails. Source validation and three read-only reviews are complete: 1,408 tests pass,
+63 skip, and the two documented QuickJS/TUI OAuth failures remain. The installed
+non-development server has not been upgraded; its new header setting remains
+pending to preserve compatibility.
+
 The [worktrees and Docker lifecycle plan](docs/plans/cross-cutting/2026-10-15-worktrees-docker-lifecycle.md)
 records conversation workspace switching, configurable managed worktrees, and
 workspace-owned Docker environments with stop/preserve and crash cleanup.

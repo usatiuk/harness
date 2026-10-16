@@ -236,6 +236,12 @@ isolated credentials. Sign in through desktop Settings or
 global model selection. Labels are editable; instance IDs identify saved
 selections and credential slots.
 
+OpenAI Chat/Responses connections automatically send the conversation ID as
+`prompt_cache_key`. Compatible connections may also set
+`config.sessionIdHeader: "x-session-id"` for gateways such as OpenRouter; Harness
+fills its value per request. Go, Mistral, and LiteLLM use their native session
+header names through the same helper. See [conversation routing](docs/subsystems/models/README.md#conversation-routing).
+
 OpenAI API, Codex OAuth, Anthropic, Gemini and Mistral API/Vibe connections accept
 `"webSearch": true` in their provider config; the default is false. Search runs
 inside the provider request. Clients show simple activity hints and unchanged

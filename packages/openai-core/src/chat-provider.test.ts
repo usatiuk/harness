@@ -49,6 +49,7 @@ describe("OpenAIChatTransport", () => {
       events.push(e.type);
     }
     expect(params?.model).toBe("deepseek-v4-pro");
+    expect(params?.prompt_cache_key).toBe(CALL_CONTEXT.conversationId);
     expect(events).toEqual(["text_delta", "message", "completed"]);
   });
 

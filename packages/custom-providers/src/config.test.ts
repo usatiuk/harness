@@ -112,6 +112,7 @@ describe("plugin-owned compatible provider configuration", () => {
     "store",
     "max_tokens",
     "previous_response_id",
+    "prompt_cache_key",
     "truncation",
     "background",
   ])("rejects OpenAI extraBody overriding Harness-owned field %s", async (field) => {

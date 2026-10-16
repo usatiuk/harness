@@ -9,8 +9,16 @@ import {
   type AnthropicCredentials,
   type AnthropicRequestConfig,
 } from "@harness/anthropic-core";
-import type { ModelProvider, ModelRequest } from "@harness/protocol";
+import {
+  sessionIdHeaders,
+  type ModelCallContext,
+  type ModelProvider,
+  type ModelRequest,
+} from "@harness/protocol";
 import type { Generation, ModelProfile, Transport } from "./config.ts";
+
+const requestHeaders = (context: ModelCallContext) =>
+  sessionIdHeaders(context, "x-litellm-session-id");
 
 function generation(profile: ModelProfile, request: ModelRequest): Generation {
   const preset = request.modelConfig.preset ?? profile.defaultPreset;
@@ -34,7 +42,7 @@ class GatewayResponses extends OpenAIResponsesTransport {
     provider: string,
     readonly profile: ModelProfile,
   ) {
-    super({ credentials, provider });
+    super({ credentials, provider, requestHeaders });
   }
   protected override buildParams(request: ModelRequest) {
     const controls = generation(this.profile, request);
@@ -74,7 +82,7 @@ class GatewayChat extends OpenAIChatTransport {
     provider: string,
     readonly profile: ModelProfile,
   ) {
-    super({ credentials, provider });
+    super({ credentials, provider, requestHeaders });
   }
   protected override buildParams(request: ModelRequest) {
     const params = super.buildParams(request);
@@ -95,7 +103,7 @@ class GatewayMessages extends AnthropicMessagesTransport {
     provider: string,
     readonly profile: ModelProfile,
   ) {
-    super({ credentials, provider });
+    super({ credentials, provider, requestHeaders });
   }
   protected override buildConfig(request: ModelRequest): AnthropicRequestConfig {
     const controls = generation(this.profile, request);

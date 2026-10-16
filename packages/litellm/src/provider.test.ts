@@ -254,7 +254,9 @@ describe("LiteLLM discovery", () => {
   it.each(["openai-completions", "openai-responses", "anthropic-messages"] as const)(
     "uses the advertised default and transport-compatible generated presets over %s",
     async (transport) => {
-      const gateway = await httpGateway((req, res) => {
+      const sessionHeaders: unknown[] = [];
+      const gateway = await httpGateway((req, res, raw) => {
+        if (req.body.model) sessionHeaders.push(raw.headers["x-litellm-session-id"]);
         if (req.path.endsWith("/v1/models")) return json(res, { data: [{ id: "coding" }] });
         if (req.path.endsWith("/model/info"))
           return json(res, {
@@ -303,6 +305,10 @@ describe("LiteLLM discovery", () => {
       expect(provider.listModels()[0]?.defaultPreset).toBe("low");
       await collect(provider, request());
       const body = gateway.requests.at(-1)!.body;
+      expect(sessionHeaders).toEqual(["conversation"]);
+      expect(body.prompt_cache_key).toBe(
+        transport === "anthropic-messages" ? undefined : "conversation",
+      );
       expect(
         transport === "openai-completions"
           ? body.reasoning_effort

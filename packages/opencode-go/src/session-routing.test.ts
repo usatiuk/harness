@@ -6,8 +6,13 @@ import { httpGateway, json, sse } from "../../litellm/src/http-fixture.ts";
 import { OpenCodeGoProvider } from "./provider.ts";
 
 it("sends stable per-conversation session headers and Harness identity on all three real SDK transports", async () => {
-  const received: { path: string; session: unknown; expectedSession: unknown; agent: unknown }[] =
-    [];
+  const received: {
+    path: string;
+    session: unknown;
+    cacheKey: unknown;
+    expectedSession: unknown;
+    agent: unknown;
+  }[] = [];
   const gateway = await httpGateway((req, response, raw) => {
     const messages = (req.body.messages ?? req.body.input) as { role: string; content: unknown }[];
     const prompt = messages.findLast(({ role }) => role === "user")?.content;
@@ -18,6 +23,7 @@ it("sends stable per-conversation session headers and Harness identity on all th
     received.push({
       path: req.path,
       session: raw.headers["x-opencode-session"],
+      cacheKey: req.body.prompt_cache_key,
       expectedSession,
       agent: raw.headers["user-agent"],
     });
@@ -122,6 +128,9 @@ it("sends stable per-conversation session headers and Harness identity on all th
         new Set(received.filter((request) => request.session === session).map(({ path }) => path)),
       ).toEqual(new Set(["/v1/chat/completions", "/v1/responses", "/v1/messages"]));
     expect(received).toHaveLength(7);
+    for (const request of received) {
+      expect(request.cacheKey).toBe(request.path === "/v1/messages" ? undefined : request.session);
+    }
   } finally {
     await gateway.close();
   }

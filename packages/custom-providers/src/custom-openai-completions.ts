@@ -1,3 +1,4 @@
+import { sessionIdHeaders } from "@harness/protocol";
 import { OpenAIChatTransport } from "@harness/openai-core";
 import { apiKeyCredentials } from "@harness/openai-api";
 import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
@@ -9,6 +10,7 @@ export interface CustomOpenAICompletionsProviderOptions {
   /** Registry name; the config key that defined this provider. */
   id: string;
   endpoint: string;
+  sessionIdHeader?: string;
   apiKey: string;
   /** Every model this endpoint serves, keyed by model id. Each carries its own capacity and presets. */
   models: Record<string, CustomCompletionsModelConfig>;
@@ -21,6 +23,7 @@ export class CustomOpenAICompletionsProvider extends OpenAIChatTransport {
   constructor(opts: CustomOpenAICompletionsProviderOptions) {
     super({
       provider: opts.id,
+      requestHeaders: (context) => sessionIdHeaders(context, opts.sessionIdHeader),
       credentials: apiKeyCredentials({ apiKey: opts.apiKey, baseURL: opts.endpoint }),
     });
     this.#models = new Map(Object.entries(opts.models));

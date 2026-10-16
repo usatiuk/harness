@@ -120,6 +120,7 @@ describe("request parameters", () => {
     );
     expect(params).toMatchObject({
       model,
+      prompt_cache_key: CALL_CONTEXT.conversationId,
       reasoning: { effort: "max" },
       stream: true,
       store: false,

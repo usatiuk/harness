@@ -20,10 +20,11 @@ import {
 import { ROSTER, familyOf, listModels, maxOutputOf, modelSpec, presetFor } from "./roster.ts";
 import { fetchCatalog, parseCatalog, type GoModelSpec } from "./catalog.ts";
 import { PRODUCT_USER_AGENT } from "@harness/release";
+import { sessionIdHeaders } from "@harness/protocol";
 
 /** Go requires stable per-conversation routing on every transport and auxiliary call. */
 function requestHeaders(context: ModelCallContext): Record<string, string> {
-  return { "x-opencode-session": context.conversationId, "User-Agent": PRODUCT_USER_AGENT };
+  return { ...sessionIdHeaders(context, "x-opencode-session"), "User-Agent": PRODUCT_USER_AGENT };
 }
 
 /** Effort control selected for a Chat or Responses request. */

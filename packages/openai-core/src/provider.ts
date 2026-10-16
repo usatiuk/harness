@@ -190,6 +190,7 @@ export abstract class OpenAIResponsesTransport {
     try {
       const client = await this.#credentials.client(signal);
       const params = this.buildParams(request);
+      params.prompt_cache_key = context.conversationId;
       await context.captureRequest?.(jsonValueSchema.parse(JSON.parse(JSON.stringify(params))));
       const stream = await client.responses.create(params, {
         signal,
@@ -307,6 +308,7 @@ export class OpenAIChatTransport {
     try {
       const client = await this.#credentials.client(signal);
       const params = this.buildParams(request);
+      params.prompt_cache_key = context.conversationId;
       await context.captureRequest?.(jsonValueSchema.parse(JSON.parse(JSON.stringify(params))));
       const stream = await client.chat.completions.create(params, {
         signal,

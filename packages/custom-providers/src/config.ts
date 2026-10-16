@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FILE_TOOLS } from "@harness/protocol";
+import { FILE_TOOLS, sessionIdHeaderSchema } from "@harness/protocol";
 import { apiKeySourceSchema } from "@harness/auth";
 
 const extraBodyExcluding = (reserved: ReadonlySet<string>, transport: string) =>
@@ -17,6 +17,7 @@ const extraBodyExcluding = (reserved: ReadonlySet<string>, transport: string) =>
 
 const OPENAI_RESERVED_BODY_FIELDS = new Set([
   "model",
+  "prompt_cache_key",
   "input",
   "messages",
   "instructions",
@@ -90,6 +91,8 @@ const customProviderBase = z.strictObject({
   /** Custom endpoint. OpenAI-compatible: include the API root (e.g. `http://host:8000/v1`).
    * Anthropic-compatible: the server root (the SDK appends the Messages path). */
   endpoint: z.string().url(),
+  /** Per-request header receiving the stable conversation ID, e.g. OpenRouter's `x-session-id`. */
+  sessionIdHeader: sessionIdHeaderSchema.optional(),
   /** Inline API key literal passed to the SDK; keyless local servers require an explicit dummy value. */
   apiKey: z.union([z.string(), apiKeySourceSchema]).default({ stored: true }),
 });

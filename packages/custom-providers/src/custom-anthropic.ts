@@ -1,3 +1,4 @@
+import { sessionIdHeaders } from "@harness/protocol";
 import { AnthropicMessagesTransport, type AnthropicRequestConfig } from "@harness/anthropic-core";
 import { apiKeyCredentials } from "@harness/anthropic-api";
 import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
@@ -24,6 +25,7 @@ export interface CustomAnthropicProviderOptions {
   /** Registry name; the config key that defined this provider. */
   id: string;
   endpoint: string;
+  sessionIdHeader?: string;
   apiKey: string;
   /** Every model this endpoint serves, keyed by model id. Each carries its own capacity and presets. */
   models: Record<string, CustomAnthropicModelConfig>;
@@ -36,6 +38,7 @@ export class CustomAnthropicProvider extends AnthropicMessagesTransport {
   constructor(opts: CustomAnthropicProviderOptions) {
     super({
       provider: opts.id,
+      requestHeaders: (context) => sessionIdHeaders(context, opts.sessionIdHeader),
       credentials: apiKeyCredentials({ apiKey: opts.apiKey, baseURL: opts.endpoint }),
     });
     this.#models = new Map(Object.entries(opts.models));

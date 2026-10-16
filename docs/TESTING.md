@@ -1300,3 +1300,24 @@ Vitest's /var/tmp workspace; rerunning outside the sandbox with TMPDIR=/var/tmp
 passes. Dev Qwen base and MAI investigation-test entries use readable labels and
 normal stored credentials; user controls restarting Harness, so live desktop
 label visibility is not claimed.
+
+## Conversation routing and chat terminal tails
+
+`packages/custom-providers/src/session-routing.test.ts` checks configured session
+headers over real local SDK HTTP requests on all three compatible transports,
+including concurrent conversations and a repeated call. Go's session-routing
+suite checks its existing headers and shared OpenAI cache keys. LiteLLM provider
+and Mistral provider tests check their native routing headers. OpenAI request tests
+check cache keys; custom-provider integration verifies durable single tool
+execution and usage when a terminal choice repeats. Chat stream regressions keep
+original truncation/malformed errors and reject output/conflicting finishes after
+completion. These fixtures establish wire behavior, not upstream cache hits or
+capture of the user's failed OpenRouter SSE. No paid generation was made.
+
+The 2026-10-16 session-routing follow-up was checked outside the sandbox using
+Node 24.21.0, `TMPDIR=/private/tmp`, and `npm run check -- --maxWorkers=2`.
+Typechecking, lint and formatting pass; 1,408 tests pass and 63 skip. The same two
+previously documented failures remain: the QuickJS runaway-loop timeout and the
+TUI OAuth overlay fixture. No timeout or assertion was changed. Three independent
+read-only reviews are complete. Installed non-development activation remains
+pending; its older strict schema cannot yet accept `sessionIdHeader`.

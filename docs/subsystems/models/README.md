@@ -425,6 +425,30 @@ RPC budget, measured after wire projection. Model IDs are at most 512 characters
 refresh is enabled. `app.providers.list` and settings expose safe boot status,
 registration, credential source/presence, labels, counts and diagnostics.
 
+## Conversation routing
+
+Both shared OpenAI transports set `prompt_cache_key` to the durable conversation
+ID before capturing and sending each native request. This covers native API,
+Codex, compatible endpoints, Go, and LiteLLM Chat/Responses calls, including
+auxiliary calls. Keys remain stable across turns/resume; child conversations use
+their own IDs. They are routing/accounting hints, not authentication or guarantees
+of cache hits. Strict compatible backends must accept this standard OpenAI field.
+
+Compatible connection `config.sessionIdHeader` optionally names the HTTP header
+that receives the same conversation ID (for example `x-session-id` for OpenRouter).
+Header names are validated and normalized; authentication/framing headers are
+rejected. No template interpolation or global SDK-header mutation is involved.
+All compatible transports use this setting. Go uses the shared session-header
+helper with `x-opencode-session`, Mistral with `x-affinity`, and LiteLLM with
+`x-litellm-session-id` on all three transports. Go's User-Agent and Mistral's
+SSE Accept header remain connection-owned. LiteLLM session affinity additionally
+requires gateway-side `session_affinity` configuration.
+
+The Chat stream translator finalizes each choice once. Repeated empty terminal
+choices in usage tails preserve usage without dispatching tools twice. An initial
+empty/malformed tool finish, later substantive output, or conflicting finish
+reason remains an error.
+
 ## Authentication and secrets
 
 Provider plugins contribute configurable types through `providerTypes()`.
