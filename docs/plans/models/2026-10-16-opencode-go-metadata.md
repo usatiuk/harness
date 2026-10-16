@@ -76,3 +76,19 @@ diff and formatting checks pass.
 No authenticated live inference was run. The user subsequently authorized
 committing, pushing and releasing this change through the existing patch-release
 workflow.
+
+## Release handoff
+
+- Feature commit: `1f7bff9`, pushed to `main`.
+- The [release workflow](https://github.com/usatiuk/harness/actions/runs/38905964413)
+  passed its full Linux check, version bump, all three native builds and signed
+  metadata verification. It tagged source `e24546b` as `v0.1.20`.
+- [v0.1.20](https://github.com/usatiuk/harness/releases/tag/v0.1.20) was published
+  as latest on October 16, 2026, with all 19 expected assets uploaded.
+- [Source CI](https://github.com/usatiuk/harness/actions/runs/38905964043)
+  passes Ubuntu and all Go metadata tests. Windows reports 1,381 passing tests,
+  53 skipped and the same 14 failing cases found in
+  [pre-change CI](https://github.com/usatiuk/harness/actions/runs/38898369357).
+  Those unchanged failures involve startup diagnostics, output paths,
+  temporary-path aliases, Docker/worktree paths and a Windows shell expectation;
+  no Go metadata regression was observed. They remain outside this delivery.
