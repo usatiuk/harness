@@ -272,6 +272,45 @@ describe("toChatEvents", () => {
     ]);
   });
 
+  it("accepts a repeated empty tool finish in the usage tail without dispatching twice", async () => {
+    const stream = emit(
+      chunk({ tool_calls: [{ index: 0, id: "c", function: { name: "f", arguments: "{}" } }] }),
+      chunk({}, "tool_calls"),
+      {
+        ...(chunk({ role: "assistant", content: "" }, "tool_calls") as object),
+        usage: { prompt_tokens: 10, completion_tokens: 2, prompt_tokens_details: {} },
+      },
+    );
+    expect(await collect(toChatEvents(stream, "openrouter", "qwen", never))).toEqual([
+      { type: "tool_call", callId: "c", name: "f", args: {} },
+      { type: "completed", usage: { inputTokens: 10, outputTokens: 2, cachedReadTokens: 0 } },
+    ]);
+  });
+
+  it.each([
+    ["length", "chat output truncated at the model limit for local/m"],
+    ["content_filter", "chat output blocked by the content filter for local/m"],
+    ["tool_calls", "chat stream finished with malformed tool call for local/m"],
+  ])("preserves the original %s error through a repeated finish", async (finish, error) => {
+    const out = await collect(
+      toChatEvents(emit(chunk({}, finish), chunk({}, finish)), "local", "m", never),
+    );
+    expect(out).toEqual([{ type: "completed", usage: null, error }]);
+  });
+
+  it.each([
+    [chunk({ content: "late" }), "chat stream received output after finish for local/m"],
+    [chunk({ reasoning_content: "late" }), "chat stream received output after finish for local/m"],
+    [
+      chunk({ tool_calls: [{ index: 0, id: "late" }] }),
+      "chat stream received output after finish for local/m",
+    ],
+    [chunk({}, "length"), "chat stream received conflicting finish reasons for local/m"],
+  ])("rejects non-metadata chunks after completion", async (tail, error) => {
+    const out = await collect(toChatEvents(emit(chunk({}, "stop"), tail), "local", "m", never));
+    expect(out).toEqual([{ type: "completed", usage: null, error }]);
+  });
+
   it.each([
     ["id", { index: 0, function: { name: "f", arguments: "{}" } }],
     ["name", { index: 0, id: "c", function: { arguments: "{}" } }],

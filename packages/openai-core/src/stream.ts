@@ -196,7 +196,7 @@ export async function* toChatEvents(
   let usage: OpenAI.Completions.CompletionUsage | undefined;
   // Set when the choice announces a terminal state (`stop`/`length`/`tool_calls`),
   // distinguishing a backend that just omitted the usage tail from one that died.
-  let sawTerminalFinish = false;
+  let terminalFinish: string | undefined;
   let terminalError: string | undefined;
 
   for await (const chunk of stream) {
@@ -207,6 +207,17 @@ export async function* toChatEvents(
 
     const delta = choice.delta as OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta &
       ReasoningDelta;
+
+    if (terminalFinish !== undefined) {
+      // OpenRouter may repeat the terminal choice in its usage tail. Account for
+      // that chunk above, but never finalize or dispatch the same choice twice.
+      if (delta.content || delta.reasoning_content || delta.tool_calls?.length) {
+        terminalError ??= `chat stream received output after finish for ${provider}/${model}`;
+      } else if (choice.finish_reason && choice.finish_reason !== terminalFinish) {
+        terminalError ??= `chat stream received conflicting finish reasons for ${provider}/${model}`;
+      }
+      continue;
+    }
 
     // Reasoning is collected (and shown live) until the next output boundary. A
     // chunk may carry both `reasoning_content` and the first `content`/`tool_calls`
@@ -249,7 +260,7 @@ export async function* toChatEvents(
     }
 
     if (choice.finish_reason) {
-      sawTerminalFinish = true;
+      terminalFinish = choice.finish_reason;
       // Reasoning-only turns and reasoning-then-tools turns finish their item here.
       if (!reasoningEmitted && reasoningText.length > 0) {
         yield finalizedReasoning();
@@ -308,7 +319,7 @@ export async function* toChatEvents(
   // A stream that ended without a finish reason died mid-flight: emit nothing, and the engine's
   // "provider stream ended without a 'completed' event" error surfaces it while
   // recording no spend.
-  if (sawTerminalFinish) {
+  if (terminalFinish !== undefined) {
     yield {
       type: "completed",
       usage: usage
