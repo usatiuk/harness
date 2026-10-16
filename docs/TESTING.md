@@ -241,6 +241,11 @@ is claimed by that check.
 Desktop helper tests use `cargo test --manifest-path
 packages/desktop/src-tauri/Cargo.toml`; those command modes run before window setup.
 These are headless checks. Visible native E2E requires approval for each run.
+The update relaunch regression covers the relaunch command construction and a
+poisoned-parent child-process fixture proving a relaunched process never sees the
+AppImage launcher environment (`LD_LIBRARY_PATH`, `PYTHONHOME`, `PYTHONPATH`,
+`APPIMAGE`, `APPDIR`). Hosted Linux update/restart execution with that fix is not
+yet qualified end to end.
 The connect-time upgrade regression builds two server versions and starts real
 owners over the local socket/pipe. It checks approval-held refusal, unchanged busy
 selection, idle replacement, persistent identity/history and older-client reuse.

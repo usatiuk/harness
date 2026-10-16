@@ -551,3 +551,36 @@ AppImage's extracted AppRun launcher completes cold headless runtime preparation
 with public release downloads and returns existing Node/server paths in a fresh
 temporary home. The interactive GUI is not launched; this startup check does not
 replace the source subprocess tests for external-child environment cleanup.
+
+## Desktop update relaunch environment correction (2026-10-16)
+
+Reported symptom: on Linux the desktop update installs and the app closes but
+never reopens; reopening manually afterwards works. A terminal run shows the
+relaunch dying before startup with
+`/usr/bin/env: /tmp/.mount_.../usr/lib/libsystemd.so.0: version 'LIBSYSTEMD_254'
+not found`. Root cause: Tauri's `process::restart` spawns the installed AppImage
+with the running launcher's full environment, whose `LD_LIBRARY_PATH` points at
+the bundled libraries. The new AppImage's `AppRun` starts via `#!/usr/bin/env
+bash`, so host binaries in the launcher chain load the bundled libsystemd and
+die on hosts whose system binaries require newer symbols (Ubuntu 26.04).
+Manual launches work because they start from a clean environment. This is the
+same leakage class as the 2026-10-12 correction, on the relaunch surface;
+community reports match (cc-switch#7946 is the identical failure). Local
+reproduction: any host binary dies under the bundled library path and runs
+clean without it; a fixture running the full update flow (check, download,
+verified install, restart) relaunches correctly once the environment is clean.
+
+Linux now owns the post-install relaunch: after the shared shutdown the desktop
+spawns the installed binary with `LD_LIBRARY_PATH`, `PYTHONHOME`, `PYTHONPATH`,
+`APPIMAGE` and `APPDIR` removed, exactly like a fresh manual launch. The
+relaunch is attempted even after a failed shutdown because the update is
+already installed, and relaunch failures are reported on stderr instead of
+vanishing in Tauri's silent restart path. macOS keeps `request_restart` (its
+bundle-aware relaunch has no this hazard); Windows exits through the installer
+before this path. Regression tests cover the relaunch command construction and
+a poisoned-parent child-process fixture proving the relaunched process sees a
+clean environment.
+
+Source tests pass (desktop unit/integration suites). Hosted Linux end-to-end
+update/restart execution with the fixed build is still unqualified and remains
+in the coverage limits above.

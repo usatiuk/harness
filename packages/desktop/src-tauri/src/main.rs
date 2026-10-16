@@ -52,6 +52,8 @@ struct Bridge {
     helper_runtime: Mutex<Option<Arc<runtime::ServerRuntime>>>,
     shutdown: Mutex<Option<Result<(), String>>>,
     stopping: AtomicBool,
+    #[cfg(target_os = "linux")]
+    relaunch: AtomicBool,
 }
 
 impl Bridge {
@@ -673,6 +675,16 @@ async fn desktop_update(
                 error.to_string()
             });
         }
+        // The update is installed. Linux owns the relaunch itself in the exit
+        // handler below; other platforms keep Tauri's bundle-aware restart.
+        #[cfg(target_os = "linux")]
+        {
+            app.state::<Arc<Bridge>>()
+                .relaunch
+                .store(true, Ordering::Release);
+            app.exit(0);
+        }
+        #[cfg(not(target_os = "linux"))]
         app.request_restart();
     }
     Ok(Some(offered))
@@ -687,6 +699,40 @@ fn finish_desktop(app: &tauri::AppHandle) -> bool {
             false
         }
     }
+}
+
+/// Starts the installed update like a fresh manual launch. The relaunched
+/// AppImage must not inherit the running launcher's bundled library
+/// environment: `LD_LIBRARY_PATH` pointing into the mount makes host binaries
+/// in the new instance's launcher chain (`/usr/bin/env`, `dirname`, ...) load
+/// the bundled libsystemd and die on newer hosts before the app starts.
+#[cfg(target_os = "linux")]
+fn relaunch_desktop(app: &tauri::AppHandle) -> Result<(), String> {
+    let env = app.env();
+    let path = tauri::process::current_binary(&env).map_err(|error| error.to_string())?;
+    relaunch_command(&path, env.args_os.iter().skip(1).cloned())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn relaunch_command(
+    path: &std::path::Path,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> std::process::Command {
+    let mut command = std::process::Command::new(path);
+    command.args(args);
+    for key in [
+        "LD_LIBRARY_PATH",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "APPIMAGE",
+        "APPDIR",
+    ] {
+        command.env_remove(key);
+    }
+    command
 }
 
 fn main() {
@@ -762,11 +808,97 @@ fn main() {
         .expect("Could not build the Harness desktop application");
     let code = application.run_return(move |app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
-            if !finish_desktop(app) {
+            #[cfg(target_os = "linux")]
+            let relaunch = app.state::<Arc<Bridge>>().relaunch.load(Ordering::Acquire);
+            let shutdown = finish_desktop(app);
+            // The update is already installed, so relaunch even after a failed
+            // shutdown to converge on the new version instead of stranding the
+            // user with a closed app.
+            #[cfg(target_os = "linux")]
+            {
+                if relaunch {
+                    if let Err(error) = relaunch_desktop(app) {
+                        eprintln!("Desktop relaunch failed: {error}");
+                    }
+                }
+            }
+            if !shutdown {
                 app.cleanup_before_exit();
                 std::process::exit(1);
             }
         }
     });
     std::process::exit(code);
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod relaunch_tests {
+    use super::relaunch_command;
+    use std::process::Command;
+
+    #[test]
+    fn relaunch_command_strips_the_launcher_environment() {
+        let command = relaunch_command(std::path::Path::new("/bin/true"), ["argument"]);
+        let envs: std::collections::HashMap<std::ffi::OsString, Option<std::ffi::OsString>> =
+            command
+                .get_envs()
+                .map(|(key, value)| (key.to_os_string(), value.map(|v| v.to_os_string())))
+                .collect();
+        for key in [
+            "LD_LIBRARY_PATH",
+            "PYTHONHOME",
+            "PYTHONPATH",
+            "APPIMAGE",
+            "APPDIR",
+        ] {
+            assert_eq!(
+                envs.get(std::ffi::OsStr::new(key)),
+                Some(&None),
+                "{key} must not reach the relaunched app"
+            );
+        }
+        let args: Vec<_> = command.get_args().map(|arg| arg.to_os_string()).collect();
+        assert_eq!(args, [std::ffi::OsString::from("argument")]);
+    }
+
+    /// Runs the relaunch spawn from a poisoned environment in a child test
+    /// process and observes the grandchild, mirroring the bridge fixture in
+    /// `runtime.rs`.
+    #[test]
+    fn relaunched_process_sees_a_clean_environment() {
+        let output = Command::new(std::env::current_exe().expect("test binary"))
+            .args(["--exact", "relaunch_tests::environment_fixture", "--nocapture"])
+            .env("HARNESS_RELAUNCH_ENV_FIXTURE", "host")
+            .env("LD_LIBRARY_PATH", "poison-libraries")
+            .env("PYTHONHOME", "poison-python")
+            .env("PYTHONPATH", "poison-path")
+            .env("APPIMAGE", "/tmp/poison.AppImage")
+            .env("APPDIR", "/tmp/poison.AppDir")
+            .output()
+            .expect("fixture process");
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn environment_fixture() {
+        if std::env::var("HARNESS_RELAUNCH_ENV_FIXTURE").as_deref() != Ok("host") {
+            return;
+        }
+        let output = relaunch_command(
+            std::path::Path::new("/bin/sh"),
+            [
+                "-c",
+                r#"printf '%s|%s|%s|%s|%s' "$LD_LIBRARY_PATH" "$PYTHONHOME" "$PYTHONPATH" "$APPIMAGE" "$APPDIR""#,
+            ],
+        )
+        .output()
+        .expect("probe process");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "||||");
+    }
 }

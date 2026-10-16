@@ -240,6 +240,14 @@ action through the official Tauri updater. The native command verifies the offer
 version again before installation; release configuration requires a signed version.
 Development builds report that they update by rebuilding. Download/install errors
 remain visible, and an installation failure after shutdown requires reopening the app.
+On Linux the desktop owns the post-install relaunch: it spawns the installed
+AppImage with the launcher environment stripped (`LD_LIBRARY_PATH`, `PYTHONHOME`,
+`PYTHONPATH`, `APPIMAGE`, `APPDIR`) so the new instance starts exactly like a fresh
+manual launch — the inherited bundled-library environment otherwise breaks host
+binaries in the new instance's launcher chain on newer hosts. The relaunch is
+attempted even after a failed shutdown, because the update is already installed,
+and relaunch failures are reported on stderr instead of vanishing with Tauri's
+silent restart path.
 Window exit and the Windows installer share one awaited shutdown result so neither
 can exit while the other is still retiring a helper. Hosted Windows checks qualify
 signed installation and restart from v0.1.2 to v0.1.3; macOS/Linux desktop updater
