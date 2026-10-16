@@ -22,46 +22,23 @@ function provider() {
 }
 
 describe("roster", () => {
-  it("matches the verified gateway model snapshot", () => {
-    // The gateway's /v1/models snapshot verified 2026-08-08 lists 25 ids.
-    const snapshot = [
-      "minimax-m3",
-      "minimax-m2.7",
-      "minimax-m2.5",
-      "kimi-k3",
-      "kimi-k2.7-code",
-      "kimi-k2.6",
-      "kimi-k2.5",
-      "glm-5.2",
-      "glm-5.1",
-      "glm-5",
-      "deepseek-v4-pro",
-      "deepseek-v4-flash",
-      "qwen3.7-max",
-      "qwen3.8-max",
-      "qwen3.7-plus",
-      "qwen3.6-plus",
-      "qwen3.5-plus",
-      "mimo-v2-pro",
-      "mimo-v2-omni",
-      "mimo-v2.5-pro",
-      "mimo-v2.5",
-      "hy3",
-      "hy3-preview",
-      "gpt-5.6-luna",
-      "grok-4.5",
-    ];
-    expect(new Set(ROSTER.map((m) => m.model))).toEqual(new Set(snapshot));
+  it("bundles current supported Models.dev entries and excludes unavailable transports", () => {
+    expect(ROSTER).toHaveLength(28);
+    expect(ROSTER.map((model) => model.model)).toContain("gpt-6-luna");
+    expect(ROSTER.map((model) => model.model)).not.toContain("step-5-preview-free");
+    expect(ROSTER.map((model) => model.model)).not.toContain("minimax-m2.7");
+    expect(ROSTER.map((model) => model.model)).not.toContain("gemini-4-argon-contributor");
   });
 
   it("assigns each model its gateway family", () => {
     expect(familyOf("gpt-5.6-luna")).toBe("responses");
-    expect(familyOf("grok-4.5")).toBe("chat");
+    expect(familyOf("muse-spark-1.3-contributor")).toBe("responses");
+    expect(familyOf("grok-4.7")).toBe("responses");
     expect(familyOf("minimax-m3")).toBe("messages");
-    expect(familyOf("qwen3.7-max")).toBe("messages");
+    expect(familyOf("qwen3.8-max")).toBe("messages");
     expect(familyOf("deepseek-v4-pro")).toBe("chat");
     expect(familyOf("glm-5.2")).toBe("chat");
-    expect(familyOf("hy3-preview")).toBe("chat");
+    expect(familyOf("hy4-preview")).toBe("chat");
   });
 
   it("leaves unknown ids unclassified with no limits", () => {
@@ -73,7 +50,7 @@ describe("roster", () => {
     const models = listModels("opencode-go");
     expect(models).toHaveLength(ROSTER.length);
     expect(models.every((m) => m.provider === "opencode-go")).toBe(true);
-    expect(models.find((m) => m.model === "gpt-5.6-luna")).toEqual({
+    expect(models.find((m) => m.model === "gpt-5.6-luna")).toMatchObject({
       provider: "opencode-go",
       model: "gpt-5.6-luna",
       presets: [
@@ -90,27 +67,18 @@ describe("roster", () => {
     });
   });
 
-  it("exposes only the model-scoped presets advertised by the verified catalog", () => {
-    const offered = Object.fromEntries(
-      listModels("opencode-go")
-        .filter((model) => model.presets?.length)
-        .map((model) => [model.model, model.presets?.map((preset) => preset.value)]),
-    );
-    expect(offered).toEqual({
-      "grok-4.5": ["low", "medium", "high"],
-      "glm-5.2": ["high", "max"],
-      "kimi-k3": ["max"],
-      "deepseek-v4-pro": ["high", "max"],
-      "deepseek-v4-flash": ["low", "high", "max"],
-      hy3: ["none", "low", "high"],
-      "gpt-5.6-luna": ["none", "low", "medium", "high", "xhigh", "max"],
-      "minimax-m3": ["none", "thinking"],
-      "qwen3.8-max": ["high", "max"],
-      "qwen3.7-max": ["high", "max"],
-      "qwen3.7-plus": ["high", "max"],
-      "qwen3.6-plus": ["high", "max"],
-      "qwen3.5-plus": ["high", "max"],
-    });
+  it("exposes advertised efforts and preserves qualified Messages controls", () => {
+    const models = listModels("opencode-go");
+    expect(
+      models.find((model) => model.model === "grok-4.7")?.presets?.map((p) => p.value),
+    ).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(
+      models.find((model) => model.model === "qwen3.8-max")?.presets?.map((p) => p.value),
+    ).toEqual(["high", "max"]);
+    expect(
+      models.find((model) => model.model === "minimax-m3")?.presets?.map((p) => p.value),
+    ).toEqual(["none", "thinking"]);
+    expect(models.find((model) => model.model === "mimo-v2.5")?.presets).toBeUndefined();
   });
 });
 
@@ -124,7 +92,7 @@ describe("OpenCodeGoProvider", () => {
   it("selects the fileTools profile per family", () => {
     const p = provider();
     expect(p.capabilities("gpt-5.6-luna").fileTools).toBe("apply_patch");
-    expect(p.capabilities("grok-4.5").fileTools).toBe("string_replace");
+    expect(p.capabilities("grok-4.7").fileTools).toBe("apply_patch");
     expect(p.capabilities("minimax-m3").fileTools).toBe("text_editor");
     expect(p.capabilities("deepseek-v4-pro").fileTools).toBe("string_replace");
     expect(() => p.capabilities("unknown-model")).toThrow(/unknown model/);
@@ -139,7 +107,7 @@ describe("OpenCodeGoProvider", () => {
       p.validateConfig({ provider: "opencode-go", model: "hy3", preset: "max" }),
     ).toThrow(/unknown preset.*try: none, low, high/);
     expect(() =>
-      p.validateConfig({ provider: "opencode-go", model: "glm-5.1", preset: "high" }),
+      p.validateConfig({ provider: "opencode-go", model: "mimo-v2.5", preset: "high" }),
     ).toThrow(/has no presets/);
     expect(() => p.validateConfig({ provider: "opencode-go", model: "hy3" })).not.toThrow();
     expect(() => p.validateConfig({ provider: "opencode-go", model: "unknown-model" })).toThrow(
@@ -207,7 +175,7 @@ describe("OpenCodeGoProvider", () => {
     for await (const _ of p.stream(
       {
         ...REQUEST,
-        modelConfig: { provider: "opencode-go", model: "deepseek-v4-flash", preset: "max" },
+        modelConfig: { provider: "opencode-go", model: "deepseek-v4.1-flash", preset: "max" },
       },
       new AbortController().signal,
       CALL_CONTEXT,

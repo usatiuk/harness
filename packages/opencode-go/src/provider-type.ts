@@ -4,7 +4,7 @@ import { apiKeySourceSchema, instanceApiKeyAuth } from "@harness/auth";
 import { apiKeyCredentials as openaiCredentials } from "@harness/openai-api";
 import { apiKeyCredentials as anthropicCredentials } from "@harness/anthropic-api";
 import { OpenCodeGoProvider } from "./provider.ts";
-import { OPENCODE_GO_BASE } from "./index.ts";
+import { GO_OPENAI_BASE, GO_ANTHROPIC_BASE } from "./catalog.ts";
 
 export const openCodeGoProviderType = defineProviderType({
   type: "opencode-go",
@@ -18,8 +18,8 @@ export const openCodeGoProviderType = defineProviderType({
         return apiKey
           ? new OpenCodeGoProvider({
               provider: context.id,
-              openai: openaiCredentials({ apiKey, baseURL: OPENCODE_GO_BASE }),
-              anthropic: anthropicCredentials({ apiKey, baseURL: "https://opencode.ai/zen/go" }),
+              openai: openaiCredentials({ apiKey, baseURL: GO_OPENAI_BASE }),
+              anthropic: anthropicCredentials({ apiKey, baseURL: GO_ANTHROPIC_BASE }),
             })
           : null;
       },

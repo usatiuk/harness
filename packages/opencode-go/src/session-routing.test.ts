@@ -109,10 +109,10 @@ it("sends stable per-conversation session headers and Harness identity on all th
   try {
     await Promise.all(
       contexts.flatMap((context) =>
-        ["deepseek-v4-flash", "gpt-5.6-luna", "minimax-m3"].map((model) => run(model, context)),
+        ["deepseek-v4.1-flash", "gpt-5.6-luna", "minimax-m3"].map((model) => run(model, context)),
       ),
     );
-    await run("deepseek-v4-flash", contexts[0]!);
+    await run("deepseek-v4.1-flash", contexts[0]!);
     expect(received.every(({ agent }) => agent === `Harness/${PRODUCT_VERSION}`)).toBe(true);
     expect(received.every(({ session, expectedSession }) => session === expectedSession)).toBe(
       true,

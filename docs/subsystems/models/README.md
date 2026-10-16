@@ -254,33 +254,46 @@ by the Harness workspace plugin.
 
 ## OpenCode Go family
 
-`@harness/opencode-go` supplies a first-class OpenCode Go provider: one API key
-(`OPENCODE_API_KEY`) and one registry id (`opencode-go`) spanning three gateway
-transports under `https://opencode.ai/zen/go/v1`. A static compiled roster maps
-each model to its transport family (chat/completions | responses | messages); the
-gateway's `GET /v1/models` returns bare ids only, so no runtime catalog fetch is
-used and unknown ids fail validation. `OpenCodeGoProvider`
-delegates to three connection-specific transport subclasses, which construct
-Chat, Responses and Messages requests from the Go roster. They reuse native
-streaming, payload fidelity, overflow mapping, cancellation and usage
-normalization without inheriting another vendor's catalog or request defaults. Go is a subscription plan, so the
-catalog ships no per-token pricing and usage rows record `null` cost.
+`@harness/opencode-go` supplies one API-key connection (`OPENCODE_API_KEY`)
+spanning Chat Completions, Responses and Messages transports. At server startup,
+its `refreshModels` hook fetches the public [Models.dev API](https://models.dev/api.json)
+within the shared ten-second discovery budget. A bounded 16 MiB download is
+validated once, then the supported `opencode-go` slice replaces the connection's
+in-memory catalog atomically. Synchronous reads and inference never fetch metadata.
+Each new process begins with a bundled October 16, 2026 snapshot; failed refreshes
+retain the current snapshot and surface degraded status through existing provider
+diagnostics. There is no disk cache or periodic refresh; restart to update.
 
-Every Go Chat, Responses and Messages call sends
-`x-opencode-session: <conversationId>` and `User-Agent: Harness/0.0.0`.
-This includes compaction and model-backed approval requests through the common
-core boundary. Missing routing identity caused the reported HTTP 400; there is
-no generated fallback ID. The headers follow the
-[Go client requirements](https://opencode.ai/docs/go/#where-can-i-use-it).
+The catalog preserves display names, combined context, independent input/output
+limits, advertised reasoning support and efforts. Deprecated and non-tool entries
+are excluded. Unknown transports and invalid rows are skipped with bounded safe
+diagnostics; an entirely unusable response cannot erase a working catalog.
+The bundled slice contains 28 supported models: two deprecated rows and one
+Google route are excluded from 31 upstream entries. Google generateContent needs
+an adapter distinct from the existing Gemini Interactions provider.
 
-The compiled roster also exposes only the model-scoped reasoning controls
-advertised by the verified Models.dev `opencode-go` catalog. Chat models map
-effort presets to `reasoning_effort`; Luna maps `none` through `max` to Responses
-reasoning effort and retains `medium` as its default; MiniMax M3 offers explicit
-thinking off/on; and Qwen's `high`/`max` presets use the same bounded thinking
-budgets as OpenCode. Omitting a preset leaves every other model on the gateway's
-native behavior. Preset names never transfer between models, and models without
-an advertised control reject presets rather than ignoring them.
+Transport policy explicitly recognizes supported SDK/endpoint combinations;
+the OpenAI SDK marker selects Responses, while the OpenAI-compatible marker
+selects Chat Completions, as documented by Go. Credentials always go to fixed
+Go inference endpoints under `https://opencode.ai/inference/go/openai/v1` and
+`https://opencode.ai/inference/go/anthropic`; fetched URLs never become credential
+destinations. The adapters retain native streaming, payload fidelity, overflow
+mapping, cancellation and usage normalization. Go subscription usage still records
+`null` cost; discovered prices do not establish Harness billing semantics.
+
+Every Go request sends `x-opencode-session: <conversationId>` and the Harness
+product User-Agent, including compaction and model-backed approval. Missing
+routing identity has no generated fallback. This follows the
+[Go client requirements](https://opencode.ai/v2/docs/console/go/#where-can-i-use-it).
+
+Advertised Chat/Responses efforts become model-scoped `reasoning_effort`/reasoning
+controls. Qualified Luna models retain `medium` as the default when advertised.
+MiniMax M3 retains explicit thinking off/on when its toggle is advertised;
+Messages budget controls retain high/max presets capped by advertised budget,
+output capacity and the established 32K ceiling. Other Messages effort/toggle
+advertisements remain informational until their wire mapping is qualified.
+Omitting a preset leaves other models on gateway defaults. Presets never transfer
+between models; unadvertised controls fail validation.
 
 ## Mistral API and Vibe
 
@@ -487,7 +500,7 @@ middleware. Deterministic request/configuration failures must never be retried.
 - `packages/openai-core`, `openai-api`, `openai-codex`: OpenAI adapters/auth.
 - `packages/anthropic-core`, `anthropic-api`: Anthropic adapter/auth.
 - `packages/gemini-api`: native stateless adapter, discovery and auth.
-- `packages/opencode-go`: OpenCode Go provider and static roster.
+- `packages/opencode-go`: OpenCode Go provider, Models.dev discovery and bundled fallback.
 - `packages/mistral`: API/Vibe auth types, bounded catalogs and native mapping.
 - `packages/custom-providers`: config-defined Responses/chat/Messages providers.
 - `packages/litellm`: instance configuration, discovery normalization and gateway adapters.

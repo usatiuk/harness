@@ -1051,14 +1051,17 @@ delays, or a nearby condition that does not prove completion.
   selection without losing its transcript. Live browser
   login with multiple real accounts remains credential-dependent.
 
-- The `opencode-go` provider's roster is static and unit-tested against the
-  2026-08-09 gateway-list and Models.dev metadata snapshots: documented family
-  assignments (including Grok chat and GPT Luna Responses), exact model-scoped
-  preset catalogs, validation, and Chat/Responses/Messages request mappings. Live
-  smoke (one preset request per transport family and a preconstructed tool-call
-  continuation shape with prior reasoning) is opt-in behind `OPENCODE_API_KEY`
-  and is not run in CI. A credential-gated two-request encrypted-reasoning replay
-  remains uncovered.
+- The `opencode-go` provider uses a bundled 2026-10-16 Models.dev Go snapshot
+  and validated startup discovery. Tests cover independent connection snapshots,
+  metadata/preset validation, catalog replacement/removal, failed refresh retention,
+  bounded downloads/diagnostics, unsupported and deprecated entries, cancellation,
+  and Chat/Responses/Messages mappings through real SDK/local HTTP requests.
+  Metadata credentials are never sent to Models.dev. Live API parsing is a manual
+  qualification; automated tests use deterministic responses. Live inference smoke
+  (one preset request per transport and a preconstructed tool-call continuation)
+  is opt-in behind `OPENCODE_API_KEY` and is not run in CI. Credential-backed
+  encrypted-reasoning replay and the unsupported Google generateContent route
+  remain uncovered. Unqualified Messages thinking controls remain informational.
 - The chat/completions transport's reasoning round-trip (plaintext
   `reasoning_content` folded into one native assistant message per generation, so
   a tool-calling turn's reasoning rides the message that carries its tool calls),

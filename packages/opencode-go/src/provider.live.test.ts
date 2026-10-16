@@ -9,8 +9,8 @@ const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext
 
 // Real network smoke tests: opt in by exporting OPENCODE_API_KEY (skipped in CI).
 const apiKey = process.env.OPENCODE_API_KEY;
-const OPENAI_BASE = "https://opencode.ai/zen/go/v1";
-const ANTHROPIC_BASE = "https://opencode.ai/zen/go";
+const OPENAI_BASE = "https://opencode.ai/inference/go/openai/v1";
+const ANTHROPIC_BASE = "https://opencode.ai/inference/go/anthropic";
 
 const userMessage = {
   id: "i",
@@ -53,8 +53,8 @@ async function run(model: string, preset?: string): Promise<ModelStreamEvent[]> 
 }
 
 describe.skipIf(!apiKey)("OpenCodeGoProvider (live)", () => {
-  it("streams a chat-family preset turn (deepseek-v4-flash/low) to completion", async () => {
-    const events = await run("deepseek-v4-flash", "low");
+  it("streams a chat-family preset turn (deepseek-v4.1-flash/low) to completion", async () => {
+    const events = await run("deepseek-v4.1-flash", "low");
     expect(events.some((e) => e.type === "text_delta")).toBe(true);
     expect(events.at(-1)?.type).toBe("completed");
   }, 60_000);
@@ -83,7 +83,7 @@ describe.skipIf(!apiKey)("OpenCodeGoProvider (live)", () => {
     } as Item;
     const request: ModelRequest = {
       instructions: [{ type: "text", text: "You are terse." }],
-      modelConfig: { provider: "opencode-go", model: "deepseek-v4-flash" },
+      modelConfig: { provider: "opencode-go", model: "deepseek-v4.1-flash" },
       items: [{ item: priorReasoning }, { item: userMessage }],
     };
     const events: ModelStreamEvent[] = [];
@@ -144,7 +144,7 @@ describe.skipIf(!apiKey)("OpenCodeGoProvider (live)", () => {
     ];
     const request: ModelRequest = {
       instructions: [{ type: "text", text: "You are terse." }],
-      modelConfig: { provider: "opencode-go", model: "deepseek-v4-flash" },
+      modelConfig: { provider: "opencode-go", model: "deepseek-v4.1-flash" },
       tools: [echo],
       items,
       // The trailing steer mirrors the follow-up request that 400'd.

@@ -34,6 +34,15 @@ and RPC regressions passed in that historical delivery. The native-search work
 below consolidates generation onto Conversations while preserving this behavior. Live
 Mistral acceptance/billing/cache qualification lacks credentials.
 
+## OpenCode Go metadata
+
+The [Models.dev delivery](../../plans/models/2026-10-16-opencode-go-metadata.md)
+replaces the hand-maintained Go roster with validated startup discovery and a
+current bundled offline snapshot. It reuses the server discovery budget and
+connection diagnostics. Unsupported Google routes remain unavailable until a
+compatible native adapter is qualified. Disk caches and periodic refresh remain
+outside scope.
+
 ## Bounded transient reliability
 
 - [ ] Introduce one provider-neutral retryable model failure with adapters owning
@@ -82,8 +91,8 @@ remains credential-dependent.
 - Splitting a shared provider catalog before backend divergence outgrows a
   small, complete per-model override map.
 - Periodic/live catalog refresh, disk catalog caches, and automatic pricing
-  fetches. LiteLLM boot discovery is selected in the plan above; `opencode-go`
-  retains its static roster. Discovered upstream pricing is not automatically
+  fetches. LiteLLM and OpenCode Go boot discovery are selected above.
+  Discovered upstream pricing is not automatically
   treated as a gateway billing rate.
 - Guaranteed enforcement of advisory output caps on transports without a native
   parameter.

@@ -7,6 +7,13 @@ Implemented with GUI/TUI/agent controls, linked Git support, safe switching and
 managed cleanup. Full local checks, browser and real Docker/Compose/native cases
 pass; the delivery plan records evidence and native Windows qualification limits.
 
+The [OpenCode Go metadata delivery](docs/plans/models/2026-10-16-opencode-go-metadata.md)
+uses Models.dev startup discovery with a bundled offline snapshot, model limits,
+labels and qualified reasoning controls. All 32 focused tests and independent
+reviews pass. Full validation passes typechecking/lint/formatting and 1,382 tests;
+three documented unrelated macOS/test failures remain. Unsupported Go Google
+routes remain outside this metadata change.
+
 ## Goals
 
 The [auto-approval revamp](docs/plans/execution/2026-10-11-auto-approval-revamp.md)

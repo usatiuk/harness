@@ -17,7 +17,8 @@ import {
   type AnthropicCredentials,
   type AnthropicRequestConfig,
 } from "@harness/anthropic-core";
-import { familyOf, listModels, maxOutputOf, modelSpec, presetFor } from "./roster.ts";
+import { ROSTER, familyOf, listModels, maxOutputOf, modelSpec, presetFor } from "./roster.ts";
+import { fetchCatalog, parseCatalog, type GoModelSpec } from "./catalog.ts";
 import { PRODUCT_USER_AGENT } from "@harness/release";
 
 /** Go requires stable per-conversation routing on every transport and auxiliary call. */
@@ -26,8 +27,8 @@ function requestHeaders(context: ModelCallContext): Record<string, string> {
 }
 
 /** Effort control selected for a Chat or Responses request. */
-function effortFor(request: ModelRequest): string | undefined {
-  const preset = presetFor(request.modelConfig.model, request.modelConfig.preset);
+function effortFor(request: ModelRequest, models: readonly GoModelSpec[]): string | undefined {
+  const preset = presetFor(request.modelConfig.model, request.modelConfig.preset, models);
   if (!preset) return undefined;
   if (preset.control.kind !== "effort") {
     throw new Error(
@@ -39,9 +40,16 @@ function effortFor(request: ModelRequest): string | undefined {
 
 /** Chat-family subclass that maps the rostered preset to the compatible wire field. */
 class GoChatProvider extends OpenAIChatTransport {
+  constructor(
+    credentials: OpenAICredentials,
+    provider: string,
+    readonly models: () => readonly GoModelSpec[],
+  ) {
+    super({ credentials, provider, requestHeaders });
+  }
   protected override buildParams(request: ModelRequest) {
     const params = super.buildParams(request);
-    const effort = effortFor(request);
+    const effort = effortFor(request, this.models());
     if (effort) {
       // The pinned SDK predates the gateway's `max` value but serializes it unchanged.
       (params as unknown as Record<string, unknown>).reasoning_effort = effort;
@@ -56,7 +64,11 @@ class GoChatProvider extends OpenAIChatTransport {
  * and applying a gateway-specific reasoning default.
  */
 class GoResponsesProvider extends OpenAIResponsesTransport {
-  constructor(credentials: OpenAICredentials, provider: string) {
+  constructor(
+    credentials: OpenAICredentials,
+    provider: string,
+    readonly models: () => readonly GoModelSpec[],
+  ) {
     super({
       provider,
       credentials,
@@ -65,7 +77,7 @@ class GoResponsesProvider extends OpenAIResponsesTransport {
   }
 
   protected override buildParams(request: ModelRequest) {
-    const effort = effortFor(request);
+    const effort = effortFor(request, this.models());
     const reasoning = { summary: "auto", ...(effort ? { effort } : {}) } as Parameters<
       typeof buildResponseParams
     >[1];
@@ -75,15 +87,20 @@ class GoResponsesProvider extends OpenAIResponsesTransport {
 
 /** Messages policy from the Go roster, including model-scoped thinking controls. */
 class GoMessagesProvider extends AnthropicMessagesTransport {
-  constructor(credentials: AnthropicCredentials, provider: string) {
+  constructor(
+    credentials: AnthropicCredentials,
+    provider: string,
+    readonly models: () => readonly GoModelSpec[],
+  ) {
     super({ provider, credentials, requestHeaders });
   }
 
   protected override buildConfig(request: ModelRequest): AnthropicRequestConfig {
     const config: AnthropicRequestConfig = {
-      maxTokens: request.maxOutputTokens ?? maxOutputOf(request.modelConfig.model) ?? 8192,
+      maxTokens:
+        request.maxOutputTokens ?? maxOutputOf(request.modelConfig.model, this.models()) ?? 8192,
     };
-    const preset = presetFor(request.modelConfig.model, request.modelConfig.preset);
+    const preset = presetFor(request.modelConfig.model, request.modelConfig.preset, this.models());
     if (!preset) return config;
     switch (preset.control.kind) {
       case "thinking":
@@ -126,20 +143,18 @@ export class OpenCodeGoProvider implements ModelProvider {
   readonly #chat: OpenAIChatTransport;
   readonly #responses: GoResponsesProvider;
   readonly #messages: GoMessagesProvider;
+  #models: readonly GoModelSpec[] = ROSTER;
 
   constructor(opts: OpenCodeGoProviderOptions) {
     this.provider = opts.provider ?? "opencode-go";
-    this.#chat = new GoChatProvider({
-      provider: this.provider,
-      credentials: opts.openai,
-      requestHeaders,
-    });
-    this.#responses = new GoResponsesProvider(opts.openai, this.provider);
-    this.#messages = new GoMessagesProvider(opts.anthropic, this.provider);
+    const models = () => this.#models;
+    this.#chat = new GoChatProvider(opts.openai, this.provider, models);
+    this.#responses = new GoResponsesProvider(opts.openai, this.provider, models);
+    this.#messages = new GoMessagesProvider(opts.anthropic, this.provider, models);
   }
 
   capabilities(model: string): ModelCapabilities {
-    switch (familyOf(model)) {
+    switch (familyOf(model, this.#models)) {
       case "responses":
         return { contentTypes: ["text"], toolCalling: true, fileTools: "apply_patch" };
       case "messages":
@@ -153,7 +168,7 @@ export class OpenCodeGoProvider implements ModelProvider {
   }
 
   validateConfig(config: ModelConfig): void {
-    const spec = modelSpec(config.model);
+    const spec = modelSpec(config.model, this.#models);
     if (!spec) {
       throw new Error(`unknown model "${config.model}" for provider ${this.provider}`);
     }
@@ -168,11 +183,21 @@ export class OpenCodeGoProvider implements ModelProvider {
   }
 
   listModels(): ModelInfo[] {
-    return listModels(this.provider);
+    return listModels(this.provider, this.#models);
+  }
+
+  async refreshModels(signal: AbortSignal) {
+    const catalog = parseCatalog(await fetchCatalog(signal));
+    signal.throwIfAborted();
+    this.#models = catalog.models;
+    return {
+      status: catalog.diagnostics.length ? ("degraded" as const) : ("ready" as const),
+      diagnostics: catalog.diagnostics,
+    };
   }
 
   async *stream(request: ModelRequest, signal: AbortSignal, context: ModelCallContext) {
-    switch (familyOf(request.modelConfig.model)) {
+    switch (familyOf(request.modelConfig.model, this.#models)) {
       case "responses":
         yield* this.#responses.stream(request, signal, context);
         break;
