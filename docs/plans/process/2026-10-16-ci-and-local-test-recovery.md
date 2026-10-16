@@ -1,6 +1,6 @@
 # CI and local test recovery
 
-Status: Active
+Status: Complete
 
 ## Outcome
 
@@ -36,11 +36,11 @@ wait for the actual UI/process prerequisite rather than increasing timeouts.
 - [x] Repair local TUI OAuth startup and assess recorded runtime/QuickJS failures.
       Depends on baseline. Completion: original failing tests pass under the
       intended contract, or required unresolved behavior remains explicitly open.
-- [ ] Review and verify the complete change.
+- [x] Review and verify the complete change.
       Depends on repairs. Completion: three independent read-only reviews,
       `npm run check`, relevant native Rust checks and Windows hosted CI when
       authorized/available. Record precise platform limits and unresolved causes.
-- [ ] Synchronize testing/subsystem status and handoff.
+- [x] Synchronize testing/subsystem status and handoff.
       Depends on validation. Completion: durable docs contain final evidence and
       remaining qualification limits, with no stale deferred claims for fixes.
 
@@ -102,3 +102,18 @@ hosted run.
 The split passes locally, and the complete local check passes again: 1,437 tests,
 41 skips, typecheck, lint and formatting. An independent follow-up review confirms
 both scenarios retain the original assertions and security/process edges.
+
+## Final hosted evidence
+
+[Run 38971442846](https://github.com/usatiuk/harness/actions/runs/38971442846)
+on `3475025` passes `npm run check` and native Rust checks on both Ubuntu and
+Windows. This verifies the original platform fixture repairs and the separated
+startup diagnostic scenarios on their actual CI platforms. The local full check
+passes 1,437 tests with 41 gated skips. Native macOS execution remains unqualified;
+its historical deferred failure count requires a fresh run and is not claimed
+fixed by Linux/Windows evidence.
+
+Implementation commits: `9e70991` (platform/isolation fixtures), `e7b6b2b`
+(bounded QuickJS batches), and `3475025` (diagnostic fixture cleanup). Draft
+[PR #45](https://github.com/usatiuk/harness/pull/45) also contains the separately
+requested desktop history subscriber correction. No merge or release performed.

@@ -1413,3 +1413,10 @@ PowerShell security checks. Fixture setup/cleanup now uses hooks; repeated-start
 and 8 KiB bound scenarios are separate tests with every original assertion and
 unchanged timeouts. Full local validation after that split passes 1,437 tests
 with 41 skips; repeat Windows qualification is pending in the recovery plan.
+
+Hosted recovery verification passes on both Ubuntu and Windows in
+[run 38971442846](https://github.com/usatiuk/harness/actions/runs/38971442846)
+for `3475025`, including the full `npm run check` and native Rust steps. The
+original 14 Windows failures and the subsequent aggregate diagnostic timeout are
+resolved. This establishes actual Windows fixture/security-path execution in CI;
+it does not establish native macOS or desktop UI qualification.

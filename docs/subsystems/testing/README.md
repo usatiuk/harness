@@ -4,7 +4,10 @@
 
 Harness uses TypeScript static checks, ESLint, Prettier, Vitest, shared contract
 suites, platform-gated integration tests, and opt-in live provider tests. CI runs
-the complete `npm run check` workflow on Linux and Windows.
+the complete `npm run check` workflow and native Rust checks on Linux and Windows.
+The [October 16 recovery](../../plans/process/2026-10-16-ci-and-local-test-recovery.md)
+restores both hosted jobs and local validation; native macOS qualification remains
+separate.
 
 Tests are co-located with implementation under `packages/*/src`. Shared fakes and
 behavioral contracts live in `@harness/testkit`; they are used when more than one

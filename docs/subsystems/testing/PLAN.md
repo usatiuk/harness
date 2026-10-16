@@ -6,11 +6,12 @@ Grow evidence with implemented behavior, especially at cancellation, persistence
 provider, execution, and terminal boundaries. Do not build a general scenario
 laboratory ahead of scenarios.
 
-## Active CI recovery
+## CI recovery
 
 The [CI and local test recovery plan](../../plans/process/2026-10-16-ci-and-local-test-recovery.md)
-tracks the recurring Windows failures and reproducible local TUI OAuth failure.
-Fix established causes before changing assertions or platform qualification claims.
+is complete: local checks and both Ubuntu/Windows CI jobs pass after correcting
+platform fixtures, OAuth project isolation and QuickJS scheduler overhead. Native
+macOS qualification remains open; the plan records exact evidence and limits.
 
 ## Milestone 1: model reliability evidence
 
