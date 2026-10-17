@@ -17,11 +17,11 @@ import { TuiHosts } from "./hosts.ts";
 import { HostApp } from "./host-app.tsx";
 import { appSettingsRequest } from "@harness/server/client-protocol";
 
-async function writeInput(ui: ReturnType<typeof render>, text: string): Promise<void> {
+async function writeInput(ui: ReturnType<typeof render>, text: string, repeat = 1): Promise<void> {
   // Flush React's effects before sending the next key to a newly mounted input.
   await act(async () => {});
   await act(async () => {
-    ui.stdin.write(text);
+    for (let index = 0; index < repeat; index++) ui.stdin.write(text);
   });
 }
 
@@ -141,8 +141,9 @@ it("edits kernel defaults through selected-host Settings", async () => {
       const token = JSON.stringify(settings[key]);
       const end =
         json.indexOf(JSON.stringify(key) + ":") + (JSON.stringify(key) + ":").length + token.length;
-      for (let index = end; index < json.length; index++) await writeInput(ui, "\u001b[D");
-      for (let index = 0; index < token.length; index++) await writeInput(ui, "\u007f");
+      // Cursor/deletion actions use a reducer; only their final state needs a render.
+      await writeInput(ui, "\u001b[D", json.length - end);
+      await writeInput(ui, "\u007f", token.length);
       await writeInput(ui, value);
       await writeInput(ui, "\r");
       await vi.waitFor(() => expect(ui.lastFrame()).toContain("Host defaults saved"));

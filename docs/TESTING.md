@@ -1454,3 +1454,21 @@ for `3475025`, including the full `npm run check` and native Rust steps. The
 original 14 Windows failures and the subsequent aggregate diagnostic timeout are
 resolved. This establishes actual Windows fixture/security-path execution in CI;
 it does not establish native macOS or desktop UI qualification.
+
+The 2026-10-17 Windows runs
+[39028819095](https://github.com/usatiuk/harness/actions/runs/39028819095) and
+[39029850007](https://github.com/usatiuk/harness/actions/runs/39029850007) time out
+only the selected-host Settings test after it expanded from four to six edits.
+The next unchanged-test
+[run 39030716392](https://github.com/usatiuk/harness/actions/runs/39030716392)
+passes, but that test takes 24.77 seconds against its 30-second deadline.
+The logs show continuing per-key React flushes for roughly 23 seconds after
+startup. Cursor movement and deletion now emit individual stdin events in one
+React batch per run of keys, preserving real Ink input, all save/clear RPC
+assertions, and the 30-second deadline. Menu navigation, replacement text and
+submission retain separate flushes. A one-CPU Linux probe of the original test
+passes in 4.94 seconds; it does not reproduce the hosted timeout or establish its
+exact final edit. All five host scenarios pass locally after the correction. Full
+`TMPDIR=/var/tmp npm run check` passes typechecking, lint, formatting and 1,477
+tests with 41 gated skips. Three independent reviews report no actionable
+findings. Actual Windows qualification is required to confirm the platform result.
