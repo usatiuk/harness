@@ -43,7 +43,7 @@ it("submits a comment without choosing an option", async () => {
   await app.input("\r");
   await vi.waitFor(() => expect(app.lastFrame()).toContain("No option"));
   await app.input("\u001b[B");
-  await vi.waitFor(() => expect(app.lastFrame()).toContain("❯ No option"));
+  await vi.waitFor(() => expect(app.lastFrame()).toMatch(/[>❯] No option/));
   await app.input("\r");
   await vi.waitFor(() => expect(app.lastFrame()).toContain("Answer or comment"));
   await app.input("Different scope");
@@ -76,11 +76,11 @@ it("submits multiple choices and a comment together with a second freeform answe
   await app.input("\r");
   await vi.waitFor(() => expect(app.lastFrame()).toContain("Space selects"));
   await app.input(" ");
-  await vi.waitFor(() => expect(app.lastFrame()).toContain("One ✔"));
+  await vi.waitFor(() => expect(app.lastFrame()).toMatch(/One [✔√]/));
   await app.input("\u001b[B");
-  await vi.waitFor(() => expect(app.lastFrame()).toContain("❯ Two"));
+  await vi.waitFor(() => expect(app.lastFrame()).toMatch(/[>❯] Two/));
   await app.input(" ");
-  await vi.waitFor(() => expect(app.lastFrame()).toContain("Two ✔"));
+  await vi.waitFor(() => expect(app.lastFrame()).toMatch(/Two [✔√]/));
   await app.input("\r");
   await vi.waitFor(() => expect(app.lastFrame()).toContain("Answer or comment"));
   await app.input("Both please");

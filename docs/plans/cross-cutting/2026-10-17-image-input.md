@@ -295,6 +295,15 @@ and 1,606 tests / 41 skipped. Three independent final review lenses found no
 remaining blockers. Browser/native payload evidence above passed; no native
 clipboard code, image conversion service or new abstraction was added.
 
-- [ ] Push the validated commits and dispatch the existing minor release workflow.
+- [x] Push the validated commits and dispatch the existing minor release workflow.
 - [ ] Verify all platform builds and signed draft assembly, publish the minor
       release, and record its run/tag evidence.
+
+Minor release run 39058583284 created tag v0.4.0 at 25e98d9 after its source
+check passed. Parallel Linux CI passed. Windows CI run 39058571579 exposed two
+existing question-overlay tests expecting Unix pointer/check symbols; actual
+Windows output used the installed figures package's documented fallback symbols
+(> and √). Fix only those four marker assertions using the same cross-platform
+regex convention as existing host tests. Interaction/answer assertions remain
+unchanged; require new hosted Windows CI before publishing. Platform builds
+continue from the tagged source; this correction changes tests only.
