@@ -258,7 +258,7 @@ textarea.input {
 }
 .scroll-shadows,
 .work-scroll-frame::after {
-  --scroll-shadow-color: light-dark(rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.2));
+  --scroll-shadow-color: color-mix(in srgb, var(--ink) 8%, transparent);
   --scroll-shadow-top: transparent;
   --scroll-shadow-bottom: transparent;
   background-image:
