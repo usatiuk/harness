@@ -1520,7 +1520,7 @@ dependencies = [
 
 [[package]]
 name = "harness-bootstrap"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -1540,7 +1540,7 @@ dependencies = [
 
 [[package]]
 name = "harness-desktop"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "dunce",
