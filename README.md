@@ -377,7 +377,10 @@ branches use readable names such as `harness/quiet-otter`, with numeric suffixes
 for collisions. Agents can supply an explicit `branch` with `worktree_switch`
 and `kind: "new"`; desktop and CLI creation keep automatic naming. The control
 switches idle conversations between worktrees and their original checkout. No dirty
-files or history are copied. Settings → Worktrees lists managed checkouts and Docker
+files or history are copied. Worktree conversations stay under their original project
+in the sidebar. The picker keeps the current checkout visible, shows five recent
+linked worktrees, and offers Show all for older entries, with Original/New actions
+separate. Settings → Worktrees lists managed checkouts and Docker
 environments. Deleting a checkout retains its branch/history and requires explicit
 confirmation to discard dirty files. The global worktree directory lives in Settings
 → Defaults (`plugins.worktrees.directory`); unset uses `~/.harness/worktrees` on the

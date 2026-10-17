@@ -86,7 +86,7 @@ describe("SqliteStore (durable-only)", () => {
     first.close();
     const db = new BetterSqlite3(path);
     db.exec(
-      "ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees; PRAGMA user_version = 8",
+      "DROP INDEX conversations_project_recent; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees; PRAGMA user_version = 8",
     );
     db.close();
     const upgraded = new SqliteStore(path);
@@ -103,6 +103,46 @@ describe("SqliteStore (durable-only)", () => {
       expect(await reopened.listActiveItems(source.id)).toEqual([prefix, user]);
     } finally {
       reopened.close();
+    }
+  });
+
+  it("upgrades schema 10 with indexed project grouping without changing execution paths", async () => {
+    const path = tempDb();
+    const first = new SqliteStore(path);
+    const tree = await first.createConversation({
+      workspaceRoot: "/trees/one",
+      originalWorkspaceRoot: "/project",
+      overrides: {},
+    });
+    first.close();
+    const old = new BetterSqlite3(path);
+    old.exec("DROP INDEX conversations_project_recent; PRAGMA user_version = 10");
+    old.close();
+    const upgraded = new SqliteStore(path);
+    try {
+      expect(await upgraded.getConversation(tree.id)).toEqual(tree);
+      expect(
+        (await upgraded.listConversationPage(5, undefined, { projectRoot: "/project" })).map(
+          (record) => record.id,
+        ),
+      ).toEqual([tree.id]);
+      expect(
+        (await upgraded.listConversationProjects(5)).map((project) => project.workspaceRoot),
+      ).toEqual(["/project"]);
+    } finally {
+      upgraded.close();
+    }
+    const checked = new BetterSqlite3(path);
+    try {
+      const plan = checked
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT id FROM conversations WHERE coalesce(original_workspace_root, workspace_root) = ? ORDER BY last_used_at DESC, id DESC LIMIT 5",
+        )
+        .all("/project") as { detail: string }[];
+      expect(plan.some((step) => step.detail.includes("conversations_project_recent"))).toBe(true);
+      expect(checked.pragma("user_version", { simple: true })).toBe(11);
+    } finally {
+      checked.close();
     }
   });
   it("rejects a duplicate tool_result for the same callId (partial unique index)", async () => {
@@ -141,7 +181,7 @@ describe("SqliteStore (durable-only)", () => {
     before.close();
     const previous = new BetterSqlite3(path);
     previous.exec(
-      "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees;",
+      "DROP INDEX conversations_project_recent; DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees;",
     );
     previous.pragma("user_version = 7");
     previous.close();
@@ -278,7 +318,7 @@ describe("SqliteStore (durable-only)", () => {
             : "SELECT 1;",
       );
       previous.exec(
-        "DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN title; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees;",
+        "DROP INDEX conversations_project_recent; DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN title; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees;",
       );
       previous.pragma(`user_version = ${version}`);
       previous.close();

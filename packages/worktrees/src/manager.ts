@@ -24,8 +24,26 @@ export class WorktreeManager implements WorktreeOperations {
     return findRepository(path);
   }
 
-  list(repository: string): Promise<WorktreeInfo[]> {
-    return listWorktrees(repository);
+  async list(repository: string): Promise<WorktreeInfo[]> {
+    const trees = await listWorktrees(repository);
+    const recent = await Promise.all(
+      trees.map(async (tree) => {
+        const [conversations, managed] = await Promise.all([
+          this.store.listConversationPage(1, undefined, {
+            workspaceRoot: tree.path,
+            order: "lastUsed",
+          }),
+          this.store.getManagedWorktree(tree.path),
+        ]);
+        return {
+          tree,
+          lastUsedAt: Math.max(conversations[0]?.lastUsedAt ?? 0, managed?.createdAt ?? 0),
+        };
+      }),
+    );
+    return recent
+      .sort((a, b) => b.lastUsedAt - a.lastUsedAt || a.tree.path.localeCompare(b.tree.path))
+      .map(({ tree }) => tree);
   }
 
   async inspect(path: string): Promise<WorktreeInfo> {

@@ -271,7 +271,13 @@ export const conversationListRequest = defineRequest({
     cursor: conversationCursorSchema.nullable(),
     limit: positiveInteger.max(MAX_CONVERSATION_PAGE_SIZE),
     order: z.enum(["created", "lastUsed"]).default("created"),
-    filter: z.strictObject({ workspaceRoot: z.string().nullable() }).nullable().default(null),
+    filter: z
+      .union([
+        z.strictObject({ workspaceRoot: z.string().nullable() }),
+        z.strictObject({ projectRoot: z.string() }),
+      ])
+      .nullable()
+      .default(null),
   }),
   result: z.strictObject({
     conversations: z.array(wireConversationSchema),

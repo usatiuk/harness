@@ -120,6 +120,7 @@ CREATE TABLE conversations (
 );
 CREATE INDEX conversations_recent ON conversations(last_used_at DESC, id DESC);
 CREATE INDEX conversations_workspace_recent ON conversations(workspace_root, last_used_at DESC, id DESC);
+CREATE INDEX conversations_project_recent ON conversations(coalesce(original_workspace_root, workspace_root), last_used_at DESC, id DESC);
 
 CREATE TABLE turns (
   id TEXT PRIMARY KEY,
@@ -196,9 +197,9 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-export const STORE_SCHEMA_VERSION = 10;
+export const STORE_SCHEMA_VERSION = 11;
 
-/** Fresh schema or explicit additive v3–v6 upgrades; older formats remain unsupported. */
+/** Fresh schema or supported additive upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
   db.transaction(() => {
     let version = db.pragma("user_version", { simple: true }) as number;
@@ -243,6 +244,12 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
     if (version === 9) {
       db.exec("ALTER TABLE conversations ADD COLUMN original_workspace_root TEXT;");
       db.exec(WORKTREE_SCHEMA);
+      version = 10;
+    }
+    if (version === 10) {
+      db.exec(
+        "CREATE INDEX conversations_project_recent ON conversations(coalesce(original_workspace_root, workspace_root), last_used_at DESC, id DESC)",
+      );
       db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }

@@ -1,5 +1,10 @@
 # Harness plan
 
+The [worktree project/picker follow-up](docs/plans/interface/2026-10-17-worktree-project-picker.md)
+groups conversations by original project before pagination and gives the picker
+a readable current checkout, five recent worktrees and separated Original/New
+actions. It derives recency from existing conversation/ownership records.
+
 The [worktree branch naming follow-up](docs/plans/interface/2026-10-17-worktree-branch-names.md)
 adds optional tool-supplied branches, readable generated names with collision
 handling, and a picker refresh on opening. Git remains the naming authority and

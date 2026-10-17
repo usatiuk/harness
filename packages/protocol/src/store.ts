@@ -29,9 +29,12 @@ export type ConversationPageCursor =
 export interface ConversationListOptions {
   order?: "created" | "lastUsed";
   workspaceRoot?: string | null;
+  /** Original project when recorded, otherwise the execution workspace. */
+  projectRoot?: string;
   excludedState?: { plugin: string; key: string };
 }
 export interface ConversationProject {
+  /** Project identity rather than a worktree's execution directory. */
   workspaceRoot: string;
   lastUsedAt: number;
 }

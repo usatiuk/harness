@@ -320,6 +320,12 @@ export class SqliteStore implements Store {
         options.workspaceRoot === null ? "is" : "=",
         options.workspaceRoot,
       );
+    if (options.projectRoot !== undefined)
+      query = query.where(
+        sql<string>`coalesce(original_workspace_root, workspace_root)`,
+        "=",
+        options.projectRoot,
+      );
     if (before) {
       const cutoff = "lastUsedAt" in before ? before.lastUsedAt : before.createdAt;
       query = query.where((eb) =>
@@ -348,12 +354,13 @@ export class SqliteStore implements Store {
     before?: ConversationProjectCursor,
     excludedState?: { plugin: string; key: string },
   ): Promise<ConversationProject[]> {
-    const query = `SELECT workspace_root AS workspaceRoot, MAX(last_used_at) AS lastUsedAt
+    const projectRoot = "coalesce(original_workspace_root, workspace_root)";
+    const query = `SELECT ${projectRoot} AS workspaceRoot, MAX(last_used_at) AS lastUsedAt
       FROM conversations AS c WHERE workspace_root IS NOT NULL
       AND (? IS NULL OR NOT EXISTS (SELECT 1 FROM plugin_state AS p WHERE p.conversation_id = c.id AND p.plugin = ? AND p.key = ?))
-      GROUP BY workspace_root
-      HAVING ? IS NULL OR MAX(last_used_at) < ? OR (MAX(last_used_at) = ? AND workspace_root < ?)
-      ORDER BY lastUsedAt DESC, workspace_root DESC LIMIT ?`;
+      GROUP BY ${projectRoot}
+      HAVING ? IS NULL OR MAX(last_used_at) < ? OR (MAX(last_used_at) = ? AND ${projectRoot} < ?)
+      ORDER BY lastUsedAt DESC, ${projectRoot} DESC LIMIT ?`;
     return this.#db
       .prepare(query)
       .all(

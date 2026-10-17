@@ -141,6 +141,69 @@ export function storeContract(name: string, makeStore: () => Store): void {
       ).toEqual(["/b"]);
     });
 
+    it("groups worktree conversations with their original project before pagination while preserving workspace filters", async () => {
+      const store = makeStore();
+      const project = await store.createConversation({ ...sampleRecord(), workspaceRoot: "/repo" });
+      await store.createConversation({ ...sampleRecord(), workspaceRoot: "/other" });
+      const trees = [];
+      for (let index = 0; index < 7; index++)
+        trees.push(
+          await store.createConversation({
+            ...sampleRecord(),
+            workspaceRoot: `/trees/${index}`,
+            originalWorkspaceRoot: "/repo",
+          }),
+        );
+      const child = await store.createConversation({
+        ...sampleRecord(),
+        workspaceRoot: "/trees/child",
+        originalWorkspaceRoot: "/repo",
+      });
+      await store.putPluginState("subagents", child.id, "spawn", { parent: project.id });
+      const lastUsedAt = store.recordUserInput(trees[0]!.id);
+      const options = {
+        order: "lastUsed" as const,
+        projectRoot: "/repo",
+        excludedState: { plugin: "subagents", key: "spawn" },
+      };
+      const first = await store.listConversationPage(3, undefined, options);
+      const second = await store.listConversationPage(
+        3,
+        { lastUsedAt: first.at(-1)!.lastUsedAt, id: first.at(-1)!.id },
+        options,
+      );
+      const third = await store.listConversationPage(
+        3,
+        { lastUsedAt: second.at(-1)!.lastUsedAt, id: second.at(-1)!.id },
+        options,
+      );
+      expect([...first, ...second, ...third].map((row) => row.id)).toEqual([
+        trees[0]!.id,
+        ...trees
+          .slice(1)
+          .reverse()
+          .map((row) => row.id),
+        project.id,
+      ]);
+      const groups = await store.listConversationProjects(1, undefined, options.excludedState);
+      expect(groups).toEqual([{ workspaceRoot: "/repo", lastUsedAt }]);
+      expect(
+        (await store.listConversationProjects(5, groups[0], options.excludedState)).map(
+          (row) => row.workspaceRoot,
+        ),
+      ).toEqual(["/other"]);
+      expect(
+        (await store.listConversationPage(5, undefined, { workspaceRoot: "/repo" })).map(
+          (row) => row.id,
+        ),
+      ).toEqual([project.id]);
+      expect(
+        (await store.listConversationPage(5, undefined, { workspaceRoot: "/trees/0" })).map(
+          (row) => row.id,
+        ),
+      ).toEqual([trees[0]!.id]);
+    });
+
     it("assigns monotonic per-conversation seq on append", async () => {
       const store = makeStore();
       const conv = await store.createConversation(sampleRecord());

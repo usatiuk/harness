@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { NavLink, Link, useLocation } from "react-router";
 import { PanelLeftClose, PanelLeftOpen, Plus, Settings, X, ChevronDown } from "lucide-react";
 import { z } from "zod";
-import type { Conversation } from "@harness/protocol";
+import { conversationProjectRoot, type Conversation } from "@harness/protocol";
 import type { DesktopSession, SidebarPage } from "../session.ts";
 import { Button, IconButton } from "../ui.tsx";
 
@@ -136,10 +136,10 @@ export function SidebarLayout({
   }, [storageKey, groups]);
   useEffect(() => {
     const match = /^\/conversations\/([^/]+)$/u.exec(location.pathname);
-    const workspace = match
+    const conversation = match
       ? session.views.get(decodeURIComponent(match[1]!) as Conversation["id"])?.conversation
-          .workspaceRoot
       : undefined;
+    const workspace = conversation && conversationProjectRoot(conversation);
     if (workspace)
       // Router navigation reveals a hidden folder while preserving its collapse preference.
       // eslint-disable-next-line react-hooks/set-state-in-effect

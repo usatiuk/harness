@@ -415,7 +415,9 @@ window hash only when the route changes. Fetcher cleanup and background router
 updates do not rewrite browser history, avoiding WebView history rate limits
 during transcript virtualization and conversation switching.
 
-The desktop sidebar puts collapsible folder-derived Projects above Recents. Recents
+The desktop sidebar puts collapsible Projects above Recents, using the conversation's
+original checkout when present and its current workspace otherwise. Worktrees stay
+under their original project while retaining their actual path and worktree icon. Recents
 starts with 20 chats; each project starts with five and adds five on Show more.
 Folder summaries are paged in batches of 50. The application list view shares the
 core conversation paging/projection boundary and excludes durable subagent spawn
@@ -814,8 +816,13 @@ made with ordinary Git commands. Default branches use `harness/<adjective>-<anim
 with numeric suffixes for collisions; directories keep their UUIDs. The agent's
 `worktree_switch` accepts optional `branch` only with `kind: "new"`; explicit names
 are validated by Git. No desktop naming/rename control or CLI name option is added.
-Sidebar grouping still follows current folder paths, with a
-worktree icon immediately before status indicators. Settings → Defaults configures
+The picker shows a readable current-checkout card, up to five worktrees including
+the selected worktree, and a Show all action for older entries. Other worktrees
+are ordered by the latest conversation use or managed creation time, with stable
+path ties; this derives from existing records without tracking filesystem changes.
+Original/New actions are separated from selection. Sidebar grouping uses the
+original project, with a worktree icon immediately before status indicators.
+Settings → Defaults configures
 the selected server's storage directory; Settings → Worktrees pages managed
 checkouts and Docker environments. Deletion uses explicit confirmation, retaining
 branches/history; Docker Stop preserves state while Remove discards containers

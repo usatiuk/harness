@@ -1,3 +1,4 @@
+import { conversationProjectRoot } from "@harness/protocol";
 import type {
   ManagedWorktree,
   Clock,
@@ -191,6 +192,8 @@ export class InMemoryStore implements Store {
       .filter(
         (record) =>
           (options.workspaceRoot === undefined || record.workspaceRoot === options.workspaceRoot) &&
+          (options.projectRoot === undefined ||
+            conversationProjectRoot(record) === options.projectRoot) &&
           (!options.excludedState ||
             !this.#pluginState.has(
               pluginStateKey(options.excludedState.plugin, record.id, options.excludedState.key),
@@ -224,10 +227,8 @@ export class InMemoryStore implements Store {
           this.#pluginState.has(pluginStateKey(excludedState.plugin, record.id, excludedState.key)))
       )
         continue;
-      groups.set(
-        record.workspaceRoot,
-        Math.max(groups.get(record.workspaceRoot) ?? -Infinity, record.lastUsedAt),
-      );
+      const root = conversationProjectRoot(record)!;
+      groups.set(root, Math.max(groups.get(root) ?? -Infinity, record.lastUsedAt));
     }
     return [...groups]
       .map(([workspaceRoot, lastUsedAt]) => ({ workspaceRoot, lastUsedAt }))

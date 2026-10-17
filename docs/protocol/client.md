@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `15`. It exchanges
+`initialize` is the first application request and requires protocol version `16`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -109,6 +109,12 @@ events, membership, and plugin caches; a successful reload then installs the new
 snapshot and its event suffix. A failure before teardown preserves attachment.
 Snapshot configuration is the live runtime's effective value; durable head/history
 remain freshly read from the store.
+
+Protocol 16 adds a `projectRoot` conversation-list filter alongside the existing
+exact `workspaceRoot` filter. Project filtering uses original checkout when
+recorded, otherwise the current workspace, before ordering/limiting. Application
+project summaries use the same identity, so worktree conversations share one
+sidebar project without changing their execution workspace.
 
 The server does not maintain a generic UI reducer. Store owns immutable items;
 runtime owns turns and accepted pending input; each plugin owns its live objects.
@@ -250,7 +256,7 @@ editor. A failed key write leaves the saved provider visible for credential retr
 ## Worktree selection and Docker management
 
 Protocol 13 carries nullable `originalWorkspaceRoot` and `workspace.changed`.
-Current workspace drives execution/sidebar folders; original workspace drives
+Current workspace drives execution; original workspace drives sidebar grouping and
 configuration. Both survive forks/restart. The `worktrees` v2 contract exposes
 Git eligibility, creation, options, switching and paged managed ownership/removal.
 Options return null for a non-Git project. Agent tools use the same service and

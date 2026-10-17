@@ -188,7 +188,7 @@ export class DesktopSession {
   private async loadConversations(
     page: SidebarPage<Conversation, ConversationCursor>,
     count: number,
-    workspaceRoot?: string,
+    projectRoot?: string,
   ): Promise<void> {
     if (page.loading || (page.loaded && page.cursor === null)) return;
     page.loading = true;
@@ -204,7 +204,7 @@ export class DesktopSession {
           limit,
           order: "lastUsed",
           cursor,
-          filter: workspaceRoot === undefined ? null : { workspaceRoot },
+          filter: projectRoot === undefined ? null : { projectRoot },
         });
         rows.push(...result.conversations.map(decodeConversation));
         cursor = result.nextCursor;

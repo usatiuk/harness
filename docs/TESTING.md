@@ -1272,6 +1272,14 @@ desktop browser fixture pins the new-conversation worktree option to the compact
 check-label rendering (16px native checkbox, no full-width input-field styling)
 with its form submission and non-repository disable behavior.
 
+The [project/picker follow-up](plans/interface/2026-10-17-worktree-project-picker.md)
+adds both-store and application RPC coverage for original-project grouping before
+pagination, preserving exact workspace filtering and excluding child-only input.
+SQLite migration coverage checks the expression index and unchanged records.
+Real Git tests cover recency from existing conversation/ownership data. Production
+browser fixtures cover grouped sidebar navigation, the readable current checkout,
+five linked worktrees, Show all and selection of older worktrees.
+
 Local qualification: `npm run check` passed 1,391 tests (41 gated skips); all 58
 browser cases passed using `PLAYWRIGHT_BROWSERS_PATH=/tmp/harness-playwright-browsers`.
 An empty `/tmp/.git` in the current environment confuses the real non-Git RPC

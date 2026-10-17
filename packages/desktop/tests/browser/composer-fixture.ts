@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router";
 import { Tooltip } from "radix-ui";
 import type { ConversationId, DeliveryIntent, ModelInfo } from "@harness/protocol";
 import { emptyState } from "@harness/client-features/transcript-reducer";
+import { conversationProjectRoot } from "@harness/protocol";
 import { createDesktopRouter } from "../../src/routes.tsx";
 import { DesktopSession, type ConversationView } from "../../src/session.ts";
 import { DesktopTranscript } from "../../src/transcript.ts";
@@ -20,6 +21,8 @@ declare global {
       feedbackCalls: unknown[];
       showToolsAndActivities(serverSkew?: number): void;
       seedSidebar(longTitles?: boolean): void;
+      seedWorktreeSidebar(): void;
+      seedRecentWorktrees(): void;
       markUnread(id: string): void;
       showMarkdown(): void;
       worktreeSwitches: unknown[];
@@ -135,6 +138,7 @@ const providerCreates: unknown[] = [];
 const providerWrites: { provider: string; patch: Record<string, boolean> }[] = [];
 let sidebarScope = "composer-fixture";
 let worktreeBranch = "harness/one";
+let recentWorktrees: Array<{ path: string; branch: string; head: string; locked: boolean }> = [];
 let sidebarRows: (typeof view.conversation)[] = [];
 let pending: Deferred | undefined;
 let stopping: Deferred | undefined;
@@ -251,7 +255,16 @@ const session = {
         current: view.conversation.workspaceRoot,
         worktrees: [
           { path: "D:\\example", branch: "main", head: "initial", locked: false },
-          { path: "D:\\worktrees\\one", branch: worktreeBranch, head: "initial", locked: false },
+          ...(recentWorktrees.length
+            ? recentWorktrees
+            : [
+                {
+                  path: "D:\\worktrees\\one",
+                  branch: worktreeBranch,
+                  head: "initial",
+                  locked: false,
+                },
+              ]),
         ],
       };
     },
@@ -430,7 +443,7 @@ const session = {
   >(),
   async loadProjects() {},
   async loadProject(root: string, more = false) {
-    const rows = sidebarRows.filter((row) => row.workspaceRoot === root);
+    const rows = sidebarRows.filter((row) => conversationProjectRoot(row) === root);
     const previous = session.projectPages.get(root);
     const count = more ? (previous?.rows.length ?? 0) + 5 : 5;
     session.projectPages.set(root, {
@@ -487,6 +500,31 @@ const session = {
 window.composerFixture = {
   worktreeSwitches: [],
   worktreeDeletes: [],
+  seedRecentWorktrees() {
+    recentWorktrees = Array.from({ length: 8 }, (_, index) => ({
+      path: `D:\\worktrees\\tree-${index}`,
+      branch: `harness/recent-${index}`,
+      head: "initial",
+      locked: false,
+    }));
+    view.conversation = {
+      ...view.conversation,
+      workspaceRoot: recentWorktrees[6]!.path,
+      originalWorkspaceRoot: "D:\\example",
+    };
+    changed();
+  },
+  seedWorktreeSidebar() {
+    window.composerFixture.seedSidebar();
+    sidebarRows = sidebarRows.map((row) =>
+      row.workspaceRoot === "/work/a/repo"
+        ? { ...row, originalWorkspaceRoot: row.workspaceRoot, workspaceRoot: `/trees/${row.id}` }
+        : row,
+    );
+    session.recents.rows = sidebarRows.slice(0, 20);
+    session.projectPages.clear();
+    changed();
+  },
   renameWorktree(branch) {
     // Change the server-side answer without publishing a client render/event.
     worktreeBranch = branch;

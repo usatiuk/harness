@@ -1611,12 +1611,70 @@ test("opening the worktree picker reads an externally renamed branch", async ({ 
   await page.evaluate(() => window.composerFixture.renameWorktree("feature/renamed"));
   await page.getByRole("button", { name: "harness/one", exact: true }).click();
   await expect(page.locator(".conversation-branch")).toHaveText("feature/renamed");
-  await expect(
-    page.locator(".worktree-options").getByRole("button", { name: "feature/renamed", exact: true }),
-  ).toBeDisabled();
+  await expect(page.locator(".worktree-current strong")).toHaveText("feature/renamed");
   await expect(
     page.locator(".worktree-options").getByRole("button", { name: "harness/one", exact: true }),
   ).toHaveCount(0);
+});
+
+test("worktree picker pins the current checkout, limits recent entries and retains older selection", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.completeSteps("completed");
+    window.composerFixture.seedRecentWorktrees();
+  });
+  await page.locator(".conversation-branch").click();
+  await expect(page.locator(".worktree-current strong")).toHaveText("harness/recent-6");
+  await expect(page.locator(".worktree-recent button[title]")).toHaveText([
+    "harness/recent-0",
+    "harness/recent-1",
+    "harness/recent-2",
+    "harness/recent-3",
+  ]);
+  await expect(page.locator(".worktree-actions").getByRole("button")).toHaveText([
+    "Original checkout",
+    "New worktree",
+  ]);
+  const currentStyle = await page.locator(".worktree-current").evaluate((element) => ({
+    color: getComputedStyle(element).color,
+    opacity: getComputedStyle(element).opacity,
+  }));
+  expect(currentStyle.opacity).toBe("1");
+  expect(currentStyle.color).toBe(
+    await page.locator(".worktree-options").evaluate((element) => getComputedStyle(element).color),
+  );
+  await page.getByRole("button", { name: "Show all worktrees", exact: true }).click();
+  await expect(page.locator(".worktree-recent button[title]")).toHaveCount(7);
+  await page.getByRole("button", { name: "harness/recent-7", exact: true }).click();
+  await expect(page.locator(".worktree-current strong")).toHaveText("harness/recent-7");
+  await page.keyboard.press("Escape");
+  await page.locator(".conversation-branch").click();
+  await expect(page.locator(".worktree-recent button[title]")).toHaveCount(4);
+  await page.getByRole("button", { name: "Original checkout", exact: true }).click();
+  await expect(page.locator(".worktree-current strong")).toHaveText("main");
+  await expect(page.locator(".worktree-recent button[title]")).toHaveCount(5);
+  await page.screenshot({ path: test.info().outputPath("worktree-picker.png") });
+});
+
+test("worktree conversations share their original sidebar project and navigation reveals that group", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedWorktreeSidebar());
+  const project = page.locator('.sidebar-project:has(> summary[title="/work/a/repo"])');
+  await expect(page.locator(".sidebar-project")).toHaveCount(3);
+  await expect(project.getByRole("link")).toHaveCount(5);
+  await expect(project.getByLabel("Worktree", { exact: true })).toHaveCount(5);
+  await project.locator(":scope > summary").hover();
+  await project.getByRole("button", { name: "Hide project /work/a/repo", exact: true }).click();
+  await expect(project).toHaveCount(0);
+  await page.locator(".sidebar-recents").getByText("Chat 0-0", { exact: true }).click();
+  await expect(project).toHaveCount(1);
+  await expect(project.getByRole("link")).toHaveCount(5);
 });
 
 test("worktree manager requires explicit destructive confirmation", async ({ page }) => {

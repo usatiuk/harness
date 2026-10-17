@@ -1667,7 +1667,7 @@ main {
   height: 22px;
   padding: 0 4px;
   line-height: 1;
-  color: var(--muted-ink);
+  color: var(--ink);
   font-size: 11px;
   min-width: 0;
   max-width: 200px;
@@ -1690,13 +1690,49 @@ main {
 }
 .worktree-options {
   display: grid;
-  gap: 4px;
+  gap: 10px;
+  min-width: 240px;
+  max-width: 360px;
 }
 .worktree-options .control {
   justify-content: flex-start;
   text-align: left;
 }
-.worktree-path {
+.worktree-current {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+.worktree-current > div {
+  display: grid;
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+.worktree-current span,
+.worktree-section-label {
+  color: var(--muted-ink);
   font-size: 11px;
+}
+.worktree-recent {
+  display: grid;
+  gap: 3px;
+  max-height: 320px;
+  overflow: auto;
+}
+.worktree-recent .control {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.worktree-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
 }

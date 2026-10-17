@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { GitBranch } from "lucide-react";
+import { Check, GitBranch, Plus, Undo2 } from "lucide-react";
 import type { Conversation, ManagedWorktree, WorkspaceSelection } from "@harness/protocol";
 import type { DesktopSession } from "../session.ts";
 import { Button, Checkbox, Confirmation, PopoverControl } from "../ui.tsx";
@@ -21,6 +21,7 @@ export function WorktreeControl({
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showAll, setShowAll] = useState(false);
   useEffect(() => {
     let current = true;
     void session.plugins.workspaceOptions(conversation.id).then(
@@ -43,6 +44,12 @@ export function WorktreeControl({
   }, [session, conversation.id, conversation.workspaceRoot, refreshKey]);
   if (!conversation.workspaceRoot || options === null) return null;
   const branch = options?.worktrees.find((tree) => tree.path === options.current)?.branch;
+  const originalSelected = options?.current === options?.original;
+  const others =
+    options?.worktrees.filter(
+      (tree) => tree.path !== options.original && tree.path !== options.current,
+    ) ?? [];
+  const visible = showAll ? others : others.slice(0, originalSelected ? 5 : 4);
   const select = async (selection: WorkspaceSelection) => {
     setBusy(true);
     setError(undefined);
@@ -62,7 +69,10 @@ export function WorktreeControl({
       label="Conversation workspace"
       align="start"
       onOpenChange={(open) => {
-        if (open) setRefreshKey((value) => value + 1);
+        if (open) {
+          setShowAll(false);
+          setRefreshKey((value) => value + 1);
+        }
       }}
       trigger={
         <Button
@@ -77,39 +87,53 @@ export function WorktreeControl({
       }
     >
       <div className="worktree-options">
-        <span className="muted worktree-path">{conversation.workspaceRoot}</span>
         {options ? (
           <>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy || running}
-              onClick={() => void select({ kind: "new" })}
-            >
-              New worktree
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy || running || options.current === options.original}
-              onClick={() => void select({ kind: "original" })}
-            >
-              Original checkout
-            </Button>
-            {options.worktrees
-              .filter((tree) => tree.path !== options.original)
-              .map((tree) => (
-                <Button
-                  key={tree.path}
-                  variant="ghost"
-                  size="sm"
-                  title={tree.path}
-                  disabled={busy || running || tree.path === options.current}
-                  onClick={() => void select({ kind: "existing", path: tree.path })}
-                >
-                  {tree.branch ?? "Detached HEAD"}
-                </Button>
-              ))}
+            <div className="worktree-current" title={options.current}>
+              <Check size={16} aria-hidden="true" />
+              <div>
+                <strong>{branch ?? "Detached HEAD"}</strong>
+                <span>{originalSelected ? "Original checkout" : "Current worktree"}</span>
+              </div>
+            </div>
+            {others.length > 0 && (
+              <div className="worktree-recent" aria-label="Recent worktrees">
+                <span className="worktree-section-label">Recent worktrees</span>
+                {visible.map((tree) => (
+                  <Button
+                    key={tree.path}
+                    variant="ghost"
+                    size="sm"
+                    title={tree.path}
+                    disabled={busy || running}
+                    onClick={() => void select({ kind: "existing", path: tree.path })}
+                  >
+                    {tree.branch ?? "Detached HEAD"}
+                  </Button>
+                ))}
+                {!showAll && others.length > visible.length && (
+                  <Button variant="ghost" size="sm" onClick={() => setShowAll(true)}>
+                    Show all worktrees
+                  </Button>
+                )}
+              </div>
+            )}
+            <div className="worktree-actions">
+              <Button
+                size="sm"
+                disabled={busy || running || originalSelected}
+                onClick={() => void select({ kind: "original" })}
+              >
+                <Undo2 size={13} aria-hidden="true" /> Original checkout
+              </Button>
+              <Button
+                size="sm"
+                disabled={busy || running}
+                onClick={() => void select({ kind: "new" })}
+              >
+                <Plus size={13} aria-hidden="true" /> New worktree
+              </Button>
+            </div>
             {running && <span className="muted">Stop the conversation before switching.</span>}
           </>
         ) : (

@@ -126,6 +126,33 @@ it("creates an explicit branch and reads an external rename without changing che
   expect(await store.getManagedWorktree(tree.path)).toEqual(owned);
 });
 
+it("orders worktrees by existing conversation use or managed creation time", async () => {
+  const { root } = await fixture();
+  const first = await createWorktree(root, join(root, "trees"));
+  const second = await createWorktree(root, join(root, "trees"));
+  const third = await createWorktree(root, join(root, "trees"));
+  let now = 100;
+  const store = new InMemoryStore(undefined, { now: () => now++ });
+  const manager = new WorktreeManager(store, async () => join(root, "trees"));
+  const a = await store.createConversation({ workspaceRoot: first.path, overrides: {} });
+  await store.createConversation({ workspaceRoot: second.path, overrides: {} });
+  await store.putManagedWorktree({ path: third.path, repository: root, createdAt: 105 });
+  expect((await manager.list(root)).map((tree) => tree.path)).toEqual([
+    third.path,
+    second.path,
+    first.path,
+    root,
+  ]);
+  now = 110;
+  store.recordUserInput(a.id);
+  expect((await manager.list(root)).map((tree) => tree.path)).toEqual([
+    first.path,
+    third.path,
+    second.path,
+    root,
+  ]);
+});
+
 it("creates distinct readable branches concurrently without reallocating checkout ownership", async () => {
   const { root } = await fixture();
   const store = new InMemoryStore();

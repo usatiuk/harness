@@ -82,7 +82,11 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-The current SQLite format is version 10. Version 9 receives an additive original
+The current SQLite format is version 11. Version 10 receives an expression index
+on `coalesce(original_workspace_root, workspace_root)` and recency for bounded
+project conversation pages. Project summaries group by that same expression;
+exact workspace filtering remains available separately. No conversation paths
+or history are rewritten. Version 9 receives an additive original
 workspace column and indexed managed-worktree ownership table; existing workspace
 selection/history stays intact. Managed ownership stores path/repository/creation
 time only; Git remains authoritative for branch and registration facts.

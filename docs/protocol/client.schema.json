@@ -7,7 +7,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 15 },
+        "protocolVersion": { "type": "number", "const": 16 },
         "client": {
           "type": "object",
           "properties": {
@@ -37,7 +37,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 15 },
+        "protocolVersion": { "type": "number", "const": 16 },
         "server": {
           "type": "object",
           "properties": {
@@ -1047,12 +1047,22 @@
           "default": null,
           "anyOf": [
             {
-              "type": "object",
-              "properties": {
-                "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
-              },
-              "required": ["workspaceRoot"],
-              "additionalProperties": false
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                  },
+                  "required": ["workspaceRoot"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": { "projectRoot": { "type": "string" } },
+                  "required": ["projectRoot"],
+                  "additionalProperties": false
+                }
+              ]
             },
             { "type": "null" }
           ]
@@ -5064,12 +5074,22 @@
           "default": null,
           "anyOf": [
             {
-              "type": "object",
-              "properties": {
-                "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
-              },
-              "required": ["workspaceRoot"],
-              "additionalProperties": false
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "workspaceRoot": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                  },
+                  "required": ["workspaceRoot"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": { "projectRoot": { "type": "string" } },
+                  "required": ["projectRoot"],
+                  "additionalProperties": false
+                }
+              ]
             },
             { "type": "null" }
           ]

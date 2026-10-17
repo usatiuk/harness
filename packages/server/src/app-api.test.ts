@@ -413,6 +413,18 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
     const roots: import("@harness/protocol").ConversationRecord[] = [];
     for (const workspaceRoot of folders)
       roots.push(await store.createConversation({ workspaceRoot, overrides: {} }));
+    const worktrees: typeof roots = [];
+    for (let index = 0; index < 6; index++) {
+      const workspaceRoot = join(home, `worktree-${index}`);
+      await mkdir(workspaceRoot);
+      worktrees.push(
+        await store.createConversation({
+          workspaceRoot,
+          originalWorkspaceRoot: folders[0]!,
+          overrides: {},
+        }),
+      );
+    }
     for (let index = 0; index < 120; index++) {
       const child = await store.createConversation({ workspaceRoot: folders[0]!, overrides: {} });
       await store.putPluginState("subagents", child.id, "spawn", { parent: roots[0]!.id });
@@ -425,12 +437,31 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
     await desktop.start();
     await desktop.refreshSidebar();
     expect(desktop.recents.rows).toHaveLength(20);
-    expect(desktop.recents.rows.every((row) => roots.some((root) => root.id === row.id))).toBe(
-      true,
-    );
+    expect(
+      desktop.recents.rows.every((row) =>
+        [...roots, ...worktrees].some((root) => root.id === row.id),
+      ),
+    ).toBe(true);
     expect(desktop.projects.rows).toHaveLength(50);
     await desktop.loadProjects(true);
     expect(desktop.projects.rows).toHaveLength(66);
+    expect(
+      desktop.projects.rows.some((project) => project.workspaceRoot.includes("worktree-")),
+    ).toBe(false);
+    await desktop.loadProject(folders[0]!);
+    expect(desktop.projectPages.get(folders[0]!)?.rows.map((row) => row.id)).toEqual(
+      worktrees
+        .slice(1)
+        .reverse()
+        .map((row) => row.id),
+    );
+    await desktop.loadProject(folders[0]!, true);
+    expect(desktop.projectPages.get(folders[0]!)?.rows.map((row) => row.id)).toEqual(
+      [...worktrees]
+        .reverse()
+        .map((row) => row.id)
+        .concat(roots[0]!.id),
+    );
     expect(desktop.projects.rows.some((row) => row.workspaceRoot.endsWith("child-only"))).toBe(
       false,
     );

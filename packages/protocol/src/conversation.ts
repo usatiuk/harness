@@ -2,6 +2,12 @@ import type { ConversationId, ItemId, TurnId } from "./ids.ts";
 import type { ModelConfig } from "./model.ts";
 import type { ToolMode } from "./tools.ts";
 
+/** Project identity stays with the original checkout when execution moves to a worktree. */
+export const conversationProjectRoot = (conversation: {
+  workspaceRoot: string | null;
+  originalWorkspaceRoot?: string | null;
+}): string | null => conversation.originalWorkspaceRoot ?? conversation.workspaceRoot;
+
 /**
  * A conversation's resolved settings — DERIVED from the cascade + the durable `overrides` layer on
  * every load, never stored. `workspaceRoot` is deliberately NOT here: it selects execution
