@@ -1472,3 +1472,38 @@ exact final edit. All five host scenarios pass locally after the correction. Ful
 `TMPDIR=/var/tmp npm run check` passes typechecking, lint, formatting and 1,477
 tests with 41 gated skips. Three independent reviews report no actionable
 findings. Actual Windows qualification is required to confirm the platform result.
+
+Sidebar browser coverage checks folder-name/nested-chat text alignment, minimum
+width overflow, row clearance from the native scrollbar before/after hover
+and its 2px outer inset,
+selection screenshots in both themes, and the 14px conversation
+default with saved size overrides. Markdown measurements wait for live geometry and query the current cell from
+the stable document body in one synchronous snapshot: virtualizer replacements
+were observed detaching a previously resolved cell and briefly removing it. Native
+Windows/macOS material rendering still requires a native application check.
+
+A fixed-width custom scrollbar was rejected during visual review. The final
+sidebar keeps native scrollbar sizing/interaction, a transparent track, and
+20px of inner clearance so expanded overlay scrollbars have room on hover.
+
+Composer browser checks verify that statistics render below the input only when
+enabled and that disabling them restores the composer’s lower position. The
+keyboard hint and redundant status label are absent. The simple fade retains
+dock clearance, stream follow, reading pause/jump behavior and tool-expansion
+clearance.
+
+Transcript selection coverage selects document text, checks that composer control
+and sidebar labels are excluded, and verifies native select-all in the draft. The transcript
+container is bounded to the chat column so block selection cannot fill the wide
+canvas gutters. The fade remains behind the composer, with a softer transition
+that reaches solid inside its rounded top corners.
+
+The Ctrl/Cmd+A regression also reproduces the remaining sidebar selection
+(`Settings` and the host name) before applying nonselection to the sidebar
+container; the corrected case excludes both while retaining transcript and draft
+selection.
+
+Final local validation passes `TMPDIR=/var/tmp npm run check` (1,477 tests,
+41 gated skips), seven focused browser cases, and three independent review
+lenses. Default-preserving appearance persistence is deferred to
+[issue #46](https://github.com/usatiuk/harness/issues/46).

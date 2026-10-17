@@ -643,9 +643,6 @@ test("production composer explains queued interruption and supports Escape while
     "title",
     "Interrupt current turn; pending messages run next (Esc)",
   );
-  await expect(page.locator(".composer-hint")).toContainText(
-    "Esc interrupt · pending messages run next",
-  );
   await message.fill("Keep this draft");
   for (const event of [{ isComposing: true }, { keyCode: 229 }])
     await message.dispatchEvent("keydown", { key: "Escape", bubbles: true, ...event });
@@ -865,6 +862,61 @@ for (const theme of ["light", "dark"] as const)
     expect(colors.selected).toBe("Check authentication");
     expect(colors.highlight).not.toBe(colors.background);
   });
+
+test("transcript selection stays in the chat column and excludes composer controls", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showMarkdown());
+  const transcript = page.getByTestId("transcript");
+  await expect(transcript.locator(".cell.assistant hr")).toBeVisible();
+  const column = await transcript.boundingBox();
+  const cell = await transcript.locator(".cell.assistant").boundingBox();
+  expect(column!.width).toBe(cell!.width);
+  await transcript.locator("p").first().click();
+  await page.keyboard.press("ControlOrMeta+a");
+  const selected = await page.evaluate(() => window.getSelection()!.toString());
+  expect(selected).toContain("The wrapper resolves the alias conflict.");
+  expect(selected).not.toContain("Settings");
+  expect(selected).not.toContain("Fixture");
+  expect(selected).not.toContain("Fixture model");
+  await page.screenshot({ path: test.info().outputPath("transcript-selection.png") });
+  const input = page.getByRole("textbox", { name: "Message", exact: true });
+  await input.fill("An editable draft");
+  await input.press("ControlOrMeta+a");
+  expect(
+    await input.evaluate((element: HTMLTextAreaElement) =>
+      element.value.slice(element.selectionStart, element.selectionEnd),
+    ),
+  ).toBe("An editable draft");
+});
+
+test("turn statistics occupy a footer only while enabled", async ({ page }) => {
+  await page.goto(url + "?composer");
+  const composer = page.locator(".composer");
+  await expect(composer).toBeVisible();
+  await expect(page.locator(".composer-footer")).toHaveCount(0);
+  const bottomWithoutStats = await composer.evaluate(
+    (element) => element.getBoundingClientRect().bottom,
+  );
+  await page.getByRole("button", { name: "Composer settings", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Show last-turn statistics" }).check();
+  await page.keyboard.press("Escape");
+  const footer = page.locator(".composer-footer");
+  await expect(footer).toBeVisible();
+  expect((await composer.boundingBox())!.y + (await composer.boundingBox())!.height).toBeLessThan(
+    bottomWithoutStats,
+  );
+  await expect(footer.getByLabel("Last turn statistics")).toBeVisible();
+  await page.getByRole("button", { name: "Composer settings", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Show last-turn statistics" }).uncheck();
+  await page.keyboard.press("Escape");
+  await expect(footer).toHaveCount(0);
+  await expect
+    .poll(() => composer.evaluate((element) => element.getBoundingClientRect().bottom))
+    .toBeCloseTo(bottomWithoutStats, 0);
+});
 
 test("provider settings expose and save native web search for supported connections", async ({
   page,
@@ -1446,35 +1498,52 @@ test("quiet sidebar keeps long project rows aligned and fully inside the resized
   await page.getByRole("separator", { name: "Resize sidebar" }).focus();
   await page.keyboard.press("Home");
   const bounds = await page.locator(".conversation-list").evaluate((nav) => {
-    const recent = nav.querySelector(".sidebar-recents > a")!;
     const project = nav.querySelector(".project-conversations > a")!;
     const rect = nav.getBoundingClientRect();
-    const r = recent.getBoundingClientRect();
     const p = project.getBoundingClientRect();
     const more = nav.querySelector(".sidebar-more")!;
     return {
-      recentLeft: r.left,
-      projectLeft: p.left,
+      projectTextLeft: project.querySelector(".conversation-title")!.getBoundingClientRect().left,
+      projectLabelLeft: nav.querySelector(".project-label")!.getBoundingClientRect().left,
       projectRight: p.right,
-      navRight: rect.right,
+      contentRight: rect.left + nav.clientLeft + nav.clientWidth,
+      sidebarRight: nav.closest(".sidebar")!.getBoundingClientRect().right,
+      scrollbarRight: rect.right,
+      scrollbarTop: rect.top,
       overflow: nav.scrollWidth > nav.clientWidth,
       moreHeight: more.getBoundingClientRect().height,
       moreShadow: getComputedStyle(more).boxShadow,
     };
   });
-  expect(bounds.projectLeft).toBe(bounds.recentLeft);
-  expect(bounds.projectRight).toBeLessThanOrEqual(bounds.navRight);
+  expect(bounds.projectTextLeft).toBe(bounds.projectLabelLeft);
+  expect(bounds.contentRight - bounds.projectRight).toBeGreaterThanOrEqual(20);
+  expect(bounds.sidebarRight - bounds.scrollbarRight).toBe(2);
   expect(bounds.overflow).toBe(false);
   expect(bounds.moreHeight).toBeLessThanOrEqual(26);
   expect(bounds.moreShadow).toBe("none");
+  await project.getByRole("link").first().click();
+  await expect(project.locator("a.active")).toHaveCount(1);
   await recent.locator(":scope > summary").click();
   await expect(recent).not.toHaveAttribute("open");
+  await project.locator("a.active").scrollIntoViewIfNeeded();
+  await page.mouse.move(bounds.scrollbarRight - 4, bounds.scrollbarTop + 40);
+  expect(
+    await page.locator(".conversation-list").evaluate((nav) => {
+      const row = nav.querySelector(".project-conversations > a")!;
+      return (
+        nav.getBoundingClientRect().left +
+        nav.clientLeft +
+        nav.clientWidth -
+        row.getBoundingClientRect().right
+      );
+    }),
+  ).toBeGreaterThanOrEqual(20);
   await page.screenshot({ path: test.info().outputPath("quiet-sidebar-light.png") });
   await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
   await page.screenshot({ path: test.info().outputPath("quiet-sidebar-dark.png") });
 });
 
-test("conversation has a compact title, smaller prose and a quiet Markdown separator", async ({
+test("conversation has a compact title, readable prose and a quiet Markdown separator", async ({
   page,
 }) => {
   await page.goto(url + "?composer");
@@ -1486,23 +1555,30 @@ test("conversation has a compact title, smaller prose and a quiet Markdown separ
   await expect(page.locator(".cell.assistant hr")).toHaveCount(1);
   await expect(page.locator(".conversation-header h1")).toHaveText("Building a Teaching Assistant");
   await expect(page.locator(".workspace-path")).toHaveCount(0);
-  const metrics = await page.locator(".cell.assistant").evaluate((cell) => {
-    const rule = getComputedStyle(cell.querySelector("hr")!);
-    return {
-      connected: cell.isConnected,
-      text: getComputedStyle(cell).fontSize,
-      heading: getComputedStyle(cell.querySelector("h1")!).fontSize,
-      ruleWidth: rule.borderTopWidth,
-      ruleMargin: parseFloat(rule.marginTop),
-      headerHeight: document.querySelector(".conversation-header")!.getBoundingClientRect().height,
-    };
-  });
-  expect(metrics.connected).toBe(true);
-  expect(metrics.text).toBe("13px");
-  expect(parseFloat(metrics.heading)).toBeCloseTo(16.9, 1);
-  expect(metrics.ruleWidth).toBe("1px");
-  expect(metrics.ruleMargin).toBeLessThanOrEqual(16);
-  expect(metrics.headerHeight).toBeLessThanOrEqual(44);
+  await expect(async () => {
+    const metrics = await page.locator("body").evaluate((body) => {
+      // Read one live DOM snapshot while the virtualizer can replace cell elements.
+      const cell = body.querySelector(".cell.assistant")!;
+      const rule = getComputedStyle(cell.querySelector("hr")!);
+      return {
+        connected: cell.isConnected,
+        text: getComputedStyle(cell).fontSize,
+        heading: getComputedStyle(cell.querySelector("h1")!).fontSize,
+        ruleWidth: rule.borderTopWidth,
+        ruleMargin: parseFloat(rule.marginTop),
+        headerHeight: document.querySelector(".conversation-header")!.getBoundingClientRect()
+          .height,
+      };
+    });
+    expect(metrics.connected).toBe(true);
+    expect(metrics.text).toBe("14px");
+    expect(parseFloat(metrics.heading)).toBeCloseTo(18.2, 1);
+    expect(metrics.ruleWidth).toBe("1px");
+    expect(metrics.ruleMargin).toBeLessThanOrEqual(16);
+    expect(metrics.headerHeight).toBeLessThanOrEqual(44);
+  }).toPass({ timeout: 5000 });
+  await expect(page.locator(".composer-footer")).toHaveCount(0);
+  await expect(page.locator(".composer-wrap")).not.toContainText("Enter send");
   await expect(page.locator(".cell.assistant hr")).toBeVisible();
   await expect(page.locator(".cell.assistant hr")).toBeInViewport();
   await page.screenshot({ path: test.info().outputPath("quiet-conversation-light.png") });
@@ -1510,7 +1586,7 @@ test("conversation has a compact title, smaller prose and a quiet Markdown separ
   await page.screenshot({ path: test.info().outputPath("quiet-conversation-dark.png") });
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   const size = page.getByRole("combobox", { name: "Conversation text size" });
-  await expect(size).toHaveAttribute("data-value", "13");
+  await expect(size).toHaveAttribute("data-value", "14");
   await chooseDropdown(page, size, "16");
   await page
     .locator(".sidebar-recents")

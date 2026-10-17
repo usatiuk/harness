@@ -1445,12 +1445,6 @@ export function createDesktopRouter(
     };
     return (
       <div className="composer-wrap">
-        <div className="conversation-status">
-          <span role="status">
-            {view.approvals.size ? "Waiting for approval" : running ? "Working…" : "Ready"}
-          </span>
-          {preferences.showStats && <LastTurnStats state={view.state} />}
-        </div>
         <div className="composer">
           {view.state.pendingInput.length > 0 && (
             <div className="pending-input">
@@ -1569,12 +1563,11 @@ export function createDesktopRouter(
           <ActionFeedback data={send.data} />
           <ActionFeedback data={stop.data} />
         </div>
-        <small className="composer-hint">
-          {preferences.sendWith} send · {preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"}{" "}
-          newline
-          {running &&
-            (hasPendingInput ? " · Esc interrupt · pending messages run next" : " · Esc stop")}
-        </small>
+        {preferences.showStats && (
+          <div className="composer-footer">
+            <LastTurnStats state={view.state} />
+          </div>
+        )}
       </div>
     );
   }

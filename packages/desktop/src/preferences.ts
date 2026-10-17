@@ -23,7 +23,7 @@ export const defaultAppearance: Appearance = {
   accent: accents[0][1],
   depth: 3,
   radius: 9,
-  conversationFontSize: 13,
+  conversationFontSize: 14,
 };
 export const defaultComposer: ComposerPreferences = {
   sendWith: "Enter",

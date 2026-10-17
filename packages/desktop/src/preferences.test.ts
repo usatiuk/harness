@@ -12,7 +12,7 @@ describe("desktop client preferences", () => {
     expect(readAppearance(null, "dark")).toEqual({ ...defaultAppearance, theme: "dark" });
     expect(
       readAppearance('{"theme":"light","accent":"#00FF00","depth":2,"radius":8}', "dark"),
-    ).toEqual({ theme: "light", accent: "#00FF00", depth: 2, radius: 8, conversationFontSize: 13 });
+    ).toEqual({ theme: "light", accent: "#00FF00", depth: 2, radius: 8, conversationFontSize: 14 });
     expect(
       readAppearance('{"theme":"other","accent":"red;bad","depth":-2,"radius":999}', "dark"),
     ).toEqual({ ...defaultAppearance, theme: "dark" });
@@ -28,7 +28,7 @@ describe("desktop client preferences", () => {
     for (const value of [0, 19, 13.5, "16"])
       expect(
         readAppearance(JSON.stringify({ conversationFontSize: value }), null).conversationFontSize,
-      ).toBe(13);
+      ).toBe(14);
   });
   it("maps send, newline and alternate delivery without intercepting composition", () => {
     const enter = {

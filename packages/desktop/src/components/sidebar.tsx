@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { NavLink, Link, useLocation } from "react-router";
-import { PanelLeftClose, PanelLeftOpen, Plus, Settings, X, ChevronDown } from "lucide-react";
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  Settings,
+  X,
+  ChevronDown,
+  Folder,
+} from "lucide-react";
 import { z } from "zod";
 import { conversationProjectRoot, type Conversation } from "@harness/protocol";
 import type { DesktopSession, SidebarPage } from "../session.ts";
@@ -76,6 +84,7 @@ function ProjectGroup({
       onToggle={(event) => toggle(event.currentTarget.open)}
     >
       <summary title={root}>
+        <Folder size={15} aria-hidden="true" />
         <span className="project-label">{label}</span>
         <IconButton
           label={`Hide project ${label}`}

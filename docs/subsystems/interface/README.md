@@ -567,9 +567,11 @@ same controls and tokens. The playground consumes those production recipes while
 its sample conversation/host state remains isolated.
 
 The conversation canvas owns one full-height scroll parent. A floating dock holds
-bounded approvals/activities and the composer over a short neutral fade. Current
-status and optional last-turn statistics share a compact row within the fade,
-which becomes solid behind the composer and shortcut hint. A measured footer keeps the
+bounded approvals/activities and the composer over a short neutral fade. Optional last-turn statistics sit below the composer; disabling them removes
+the footer space. Keyboard hints live in settings, and no redundant Ready/Working
+status label is shown.
+A simple two-stop fade above the dock becomes solid just inside the rounded
+composer, keeping its top corners soft and its footer covered. A measured footer keeps the
 last transcript content clear of that dock; measured items contain their margins.
 The virtualizer opens at the latest edge, follows while at bottom, and pauses when
 the reader scrolls away. Three dots return to latest only during a running turn;
@@ -591,7 +593,7 @@ conversations; explicitly configured choices override it.
 
 Conversation headers sit above the scroll viewport and show a compact single title without a workspace subtitle;
 full folder paths remain available on project and conversation hover. The compact
-composer uses a short fade above its status line, keeping the lower dock covered
+composer uses a short fade above the dock, keeping the lower dock covered
 by the canvas background. Markdown
 separators use the neutral line token and tight margins. Heading sizes scale with
 conversation text; compact tool/reasoning text keeps its existing sizing. The
@@ -609,7 +611,7 @@ version requirement remains for this experiment.
 Appearance is applied at the document root before render, including portals.
 The old `theme` preference is retained when no new appearance preference exists.
 Client storage owns System/Light/Dark, pastel/custom accent, button depth/radius,
-conversation text size (13px default, 12–18px in GUI Appearance settings),
+conversation text size (14px default, 12–18px in GUI Appearance settings),
 send/newline mapping and statistics visibility. System
 theme follows OS changes. The same preference sets Tauri's native theme (including
 returning to System) before the initially hidden window is shown, and on live
@@ -833,3 +835,15 @@ delete (`--force` explicitly discards dirty files), and `/docker` list/stop/remo
 Host Settings exposes nullable `worktreeDirectory`. All these use the same plugin
 RPC boundary and server-owned lifetimes. Local sandbox shell/stop utility commands
 also use the shared local server instead of provisioning independent containers.
+
+Sidebar conversation rows use 13px text and compact vertical spacing. Section
+labels use normal case; project rows share chat styling with a folder icon, and
+nested chat titles align with the project name. Recents have no extra indentation. Selection
+uses a neutral translucent highlight without an accent stripe or outline,
+preserving the native sidebar material on Windows/macOS. The scroll region keeps
+a stable native scrollbar gutter with clearance for expanded overlay scrollbars
+and its outer edge 2px inside the sidebar boundary. The track is transparent;
+scrollbar width and interaction remain native.
+
+Transcript selection is limited to the centered chat column; conversation chrome
+is not selectable, while the draft retains native text selection and editing.
