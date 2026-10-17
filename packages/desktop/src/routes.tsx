@@ -69,6 +69,7 @@ import {
   Confirmation,
   Disclosure,
   Tabs,
+  useScrollShadows,
 } from "./ui.tsx";
 import { useComposerPreferences } from "./appearance.ts";
 import { composerKey } from "./preferences.ts";
@@ -982,14 +983,14 @@ export function createDesktopRouter(
     cell: Extract<Cell, { kind: "tool" }>;
     boundary?: "begin" | "result" | undefined;
   }) {
-    const [open, setOpen] = useState(false);
     const edit = editPresentation(cell);
     const ToolIcon = toolIcon(cell.name);
     return (
       <Disclosure
         className={`cell tool ${boundary ? `eval-${boundary}` : ""} ${cell.status === "error" && boundary !== "begin" ? "failed" : ""}`}
         data-testid="tool-call"
-        onToggle={(event) => setOpen(event.currentTarget.open)}
+        unmountOnExit
+        name="conversation-step"
         title={
           <>
             <ToolIcon size={13} aria-hidden="true" className="tool-icon muted" />
@@ -1004,48 +1005,46 @@ export function createDesktopRouter(
           </>
         }
       >
-        {open && (
-          <>
-            <div className="message-actions">
-              <FeedbackControls session={session} itemId={cell.id} />
-            </div>
-            {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
-            {edit &&
-              edit.files.map((file, index) => (
-                <section className="diff" key={`${file.path}:${index}`}>
-                  <strong>{file.path}</strong>
-                  <pre>
-                    {file.lines.map((line, lineIndex) => (
-                      <span key={lineIndex} className={`diff-${line.kind}`}>
-                        {line.text}
-                        {"\n"}
-                      </span>
-                    ))}
-                  </pre>
-                </section>
-              ))}
-            {boundary !== "result" && (
-              <>
-                <h3>Arguments</h3>
+        <>
+          <div className="message-actions">
+            <FeedbackControls session={session} itemId={cell.id} />
+          </div>
+          {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
+          {edit &&
+            edit.files.map((file, index) => (
+              <section className="diff" key={`${file.path}:${index}`}>
+                <strong>{file.path}</strong>
                 <pre>
-                  {typeof cell.args === "string" ? cell.args : JSON.stringify(cell.args, null, 2)}
+                  {file.lines.map((line, lineIndex) => (
+                    <span key={lineIndex} className={`diff-${line.kind}`}>
+                      {line.text}
+                      {"\n"}
+                    </span>
+                  ))}
                 </pre>
-              </>
-            )}
-            {boundary !== "begin" && (
-              <>
-                <h3>Output</h3>
-                <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
-              </>
-            )}
-            {cell.approval && (
-              <p className="muted">
-                {cell.approval.decision === "allow" ? "Allowed" : "Denied"} by{" "}
-                {cell.approval.responder}
-              </p>
-            )}
-          </>
-        )}
+              </section>
+            ))}
+          {boundary !== "result" && (
+            <>
+              <h3>Arguments</h3>
+              <pre>
+                {typeof cell.args === "string" ? cell.args : JSON.stringify(cell.args, null, 2)}
+              </pre>
+            </>
+          )}
+          {boundary !== "begin" && (
+            <>
+              <h3>Output</h3>
+              <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
+            </>
+          )}
+          {cell.approval && (
+            <p className="muted">
+              {cell.approval.decision === "allow" ? "Allowed" : "Denied"} by{" "}
+              {cell.approval.responder}
+            </p>
+          )}
+        </>
       </Disclosure>
     );
   }
@@ -1070,55 +1069,43 @@ export function createDesktopRouter(
     );
   }
 
-  function WorkPreview({ steps, expand }: { steps: TranscriptStep[]; expand: () => void }) {
-    const recent = steps
-      .filter(({ cell }) => cell.kind !== "reasoning" || cell.text.trim() !== "")
-      .slice(-5)
-      .map((step) => ({ step, lines: 1 }));
-    const reasoning = recent.findLast(({ step }) => step.cell.kind === "reasoning");
-    if (reasoning) reasoning.lines += 5 - recent.length;
+  function WorkItems({ steps, preview = false }: { steps: TranscriptStep[]; preview?: boolean }) {
+    const visible = preview
+      ? steps.filter(({ cell }) => cell.kind !== "reasoning" || cell.text.trim() !== "").slice(-5)
+      : steps;
+    const reasoning = visible.findLast(({ cell }) => cell.kind === "reasoning");
     return (
-      <div className="live-step-preview" aria-label="Recent work">
-        {recent.map(({ step, lines }) => {
-          if (step.cell.kind === "reasoning")
-            return (
-              <div
-                className="preview-reasoning"
-                key={step.key}
-                style={{ maxHeight: `${lines * 1.65}em` }}
-              >
-                <span>{step.cell.text.slice(-2000)}</span>
-              </div>
-            );
-          const cell = step.cell;
-          if (cell.kind !== "tool")
-            return (
-              <button type="button" className="preview-tool" key={step.key} onClick={expand}>
-                <span>
-                  {cell.kind === "plugin_message" ? `Message from ${cell.pluginId}` : cell.text}
-                </span>
-              </button>
-            );
-          const ToolIcon = toolIcon(cell.name);
-          const boundary = "boundary" in step ? step.boundary : undefined;
-          return (
-            <button type="button" className="preview-tool" key={step.key} onClick={expand}>
-              <ToolIcon size={13} aria-hidden="true" className="tool-icon" />
-              {cell.status === "error" && boundary !== "begin" && (
-                <span className="tool-failure">Failed</span>
-              )}
-              <span>{boundary ? `eval ${boundary}` : cell.name}</span>
-              <span className="tool-argument-preview">{argumentPreview(cell, boundary)}</span>
-            </button>
-          );
-        })}
+      <div className="work-items" aria-label={preview ? "Recent work" : "Work details"}>
+        {visible.map((step) =>
+          step.cell.kind === "tool" ? (
+            <ToolCall
+              key={step.key}
+              cell={step.cell}
+              boundary={"boundary" in step ? step.boundary : undefined}
+            />
+          ) : step.cell.kind === "reasoning" ? (
+            <Reasoning
+              key={step.key}
+              cell={step.cell}
+              peekLines={preview ? (step === reasoning ? 6 - visible.length : 1) : undefined}
+            />
+          ) : (
+            <TranscriptCell key={step.key} cell={step.cell} />
+          ),
+        )}
       </div>
     );
   }
 
-  function StepGroup({ row }: { row: Extract<TranscriptRow, { kind: "steps" }> }) {
+  function StepGroup({
+    row,
+    latest,
+  }: {
+    row: Extract<TranscriptRow, { kind: "steps" }>;
+    latest: boolean;
+  }) {
+    const scrollShadows = useScrollShadows();
     const [open, setOpen] = useState(false);
-    const disclosure = useRef<HTMLDetailsElement>(null);
     const calls = row.steps.filter(
       (step) => step.cell.kind === "tool" && !("boundary" in step && step.boundary === "result"),
     ).length;
@@ -1159,59 +1146,43 @@ export function createDesktopRouter(
     ) : (
       `Worked for ${duration} s`
     );
+    const title = (
+      <span>
+        {label}
+        {calls ? ` · ${calls} tool ${calls === 1 ? "call" : "calls"}` : ""}
+      </span>
+    );
+    const collapsible = row.steps.length > (latest ? 5 : 3);
     return (
-      <div className="cell tool-group-container">
-        <Disclosure
-          ref={disclosure}
-          className="tool-group"
-          open={open}
-          title={
-            <span>
-              {label}
-              {calls ? ` · ${calls} tool ${calls === 1 ? "call" : "calls"}` : ""}
-            </span>
-          }
-          onClick={(event) => {
-            if (
-              event.target instanceof Element &&
-              event.target.closest("summary")?.parentElement === event.currentTarget
-            ) {
-              // Change visibility and mount the body together. A native toggle
-              // hides the tail before its queued event mounts the lazy body,
-              // letting that first resize consume the virtualizer's follow request.
-              event.preventDefault();
-              setOpen((value) => !value);
-            }
-          }}
-        >
-          {open &&
-            row.steps.map((step) =>
-              step.cell.kind === "tool" ? (
-                <ToolCall
-                  key={step.key}
-                  cell={step.cell}
-                  boundary={"boundary" in step ? step.boundary : undefined}
-                />
-              ) : (
-                <TranscriptCell key={step.key} cell={step.cell} />
-              ),
-            )}
-        </Disclosure>
-        {working && (
-          <WorkPreview
-            steps={row.steps}
-            expand={() => {
-              const summary = disclosure.current!.querySelector("summary")!;
-              summary.focus();
-              summary.click();
-            }}
-          />
-        )}
+      <div className="cell work-scroll-frame">
+        <div className="tool-group-container scroll-shadows" ref={scrollShadows}>
+          {collapsible ? (
+            <Disclosure
+              className="tool-group"
+              unmountOnExit
+              name="conversation-work"
+              open={open}
+              onToggle={(event) => setOpen(event.currentTarget.open)}
+              title={title}
+            >
+              <WorkItems steps={row.steps} />
+            </Disclosure>
+          ) : (
+            <div className="work-group-title">{title}</div>
+          )}
+          {(!collapsible || (latest && !open)) && <WorkItems steps={row.steps} preview />}
+        </div>
       </div>
     );
   }
 
-  function Reasoning({ cell }: { cell: Extract<Cell, { kind: "reasoning" }> }) {
+  function Reasoning({
+    cell,
+    peekLines,
+  }: {
+    cell: Extract<Cell, { kind: "reasoning" }>;
+    peekLines?: number | undefined;
+  }) {
     const [open, setOpen] = useState(false);
     const duration =
       cell.observedTiming && cell.completedAt !== undefined
@@ -1230,28 +1201,36 @@ export function createDesktopRouter(
     );
     return (
       <Disclosure
-        className="cell reasoning"
-        title={label}
+        className={`cell reasoning ${peekLines && !open ? "reasoning-peek" : ""}`}
+        unmountOnExit
+        name="conversation-step"
+        title={
+          peekLines && !open ? (
+            <span className="preview-reasoning" style={{ maxHeight: `${peekLines * 1.65}em` }}>
+              <span>{cell.text.slice(-2000).replace(/\n\s*\n/gu, "\n")}</span>
+            </span>
+          ) : (
+            label
+          )
+        }
         onToggle={(event) => setOpen(event.currentTarget.open)}
       >
         <div className="message-actions">
           <FeedbackControls session={session} itemId={cell.id} />
         </div>
-        {open && (
-          <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
-            {cell.text}
-          </Markdown>
-        )}
+        <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
+          {cell.text}
+        </Markdown>
       </Disclosure>
     );
   }
 
-  function TranscriptCell({ cell }: { cell: Cell }) {
+  function TranscriptCell({ cell, intermediate = false }: { cell: Cell; intermediate?: boolean }) {
     if (cell.kind === "tool") return <ToolCall cell={cell} />;
     if (cell.kind === "reasoning") return <Reasoning cell={cell} />;
     if (cell.kind === "plugin_message")
       return (
-        <Disclosure title={<>Message from {cell.pluginId}</>}>
+        <Disclosure name="conversation-step" title={<>Message from {cell.pluginId}</>}>
           <pre>{cell.text}</pre>
         </Disclosure>
       );
@@ -1269,19 +1248,23 @@ export function createDesktopRouter(
     if (cell.kind === "user")
       return (
         <article className="cell user">
-          <div className="user-text">{cell.text}</div>
+          <div className="user-text">
+            <span>{cell.text}</span>
+          </div>
           <ForkBefore itemId={cell.id} />
         </article>
       );
     if (cell.kind === "assistant")
       return (
         <article
-          className="cell assistant"
+          className={`cell assistant ${intermediate ? "assistant-intermediate" : ""}`}
           data-testid="assistant-message"
           data-phase={cell.phase ?? undefined}
         >
-          {cell.phase && cell.phase !== "final_answer" && <div className="muted">{cell.phase}</div>}
           <div className="message-content">
+            {cell.phase && cell.phase !== "final_answer" && (
+              <div className="message-phase muted">{cell.phase}</div>
+            )}
             <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
               {cell.text}
             </Markdown>
@@ -1372,6 +1355,7 @@ export function createDesktopRouter(
     return (
       <Disclosure
         className="activity"
+        name="conversation-activity"
         title={
           <>
             <span className="activity-title">{title}</span>
@@ -1379,6 +1363,19 @@ export function createDesktopRouter(
               {output.replace(/\s+/g, " ").slice(-300)}
             </span>
             <span className="muted">running</span>
+            <IconButton
+              icon={Square}
+              label="Stop activity"
+              className="activity-stop"
+              size="sm"
+              disabled={kill.state !== "idle" || disconnected}
+              onClick={() =>
+                void kill.submit(
+                  { intent: "activity-kill", conversationId: view.conversation.id, activityId: id },
+                  { method: "post", action: "/actions" },
+                )
+              }
+            />
           </>
         }
       >
@@ -1388,18 +1385,6 @@ export function createDesktopRouter(
             {error}
           </p>
         )}
-        <kill.Form method="post" action="/actions">
-          <Input type="hidden" name="conversationId" value={view.conversation.id} />
-          <Input type="hidden" name="activityId" value={id} />
-          <Button
-            type="submit"
-            name="intent"
-            value="activity-kill"
-            disabled={kill.state !== "idle" || disconnected}
-          >
-            Stop activity
-          </Button>
-        </kill.Form>
       </Disclosure>
     );
   }
@@ -1786,11 +1771,26 @@ export function createDesktopRouter(
       session.setActiveConversation(view.conversation.id);
       return () => session.setActiveConversation(null);
     }, [view.conversation.id]);
+    const latestWork = view.transcript.rows.findLast((row) => row.kind === "steps")?.key;
+    const lastByTurn = new Map<string, Cell>();
+    for (const cell of view.state.cells)
+      if ("turnId" in cell && cell.turnId) lastByTurn.set(cell.turnId, cell);
     return (
       <ConversationCanvas
         key={view.conversation.id}
         rows={view.transcript.rows}
         running={view.state.turn.status === "running"}
+        pendingWork={
+          view.state.turn.status === "running" &&
+          !view.state.cells.some(
+            (cell) =>
+              cell.kind !== "user" && "turnId" in cell && cell.turnId === view.state.turn.id,
+          ) && (
+            <div className="cell" role="status">
+              <div className="work-group-title">Working</div>
+            </div>
+          )
+        }
         header={
           <header className="conversation-header">
             <ConversationHeading key={view.conversation.id} view={view} />
@@ -1798,7 +1798,21 @@ export function createDesktopRouter(
         }
         history={<EarlierHistory key={view.conversation.id} view={view} />}
         renderRow={(row) =>
-          row.kind === "steps" ? <StepGroup row={row} /> : <TranscriptCell cell={row.cell} />
+          row.kind === "steps" ? (
+            <StepGroup row={row} latest={row.key === latestWork} />
+          ) : (
+            <TranscriptCell
+              cell={row.cell}
+              intermediate={
+                row.cell.kind === "assistant" &&
+                (row.cell.phase
+                  ? row.cell.phase !== "final_answer"
+                  : lastByTurn.get(row.cell.turnId) !== row.cell ||
+                    (view.state.turn.status === "running" &&
+                      view.state.turn.id === row.cell.turnId))
+              }
+            />
+          )
         }
         dock={
           <>

@@ -14,6 +14,7 @@ import type { TranscriptRow } from "../transcript.ts";
 interface CanvasContext {
   history: ReactNode;
   clearance: number;
+  pendingWork?: ReactNode;
 }
 function HistoryHeader({ context }: { context?: CanvasContext }) {
   if (!context) throw new Error("Conversation transcript context is missing");
@@ -21,7 +22,12 @@ function HistoryHeader({ context }: { context?: CanvasContext }) {
 }
 function ComposerClearance({ context }: { context?: CanvasContext }) {
   if (!context) throw new Error("Conversation transcript context is missing");
-  return <div className="transcript-clearance" style={{ height: context.clearance }} />;
+  return (
+    <>
+      {context.pendingWork}
+      <div className="transcript-clearance" style={{ height: context.clearance }} />
+    </>
+  );
 }
 const components = { Header: HistoryHeader, Footer: ComposerClearance };
 
@@ -117,6 +123,7 @@ export function ConversationCanvas({
   history,
   dock,
   renderRow,
+  pendingWork,
 }: {
   rows: TranscriptRow[];
   running: boolean;
@@ -124,6 +131,7 @@ export function ConversationCanvas({
   history: ReactNode;
   dock: ReactNode;
   renderRow: (row: TranscriptRow) => ReactNode;
+  pendingWork?: ReactNode;
 }) {
   const scroller = useRef<VirtuosoHandle>(null);
   const dockRef = useRef<HTMLDivElement>(null);
@@ -172,7 +180,7 @@ export function ConversationCanvas({
                 ref={scroller}
                 customScrollParent={scrollParent}
                 data={rows}
-                context={{ history, clearance }}
+                context={{ history, clearance, pendingWork }}
                 itemSize={(element) => element.getBoundingClientRect().height}
                 computeItemKey={(_index, row) => row.key}
                 initialTopMostItemIndex={{ index: "LAST", align: "end" }}

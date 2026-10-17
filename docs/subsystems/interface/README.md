@@ -459,11 +459,15 @@ fees are unavailable. Models author Markdown links; no citation transformation
 or provider-specific search-result UI runs in clients.
 Desktop groups consecutive reasoning, tool calls, provider activity hints and
 plugin-origin messages between other transcript
-entries under a collapsed summary. Reasoning remains separately collapsed when
-the group opens; opening its compact Thought row mounts the full smaller muted
-text. Reasoning rows show Thinking for X s while streaming and Thought for X s
+entries into Work groups. Earlier groups with more than three entries collapse
+completely; the latest group keeps a five-entry peek and has an outer disclosure
+only above five entries. Smaller groups show their rows directly. Reasoning
+remains separately collapsed; opening its compact Thought row mounts the full
+smaller muted text. Reasoning rows show Thinking for X s while streaming and Thought for X s
 when locally observed timing is available. The group summary shows Working for X s
 while active, updating once per second from the locally observed group start.
+A running turn shows a plain Working row before its first agent output; the
+first content replaces that waiting indicator without creating history entries.
 Completed live groups show Worked for X s with that local elapsed duration. Historical tool-only
 groups use comparable server timestamps; historical groups containing reasoning
 show Worked without timing. Client and server clocks are never mixed for elapsed
@@ -477,24 +481,38 @@ Eval arguments and results have separate begin/result rows with subtle horizonta
 boundaries. Child calls stay independently visible without opening their parent;
 results follow the last available descendant, including nested Eval calls.
 Desktop rows distinguish messages from nonrecursive, nonempty step groups.
-Active collapsed groups show a quiet tail of recent tools and actual reasoning,
-with a shared five-visible-line budget. The last five nonempty tool/reasoning
-entries stay in chronological order, with one line each; unused lines go to the
-newest reasoning entry. Reasoning renders only its last 2,000 characters. Wrapped
-reasoning clips from the top so its latest lines remain visible. Native open-state
-CSS hides the preview immediately on expansion. The latest group for the current
-running turn remains active between calls; completed, failed or aborted turn state
-ends its elapsed timing and removes the preview. The group
-open attribute and lazy body change in one React commit. Preview tool buttons
-activate the existing summary, preserving focus. When already following, active
-group expansion records one pending follow request. Finished-group inspection
-preserves the reading position. The virtualizer's existing height
-callback consumes it after measurement and schedules bottom alignment after the
-React layout commits, without a timed resize subscription.
-Collapsed groups do not mount full calls; call details mount only when opened. Grouping
-changes presentation only and preserves history anchors when earlier calls merge
-into a visible group. Loading earlier calls into a group can reset its disclosure
-to closed; expansion state is not persisted.
+The latest group shows a quiet tail of recent tools and actual reasoning, with a
+shared five-visible-line budget, including after completion. The last five nonempty
+tool/reasoning entries stay in chronological order, with one line each; unused
+lines go to the newest reasoning entry. Reasoning renders only its last 2,000
+characters and clips from the top to keep its latest lines visible. Peek and
+expanded rows share the same rendering and individual disclosures. A faint left
+guide and small content indent associate rows with their Work heading. Work
+paragraphs use 4px spacing; compact reasoning peeks collapse blank lines while
+expanded reasoning preserves the original Markdown paragraphs. Expanding the
+outer group replaces its peek with all entries.
+
+Native named details allow one open outer Work disclosure and one open inner
+conversation disclosure at a time. Only the outer Work container scrolls, capped
+at 40vh; arguments, outputs and reasoning do not introduce nested scrolling.
+Soft transparent scroll shadows on Work containers and sidebar navigation indicate
+content above/below and disappear at the corresponding edge. Work shadows use a
+pointer-transparent overlay above the scrolled content so opaque code blocks
+cannot cover them. The shared observer
+updates them on scrolling, viewport resizing and direct-row resizing/replacement,
+including animated disclosure changes. No opaque background covers the native
+sidebar material.
+
+Sidebar and conversation disclosures share a short grid-height/opacity animation,
+with reduced-motion support. Persistent disclosure content stays mounted to
+preserve activity polling lifetimes. Previously lazy call, thought, group and
+project-list bodies opt into Radix Presence, retaining content until the closing
+CSS animation completes. No measured heights or JavaScript animation timers are
+used. Finished-group inspection preserves the reading position; the existing
+virtualizer measurement/follow handling owns transcript alignment. Grouping changes
+presentation only and preserves history anchors when earlier calls merge into a
+visible group. Loading earlier calls into a group can reset its disclosure to
+closed; expansion state is not persisted.
 
 Earlier history loads automatically near the top of the transcript through the
 existing bounded history action. A persistent intersection observer loads one page
@@ -508,6 +526,8 @@ header height and reading anchor.
 
 The activity dock shows only running work and hides when empty. Existing command
 or agent names and a one-line output preview identify compact expandable rows.
+Only one activity expands at a time. Each row keeps a compact Stop icon beside
+its running label, available while collapsed as well as expanded.
 Output uses the existing peek RPC immediately and every second while the visible
 conversation owns the row, with no overlapping requests. Unmount or disconnection cancels refresh
 and ignores late responses. There is no manual refresh control or Recent list;
@@ -778,9 +798,12 @@ ordinary editable composer draft. Neither action sends the draft or overwrites
 the source draft. The source can keep running. Non-text content stays persisted;
 text-only composers report the created fork ID rather than silently drop it.
 
-Desktop message action bars reserve a small row below content: user messages offer
-Fork, completed assistant messages offer Copy. Icons appear on hover or keyboard
-focus (always on touch), without shifting message text. Copy uses the message
+Desktop user-message actions (Fork) and final assistant actions (Copy/feedback)
+reserve a small row below content. Intermediate assistant actions sit to the right
+of the text without a separate row. Explicit provider phases determine final vs
+intermediate placement; for unphased messages, only the last content in a settled
+turn gets final placement. Icons appear on hover or keyboard focus (always on
+touch), without shifting message text. Copy uses the message
 Markdown text through the browser clipboard API, shows success for 750ms and
 reports failures inline.
 
@@ -836,8 +859,9 @@ Host Settings exposes nullable `worktreeDirectory`. All these use the same plugi
 RPC boundary and server-owned lifetimes. Local sandbox shell/stop utility commands
 also use the shared local server instead of provisioning independent containers.
 
-Sidebar conversation rows use 13px text and compact vertical spacing. Section
-labels use normal case; project rows share chat styling with a folder icon, and
+Sidebar conversation rows and project names use 13px normal-contrast text and
+compact vertical spacing. Section
+labels stay muted and use normal case; project rows share chat styling with a folder icon, and
 nested chat titles align with the project name. Recents have no extra indentation. Selection
 uses a neutral translucent highlight without an accent stripe or outline,
 preserving the native sidebar material on Windows/macOS. The scroll region keeps
@@ -845,5 +869,12 @@ a stable native scrollbar gutter with clearance for expanded overlay scrollbars
 and its outer edge 2px inside the sidebar boundary. The track is transparent;
 scrollbar width and interaction remain native.
 
-Transcript selection is limited to the centered chat column; conversation chrome
-is not selectable, while the draft retains native text selection and editing.
+The desktop is nonselectable by default, including Work headings, status labels
+and action bars. Message bodies, expanded thinking, code/output, errors and
+editable fields explicitly enable native text selection. Transcript selection
+remains limited to the centered chat column; drafts retain native editing. Only
+the inline text inside a user bubble is selectable, keeping padding out of the
+highlight. The bubble clips native paragraph-selection paint at its rounded boundary.
+
+Transcript rows use 6px vertical padding; user bubbles use 10px top and 6px
+bottom margins so consecutive messages and work summaries stay compact.

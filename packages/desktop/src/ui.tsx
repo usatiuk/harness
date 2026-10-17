@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useId,
   useRef,
   useState,
@@ -17,6 +18,37 @@ import {
   Select as SelectPrimitive,
 } from "radix-ui";
 import { Check, ChevronRight, ChevronDown, LoaderCircle, X, type LucideIcon } from "lucide-react";
+import { Presence } from "@radix-ui/react-presence";
+
+/** Observe the viewport and its rows so disclosure/content resizing updates the cues too. */
+export function useScrollShadows() {
+  return useCallback((element: HTMLElement | null) => {
+    if (!element) return;
+    const update = () => {
+      element.toggleAttribute("data-scroll-above", element.scrollTop > 1);
+      element.toggleAttribute(
+        "data-scroll-below",
+        element.scrollTop + element.clientHeight < element.scrollHeight - 1,
+      );
+    };
+    const resize = new ResizeObserver(update);
+    const observeRows = () => {
+      resize.disconnect();
+      resize.observe(element);
+      for (const child of element.children) resize.observe(child);
+      update();
+    };
+    const children = new MutationObserver(observeRows);
+    children.observe(element, { childList: true });
+    element.addEventListener("scroll", update, { passive: true });
+    observeRows();
+    return () => {
+      resize.disconnect();
+      children.disconnect();
+      element.removeEventListener("scroll", update);
+    };
+  }, []);
+}
 
 type ButtonVariant = "neutral" | "accent" | "ghost" | "danger";
 export type ButtonProps = ComponentProps<"button"> & {
@@ -389,20 +421,61 @@ export function Confirmation({
     </AlertDialog.Root>
   );
 }
+export function CollapsibleDetails({
+  summary,
+  children,
+  open: controlledOpen,
+  onToggle,
+  unmountOnExit = false,
+  className = "",
+  ...props
+}: ComponentProps<"details"> & { summary: ReactNode; unmountOnExit?: boolean }) {
+  const [uncontrolledOpen, setOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  return (
+    <details
+      {...props}
+      open={open}
+      className={`collapsible-details ${className}`}
+      onToggle={(event) => {
+        if (controlledOpen === undefined) setOpen(event.currentTarget.open);
+        onToggle?.(event);
+      }}
+    >
+      {summary}
+      <Presence present={open || !unmountOnExit}>
+        <div
+          className="collapse-grid"
+          data-state={open ? "open" : "closed"}
+          data-lazy={unmountOnExit || undefined}
+          inert={!open}
+        >
+          <div className="collapse-body">{children}</div>
+        </div>
+      </Presence>
+    </details>
+  );
+}
+
 export function Disclosure({
   title,
   children,
   className = "",
   ...props
-}: Omit<ComponentProps<"details">, "title"> & { title: ReactNode }) {
+}: Omit<ComponentProps<"details">, "title"> & { title: ReactNode; unmountOnExit?: boolean }) {
   return (
-    <details {...props} className={`disclosure ${className}`}>
-      <summary>
-        <Icon component={ChevronRight} className="disclosure-chevron" />
-        {title}
-      </summary>
+    <CollapsibleDetails
+      {...props}
+      className={`disclosure ${className}`}
+      summary={
+        <summary>
+          <Icon component={ChevronRight} className="disclosure-chevron" />
+          {title}
+        </summary>
+      }
+    >
       {children}
-    </details>
+    </CollapsibleDetails>
   );
 }
 export function Section({ title, children }: { title: string; children: ReactNode }) {

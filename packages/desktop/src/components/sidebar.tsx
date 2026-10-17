@@ -12,7 +12,7 @@ import {
 import { z } from "zod";
 import { conversationProjectRoot, type Conversation } from "@harness/protocol";
 import type { DesktopSession, SidebarPage } from "../session.ts";
-import { Button, IconButton } from "../ui.tsx";
+import { Button, CollapsibleDetails, IconButton, useScrollShadows } from "../ui.tsx";
 
 const layoutSchema = z.object({ width: z.number().min(160).max(400), visible: z.boolean() });
 const groupsSchema = z.object({ hidden: z.array(z.string()), collapsed: z.array(z.string()) });
@@ -78,27 +78,30 @@ function ProjectGroup({
     if (!collapsed && !page) void session.loadProject(root);
   }, [session, root, collapsed, page]);
   return (
-    <details
+    <CollapsibleDetails
       className="sidebar-project"
+      unmountOnExit
       open={!collapsed}
       onToggle={(event) => toggle(event.currentTarget.open)}
+      summary={
+        <summary title={root}>
+          <Folder size={15} aria-hidden="true" />
+          <span className="project-label">{label}</span>
+          <IconButton
+            label={`Hide project ${label}`}
+            icon={X}
+            size="sm"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              hide();
+            }}
+          />
+          <ChevronDown className="sidebar-chevron" size={12} aria-hidden="true" />
+        </summary>
+      }
     >
-      <summary title={root}>
-        <Folder size={15} aria-hidden="true" />
-        <span className="project-label">{label}</span>
-        <IconButton
-          label={`Hide project ${label}`}
-          icon={X}
-          size="sm"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            hide();
-          }}
-        />
-        <ChevronDown className="sidebar-chevron" size={12} aria-hidden="true" />
-      </summary>
-      {!collapsed && page && (
+      {page && (
         <div className="project-conversations">
           {page.rows.map(renderConversation)}
           <More
@@ -109,7 +112,7 @@ function ProjectGroup({
           />
         </div>
       )}
-    </details>
+    </CollapsibleDetails>
   );
 }
 
@@ -125,6 +128,7 @@ export function SidebarLayout({
   children: ReactNode;
 }) {
   const location = useLocation();
+  const scrollShadows = useScrollShadows();
   const storageKey = session.storageKey("sidebar-groups");
   const [layout, setLayout] = useState(readLayout);
   const [groups, setGroups] = useState(() => readGroups(storageKey));
@@ -199,16 +203,22 @@ export function SidebarLayout({
             onClick={() => setLayout((current) => ({ ...current, visible: false }))}
           />
         </div>
-        <nav aria-label="Conversations" className="conversation-list">
-          <details
+        <nav
+          aria-label="Conversations"
+          className="conversation-list scroll-shadows"
+          ref={scrollShadows}
+        >
+          <CollapsibleDetails
             className="sidebar-section sidebar-projects"
             open={!groups.collapsed.includes("projects")}
             onToggle={(event) => collapse("projects", event.currentTarget.open)}
+            summary={
+              <summary>
+                <span>Projects</span>
+                <ChevronDown className="sidebar-chevron" size={12} aria-hidden="true" />
+              </summary>
+            }
           >
-            <summary>
-              <span>Projects</span>
-              <ChevronDown className="sidebar-chevron" size={12} aria-hidden="true" />
-            </summary>
             {session.projects.rows
               .filter((project) => !groups.hidden.includes(project.workspaceRoot))
               .map((project) => {
@@ -238,16 +248,18 @@ export function SidebarLayout({
                 void session.loadProjects(session.projects.loaded);
               }}
             />
-          </details>
-          <details
+          </CollapsibleDetails>
+          <CollapsibleDetails
             className="sidebar-section sidebar-recents"
             open={!groups.collapsed.includes("recents")}
             onToggle={(event) => collapse("recents", event.currentTarget.open)}
+            summary={
+              <summary>
+                <span>Recents</span>
+                <ChevronDown className="sidebar-chevron" size={12} aria-hidden="true" />
+              </summary>
+            }
           >
-            <summary>
-              <span>Recents</span>
-              <ChevronDown className="sidebar-chevron" size={12} aria-hidden="true" />
-            </summary>
             {session.recents.rows.map(renderConversation)}
             <More
               page={session.recents}
@@ -255,7 +267,7 @@ export function SidebarLayout({
                 void session.list(session.recents.loaded);
               }}
             />
-          </details>
+          </CollapsibleDetails>
         </nav>
         <NavLink to="/settings" className="settings-link">
           <Settings size={15} aria-hidden="true" /> Settings

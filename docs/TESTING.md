@@ -53,9 +53,10 @@ in the global compaction threshold plan.
 
 Live-preview regressions retain recent calls between settled steps and the next
 model response, exclude empty reasoning, interleave new reasoning with calls,
-keep long reasoning bounded, and remove previews for completed/failed/aborted
-turns. Expansion during that waiting gap retains follow and hides duplicate
-preview content. Transcript timing coverage verifies terminal updates with an
+keep long reasoning bounded, and retain the latest group's peek after terminal
+turn updates. Earlier groups over three entries collapse completely; only the
+latest group uses the five-entry threshold. Outer expansion hides duplicate peek
+content, while individual peek rows expand directly. Transcript timing coverage verifies terminal updates with an
 unchanged cell array and a stable final elapsed label.
 
 Creation defaults are checked through the production browser form and real
@@ -77,8 +78,8 @@ and completed labels use desktop observation time. Unit cases cover suffix-beari
 call IDs and preserving a live group’s observed timing when history prepends. Quiet
 active previews are checked with long reasoning exceeding 2,000 characters, mixed
 three-reasoning/two-tool budgets, five-line reasoning-only previews at narrow
-width, synchronous preview/expansion visibility, completion cleanup and follow
-after opening through a preview row. A representative 100-call run with
+width, peek/expansion visibility, terminal-state peeks and direct inspection
+through a preview row. A representative 100-call run with
 1,000-line writes verifies collapsed groups mount no calls and only opened calls
 mount output and diff DOM. Vitest covers desktop grouping, nested Eval result ordering, row identity and
 subagent commentary delta replacement without changing the final result.
@@ -1507,3 +1508,33 @@ Final local validation passes `TMPDIR=/var/tmp npm run check` (1,477 tests,
 41 gated skips), seven focused browser cases, and three independent review
 lenses. Default-preserving appearance persistence is deferred to
 [issue #46](https://github.com/usatiuk/harness/issues/46).
+
+Disclosure browser regressions check shared height/opacity animation, keyboard
+activation, reduced motion, lazy unmounting, native exclusivity at both levels and
+40vh outer-only Work scrolling. Scroll-shadow checks exercise top/middle/bottom
+states and removal after content collapses in both sidebar and Work containers.
+A pixel comparison over opaque Work output verifies that its shadow is painted
+above code blocks, rather than hidden behind their background.
+Keyboard tests wait for a visible summary: Virtuoso measurement copies can have
+nonzero geometry while still hidden and unable to receive focus. Native test
+selectors have been updated for inline groups and wrapped rows, but native
+Windows and macOS/WebKit rendering remain unqualified by these Chromium checks.
+
+The disclosure/shadow follow-up passes the full local check (1,477 tests, 41 gated
+skips) and 72 of 73 Chromium cases. The remaining idle-history-anchor failure was
+also reproduced twice against committed HEAD in an independent in-memory build;
+its drift remains an existing canvas qualification gap, without relaxed assertions
+or a workaround in this change. Native Playwright discovery finds 28 tests; native
+execution remains unverified.
+
+Intermediate action coverage checks right-side placement at normal/narrow widths,
+hover/focus, Copy and phase-based placement; final assistant and user actions stay
+below. Selection uses a nonselectable desktop default with explicit content opt-in.
+The regression selects whole paragraphs in user/assistant messages and tool output,
+checks selected content, and compares pixels in empty action rows, user-bubble
+bottom padding and beside the bubble. Restoring the former selectable transcript/action styles reproduces
+the stray blue row in GTK WebKit; an unclipped user bubble independently reproduces
+horizontal spill. The corrected policy, selectable inline user text and bubble clipping pass those
+comparisons in six Chromium and five GTK WebKit cases.
+Worked/history labels stay unselected. GTK engine checks use a virtual display and
+temporary libraries, not the native Harness runtime.

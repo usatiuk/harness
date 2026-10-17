@@ -11,6 +11,27 @@ body,
 body {
   min-width: 320px;
   background: var(--surface-sidebar);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.message-content,
+.user-text > span,
+.reasoning .collapse-body,
+pre,
+code,
+input,
+textarea,
+.error,
+[role="alert"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+button,
+select,
+.message-phase,
+.message-actions {
+  -webkit-user-select: none;
+  user-select: none;
 }
 button,
 input,
@@ -235,6 +256,26 @@ textarea.input {
   margin: -3px -8px -3px -3px;
   gap: 2px;
 }
+.scroll-shadows,
+.work-scroll-frame::after {
+  --scroll-shadow-color: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.3));
+  --scroll-shadow-top: transparent;
+  --scroll-shadow-bottom: transparent;
+  background-image:
+    radial-gradient(ellipse farthest-side at 50% 0, var(--scroll-shadow-top), transparent),
+    radial-gradient(ellipse farthest-side at 50% 100%, var(--scroll-shadow-bottom), transparent);
+  background-size: 100% 12px;
+  background-position: top, bottom;
+  background-repeat: no-repeat;
+}
+.scroll-shadows[data-scroll-above],
+.work-scroll-frame:has(> [data-scroll-above])::after {
+  --scroll-shadow-top: var(--scroll-shadow-color);
+}
+.scroll-shadows[data-scroll-below],
+.work-scroll-frame:has(> [data-scroll-below])::after {
+  --scroll-shadow-bottom: var(--scroll-shadow-color);
+}
 .conversation-list a,
 .sidebar-project > summary {
   -webkit-user-select: none;
@@ -245,7 +286,7 @@ textarea.input {
   padding: 5px 8px;
   min-width: 0;
   text-decoration: none;
-  color: var(--muted-ink);
+  color: var(--ink);
   font-size: 13px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -552,6 +593,21 @@ main {
 .cell.user .message-actions {
   justify-content: flex-end;
 }
+.assistant-intermediate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: start;
+}
+.assistant-intermediate > .message-content {
+  grid-column: 1;
+  grid-row: 1;
+}
+.assistant-intermediate > .message-actions {
+  grid-column: 2;
+  grid-row: 1;
+  margin-top: 2px;
+}
 .message-actions .icon-control {
   opacity: 0;
   width: 20px;
@@ -656,8 +712,6 @@ main {
   margin: 5px 0;
 }
 .transcript {
-  -webkit-user-select: text;
-  user-select: text;
   position: relative;
   max-width: var(--chat-width);
   margin: 0 auto;
@@ -678,7 +732,7 @@ main {
   overflow-wrap: anywhere;
   width: min(100%, var(--chat-width));
   margin: 0 auto;
-  padding: 12px var(--chat-inset);
+  padding: 6px var(--chat-inset);
   font-size: var(--conversation-font-size, 14px);
   line-height: 1.75;
 }
@@ -728,11 +782,13 @@ main {
 .cell.user {
   width: fit-content;
   max-width: min(85%, 660px);
-  margin: 24px max(var(--chat-inset), calc((100% - var(--chat-width)) / 2 + var(--chat-inset))) 18px
+  margin: 10px max(var(--chat-inset), calc((100% - var(--chat-width)) / 2 + var(--chat-inset))) 6px
     auto;
   padding: 0;
 }
 .user-text {
+  /* Native paragraph selection can paint past the bubble's inline text. */
+  overflow: clip;
   background: var(--surface-subtle);
   padding: 10px 12px;
   border-radius: 12px 12px 4px 12px;
@@ -743,9 +799,26 @@ main {
   padding: 2px 4px;
   border-radius: 3px;
 }
-.cell.tool-group-container {
+.tool-group-container {
+  max-height: 40vh;
+  overflow: auto;
   padding: 3px var(--chat-inset);
   font-size: 12px;
+}
+.work-scroll-frame {
+  position: relative;
+  padding: 3px var(--chat-inset);
+}
+.work-scroll-frame > .tool-group-container {
+  padding: 0;
+  background-image: none;
+}
+.work-scroll-frame::after {
+  content: "";
+  position: absolute;
+  inset: 3px var(--chat-inset);
+  z-index: 1;
+  pointer-events: none;
 }
 .cell.tool {
   width: 100%;
@@ -756,38 +829,38 @@ main {
 .tool-group > summary {
   padding: 3px 0;
 }
-.tool-group[open] + .live-step-preview {
-  display: none;
+.work-group-title {
+  padding: 3px 0;
+  color: var(--muted-ink);
 }
-.live-step-preview {
-  margin-top: 3px;
+.work-items {
+  margin: 2px 0 0 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
   color: var(--muted-ink);
   font-size: 12px;
   line-height: 1.65;
 }
-.preview-tool {
-  -webkit-user-select: none;
-  user-select: none;
-  overflow: hidden;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
+.work-items p {
+  margin-block: 4px;
 }
-.preview-tool > span:not(.tool-argument-preview) {
-  flex-shrink: 0;
-  white-space: nowrap;
+.work-items p + p {
+  margin-top: 4px;
+}
+.work-items > .cell {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+.reasoning-peek > summary > .disclosure-chevron {
+  display: none;
 }
 .preview-reasoning {
+  font-size: 12px;
+  line-height: 1.65;
+  width: 100%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -801,12 +874,6 @@ main {
 .tool-icon {
   flex-shrink: 0;
 }
-.tool-group > .cell.reasoning {
-  margin: 0;
-  padding: 3px 0;
-  font-size: 13px;
-  color: var(--muted-ink);
-}
 .disclosure > summary {
   -webkit-user-select: none;
   user-select: none;
@@ -817,6 +884,67 @@ main {
   cursor: pointer;
   font-size: 12px;
   color: var(--muted-ink);
+}
+/* Keep native details semantics while the grid owns visual collapse. */
+.collapsible-details::details-content {
+  display: contents;
+  content-visibility: visible;
+}
+.collapse-grid {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 150ms ease-out,
+    opacity 150ms ease-out,
+    visibility 150ms;
+}
+.collapse-grid[data-state="closed"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+}
+.collapse-grid[data-lazy] {
+  transition: none;
+  animation: collapse-open 150ms ease-out both;
+}
+.collapse-grid[data-lazy][data-state="closed"] {
+  animation-name: collapse-close;
+}
+.collapse-body {
+  min-height: 0;
+  overflow: hidden;
+}
+@keyframes collapse-open {
+  from {
+    visibility: visible;
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    visibility: visible;
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+@keyframes collapse-close {
+  from {
+    visibility: visible;
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  to {
+    visibility: hidden;
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .collapse-grid,
+  .collapse-grid[data-lazy][data-state] {
+    transition: none;
+    animation: none;
+  }
 }
 .disclosure > summary::-webkit-details-marker {
   display: none;
@@ -858,9 +986,9 @@ main {
   margin: 6px 0 2px;
   font-size: 12px;
 }
-.tool pre {
-  max-height: 360px;
-  overflow: auto;
+.tool-group-container pre {
+  max-height: none;
+  overflow: visible;
 }
 .tool > summary > .disclosure-chevron {
   order: 1;
@@ -1041,6 +1169,10 @@ main {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+.activity-stop {
+  width: 26px;
+  padding: 3px;
 }
 .activity-preview {
   flex: 1;

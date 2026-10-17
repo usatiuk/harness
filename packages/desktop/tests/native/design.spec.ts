@@ -274,7 +274,7 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
     expect(bounds.scroll).toBeLessThanOrEqual(bounds.width);
     await page.screenshot({ path: info.outputPath("dark-chat-minimum.png") });
     await page.getByRole("button", { name: "Stop", exact: true }).click();
-    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     await app.close();
     app = await NativeApplication.launch(directory, info.outputPath("reopened"));
     await expect.poll(() => nativeTheme(app.page)).toBe("dark");
@@ -561,7 +561,7 @@ test("context and last-turn facts come from persisted model accounting and survi
     await expect(page.getByTestId("assistant-message")).toContainText(
       "Command is running in the background",
     );
-    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     for (let attempt = 0; attempt < 2; attempt++) {
       await expect(page.getByLabel("Last turn statistics")).toContainText("20 in");
       await expect(page.getByLabel("Last turn statistics")).toContainText("4 out");

@@ -70,6 +70,23 @@ const gap = (page: Page) =>
     .locator(".conversation-scroll")
     .evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
 
+test("running turns show Working before their first agent output", async ({ page }) => {
+  await page.goto(url + "?composer");
+  const pending = page.getByRole("status").filter({ hasText: /^Working$/ });
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await expect(pending).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showLivePreview());
+  await expect(pending).toHaveCount(0);
+  await expect(page.locator(".tool-group-container")).toContainText("Working for");
+  await page.evaluate(() => window.composerFixture.completeSteps());
+  await expect(page.locator(".tool-group-container")).toContainText("Worked for");
+  await expect(pending).toHaveCount(0);
+  await page.reload();
+  await expect(pending).toBeVisible();
+  await page.evaluate(() => window.composerFixture.completeSteps("aborted"));
+  await expect(pending).toHaveCount(0);
+});
+
 for (const chrome of ["native", "fullscreen"] as const) {
   test(`${chrome} chrome keeps the view full height and Settings at the sidebar bottom`, async ({
     page,
@@ -202,10 +219,21 @@ test("expanding the latest tool retains follow and keeps its output clear of the
   await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
   await tool.locator("summary").click();
   await expect(tool).toHaveAttribute("open", "");
+  await expect
+    .poll(() =>
+      tool.evaluate((element) =>
+        element
+          .getAnimations({ subtree: true })
+          .some((animation) => animation.playState === "running"),
+      ),
+    )
+    .toBe(false);
   await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
-  const output = await tool.locator("pre").boundingBox();
+  const work = page.locator(".tool-group-container").filter({ has: tool });
+  const viewport = await work.boundingBox();
   const dock = await page.locator(".conversation-dock").boundingBox();
-  expect(output!.y + output!.height).toBeLessThanOrEqual(dock!.y);
+  expect(viewport!.y + viewport!.height).toBeLessThanOrEqual(dock!.y);
+  expect(await work.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
 });
 
 test("idle conversations hide jump and history regrouping preserves a visible reading anchor", async ({
@@ -496,7 +524,7 @@ test("fork before a user message opens a new unsent draft and preserves the sour
   ).toBe(true);
 });
 
-test("message actions are small, below the text and visible on hover or focus", async ({
+test("intermediate assistant actions sit beside text; final and user actions stay below", async ({
   page,
 }) => {
   await page.goto(url + "?composer");
@@ -531,14 +559,128 @@ test("message actions are small, below the text and visible on hover or focus", 
   await expect(copy).toHaveCSS("opacity", "1");
   const content = await assistant.locator(".message-content").boundingBox();
   const copyBox = await copy.boundingBox();
-  expect(copyBox!.y).toBeGreaterThanOrEqual(content!.y + content!.height);
+  expect(copyBox!.x).toBeGreaterThanOrEqual(content!.x + content!.width);
+  expect(copyBox!.y).toBeLessThan(content!.y + content!.height);
+  expect(copyBox!.height).toBeLessThanOrEqual(20);
   await copy.click();
   await expect(assistant.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("copied-message"))).toBe(
     "Checking the stores",
   );
   await expect(assistant.getByRole("button", { name: "Copy message", exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 760, height: 720 });
+  const narrowText = await assistant.locator(".message-content").boundingBox();
+  const narrowActions = await assistant.locator(".message-actions").boundingBox();
+  expect(narrowActions!.x).toBeGreaterThanOrEqual(narrowText!.x + narrowText!.width);
+  expect(narrowActions!.y).toBeLessThan(narrowText!.y + narrowText!.height);
+  await page.screenshot({ path: test.info().outputPath("intermediate-message-actions.png") });
+  await page.evaluate(() => window.composerFixture.completeSteps());
+  await expect(assistant).not.toHaveClass(/assistant-intermediate/u);
+  const finalText = await assistant.locator(".message-content").boundingBox();
+  const finalActions = await assistant.locator(".message-actions").boundingBox();
+  expect(finalActions!.y).toBeGreaterThanOrEqual(finalText!.y + finalText!.height);
   await page.screenshot({ path: test.info().outputPath("message-actions.png") });
+  await page.evaluate(() => {
+    window.composerFixture.showToolsAndActivities(0, "commentary");
+    window.composerFixture.completeSteps();
+  });
+  await expect(assistant).toHaveClass(/assistant-intermediate/u);
+  await assistant.locator(".message-phase").dblclick();
+  expect(await page.evaluate(() => window.getSelection()!.toString())).toBe("");
+  await page.evaluate(() => window.composerFixture.showToolsAndActivities(0, "final_answer"));
+  await expect(assistant).not.toHaveClass(/assistant-intermediate/u);
+});
+
+test("message selection excludes UI labels and blank action rows", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.showToolsAndActivities();
+    window.composerFixture.completeSteps();
+  });
+  await page.getByTestId("tool-call").first().locator(":scope > summary").click();
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
+        .map((animation) => animation.finished),
+    ),
+  );
+  for (const [selector, word] of [
+    [".user-text > span", "authentication"],
+    [".message-content p", "stores"],
+    ['[data-testid="tool-output"]', "file"],
+  ] as const) {
+    const text = page.locator(selector).first();
+    await expect(text).toBeVisible();
+    await text.scrollIntoViewIfNeeded();
+    const point = await text.evaluate((element, word) => {
+      const node = element.firstChild!;
+      const start = node.textContent!.indexOf(word);
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, start + word.length);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    }, word);
+    const rect = (await text.boundingBox())!;
+    const bubble =
+      selector === ".user-text > span" ? (await text.locator("..").boundingBox())! : undefined;
+    const column = (await page.getByTestId("transcript").boundingBox())!;
+    const clip = {
+      x: column.x,
+      y: (bubble ?? rect).y + (bubble ?? rect).height + 1,
+      width: column.width,
+      height: 28,
+    };
+    await page.mouse.move(0, 0);
+    const blankRow = await page.screenshot({ clip });
+    const paddingBottom = bubble
+      ? await text
+          .locator("..")
+          .evaluate((element) => parseFloat(getComputedStyle(element).paddingBottom))
+      : undefined;
+    const padding =
+      bubble && paddingBottom
+        ? {
+            x: rect.x,
+            y: bubble.y + bubble.height - paddingBottom + 1,
+            width: rect.width,
+            height: paddingBottom - 1,
+          }
+        : undefined;
+    const blankPadding = padding && (await page.screenshot({ clip: padding }));
+    const side =
+      selector === ".user-text > span"
+        ? {
+            x: rect.x + rect.width + 1,
+            y: rect.y,
+            width: column.x + column.width - rect.x - rect.width - 1,
+            height: rect.height,
+          }
+        : undefined;
+    const blankSide = side && (await page.screenshot({ clip: side }));
+    // Select the whole paragraph to reproduce the highlight shape in the report.
+    await page.mouse.click(point.x, point.y, { clickCount: 3 });
+    expect(await page.evaluate(() => window.getSelection()!.toString().trim())).toBe(
+      await text.innerText(),
+    );
+    await page.mouse.move(0, 0);
+    const selectedRow = await page.screenshot({ clip });
+    await page.screenshot({ path: test.info().outputPath(`${word}-paragraph-selection.png`) });
+    expect(selectedRow.equals(blankRow)).toBe(true);
+    if (padding && blankPadding)
+      expect((await page.screenshot({ clip: padding })).equals(blankPadding)).toBe(true);
+    if (side && blankSide)
+      expect((await page.screenshot({ clip: side })).equals(blankSide)).toBe(true);
+    await page.evaluate(() => window.getSelection()!.removeAllRanges());
+  }
+  for (const selector of [".work-group-title", ".transcript-history"]) {
+    const label = page.locator(selector).first();
+    await label.dblclick();
+    expect(await page.evaluate(() => window.getSelection()!.toString())).toBe("");
+  }
 });
 
 test("transcript list markers survive the Tailwind preflight reset", async ({ page }) => {
@@ -666,8 +808,8 @@ test("background input and web search stay in Working and background queue detai
   await page.goto(url + "?composer");
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showBackgroundWork());
-  await expect(page.locator(".tool-group")).toHaveCount(1);
-  await expect(page.locator(".tool-group > summary")).toContainText("Working");
+  await expect(page.locator(".work-group-title")).toContainText("Working");
+  await expect(page.locator(".tool-group")).toHaveCount(0);
   await expect(page.locator(".cell.user")).toHaveCount(1);
   await expect(page.locator(".cell.user")).toHaveText("Original request");
   const pending = page.locator(".pending-input");
@@ -677,8 +819,7 @@ test("background input and web search stay in Working and background queue detai
   await pending.locator("summary").click();
   await expect(pending).toContainText("Background result 1");
   await expect(pending).toContainText("Background result 3");
-  await page.locator(".tool-group > summary").click();
-  const work = page.locator(".tool-group");
+  const work = page.locator(".tool-group-container");
   await expect(work.getByText("Searched the web", { exact: true })).toBeVisible();
   await work.locator("summary").filter({ hasText: "Message from subagent" }).click();
   await expect(work.getByText("Explorer found the answer", { exact: true })).toBeVisible();
@@ -1012,10 +1153,9 @@ test("tool groups are compact and activities refresh automatically only while mo
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.clock.install();
   await page.evaluate(() => window.composerFixture.showToolsAndActivities());
-  const group = page.locator(".tool-group");
-  await expect(group.locator(":scope > summary")).toHaveText("Working for 0 s · 2 tool calls");
-  await expect(group).not.toHaveAttribute("open", "");
-  await group.locator(":scope > summary").click();
+  const group = page.locator(".tool-group-container");
+  await expect(group.locator(".work-group-title")).toHaveText("Working for 0 s · 2 tool calls");
+  await expect(group.locator(".tool-group")).toHaveCount(0);
   const call = group.locator('[data-testid="tool-call"]').first();
   await expect(call.locator(".tool-argument-preview")).toHaveCSS("white-space", "nowrap");
   const row = await call.locator("summary").boundingBox();
@@ -1056,6 +1196,37 @@ test("tool groups are compact and activities refresh automatically only while mo
   await page.evaluate(() => window.composerFixture.releasePeek());
   await page.clock.runFor(2000);
   expect(await page.evaluate(() => window.composerFixture.peekCalls)).toBe(3);
+});
+
+test("activities expand exclusively and have a compact Stop control beside running", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showMultipleActivities());
+  await page.locator(".activities > summary").click();
+  const activities = page.locator(".activity");
+  const first = activities.nth(0);
+  const second = activities.nth(1);
+  await first.locator(":scope > summary").click();
+  await expect(first).toHaveAttribute("open", "");
+  await second.locator(":scope > summary").click();
+  await expect(second).toHaveAttribute("open", "");
+  await expect(first).not.toHaveAttribute("open", "");
+  const stop = first.getByRole("button", { name: "Stop activity", exact: true });
+  const running = first.getByText("running", { exact: true });
+  const control = await stop.boundingBox();
+  const label = await running.boundingBox();
+  expect(control!.width).toBeLessThanOrEqual(26);
+  expect(control!.height).toBeLessThanOrEqual(30);
+  expect(control!.x).toBeGreaterThanOrEqual(label!.x + label!.width);
+  expect(Math.abs(control!.y + control!.height / 2 - label!.y - label!.height / 2)).toBeLessThan(2);
+  await stop.click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.activityKills))
+    .toEqual(["first"]);
+  await expect(first).not.toHaveAttribute("open", "");
+  await expect(second).toHaveAttribute("open", "");
 });
 
 test("activity refresh stops when the connection closes while the conversation stays visible", async ({
@@ -1100,7 +1271,7 @@ test("long tool groups mount only call previews and the details actually opened"
   await expect(group.getByTestId("tool-call")).toHaveCount(0);
 });
 
-test("reasoning and tool calls share a collapsed group between messages", async ({ page }) => {
+test("reasoning and tool calls share compact inline rows between messages", async ({ page }) => {
   await page.goto(url + "?composer");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.clock.install();
@@ -1108,20 +1279,19 @@ test("reasoning and tool calls share a collapsed group between messages", async 
     window.composerFixture.showToolsAndActivities(-60_000);
     window.composerFixture.insertReasoning();
   });
-  const group = page.locator(".tool-group");
+  const group = page.locator(".tool-group-container");
   await expect(group).toHaveCount(1);
-  await expect(group.locator(":scope > summary")).toHaveText("Working for 0 s · 2 tool calls");
+  await expect(group.locator(".work-group-title")).toHaveText("Working for 0 s · 2 tool calls");
   await page.clock.runFor(2000);
-  await expect(group.locator(":scope > summary")).toHaveText("Working for 2 s · 2 tool calls");
-  await expect(group.locator(".reasoning")).toHaveCount(0);
-  await group.locator(":scope > summary").click();
+  await expect(group.locator(".work-group-title")).toHaveText("Working for 2 s · 2 tool calls");
+  await expect(group.locator(".tool-group")).toHaveCount(0);
   await expect(group.locator(".reasoning")).not.toHaveAttribute("open");
   await expect(group.locator(".reasoning p")).toHaveCount(0);
-  await expect(group.locator(".reasoning summary")).toHaveText("Thought");
+  await expect(group.locator(".reasoning summary")).toContainText("Checking credential ownership");
   await group.locator(".reasoning summary").click();
   await expect(group.locator(".reasoning p")).toHaveText("Checking credential ownership");
   await expect(group.getByTestId("tool-call")).toHaveCount(2);
-  const label = await group.locator(":scope > summary").boundingBox();
+  const label = await group.locator(".reasoning > summary").boundingBox();
   const icon = await group.locator(".tool-icon").first().boundingBox();
   expect(Math.abs(icon!.x - label!.x)).toBeLessThanOrEqual(1);
   await expect(group.locator(".reasoning")).toContainText("Checking credential ownership");
@@ -1129,9 +1299,9 @@ test("reasoning and tool calls share a collapsed group between messages", async 
   await page.clock.runFor(10_000);
   await page.evaluate(() => window.composerFixture.completeSteps());
   await expect(group.locator(".reasoning summary")).toHaveText("Thought for 2 s");
-  await expect(group.locator(":scope > summary")).toHaveText("Worked for 12 s · 2 tool calls");
+  await expect(group.locator(".work-group-title")).toHaveText("Worked for 12 s · 2 tool calls");
   await page.clock.runFor(2000);
-  await expect(group.locator(":scope > summary")).toHaveText("Worked for 12 s · 2 tool calls");
+  await expect(group.locator(".work-group-title")).toHaveText("Worked for 12 s · 2 tool calls");
   await page.screenshot({ path: test.info().outputPath("combined-work.png") });
 });
 
@@ -1248,11 +1418,10 @@ test("eval boundaries keep child tools flat with right chevrons and failure-only
   await page.goto(url + "?composer");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showEval());
-  const group = page.locator(".tool-group");
-  await expect(group.locator(":scope > summary")).toHaveText("Worked for 12 s · 3 tool calls");
-  await expect(group.getByTestId("tool-call")).toHaveCount(0);
-  await group.locator(":scope > summary").click();
-  const calls = group.locator(":scope > .tool");
+  const group = page.locator(".tool-group-container");
+  await expect(group.locator(".work-group-title")).toHaveText("Worked for 12 s · 3 tool calls");
+  await expect(group.locator(".tool-group")).toHaveCount(0);
+  const calls = group.getByTestId("tool-call");
   await expect(calls).toHaveCount(4);
   await expect(calls.locator("summary strong")).toHaveText([
     "eval begin",
@@ -1264,13 +1433,19 @@ test("eval boundaries keep child tools flat with right chevrons and failure-only
   await expect(group.locator(".tool-status")).toHaveCount(0);
   await expect(group.getByTestId("tool-output")).toHaveCount(0);
   const read = calls.nth(1);
-  const icon = await read.locator(".tool-icon").boundingBox();
-  const chevron = await read.locator(".disclosure-chevron").boundingBox();
-  const name = await read.locator("strong").boundingBox();
-  expect(icon!.x).toBeLessThan(name!.x);
-  expect(chevron!.x).toBeGreaterThan(name!.x + name!.width);
-  await read.locator("summary").focus();
-  await page.keyboard.press("Enter");
+  await expect
+    .poll(() =>
+      read.evaluate((element) => {
+        const icon = element.querySelector(".tool-icon")!.getBoundingClientRect();
+        const chevron = element.querySelector(".disclosure-chevron")!.getBoundingClientRect();
+        const name = element.querySelector("strong")!.getBoundingClientRect();
+        return element.isConnected && icon.width > 0 && icon.x < name.x && chevron.x > name.right;
+      }),
+    )
+    .toBe(true);
+  // Virtuoso measurement copies have geometry before they become interactive.
+  await expect(read.locator(":scope > summary")).toBeVisible();
+  await read.locator(":scope > summary").press("Enter");
   await expect(read.getByTestId("tool-output")).toHaveText("File not found");
   await expect(calls.first()).not.toHaveAttribute("open", "");
   await calls.first().locator("summary").click();
@@ -1283,124 +1458,265 @@ test("eval boundaries keep child tools flat with right chevrons and failure-only
   await page.screenshot({ path: test.info().outputPath("eval-boundaries.png") });
 });
 
-test("live work survives completed calls and interleaves new reasoning until the turn ends", async ({
-  page,
-}) => {
+test("the five-line peek uses real work rows and remains after completion", async ({ page }) => {
   await page.goto(url + "?composer");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showLivePreview());
   const preview = page.getByLabel("Recent work");
   const summary = page.locator(".tool-group > summary");
   await expect(preview).toBeVisible();
+  await expect(preview.getByTestId("tool-call")).toHaveCount(4);
+  await expect(preview.getByTestId("tool-output")).toHaveCount(0);
   await page.evaluate(() => window.composerFixture.completeSteps(false));
-  await expect(preview).toBeVisible();
   await expect(summary).toContainText("Working");
-  await preview.locator("button").last().click();
-  const group = page.locator(".tool-group");
-  await expect(group).toHaveAttribute("open", "");
-  await expect(preview).toBeHidden();
-  await group.locator(".reasoning > summary").click();
-  await expect(group.locator(".reasoning p")).toContainText("Latest reasoning tail.");
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await preview.getByTestId("tool-call").last().locator(":scope > summary").click();
+  await expect(preview.getByTestId("tool-output")).toHaveCount(1);
+  await expect(page.locator(".tool-group")).not.toHaveAttribute("open");
+  await summary.click();
+  await expect(preview).toHaveCount(0);
+  const expanded = page.getByLabel("Work details");
+  await expect(expanded.getByTestId("tool-call")).toHaveCount(5);
+  await expect(expanded.getByTestId("tool-output")).toHaveCount(0);
+  await expanded.locator(".reasoning > summary").click();
+  await expect(expanded.locator(".reasoning p").first()).toContainText("Latest reasoning tail.");
   await summary.click();
   await expect(preview).toBeVisible();
   await page.evaluate(() => window.composerFixture.appendPreviewReasoning(""));
-  await expect(preview.locator("button")).toHaveCount(4);
+  await expect(preview.getByTestId("tool-call")).toHaveCount(4);
   await page.evaluate(() =>
     window.composerFixture.appendPreviewReasoning("New reasoning after the calls. ".repeat(200)),
   );
-  await expect(preview.locator("button")).toHaveCount(3);
+  await expect(preview.getByTestId("tool-call")).toHaveCount(3);
   await expect(preview.locator(".preview-reasoning")).toHaveCount(2);
   await expect(preview.locator(":scope > *")).toHaveClass([
-    "preview-tool",
-    "preview-reasoning",
-    "preview-tool",
-    "preview-tool",
-    "preview-reasoning",
+    /tool/,
+    /reasoning/,
+    /tool/,
+    /tool/,
+    /reasoning/,
   ]);
-  await expect(preview).toContainText("New reasoning after the calls.");
-  await expect(summary).toContainText("Working");
   for (const status of ["completed", "failed", "aborted"] as const) {
     if (status !== "completed") await page.evaluate(() => window.composerFixture.showLivePreview());
     await page.evaluate((status) => window.composerFixture.completeSteps(status), status);
-    await expect(preview).toHaveCount(0);
+    await expect(preview).toBeVisible();
     await expect(summary).toContainText("Worked");
   }
 });
 
-test("live quiet previews bound long reasoning and never duplicate expanded content", async ({
+test("compact reasoning peeks stay bounded and full content mounts only when opened", async ({
   page,
 }) => {
   await page.goto(url + "?composer");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showLivePreview());
-  const group = page.locator(".tool-group");
   const preview = page.getByLabel("Recent work");
   const reasoning = preview.locator(".preview-reasoning");
-  await expect(preview).toBeVisible();
-  await expect(preview.locator("button")).toHaveCount(4);
   await expect(preview).not.toContainText("old.ts");
   await expect(reasoning).toContainText("Latest reasoning tail.");
   expect((await reasoning.textContent())!.length).toBeLessThanOrEqual(2000);
+  expect(await reasoning.textContent()).not.toContain("\n\n");
   const boundedLines = (budget: number) =>
     page.evaluate((budget) => {
-      const element = document.querySelector<HTMLElement>(".live-step-preview .preview-reasoning");
+      const element = document.querySelector<HTMLElement>(
+        '[aria-label="Recent work"] .preview-reasoning',
+      );
       if (!element) return false;
       const lines =
         element.getBoundingClientRect().height / parseFloat(getComputedStyle(element).lineHeight);
       return lines > 0 && lines <= budget;
     }, budget);
   await expect.poll(() => boundedLines(1)).toBe(true);
-  await expect(group.getByTestId("tool-call")).toHaveCount(0);
-  await expect(group.locator(".cell.reasoning")).toHaveCount(0);
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
-  await preview.locator("button").last().click();
-  await expect(group).toHaveAttribute("open", "");
-  await expect(preview).toBeHidden();
-  const fullReasoning = group.locator(".cell.reasoning");
-  await expect(fullReasoning).not.toHaveAttribute("open");
-  await expect(fullReasoning.locator("summary")).toContainText("Thinking for");
-  await expect(fullReasoning.locator("p")).toHaveCount(0);
-  await fullReasoning.locator("summary").click();
-  await expect(fullReasoning).toHaveAttribute("open", "");
-  await expect(fullReasoning.locator("p")).toContainText("Latest reasoning tail.");
-  expect((await fullReasoning.textContent())!.length).toBeGreaterThan(2000);
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
-  const transitions = await group.evaluate((element) => {
-    const tail = element.nextElementSibling!;
-    const details = element as HTMLDetailsElement;
-    details.open = false;
-    const closed = getComputedStyle(tail).display;
-    details.open = true;
-    return { closed, opened: getComputedStyle(tail).display };
-  });
-  expect(transitions).toEqual({ closed: "block", opened: "none" });
-  await group.locator(":scope > summary").press("Space");
-  await expect(group).not.toHaveAttribute("open");
-  await expect(preview).toBeVisible();
-  await expect(group.locator(".cell.reasoning")).toHaveCount(0);
-  // Wait for the virtualizer to replace the expanded height before reopening.
-  await expect
-    .poll(() =>
-      group.evaluate((element) => {
-        const item = element.closest<HTMLElement>("[data-known-size]")!;
-        const height = item.getBoundingClientRect().height;
-        return height > 0 && Math.abs(Number(item.dataset.knownSize) - height) <= 1;
-      }),
-    )
-    .toBe(true);
-  await group.locator(":scope > summary").press("Enter");
-  await expect(group).toHaveAttribute("open", "");
-  await expect(preview).toBeHidden();
-  await page.evaluate(() => window.composerFixture.completeSteps());
-  await expect(preview).toHaveCount(0);
+  const thought = preview.locator(".reasoning");
+  await expect(thought.locator("p")).toHaveCount(0);
+  await thought.locator(":scope > summary").click();
+  await expect(thought.locator("p").first()).toContainText("Latest reasoning tail.");
+  await expect(thought.locator("p")).toHaveCount(3);
+  expect(
+    await thought
+      .locator("p")
+      .nth(1)
+      .evaluate((paragraph) => getComputedStyle(paragraph).marginTop),
+  ).toBe("4px");
+  expect((await thought.textContent())!.length).toBeGreaterThan(2000);
+  await thought.locator(":scope > summary").press("Space");
+  await expect(thought.locator("p")).toHaveCount(0);
+  await expect(reasoning).toBeVisible();
   await page.evaluate(() => window.composerFixture.showLivePreview(true));
-  const only = page.getByLabel("Recent work").locator(".preview-reasoning");
-  await expect(only).toBeVisible();
+  await expect(page.locator(".tool-group")).toHaveCount(0);
   await expect.poll(() => boundedLines(5)).toBe(true);
   await page.setViewportSize({ width: 760, height: 720 });
   await expect.poll(() => boundedLines(5)).toBe(true);
   await page.screenshot({ path: test.info().outputPath("quiet-live-preview.png") });
+});
+
+test("only the latest Work group peeks; earlier groups fold after three items", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 1100 });
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showWorkGroups());
+  const groups = page.locator(".tool-group-container");
+  await expect(groups).toHaveCount(3);
+  await expect(groups.nth(0).locator(".tool-group")).not.toHaveAttribute("open");
+  await expect(groups.nth(0).getByTestId("tool-call")).toHaveCount(0);
+  await expect(groups.nth(0).getByLabel("Recent work")).toHaveCount(0);
+  await expect(groups.nth(1).locator(".tool-group")).toHaveCount(0);
+  await expect(groups.nth(1).getByTestId("tool-call")).toHaveCount(3);
+  await expect(groups.nth(2).getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(5);
+  const latest = groups.nth(2).locator(".tool-group");
+  await latest.locator(":scope > summary").click();
+  await expect(latest.getByTestId("tool-call")).toHaveCount(6);
+  await expect(groups.nth(2).getByLabel("Recent work")).toHaveCount(0);
+  const first = latest.getByTestId("tool-call").nth(0);
+  const second = latest.getByTestId("tool-call").nth(1);
+  await first.locator(":scope > summary").click();
+  await expect(first.getByTestId("tool-output")).toBeVisible();
+  await second.locator(":scope > summary").click();
+  await expect(first).not.toHaveAttribute("open");
+  await expect(first.getByTestId("tool-output")).toHaveCount(0);
+  await expect(second.getByTestId("tool-output")).toBeVisible();
+  await expect
+    .poll(() =>
+      groups
+        .nth(2)
+        .evaluate((group) =>
+          group
+            .getAnimations({ subtree: true })
+            .some((animation) => animation.playState === "running"),
+        ),
+    )
+    .toBe(false);
+  const scrolling = await groups.nth(2).evaluate((group) => {
+    const output = group.querySelector('[data-testid="tool-output"]')!;
+    return {
+      height: group.getBoundingClientRect().height,
+      viewport: innerHeight,
+      scrolls: group.scrollHeight > group.clientHeight,
+      innerOverflow: getComputedStyle(output).overflowY,
+      innerMax: getComputedStyle(output).maxHeight,
+    };
+  });
+  expect(scrolling.height).toBeLessThanOrEqual(scrolling.viewport * 0.4);
+  expect(scrolling.height).toBeGreaterThanOrEqual(scrolling.viewport * 0.4 - 1);
+  expect(scrolling.scrolls).toBe(true);
+  expect(scrolling.innerOverflow).toBe("visible");
+  expect(scrolling.innerMax).toBe("none");
+  await groups.nth(2).evaluate((group) => {
+    group.scrollTop = 0;
+  });
+  await expect(groups.nth(2)).not.toHaveAttribute("data-scroll-above");
+  await expect(groups.nth(2)).toHaveAttribute("data-scroll-below");
+  await groups.nth(2).evaluate((group) => {
+    group.scrollTop = 300;
+  });
+  await expect(groups.nth(2)).toHaveAttribute("data-scroll-above");
+  await expect(groups.nth(2)).toHaveAttribute("data-scroll-below");
+  const clip = await groups.nth(2).evaluate((group) => {
+    const rect = group.getBoundingClientRect();
+    const x = rect.x + rect.width / 2;
+    const y = rect.y + 1;
+    if (!document.elementFromPoint(x, y)?.closest('[data-testid="tool-output"]'))
+      throw new Error("Shadow probe must cover the opaque code output");
+    return { x, y, width: 40, height: 8 };
+  });
+  const shadow = await page.screenshot({ clip });
+  const hideShadow = await page.addStyleTag({
+    content: ".work-scroll-frame::after { display: none; }",
+  });
+  const withoutShadow = await page.screenshot({ clip });
+  expect(shadow.equals(withoutShadow)).toBe(false);
+  await hideShadow.evaluate((style) => style.parentNode!.removeChild(style));
+  await groups.nth(2).evaluate((group) => {
+    group.scrollTop = group.scrollHeight;
+  });
+  await expect(groups.nth(2)).toHaveAttribute("data-scroll-above");
+  await expect(groups.nth(2)).not.toHaveAttribute("data-scroll-below");
+  await groups.nth(0).locator(".tool-group > summary").click();
+  await expect(latest).not.toHaveAttribute("open");
+  await expect(page.locator(".tool-group[open]")).toHaveCount(1);
+  await expect(groups.nth(0).getByTestId("tool-call")).toHaveCount(4);
+  await expect(groups.nth(2).getByLabel("Recent work")).toBeVisible();
+  await expect(groups.nth(2)).not.toHaveAttribute("data-scroll-above");
+  await expect(groups.nth(2)).not.toHaveAttribute("data-scroll-below");
+});
+
+test("sidebar scroll shadows follow the edges and clear when sections collapse", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  const sidebar = page.getByRole("navigation", { name: "Conversations" });
+  await expect(sidebar).not.toHaveAttribute("data-scroll-above");
+  await expect(sidebar).toHaveAttribute("data-scroll-below");
+  await sidebar.evaluate((element) => {
+    element.scrollTop = 30;
+  });
+  await expect(sidebar).toHaveAttribute("data-scroll-above");
+  await expect(sidebar).toHaveAttribute("data-scroll-below");
+  expect(await sidebar.evaluate((element) => getComputedStyle(element).backgroundImage)).toContain(
+    "radial-gradient",
+  );
+  await sidebar.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(sidebar).toHaveAttribute("data-scroll-above");
+  await expect(sidebar).not.toHaveAttribute("data-scroll-below");
+  await page.locator(".sidebar-recents > summary").click();
+  await page.locator(".sidebar-projects > summary").click();
+  await expect(sidebar).not.toHaveAttribute("data-scroll-above");
+  await expect(sidebar).not.toHaveAttribute("data-scroll-below");
+});
+
+test("sidebar grid collapse animates height and opacity, then unmounts", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  const recents = page.locator(".sidebar-project").first();
+  const content = recents.locator(":scope > .collapse-grid");
+  await content.evaluate((element) =>
+    element.getAnimations().forEach((animation) => animation.finish()),
+  );
+  const fullHeight = (await content.boundingBox())!.height;
+  await recents.locator(":scope > summary").click();
+  const halfway = await content.evaluate((element) => {
+    const animation = element.getAnimations()[0]!;
+    animation.pause();
+    animation.currentTime = 75;
+    return {
+      height: element.getBoundingClientRect().height,
+      opacity: parseFloat(getComputedStyle(element).opacity),
+    };
+  });
+  expect(halfway.height).toBeGreaterThan(0);
+  expect(halfway.height).toBeLessThan(fullHeight);
+  expect(halfway.opacity).toBeGreaterThan(0);
+  expect(halfway.opacity).toBeLessThan(1);
+  await content.evaluate((element) =>
+    element.getAnimations().forEach((animation) => animation.finish()),
+  );
+  await expect(content).toHaveCount(0);
+  await recents.locator(":scope > summary").press("Enter");
+  await expect(content).toBeVisible();
+  await content.evaluate((element) =>
+    element.getAnimations().forEach((animation) => animation.finish()),
+  );
+  await expect(recents.getByRole("link")).toHaveCount(5);
+});
+
+test("reduced motion collapses sidebar content without animation", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  const recents = page.locator(".sidebar-project").first();
+  const content = recents.locator(":scope > .collapse-grid");
+  expect(await content.evaluate((element) => element.getAnimations().length)).toBe(0);
+  await recents.locator(":scope > summary").click();
+  await expect(content).toHaveCount(0);
+  await recents.locator(":scope > summary").press("Space");
+  await expect(recents.getByRole("link")).toHaveCount(5);
 });
 
 test("sidebar groups all folders, pages five chats, and keeps hidden projects in Recents", async ({

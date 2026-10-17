@@ -121,8 +121,21 @@ window.canvasFixture = {
 };
 
 function renderRow(row: TranscriptRow): ReturnType<typeof h> {
-  // Canvas fixtures expand grouped calls to keep tall inspection/anchor scenarios.
-  return row.kind === "steps" ? h("div", null, ...row.steps.map(renderCell)) : renderCell(row);
+  // Tall history fixtures deliberately expand groups to exercise virtualizer anchors.
+  // The latest-tool inspection scenario uses the production outer scroll boundary.
+  return row.kind === "steps"
+    ? h(
+        "div",
+        {
+          className: row.steps.some(
+            ({ cell }) => cell.kind === "tool" && cell.callId === "latest-tool",
+          )
+            ? "cell tool-group-container"
+            : undefined,
+        },
+        ...row.steps.map(renderCell),
+      )
+    : renderCell(row);
 }
 function renderCell({ cell }: { cell: Cell }): ReturnType<typeof h> {
   if (cell.kind === "user")

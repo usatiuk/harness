@@ -15,7 +15,12 @@ import {
   keepLocalServerRunning,
 } from "./fixtures.ts";
 import { httpGateway, json, sse } from "../../../litellm/src/http-fixture.ts";
-import { settingsSection, showModelControls, showSandboxControls } from "./controls.ts";
+import {
+  expandWorkGroup,
+  settingsSection,
+  showModelControls,
+  showSandboxControls,
+} from "./controls.ts";
 
 test.skip(process.platform !== "win32", "Native CDP tests require Windows WebView2");
 test.afterEach(stopNativeOwners);
@@ -50,18 +55,18 @@ test("code-only execution reviews concrete child calls and keeps nested history 
     const approval = page.getByRole("region", { name: "Approval request" });
     await expect(approval).toContainText("Allow powershell?");
     await expect(approval.locator("pre")).toContainText("code-mode-marker");
-    await page.locator(".tool-group:not([open]) > summary").click();
+    await expandWorkGroup(page.locator(".tool-group-container").last());
     await expect(
       page
         .locator('[data-testid="tool-call"]')
         .filter({ has: page.locator("summary strong", { hasText: "tool_search" }) }),
     ).toHaveCount(1);
     const nested = page
-      .locator('.tool-group > [data-testid="tool-call"]')
+      .locator('.tool-group-container [data-testid="tool-call"]')
       .filter({ has: page.locator("summary strong", { hasText: "powershell" }) });
     await expect(nested).toHaveCount(1);
     await page.getByRole("button", { name: "Allow", exact: true }).click();
-    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     await nested.locator("summary").click();
     await expect(nested.getByTestId("tool-output")).toContainText("code-mode-marker");
     await expect(nested).toContainText("Invoked by");
@@ -69,7 +74,7 @@ test("code-only execution reviews concrete child calls and keeps nested history 
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(approval).toContainText("deny-code-marker");
     await page.getByRole("button", { name: "Deny", exact: true }).click();
-    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     await app.close();
     app = await NativeApplication.launch(
       profileRoot,
@@ -78,14 +83,20 @@ test("code-only execution reviews concrete child calls and keeps nested history 
       directory,
     );
     await app.page.locator(".conversation-list").getByRole("link").first().click();
-    for (const group of await app.page.locator(".tool-group:not([open]) > summary").all())
-      await group.click();
-    const reopened = app.page
-      .locator('[data-testid="tool-call"]')
-      .filter({ has: app.page.locator("summary strong", { hasText: "eval" }) });
-    await expect(reopened).toHaveCount(4);
+    const work = app.page.locator(".tool-group-container");
+    await expect(work).toHaveCount(2);
+    let evalRows = 0;
+    for (const group of await work.all()) {
+      await expandWorkGroup(group);
+      const evals = group.getByTestId("tool-call").filter({
+        has: app.page.locator("summary strong", { hasText: "eval" }),
+      });
+      await expect(evals).toHaveCount(2);
+      evalRows += await evals.count();
+    }
+    expect(evalRows).toBe(4);
     const denied = app.page
-      .locator('.tool-group > [data-testid="tool-call"]')
+      .locator('.tool-group-container [data-testid="tool-call"]')
       .filter({
         has: app.page.locator("summary strong", { hasText: "powershell" }),
       })
@@ -165,7 +176,7 @@ test("floating composer follows a real stream, pauses for reading and resumes fr
     await expect.poll(gap).toBeLessThanOrEqual(4);
     await page.screenshot({ path: info.outputPath("floating-composer.png") });
     provider.finish();
-    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     await scroll.evaluate((element) => {
       element.scrollTop -= 350;
     });
@@ -223,10 +234,10 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await page.locator(".conversation-list").getByRole("link").filter({ hasText: "beta" }).click();
     await page.getByRole("button", { name: "Allow", exact: true }).click();
     await expect(page.getByTestId("assistant-message")).toContainText("Done");
-    await page.locator(".tool-group:not([open]) > summary").click();
+    await expandWorkGroup(page.locator(".tool-group-container").last());
     await page.getByTestId("tool-call").locator("summary").click();
     await expect(page.getByTestId("tool-output")).toContainText("beta");
-    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath("conversation.png") });
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Appearance", exact: true })).toBeVisible();
@@ -285,8 +296,8 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Run the command");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByTestId("assistant-message")).toContainText("Command completed");
-    await expect(page.locator(".conversation-status")).toContainText("Ready");
-    await page.locator(".tool-group:not([open]) > summary").click();
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
+    await expandWorkGroup(page.locator(".tool-group-container").last());
     await page.getByTestId("tool-call").locator("summary").click();
     await expect(page.getByTestId("tool-output")).toContainText("approved-command");
     expect(provider.reviews).toHaveLength(1);
@@ -308,7 +319,7 @@ test("auto approver model and preset drive real tool review, persist, and can be
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByTestId("assistant-message")).toHaveCount(2);
     await expect(page.getByTestId("assistant-message").last()).toContainText("Command completed");
-    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     expect(provider.reviews).toHaveLength(2);
     expect(provider.reviews[1]).toMatchObject({ model: "reviewer-fast", temperature: 0.5 });
     await showModelControls(page);
@@ -376,7 +387,7 @@ test("paged sidebar and virtualized history retain preset, diffs and large tool 
     await showModelControls(page);
     await expect(page.getByLabel("Conversation preset")).toHaveValue("high");
     expect(await page.locator(".cell").count()).toBeLessThan(40);
-    await page.locator(".tool-group:not([open]) > summary").click();
+    await expandWorkGroup(page.locator(".tool-group-container").last());
     const tool = page.getByTestId("tool-call");
     await tool.locator("summary").click();
     await expect(tool.locator(".diff-remove")).toContainText("before");
@@ -800,7 +811,7 @@ test("queue and steer submit through the data action while a turn waits for appr
       if (count < 2)
         await expect(page.getByRole("button", { name: "Allow", exact: true })).toBeVisible();
     }
-    await expect(page.locator(".conversation-status")).toContainText("Ready");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     await expect(page.locator(".pending-input")).toHaveCount(0);
     await expect(page.locator(".user-text")).toHaveText([
       "original input",

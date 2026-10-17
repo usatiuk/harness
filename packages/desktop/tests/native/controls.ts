@@ -1,4 +1,10 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
+
+export async function expandWorkGroup(group: Locator): Promise<void> {
+  await expect(group).toBeVisible();
+  const summary = group.locator(".tool-group:not([open]) > summary");
+  if (await summary.count()) await summary.click();
+}
 
 export async function showModelControls(page: Page): Promise<void> {
   if (!(await page.getByLabel("Conversation model", { exact: true }).isVisible()))

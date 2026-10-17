@@ -19,7 +19,9 @@ declare global {
     composerFixture: {
       calls: Delivery[];
       feedbackCalls: unknown[];
-      showToolsAndActivities(serverSkew?: number): void;
+      showToolsAndActivities(serverSkew?: number, phase?: string): void;
+      showMultipleActivities(): void;
+      activityKills: string[];
       seedSidebar(longTitles?: boolean): void;
       seedWorktreeSidebar(): void;
       seedRecentWorktrees(): void;
@@ -32,6 +34,7 @@ declare global {
       showEval(): void;
       showLivePreview(reasoningOnly?: boolean): void;
       showLongToolRun(): void;
+      showWorkGroups(): void;
       seedHistory(): void;
       seedCollapsedHistory(): void;
       historyCalls: number;
@@ -299,7 +302,10 @@ const session = {
           });
         return [{ type: "text", text: window.composerFixture.peekOutput }];
       },
-      kill: () => Promise.resolve("requested"),
+      kill: (activityId: string) => {
+        window.composerFixture.activityKills.push(activityId);
+        return Promise.resolve("requested");
+      },
     }),
   },
   domain,
@@ -498,6 +504,17 @@ const session = {
   },
 };
 window.composerFixture = {
+  activityKills: [],
+  showMultipleActivities() {
+    view.state = {
+      ...view.state,
+      activities: [
+        { id: "first", kind: "subagent", title: "First activity" },
+        { id: "second", kind: "process", title: "Second activity" },
+      ],
+    };
+    changed();
+  },
   worktreeSwitches: [],
   worktreeDeletes: [],
   seedRecentWorktrees() {
@@ -687,7 +704,7 @@ window.composerFixture = {
     releasePeek?.();
     releasePeek = undefined;
   },
-  showToolsAndActivities(serverSkew = 0) {
+  showToolsAndActivities(serverSkew = 0, phase?: string) {
     const startedAt = Date.now() + serverSkew;
     view.state = {
       ...view.state,
@@ -727,6 +744,7 @@ window.composerFixture = {
           turnId: "turn",
           text: "Checking the stores",
           streaming: false,
+          ...(phase ? { phase } : {}),
         },
       ],
     };
@@ -762,7 +780,7 @@ window.composerFixture = {
       turnId: "turn",
       text:
         "Check the shared timeout and preserve early cancellation. ".repeat(4000) +
-        "Latest reasoning tail.",
+        "Latest reasoning tail.\n\nNext check.\n\nFinal check.",
       streaming: true,
       startedAt,
       observedTiming: true as const,
@@ -871,6 +889,34 @@ window.composerFixture = {
       view.state.cells,
       view.state.turn.status === "running" ? view.state.turn.id : undefined,
     );
+    changed();
+  },
+  showWorkGroups() {
+    const cells: Cell[] = [];
+    for (const [group, count] of [4, 3, 6].entries()) {
+      for (let index = 0; index < count; index++)
+        cells.push({
+          kind: "tool",
+          callId: `group-${group}-${index}`,
+          turnId: `group-${group}`,
+          name: "read_file",
+          args: { path: `file-${group}-${index}.txt` },
+          startedAt: 0,
+          completedAt: 1,
+          status: "ok",
+          output: `Output ${group}-${index}\n`.repeat(200),
+        });
+      if (group < 2)
+        cells.push({
+          kind: "assistant",
+          id: `between-${group}`,
+          turnId: `group-${group}`,
+          text: `Update ${group}`,
+          streaming: false,
+        });
+    }
+    view.state = { ...view.state, turn: { id: "group-2", status: "completed" }, cells };
+    view.transcript.update(cells);
     changed();
   },
   finishActivity() {

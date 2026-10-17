@@ -23,6 +23,7 @@
     "@harness/connections": "*",
     "@harness/protocol": "*",
     "@harness/server": "*",
+    "@radix-ui/react-presence": "1.1.11",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "^2.12.0",
     "@tauri-apps/plugin-dialog": "^2.7.0",

@@ -1,5 +1,10 @@
 # Harness plan
 
+The [disclosure presentation follow-up](docs/plans/interface/2026-10-17-disclosure-animation.md)
+shares grid/fade animations, keeps compact Work peeks, caps outer scrolling at 40vh
+and adds transparent edge shadows to Work and sidebar navigation. Validation is
+tracked in the delivery plan.
+
 The [worktree project/picker follow-up](docs/plans/interface/2026-10-17-worktree-project-picker.md)
 groups conversations by original project before pagination and gives the picker
 a readable current checkout, five recent worktrees and separated Original/New
