@@ -8,7 +8,7 @@ import type { ConversationId, DeliveryIntent, ModelInfo } from "@harness/protoco
 import { emptyState } from "@harness/client-features/transcript-reducer";
 import { conversationProjectRoot } from "@harness/protocol";
 import { createDesktopRouter } from "../../src/routes.tsx";
-import { DesktopSession, type ConversationView } from "../../src/session.ts";
+import { DesktopSession, ConversationView } from "../../src/session.ts";
 import { DesktopTranscript } from "../../src/transcript.ts";
 import { WindowShell } from "../../src/window-shell.tsx";
 import type { AppSettings } from "@harness/server/client-protocol";
@@ -20,6 +20,9 @@ declare global {
     composerFixture: {
       calls: Delivery[];
       feedbackCalls: unknown[];
+      questionResponses: unknown[];
+      failQuestionResponse: boolean;
+      showQuestions(owner?: string): void;
       showToolsAndActivities(serverSkew?: number, phase?: string): void;
       showMultipleActivities(): void;
       showSubagents(): void;
@@ -68,26 +71,17 @@ declare global {
   }
 }
 const id = "fixture" as ConversationId;
-const view: ConversationView = {
-  subagent: null,
-  subagentRevision: 0,
-  conversation: {
-    id,
-    workspaceRoot: "D:\\example",
-    overrides: {},
-    head: null,
-    title: null,
-    createdAt: 0,
-    lastUsedAt: 0,
-    config: { instructions: "Fixture", model: { provider: "fixture", model: "test" } },
-  },
-  state: { ...emptyState, turn: { id: "turn", status: "running", startedAt: 0 } },
-  transcript: new DesktopTranscript(),
-  approvals: new Map(),
-  items: [],
-  anchor: null,
-  cursor: null,
-};
+const view = new ConversationView({
+  id,
+  workspaceRoot: "D:\\example",
+  overrides: {},
+  head: null,
+  title: null,
+  createdAt: 0,
+  lastUsedAt: 0,
+  config: { instructions: "Fixture", model: { provider: "fixture", model: "test" } },
+});
+view.state = { ...emptyState, turn: { id: "turn", status: "running", startedAt: 0 } };
 const settings: AppSettings = {
   home: "fixture",
   cwd: "D:\\example",
@@ -138,6 +132,7 @@ let revision = 0;
 const listeners = new Set<() => void>();
 const changed = () => {
   revision++;
+  for (const attachment of session.views.values()) attachment.publish();
   for (const listener of listeners) listener();
 };
 const calls: Delivery[] = [];
@@ -179,7 +174,8 @@ const domain = {
       cells: [],
       turn: { status: "idle" as const },
     };
-    const fork = { ...view, conversation, state, transcript: new DesktopTranscript() };
+    const fork = new ConversationView(conversation);
+    fork.state = state;
     fork.transcript.update([]);
     session.views.set(conversation.id, fork);
     sidebarRows.push(conversation);
@@ -245,6 +241,20 @@ const session = {
     changed();
   },
   plugins: {
+    questions: {
+      async respond(requestId: string, response: unknown) {
+        if (window.composerFixture.failQuestionResponse)
+          throw new Error("Question response rejected");
+        window.composerFixture.questionResponses.push(response);
+        for (const owner of session.views.values()) {
+          if (!owner.questions.has(requestId)) continue;
+          const next = new Map(owner.questions);
+          next.delete(requestId);
+          owner.questions = next;
+        }
+        changed();
+      },
+    },
     inspectSubagent: async (conversationId: string) =>
       session.views.get(conversationId as ConversationId)?.subagent ?? null,
     listSubagents: async (parent: string, cursor?: SubagentPage["nextCursor"]) => {
@@ -510,6 +520,10 @@ const session = {
     return () => listeners.delete(listener);
   },
   snapshot: () => revision,
+  subscribeSidebar: (listener: () => void) => session.subscribe(listener),
+  sidebarSnapshot: () => revision,
+  subscribeConnection: (listener: () => void) => session.subscribe(listener),
+  connectionSnapshot: () => session.disconnected,
   storageKey: (key: string) => `${sidebarScope}:${key}`,
   readSettings: () => Promise.resolve(settings),
   load: (requested: string) => {
@@ -517,7 +531,8 @@ const session = {
       return Promise.resolve(session.views.get(requested as ConversationId)!);
     const conversation = sidebarRows.find((row) => row.id === requested);
     if (!conversation) return Promise.resolve(view);
-    const selected = { ...view, conversation };
+    const selected = new ConversationView(conversation);
+    selected.state = view.state;
     session.views.set(conversation.id, selected);
     return Promise.resolve(selected);
   },
@@ -608,28 +623,29 @@ window.composerFixture = {
       ];
       const transcript = new DesktopTranscript();
       transcript.update(cells);
-      const childView = {
-        ...view,
-        conversation: { ...view.conversation, id: child.id as ConversationId },
-        subagent: {
-          name: child.name,
-          slug: child.slug,
-          agent: child.agent,
-          ancestors: [
-            { id, name: "Parent conversation" },
-            ...(child.id === "nested" ? [{ id: "review", name: "Review authentication" }] : []),
-          ],
+      const childView = Object.assign(
+        new ConversationView({ ...view.conversation, id: child.id as ConversationId }),
+        {
+          subagent: {
+            name: child.name,
+            slug: child.slug,
+            agent: child.agent,
+            ancestors: [
+              { id, name: "Parent conversation" },
+              ...(child.id === "nested" ? [{ id: "review", name: "Review authentication" }] : []),
+            ],
+          },
+          transcript,
+          state: {
+            ...view.state,
+            cells,
+            turn:
+              child.status === "running"
+                ? { id: "child-turn", status: "running", startedAt: Date.now() }
+                : { id: "child-turn", status: child.status },
+          },
         },
-        transcript,
-        state: {
-          ...view.state,
-          cells,
-          turn:
-            child.status === "running"
-              ? { id: "child-turn", status: "running", startedAt: Date.now() }
-              : { id: "child-turn", status: child.status },
-        },
-      } satisfies ConversationView;
+      );
       session.views.set(child.id as ConversationId, childView);
     }
     view.subagentRevision++;
@@ -774,6 +790,46 @@ window.composerFixture = {
   },
   calls,
   feedbackCalls,
+  questionResponses: [],
+  failQuestionResponse: false,
+  showQuestions(owner = id) {
+    const target = session.views.get(owner as ConversationId)!;
+    target.questions = new Map([
+      [
+        "question-fixture",
+        {
+          id: "question-fixture",
+          conversationId: owner,
+          rootConversationId: id,
+          callId: "ask-1",
+          createdAt: 0,
+          response: null,
+          questions: [
+            {
+              id: "single",
+              prompt: "Choose one",
+              selection: "single",
+              options: [
+                { id: "a", label: "Alpha" },
+                { id: "b", label: "Beta" },
+              ],
+            },
+            {
+              id: "multiple",
+              prompt: "Choose several",
+              selection: "multiple",
+              options: [
+                { id: "c", label: "Gamma" },
+                { id: "d", label: "Delta" },
+              ],
+            },
+            { id: "freeform", prompt: "Any details?", selection: "single", options: null },
+          ],
+        },
+      ],
+    ]);
+    changed();
+  },
   historyCalls: 0,
   failHistory: false,
   releaseHistory() {
@@ -1178,3 +1234,5 @@ const router = createDesktopRouter(session as unknown as DesktopSession, {
 createRoot(document.getElementById("root")!).render(
   h(Tooltip.Provider, null, h(WindowShell, null, h(RouterProvider, { router }))),
 );
+
+export { view, session };

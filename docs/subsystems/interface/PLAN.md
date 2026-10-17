@@ -6,6 +6,14 @@ Keep dependable local TUI and desktop clients over one reusable service/event
 boundary. Improve diagnosis and daily operation. Desktop v1 delivery is tracked
 in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 
+## Desktop streaming performance
+
+The [approved refactor](../../plans/interface/2026-10-17-desktop-streaming-performance.md)
+implements scoped notifications, 100 ms text/reasoning publication, stable
+transcript references and lazy diff preparation. It is complete with full checks
+passing 1,518 tests and Chromium passing 87/89; the delivery plan records both
+baseline-reproduced history-anchor failures and native qualification limits.
+
 ## Desktop design refactor
 
 The [conversation-first desktop design plan](../../plans/interface/2026-10-04-desktop-design-system.md)

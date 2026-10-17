@@ -33,6 +33,7 @@
     "@harness/openai-codex": "*",
     "@harness/output": "*",
     "@harness/protocol": "*",
+    "@harness/questions": "*",
     "@harness/release": "*",
     "@harness/sandbox": "*",
     "@harness/secrets": "*",

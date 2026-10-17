@@ -14,7 +14,7 @@ storeContract("SqliteStore", () => new SqliteStore(":memory:", counterIdGenerato
 
 const removeScopedState = (db: BetterSqlite3.Database) =>
   db.exec(
-    "DROP INDEX plugin_state_scope; ALTER TABLE plugin_state DROP COLUMN scope; DROP INDEX turns_latest;",
+    "DROP TABLE questions; DROP INDEX plugin_state_scope; ALTER TABLE plugin_state DROP COLUMN scope; DROP INDEX turns_latest;",
   );
 
 const record = () =>
@@ -42,6 +42,79 @@ describe("SqliteStore (durable-only)", () => {
   };
   afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("upgrades schema 12 additively while preserving conversation history", async () => {
+    const path = tempDb();
+    const first = new SqliteStore(path);
+    const conversation = await first.createConversation(record());
+    const turn = await first.createTurn(conversation.id);
+    const item = await first.appendItem({
+      conversationId: conversation.id,
+      turnId: turn.id,
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text: "Keep history" }],
+    });
+    first.close();
+    const old = new BetterSqlite3(path);
+    old.exec("DROP TABLE questions; PRAGMA user_version = 12");
+    old.close();
+    const upgraded = new SqliteStore(path);
+    try {
+      expect(await upgraded.getConversation(conversation.id)).toMatchObject({ head: item.id });
+      expect(await upgraded.listActiveItems(conversation.id)).toEqual([item]);
+      expect(await upgraded.listPendingQuestions(conversation.id)).toEqual([]);
+      await upgraded.createQuestion({
+        id: "new-question",
+        conversationId: conversation.id,
+        callId: "ask",
+        createdAt: 1,
+        response: null,
+        questions: [{ id: "q", prompt: "Question?", options: null, selection: "single" }],
+      });
+      expect(await upgraded.listPendingQuestions(conversation.id)).toHaveLength(1);
+    } finally {
+      upgraded.close();
+    }
+  });
+
+  it("rolls back response consumption when appending the canonical message fails", async () => {
+    const store = new SqliteStore(":memory:");
+    try {
+      const conversation = await store.createConversation(record());
+      await store.createQuestion({
+        id: "question",
+        conversationId: conversation.id,
+        callId: "ask",
+        createdAt: 1,
+        response: null,
+        questions: [{ id: "q", prompt: "Question?", options: null, selection: "single" }],
+      });
+      await store.resolveQuestion(conversation.id, "question", { status: "dismissed" });
+      const input = {
+        conversationId: conversation.id,
+        turnId: "missing" as TurnId,
+        type: "message" as const,
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "Dismissed" }],
+      };
+      await expect(store.appendQuestionResponse("question", input)).rejects.toThrow();
+      expect(await store.listPendingQuestions(conversation.id)).toMatchObject([
+        { deliveryPending: true },
+      ]);
+      const turn = await store.createTurn(conversation.id);
+      expect(
+        await store.appendQuestionResponse("question", { ...input, turnId: turn.id }),
+      ).toBeDefined();
+      expect(
+        await store.appendQuestionResponse("question", { ...input, turnId: turn.id }),
+      ).toBeUndefined();
+      expect(await store.listPendingQuestions(conversation.id)).toEqual([]);
+      expect(await store.listActiveItems(conversation.id)).toHaveLength(1);
+    } finally {
+      store.close();
+    }
   });
 
   it("retains input origin after reopen and leaves legacy messages unclassified", async () => {

@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ChevronRight, Network } from "lucide-react";
 import type { ConversationId } from "@harness/protocol";
 import type { SubagentPage, SubagentRow } from "@harness/client-features";
-import type { ConversationView, DesktopSession } from "../session.ts";
+import type { ConversationSnapshot, DesktopSession } from "../session.ts";
 import { Button, IconButton, PopoverControl } from "../ui.tsx";
 
 const statusLabel = {
@@ -143,15 +143,17 @@ function TreeRows({
   );
 }
 
-export function SubagentControl({
+export const SubagentControl = memo(function SubagentControl({
   session,
-  view,
+  conversationId,
+  revision,
 }: {
   session: DesktopSession;
-  view: ConversationView;
+  conversationId: string;
+  revision: number;
 }) {
   const [refresh, setRefresh] = useState(0);
-  const state = useSubagents(session, view.conversation.id, view.subagentRevision, refresh);
+  const state = useSubagents(session, conversationId, revision, refresh);
   const running = state.data?.running ?? 0;
   return (
     <div className="subagent-control">
@@ -173,22 +175,25 @@ export function SubagentControl({
         }
       >
         <h2>Subagents</h2>
-        <TreeRows session={session} revision={view.subagentRevision} state={state} grouped />
+        <TreeRows session={session} revision={revision} state={state} grouped />
       </PopoverControl>
     </div>
   );
-}
+});
 
-export function SubagentHeading({ view }: { view: ConversationView }) {
-  if (!view.subagent) throw new Error("Subagent heading requires subagent metadata");
+export const SubagentHeading = memo(function SubagentHeading({
+  subagent,
+}: {
+  subagent: NonNullable<ConversationSnapshot["subagent"]>;
+}) {
   return (
     <div className="conversation-heading subagent-heading">
-      <AncestorLinks ancestors={view.subagent.ancestors} />
+      <AncestorLinks ancestors={subagent.ancestors} />
       <ChevronRight size={14} aria-hidden="true" />
-      <h1 title={view.subagent.slug}>{view.subagent.name}</h1>
+      <h1 title={subagent.slug}>{subagent.name}</h1>
     </div>
   );
-}
+});
 
 function AncestorLinks({ ancestors }: { ancestors: { id: string; name: string }[] }) {
   return ancestors.map((ancestor, index) => (

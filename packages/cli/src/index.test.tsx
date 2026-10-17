@@ -83,8 +83,9 @@ const start: { kind: "session"; session: Session } = {
 };
 
 describe("CLI approval defaults", () => {
-  it("allows activity and subagent controls plus worktree listing", () => {
+  it("allows questions, activity and subagent controls plus worktree listing", () => {
     expect(BUILTIN_APPROVAL_DEFAULTS).toEqual({
+      ask_questions: "allow",
       activity_wait: "allow",
       activity_peek: "allow",
       activity_list: "allow",

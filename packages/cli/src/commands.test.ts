@@ -23,6 +23,7 @@ const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   pickPreset: vi.fn(),
   fork: vi.fn(),
   showActivities: vi.fn(),
+  showQuestions: vi.fn(),
   showSandbox: vi.fn(),
   sandbox: {
     backend: "local",

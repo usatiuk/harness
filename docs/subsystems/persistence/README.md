@@ -53,6 +53,13 @@ these fields, including a structured scalar `null`. SQLite range reads select
 only requested blob bytes. Crash reconciliation pairs dangling descendants with
 errors retaining their invocation association; no computation resumes.
 
+- **Questions** retain bounded pending request batches and the first submitted
+  response. An indexed conversation/pending lookup restores open questions and
+  accepted, undelivered responses. Appending the answer as a user message and
+  marking it consumed share one transaction; retries cannot duplicate canonical
+  input. Accepted responses update conversation recency once. Unanswered requests
+  survive turn cancellation, while forced runtime teardown leaves accepted input
+  available for the next activation.
 - **Turns** record running/completed/failed/aborted status. Runtime liveness stays
   in memory; persisted `running` exists for crash reconciliation only.
 - **Provider payloads** preserve provider/model/type/version-bound opaque data
@@ -82,7 +89,9 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-The current SQLite format is version 12. Version 11 receives an optional indexed
+The current SQLite format is version 13. Version 12 receives the additive indexed
+questions table; existing conversation history is preserved.
+Version 11 receives an optional indexed
 plugin-state scope and a latest-turn index. Existing subagent spawn marks are
 scoped to their recorded parent, so historical inspection does not scan all
 conversations. Updating a plugin-state value without supplying scope preserves

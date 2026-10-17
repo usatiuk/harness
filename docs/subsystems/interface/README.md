@@ -613,8 +613,20 @@ the reader scrolls away. Three dots return to latest only during a running turn;
 their visibility does not change dock/fade geometry. Earlier-history prepend
 preserves a surviving visible row and offset, with the newly available tool parent
 as a fallback when grouping absorbs that row. Desktop-local row identities are
-updated with each reduced event, preserving streaming blocks through durable
+projected at presentation publication, preserving streaming blocks through durable
 commit; the server and shared reducer continue to own canonical transcript facts.
+Each attachment owns its live reducer state, cached immutable React snapshot and
+one pending timer. Text/reasoning publish at most once per 100 ms; semantic events
+and disconnect flush preceding text immediately, and detach cancels pending work.
+Connection notifications drive the host/app shell, sidebar notifications cover
+list/title/status/unread changes, and content notifies only its conversation.
+Unchanged rows/steps retain references for memoized message/work renderers.
+Composer comparisons use only its actual state inputs; headers/history receive
+narrow props and controls subscribe separately to connection state. Tool diff
+preparation lives inside the disclosure's mounted body, preserving Presence closing
+animations. Restart checks current turns/activities when clicked. See the
+[delivery plan](../../plans/interface/2026-10-17-desktop-streaming-performance.md)
+for measured work reductions and native-performance qualification limits.
 
 Shared GUI dropdowns use themed Radix menus with value callbacks and canonical
 hidden form fields; empty choices and disabled fields retain normal form semantics.
@@ -895,3 +907,15 @@ highlight. The bubble clips native paragraph-selection paint at its rounded boun
 
 Transcript rows use 6px vertical padding; user bubbles use 10px top and 6px
 bottom margins so consecutive messages and work summaries stay compact.
+
+## Async question forms
+
+The `questions` v1 plugin contract carries pending question batches in attachment
+snapshots and sends created/resolved notifications. The shared QuestionsClient
+uses existing attachment buffering so reconnect snapshots precede live updates.
+Desktop renders batches beside the composer; TUI `/questions` opens a panel while
+the normal composer remains available. Each question has clearable single or
+multiple choices when supplied, plus a comment field. A comment alone is valid;
+a blank answer is not submission. Dismissal is explicit. Closing a panel leaves
+the request open. Requests are conversation-owned; after server restart, opening
+a child conversation restores questions owned by that child.

@@ -63,6 +63,255 @@
       "required": ["protocolVersion", "server", "plugins"],
       "additionalProperties": false
     },
+    "plugin_questions_created_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "callId": { "type": "string" },
+        "questions": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+              "options": {
+                "anyOf": [
+                  {
+                    "minItems": 1,
+                    "maxItems": 12,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+                        "label": { "type": "string", "minLength": 1, "maxLength": 1000 }
+                      },
+                      "required": ["id", "label"],
+                      "additionalProperties": false
+                    }
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "selection": { "type": "string", "enum": ["single", "multiple"] }
+            },
+            "required": ["id", "prompt", "options", "selection"],
+            "additionalProperties": false
+          }
+        },
+        "createdAt": { "type": "number" },
+        "response": {
+          "anyOf": [
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "const": "answered" },
+                    "answers": {
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "questionId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                          "selectedOptionIds": {
+                            "maxItems": 12,
+                            "type": "array",
+                            "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+                          },
+                          "comment": { "type": "string", "maxLength": 8000 }
+                        },
+                        "required": ["questionId", "selectedOptionIds", "comment"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["status", "answers"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": { "status": { "type": "string", "const": "dismissed" } },
+                  "required": ["status"],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            { "type": "null" }
+          ]
+        },
+        "rootConversationId": { "type": "string" }
+      },
+      "required": [
+        "id",
+        "conversationId",
+        "callId",
+        "questions",
+        "createdAt",
+        "response",
+        "rootConversationId"
+      ],
+      "additionalProperties": false
+    },
+    "plugin_questions_resolved_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "rootConversationId": { "type": "string" },
+        "requestId": { "type": "string" }
+      },
+      "required": ["rootConversationId", "requestId"],
+      "additionalProperties": false
+    },
+    "plugin_questions_respond_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "conversationId": { "type": "string" },
+        "requestId": { "type": "string" },
+        "response": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "status": { "type": "string", "const": "answered" },
+                "answers": {
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "questionId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                      "selectedOptionIds": {
+                        "maxItems": 12,
+                        "type": "array",
+                        "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+                      },
+                      "comment": { "type": "string", "maxLength": 8000 }
+                    },
+                    "required": ["questionId", "selectedOptionIds", "comment"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["status", "answers"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": { "status": { "type": "string", "const": "dismissed" } },
+              "required": ["status"],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": ["conversationId", "requestId", "response"],
+      "additionalProperties": false
+    },
+    "plugin_questions_respond_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "request": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "conversationId": { "type": "string" },
+            "callId": { "type": "string" },
+            "questions": {
+              "minItems": 1,
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+                  "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                  "options": {
+                    "anyOf": [
+                      {
+                        "minItems": 1,
+                        "maxItems": 12,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+                            "label": { "type": "string", "minLength": 1, "maxLength": 1000 }
+                          },
+                          "required": ["id", "label"],
+                          "additionalProperties": false
+                        }
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "selection": { "type": "string", "enum": ["single", "multiple"] }
+                },
+                "required": ["id", "prompt", "options", "selection"],
+                "additionalProperties": false
+              }
+            },
+            "createdAt": { "type": "number" },
+            "response": {
+              "anyOf": [
+                {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": { "type": "string", "const": "answered" },
+                        "answers": {
+                          "minItems": 1,
+                          "maxItems": 8,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "questionId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                              "selectedOptionIds": {
+                                "maxItems": 12,
+                                "type": "array",
+                                "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+                              },
+                              "comment": { "type": "string", "maxLength": 8000 }
+                            },
+                            "required": ["questionId", "selectedOptionIds", "comment"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["status", "answers"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": { "status": { "type": "string", "const": "dismissed" } },
+                      "required": ["status"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                { "type": "null" }
+              ]
+            }
+          },
+          "required": ["id", "conversationId", "callId", "questions", "createdAt", "response"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["request"],
+      "additionalProperties": false
+    },
     "plugin_feedback_status_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -5904,6 +6153,117 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "null"
     },
+    "questions_snapshot": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "conversationId": { "type": "string" },
+              "callId": { "type": "string" },
+              "questions": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+                    "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                    "options": {
+                      "anyOf": [
+                        {
+                          "minItems": 1,
+                          "maxItems": 12,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+                              "label": { "type": "string", "minLength": 1, "maxLength": 1000 }
+                            },
+                            "required": ["id", "label"],
+                            "additionalProperties": false
+                          }
+                        },
+                        { "type": "null" }
+                      ]
+                    },
+                    "selection": { "type": "string", "enum": ["single", "multiple"] }
+                  },
+                  "required": ["id", "prompt", "options", "selection"],
+                  "additionalProperties": false
+                }
+              },
+              "createdAt": { "type": "number" },
+              "response": {
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": { "type": "string", "const": "answered" },
+                          "answers": {
+                            "minItems": 1,
+                            "maxItems": 8,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "questionId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 100
+                                },
+                                "selectedOptionIds": {
+                                  "maxItems": 12,
+                                  "type": "array",
+                                  "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+                                },
+                                "comment": { "type": "string", "maxLength": 8000 }
+                              },
+                              "required": ["questionId", "selectedOptionIds", "comment"],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": ["status", "answers"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": { "status": { "type": "string", "const": "dismissed" } },
+                        "required": ["status"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "rootConversationId": { "type": "string" }
+            },
+            "required": [
+              "id",
+              "conversationId",
+              "callId",
+              "questions",
+              "createdAt",
+              "response",
+              "rootConversationId"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["pending"],
+      "additionalProperties": false
+    },
     "activities_snapshot": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -6018,6 +6378,25 @@
       "direction": "client-to-server",
       "params": { "$ref": "#/$defs/initialize_params" },
       "result": { "$ref": "#/$defs/initialize_result" }
+    },
+    {
+      "method": "plugin.questions.created",
+      "kind": "notification",
+      "direction": "server-to-client",
+      "params": { "$ref": "#/$defs/plugin_questions_created_params" }
+    },
+    {
+      "method": "plugin.questions.resolved",
+      "kind": "notification",
+      "direction": "server-to-client",
+      "params": { "$ref": "#/$defs/plugin_questions_resolved_params" }
+    },
+    {
+      "method": "plugin.questions.respond",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_questions_respond_params" },
+      "result": { "$ref": "#/$defs/plugin_questions_respond_result" }
     },
     {
       "method": "plugin.feedback.status",
@@ -6538,6 +6917,7 @@
     }
   ],
   "x-harness-snapshots": {
+    "questions": { "$ref": "#/$defs/questions_snapshot" },
     "approval": { "$ref": "#/$defs/approval_snapshot" },
     "activities": { "$ref": "#/$defs/activities_snapshot" },
     "sandbox": { "$ref": "#/$defs/sandbox_snapshot" }

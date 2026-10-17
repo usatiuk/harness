@@ -471,3 +471,102 @@ it("opens a live child with its own identity, snapshot and final transcript whil
     await host.shutdown();
   }
 });
+
+it("isolates background streaming from connection/sidebar/other-chat subscribers and flushes on disconnect", async () => {
+  let startBurst!: () => void;
+  let finish!: () => void;
+  const burstGate = new Promise<void>((resolve) => {
+    startBurst = resolve;
+  });
+  const finishGate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const provider = Object.assign(new FakeProvider([]), {
+    async *stream() {
+      yield { type: "text_delta" as const, text: "Initial" };
+      await burstGate;
+      for (let index = 0; index < 500; index++) yield { type: "text_delta" as const, text: "x" };
+      yield { type: "text_delta" as const, text: "Tail" };
+      await finishGate;
+      yield {
+        type: "message" as const,
+        content: [{ type: "text" as const, text: "Initial" + "x".repeat(500) + "Tail" }],
+      };
+      yield {
+        type: "completed" as const,
+        usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+      };
+    },
+  });
+  const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
+    store: new InMemoryStore(),
+    home: "/nonexistent-harness-home",
+    plugins: [{ id: "fake", providers: () => [provider] }],
+  });
+  const pair = createInProcessMessageConnectionPair();
+  const host = new HarnessRpcHost(service);
+  const server = new HarnessRpcSession({
+    host,
+    connection: pair.right,
+    server: { name: "test", version: "1" },
+  });
+  registerFeatureServer(server);
+  server.start();
+  const desktop = new DesktopSession(pair.left);
+  try {
+    await desktop.start();
+    const overrides = { model: { provider: "fake", model: "fake-1" } };
+    const first = await desktop.client.create({ overrides });
+    const second = await desktop.client.create({ overrides });
+    const selected = await desktop.load(first.id);
+    const background = await desktop.load(second.id);
+    desktop.setActiveConversation(first.id as ConversationId);
+    const selectedSnapshot = selected.snapshot();
+    const global = vi.fn();
+    const connection = vi.fn();
+    const sidebar = vi.fn();
+    const selectedChanged = vi.fn();
+    desktop.subscribe(global);
+    desktop.subscribeConnection(connection);
+    desktop.subscribeSidebar(sidebar);
+    selected.subscribe(selectedChanged);
+    const initial = new Promise<void>((resolve) =>
+      desktop.domain.subscribe(second.id as ConversationId, (event) => {
+        if (event.type === "text_delta" && "text" in event && event.text === "Initial") resolve();
+      }),
+    );
+    const burst = new Promise<void>((resolve) =>
+      desktop.domain.subscribe(second.id as ConversationId, (event) => {
+        if (event.type === "text_delta" && "text" in event && event.text === "Tail") resolve();
+      }),
+    );
+    await desktop.client.deliver(second.id, "Stream", "send");
+    await initial;
+    expect(desktop.unread.has(second.id as ConversationId)).toBe(true);
+    sidebar.mockClear();
+    startBurst();
+    await burst;
+    expect(global).not.toHaveBeenCalled();
+    expect(connection).not.toHaveBeenCalled();
+    expect(sidebar).not.toHaveBeenCalled();
+    expect(selectedChanged).not.toHaveBeenCalled();
+    expect(selected.snapshot()).toBe(selectedSnapshot);
+    expect(background.state.cells.at(-1)).toMatchObject({
+      text: "Initial" + "x".repeat(500) + "Tail",
+    });
+    const closed = new Promise<void>((resolve) => desktop.subscribeConnection(resolve));
+    pair.right.end();
+    await closed;
+    expect(connection).toHaveBeenCalledTimes(1);
+    expect(background.snapshot().state.cells.at(-1)).toMatchObject({
+      text: "Initial" + "x".repeat(500) + "Tail",
+    });
+  } finally {
+    startBurst();
+    finish();
+    desktop.client.closeConnection();
+    await host.shutdown();
+    await server.shutdown();
+  }
+});

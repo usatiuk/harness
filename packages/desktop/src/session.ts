@@ -7,17 +7,9 @@ import {
   decodeUsageSummary,
   type RpcConnection,
 } from "@harness/client";
-import {
-  FEATURE_PLUGIN_CONTRACTS,
-  HarnessPluginClient,
-  type SubagentIdentity,
-} from "@harness/client-features";
-import { init, reduce, type State } from "@harness/client-features/transcript-reducer";
-import {
-  ApprovalClient,
-  APPROVAL_CLIENT_CONTRACT_VERSION,
-  type ClientApproval,
-} from "@harness/approval/client";
+import { FEATURE_PLUGIN_CONTRACTS, HarnessPluginClient } from "@harness/client-features";
+import { init, reduce } from "@harness/client-features/transcript-reducer";
+import { ApprovalClient, APPROVAL_CLIENT_CONTRACT_VERSION } from "@harness/approval/client";
 import {
   isKernelEvent,
   textOf,
@@ -36,19 +28,8 @@ import {
   appConversationListRequest,
   type AppSettings,
 } from "@harness/server/client-protocol";
-import { DesktopTranscript } from "./transcript.ts";
-
-export interface ConversationView {
-  subagent: SubagentIdentity | null;
-  subagentRevision: number;
-  conversation: Conversation;
-  state: State;
-  transcript: DesktopTranscript;
-  approvals: Map<string, ClientApproval>;
-  items: Item[];
-  anchor: string | null;
-  cursor: string | null;
-}
+import { ConversationView } from "./conversation-view.ts";
+export { ConversationView, type ConversationSnapshot } from "./conversation-view.ts";
 
 type ConversationCursor = NonNullable<Awaited<ReturnType<HarnessClient["list"]>>["nextCursor"]>;
 type Project = { workspaceRoot: string; lastUsedAt: number };
@@ -75,7 +56,10 @@ export class DesktopSession {
   readonly unread = new Set<ConversationId>();
   private activeConversation: ConversationId | null = null;
   readonly views = new Map<ConversationId, ConversationView>();
-  readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<() => void>();
+  private readonly connectionListeners = new Set<() => void>();
+  private readonly sidebarListeners = new Set<() => void>();
+  private sidebarRevision = 0;
   readonly loads = new Map<string, Promise<ConversationView>>();
   private readonly historyLoads = new Map<ConversationView, Promise<void>>();
   private readonly subscriptions = new Map<string, Array<() => void>>();
@@ -110,19 +94,21 @@ export class DesktopSession {
     this.client.subscribe((event) => {
       if (event.type === "conversation" && event.event.type === "turn.changed") {
         for (const view of this.views.values()) {
-          if (this.client.rootOf(view.conversation.id) === event.rootConversationId)
+          if (this.client.rootOf(view.conversation.id) === event.rootConversationId) {
             view.subagentRevision++;
+            view.publish();
+          }
         }
-        this.changed();
       }
       if (event.type !== "detached") return;
       for (const id of event.conversationIds) {
         for (const unsubscribe of this.subscriptions.get(id) ?? []) unsubscribe();
         this.subscriptions.delete(id);
+        this.views.get(id as ConversationId)?.dispose();
         this.views.delete(id as ConversationId);
         this.unread.delete(id as ConversationId);
       }
-      this.changed();
+      this.sidebarChanged();
     });
     this.client.peer.onNotification(appAuthUrlNotification, ({ url, userCode }) => {
       this.authUrl = url;
@@ -138,6 +124,20 @@ export class DesktopSession {
       this.listeners.delete(listener);
     };
   };
+  subscribeConnection = (listener: () => void): (() => void) => {
+    this.connectionListeners.add(listener);
+    return () => this.connectionListeners.delete(listener);
+  };
+  connectionSnapshot = (): string | undefined => this.disconnected;
+  subscribeSidebar = (listener: () => void): (() => void) => {
+    this.sidebarListeners.add(listener);
+    return () => this.sidebarListeners.delete(listener);
+  };
+  sidebarSnapshot = (): number => this.sidebarRevision;
+  private sidebarChanged(): void {
+    this.sidebarRevision++;
+    for (const listener of this.sidebarListeners) listener();
+  }
   snapshot = (): number => this.revision;
   changed(): void {
     this.revision++;
@@ -145,12 +145,14 @@ export class DesktopSession {
   }
   setActiveConversation(id: ConversationId | null): void {
     this.activeConversation = id;
-    if (id && this.unread.delete(id)) this.changed();
+    if (id && this.unread.delete(id)) this.sidebarChanged();
   }
 
   disconnect(message: string): void {
     this.authAttempt?.abort();
     this.disconnected = message;
+    for (const view of this.views.values()) view.publish();
+    for (const listener of this.connectionListeners) listener();
     this.changed();
   }
 
@@ -206,7 +208,7 @@ export class DesktopSession {
     if (page.loading || (page.loaded && page.cursor === null)) return;
     page.loading = true;
     page.error = null;
-    this.changed();
+    this.sidebarChanged();
     try {
       const rows: Conversation[] = [];
       let cursor = page.cursor;
@@ -233,7 +235,7 @@ export class DesktopSession {
       page.error = error instanceof Error ? error.message : String(error);
     } finally {
       page.loading = false;
-      this.changed();
+      this.sidebarChanged();
     }
   }
 
@@ -243,7 +245,7 @@ export class DesktopSession {
     if (page.loading || (page.loaded && page.cursor === null)) return;
     page.loading = true;
     page.error = null;
-    this.changed();
+    this.sidebarChanged();
     try {
       const rows: Project[] = [];
       let cursor = page.cursor;
@@ -267,7 +269,7 @@ export class DesktopSession {
       page.error = error instanceof Error ? error.message : String(error);
     } finally {
       page.loading = false;
-      this.changed();
+      this.sidebarChanged();
     }
   }
 
@@ -315,22 +317,14 @@ export class DesktopSession {
   private async attach(id: ConversationId): Promise<ConversationView> {
     const conversation = await this.domain.getConversation(id);
     if (!conversation) throw new Error("Conversation does not exist");
-    const view: ConversationView = {
-      conversation,
-      subagent: await this.plugins.inspectSubagent(id),
-      subagentRevision: 0,
-      state: init([]),
-      transcript: new DesktopTranscript(),
-      approvals: new Map(),
-      items: [],
-      anchor: null,
-      cursor: null,
-    };
+    const view = new ConversationView(conversation, await this.plugins.inspectSubagent(id));
     this.views.set(id, view);
     const unsubscribeApproval = this.plugins.approvals.subscribe(id, (event) => {
+      view.approvals = new Map(view.approvals);
       if (event.type === "created") view.approvals.set(event.approval.requestId, event.approval);
       else view.approvals.delete(event.requestId);
-      this.changed();
+      view.publish();
+      this.sidebarChanged();
     });
     const subscriptions = [unsubscribeApproval];
     this.subscriptions.set(id, subscriptions);
@@ -339,6 +333,19 @@ export class DesktopSession {
       const member = attachment.members.find((member) => member.conversation.id === id);
       if (!member) throw new Error("Attachment omitted the requested conversation");
       view.conversation = decodeConversation(member.conversation);
+      subscriptions.push(
+        this.plugins.questions.subscribe(attachment.root.id, (event) => {
+          if (event.type === "created") {
+            if (event.request.conversationId !== id) return;
+            view.questions = new Map(view.questions).set(event.request.id, event.request);
+          } else {
+            if (!view.questions.has(event.requestId)) return;
+            view.questions = new Map(view.questions);
+            view.questions.delete(event.requestId);
+          }
+          view.publish();
+        }),
+      );
       const page = await this.client.history({
         conversationId: id,
         ...(member.conversation.head ? { anchor: member.conversation.head } : {}),
@@ -353,12 +360,11 @@ export class DesktopSession {
           attachment.root.id === id ? attachment.usage : await this.client.usage(id),
         ),
       );
-      view.transcript.update(
-        view.state.cells,
-        view.state.turn.status === "running" ? view.state.turn.id : undefined,
-      );
+      view.publish();
       subscriptions.push(
         this.domain.subscribe(id, (event) => {
+          const previousTurn = view.state.turn;
+          const previousUnread = this.unread.has(id);
           if (
             this.activeConversation !== id &&
             isKernelEvent(event) &&
@@ -391,11 +397,21 @@ export class DesktopSession {
             if (!view.items.some((current) => current.id === item.id)) view.items.push(item);
           }
           view.state = reduce(view.state, event, Date.now());
-          view.transcript.update(
-            view.state.cells,
-            view.state.turn.status === "running" ? view.state.turn.id : undefined,
+          view.publish(
+            isKernelEvent(event) &&
+              (event.type === "text_delta" || event.type === "reasoning_delta"),
           );
-          this.changed();
+          if (
+            previousTurn.status !== view.state.turn.status ||
+            previousUnread !== this.unread.has(id) ||
+            (isKernelEvent(event) &&
+              (event.type === "title.changed" ||
+                event.type === "workspace.changed" ||
+                (event.type === "item.appended" &&
+                  event.item.type === "message" &&
+                  event.item.role === "user")))
+          )
+            this.sidebarChanged();
         }),
       );
       subscriptions.push(
@@ -403,20 +419,18 @@ export class DesktopSession {
           if (event.type === "activity.started" || event.type === "activity.exited")
             view.subagentRevision++;
           view.state = reduce(view.state, event, Date.now());
-          view.transcript.update(
-            view.state.cells,
-            view.state.turn.status === "running" ? view.state.turn.id : undefined,
-          );
-          this.changed();
+          view.publish();
         }),
       );
-      this.changed();
+      view.publish();
+      this.sidebarChanged();
       return view;
     } catch (error) {
       for (const unsubscribe of subscriptions) unsubscribe();
       this.subscriptions.delete(id);
+      view.dispose();
       this.views.delete(id);
-      this.changed();
+      this.sidebarChanged();
       throw error;
     }
   }
@@ -469,11 +483,7 @@ export class DesktopSession {
       ],
       itemIds: seed.itemIds,
     };
-    view.transcript.update(
-      view.state.cells,
-      view.state.turn.status === "running" ? view.state.turn.id : undefined,
-    );
-    this.changed();
+    view.publish();
   }
 
   async create(

@@ -155,7 +155,7 @@ export class DesktopHosts {
       }
       session.setServerScope(identity.serverId);
       view.session = session;
-      session.subscribe(() => this.changed());
+      session.subscribeConnection(() => this.changed());
       view.identity = identity;
       return view;
     } catch (error) {
@@ -190,6 +190,7 @@ export class DesktopHosts {
     }
     const view = this.views.get(id);
     if (!view) return;
+    view.session?.disconnect("Disconnected");
     view.session?.client.closeConnection();
     await view.closeTransport?.();
     delete view.closeTransport;

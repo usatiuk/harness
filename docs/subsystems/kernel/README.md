@@ -234,3 +234,14 @@ context retains original IDs and provider payloads across owners. Reconciliation
 pairs tools within their creating conversation and never repairs an inherited
 unfinished call by mutating source turns. Normal steers flush after tool dispatch
 completes, so their fork boundaries contain complete tool pairs.
+
+## Async questions
+
+Questions use a narrow durable request/response record owned by one conversation.
+`ask_questions` is contributed by `@harness/questions`; core/service own creation,
+resolution, and input delivery. Pending requests survive turns and runtime unload.
+An accepted answer or dismissal becomes ordinary steering input, starting a turn
+if idle. The store atomically appends that input and marks the response consumed;
+reloading recovers accepted responses that had not yet entered canonical history.
+The first submitted response wins, and later submissions return that outcome.
+Blocking approvals retain their existing turn-scoped request mechanism.

@@ -279,3 +279,39 @@ it("keeps elapsed timing through settled calls and ends it on a terminal turn wi
     vi.useRealTimers();
   }
 });
+
+it("reuses unchanged rows and steps without mutating previously published timings", () => {
+  vi.useFakeTimers();
+  try {
+    const transcript = new DesktopTranscript();
+    const user: Cell = { kind: "user", id: "user", turnId: "turn", text: "Hi", createdAt: 0 };
+    const tool: Cell = {
+      kind: "tool",
+      turnId: "turn",
+      callId: "read",
+      name: "read",
+      args: {},
+      startedAt: 0,
+    };
+    const first: Cell = { kind: "assistant", turnId: "turn", text: "First", streaming: true };
+    transcript.update([user, tool, first], "turn");
+    const before = transcript.rows;
+    const beforeGroup = toolGroup(before[1]!);
+    vi.advanceTimersByTime(100);
+    transcript.update([user, tool, { ...first, text: "First words" }], "turn");
+    expect(transcript.rows[0]).toBe(before[0]);
+    expect(transcript.rows[1]).toBe(beforeGroup);
+    expect(transcript.rows[2]).not.toBe(before[2]);
+    const cells = [user, tool, { ...first, text: "First words" }];
+    transcript.update(cells, "turn");
+    transcript.update(cells);
+    expect(toolGroup(transcript.rows[1]!).observedTiming?.completedAt).toBeDefined();
+    expect(beforeGroup.observedTiming?.completedAt).toBeUndefined();
+    expect(beforeGroup.steps[0].cell).toBe(tool);
+    const finalRows = transcript.rows;
+    transcript.update(cells);
+    expect(transcript.rows).toBe(finalRows);
+  } finally {
+    vi.useRealTimers();
+  }
+});

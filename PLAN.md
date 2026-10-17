@@ -1,5 +1,11 @@
 # Harness plan
 
+The [desktop streaming performance refactor](docs/plans/interface/2026-10-17-desktop-streaming-performance.md)
+is complete: scoped UI subscriptions, a 100 ms text/reasoning publication cap,
+stable transcript rows and lazy expensive rendering. Full checks pass 1,518 tests;
+Chromium passes 87/89 with two baseline-reproduced history-anchor failures.
+Measured work reductions and native-performance limits are in the delivery plan.
+
 The [subagent inspection follow-up](docs/plans/interface/2026-10-17-subagent-inspection.md)
 adds parent-named task identities and a header popover tree of durable child
 conversations with read-only live inspection. Full checks pass 1,487 tests;
@@ -63,6 +69,11 @@ labels and qualified reasoning controls. All 32 focused tests and independent
 reviews pass. Full validation passes typechecking/lint/formatting and 1,382 tests;
 three documented unrelated macOS/test failures remain. Unsupported Go Google
 routes remain outside this metadata change.
+
+The [async questions change](docs/plans/cross-cutting/2026-10-17-async-questions.md)
+adds one nonblocking question tool, batch choice/freeform forms with comments,
+and durable reconnect/restart semantics. Delivered in desktop and TUI; full checks
+pass 1,518 tests (41 skipped), and three Chromium question form regressions pass.
 
 ## Goals
 

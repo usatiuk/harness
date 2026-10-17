@@ -41,6 +41,7 @@ export interface CommandContext {
   pickPreset: () => void;
   /** Open the activities overlay. */
   showActivities: () => void;
+  showQuestions: () => void;
   /** Open the sandbox overlay. */
   showSandbox: () => void;
   /** Imperative sandbox configuration and Docker lifecycle actions. */
@@ -269,6 +270,7 @@ export const commands: Command[] = [
         );
     },
   },
+  { name: "questions", summary: "answer pending questions", run: (ctx) => ctx.showQuestions() },
   { name: "activities", summary: "show running activities", run: (ctx) => ctx.showActivities() },
   {
     name: "sandbox",

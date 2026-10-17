@@ -16,6 +16,7 @@ export * from "./plugin.ts";
 export * from "./runner.ts";
 export * from "./store.ts";
 export * from "./requests.ts";
+export * from "./questions.ts";
 export * from "./rpc.ts";
 export * from "./client-protocol.ts";
 export * from "./worktrees.ts";

@@ -1976,3 +1976,31 @@ main {
   font-weight: 500;
   margin: 8px 0 4px;
 }
+
+.question-request {
+  background: var(--surface-panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin: 8px 0;
+  padding: 14px;
+  max-height: 40vh;
+  overflow: auto;
+}
+.question-request fieldset {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.question-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.question-field label {
+  display: flex;
+  gap: 8px;
+}
+.question-field label:has(textarea) {
+  flex-direction: column;
+}

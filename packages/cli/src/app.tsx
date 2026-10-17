@@ -1,3 +1,5 @@
+import type { ClientQuestionRequest } from "@harness/questions/client";
+import { QuestionsOverlay } from "./questions-overlay.tsx";
 import {
   useCallback,
   useEffect,
@@ -197,6 +199,8 @@ export function App({
   const [presetPicking, setPresetPicking] = useState(false);
   const [forkPicking, setForkPicking] = useState(false);
   const [showActivities, setShowActivities] = useState(false);
+  const [showQuestions, setShowQuestions] = useState(false);
+  const [questions, setQuestions] = useState<ClientQuestionRequest[]>([]);
   const [showSandbox, setShowSandbox] = useState(false);
   const [verbose, setVerbose] = useState(false);
   // Bumped on verbose toggle to remount <Static> (new key) so it re-emits every
@@ -265,6 +269,18 @@ export function App({
     [plugins, conversation.id, note],
   );
 
+  useEffect(
+    () =>
+      plugins.questions.subscribe(conversation.id, (event) => {
+        setQuestions((current) =>
+          event.type === "created"
+            ? [...current.filter((request) => request.id !== event.request.id), event.request]
+            : current.filter((request) => request.id !== event.requestId),
+        );
+      }),
+    [plugins, conversation.id],
+  );
+
   useEffect(() => {
     return plugins.approvals.subscribe(conversation.id, (event) => {
       if (event.type === "resolved") {
@@ -323,6 +339,7 @@ export function App({
     }
     if (key.ctrl && input === "c") {
       // Cancel the topmost overlay; in the main view the composer clears/interrupts instead.
+      if (showQuestions) return setShowQuestions(false);
       if (forkPicking) return setForkPicking(false);
       if (showActivities) return setShowActivities(false);
       if (showSandbox) return setShowSandbox(false);
@@ -331,7 +348,8 @@ export function App({
       return;
     }
     if (!key.escape) return;
-    if (forkPicking) setForkPicking(false);
+    if (showQuestions) setShowQuestions(false);
+    else if (forkPicking) setForkPicking(false);
     else if (showActivities) setShowActivities(false);
     else if (showSandbox) setShowSandbox(false);
     else if (modelPicking) setModelPicking(false);
@@ -432,6 +450,7 @@ export function App({
       pickPreset: () => setPresetPicking(true),
       fork: () => setForkPicking(true),
       showActivities: () => setShowActivities(true),
+      showQuestions: () => setShowQuestions(true),
       showSandbox: () => setShowSandbox(true),
       sandbox: sandboxView,
       exit,
@@ -512,6 +531,12 @@ export function App({
                 }}
               />
             </Box>
+          ) : showQuestions ? (
+            <QuestionsOverlay
+              requests={questions}
+              respond={(id, response) => plugins.questions.respond(id, response)}
+              onClose={() => setShowQuestions(false)}
+            />
           ) : forkPicking ? (
             <Box flexDirection="column">
               <Text>Fork before a user message</Text>
@@ -574,6 +599,11 @@ export function App({
             <SandboxOverlay view={sandboxView} onClose={() => setShowSandbox(false)} />
           ) : (
             <>
+              {questions.length > 0 && (
+                <Text color="magenta">
+                  {questions.length} pending question request(s) · /questions to answer
+                </Text>
+              )}
               <PendingPreview pending={state.pendingInput} verbose={verbose} />
               <SandboxProgress sandbox={state.sandbox} />
               <Rule />

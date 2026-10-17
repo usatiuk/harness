@@ -539,3 +539,17 @@ durable and retries when MAI becomes available.
 
 See [feedback integration](docs/subsystems/feedback/README.md) and the sibling
 [MAI setup](../mai/README.md) for the separate review/training web app.
+
+### Agent questions
+
+The `ask_questions` tool posts a batch of questions and returns immediately. The
+agent can continue independent work or end its turn until you answer. Desktop
+shows pending questions beside the composer; the TUI opens them with `/questions`.
+Choose an option, select several when offered, write a comment without selecting
+anything, or add a comment to your selection. Submit the batch or explicitly
+dismiss it. Closing the panel leaves it pending.
+
+Questions belong to their conversation and survive stopping a turn, disconnecting
+a client, and restarting the server. Reconnecting restores pending questions;
+accepted answers are delivered once as conversation input. After a server restart,
+open a child conversation to restore questions owned by that child.

@@ -16,6 +16,10 @@ Use a dated descriptive filename such as
 
 Current exploration:
 
+- [Desktop streaming work](2026-10-17-desktop-streaming-performance.md): global
+  token notifications, projection/render costs, immutable snapshot requirements,
+  and measured capped-publication/row-reuse improvements.
+
 - [Linux WebKit frame pacing](2026-10-12-linux-frame-pacing.md): isolated native
   samples, a reproduction of sluggish scrolling, built-in Sysprof tracing and
   withdrawal of the unproven near-60-FPS preference override.

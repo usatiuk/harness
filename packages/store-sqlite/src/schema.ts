@@ -106,6 +106,15 @@ const WORKTREE_SCHEMA = `CREATE TABLE managed_worktrees (
   path TEXT PRIMARY KEY, repository TEXT NOT NULL, created_at INTEGER NOT NULL
 );`;
 
+const QUESTIONS_SCHEMA = `CREATE TABLE questions (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id),
+  body TEXT NOT NULL,
+  pending INTEGER NOT NULL DEFAULT 1 CHECK(pending IN (0, 1)),
+  delivery_pending INTEGER NOT NULL DEFAULT 0 CHECK(delivery_pending IN (0, 1))
+);
+CREATE INDEX questions_pending ON questions(conversation_id) WHERE pending = 1;
+`;
 const SCHEMA = `
 ${WORKTREE_SCHEMA}
 CREATE TABLE conversations (
@@ -202,7 +211,7 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-export const STORE_SCHEMA_VERSION = 12;
+export const STORE_SCHEMA_VERSION = 13;
 
 /** Fresh schema or supported additive upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
@@ -263,6 +272,10 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
         CREATE INDEX turns_latest ON turns(conversation_id);
         UPDATE plugin_state SET scope = json_extract(value, '$.parent.conversationId')
           WHERE plugin = 'subagents' AND key = 'spawn';`);
+      version = 12;
+    }
+    if (version === 12) {
+      db.exec(QUESTIONS_SCHEMA);
       db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }
@@ -276,6 +289,7 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
         `Unsupported Harness database format (${version}) in ${db.name}; this server supports version ${STORE_SCHEMA_VERSION}. Upgrade Harness to a compatible server. The database was not changed.`,
       );
     db.exec(SCHEMA);
+    db.exec(QUESTIONS_SCHEMA);
     db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
   }).exclusive();
 }

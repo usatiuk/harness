@@ -36,12 +36,21 @@ export class DesktopTranscript {
   private cells: readonly Cell[] = [];
   private keys = new Map<Cell, string>();
   private sequence = 0;
+  private activeTurnId: string | undefined;
 
   update(cells: readonly Cell[], activeTurnId?: string): void {
+    const turnChanged = this.activeTurnId !== activeTurnId;
+    this.activeTurnId = activeTurnId;
     if (cells === this.cells) {
-      this.updateTiming(activeTurnId, Date.now());
+      if (turnChanged) this.updateTiming(activeTurnId, Date.now());
       return;
     }
+    const previousRows = new Map(this.rows.map((row) => [row.key, row]));
+    const previousSteps = new Map(
+      this.rows.flatMap((row) =>
+        row.kind === "steps" ? row.steps.map((step) => [step.key, step] as const) : [],
+      ),
+    );
     const previousTimings = new Map<string, { startedAt: number; completedAt?: number }>();
     for (const row of this.rows) {
       if (row.kind === "steps" && row.observedTiming)
@@ -133,6 +142,25 @@ export class DesktopTranscript {
       if (previous) row.observedTiming = previous;
     }
     this.updateTiming(activeTurnId, now);
+    this.rows = this.rows.map((row) => {
+      const previous = previousRows.get(row.key);
+      if (row.kind === "cell")
+        return previous?.kind === "cell" && previous.cell === row.cell ? previous : row;
+      row.steps = row.steps.map((step) => {
+        const previous = previousSteps.get(step.key);
+        return previous?.cell === step.cell &&
+          ("boundary" in previous ? previous.boundary : undefined) ===
+            ("boundary" in step ? step.boundary : undefined)
+          ? previous
+          : step;
+      }) as typeof row.steps;
+      return previous?.kind === "steps" &&
+        previous.observedTiming === row.observedTiming &&
+        previous.steps.length === row.steps.length &&
+        previous.steps.every((step, index) => step === row.steps[index])
+        ? previous
+        : row;
+    });
     this.keys = keys;
     this.cells = cells;
   }
@@ -145,12 +173,20 @@ export class DesktopTranscript {
             (row) =>
               row.kind === "steps" && row.steps.some(({ cell }) => cell.turnId === activeTurnId),
           );
-    for (const row of this.rows) {
-      if (row.kind !== "steps") continue;
+    let changed = false;
+    const rows = this.rows.map((row): TranscriptRow => {
+      if (row.kind !== "steps") return row;
       const previous = row.observedTiming;
-      if (row === active) row.observedTiming = { startedAt: previous?.startedAt ?? now };
-      else if (previous && previous.completedAt === undefined)
-        row.observedTiming = { ...previous, completedAt: now };
-    }
+      if (row === active && (!previous || previous.completedAt !== undefined)) {
+        changed = true;
+        return { ...row, observedTiming: { startedAt: previous?.startedAt ?? now } };
+      }
+      if (row !== active && previous && previous.completedAt === undefined) {
+        changed = true;
+        return { ...row, observedTiming: { ...previous, completedAt: now } };
+      }
+      return row;
+    });
+    if (changed) this.rows = rows;
   }
 }

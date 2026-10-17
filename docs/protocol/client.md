@@ -287,3 +287,21 @@ it returns container/user/workspace details for terminal attachment. The server
 owns provisioning, deletion exclusion and physical lifetime. Closing the CLI
 connection does not remove its environment. See the
 [execution subsystem](../subsystems/execution/README.md) for retention/crash behavior.
+
+## Async questions
+
+The `questions` v1 contract adds `plugin.questions.created`,
+`plugin.questions.resolved`, and `plugin.questions.respond`. Attachment plugin
+state contains `{pending: [...]}` for open requests in the loaded conversation
+tree. Requests contain an ID, owning conversation ID, originating tool call ID,
+creation time, and questions with stable question/option IDs. Canonical freeform
+questions have `options: null`; single selection is the default.
+
+A response is `{status: "answered", answers: [...]}` or `{status: "dismissed"}`.
+Each answer includes `questionId`, `selectedOptionIds`, and `comment`. All questions
+in a batch must be answered, with at least a selection or a nonblank comment for
+each. The server checks option IDs and selection cardinality. Response RPC requires
+an attachment and returns the recorded request/outcome; first response
+wins. Retry preserves the response identity and cannot append another answer input.
+Pending questions survive client reconnect and server restart independently of an
+active turn. Unloaded child conversations restore their questions when opened.

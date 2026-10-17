@@ -1,3 +1,11 @@
+import {
+  QuestionInputError,
+  MAX_PENDING_QUESTIONS,
+  validateQuestionResponse,
+  type QuestionRequest,
+  type QuestionResponse,
+  type StoredQuestion,
+} from "@harness/protocol";
 import { conversationProjectRoot } from "@harness/protocol";
 import type {
   ManagedWorktree,
@@ -36,6 +44,8 @@ const pluginStateKey = (plugin: string, conversationId: ConversationId, key: str
 
 /** Reference, non-durable Store. The contract suite (testkit) holds the spec. */
 export class InMemoryStore implements Store {
+  readonly #questions = new Map<string, StoredQuestion>();
+  readonly #pendingQuestions = new Map<ConversationId, Map<string, StoredQuestion>>();
   readonly #worktrees = new Map<string, ManagedWorktree>();
   readonly #conversations = new Map<ConversationId, ConversationRecord>();
   readonly #items = new Map<ConversationId, Item[]>();
@@ -53,6 +63,52 @@ export class InMemoryStore implements Store {
     private readonly ids: IdGenerator = uuidIdGenerator,
     private readonly clock: Clock = systemClock,
   ) {}
+
+  async createQuestion(request: QuestionRequest): Promise<QuestionRequest> {
+    if (!this.#conversations.has(request.conversationId)) throw new Error("Unknown conversation");
+    let pending = this.#pendingQuestions.get(request.conversationId);
+    if (!pending)
+      this.#pendingQuestions.set(
+        request.conversationId,
+        (pending = new Map<string, StoredQuestion>()),
+      );
+    if (pending.size >= MAX_PENDING_QUESTIONS)
+      throw new QuestionInputError("Too many pending question requests");
+    if (this.#questions.has(request.id)) throw new Error("Duplicate question request ID");
+    const record = { request: structuredClone(request), deliveryPending: false };
+    this.#questions.set(request.id, record);
+    pending.set(request.id, record);
+    return structuredClone(record.request);
+  }
+  async listPendingQuestions(conversationId: ConversationId): Promise<StoredQuestion[]> {
+    return structuredClone([...(this.#pendingQuestions.get(conversationId)?.values() ?? [])]);
+  }
+  async resolveQuestion(
+    conversationId: ConversationId,
+    id: string,
+    response: QuestionResponse,
+  ): Promise<{ request: QuestionRequest; changed: boolean }> {
+    const record = this.#questions.get(id);
+    if (!record || record.request.conversationId !== conversationId)
+      throw new QuestionInputError("Unknown question request");
+    if (record.request.response)
+      return { request: structuredClone(record.request), changed: false };
+    validateQuestionResponse(record.request, response);
+    record.request.response = structuredClone(response);
+    record.deliveryPending = true;
+    this.recordUserInput(conversationId);
+    return { request: structuredClone(record.request), changed: true };
+  }
+  async appendQuestionResponse(id: string, input: NewItem): Promise<Item | undefined> {
+    const record = this.#questions.get(id);
+    if (!record || record.request.conversationId !== input.conversationId)
+      throw new Error("Unknown question request");
+    if (!record.deliveryPending) return undefined;
+    const item = this.#appendItem(input);
+    record.deliveryPending = false;
+    this.#pendingQuestions.get(input.conversationId)?.delete(id);
+    return item;
+  }
 
   async putManagedWorktree(worktree: ManagedWorktree): Promise<void> {
     this.#worktrees.set(worktree.path, { ...worktree });
@@ -254,6 +310,9 @@ export class InMemoryStore implements Store {
   }
 
   async appendItem(input: NewItem): Promise<Item> {
+    return this.#appendItem(input);
+  }
+  #appendItem(input: NewItem): Item {
     const log = this.#items.get(input.conversationId);
     if (!log) {
       throw new Error(`unknown conversation: ${input.conversationId}`);

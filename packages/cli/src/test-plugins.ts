@@ -13,6 +13,7 @@ export const testPlugins = (overrides: Partial<CliPlugins> = {}): CliPlugins => 
   managedWorktrees: async () => [],
   removeWorktree: async () => {},
   approvals: { subscribe: () => () => {}, respond: async () => {} },
+  questions: { subscribe: () => () => {}, respond: async () => {} },
   subscribe: () => () => {},
   runningActivities: () => 0,
   activities: () => ({ peek: () => [], kill: () => {} }),

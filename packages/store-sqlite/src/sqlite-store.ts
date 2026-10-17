@@ -1,3 +1,11 @@
+import {
+  QuestionInputError,
+  MAX_PENDING_QUESTIONS,
+  validateQuestionResponse,
+  type QuestionRequest,
+  type QuestionResponse,
+  type StoredQuestion,
+} from "@harness/protocol";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -110,6 +118,72 @@ export class SqliteStore implements Store {
   /** Releases the connection (checkpoints WAL). Not in the `Store` interface. */
   close(): void {
     this.#db.close();
+  }
+
+  async createQuestion(request: QuestionRequest): Promise<QuestionRequest> {
+    this.#db
+      .transaction(() => {
+        const count = this.#db
+          .prepare("SELECT count(*) AS n FROM questions WHERE conversation_id = ? AND pending = 1")
+          .get(request.conversationId) as { n: number };
+        if (count.n >= MAX_PENDING_QUESTIONS)
+          throw new QuestionInputError("Too many pending question requests");
+        this.#db
+          .prepare("INSERT INTO questions(id, conversation_id, body) VALUES (?, ?, ?)")
+          .run(request.id, request.conversationId, JSON.stringify(request));
+      })
+      .immediate();
+    return request;
+  }
+  async listPendingQuestions(conversationId: ConversationId): Promise<StoredQuestion[]> {
+    const rows = this.#db
+      .prepare(
+        "SELECT body, delivery_pending FROM questions WHERE conversation_id = ? AND pending = 1 LIMIT ?",
+      )
+      .all(conversationId, MAX_PENDING_QUESTIONS) as { body: string; delivery_pending: number }[];
+    return rows.map((row) => ({
+      request: JSON.parse(row.body) as QuestionRequest,
+      deliveryPending: row.delivery_pending === 1,
+    }));
+  }
+  async resolveQuestion(
+    conversationId: ConversationId,
+    id: string,
+    response: QuestionResponse,
+  ): Promise<{ request: QuestionRequest; changed: boolean }> {
+    return this.#db
+      .transaction(() => {
+        const row = this.#db
+          .prepare("SELECT body FROM questions WHERE id = ? AND conversation_id = ?")
+          .get(id, conversationId) as { body: string } | undefined;
+        if (!row) throw new QuestionInputError("Unknown question request");
+        const request = JSON.parse(row.body) as QuestionRequest;
+        if (request.response) return { request, changed: false };
+        validateQuestionResponse(request, response);
+        request.response = response;
+        this.#db
+          .prepare("UPDATE questions SET body = ?, delivery_pending = 1 WHERE id = ?")
+          .run(JSON.stringify(request), id);
+        this.recordUserInput(conversationId);
+        return { request, changed: true };
+      })
+      .immediate();
+  }
+  async appendQuestionResponse(id: string, input: NewItem): Promise<Item | undefined> {
+    return this.#db
+      .transaction(() => {
+        const row = this.#db
+          .prepare("SELECT delivery_pending FROM questions WHERE id = ? AND conversation_id = ?")
+          .get(id, input.conversationId) as { delivery_pending: number } | undefined;
+        if (!row) throw new Error("Unknown question request");
+        if (!row.delivery_pending) return undefined;
+        const item = this.#appendItem(input);
+        this.#db
+          .prepare("UPDATE questions SET pending = 0, delivery_pending = 0 WHERE id = ?")
+          .run(id);
+        return item;
+      })
+      .immediate();
   }
 
   async putManagedWorktree(tree: ManagedWorktree): Promise<void> {
@@ -391,6 +465,9 @@ export class SqliteStore implements Store {
   // Atomic read-then-write of seq/parent + head. Native IMMEDIATE txn (Kysely only issues
   // deferred BEGIN); the upfront write lock stops a second writer racing the head read.
   async appendItem(input: NewItem): Promise<Item> {
+    return this.#appendItem(input);
+  }
+  #appendItem(input: NewItem): Item {
     const { conversationId, turnId, type, ...variant } = input;
     const id = this.ids.itemId();
     const createdAt = this.clock.now();

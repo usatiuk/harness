@@ -1,3 +1,4 @@
+import type { QuestionRequest, QuestionResponse, StoredQuestion } from "./questions.ts";
 import type { ConversationId, ItemId, TurnId } from "./ids.ts";
 import type {
   ConversationOverrides,
@@ -42,7 +43,8 @@ export interface ConversationProject {
 export type ConversationProjectCursor = ConversationProject;
 
 /**
- * Persistence boundary. The item log is the only durable state. The store deals in
+ * Persistence boundary. The item log owns canonical history; pending questions
+ * retain accepted input until it is appended atomically. The store deals in
  * `ConversationRecord` (durable identity + overrides) — it never sees the resolved `config`, which
  * the service derives from the settings cascade on load.
  */
@@ -53,6 +55,16 @@ export type ManagedWorktree = {
 };
 
 export interface Store {
+  createQuestion(request: QuestionRequest): Promise<QuestionRequest>;
+  /** Open requests and resolved responses not yet appended, bounded by admission. */
+  listPendingQuestions(conversationId: ConversationId): Promise<StoredQuestion[]>;
+  resolveQuestion(
+    conversationId: ConversationId,
+    id: string,
+    response: QuestionResponse,
+  ): Promise<{ request: QuestionRequest; changed: boolean }>;
+  /** Append response and settle its durable delivery in one transaction. */
+  appendQuestionResponse(id: string, input: NewItem): Promise<Item | undefined>;
   putManagedWorktree(worktree: ManagedWorktree): Promise<void>;
   getManagedWorktree(path: string): Promise<ManagedWorktree | undefined>;
   listManagedWorktrees(limit: number, before?: string): Promise<ManagedWorktree[]>;

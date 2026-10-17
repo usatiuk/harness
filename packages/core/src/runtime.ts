@@ -10,6 +10,7 @@ import type {
 export interface Delivery {
   input: DeliveryInput;
   intent: DeliveryIntent;
+  questionId?: string;
 }
 
 /**
@@ -25,6 +26,7 @@ export class Runtime {
    * are pulled. The single buffer is why there is no live-vs-idle branching.
    */
   readonly inbox: Delivery[] = [];
+  readonly questions = new Map<string, import("@harness/protocol").QuestionRequest>();
   /** Whether the detached drain loop is currently active. */
   running = false;
   /** Deferred tool-requested selection, applied only after the entire batch settles. */

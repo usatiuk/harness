@@ -30,6 +30,7 @@
     "@harness/subagents": "*",
     "@harness/workspace": "*",
     "@harness/execution": "*",
-    "@harness/worktrees": "*"
+    "@harness/worktrees": "*",
+    "@harness/questions": "*"
   }
 }

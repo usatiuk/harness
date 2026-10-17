@@ -22,6 +22,7 @@
     "@harness/client-features": "*",
     "@harness/connections": "*",
     "@harness/protocol": "*",
+    "@harness/questions": "*",
     "@harness/server": "*",
     "@radix-ui/react-presence": "1.1.11",
     "@tailwindcss/vite": "^4.3.3",

@@ -13,6 +13,10 @@ import {
   formatError,
   findModel,
   textOf,
+  type QuestionInput,
+  type QuestionRequest,
+  type QuestionResponse,
+  type NewItem,
   type ConfigResolver,
   type CodeEvaluator,
   type Conversation,
@@ -200,11 +204,113 @@ export class Engine {
     this.#ensureRunning(runtime);
   }
 
+  pendingQuestions(conversationId: ConversationId): QuestionRequest[] {
+    return [...(this.#runtimes.get(conversationId)?.questions.values() ?? [])];
+  }
+
+  async askQuestions(
+    conversationId: ConversationId,
+    callId: string,
+    input: QuestionInput,
+  ): Promise<QuestionRequest> {
+    const runtime = await this.#runtime(conversationId);
+    const request = await this.store.createQuestion({
+      id: randomUUID(),
+      conversationId,
+      callId,
+      questions: input.questions.map((q) => ({
+        ...q,
+        options: q.options ?? null,
+        selection: q.selection ?? "single",
+      })),
+      createdAt: Date.now(),
+      response: null,
+    });
+    runtime.questions.set(request.id, request);
+    this.#emitPlugin({ type: "question.created", conversationId, request });
+    return request;
+  }
+
+  async answerQuestion(
+    conversationId: ConversationId,
+    requestId: string,
+    response: QuestionResponse,
+  ): Promise<QuestionRequest> {
+    const runtime = await this.#runtime(conversationId);
+    this.assertWorkspaceAvailable(runtime.conversation.workspaceRoot);
+    if (runtime.workspaceSwitch || runtime.preparation)
+      throw new Error("Workspace is changing; retry after it completes");
+    const { request, changed } = await this.store.resolveQuestion(
+      conversationId,
+      requestId,
+      response,
+    );
+    if (changed) {
+      runtime.questions.delete(request.id);
+      this.#emitPlugin({ type: "question.resolved", conversationId, request });
+      // A durable accepted response belongs to the conversation, even if teardown just began.
+      if (!this.#rootScopeUnavailable(conversationId)) {
+        this.#queueQuestionResponse(runtime, request);
+        this.#ensureRunning(runtime);
+      }
+    }
+    return request;
+  }
+
+  #queueQuestionResponse(runtime: Runtime, request: QuestionRequest): void {
+    const response = request.response;
+    if (!response) throw new Error("Cannot deliver an unanswered question request");
+    const text =
+      response.status === "dismissed"
+        ? `User dismissed your questions:\n${request.questions.map((q) => `- ${q.prompt}`).join("\n")}`
+        : `User answered your questions:\n\n${request.questions
+            .map((question) => {
+              const answer = response.answers.find((a) => a.questionId === question.id)!;
+              const labels = answer.selectedOptionIds.map(
+                (id) => question.options!.find((option) => option.id === id)!.label,
+              );
+              return [
+                question.prompt,
+                ...(labels.length ? [`Selected: ${labels.join("; ")}`] : []),
+                ...(answer.comment ? [answer.comment] : []),
+              ].join("\n");
+            })
+            .join("\n\n")}`;
+    applyDelivery(runtime, {
+      intent: "steer",
+      questionId: request.id,
+      input: {
+        source: { kind: "user" },
+        content: [{ type: "text", text }],
+      },
+    });
+    this.#emitInbox(runtime);
+  }
+
+  async #appendDelivery(
+    conversation: Conversation,
+    turnId: TurnId,
+    delivery: Delivery,
+  ): Promise<Item | undefined> {
+    const input: NewItem = {
+      conversationId: conversation.id,
+      turnId,
+      type: "message",
+      role: "user",
+      content: delivery.input.content,
+      source: delivery.input.source,
+    };
+    return delivery.questionId
+      ? this.store.appendQuestionResponse(delivery.questionId, input)
+      : this.store.appendItem(input);
+  }
+
   /**
    * Warms a conversation before its first turn: loads the runtime and resolves its execution
    * backend, binding the plugin-emit channel so a lazily-provisioned substrate (docker) can stream
    * build progress and the TUI's pre-turn `!cmd`/`/sandbox` reach a live backend. Idempotent —
-   * `#runtime`/`#service` are cached and `bind` is cheap. Unlike `deliver`, it starts no turn.
+   * `#runtime`/`#service` are cached and `bind` is cheap. Restoring an accepted,
+   * undelivered question answer may start a turn; otherwise preparation starts none.
    */
   async prepare(conversationId: ConversationId): Promise<void> {
     const root = this.#rootOf(conversationId);
@@ -362,7 +468,11 @@ export class Engine {
   cancel(rootConversationId: ConversationId): void {
     const rootId = this.#rootOf(rootConversationId);
     for (const runtime of this.#treeRuntimes(rootId)) {
-      runtime.inbox.splice(0);
+      // Accepted answers survive interruption; teardown leaves them durable for the next load.
+      const answers = this.#rootScopeUnavailable(rootId)
+        ? []
+        : runtime.inbox.filter((delivery) => delivery.questionId !== undefined);
+      runtime.inbox.splice(0, runtime.inbox.length, ...answers);
       this.#emitInbox(runtime);
       runtime.controller?.abort();
       for (const provider of this.host.services.values()) {
@@ -906,7 +1016,13 @@ export class Engine {
       // Failed first loads own no tree. Registered children already retain their
       // parent mapping, and successful roots acquire ownership here.
       if (!this.#roots.has(conversationId)) this.#roots.set(conversationId, conversationId);
+      const questions = await this.store.listPendingQuestions(conversationId);
       this.#runtimes.set(conversationId, runtime);
+      for (const { request, deliveryPending } of questions) {
+        if (deliveryPending) this.#queueQuestionResponse(runtime, request);
+        else runtime.questions.set(request.id, request);
+      }
+      if (runtime.inbox.length) this.#ensureRunning(runtime);
       return runtime;
     } finally {
       this.#loading.delete(conversationId);
@@ -983,14 +1099,8 @@ export class Engine {
 
     try {
       for (const delivery of batch) {
-        const message = await this.store.appendItem({
-          conversationId: conversation.id,
-          turnId: turn.id,
-          type: "message",
-          role: "user",
-          content: delivery.input.content,
-          source: delivery.input.source,
-        });
+        const message = await this.#appendDelivery(conversation, turn.id, delivery);
+        if (!message) continue;
         this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
         await this.#notifyInput(
           runtime,
@@ -1537,14 +1647,8 @@ export class Engine {
     const steers = runtime.takeSteers();
     if (steers.length > 0) this.#emitInbox(runtime);
     for (const steer of steers) {
-      const message = await this.store.appendItem({
-        conversationId: conversation.id,
-        turnId,
-        type: "message",
-        role: "user",
-        content: steer.input.content,
-        source: steer.input.source,
-      });
+      const message = await this.#appendDelivery(conversation, turnId, steer);
+      if (!message) continue;
       this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
       await this.#notifyInput(runtime, conversation, turnId, steer.input, message, signal);
     }

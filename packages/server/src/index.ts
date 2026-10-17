@@ -1,3 +1,5 @@
+import { createQuestionsPlugin } from "@harness/questions";
+import { registerQuestionsServer } from "./questions.ts";
 import { FeedbackRuntime, feedbackPlugin } from "@harness/feedback";
 import { realpath } from "node:fs/promises";
 import {
@@ -50,6 +52,7 @@ import { bootstrapProviders } from "./provider-bootstrap.ts";
 import { registerApprovalServer } from "./approvals.ts";
 export { registerFeatureServer } from "./features.ts";
 export const BUILTIN_APPROVAL_DEFAULTS = {
+  ask_questions: "allow",
   activity_wait: "allow",
   activity_peek: "allow",
   activity_list: "allow",
@@ -144,6 +147,11 @@ export async function buildServerComposition(
     });
     const worktreesDefinition = new WorktreesDefinition();
     const plugins: PluginEntry[] = [...providerPlugins, built.plugin, conversationTitlesPlugin];
+    plugins.push(
+      createQuestionsPlugin({
+        askQuestions: (id, callId, input) => service.askQuestions(id, callId, input),
+      }),
+    );
     const fallbackModel = built.defaultModel;
     plugins.push(
       { id: "demo", providers: () => [new DemoProvider()] },
@@ -264,6 +272,7 @@ export async function buildServerComposition(
           .catch(() => undefined);
       });
       registerApprovalServer(rpcSession);
+      registerQuestionsServer(rpcSession);
       rpcSession.start();
       return rpcSession;
     };

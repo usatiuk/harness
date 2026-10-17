@@ -495,6 +495,41 @@ describe("App", () => {
     await vi.waitFor(() => expect(lastFrame()).toContain("second line"));
   });
 
+  it("keeps asynchronous questions available after a turn ends without hiding the composer", async () => {
+    const { service, emit } = harness();
+    const plugins = testPlugins({
+      questions: {
+        subscribe: (_id, listener) => {
+          listener({
+            type: "created",
+            request: {
+              id: "question",
+              rootConversationId: "c1",
+              conversationId: "c1",
+              callId: "call",
+              createdAt: 1,
+              response: null,
+              questions: [
+                { id: "scope", prompt: "Which scope?", options: null, selection: "single" },
+              ],
+            },
+          });
+          return () => {};
+        },
+        respond: async () => {},
+      },
+    });
+    const { lastFrame, unmount } = mount(service, [], undefined, plugins);
+    await vi.waitFor(() => expect(lastFrame()).toContain("/questions to answer"));
+    expect(lastFrame()).toContain("type a message");
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    await vi.waitFor(() => expect(lastFrame()).toContain("Working"));
+    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
+    await vi.waitFor(() => expect(lastFrame()).not.toContain("Working"));
+    expect(lastFrame()).toContain("/questions to answer");
+    unmount();
+  });
+
   it("shows an approval prompt and hides the composer while pending", async () => {
     const { service, emit } = harness();
     const { lastFrame } = mount(service);

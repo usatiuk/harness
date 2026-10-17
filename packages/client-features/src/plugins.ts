@@ -1,3 +1,4 @@
+import { QuestionsClient, QUESTIONS_CLIENT_CONTRACT_VERSION } from "@harness/questions/client";
 import {
   worktreeRepositoryRequest,
   worktreeCreateConversationRequest,
@@ -50,6 +51,7 @@ export interface ActivitiesView {
   kill(id: string): void | Promise<void>;
 }
 export const FEATURE_PLUGIN_CONTRACTS = [
+  { id: "questions", version: QUESTIONS_CLIENT_CONTRACT_VERSION },
   { id: "worktrees", version: WORKTREES_CLIENT_CONTRACT_VERSION },
   { id: "activities", version: ACTIVITIES_CLIENT_CONTRACT_VERSION },
   { id: "sandbox", version: SANDBOX_CLIENT_CONTRACT_VERSION },
@@ -86,6 +88,7 @@ export interface HarnessPlugins {
   removeWorktree(path: string, force: boolean): Promise<void>;
 
   readonly approvals: Pick<ApprovalClient, "subscribe" | "respond">;
+  readonly questions: Pick<QuestionsClient, "subscribe" | "respond">;
   subscribe(rootId: ConversationId, listener: (event: HarnessEvent) => void): () => void;
   runningActivities(rootId: ConversationId): number;
   activities(rootId: ConversationId): ActivitiesView;
@@ -109,6 +112,7 @@ export interface HarnessPlugins {
 /** Client-owned plugin state and operations shared by presentation clients. */
 export class HarnessPluginClient implements HarnessPlugins {
   readonly approvals: ApprovalClient;
+  readonly questions: QuestionsClient;
   readonly #client: HarnessClient;
   readonly #activities = new Map<string, Map<string, ActivityState>>();
   readonly #sandbox = new Map<string, SandboxState>();
@@ -146,6 +150,7 @@ export class HarnessPluginClient implements HarnessPlugins {
   constructor(client: HarnessClient, approvals: ApprovalClient) {
     this.#client = client;
     this.approvals = approvals;
+    this.questions = new QuestionsClient(client);
     client.subscribe((event) => {
       if (event.type === "detached") {
         this.#activities.delete(event.rootConversationId);

@@ -1,3 +1,5 @@
+import { QuestionRequestForm } from "./components/question-request.tsx";
+import { questionResponseSchema } from "@harness/protocol";
 import { FeedbackControls, FeedbackSettings } from "./components/feedback-controls.tsx";
 import { APP_NAME } from "./app-name.ts";
 import {
@@ -12,6 +14,9 @@ import { McpSettings } from "./components/mcp-settings.tsx";
 import { DesktopUpdates } from "./components/desktop-updates.tsx";
 import { ModelSelect, modelKey } from "./components/model-select.tsx";
 import {
+  memo,
+  useCallback,
+  useMemo,
   useEffect,
   useEffectEvent,
   useRef,
@@ -42,7 +47,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { editPresentation } from "@harness/client-features/edit-presentation";
-import type { Cell } from "@harness/client-features/transcript-reducer";
+import type { Cell, State } from "@harness/client-features/transcript-reducer";
 import { toolPermissionSchema, type ClientApproval } from "@harness/approval/client";
 import {
   textOf,
@@ -58,7 +63,7 @@ import {
   type AppSettings,
 } from "@harness/server/client-protocol";
 import type { TranscriptRow, TranscriptStep } from "./transcript.ts";
-import { DesktopSession, type ConversationView } from "./session.ts";
+import { DesktopSession, type ConversationView, type ConversationSnapshot } from "./session.ts";
 import {
   Button,
   Checkbox,
@@ -100,6 +105,16 @@ import {
 
 type ActionResult =
   { ok: true; message?: string; restartRequired?: boolean } | { ok: false; message: string };
+const composerFields = [
+  "turn",
+  "pendingInput",
+  "agentContext",
+  "usage",
+  "cost",
+  "costIncomplete",
+  "usageIncomplete",
+  "lastTurn",
+] as const satisfies readonly (keyof State)[];
 type RootData = { settings: AppSettings };
 const basename = (path: string | null): string =>
   path === null ? "Conversation" : (path.split(/[/\\]/u).filter(Boolean).at(-1) ?? path);
@@ -110,7 +125,7 @@ const field = (data: FormData, name: string): string => {
 };
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
-const conversationLabel = (conversation: Conversation, view?: ConversationView): string => {
+const conversationLabel = (conversation: Conversation, view?: ConversationSnapshot): string => {
   const title = view?.conversation.title ?? conversation.title;
   if (title) return title;
   const user = view?.state.cells.findLast((cell) => cell.kind === "user");
@@ -156,6 +171,14 @@ export function createDesktopRouter(
           if (decision !== "allow" && decision !== "deny")
             throw new Error("Invalid approval decision");
           await session.plugins.approvals.respond(field(data, "requestId"), decision);
+          return { ok: true };
+        }
+        case "question": {
+          const response =
+            data.get("dismiss") === "true"
+              ? { status: "dismissed" as const }
+              : questionResponseSchema.parse(JSON.parse(field(data, "response")));
+          await session.plugins.questions.respond(field(data, "requestId"), response);
           return { ok: true };
         }
         case "older":
@@ -403,11 +426,6 @@ export function createDesktopRouter(
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string>();
     const [confirmRestart, setConfirmRestart] = useState(false);
-    const running = [...session.views.values()].some(
-      (view) =>
-        view.state.turn.status === "running" ||
-        session.plugins.runningActivities(view.conversation.id) > 0,
-    );
     return (
       <div className="restart" ref={returnFocus} tabIndex={-1}>
         <p className="muted">
@@ -416,6 +434,11 @@ export function createDesktopRouter(
         <Button
           disabled={busy}
           onClick={() => {
+            const running = [...session.views.values()].some(
+              (view) =>
+                view.state.turn.status === "running" ||
+                session.plugins.runningActivities(view.conversation.id) > 0,
+            );
             if (running) {
               setConfirmRestart(true);
               return;
@@ -484,7 +507,8 @@ export function createDesktopRouter(
     );
   }
   function Layout() {
-    useLive();
+    useSyncExternalStore(session.subscribeSidebar, session.sidebarSnapshot);
+    useSyncExternalStore(session.subscribeConnection, session.connectionSnapshot);
     const navigation = useNavigation();
     const renderConversation = (conversation: Conversation) => {
       const view = session.views.get(conversation.id);
@@ -764,7 +788,7 @@ export function createDesktopRouter(
     );
   }
 
-  function ConversationControls({ view }: { view: ConversationView }) {
+  function ConversationControls({ view }: { view: ConversationSnapshot }) {
     const model = useFetcher<ActionResult>();
     const preset = useFetcher<ActionResult>();
     const sandbox = useFetcher<ActionResult>();
@@ -982,14 +1006,13 @@ export function createDesktopRouter(
       .replace(/\s+/g, " ");
   }
 
-  function ToolCall({
+  const ToolCall = memo(function ToolCall({
     cell,
     boundary,
   }: {
     cell: Extract<Cell, { kind: "tool" }>;
     boundary?: "begin" | "result" | undefined;
   }) {
-    const edit = editPresentation(cell);
     const ToolIcon = toolIcon(cell.name);
     return (
       <Disclosure
@@ -1011,47 +1034,59 @@ export function createDesktopRouter(
           </>
         }
       >
-        <>
-          <div className="message-actions">
-            <FeedbackControls session={session} itemId={cell.id} />
-          </div>
-          {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
-          {edit &&
-            edit.files.map((file, index) => (
-              <section className="diff" key={`${file.path}:${index}`}>
-                <strong>{file.path}</strong>
-                <pre>
-                  {file.lines.map((line, lineIndex) => (
-                    <span key={lineIndex} className={`diff-${line.kind}`}>
-                      {line.text}
-                      {"\n"}
-                    </span>
-                  ))}
-                </pre>
-              </section>
-            ))}
-          {boundary !== "result" && (
-            <>
-              <h3>Arguments</h3>
-              <pre>
-                {typeof cell.args === "string" ? cell.args : JSON.stringify(cell.args, null, 2)}
-              </pre>
-            </>
-          )}
-          {boundary !== "begin" && (
-            <>
-              <h3>Output</h3>
-              <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
-            </>
-          )}
-          {cell.approval && (
-            <p className="muted">
-              {cell.approval.decision === "allow" ? "Allowed" : "Denied"} by{" "}
-              {cell.approval.responder}
-            </p>
-          )}
-        </>
+        <ToolBody cell={cell} boundary={boundary} />
       </Disclosure>
+    );
+  });
+
+  function ToolBody({
+    cell,
+    boundary,
+  }: {
+    cell: Extract<Cell, { kind: "tool" }>;
+    boundary?: "begin" | "result" | undefined;
+  }) {
+    const edit = editPresentation(cell);
+    return (
+      <>
+        <div className="message-actions">
+          <FeedbackControls session={session} itemId={cell.id} />
+        </div>
+        {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
+        {edit &&
+          edit.files.map((file, index) => (
+            <section className="diff" key={`${file.path}:${index}`}>
+              <strong>{file.path}</strong>
+              <pre>
+                {file.lines.map((line, lineIndex) => (
+                  <span key={lineIndex} className={`diff-${line.kind}`}>
+                    {line.text}
+                    {"\n"}
+                  </span>
+                ))}
+              </pre>
+            </section>
+          ))}
+        {boundary !== "result" && (
+          <>
+            <h3>Arguments</h3>
+            <pre>
+              {typeof cell.args === "string" ? cell.args : JSON.stringify(cell.args, null, 2)}
+            </pre>
+          </>
+        )}
+        {boundary !== "begin" && (
+          <>
+            <h3>Output</h3>
+            <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
+          </>
+        )}
+        {cell.approval && (
+          <p className="muted">
+            {cell.approval.decision === "allow" ? "Allowed" : "Denied"} by {cell.approval.responder}
+          </p>
+        )}
+      </>
     );
   }
 
@@ -1103,7 +1138,7 @@ export function createDesktopRouter(
     );
   }
 
-  function StepGroup({
+  const StepGroup = memo(function StepGroup({
     row,
     latest,
   }: {
@@ -1180,9 +1215,9 @@ export function createDesktopRouter(
         </div>
       </div>
     );
-  }
+  });
 
-  function Reasoning({
+  const Reasoning = memo(function Reasoning({
     cell,
     peekLines,
   }: {
@@ -1229,9 +1264,15 @@ export function createDesktopRouter(
         </Markdown>
       </Disclosure>
     );
-  }
+  });
 
-  function TranscriptCell({ cell, intermediate = false }: { cell: Cell; intermediate?: boolean }) {
+  const TranscriptCell = memo(function TranscriptCell({
+    cell,
+    intermediate = false,
+  }: {
+    cell: Cell;
+    intermediate?: boolean;
+  }) {
     const view = useLoaderData<ConversationView>();
     if (cell.kind === "tool") return <ToolCall cell={cell} />;
     if (cell.kind === "reasoning") return <Reasoning cell={cell} />;
@@ -1298,7 +1339,7 @@ export function createDesktopRouter(
         </Disclosure>
       );
     return <div className="cell muted">{cell.text}</div>;
-  }
+  });
   function TranscriptLink({
     href,
     children,
@@ -1334,7 +1375,7 @@ export function createDesktopRouter(
     title,
     owner,
   }: {
-    view: ConversationView;
+    view: ConversationSnapshot;
     id: string;
     title: string;
     owner: string;
@@ -1406,190 +1447,210 @@ export function createDesktopRouter(
       </Disclosure>
     );
   }
-  function Composer({ view }: { view: ConversationView }) {
-    const send = useFetcher<ActionResult>();
-    const stop = useFetcher<ActionResult>();
-    const id = view.conversation.id;
-    const [text, setText] = useState(localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "");
-    const textarea = useRef<HTMLTextAreaElement>(null);
-    const handled = useRef<ActionResult | undefined>(undefined);
-    const running = view.state.turn.status === "running";
-    const preferences = useComposerPreferences();
-    const defaultDelivery = running ? "steer" : "send";
-    const busy = send.state !== "idle" || stop.state !== "idle";
-    const disabled = !text.trim() || busy || Boolean(session.disconnected);
-    const stopping = running && !text.trim();
-    const hasPendingInput = view.state.pendingInput.length > 0;
-    const backgroundInput = view.state.pendingInput.filter(
-      (input) => input.source.kind === "plugin",
-    );
-    useEffect(() => {
-      if (send.state === "idle" && send.data?.ok && handled.current !== send.data) {
-        handled.current = send.data;
-        setText(localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "");
-        textarea.current?.focus();
-      }
-    }, [send.state, send.data, id]);
-    const submit = (delivery: "send" | "queue" | "steer") => {
-      if (disabled) return;
-      const data = new FormData();
-      data.set("intent", "send");
-      data.set("conversationId", id);
-      data.set("text", text);
-      data.set("delivery", delivery);
-      void send.submit(data, { method: "post", action: "/actions" });
-    };
-    const interrupt = () => {
-      if (!running || stop.state !== "idle" || session.disconnected) return;
-      const data = new FormData();
-      data.set("intent", "stop");
-      data.set("conversationId", id);
-      void stop.submit(data, { method: "post", action: "/actions" });
-    };
-    return (
-      <div className="composer-wrap">
-        <div className="composer">
-          {view.state.pendingInput.length > 0 && (
-            <div className="pending-input">
-              {view.state.pendingInput
-                .filter((input) => input.source.kind === "user")
-                .map((input, index) => (
-                  <div key={index}>
-                    {input.intent}: {input.text}
-                  </div>
-                ))}
-              {backgroundInput.length > 0 && (
-                <Disclosure
-                  title={
-                    <>
-                      {backgroundInput.length} background{" "}
-                      {backgroundInput.length === 1 ? "message" : "messages"} queued
-                    </>
-                  }
-                >
-                  {backgroundInput.map((input, index) => (
+  const Composer = memo(
+    function Composer({ view }: { view: ConversationSnapshot }) {
+      useSyncExternalStore(session.subscribeConnection, session.connectionSnapshot);
+      const send = useFetcher<ActionResult>();
+      const stop = useFetcher<ActionResult>();
+      const id = view.conversation.id;
+      const [text, setText] = useState(
+        () => localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "",
+      );
+      const textarea = useRef<HTMLTextAreaElement>(null);
+      const handled = useRef<ActionResult | undefined>(undefined);
+      const running = view.state.turn.status === "running";
+      const preferences = useComposerPreferences();
+      const defaultDelivery = running ? "steer" : "send";
+      const busy = send.state !== "idle" || stop.state !== "idle";
+      const disabled = !text.trim() || busy || Boolean(session.disconnected);
+      const stopping = running && !text.trim();
+      const hasPendingInput = view.state.pendingInput.length > 0;
+      const backgroundInput = view.state.pendingInput.filter(
+        (input) => input.source.kind === "plugin",
+      );
+      useEffect(() => {
+        if (send.state === "idle" && send.data?.ok && handled.current !== send.data) {
+          handled.current = send.data;
+          setText(localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "");
+          textarea.current?.focus();
+        }
+      }, [send.state, send.data, id]);
+      const submit = (delivery: "send" | "queue" | "steer") => {
+        if (disabled) return;
+        const data = new FormData();
+        data.set("intent", "send");
+        data.set("conversationId", id);
+        data.set("text", text);
+        data.set("delivery", delivery);
+        void send.submit(data, { method: "post", action: "/actions" });
+      };
+      const interrupt = () => {
+        if (!running || stop.state !== "idle" || session.disconnected) return;
+        const data = new FormData();
+        data.set("intent", "stop");
+        data.set("conversationId", id);
+        void stop.submit(data, { method: "post", action: "/actions" });
+      };
+      return (
+        <div className="composer-wrap">
+          <div className="composer">
+            {view.state.pendingInput.length > 0 && (
+              <div className="pending-input">
+                {view.state.pendingInput
+                  .filter((input) => input.source.kind === "user")
+                  .map((input, index) => (
                     <div key={index}>
-                      {input.source.kind === "plugin" && <strong>{input.source.pluginId}: </strong>}
-                      {input.text}
+                      {input.intent}: {input.text}
                     </div>
                   ))}
-                </Disclosure>
-              )}
+                {backgroundInput.length > 0 && (
+                  <Disclosure
+                    title={
+                      <>
+                        {backgroundInput.length} background{" "}
+                        {backgroundInput.length === 1 ? "message" : "messages"} queued
+                      </>
+                    }
+                  >
+                    {backgroundInput.map((input, index) => (
+                      <div key={index}>
+                        {input.source.kind === "plugin" && (
+                          <strong>{input.source.pluginId}: </strong>
+                        )}
+                        {input.text}
+                      </div>
+                    ))}
+                  </Disclosure>
+                )}
+              </div>
+            )}
+            <send.Form
+              method="post"
+              action="/actions"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submit(defaultDelivery);
+              }}
+            >
+              <Input type="hidden" name="intent" value="send" />
+              <Input type="hidden" name="conversationId" value={id} />
+              <Input type="hidden" name="delivery" value={defaultDelivery} />
+              <Textarea
+                ref={textarea}
+                name="text"
+                aria-label="Message"
+                placeholder="Ask a follow-up…"
+                value={text}
+                rows={2}
+                onChange={(event) => {
+                  setText(event.target.value);
+                  localStorage.setItem(session.storageKey(`draft:${id}`), event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  const action = composerKey(
+                    {
+                      ...event,
+                      isComposing:
+                        event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229,
+                    },
+                    preferences,
+                    running,
+                  );
+                  if (!action || action === "newline") return;
+                  event.preventDefault();
+                  if (action === "interrupt") interrupt();
+                  else submit(action);
+                }}
+              />
+            </send.Form>
+            <div className="composer-actions">
+              <ConversationControls view={view} />
+              <PopoverControl
+                label="Composer settings"
+                trigger={<IconButton label="Composer settings" icon={Settings2} />}
+              >
+                <h3>Composer settings</h3>
+                <ComposerSettings />
+              </PopoverControl>
+              <div className="composer-send">
+                <ContextUsage state={view.state} models={session.domain.availableModels()} />
+                <Button
+                  variant="accent"
+                  size="sm"
+                  className="composer-primary"
+                  title={
+                    stopping
+                      ? hasPendingInput
+                        ? "Interrupt current turn; pending messages run next (Esc)"
+                        : "Stop current turn (Esc)"
+                      : undefined
+                  }
+                  disabled={
+                    stopping ? stop.state !== "idle" || Boolean(session.disconnected) : disabled
+                  }
+                  onClick={() => (stopping ? interrupt() : submit(defaultDelivery))}
+                >
+                  {stopping || stop.state !== "idle" ? (
+                    <Square size={12} aria-hidden="true" />
+                  ) : (
+                    <Send size={14} aria-hidden="true" />
+                  )}
+                  {stop.state !== "idle"
+                    ? hasPendingInput
+                      ? "Interrupting…"
+                      : "Stopping…"
+                    : send.state !== "idle" && !stopping
+                      ? "Sending…"
+                      : stopping
+                        ? hasPendingInput
+                          ? "Interrupt"
+                          : "Stop"
+                        : running
+                          ? "Steer"
+                          : "Send"}
+                </Button>
+              </div>
+            </div>
+            <ActionFeedback data={send.data} />
+            <ActionFeedback data={stop.data} />
+          </div>
+          {preferences.showStats && (
+            <div className="composer-footer">
+              <LastTurnStats state={view.state} />
             </div>
           )}
-          <send.Form
-            method="post"
-            action="/actions"
-            onSubmit={(event) => {
-              event.preventDefault();
-              submit(defaultDelivery);
-            }}
-          >
-            <Input type="hidden" name="intent" value="send" />
-            <Input type="hidden" name="conversationId" value={id} />
-            <Input type="hidden" name="delivery" value={defaultDelivery} />
-            <Textarea
-              ref={textarea}
-              name="text"
-              aria-label="Message"
-              placeholder="Ask a follow-up…"
-              value={text}
-              rows={2}
-              onChange={(event) => {
-                setText(event.target.value);
-                localStorage.setItem(session.storageKey(`draft:${id}`), event.target.value);
-              }}
-              onKeyDown={(event) => {
-                const action = composerKey(
-                  {
-                    ...event,
-                    isComposing: event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229,
-                  },
-                  preferences,
-                  running,
-                );
-                if (!action || action === "newline") return;
-                event.preventDefault();
-                if (action === "interrupt") interrupt();
-                else submit(action);
-              }}
-            />
-          </send.Form>
-          <div className="composer-actions">
-            <ConversationControls view={view} />
-            <PopoverControl
-              label="Composer settings"
-              trigger={<IconButton label="Composer settings" icon={Settings2} />}
-            >
-              <h3>Composer settings</h3>
-              <ComposerSettings />
-            </PopoverControl>
-            <div className="composer-send">
-              <ContextUsage state={view.state} models={session.domain.availableModels()} />
-              <Button
-                variant="accent"
-                size="sm"
-                className="composer-primary"
-                title={
-                  stopping
-                    ? hasPendingInput
-                      ? "Interrupt current turn; pending messages run next (Esc)"
-                      : "Stop current turn (Esc)"
-                    : undefined
-                }
-                disabled={
-                  stopping ? stop.state !== "idle" || Boolean(session.disconnected) : disabled
-                }
-                onClick={() => (stopping ? interrupt() : submit(defaultDelivery))}
-              >
-                {stopping || stop.state !== "idle" ? (
-                  <Square size={12} aria-hidden="true" />
-                ) : (
-                  <Send size={14} aria-hidden="true" />
-                )}
-                {stop.state !== "idle"
-                  ? hasPendingInput
-                    ? "Interrupting…"
-                    : "Stopping…"
-                  : send.state !== "idle" && !stopping
-                    ? "Sending…"
-                    : stopping
-                      ? hasPendingInput
-                        ? "Interrupt"
-                        : "Stop"
-                      : running
-                        ? "Steer"
-                        : "Send"}
-              </Button>
-            </div>
-          </div>
-          <ActionFeedback data={send.data} />
-          <ActionFeedback data={stop.data} />
         </div>
-        {preferences.showStats && (
-          <div className="composer-footer">
-            <LastTurnStats state={view.state} />
-          </div>
-        )}
-      </div>
-    );
-  }
+      );
+    },
+    (previous, next) =>
+      previous.view.conversation === next.view.conversation &&
+      composerFields.every((field) =>
+        Object.is(previous.view.state[field], next.view.state[field]),
+      ),
+  );
 
-  function EarlierHistory({ view }: { view: ConversationView }) {
+  const EarlierHistory = memo(function EarlierHistory({
+    conversationId,
+    cursor,
+  }: {
+    conversationId: string;
+    cursor: string | null;
+  }) {
+    useSyncExternalStore(session.subscribeConnection, session.connectionSnapshot);
     const older = useFetcher<ActionResult>();
     const marker = useRef<HTMLDivElement>(null);
     const pending = useRef(false);
     const disconnected = Boolean(session.disconnected);
     const failed = older.data?.ok === false;
-    const hasEarlier = Boolean(view.cursor);
+    const hasEarlier = Boolean(cursor);
     useEffect(() => {
       if (older.state === "idle") pending.current = false;
     }, [older.state]);
     const load = () => {
-      if (pending.current || older.state !== "idle" || !view.cursor || disconnected) return;
+      if (pending.current || older.state !== "idle" || !cursor || disconnected) return;
       pending.current = true;
       void older.submit(
-        { intent: "older", conversationId: view.conversation.id },
+        { intent: "older", conversationId: conversationId },
         { method: "post", action: "/actions" },
       );
     };
@@ -1621,7 +1682,7 @@ export function createDesktopRouter(
         root.removeEventListener("wheel", onWheel);
       };
     }, [hasEarlier, disconnected]);
-    if (!view.cursor) return <span className="muted">Start of conversation</span>;
+    if (!cursor) return <span className="muted">Start of conversation</span>;
     return (
       <div ref={marker} className="earlier-history">
         {older.state !== "idle" ? (
@@ -1643,7 +1704,7 @@ export function createDesktopRouter(
         )}
       </div>
     );
-  }
+  });
 
   function CopyMessage({ text }: { text: string }) {
     const [copied, setCopied] = useState(false);
@@ -1679,6 +1740,7 @@ export function createDesktopRouter(
   }
 
   function ForkBefore({ itemId }: { itemId: string }) {
+    useSyncExternalStore(session.subscribeConnection, session.connectionSnapshot);
     const view = useLoaderData<ConversationView>();
     const fork = useFetcher<ActionResult>();
     return (
@@ -1692,7 +1754,9 @@ export function createDesktopRouter(
             label="Fork before this message"
             type="submit"
             size="sm"
-            disabled={fork.state !== "idle" || !session.client.peer.ready}
+            disabled={
+              fork.state !== "idle" || !session.client.peer.ready || Boolean(session.disconnected)
+            }
           />
         </fork.Form>
         <ActionFeedback data={fork.data} />
@@ -1700,7 +1764,16 @@ export function createDesktopRouter(
     );
   }
 
-  function ConversationHeading({ view }: { view: ConversationView }) {
+  const ConversationHeading = memo(function ConversationHeading({
+    conversation,
+    label,
+    running,
+  }: {
+    conversation: Conversation;
+    label: string;
+    running: boolean;
+  }) {
+    useSyncExternalStore(session.subscribeConnection, session.connectionSnapshot);
     const rename = useFetcher<ActionResult>();
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState("");
@@ -1719,21 +1792,17 @@ export function createDesktopRouter(
     return (
       <div className="conversation-heading">
         <div className="conversation-title-display" hidden={editing}>
-          <h1>{conversationLabel(view.conversation, view)}</h1>
-          <WorktreeControl
-            session={session}
-            conversation={view.conversation}
-            running={view.state.turn.status === "running"}
-          />
+          <h1>{label}</h1>
+          <WorktreeControl session={session} conversation={conversation} running={running} />
           <IconButton
             ref={pencil}
             icon={PenLine}
             label="Rename conversation"
             className="conversation-rename"
             size="sm"
-            disabled={!session.client.peer.ready}
+            disabled={!session.client.peer.ready || Boolean(session.disconnected)}
             onClick={() => {
-              setDraft(conversationLabel(view.conversation, view));
+              setDraft(label);
               setEditing(true);
             }}
           />
@@ -1742,7 +1811,7 @@ export function createDesktopRouter(
           <>
             <rename.Form method="post" action="/actions" className="conversation-title-form">
               <Input type="hidden" name="intent" value="rename" />
-              <Input type="hidden" name="conversationId" value={view.conversation.id} />
+              <Input type="hidden" name="conversationId" value={conversation.id} />
               <Input
                 autoFocus
                 aria-label="Conversation title"
@@ -1780,19 +1849,47 @@ export function createDesktopRouter(
         )}
       </div>
     );
-  }
+  });
 
   function ConversationPage() {
-    useLive();
-    const view = useLoaderData<ConversationView>();
+    const attachment = useLoaderData<ConversationView>();
+    const view = useSyncExternalStore(attachment.subscribe, attachment.snapshot);
+    useSyncExternalStore(session.subscribeConnection, session.connectionSnapshot);
     useEffect(() => {
       session.setActiveConversation(view.conversation.id);
       return () => session.setActiveConversation(null);
     }, [view.conversation.id]);
-    const latestWork = view.transcript.rows.findLast((row) => row.kind === "steps")?.key;
-    const lastByTurn = new Map<string, Cell>();
-    for (const cell of view.state.cells)
-      if ("turnId" in cell && cell.turnId) lastByTurn.set(cell.turnId, cell);
+    const questionRequests = [...view.questions.values()].map((request) => (
+      <QuestionRequestForm key={request.id} request={request} />
+    ));
+    const latestWork = useMemo(
+      () => view.transcript.rows.findLast((row) => row.kind === "steps")?.key,
+      [view.transcript.rows],
+    );
+    const lastByTurn = useMemo(() => {
+      const last = new Map<string, Cell>();
+      for (const cell of view.state.cells)
+        if ("turnId" in cell && cell.turnId) last.set(cell.turnId, cell);
+      return last;
+    }, [view.state.cells]);
+    const renderRow = useCallback(
+      (row: TranscriptRow) =>
+        row.kind === "steps" ? (
+          <StepGroup row={row} latest={row.key === latestWork} />
+        ) : (
+          <TranscriptCell
+            cell={row.cell}
+            intermediate={
+              row.cell.kind === "assistant" &&
+              (row.cell.phase
+                ? row.cell.phase !== "final_answer"
+                : lastByTurn.get(row.cell.turnId) !== row.cell ||
+                  (view.state.turn.status === "running" && view.state.turn.id === row.cell.turnId))
+            }
+          />
+        ),
+      [latestWork, lastByTurn, view.state.turn],
+    );
     return (
       <ConversationCanvas
         key={view.conversation.id}
@@ -1812,33 +1909,35 @@ export function createDesktopRouter(
         header={
           <header className="conversation-header">
             {view.subagent ? (
-              <SubagentHeading view={view} />
+              <SubagentHeading subagent={view.subagent} />
             ) : (
-              <ConversationHeading key={view.conversation.id} view={view} />
+              <ConversationHeading
+                key={view.conversation.id}
+                conversation={view.conversation}
+                label={conversationLabel(view.conversation, view)}
+                running={view.state.turn.status === "running"}
+              />
             )}
-            <SubagentControl key={view.conversation.id} session={session} view={view} />
+            <SubagentControl
+              key={view.conversation.id}
+              session={session}
+              conversationId={view.conversation.id}
+              revision={view.subagentRevision}
+            />
           </header>
         }
-        history={<EarlierHistory key={view.conversation.id} view={view} />}
-        renderRow={(row) =>
-          row.kind === "steps" ? (
-            <StepGroup row={row} latest={row.key === latestWork} />
-          ) : (
-            <TranscriptCell
-              cell={row.cell}
-              intermediate={
-                row.cell.kind === "assistant" &&
-                (row.cell.phase
-                  ? row.cell.phase !== "final_answer"
-                  : lastByTurn.get(row.cell.turnId) !== row.cell ||
-                    (view.state.turn.status === "running" &&
-                      view.state.turn.id === row.cell.turnId))
-              }
-            />
-          )
+        history={
+          <EarlierHistory
+            key={view.conversation.id}
+            conversationId={view.conversation.id}
+            cursor={view.cursor}
+          />
         }
+        renderRow={renderRow}
         dock={
-          view.subagent ? null : (
+          view.subagent ? (
+            <div className="conversation-support approvals">{questionRequests}</div>
+          ) : (
             <>
               <div className="conversation-support">
                 {view.state.sandbox?.message && (
@@ -1881,6 +1980,7 @@ export function createDesktopRouter(
                   </Disclosure>
                 )}
                 <div className="approvals">
+                  {questionRequests}
                   {[...view.approvals.values()].map((approval) => (
                     <Approval key={approval.requestId} approval={approval} />
                   ))}

@@ -24,6 +24,27 @@ npm run test:wsl                 # headless Windows WSL + rendered TUI qualifica
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## Desktop streaming publication
+
+`conversation-view.test.ts` uses a controlled clock to verify the 100 ms text and
+reasoning publication cap, trailing content, terminal/control flushes, immutable
+snapshots, long-history row reuse and timer cancellation. `session.test.ts` drives
+the real service/RPC boundary to verify background deltas do not notify global,
+connection, sidebar or selected-chat subscribers, and transport EOF preserves final text.
+Transcript tests preserve old timing snapshots across completion and prepend.
+
+`performance.spec.ts` uses production routes and the existing isolated session
+fixture, with render counters added only by its test bundler. It covers a
+1,000-message history, a 500-delta burst, closed/open large diffs, draft retention,
+final-state publication, disconnected memoized controls and current-state restart
+confirmation. This fixture does not establish production subscription isolation;
+the RPC regression supplies that evidence. Run with the desktop browser command
+and `performance.spec.ts`. Engine checks measure rendering work, not actual native
+frame presentation. The [delivery plan](plans/interface/2026-10-17-desktop-streaming-performance.md)
+records results and baseline-reproduced history-anchor drift (12 px automatic
+prepend and 34 px idle regrouping). Final combined checks pass 1,518 tests (41
+gated skips); Chromium passes 87/89, including all new performance/control cases.
+
 ## Test profile isolation
 
 Desktop testing must not overwrite the developer's running profile or credentials.
@@ -1583,3 +1604,19 @@ through real server RPC. All five affected browser cases pass in GTK WebKit.
 Full Chromium passes 80 of 81 cases; the only failure remains the same baseline
 12px history-anchor shift described above. Native desktop and live-provider
 execution are not established by these controlled fixtures.
+
+## Async questions
+
+`packages/service/src/questions.test.ts` exercises question lifecycle and durable
+answer ingestion with real SQLite. `packages/server/src/questions.test.ts` covers
+public RPC snapshots/events, reconnect, multiple clients, answer validation,
+comment-only answers, and first-response-wins retries. CLI overlay tests cover
+freeform, clearable selections, multiple questions, and dismissal; App coverage
+checks questions survive turn completion while the composer remains available.
+Three Chromium browser regressions exercise mixed batches, comment-only answers,
+clearable single selection, multiple selections, visible errors, retry, dismissal,
+and issued questions in read-only child views. Final full validation passes
+1,518 tests (41 skipped). Ink input tests flush React effects before sending keys
+so a visible frame does not race passive input-listener installation.
+Native desktop and remote-terminal interaction remain unqualified unless separately
+recorded in the async questions delivery plan.

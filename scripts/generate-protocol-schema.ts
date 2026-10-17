@@ -1,4 +1,10 @@
 import {
+  questionCreatedNotification,
+  questionResolvedNotification,
+  questionRespondRequest,
+  questionsSnapshotSchema,
+} from "@harness/questions/client";
+import {
   feedbackStatusRequest,
   feedbackConfigureRequest,
   feedbackVoteRequest,
@@ -75,6 +81,9 @@ import { mcpRpcMessages } from "@harness/mcp/client";
 
 const messages: readonly RpcMessage[] = [
   initializeRequest,
+  questionCreatedNotification,
+  questionResolvedNotification,
+  questionRespondRequest,
   feedbackStatusRequest,
   feedbackConfigureRequest,
   feedbackVoteRequest,
@@ -146,6 +155,9 @@ const manifest = messages.map((message) => {
   };
 });
 
+definitions.questions_snapshot = z.toJSONSchema(questionsSnapshotSchema, {
+  target: "draft-2020-12",
+}) as JsonValue;
 definitions.activities_snapshot = z.toJSONSchema(activitiesSnapshotSchema, {
   target: "draft-2020-12",
   unrepresentable: "throw",
@@ -167,6 +179,7 @@ const document = {
   $defs: definitions,
   "x-harness-messages": manifest,
   "x-harness-snapshots": {
+    questions: { $ref: "#/$defs/questions_snapshot" },
     approval: { $ref: "#/$defs/approval_snapshot" },
     activities: { $ref: "#/$defs/activities_snapshot" },
     sandbox: { $ref: "#/$defs/sandbox_snapshot" },

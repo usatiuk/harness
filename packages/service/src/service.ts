@@ -1,6 +1,9 @@
 import { realpath } from "node:fs/promises";
 import { WorkspaceOperationError } from "@harness/protocol";
 import type {
+  QuestionInput,
+  QuestionRequest,
+  QuestionResponse,
   ConversationConfig,
   NewConversationRecord,
   CodeEvaluator,
@@ -133,6 +136,20 @@ export class HarnessService implements ConversationRunner {
       this.#resolveConfig,
       options.codeEvaluator,
     );
+  }
+
+  pendingQuestions(id: ConversationId): QuestionRequest[] {
+    return this.#engine.pendingQuestions(id);
+  }
+  askQuestions(id: ConversationId, callId: string, input: QuestionInput): Promise<QuestionRequest> {
+    return this.#engine.askQuestions(id, callId, input);
+  }
+  answerQuestion(
+    id: ConversationId,
+    requestId: string,
+    response: QuestionResponse,
+  ): Promise<QuestionRequest> {
+    return this.#engine.answerQuestion(id, requestId, response);
   }
 
   /**
