@@ -627,3 +627,10 @@ Ordinary model-backed compaction sees images and summarizes normally; subsequent
 requests start at that summary, so images before it no longer block text-only
 models. No automatic compaction, image stripping, special captions or image cache
 is added. The existing deterministic text fallback is unchanged.
+
+Image replay also preserves native tool-result adjacency when historical raw
+custom calls and ordinary function calls share a batch. Chat defers raw-result
+user content and projected images until native results finish, including across
+context entries hoisted to the system message. Anthropic places native tool_result
+blocks before raw/text/image content in its user batch. These are private request
+projections; stored history remains unchanged.

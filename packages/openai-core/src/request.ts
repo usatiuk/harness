@@ -290,7 +290,11 @@ export function buildChatParams(
   const contextTexts: string[] = [];
   // Chat tool messages are text-only. Keep every parallel result adjacent before images.
   let toolImages: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
-  const flushToolImages = (): void => {
+  let rawResults: ChatMessage[] = [];
+  const flushDeferredResults = (): void => {
+    // Historical custom results are also user messages, so defer them past native results.
+    messages.push(...rawResults);
+    rawResults = [];
     if (toolImages.length) messages.push({ role: "user", content: toolImages });
     toolImages = [];
   };
@@ -319,7 +323,9 @@ export function buildChatParams(
   );
 
   for (const { item, payload } of request.items) {
-    if (item.type !== "tool_result" && item.type !== "provider_output") flushToolImages();
+    // Context is hoisted into the system message and cannot split the wire result batch.
+    if (item.type !== "tool_result" && item.type !== "provider_output" && item.type !== "context")
+      flushDeferredResults();
     switch (item.type) {
       case "reasoning": {
         if (
@@ -358,11 +364,16 @@ export function buildChatParams(
       case "tool_call":
         {
           if (rawCallIds.has(toolCallKey(item))) {
-            flushAssistant();
-            messages.push({
-              role: "assistant",
-              content: `Tool ${item.name}: ${String(item.args)}`,
-            });
+            const text = `Tool ${item.name}: ${String(item.args)}`;
+            if (assistant?.tool_calls?.length) {
+              // No assistant message may intervene between native calls and their results.
+              assistant.content = [assistant.content, text]
+                .filter((part) => part !== null)
+                .join("\n");
+            } else {
+              flushAssistant();
+              messages.push({ role: "assistant", content: text });
+            }
             break;
           }
           const msg = ensureAssistant();
@@ -377,7 +388,7 @@ export function buildChatParams(
         // tool_result.status is not transmitted — same as the Responses transport.
         flushAssistant();
         if (rawCallIds.has(toolCallKey(item))) {
-          messages.push({ role: "user", content: chatContent(item.content) });
+          rawResults.push({ role: "user", content: chatContent(item.content) });
         } else {
           const hasImages = item.content.some((block) => block.type === "image");
           messages.push({
@@ -403,7 +414,7 @@ export function buildChatParams(
     }
   }
   flushAssistant();
-  flushToolImages();
+  flushDeferredResults();
 
   const system = chatSystemContent(request.instructions, contextTexts);
   if (system.length > 0) messages.unshift({ role: "system", content: system });

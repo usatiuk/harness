@@ -15,7 +15,6 @@
         "label": "main",
         "title": "Harness",
         "visible": false,
-        "dragDropEnabled": false,
         "width": 1120,
         "height": 800,
         "minWidth": 720,

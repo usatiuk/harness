@@ -1,7 +1,11 @@
 # Harness plan
 
 The [image-input v1 plan](docs/plans/cross-cutting/2026-10-17-image-input.md)
-is complete: inline image content, desktop paste/drop and viewer, file/MCP
+includes a native-input correction after user testing disproved DOM-only paste/drop.
+Actual Linux X11/WebKitGTK clipboard/drop/chooser/send/persistence now pass, with
+a retained native regression. Final follow-up checks pass 1,600 tests / 41 skipped,
+plus native GTK and focused browser regressions; the correction is complete.
+The original delivery includes: inline image content, desktop paste/drop and viewer, file/MCP
 ingestion, and request transformations for existing providers. Full checks pass
 1,557 tests with 41 skipped; eight focused Chromium cases pass. The plan records
 review fixes and native/live-provider qualification limits. The model metadata

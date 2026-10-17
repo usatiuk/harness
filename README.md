@@ -560,7 +560,8 @@ open a child conversation to restore questions owned by that child.
 
 ### Image input
 
-Paste or drop PNG, JPEG, GIF or WebP images into the desktop composer. Images may
+Use the paperclip beside the model control, paste copied image files/screenshots,
+or drop PNG, JPEG, GIF or WebP images into the desktop chat. Images may
 be sent alone or with text, and stay inline in the conversation log. Click a
 message or tool-result preview to open the darkened full-app viewer; close it
 with the top-right button. Unsent image drafts remain in memory while

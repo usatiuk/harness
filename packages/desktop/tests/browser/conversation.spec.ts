@@ -407,11 +407,16 @@ test("production model picker distinguishes same-label IDs and exposes advertise
   ]);
   const first = page.getByRole("option", { name: "fixture / Fixture model test", exact: true });
   await first.hover();
+  await expect(page.getByRole("tooltip")).toContainText("Images: supported");
   await expect(page.getByRole("tooltip")).toContainText("262,144 context tokens");
   await expect(page.getByRole("tooltip")).toContainText("Presets: none, high");
   expect(
     await first.locator(".model-id").evaluate((element) => getComputedStyle(element).color),
   ).not.toBe(await first.evaluate((element) => getComputedStyle(element).color));
+  await page
+    .getByRole("option", { name: "fixture / Fixture model test-latest", exact: true })
+    .hover();
+  await expect(page.getByRole("tooltip")).toContainText("Images: unsupported");
   await first.click();
   await page.getByRole("combobox", { name: "Conversation preset" }).click();
   await expect(page.getByRole("option")).toHaveText(["Default", "none", "high"]);
@@ -2491,7 +2496,7 @@ test("each question can be explicitly skipped without dismissing the batch", asy
 });
 
 const imageBase64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5GQAAAAASUVORK5CYII=";
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP578LwHwAF4AJH4fprIAAAAABJRU5ErkJggg==";
 async function attachFixtureImage(page: Page, event: "paste" | "drop") {
   await page.getByRole("textbox", { name: "Message", exact: true }).evaluate(
     (element, args) => {
@@ -2512,6 +2517,24 @@ async function attachFixtureImage(page: Page, event: "paste" | "drop") {
   );
   await expect(page.locator(".composer .image-preview")).toHaveCount(1);
 }
+
+test("paperclip opens the image file chooser before the model control", async ({ page }) => {
+  await page.goto(url + "?composer");
+  const paperclip = page.getByRole("button", { name: "Attach images", exact: true });
+  const model = page.getByRole("button", { name: "Model and preset: Fixture model" });
+  expect((await paperclip.boundingBox())!.x).toBeLessThan((await model.boundingBox())!.x);
+  const chooser = page.waitForEvent("filechooser");
+  await paperclip.click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "screenshot.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(imageBase64, "base64"),
+  });
+  await expect(page.locator(".composer .image-preview")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Steer", exact: true })).toBeEnabled();
+});
 
 for (const event of ["paste", "drop"] as const) {
   test(`image ${event} supports preview, full viewer, image-only send, and removal`, async ({
@@ -2548,6 +2571,43 @@ for (const event of ["paste", "drop"] as const) {
     await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
   });
 }
+
+test("pending image reads stay observable after leaving and reopening the chat", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("keep draft");
+  await page.evaluate(() => {
+    const original = Object.getOwnPropertyDescriptor(FileReader.prototype, "readAsDataURL")!
+      .value as FileReader["readAsDataURL"];
+    FileReader.prototype.readAsDataURL = function (file) {
+      FileReader.prototype.readAsDataURL = original;
+      (window as typeof window & { releaseImageRead: () => void }).releaseImageRead = () =>
+        original.call(this, file);
+    };
+  });
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Attach images", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "slow.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(imageBase64, "base64"),
+  });
+  await expect(page.getByRole("button", { name: "Steer", exact: true })).toBeDisabled();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.locator('a[href="/conversations/fixture"]').first().click();
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(
+    "keep draft",
+  );
+  await expect(page.getByRole("button", { name: "Steer", exact: true })).toBeDisabled();
+  await page.evaluate(() =>
+    (window as typeof window & { releaseImageRead: () => void }).releaseImageRead(),
+  );
+  await expect(page.locator(".composer .image-preview")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Steer", exact: true })).toBeEnabled();
+});
 
 test("accepted image delivery preserves attachments added while sending", async ({ page }) => {
   await page.goto(url + "?composer");

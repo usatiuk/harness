@@ -1675,3 +1675,46 @@ advertised. These fixtures still do not establish live account/vendor acceptance
 Final completeness/simplicity audit validation: full check passes 1,575 tests /
 41 skipped plus root/CLI/desktop typecheck, lint and formatting. Three independent
 review lenses found only stale documentation claims, which were corrected.
+
+## Native Linux image input regression
+
+The initial image browser tests created ClipboardEvent/DragEvent File payloads;
+these did not exercise Linux OS file transfer. Controlled GTK/WebKit reproduction
+showed copied files exposing URI targets with no DOM Files, bitmap paste exposing
+no DOM image data, and genuine file drops still lacking DOM Files after acceptance.
+The native correction uses Tauri paths and GTK/native clipboard bytes instead.
+
+Run the focused actual-app regression with a default development native build and
+project Vite listening on 1420 (the ordinary desktop development setup):
+
+```sh
+cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml
+npm run dev --workspace @harness/desktop
+# In another terminal:
+python3 packages/desktop/tests/native/linux-images.py
+```
+
+It requires Python GTK3/GdkPixbuf bindings, Xvfb, XTest, dbus-run-session, and the
+repository Node dependencies. It creates an isolated display, session bus,
+clipboard, profile and fixture model; it stops only captured test owners. Actual
+OS keyboard/mouse gestures copy file URIs, PNG bitmap and JPEG-only clipboard
+content, preserve text/URL paste, drag a file over the transcript, use the native
+paperclip chooser, and send five images. Inspector reads assert visible previews;
+SQLite and the HTTP fixture assert persisted/model images without client paths.
+Artifacts are retained under the printed /tmp directory. It does not reuse the
+Windows native driver or add product test controls.
+
+The native reader also has bounded-read/URI unit tests and an ignored-by-default
+real GTK clipboard regression, runnable without touching the user's clipboard:
+
+```sh
+cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml image_input
+xvfb-run -a cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml reads_native_clipboard_file_uris_and_png_without_dom_files -- --ignored --test-threads=1
+```
+
+The GTK case covers file URIs, PNG, JPEG-only targets and unsupported image errors.
+The browser pending-FileReader regression leaves and reopens a chat before read
+completion, verifying read-state and resulting images stay visible. Provider
+regressions cover mixed historical custom/function calls in both orders and
+hoisted context interleaved with image results. Native qualification here is
+Linux X11/WebKitGTK; Wayland and native Windows/macOS remain separately unqualified.

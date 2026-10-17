@@ -943,5 +943,28 @@ Transcript reduction retains image blocks for user/plugin messages and tool
 results. Desktop previews open a Radix modal spanning the app with a dark backdrop
 and top-right close button, using the existing modal focus handling. CLI displays image placeholders without base64. Accepted
 images reconnect through ordinary history item references and chunk reads.
-Tauri webview native drag interception is disabled to allow DOM drop handling;
-browser tests do not qualify native operating-system drag/drop.
+Tauri native drag/drop remains enabled and feeds dropped local paths through a
+bounded desktop reader. Native clipboard file URIs and bitmap targets use the
+same byte-ingestion boundary; Linux uses asynchronous GTK selection requests,
+and Windows/macOS use the maintained clipboard-rs implementation. The frontend
+uses the shared signature/schema validation before creating canonical image blocks.
+Client-local paths never cross conversation RPC or become remote execution paths.
+Browsers retain DOM File/FileReader input. The paperclip immediately before the
+model control opens the ordinary file chooser.
+
+Linux WebKit can expose URI targets with no DOM Files and hide bitmap data
+entirely. Native paste handles these targets, while ordinary text/HTML and visible
+non-file URLs keep browser editing behavior. Plaintext-only paths remain text;
+file clipboard targets or the explicit chooser are needed to identify attachments.
+One router-owned observable draft per conversation holds images, read count and
+error, so pending reads remain visible across navigation and only accepted captured
+attachments clear. There is no separate upload manager or persisted draft blob.
+
+Actual Linux X11/WebKitGTK qualification covers file/bitmap/JPEG clipboard,
+native drag/drop, chooser, send, SQLite persistence and model-request byte delivery.
+Browser event injection alone does not qualify this OS boundary. Wayland,
+Windows and macOS native execution remain unqualified.
+
+Model-switcher option tooltips show image input as supported, unsupported, or
+unknown using the existing model metadata; an absent claim is never shown as
+unsupported. This is presentation only and uses the shared model selector.

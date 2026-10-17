@@ -157,9 +157,10 @@ const domain = {
       label: "Fixture model",
       contextWindow: 262144,
       reasoning: { supported: true },
+      supportsImages: true,
       presets: [{ value: "none" }, { value: "high" }],
     },
-    { provider: "fixture", model: "test-latest", label: "Fixture model" },
+    { provider: "fixture", model: "test-latest", label: "Fixture model", supportsImages: false },
   ],
   defaultModel: () => view.conversation.config.model,
   async forkBefore(_source: ConversationId, itemId: import("@harness/protocol").ItemId) {

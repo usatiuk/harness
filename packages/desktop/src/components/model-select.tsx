@@ -79,6 +79,14 @@ export function ModelSelect({
                     <div>
                       {model.provider} / {model.model}
                     </div>
+                    <div>
+                      Images:{" "}
+                      {model.supportsImages === undefined
+                        ? "unknown"
+                        : model.supportsImages
+                          ? "supported"
+                          : "unsupported"}
+                    </div>
                     {model.contextWindow !== undefined && (
                       <div>{model.contextWindow.toLocaleString()} context tokens</div>
                     )}

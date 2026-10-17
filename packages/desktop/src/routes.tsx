@@ -1,5 +1,12 @@
 import { ImagePreviews } from "./components/image-previews.tsx";
-import { readImageFiles } from "./image-files.ts";
+import {
+  readImageFiles,
+  readImagePaths,
+  readClipboardImages,
+  needsNativeImagePaste,
+} from "./image-files.ts";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { QuestionRequestForm } from "./components/question-request.tsx";
 import { questionResponseSchema } from "@harness/protocol";
 import { FeedbackControls, FeedbackSettings } from "./components/feedback-controls.tsx";
@@ -95,6 +102,7 @@ import {
   Square,
   ChevronDown,
   Settings2,
+  Paperclip,
   BookOpen,
   PenLine,
   Code,
@@ -142,7 +150,21 @@ export function createDesktopRouter(
   session: DesktopSession,
   connections: { controls: ReactNode; local: boolean; label: string; restart(): Promise<void> },
 ) {
-  const imageDrafts = new Map<string, ImageContent[]>();
+  const emptyImageDraft = { images: [] as ImageContent[], reading: 0, error: "" };
+  type ImageDraft = typeof emptyImageDraft;
+  const imageDrafts = new Map<string, ImageDraft>();
+  const imageDraftListeners = new Set<() => void>();
+  const subscribeImageDrafts = (listener: () => void) => {
+    imageDraftListeners.add(listener);
+    return () => {
+      imageDraftListeners.delete(listener);
+    };
+  };
+  const getImageDraft = (id: string): ImageDraft => imageDrafts.get(id) ?? emptyImageDraft;
+  const updateImageDraft = (id: string, update: (draft: ImageDraft) => ImageDraft) => {
+    imageDrafts.set(id, update(getImageDraft(id)));
+    for (const listener of imageDraftListeners) listener();
+  };
   const useLive = (): void => {
     useSyncExternalStore(session.subscribe, session.snapshot);
   };
@@ -157,10 +179,10 @@ export function createDesktopRouter(
             field(data, "conversationId") as ConversationId,
             field(data, "itemId") as import("@harness/protocol").ItemId,
           );
-          imageDrafts.set(
-            result.conversation.id,
-            result.draft.filter((block): block is ImageContent => block.type === "image"),
-          );
+          updateImageDraft(result.conversation.id, (draft) => ({
+            ...draft,
+            images: result.draft.filter((block): block is ImageContent => block.type === "image"),
+          }));
           localStorage.setItem(
             session.storageKey(`draft:${result.conversation.id}`),
             textOf(result.draft),
@@ -196,7 +218,7 @@ export function createDesktopRouter(
             throw new Error("Invalid input delivery");
           const text = field(data, "text").trim();
           const images = imageContentsSchema.parse(JSON.parse(field(data, "images")));
-          const capturedImages = imageDrafts.get(id) ?? [];
+          const capturedImages = getImageDraft(id).images;
           if (!text && images.length === 0) throw new Error("Enter a message");
           try {
             await session.domain.deliver(id, text, delivery, images);
@@ -208,10 +230,10 @@ export function createDesktopRouter(
               );
             throw error;
           }
-          imageDrafts.set(
-            id,
-            (imageDrafts.get(id) ?? []).filter((image) => !capturedImages.includes(image)),
-          );
+          updateImageDraft(id, (draft) => ({
+            ...draft,
+            images: draft.images.filter((image) => !capturedImages.includes(image)),
+          }));
           await session.refreshSidebar();
           if (localStorage.getItem(session.storageKey(`draft:${id}`)) === field(data, "text"))
             localStorage.removeItem(session.storageKey(`draft:${id}`));
@@ -1470,30 +1492,57 @@ export function createDesktopRouter(
       const [text, setText] = useState(
         () => localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "",
       );
-      const [images, setImages] = useState<ImageContent[]>(() => imageDrafts.get(id) ?? []);
-      const [attachmentError, setAttachmentError] = useState("");
-      const [readingImages, setReadingImages] = useState(0);
-      const updateImages = (update: (current: ImageContent[]) => ImageContent[]) => {
-        const next = update(imageDrafts.get(id) ?? []);
-        imageDrafts.set(id, next);
-        setImages(next);
+      const {
+        images,
+        reading: readingImages,
+        error: attachmentError,
+      } = useSyncExternalStore(subscribeImageDrafts, () => getImageDraft(id));
+      const setAttachmentError = (error: string) =>
+        updateImageDraft(id, (draft) => ({ ...draft, error }));
+      const updateImages = (update: (images: ImageContent[]) => ImageContent[]) => {
+        updateImageDraft(id, (draft) => ({ ...draft, images: update(draft.images) }));
       };
-      const addImages = async (files: File[]) => {
-        setReadingImages((count) => count + 1);
+      const readAndAddImages = async (read: () => Promise<ImageContent[]>) => {
+        updateImageDraft(id, (draft) => ({ ...draft, reading: draft.reading + 1 }));
         try {
-          const added = await readImageFiles(files);
-          const next = [...(imageDrafts.get(id) ?? []), ...added];
-          // Validate the batch without replacing existing draft image identities.
-          imageContentsSchema.parse(next);
-          imageDrafts.set(id, next);
-          setImages(next);
-          setAttachmentError("");
+          const added = await read();
+          updateImageDraft(id, (draft) => {
+            const images = [...draft.images, ...added];
+            imageContentsSchema.parse(images);
+            return { ...draft, images, error: "" };
+          });
         } catch (error) {
           setAttachmentError(errorMessage(error));
         } finally {
-          setReadingImages((count) => count - 1);
+          updateImageDraft(id, (draft) => ({ ...draft, reading: draft.reading - 1 }));
         }
       };
+      const addImages = (files: File[]) => readAndAddImages(() => readImageFiles(files));
+      const onNativeDrop = useEffectEvent((paths: string[]) => {
+        void readAndAddImages(() => readImagePaths(paths));
+      });
+      useEffect(() => {
+        if (!isTauri()) return;
+        let disposed = false;
+        let unlisten: (() => void) | undefined;
+        void getCurrentWebview()
+          .onDragDropEvent((event) => {
+            if (!disposed && event.payload.type === "drop") onNativeDrop(event.payload.paths);
+          })
+          .then((cleanup) => {
+            if (disposed) cleanup();
+            else unlisten = cleanup;
+          })
+          .catch((error) => {
+            if (!disposed)
+              updateImageDraft(id, (draft) => ({ ...draft, error: errorMessage(error) }));
+          });
+        return () => {
+          disposed = true;
+          unlisten?.();
+        };
+      }, [id]);
+      const imagePicker = useRef<HTMLInputElement>(null);
       const textarea = useRef<HTMLTextAreaElement>(null);
       const handled = useRef<ActionResult | undefined>(undefined);
       const running = view.state.turn.status === "running";
@@ -1514,7 +1563,6 @@ export function createDesktopRouter(
         if (send.state === "idle" && send.data?.ok && handled.current !== send.data) {
           handled.current = send.data;
           setText(localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "");
-          setImages(imageDrafts.get(id) ?? []);
           textarea.current?.focus();
         }
       }, [send.state, send.data, id]);
@@ -1549,9 +1597,19 @@ export function createDesktopRouter(
             }}
             onPaste={(event) => {
               const files = Array.from(event.clipboardData.files);
-              if (files.length === 0) return;
-              event.preventDefault();
-              void addImages(files);
+              if (files.length > 0) {
+                event.preventDefault();
+                void addImages(files);
+              } else if (
+                isTauri() &&
+                needsNativeImagePaste(
+                  event.clipboardData.types,
+                  event.clipboardData.getData("text/uri-list"),
+                )
+              ) {
+                event.preventDefault();
+                void readAndAddImages(readClipboardImages);
+              }
             }}
           >
             {images.length > 0 && (
@@ -1633,6 +1691,23 @@ export function createDesktopRouter(
               />
             </send.Form>
             <div className="composer-actions">
+              <input
+                ref={imagePicker}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                multiple
+                hidden
+                onChange={(event) => {
+                  const files = Array.from(event.currentTarget.files ?? []);
+                  event.currentTarget.value = "";
+                  void addImages(files);
+                }}
+              />
+              <IconButton
+                label="Attach images"
+                icon={Paperclip}
+                onClick={() => imagePicker.current?.click()}
+              />
               <ConversationControls view={view} />
               <PopoverControl
                 label="Composer settings"

@@ -1,6 +1,6 @@
 # Image input v1
 
-Status: Complete
+Status: Complete — native input correction validated
 
 ## Scope and completion
 
@@ -161,3 +161,45 @@ Native paste/drop, remote-host image reads, actual image-derived compaction and
 live vendor/account acceptance remain explicitly unqualified. Delivery is complete in the shared main checkout. The authorized commit covers
 image input, model metadata/configuration and the associated tests/documentation;
 no release is part of this commit request.
+
+## Native input correction
+
+User testing disproved the desktop input completion claim: on Linux, pasting a
+copied screenshot file inserts a path, and file drag/drop does not attach it.
+Synthetic browser events created File objects and bypassed the OS/WebView
+boundary; those tests did not establish requirement 1. Native paste/drop was therefore reopened as a required correction. The earlier implementation was committed as 8297f20;
+the follow-up below fixes and qualifies the native Linux path before committing.
+
+- [x] Controlled Linux clipboard/file-drag reproduction through real WebKitGTK,
+      distinguishing plain-text paths, file URIs and screenshot bitmap data.
+- [x] Minimal desktop ingestion correction using existing attachment pipeline;
+      client paths must never be treated as remote server paths.
+- [x] Explicit paperclip chooser immediately before the model control, as requested.
+- [x] Fix independently reproduced mixed custom/function replay ordering in
+      Anthropic/Chat adapters; keep valid existing request shapes and log intact.
+- [x] Real native input evidence, focused regressions, full checks, independent
+      review and authorized follow-up commit. Synthetic tests alone cannot close
+      the native-input task.
+
+Native correction evidence: actual rebuilt Harness in an isolated Linux X11/
+WebKitGTK session passes GNOME copied-file paste, PNG bitmap, JPEG-only clipboard,
+normal text/URL preservation, native file drop over the transcript, native
+paperclip chooser, Send, five user-message previews, five persisted SQLite image
+blocks and five model request images without local paths. The repeatable scripts
+are tests/native/linux-images.py and linux-image-inspector.mjs; full commands and
+qualification boundaries are in docs/TESTING.md. Clipboard support uses GTK on
+Linux and clipboard-rs on Windows/macOS; no fake platform implementation.
+
+Additional review findings fixed: clipboard image MIME negotiation instead of
+PNG-only reads; one observable router draft owner instead of stale component
+image/loading/error copies; mixed raw/native tool replay and hoisted context
+preserving required tool-result adjacency. Real GTK and browser navigation
+regressions accompany these corrections. Wayland and native Windows/macOS have
+not been exercised. Final `VITEST_MAX_WORKERS=4 npm run check` passed typecheck,
+lint, formatting and 1,600 tests / 41 skipped across 176 files. The final three
+browser regressions (chooser placement, navigation during image reads, and
+attachments added during delivery) passed. Native Rust checks passed eight tests
+with the display-dependent GTK regression separately passing under Xvfb. Three
+independent review lenses have no remaining blockers. The authorized follow-up
+commit includes these corrections and retained native evidence; no release is
+part of this correction.

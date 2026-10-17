@@ -90,7 +90,16 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
     assistant = [];
   };
   const flushUser = (): void => {
-    if (user.length > 0) messages.push({ role: "user", content: user });
+    if (user.length > 0) {
+      // Native results must precede historical custom results and any other user content.
+      messages.push({
+        role: "user",
+        content: [
+          ...user.filter((block) => block.type === "tool_result"),
+          ...user.filter((block) => block.type !== "tool_result"),
+        ],
+      });
+    }
     user = [];
   };
 

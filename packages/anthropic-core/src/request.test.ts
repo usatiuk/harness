@@ -470,3 +470,50 @@ describe("image request mapping", () => {
     });
   });
 });
+
+describe("mixed historical custom and function result ordering", () => {
+  const image = { type: "image", mediaType: "image/png", data: "iVBORw0KGgo=" } as const;
+  const cases = [true, false].flatMap((rawCallFirst) =>
+    [true, false].flatMap((rawResultFirst) =>
+      [true, false].map((withImage) => ({ rawCallFirst, rawResultFirst, withImage })),
+    ),
+  );
+  it.each(cases)(
+    "puts native tool results before user content: %j",
+    ({ rawCallFirst, rawResultFirst, withImage }) => {
+      const raw = item({ type: "tool_call", callId: "raw", name: "apply_patch", args: "PATCH" });
+      const native = item({
+        type: "tool_call",
+        callId: "native",
+        name: "read_file",
+        args: { path: "image.png" },
+      });
+      const content = [
+        { type: "text" as const, text: "result text" },
+        ...(withImage ? [image] : []),
+      ];
+      const rawResult = item({ type: "tool_result", callId: "raw", status: "ok", content });
+      const nativeResult = item({ type: "tool_result", callId: "native", status: "ok", content });
+      const request = baseRequest(
+        [
+          ...(rawCallFirst ? [raw, native] : [native, raw]),
+          ...(rawResultFirst ? [rawResult, nativeResult] : [nativeResult, rawResult]),
+        ].map((item) => ({ item })),
+      );
+      const before = structuredClone(request);
+      const messages = buildMessages(request, CONFIG, PROVIDER).messages;
+      expect(messages.map((message) => message.role)).toEqual(["assistant", "user"]);
+      const results = messages[1]!.content;
+      if (typeof results === "string") throw new Error("expected tool-result blocks");
+      expect(results[0]).toMatchObject({ type: "tool_result", tool_use_id: "native" });
+      expect(
+        results.slice(1).every((block) => block.type === "text" || block.type === "image"),
+      ).toBe(true);
+      const serialized = JSON.stringify(messages);
+      expect(serialized).toContain("Tool apply_patch: PATCH");
+      expect(serialized.match(/result text/g)).toHaveLength(2);
+      if (withImage) expect(serialized.match(/iVBORw0KGgo=/g)).toHaveLength(2);
+      expect(request).toEqual(before);
+    },
+  );
+});

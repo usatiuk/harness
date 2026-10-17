@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod appearance;
+mod image_input;
 
 use harness_desktop::{MAX_FRAME, command, runtime};
 
@@ -322,12 +323,11 @@ async fn prepare_runtime(
     local: bool,
     canceled: watch::Receiver<bool>,
 ) -> Result<Arc<runtime::ServerRuntime>, String> {
-    let payload =
-        if cfg!(not(dev)) && env!("HARNESS_BUILD_MODE") == "development" {
-            Some(resources(app)?)
-        } else {
-            None
-        };
+    let payload = if cfg!(not(dev)) && env!("HARNESS_BUILD_MODE") == "development" {
+        Some(resources(app)?)
+    } else {
+        None
+    };
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
     runtime::prepare(
         tokio::process::Command::new(executable),
@@ -793,6 +793,8 @@ fn main() {
             appearance::window_material,
             appearance::window_decorate,
             appearance::window_modal,
+            image_input::read_image_paths,
+            image_input::clipboard_image_data,
             server_connect,
             server_write,
             server_ack,
@@ -870,7 +872,11 @@ mod relaunch_tests {
     #[test]
     fn relaunched_process_sees_a_clean_environment() {
         let output = Command::new(std::env::current_exe().expect("test binary"))
-            .args(["--exact", "relaunch_tests::environment_fixture", "--nocapture"])
+            .args([
+                "--exact",
+                "relaunch_tests::environment_fixture",
+                "--nocapture",
+            ])
             .env("HARNESS_RELAUNCH_ENV_FIXTURE", "host")
             .env("LD_LIBRARY_PATH", "poison-libraries")
             .env("PYTHONHOME", "poison-python")

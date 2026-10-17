@@ -427,3 +427,97 @@ describe("image request mapping", () => {
     });
   });
 });
+
+describe("mixed historical custom and function result ordering", () => {
+  const image = { type: "image", mediaType: "image/png", data: "iVBORw0KGgo=" } as const;
+  const cases = [true, false].flatMap((rawCallFirst) =>
+    [true, false].flatMap((rawResultFirst) =>
+      [true, false].map((withImage) => ({ rawCallFirst, rawResultFirst, withImage })),
+    ),
+  );
+  it.each(cases)(
+    "keeps native calls/results adjacent: %j",
+    ({ rawCallFirst, rawResultFirst, withImage }) => {
+      const raw = item({ type: "tool_call", callId: "raw", name: "apply_patch", args: "PATCH" });
+      const native = item({
+        type: "tool_call",
+        callId: "native",
+        name: "read_file",
+        args: { path: "image.png" },
+      });
+      const content = [
+        { type: "text" as const, text: "result text" },
+        ...(withImage ? [image] : []),
+      ];
+      const rawResult = item({ type: "tool_result", callId: "raw", status: "ok", content });
+      const nativeResult = item({ type: "tool_result", callId: "native", status: "ok", content });
+      const request = baseRequest(
+        [
+          ...(rawCallFirst ? [raw, native] : [native, raw]),
+          ...(rawResultFirst ? [rawResult, nativeResult] : [nativeResult, rawResult]),
+        ].map((item) => ({ item })),
+      );
+      const before = structuredClone(request);
+      const messages = buildChatParams(request).messages;
+      const callIndex = messages.findIndex(
+        (message) => message.role === "assistant" && message.tool_calls?.length,
+      );
+      expect(messages[callIndex + 1]).toEqual({
+        role: "tool",
+        tool_call_id: "native",
+        content: "result text" + (withImage ? "\n[Images follow after tool results.]" : ""),
+      });
+      expect(messages.slice(callIndex + 2).every((message) => message.role === "user")).toBe(true);
+      const serialized = JSON.stringify(messages);
+      expect(serialized).toContain("Tool apply_patch: PATCH");
+      expect(serialized.match(/result text/g)).toHaveLength(2);
+      if (withImage)
+        expect(serialized.match(/data:image\/png;base64,iVBORw0KGgo=/g)).toHaveLength(2);
+      expect(request).toEqual(before);
+    },
+  );
+});
+
+describe("tool results separated by hoisted context", () => {
+  it.each([false, true])("keeps result adjacency with historical custom result: %s", (withRaw) => {
+    const image = { type: "image", mediaType: "image/png", data: "iVBORw0KGgo=" } as const;
+    const call = (callId: string) =>
+      item({ type: "tool_call", callId, name: "read_file", args: { path: callId } });
+    const result = (callId: string) =>
+      item({
+        type: "tool_result",
+        callId,
+        status: "ok",
+        content: [{ type: "text", text: callId }, image],
+      });
+    const request = baseRequest(
+      [
+        ...(withRaw
+          ? [item({ type: "tool_call", callId: "raw", name: "apply_patch", args: "PATCH" })]
+          : []),
+        call("a"),
+        call("b"),
+        result(withRaw ? "raw" : "a"),
+        item({
+          type: "context",
+          key: "agents",
+          content: [{ type: "text", text: "Project instructions" }],
+        }),
+        ...(withRaw ? [result("a")] : []),
+        result("b"),
+      ].map((item) => ({ item })),
+    );
+    const before = structuredClone(request);
+    const messages = buildChatParams(request).messages;
+    expect(messages[0]).toEqual({ role: "system", content: "be nice\n\nProject instructions" });
+    const callIndex = messages.findIndex(
+      (message) => message.role === "assistant" && message.tool_calls?.length,
+    );
+    expect(messages.slice(callIndex + 1, callIndex + 3)).toEqual([
+      { role: "tool", tool_call_id: "a", content: "a\n[Images follow after tool results.]" },
+      { role: "tool", tool_call_id: "b", content: "b\n[Images follow after tool results.]" },
+    ]);
+    expect(messages.slice(callIndex + 3).every((message) => message.role === "user")).toBe(true);
+    expect(request).toEqual(before);
+  });
+});
