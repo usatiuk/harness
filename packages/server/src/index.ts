@@ -49,11 +49,16 @@ import { registerAppApi } from "./app-api.ts";
 import { bootstrapProviders } from "./provider-bootstrap.ts";
 import { registerApprovalServer } from "./approvals.ts";
 export { registerFeatureServer } from "./features.ts";
-export const ACTIVITY_APPROVAL_DEFAULTS = {
+export const BUILTIN_APPROVAL_DEFAULTS = {
   activity_wait: "allow",
   activity_peek: "allow",
   activity_list: "allow",
   activity_kill: "allow",
+  subagent: "allow",
+  subagent_list: "allow",
+  subagent_send: "allow",
+  subagent_dismiss: "allow",
+  worktree_list: "allow",
 } as const;
 const CLIENT_CONTRACTS = [
   { id: "approval", version: APPROVAL_CLIENT_CONTRACT_VERSION },
@@ -168,7 +173,7 @@ export async function buildServerComposition(
         model: resolvedFallback,
         tools: { mode: "hybrid" },
         plugins: {
-          approval: { tools: ACTIVITY_APPROVAL_DEFAULTS },
+          approval: { tools: BUILTIN_APPROVAL_DEFAULTS },
         },
       },
     });

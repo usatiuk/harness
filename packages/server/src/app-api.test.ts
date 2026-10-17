@@ -77,6 +77,68 @@ it("offers all Harness capability tools upfront in both modes", async () => {
   }
 });
 
+it("runs subagent controls and worktree listing without approval requests", async () => {
+  const { DemoProvider } = await import("./demo-provider.ts");
+  const { FakeProvider, textStep, toolStep } = await import("@harness/testkit");
+  const { isKernelEvent, textOf } = await import("@harness/protocol");
+  const home = await mkdtemp(join(tmpdir(), "harness-control-approval-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
+    vi.stubEnv(key, "");
+  const task = "Approval regression child task";
+  const scripted = new FakeProvider([
+    toolStep("list", "subagent_list", { relation: "children" }),
+    toolStep("send", "subagent_send", { to: "not-a-family-member", message: "hello" }),
+    toolStep("dismiss", "subagent_dismiss", { to: "not-a-family-member" }),
+    toolStep("worktrees", "worktree_list", {}),
+    toolStep("spawn", "subagent", {
+      agent: "general",
+      name: "Approval test",
+      slug: "approval-test",
+      task,
+    }),
+    textStep("Done"),
+  ]);
+  vi.spyOn(DemoProvider.prototype, "stream").mockImplementation(async function* (request) {
+    if (!request.tools?.some((tool) => tool.name === "eval"))
+      yield* textStep("Control approval regression");
+    else if (
+      request.items.some(
+        ({ item }) =>
+          item.type === "message" && item.role === "user" && textOf(item.content) === task,
+      )
+    )
+      yield* textStep("Child finished");
+    else yield* scripted.stream();
+  });
+  const pair = createInProcessMessageConnectionPair();
+  const harness = await buildServerHarness(pair.right);
+  const requests: unknown[] = [];
+  const unsubscribe = harness.service.subscribe((event) => {
+    if (isKernelEvent(event) && event.type === "request.created") requests.push(event.request);
+  });
+  try {
+    const conversation = await harness.service.createConversation({
+      overrides: { model: { provider: "demo", model: "demo-1" } },
+    });
+    await harness.service.send(conversation.id, "Check control tools");
+    await harness.service.whenIdle(conversation.id);
+    const results = (await harness.store.listActiveItems(conversation.id)).filter(
+      (item) => item.type === "tool_result",
+    );
+    expect(results).toHaveLength(5);
+    expect(results.find((item) => item.callId === "list")?.status).toBe("ok");
+    expect(results.find((item) => item.callId === "spawn")?.status).toBe("ok");
+    expect(requests).toEqual([]);
+  } finally {
+    unsubscribe();
+    await harness.close();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 it("creates a LiteLLM provider through RPC without storing its key in settings", async () => {
   const home = await mkdtemp(join(tmpdir(), "harness-provider-create-"));
   vi.stubEnv("HARNESS_HOME", home);

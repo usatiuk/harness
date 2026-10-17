@@ -186,7 +186,9 @@ connection shutdown closes all roots owned by that connection.
   invoked through dispatch.
 - Recursion is bounded structurally by depth and the absence of the subagent tool
   at the floor.
-- Approval evaluates delegation and every downstream tool call independently.
+- Activity controls, subagent tools and `worktree_list` default to allow without
+  approval prompts. Explicit per-tool policies still apply. Delegated filesystem,
+  command and other tool calls retain their own approval policies.
 - Child conversations persist for inspection even though live orchestration does
   not resume after a process restart.
 
