@@ -2198,15 +2198,23 @@ export class Engine {
     });
     const mode = conversation.config.tools?.mode ?? "hybrid";
     const upfront = mode === "code-only" ? upfrontTools(catalog) : [];
-    const controls = discoveryTools(
-      catalog,
-      [
-        ...modelSchemas(catalog, mode).map((schema) => schema.name),
-        ...upfront.map((tool) => tool.input.name),
-      ],
-      async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
+    const initialNames = new Set([
+      ...modelSchemas(catalog, mode).map((schema) => schema.name),
+      ...upfront.map((tool) => tool.input.name),
+    ]);
+    const controls = discoveryTools(catalog, [...initialNames], async () =>
+      compactedWindow(await this.store.listActiveItems(conversation.id)),
     );
-    controls.push(evaluatorTool(this.codeEvaluator, upfront));
+    const names =
+      conversation.config.tools?.showNames === false
+        ? []
+        : catalog
+            .schemas()
+            .filter(
+              (schema) => catalog.exposes(schema.name, "code") && !initialNames.has(schema.name),
+            )
+            .map((schema) => schema.name);
+    controls.push(evaluatorTool(this.codeEvaluator, upfront, names));
     return new ToolSet(
       [...catalog.values(), ...controls],
       catalog.schemas().map((schema) => catalog.contract(schema.name)!),

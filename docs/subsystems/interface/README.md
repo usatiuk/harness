@@ -127,6 +127,9 @@ The kernel `tools.mode` setting accepts `hybrid` (default) and `code-only`
 in the settings cascade or conversation overrides. Legacy `direct` values load
 as `hybrid`. Desktop creation
 exposes a Tool interface selector; settings-file changes take effect on reload.
+Global `tools.showNames` (default true) controls the deferred-name list in model
+instructions. Desktop Defaults exposes Show deferred tool names; TUI Host defaults
+uses `showToolNames`. New or reloaded conversations use the saved value.
 RPC carries mode, nested associations, structured values, and output references.
 Desktop nests child operation cards under their evaluator with concrete
 arguments, status, approval facts, and output; incomplete history pages retain

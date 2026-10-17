@@ -44,6 +44,7 @@ export class WorktreesDefinition implements PluginDefinition {
       tools: () => [
         {
           name: "worktree_list",
+          essential: true,
           description:
             "List this conversation's original checkout, current directory, and Git worktrees.",
           input: { kind: "function", schema: z.strictObject({}) },
@@ -52,6 +53,7 @@ export class WorktreesDefinition implements PluginDefinition {
         },
         {
           name: "worktree_switch",
+          essential: true,
           description:
             "Only when the user asks: switch this conversation to a new/existing Git worktree or back to its original checkout. No files or history are copied. The switch is applied AFTER this entire tool batch, including parallel eval calls; all remaining calls in this batch still use the old directory. Stop background activities/subagents first.",
           input: { kind: "function", schema: selection },

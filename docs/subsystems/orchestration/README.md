@@ -27,7 +27,8 @@ The MCP package validates transport/value-source configuration and retains remot
 JSON Schema through the generic tool input boundary with an SDK AJV validator.
 Tool identities are `mcp_<serverId>_<rawName>`; MCP tools are code-exposure only,
 discovered through `tool_search` (or inspected with `tool_describe`) and called
-through `eval` in both tool modes. Raw names retain punctuation and length;
+through `eval` in both tool modes. Their scoped names appear upfront unless global
+`tools.showNames` is disabled. Raw names retain punctuation and length;
 catalog name collisions reject the affected server atomically. Explicit legacy
 allowlists using hashed identities require updating; no scope is widened.
 Text, structured JSON, and `isError` map to ordinary tool results. Unsupported

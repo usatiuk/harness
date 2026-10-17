@@ -112,6 +112,7 @@ export async function resolveSettings(opts: ResolveOptions): Promise<Conversatio
           tools: {
             ...(doc.tools.allow !== undefined ? { allow: doc.tools.allow } : {}),
             ...(doc.tools.mode !== undefined ? { mode: doc.tools.mode } : {}),
+            ...(doc.tools.showNames !== undefined ? { showNames: doc.tools.showNames } : {}),
           },
         }
       : {}),

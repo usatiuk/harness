@@ -13,10 +13,14 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `14`. It exchanges
+`initialize` is the first application request and requires protocol version `15`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
+
+Version 15 adds the global deferred-tool-name preference to application settings
+and resolved conversation tool configuration. Older peers fail the exact-version
+handshake.
 
 Version 5 includes required schema-declared provider settings in application
 provider status and the provider-config update request. Version 4 clients and

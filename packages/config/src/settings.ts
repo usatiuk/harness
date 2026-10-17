@@ -48,6 +48,7 @@ export const projectDocSchema = z.strictObject({
 
 export const settingsDocSchema = z.strictObject({
   ...projectDocSchema.shape,
+  tools: toolsSchema.extend({ showNames: z.boolean().optional() }).optional(),
   compaction: z.strictObject({ thresholdTokens: compactionThresholdSchema }).optional(),
   auth: authSchema.optional(),
   providers: z

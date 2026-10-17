@@ -76,6 +76,7 @@ async function setup(
     compaction?: CompactionStrategy;
     allow?: string[];
     fileTools?: "string_replace" | "apply_patch" | "text_editor";
+    showNames?: boolean;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "harness-code-"));
@@ -111,7 +112,11 @@ async function setup(
     codeEvaluator: new QuickJsEvaluator(),
     defaults: {
       model: { provider: "fake", model: "fake-1" },
-      tools: { mode, ...(options.allow ? { allow: options.allow } : {}) },
+      tools: {
+        mode,
+        ...(options.allow ? { allow: options.allow } : {}),
+        ...(options.showNames === undefined ? {} : { showNames: options.showNames }),
+      },
       plugins: { approval: { outOfWorkspace: "allow" }, ...pluginConfig },
     },
     plugins: [
@@ -162,6 +167,41 @@ const discoveryOutput = (items: Item[], id: string) =>
   };
 
 describe("ordinary tool discovery", () => {
+  it.each(["hybrid", "code-only"] as const)(
+    "%s lists only scoped deferred names by default without marking their definitions learned",
+    async (mode) => {
+      for (const showNames of [undefined, false]) {
+        const fixture = await setup(
+          [toolStep("search", "tool_search", { queries: ["deferred"] }), textStep("done")],
+          [
+            catalogTool("z_deferred"),
+            catalogTool("a_deferred"),
+            catalogTool("excluded_deferred"),
+            { ...catalogTool("entry"), exposure: { direct: true, code: false }, essential: true },
+          ],
+          mode,
+          {},
+          {
+            ...(showNames === undefined ? {} : { showNames }),
+            allow: ["z_deferred", "a_deferred", "entry"],
+          },
+        );
+        const items = await fixture.run();
+        const descriptions = fixture.requests.map(
+          (request) => request.tools!.find((tool) => tool.name === "eval")!.description,
+        );
+        if (showNames === false) expect(descriptions[0]).not.toContain("Deferred tool names:");
+        else expect(descriptions[0]).toContain('Deferred tool names: ["a_deferred","z_deferred"]');
+        expect(descriptions[1]).toBe(descriptions[0]);
+        expect(descriptions[0]).not.toContain("excluded_deferred");
+        expect(discoveryOutput(items, "search").tools.map((tool) => tool.input.name)).toEqual([
+          "a_deferred",
+          "z_deferred",
+        ]);
+      }
+    },
+  );
+
   it("hybrid declares only essential tools and gates ordinary direct calls consistently", async () => {
     const fixture = await setup(
       [
@@ -180,8 +220,13 @@ describe("ordinary tool discovery", () => {
     );
     const items = await fixture.run();
     expect(fixture.requests[0]!.tools!.map((tool) => tool.name)).toEqual([
+      "activity_kill",
+      "activity_list",
+      "activity_peek",
+      "activity_wait",
       "basic",
       "eval",
+      "subagent",
       "tool_describe",
       "tool_search",
     ]);

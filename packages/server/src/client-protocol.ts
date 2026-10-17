@@ -34,6 +34,7 @@ const settings = z.strictObject({
     (val) => (val === "direct" ? "hybrid" : val),
     z.enum(["hybrid", "code-only"]),
   ),
+  showToolNames: z.boolean(),
   compactionThresholdTokens: compactionThresholdSchema.nullable(),
   worktreeDirectory: z.string().trim().min(1).nullable(),
 });
@@ -97,6 +98,7 @@ export const appSettingsUpdateRequest = defineRequest({
     ...(patch.autoApproval === undefined ? {} : { autoApproval: patch.autoApproval }),
     ...(patch.sandbox === undefined ? {} : { sandbox: patch.sandbox }),
     ...(patch.toolMode === undefined ? {} : { toolMode: patch.toolMode }),
+    ...(patch.showToolNames === undefined ? {} : { showToolNames: patch.showToolNames }),
     ...(patch.worktreeDirectory === undefined
       ? {}
       : { worktreeDirectory: patch.worktreeDirectory }),

@@ -34,6 +34,7 @@ export interface SubagentToolDeps {
  * the child's final output. Recursion depth is bounded by a spawn-time check.
  */
 export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
+  readonly essential = true;
   readonly name = "subagent";
   readonly description =
     "Delegate a focused task to a specialized subagent that runs in its own conversation with its " +

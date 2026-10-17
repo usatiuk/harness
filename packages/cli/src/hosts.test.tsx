@@ -98,7 +98,7 @@ function manager() {
   return value;
 }
 
-it("edits and clears compaction threshold through selected-host Settings", async () => {
+it("edits kernel defaults through selected-host Settings", async () => {
   const path = await home();
   vi.stubEnv("HARNESS_HOME", path);
   const hosts = manager();
@@ -110,7 +110,10 @@ it("edits and clears compaction threshold through selected-host Settings", async
     });
     const edit = async (
       value: string,
-      key: "compactionThresholdTokens" | "worktreeDirectory" = "compactionThresholdTokens",
+      key:
+        | "compactionThresholdTokens"
+        | "worktreeDirectory"
+        | "showToolNames" = "compactionThresholdTokens",
     ) => {
       // Creating the active conversation precedes mounting its input handlers.
       await vi.waitFor(() => expect(ui.lastFrame()).toContain("/help"));
@@ -148,6 +151,13 @@ it("edits and clears compaction threshold through selected-host Settings", async
       await writeInput(ui, "\u001b");
       await vi.waitFor(() => expect(ui.lastFrame()).toContain("/help"));
     };
+    for (const showToolNames of [false, true]) {
+      await edit(String(showToolNames), "showToolNames");
+      expect(
+        (await hosts.selected!.harness!.client.peer.request(appSettingsRequest, {})).settings
+          .showToolNames,
+      ).toBe(showToolNames);
+    }
     await edit("1200");
     expect(
       (await hosts.selected!.harness!.client.peer.request(appSettingsRequest, {})).settings

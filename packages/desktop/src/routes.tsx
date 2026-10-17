@@ -59,6 +59,7 @@ import type { TranscriptRow, TranscriptStep } from "./transcript.ts";
 import { DesktopSession, type ConversationView } from "./session.ts";
 import {
   Button,
+  Checkbox,
   Input,
   Select,
   SelectItem,
@@ -365,13 +366,14 @@ export function createDesktopRouter(
                 ? { provider: titleProvider, model: titleModel, preset: titlePreset || null }
                 : null,
             sandbox,
+            showToolNames: data.get("showToolNames") === "on",
             compactionThresholdTokens,
             worktreeDirectory: field(data, "worktreeDirectory").trim() || null,
           });
           return {
             ok: true,
             message:
-              "Settings saved. New conversations use these defaults. Restart the server to apply compaction changes to already-loaded conversations.",
+              "Settings saved. New or reloaded conversations use these defaults. Restart the server to apply compaction changes to already-loaded conversations.",
           };
         }
         default:
@@ -2073,6 +2075,16 @@ export function createDesktopRouter(
                   <SandboxOptions selected={settings.settings.sandbox} />
                 </Select>
               </label>
+              <div>
+                <label className="check-label">
+                  <Checkbox name="showToolNames" defaultChecked={settings.settings.showToolNames} />
+                  Show deferred tool names
+                </label>
+                <small className="muted">
+                  Include available tool names for the model. Applies to new or reloaded
+                  conversations.
+                </small>
+              </div>
               <label>
                 Worktree directory
                 <Input

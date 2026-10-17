@@ -82,6 +82,7 @@ export const decodeConversationConfig = (config: WireConversationConfig): Conver
         tools: {
           ...(config.tools.allow === null ? {} : { allow: config.tools.allow }),
           ...(config.tools.mode ? { mode: config.tools.mode } : {}),
+          showNames: config.tools.showNames,
         },
       }),
   ...(Object.keys(config.plugins).length === 0 ? {} : { plugins: config.plugins }),

@@ -17,6 +17,7 @@ const waitArgs = z.strictObject({
   timeout_seconds: z.number().positive().max(MAX_WAIT_S).optional(),
 });
 export class ActivityWaitTool implements Tool<z.infer<typeof waitArgs>> {
+  readonly essential = true;
   readonly name = "activity_wait";
   readonly description =
     "Wait (bounded) for a running activity to finish and return its result. If it is still " +
@@ -41,6 +42,7 @@ export class ActivityWaitTool implements Tool<z.infer<typeof waitArgs>> {
 
 const peekArgs = z.strictObject({ id: z.string(), filter: z.string().optional() });
 export class ActivityPeekTool implements Tool<z.infer<typeof peekArgs>> {
+  readonly essential = true;
   readonly name = "activity_peek";
   readonly description =
     "Show the latest output of an activity without waiting. Optional `filter` is a regex " +
@@ -54,6 +56,7 @@ export class ActivityPeekTool implements Tool<z.infer<typeof peekArgs>> {
 }
 
 export class ActivityListTool implements Tool<Record<string, never>> {
+  readonly essential = true;
   readonly name = "activity_list";
   readonly description = "List this conversation's activities with their status.";
   readonly input: ToolInput<Record<string, never>> = {
@@ -74,6 +77,7 @@ export class ActivityListTool implements Tool<Record<string, never>> {
 
 const killArgs = z.strictObject({ id: z.string() });
 export class ActivityKillTool implements Tool<z.infer<typeof killArgs>> {
+  readonly essential = true;
   readonly name = "activity_kill";
   readonly description = "Terminate a running activity.";
   readonly input: ToolInput<z.infer<typeof killArgs>> = { kind: "function", schema: killArgs };

@@ -247,6 +247,7 @@ export function registerAppApi(
           : null,
         sandbox: sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).backend,
         toolMode: doc.tools?.mode ?? "hybrid",
+        showToolNames: doc.tools?.showNames ?? true,
         compactionThresholdTokens: doc.compaction?.thresholdTokens ?? null,
         worktreeDirectory:
           worktreesConfigSchema.parse(doc.plugins?.["worktrees"] ?? {}).directory ?? null,
@@ -316,10 +317,16 @@ export function registerAppApi(
         if (settings.sandbox)
           await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });
         const toolMode = settings.toolMode;
-        if (toolMode)
+        if (toolMode !== undefined || settings.showToolNames !== undefined)
           await updateGlobalSettings(defaultHome(), (doc) => ({
             ...doc,
-            tools: { ...doc.tools, mode: toolMode },
+            tools: {
+              ...doc.tools,
+              ...(toolMode === undefined ? {} : { mode: toolMode }),
+              ...(settings.showToolNames === undefined
+                ? {}
+                : { showNames: settings.showToolNames }),
+            },
           }));
         if (changedPlugins.length) await service.refreshPluginDefaults(changedPlugins);
         if (settings.worktreeDirectory !== undefined) {

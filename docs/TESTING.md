@@ -177,7 +177,10 @@ DCR/metadata clients/PKCE/refresh/restart/cancellation/expiry/logout.
 Config/protocol regressions cover legacy `direct` normalization, and a service
 regression verifies legacy overrides after SQLite reopen and successful continuation.
 The [tool-mode delivery plan](plans/cross-cutting/2026-10-17-simplify-mcp-and-remove-direct-mode.md)
-records validation evidence and remaining UI coverage limits.
+records validation evidence and remaining UI coverage limits. The
+[eager-tools follow-up](plans/cross-cutting/2026-10-17-eager-tools-and-name-inventory.md)
+checks scoped, stable name inventories, global-only settings, reload, and eager
+built-in rosters in both modes; RPC/TUI and browser controls verify persistence.
 `server/src/mcp.test.ts` exercises real typed RPC settings, write-only secrets,
 namespace separation, reserved-key rejection before JSON normalization, safe
 credential-backend errors, and client-owned sign-in lifetime. Approval and shared-server

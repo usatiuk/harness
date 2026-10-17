@@ -25,6 +25,58 @@ it("normalizes legacy application tool mode while rejecting unsupported values",
   expect(() => appSettingsUpdateRequest.params.parse({ toolMode: "invalid" })).toThrow();
 });
 
+it("offers all Harness capability tools upfront in both modes", async () => {
+  const { DemoProvider } = await import("./demo-provider.ts");
+  const { textStep } = await import("@harness/testkit");
+  const home = await mkdtemp(join(tmpdir(), "harness-eager-roster-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
+    vi.stubEnv(key, "");
+  const stream = vi.spyOn(DemoProvider.prototype, "stream").mockImplementation(async function* () {
+    yield* textStep("done");
+  });
+  const agentRequests = () =>
+    stream.mock.calls
+      .map(([request]) => request)
+      .filter((request) => request.tools?.some((tool) => tool.name === "eval"));
+  const pair = createInProcessMessageConnectionPair();
+  const harness = await buildServerHarness(pair.right);
+  try {
+    for (const mode of ["hybrid", "code-only"] as const) {
+      const conversation = await harness.service.createConversation({
+        overrides: { model: { provider: "demo", model: "demo-1" }, tools: { mode } },
+      });
+      await harness.service.send(conversation.id, "hello");
+      await harness.service.whenIdle(conversation.id);
+      const tools = agentRequests().at(-1)!.tools!;
+      const upfront = [
+        "activity_kill",
+        "activity_list",
+        "activity_peek",
+        "activity_wait",
+        "subagent",
+        "worktree_list",
+        "worktree_switch",
+      ];
+      for (const name of upfront) {
+        if (mode === "hybrid") expect(tools.map((tool) => tool.name)).toContain(name);
+        else {
+          expect(tools.map((tool) => tool.name)).not.toContain(name);
+          expect(tools.find((tool) => tool.name === "eval")!.description).toContain(
+            `"name":"${name}"`,
+          );
+        }
+      }
+    }
+    expect(agentRequests()).toHaveLength(2);
+  } finally {
+    await harness.close();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 it("creates a LiteLLM provider through RPC without storing its key in settings", async () => {
   const home = await mkdtemp(join(tmpdir(), "harness-provider-create-"));
   vi.stubEnv("HARNESS_HOME", home);
@@ -114,6 +166,27 @@ it("saves creation defaults without changing unrelated global settings", async (
     await client.start();
     const before = await client.peer.request(appSettingsRequest, {});
     expect(before.settings.toolMode).toBe("hybrid");
+    expect(before.settings.showToolNames).toBe(true);
+    const loaded = await client.create({});
+    await client.attach(loaded.id);
+    let loadedValue = true;
+    for (const showToolNames of [false, true]) {
+      await client.peer.request(appSettingsUpdateRequest, { showToolNames });
+      expect((await client.attach(loaded.id)).root.config.tools?.showNames).toBe(loadedValue);
+      expect(await client.reload(loaded.id)).toMatchObject({
+        status: "reloaded",
+        attachment: { root: { config: { tools: { showNames: showToolNames } } } },
+      });
+      loadedValue = showToolNames;
+      expect((await client.peer.request(appSettingsRequest, {})).settings.showToolNames).toBe(
+        showToolNames,
+      );
+      expect((await readGlobalSettings(home)).tools).toEqual({
+        allow: ["read_file"],
+        showNames: showToolNames,
+      });
+      expect((await client.create({})).config.tools?.showNames).toBe(showToolNames);
+    }
     expect((await client.create({})).config.tools?.mode).toBe("hybrid");
     await client.peer.request(appSettingsUpdateRequest, { compactionThresholdTokens: 1200 });
     expect(
@@ -140,6 +213,7 @@ it("saves creation defaults without changing unrelated global settings", async (
     expect((await readGlobalSettings(home)).tools).toEqual({
       allow: ["read_file"],
       mode: "hybrid",
+      showNames: true,
     });
     const created = await client.create({});
     expect(created.config).toMatchObject({
@@ -154,6 +228,7 @@ it("saves creation defaults without changing unrelated global settings", async (
     expect((await readGlobalSettings(home)).tools).toEqual({
       allow: ["read_file"],
       mode: "hybrid",
+      showNames: true,
     });
   } finally {
     client.closeConnection();

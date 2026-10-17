@@ -1,5 +1,10 @@
 # Harness plan
 
+The [eager tools and name inventory follow-up](docs/plans/cross-cutting/2026-10-17-eager-tools-and-name-inventory.md)
+offers all Harness tools upfront and adds a default-on global deferred-name list
+with GUI/TUI configuration. Full validation and focused browser checks pass;
+the delivery plan records evidence.
+
 The [background-input presentation change](docs/plans/interface/2026-10-17-background-input-presentation.md)
 preserves existing delivery origin through history and pending input. Desktop groups
 provider activity and plugin input into Working and collapses queued background

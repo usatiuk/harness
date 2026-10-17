@@ -7,7 +7,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 14 },
+        "protocolVersion": { "type": "number", "const": 15 },
         "client": {
           "type": "object",
           "properties": {
@@ -37,7 +37,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 14 },
+        "protocolVersion": { "type": "number", "const": 15 },
         "server": {
           "type": "object",
           "properties": {
@@ -457,13 +457,14 @@
                         { "type": "null" }
                       ]
                     },
+                    "showNames": { "default": true, "type": "boolean" },
                     "mode": {
                       "default": "hybrid",
                       "type": "string",
                       "enum": ["hybrid", "code-only"]
                     }
                   },
-                  "required": ["allow", "mode"],
+                  "required": ["allow", "showNames", "mode"],
                   "additionalProperties": false
                 },
                 { "type": "null" }
@@ -794,13 +795,14 @@
                         { "type": "null" }
                       ]
                     },
+                    "showNames": { "default": true, "type": "boolean" },
                     "mode": {
                       "default": "hybrid",
                       "type": "string",
                       "enum": ["hybrid", "code-only"]
                     }
                   },
-                  "required": ["allow", "mode"],
+                  "required": ["allow", "showNames", "mode"],
                   "additionalProperties": false
                 },
                 { "type": "null" }
@@ -924,13 +926,14 @@
                             { "type": "null" }
                           ]
                         },
+                        "showNames": { "default": true, "type": "boolean" },
                         "mode": {
                           "default": "hybrid",
                           "type": "string",
                           "enum": ["hybrid", "code-only"]
                         }
                       },
-                      "required": ["allow", "mode"],
+                      "required": ["allow", "showNames", "mode"],
                       "additionalProperties": false
                     },
                     { "type": "null" }
@@ -1112,13 +1115,14 @@
                               { "type": "null" }
                             ]
                           },
+                          "showNames": { "default": true, "type": "boolean" },
                           "mode": {
                             "default": "hybrid",
                             "type": "string",
                             "enum": ["hybrid", "code-only"]
                           }
                         },
-                        "required": ["allow", "mode"],
+                        "required": ["allow", "showNames", "mode"],
                         "additionalProperties": false
                       },
                       { "type": "null" }
@@ -1283,13 +1287,14 @@
                             { "type": "null" }
                           ]
                         },
+                        "showNames": { "default": true, "type": "boolean" },
                         "mode": {
                           "default": "hybrid",
                           "type": "string",
                           "enum": ["hybrid", "code-only"]
                         }
                       },
-                      "required": ["allow", "mode"],
+                      "required": ["allow", "showNames", "mode"],
                       "additionalProperties": false
                     },
                     { "type": "null" }
@@ -1392,13 +1397,14 @@
                                   { "type": "null" }
                                 ]
                               },
+                              "showNames": { "default": true, "type": "boolean" },
                               "mode": {
                                 "default": "hybrid",
                                 "type": "string",
                                 "enum": ["hybrid", "code-only"]
                               }
                             },
-                            "required": ["allow", "mode"],
+                            "required": ["allow", "showNames", "mode"],
                             "additionalProperties": false
                           },
                           { "type": "null" }
@@ -1800,13 +1806,14 @@
                                     { "type": "null" }
                                   ]
                                 },
+                                "showNames": { "default": true, "type": "boolean" },
                                 "mode": {
                                   "default": "hybrid",
                                   "type": "string",
                                   "enum": ["hybrid", "code-only"]
                                 }
                               },
-                              "required": ["allow", "mode"],
+                              "required": ["allow", "showNames", "mode"],
                               "additionalProperties": false
                             },
                             { "type": "null" }
@@ -1911,13 +1918,14 @@
                                           { "type": "null" }
                                         ]
                                       },
+                                      "showNames": { "default": true, "type": "boolean" },
                                       "mode": {
                                         "default": "hybrid",
                                         "type": "string",
                                         "enum": ["hybrid", "code-only"]
                                       }
                                     },
-                                    "required": ["allow", "mode"],
+                                    "required": ["allow", "showNames", "mode"],
                                     "additionalProperties": false
                                   },
                                   { "type": "null" }
@@ -3195,13 +3203,14 @@
                             { "type": "null" }
                           ]
                         },
+                        "showNames": { "default": true, "type": "boolean" },
                         "mode": {
                           "default": "hybrid",
                           "type": "string",
                           "enum": ["hybrid", "code-only"]
                         }
                       },
-                      "required": ["allow", "mode"],
+                      "required": ["allow", "showNames", "mode"],
                       "additionalProperties": false
                     },
                     { "type": "null" }
@@ -3985,6 +3994,7 @@
                                 { "type": "null" }
                               ]
                             },
+                            "showNames": { "default": true, "type": "boolean" },
                             "mode": {
                               "default": "hybrid",
                               "type": "string",
@@ -4848,6 +4858,7 @@
             },
             "sandbox": { "type": "string", "enum": ["local", "native", "docker"] },
             "toolMode": { "type": "string", "enum": ["hybrid", "code-only"] },
+            "showToolNames": { "type": "boolean" },
             "compactionThresholdTokens": {
               "anyOf": [
                 { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
@@ -4865,6 +4876,7 @@
             "autoApproval",
             "sandbox",
             "toolMode",
+            "showToolNames",
             "compactionThresholdTokens",
             "worktreeDirectory"
           ],
@@ -5120,13 +5132,14 @@
                               { "type": "null" }
                             ]
                           },
+                          "showNames": { "default": true, "type": "boolean" },
                           "mode": {
                             "default": "hybrid",
                             "type": "string",
                             "enum": ["hybrid", "code-only"]
                           }
                         },
-                        "required": ["allow", "mode"],
+                        "required": ["allow", "showNames", "mode"],
                         "additionalProperties": false
                       },
                       { "type": "null" }
@@ -5377,6 +5390,7 @@
         },
         "sandbox": { "type": "string", "enum": ["local", "native", "docker"] },
         "toolMode": { "type": "string", "enum": ["hybrid", "code-only"] },
+        "showToolNames": { "type": "boolean" },
         "compactionThresholdTokens": {
           "anyOf": [
             { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },

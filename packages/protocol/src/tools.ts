@@ -96,7 +96,7 @@ export interface Tool<A = unknown> {
   readonly input: ToolInput<A>;
   /** Presentation channels, never permissions. Omitted means both channels. */
   readonly exposure?: { direct: boolean; code: boolean };
-  /** Basic tools the agent needs without discovery; presentation only, never permissions. */
+  /** Tools offered upfront in both modes; presentation only, never permissions. */
   readonly essential?: boolean;
   readonly outputSchema?: Record<string, unknown>;
   /**

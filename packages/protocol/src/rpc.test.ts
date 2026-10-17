@@ -26,6 +26,16 @@ describe("RPC contracts", () => {
     else expect(wireConversationConfigSchema.parse(config).tools?.mode).toBe(expected);
   });
 
+  it("retains the global tool-name opt-out in wire config", () => {
+    expect(
+      wireConversationConfigSchema.parse({
+        instructions: "",
+        model: { provider: "fake", model: "fake-1", preset: null },
+        tools: { allow: null, mode: "hybrid", showNames: false },
+        plugins: {},
+      }).tools?.showNames,
+    ).toBe(false);
+  });
   it("accepts only JSON values", () => {
     expect(jsonValueSchema.parse({ nested: [null, true, 3, "x"] })).toEqual({
       nested: [null, true, 3, "x"],

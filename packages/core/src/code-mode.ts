@@ -26,13 +26,20 @@ export function upfrontTools(tools: ToolSet): ToolContract[] {
     .map((schema) => tools.contract(schema.name)!);
 }
 
-export function evaluatorTool(evaluator: CodeEvaluator, upfront: ToolContract[] = []): Tool {
+export function evaluatorTool(
+  evaluator: CodeEvaluator,
+  upfront: ToolContract[] = [],
+  names: string[] = [],
+): Tool {
   return {
     name: EVALUATOR_NAME,
     description:
       DESCRIPTION +
       (upfront.length
         ? `\nThe following tools are already described for use inside eval only. Invoke them with await tools.call(name, args), not as direct calls. For example: await tools.call(${JSON.stringify(upfront[0]!.input.name)}, args).\n${JSON.stringify(upfront)}`
+        : "") +
+      (names.length
+        ? `\nDeferred tool names: ${JSON.stringify(names)}. Use tool_describe to inspect arguments before calling them with tools.call.`
         : ""),
     input: { kind: "function", schema: z.strictObject({ code: z.string().max(64 * 1024) }) },
     exposure: { direct: true, code: false },

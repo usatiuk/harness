@@ -440,8 +440,8 @@ Set `"tools": {"mode": "hybrid"}` or `"code-only"` in settings or conversation
 overrides; `hybrid` is the default. Legacy `direct` settings and conversation
 overrides load as `hybrid`. Desktop creation also offers a Tool interface
 selector. `tool_search` and `tool_describe` are ordinary, immediately available
-tools in both modes. Hybrid also declares essential tools and `eval`; other
-capabilities, including all MCP tools, run through `eval`. Code-only runs all
+tools in both modes. Hybrid directly declares all Harness tools and `eval`;
+deferred tools, including all MCP tools, run through `eval`. Code-only runs all
 capabilities through `eval`, which accepts an async
 JavaScript function body:
 
@@ -454,6 +454,13 @@ return await Promise.all(
   })),
 );
 ```
+
+Deferred tool names are listed upfront in eval instructions by default, within the
+conversation's tool scope. Use `tool_describe` to inspect arguments, then call
+through eval. Disable the list with `"tools": {"showNames": false}` in global
+settings, **Settings → Defaults → Show deferred tool names**, or TUI Host defaults
+(`showToolNames`). This global choice applies to new or reloaded conversations;
+project, profile and conversation settings cannot override it.
 
 Call `tool_search` with `{queries: ["read file"]}` to discover definitions, including
 descriptions and input/output schemas. Search excludes tools already declared or

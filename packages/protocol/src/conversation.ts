@@ -11,7 +11,12 @@ export interface ConversationConfig {
   instructions: string;
   model: ModelConfig;
   /** Tool scope (which tools this conversation may use). Enforced by `PluginHost.toolsFor`. */
-  tools?: { allow?: string[]; mode?: ToolMode };
+  tools?: {
+    allow?: string[];
+    mode?: ToolMode;
+    /** Global preference for deferred tool names in eval instructions; absent means true. */
+    showNames?: boolean;
+  };
   /** Global proactive compaction threshold; absent uses model capacity. */
   compaction?: { thresholdTokens: number };
   /** Per-plugin config, validated against each plugin's schema. Read via `ConfigReader`. */

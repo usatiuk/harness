@@ -758,6 +758,26 @@ test("settings saves shared Ask human and its approval timeout through the route
     });
 });
 
+test("settings saves deferred tool name visibility", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  const names = page.getByRole("checkbox", { name: "Show deferred tool names" });
+  await expect(names).toBeChecked();
+  for (const showToolNames of [false, true]) {
+    await names.setChecked(showToolNames);
+    await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+      .toMatchObject({ showToolNames });
+    await page.getByRole("link", { name: "New conversation", exact: true }).click();
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+    if (showToolNames) await expect(names).toBeChecked();
+    else await expect(names).not.toBeChecked();
+  }
+});
+
 test("settings saves and clears the global compaction threshold", async ({ page }) => {
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "Settings", exact: true }).click();

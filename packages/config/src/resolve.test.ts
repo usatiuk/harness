@@ -36,6 +36,61 @@ afterEach(async () => {
 const model = { provider: "p", model: "m" };
 
 describe("resolveSettings cascade", () => {
+  it("keeps the global tool name preference through higher tool settings", async () => {
+    const home = await tmp();
+    const root = await tmp();
+    await writeJson(join(home, "settings.json"), {
+      model,
+      tools: { showNames: false },
+      profiles: { review: { tools: { mode: "code-only" } } },
+    });
+    await writeJson(join(root, ".harness", "settings.json"), { tools: { allow: ["read_file"] } });
+    await writeJson(join(root, ".harness", "settings.local.json"), { tools: { mode: "hybrid" } });
+    expect(
+      (
+        await resolveSettings({
+          home,
+          cwd: root,
+          schemas,
+          defaults: { tools: { showNames: true } },
+          profile: "review",
+          overrides: { tools: { allow: ["write_file"] } },
+        })
+      ).tools,
+    ).toEqual({ showNames: false, mode: "code-only", allow: ["write_file"] });
+    await writeJson(join(home, "settings.json"), { model, tools: { showNames: true } });
+    expect((await resolveSettings({ home, schemas })).tools?.showNames).toBe(true);
+    await writeJson(join(home, "settings.json"), { model });
+    expect((await resolveSettings({ home, schemas })).tools?.showNames ?? true).toBe(true);
+  });
+
+  it.each(["project", "local", "profile", "overrides"] as const)(
+    "rejects the global tool name preference in %s settings",
+    async (layer) => {
+      const home = await tmp();
+      const root = await tmp();
+      await writeJson(join(home, "settings.json"), { model });
+      const fragment = { tools: { showNames: false } };
+      if (layer === "project" || layer === "local") {
+        await writeJson(
+          join(root, ".harness", layer === "project" ? "settings.json" : "settings.local.json"),
+          fragment,
+        );
+      } else if (layer === "profile") {
+        await writeJson(join(home, "settings.json"), { model, profiles: { invalid: fragment } });
+      }
+      await expect(
+        resolveSettings({
+          home,
+          cwd: root,
+          schemas,
+          ...(layer === "profile" ? { profile: "invalid" } : {}),
+          ...(layer === "overrides" ? { overrides: fragment } : {}),
+        }),
+      ).rejects.toThrow(/showNames/);
+    },
+  );
+
   it("resolves compaction only from global settings", async () => {
     const home = await tmp();
     const root = await tmp();

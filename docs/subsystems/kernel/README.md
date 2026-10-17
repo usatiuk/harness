@@ -130,13 +130,19 @@ direct-only and cannot recurse. Engine and service composition require an
 evaluator dependency. The server injects `@harness/code-mode`; core imports only
 its protocol contract.
 
-Workspace tools mark themselves `essential`: the agent needs them for basic work
-without discovery. In code-only, their scoped resolved contracts are included
+Harness workspace, activity, subagent and worktree tools mark themselves
+`essential`: their contracts are offered upfront without discovery. In code-only, their scoped resolved contracts are included
 inside eval's instructions and remain unavailable as direct calls. Hybrid declares
 them normally, without repeating contracts inside eval. Rebuilding request context
 after compaction preserves this upfront information. Context sources receive only
 currently scoped callable tool names; MCP owns the short available-server hint.
 Core contains no MCP server registry or search filter.
+
+Global `tools.showNames` defaults to true. Eval instructions list remaining scoped,
+code-exposed names in catalog order, excluding upfront definitions. Names alone do
+not mark definitions as learned, so search still returns them. The list does not
+change after discovery and follows catalog/scope changes on context rebuilding.
+Setting false omits the list without changing execution or discovery permissions.
 
 Search takes `queries`, one to eight keyword strings of at most 512 characters.
 Words within each query are ANDed; queries are ORed. There are at most 32 terms

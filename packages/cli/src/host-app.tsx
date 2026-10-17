@@ -585,7 +585,7 @@ function HostSettings({ view, onError }: { view: TuiHostView; onError: (error: s
       </Text>
       <Text dimColor>
         toolMode: hybrid = Hybrid (essential tools direct, other tools through eval); code-only =
-        Code only.
+        Code only. showToolNames: include deferred tool names for the model (default true).
       </Text>
       <TextInput
         defaultValue={initial}
@@ -597,7 +597,7 @@ function HostSettings({ view, onError }: { view: TuiHostView; onError: (error: s
               .request(appSettingsUpdateRequest, settings)
               .then(() =>
                 setNotice(
-                  "Host defaults saved. Restart the server to apply compaction changes to already-loaded conversations.",
+                  "Host defaults saved. Tool names apply to new or reloaded conversations. Restart the server to apply compaction changes to already-loaded conversations.",
                 ),
               )
               .catch((cause: unknown) => onError(formatError(cause)));
