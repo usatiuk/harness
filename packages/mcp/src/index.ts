@@ -11,7 +11,14 @@ import {
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { createToolApproval } from "@harness/approval";
-import { errorResult, jsonValueSchema, type PluginDefinition, type Tool } from "@harness/protocol";
+import {
+  errorResult,
+  imageContentsSchema,
+  jsonValueSchema,
+  type ContentBlock,
+  type PluginDefinition,
+  type Tool,
+} from "@harness/protocol";
 import type { SecretStore } from "@harness/secrets";
 import { mcpConfigSchema, type McpConfig, type McpServerConfig } from "./config.ts";
 import { mcpStatusSchema } from "./client.ts";
@@ -142,18 +149,35 @@ export class McpRuntime {
                   { name: descriptor.name, arguments: args as Record<string, unknown> },
                   { signal: ctx.signal, timeout: 30_000 },
                 );
-                if (result.content.some((block) => block.type !== "text"))
-                  return errorResult("MCP returned unsupported content");
+                const images = imageContentsSchema.safeParse(
+                  result.content
+                    .filter((block) => block.type === "image")
+                    .map((block) => ({
+                      type: "image",
+                      mediaType: block.mimeType,
+                      data: block.data,
+                    })),
+                );
+                if (!images.success)
+                  return errorResult("MCP returned invalid or unsupported image content");
+                const content: ContentBlock[] = [];
+                let imageIndex = 0;
+                for (const block of result.content) {
+                  if (block.type === "text") {
+                    content.push({ type: "text", text: block.text });
+                  } else if (block.type === "image") {
+                    content.push(images.data[imageIndex++]!);
+                  } else {
+                    return errorResult("MCP returned unsupported content");
+                  }
+                }
                 const structured =
                   result.structuredContent === undefined
                     ? undefined
                     : jsonValueSchema.parse(result.structuredContent);
                 return {
                   status: result.isError ? "error" : "ok",
-                  forModel: result.content.map((block) => {
-                    if (block.type !== "text") throw new Error("content validation failed");
-                    return { type: "text" as const, text: block.text };
-                  }),
+                  forModel: content,
                   ...(structured === undefined ? {} : { structured }),
                 };
               } catch (error) {

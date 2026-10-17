@@ -13,6 +13,7 @@ const CODEX_MODELS = OPENAI_MODELS.filter(
     model.model === "gpt-5.5",
 ).map((model) => ({
   model: model.model,
+  ...(model.supportsImages !== undefined ? { supportsImages: model.supportsImages } : {}),
   // Operational ceilings inferred from Codex's working budgets plus the output reserve.
   // These are assumptions, not verified backend limits; combined context remains unknown.
   maxInputTokens: model.model === "gpt-6.1-sol" ? 628_000 : 400_000,

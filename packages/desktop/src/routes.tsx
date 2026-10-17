@@ -1,3 +1,5 @@
+import { ImagePreviews } from "./components/image-previews.tsx";
+import { readImageFiles } from "./image-files.ts";
 import { QuestionRequestForm } from "./components/question-request.tsx";
 import { questionResponseSchema } from "@harness/protocol";
 import { FeedbackControls, FeedbackSettings } from "./components/feedback-controls.tsx";
@@ -51,6 +53,8 @@ import type { Cell, State } from "@harness/client-features/transcript-reducer";
 import { toolPermissionSchema, type ClientApproval } from "@harness/approval/client";
 import {
   textOf,
+  imageContentsSchema,
+  type ImageContent,
   compactionThresholdSchema,
   type Conversation,
   type ConversationId,
@@ -138,6 +142,7 @@ export function createDesktopRouter(
   session: DesktopSession,
   connections: { controls: ReactNode; local: boolean; label: string; restart(): Promise<void> },
 ) {
+  const imageDrafts = new Map<string, ImageContent[]>();
   const useLive = (): void => {
     useSyncExternalStore(session.subscribe, session.snapshot);
   };
@@ -152,10 +157,10 @@ export function createDesktopRouter(
             field(data, "conversationId") as ConversationId,
             field(data, "itemId") as import("@harness/protocol").ItemId,
           );
-          if (result.draft.some((block) => block.type !== "text"))
-            throw new Error(
-              `Fork ${result.conversation.id} created; this composer cannot edit non-text content`,
-            );
+          imageDrafts.set(
+            result.conversation.id,
+            result.draft.filter((block): block is ImageContent => block.type === "image"),
+          );
           localStorage.setItem(
             session.storageKey(`draft:${result.conversation.id}`),
             textOf(result.draft),
@@ -190,9 +195,11 @@ export function createDesktopRouter(
           if (delivery !== "send" && delivery !== "queue" && delivery !== "steer")
             throw new Error("Invalid input delivery");
           const text = field(data, "text").trim();
-          if (!text) throw new Error("Enter a message");
+          const images = imageContentsSchema.parse(JSON.parse(field(data, "images")));
+          const capturedImages = imageDrafts.get(id) ?? [];
+          if (!text && images.length === 0) throw new Error("Enter a message");
           try {
-            await session.domain.deliver(id, text, delivery);
+            await session.domain.deliver(id, text, delivery, images);
           } catch (error) {
             if (!session.client.peer.ready)
               throw new Error(
@@ -201,6 +208,10 @@ export function createDesktopRouter(
               );
             throw error;
           }
+          imageDrafts.set(
+            id,
+            (imageDrafts.get(id) ?? []).filter((image) => !capturedImages.includes(image)),
+          );
           await session.refreshSidebar();
           if (localStorage.getItem(session.storageKey(`draft:${id}`)) === field(data, "text"))
             localStorage.removeItem(session.storageKey(`draft:${id}`));
@@ -1079,6 +1090,7 @@ export function createDesktopRouter(
           <>
             <h3>Output</h3>
             <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
+            {cell.images && <ImagePreviews images={cell.images} />}
           </>
         )}
         {cell.approval && (
@@ -1280,6 +1292,7 @@ export function createDesktopRouter(
       return (
         <Disclosure name="conversation-step" title={<>Message from {cell.pluginId}</>}>
           <pre>{cell.text}</pre>
+          {cell.images && <ImagePreviews images={cell.images} />}
         </Disclosure>
       );
     if (cell.kind === "compaction" || cell.kind === "context")
@@ -1298,6 +1311,7 @@ export function createDesktopRouter(
         <article className="cell user">
           <div className="user-text">
             <span>{cell.text}</span>
+            {cell.images && <ImagePreviews images={cell.images} />}
           </div>
           {!view.subagent && <ForkBefore itemId={cell.id} />}
         </article>
@@ -1456,14 +1470,42 @@ export function createDesktopRouter(
       const [text, setText] = useState(
         () => localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "",
       );
+      const [images, setImages] = useState<ImageContent[]>(() => imageDrafts.get(id) ?? []);
+      const [attachmentError, setAttachmentError] = useState("");
+      const [readingImages, setReadingImages] = useState(0);
+      const updateImages = (update: (current: ImageContent[]) => ImageContent[]) => {
+        const next = update(imageDrafts.get(id) ?? []);
+        imageDrafts.set(id, next);
+        setImages(next);
+      };
+      const addImages = async (files: File[]) => {
+        setReadingImages((count) => count + 1);
+        try {
+          const added = await readImageFiles(files);
+          const next = [...(imageDrafts.get(id) ?? []), ...added];
+          // Validate the batch without replacing existing draft image identities.
+          imageContentsSchema.parse(next);
+          imageDrafts.set(id, next);
+          setImages(next);
+          setAttachmentError("");
+        } catch (error) {
+          setAttachmentError(errorMessage(error));
+        } finally {
+          setReadingImages((count) => count - 1);
+        }
+      };
       const textarea = useRef<HTMLTextAreaElement>(null);
       const handled = useRef<ActionResult | undefined>(undefined);
       const running = view.state.turn.status === "running";
       const preferences = useComposerPreferences();
       const defaultDelivery = running ? "steer" : "send";
       const busy = send.state !== "idle" || stop.state !== "idle";
-      const disabled = !text.trim() || busy || Boolean(session.disconnected);
-      const stopping = running && !text.trim();
+      const disabled =
+        (!text.trim() && images.length === 0) ||
+        busy ||
+        readingImages > 0 ||
+        Boolean(session.disconnected);
+      const stopping = running && !text.trim() && images.length === 0;
       const hasPendingInput = view.state.pendingInput.length > 0;
       const backgroundInput = view.state.pendingInput.filter(
         (input) => input.source.kind === "plugin",
@@ -1472,6 +1514,7 @@ export function createDesktopRouter(
         if (send.state === "idle" && send.data?.ok && handled.current !== send.data) {
           handled.current = send.data;
           setText(localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "");
+          setImages(imageDrafts.get(id) ?? []);
           textarea.current?.focus();
         }
       }, [send.state, send.data, id]);
@@ -1482,6 +1525,7 @@ export function createDesktopRouter(
         data.set("conversationId", id);
         data.set("text", text);
         data.set("delivery", delivery);
+        data.set("images", JSON.stringify(images));
         void send.submit(data, { method: "post", action: "/actions" });
       };
       const interrupt = () => {
@@ -1493,7 +1537,32 @@ export function createDesktopRouter(
       };
       return (
         <div className="composer-wrap">
-          <div className="composer">
+          <div
+            className="composer"
+            onDragOver={(event) => {
+              if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+            }}
+            onDrop={(event) => {
+              if (!event.dataTransfer.types.includes("Files")) return;
+              event.preventDefault();
+              void addImages(Array.from(event.dataTransfer.files));
+            }}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData.files);
+              if (files.length === 0) return;
+              event.preventDefault();
+              void addImages(files);
+            }}
+          >
+            {images.length > 0 && (
+              <ImagePreviews
+                images={images}
+                onRemove={(index) =>
+                  updateImages((current) => current.filter((_, position) => position !== index))
+                }
+              />
+            )}
+            {attachmentError && <p role="alert">{attachmentError}</p>}
             {view.state.pendingInput.length > 0 && (
               <div className="pending-input">
                 {view.state.pendingInput

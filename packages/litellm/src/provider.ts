@@ -56,7 +56,7 @@ export class LiteLLMProvider implements ModelProvider {
   capabilities(model: string): ModelCapabilities {
     const entry = this.#entry(model);
     return {
-      contentTypes: ["text"],
+      contentTypes: ["text", "image"],
       toolCalling: true,
       fileTools: entry.profile.fileTools ?? "string_replace",
     };
@@ -186,6 +186,8 @@ export class LiteLLMProvider implements ModelProvider {
         )
           profile.defaultPreset = defaultEffort;
       }
+      // Image claims are independent of incompatible generation settings below.
+      const supportsImages = profile.supportsImages;
       try {
         validateProfile(profile, transport);
       } catch {
@@ -198,6 +200,7 @@ export class LiteLLMProvider implements ModelProvider {
       const info: ModelInfo = {
         provider: this.provider,
         model: id,
+        ...(supportsImages !== undefined ? { supportsImages } : {}),
         ...(profile.label ? { label: profile.label } : {}),
         ...(profile.contextWindow !== undefined ? { contextWindow: profile.contextWindow } : {}),
         ...(profile.maxInputTokens !== undefined ? { maxInputTokens: profile.maxInputTokens } : {}),

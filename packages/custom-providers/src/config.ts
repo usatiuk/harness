@@ -99,6 +99,8 @@ const customProviderBase = z.strictObject({
 
 /** Model-scoped fields shared by every transport's model entries. */
 const customModelBase = z.strictObject({
+  /** Explicit model image-input support; absent means unknown. */
+  supportsImages: z.boolean().optional(),
   /** Display name; the configured model key remains the API and conversation identity. */
   label: z.string().trim().min(1).optional(),
   /** Model context window in tokens; capacity math (auto-compaction) applies when set. */

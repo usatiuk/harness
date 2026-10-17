@@ -20,6 +20,7 @@ type Effort = NonNullable<Anthropic.Messages.OutputConfig["effort"]>;
 /** One model in the provider catalog. */
 interface ModelSpec {
   model: string;
+  supportsImages: boolean;
   presets: PresetInfo[];
   /** Preset used when the selection omits one; must appear in `presets`. Absent = no preset axis. */
   defaultPreset?: Effort;
@@ -45,6 +46,7 @@ const presets = (...values: Effort[]): PresetInfo[] => values.map((value) => ({ 
 const MODELS: ModelSpec[] = [
   {
     model: "claude-opus-4-8",
+    supportsImages: true,
     presets: presets("low", "medium", "high", "xhigh", "max"),
     defaultPreset: "high",
     contextWindow: 1_000_000,
@@ -54,6 +56,7 @@ const MODELS: ModelSpec[] = [
   },
   {
     model: "claude-sonnet-4-6",
+    supportsImages: true,
     presets: presets("low", "medium", "high", "max"),
     defaultPreset: "high",
     contextWindow: 1_000_000,
@@ -63,6 +66,7 @@ const MODELS: ModelSpec[] = [
   },
   {
     model: "claude-haiku-4-5",
+    supportsImages: true,
     presets: [],
     contextWindow: 200_000,
     maxTokens: 64_000,
@@ -140,7 +144,7 @@ export class AnthropicProvider extends AnthropicMessagesTransport implements Mod
   capabilities(model: string): ModelCapabilities {
     void model;
     // Every Claude model this class serves is familiar with the text-editor command contract.
-    return { contentTypes: ["text"], toolCalling: true, fileTools: "text_editor" };
+    return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "text_editor" };
   }
 
   /** Fails fast on a preset the model doesn't offer; other configs are accepted unchallenged. */
@@ -160,6 +164,7 @@ export class AnthropicProvider extends AnthropicMessagesTransport implements Mod
       provider: this.provider,
       model: m.model,
       presets: m.presets,
+      supportsImages: m.supportsImages,
       ...(m.defaultPreset ? { defaultPreset: m.defaultPreset } : {}),
       contextWindow: m.contextWindow,
       maxOutputTokens: m.maxTokens,

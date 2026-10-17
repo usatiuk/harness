@@ -663,7 +663,11 @@ describe("HarnessRpcSession", () => {
     expect(entry.itemId).toBe(item.id);
     expect(entry.byteLength).toBeGreaterThan(8_000);
     expect(reconstructed.id).toBe(item.id);
-    expect(reconstructed.type === "message" && reconstructed.content[0]?.text).toHaveLength(8_000);
+    expect(
+      reconstructed.type === "message" &&
+        reconstructed.content[0]?.type === "text" &&
+        reconstructed.content[0].text,
+    ).toHaveLength(8_000);
   });
 
   it("detaches only the observer when an authoritative attachment exceeds its bound", async () => {

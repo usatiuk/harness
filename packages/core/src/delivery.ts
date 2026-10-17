@@ -5,7 +5,20 @@ import type { Delivery, Runtime } from "./runtime.ts";
 export const pendingInput = (runtime: Runtime): PendingInput[] =>
   runtime.inbox.flatMap(({ intent, input }) =>
     intent === "queue" || intent === "steer"
-      ? [{ intent, text: textOf(input.content), source: input.source }]
+      ? [
+          {
+            intent,
+            text: [
+              textOf(input.content),
+              input.content.some((b) => b.type === "image")
+                ? `[${input.content.filter((b) => b.type === "image").length} image(s)]`
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" "),
+            source: input.source,
+          },
+        ]
       : [],
   );
 

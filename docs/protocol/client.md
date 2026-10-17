@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `16`. It exchanges
+`initialize` is the first application request and requires protocol version `17`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -90,8 +90,8 @@ server captures the live snapshot and admits the root scope without another awai
 connection may deliver an early notification before the request promise resumes,
 so the client coordinator buffers notifications during attach, applies the
 snapshot first, then releases them. This is per client operation: no engine,
-conversation, or application-wide pause exists. The snapshot and buffered suffix
-are each limited to 2 MiB; overflow fails the connection.
+conversation, or application-wide pause exists. The snapshot is limited to 2 MiB and the buffered suffix to the 4 MiB frame
+budget, so one valid image event fits; overflow fails the connection.
 
 Runtime-loading or mutating conversation and plugin requests require attachment.
 `conversation.title.set` saves a trimmed, nonempty title of at most 200 characters
@@ -306,3 +306,22 @@ an attachment and returns the recorded request/outcome; first response
 wins. Retry preserves the response identity and cannot append another answer input.
 Pending questions survive client reconnect and server restart independently of an
 active turn. Unloaded child conversations restore their questions when opened.
+
+## Inline image input (protocol 17)
+
+`conversation.deliver` accepts optional `images` alongside text and intent.
+Canonical and wire content use `{type:"image", mediaType, data}` with base64 data
+and PNG/JPEG/GIF/WebP media types. Ingestion validates the declared signature and
+limits combined decoded image bytes to 2 MiB per message or tool result. Images
+remain inside ordinary log items, including on reconnect; large items use existing
+history item references and chunk reads. No upload or attachment-storage endpoint
+is introduced. Image-only delivery is valid. Unsupported adapter input is rejected
+with an invalid-parameters error before acceptance; explicit model metadata is checked too. Unknown model support remains the
+vendor's responsibility.
+
+Image arrays also have a 3 MiB serialized limit, including JSON overhead, so
+many tiny images cannot exceed the existing 4 MiB transport frame.
+
+Model catalog rows include `supportsImages: boolean | null`. Null means unknown;
+false is preserved, not collapsed into absence. Model changes remain accepted;
+known image incompatibility is reported at the next effective provider request.

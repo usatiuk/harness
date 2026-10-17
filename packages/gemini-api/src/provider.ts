@@ -60,11 +60,29 @@ function encodeSteps(steps: Interactions.Step[], request: ModelRequest): Provide
   };
 }
 
+const imageContent = (
+  content: ContentBlock[],
+): (Interactions.ImageContent | Interactions.TextContent)[] =>
+  !content.some((block) => block.type === "image")
+    ? [{ type: "text", text: textOf(content) }]
+    : content.map((block) =>
+        block.type === "text"
+          ? { type: "text", text: block.text }
+          : { type: "image", mime_type: block.mediaType, data: block.data },
+      );
+
 export function buildInteraction(
   request: ModelRequest,
   thinking = false,
 ): Interactions.CreateModelInteractionParamsNonStreaming & { stream: false } {
   const input: Interactions.Step[] = [];
+  // Multimodal function results are documented for Gemini 3; older models need user input.
+  const nativeToolImages = /^gemini-3/.test(request.modelConfig.model);
+  let toolImages: (Interactions.ImageContent | Interactions.TextContent)[] = [];
+  const flushToolImages = () => {
+    if (toolImages.length) input.push({ type: "user_input", content: toolImages });
+    toolImages = [];
+  };
   const rawCalls = new Set(
     request.items.flatMap(({ item, payload }) =>
       item.type === "tool_call" && !isFunctionArgs(item.args) && !readSteps(payload, request)
@@ -74,6 +92,7 @@ export function buildInteraction(
   );
   for (const { item, payload } of request.items) {
     if (item.type === "provider_output") continue;
+    if (item.type !== "tool_result") flushToolImages();
     const native = readSteps(payload, request);
     if (
       native &&
@@ -90,7 +109,7 @@ export function buildInteraction(
       case "message":
         input.push({
           type: item.role === "assistant" ? "model_output" : "user_input",
-          content: [{ type: "text", text: textOf(item.content) }],
+          content: imageContent(item.content),
         });
         break;
       case "tool_call":
@@ -113,24 +132,38 @@ export function buildInteraction(
               },
         );
         break;
-      case "tool_result":
+      case "tool_result": {
+        const hasImages = item.content.some((block) => block.type === "image");
+        const raw = rawCalls.has(toolCallKey(item));
         input.push(
-          rawCalls.has(toolCallKey(item))
-            ? { type: "user_input", content: [{ type: "text", text: textOf(item.content) }] }
+          raw
+            ? { type: "user_input", content: imageContent(item.content) }
             : {
                 type: "function_result",
                 call_id: item.callId,
-                result: textOf(item.content),
+                result:
+                  hasImages && nativeToolImages
+                    ? imageContent(item.content)
+                    : textOf(item.content) +
+                      (hasImages ? "\n[Images follow after tool results.]" : ""),
                 is_error: item.status === "error",
               },
         );
+        if (hasImages && !nativeToolImages && !raw) {
+          toolImages.push(
+            { type: "text", text: `Images from tool result ${item.callId}:` },
+            ...imageContent(item.content.filter((block) => block.type === "image")),
+          );
+        }
         break;
+      }
       case "compaction":
       case "context":
         input.push({ type: "user_input", content: [{ type: "text", text: textOf(item.content) }] });
         break;
     }
   }
+  flushToolImages();
   if (request.prompt)
     input.push({ type: "user_input", content: [{ type: "text", text: request.prompt }] });
   // Correlate the selected assistant history, not each item's sidecar. A pair
@@ -282,7 +315,11 @@ export class GeminiProvider implements ModelProvider {
     });
   }
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" as const };
+    return {
+      contentTypes: ["text", "image"],
+      toolCalling: true,
+      fileTools: "string_replace" as const,
+    };
   }
   validateConfig(config: ModelConfig): void {
     if (config.preset) throw new Error("Gemini presets are not configured");
@@ -302,13 +339,15 @@ export class GeminiProvider implements ModelProvider {
           throw new ModelDiscoveryError("limit", "Gemini catalog exceeds 5000 models");
         if (
           !model.name?.startsWith("models/gemini") ||
-          /image|tts/i.test(model.name) ||
+          /image|tts|transcribe/i.test(model.name) ||
           !model.supportedActions?.includes("generateContent")
         )
           continue;
         models.push({
           provider: this.provider,
           model: model.name.slice(7),
+          // General Gemini models are documented multimodal; specialized audio models are excluded above.
+          supportsImages: true,
           ...(model.displayName ? { label: model.displayName } : {}),
           ...(model.inputTokenLimit ? { maxInputTokens: model.inputTokenLimit } : {}),
           ...(model.outputTokenLimit ? { maxOutputTokens: model.outputTokenLimit } : {}),

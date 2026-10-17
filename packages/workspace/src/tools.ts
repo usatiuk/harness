@@ -20,6 +20,7 @@ import {
 } from "@harness/execution";
 import { activitiesOf } from "@harness/activities";
 import { createProcessActivity } from "./process-activity.ts";
+import { readImage } from "./read-image.ts";
 import {
   APPLY_PATCH_LARK,
   ESCALATABLE_APPLY_PATCH_LARK,
@@ -63,7 +64,7 @@ export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
   };
   readonly name = "read_file";
   readonly description =
-    "Read a UTF-8 text file. `path` is relative to the workspace root. Reads a window of lines " +
+    "Read a UTF-8 text file or a PNG, JPEG, GIF, or WebP image. `path` is relative to the workspace root. Reads a window of lines " +
     "(`offset` 0-based, `limit` line count); large files are shown a window you can scroll with " +
     "`offset`/`limit`.";
   readonly input: ToolInput<z.infer<typeof readArgs>> = { kind: "function", schema: readArgs };
@@ -73,7 +74,10 @@ export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
     { path, offset, limit }: z.infer<typeof readArgs>,
     ctx: ToolContext,
   ): Promise<ToolResult> {
-    const lines = decoder.decode(await executionOf(ctx).read(path)).split("\n");
+    const exec = executionOf(ctx);
+    const image = await readImage(exec, path, offset !== undefined || limit !== undefined);
+    if (image) return image;
+    const lines = decoder.decode(await exec.read(path)).split("\n");
     const start = offset ?? 0;
     const count = limit ?? DEFAULT_READ_LINES;
     const end = Math.min(start + count, lines.length);

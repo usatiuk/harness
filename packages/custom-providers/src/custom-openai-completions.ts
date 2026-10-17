@@ -31,7 +31,7 @@ export class CustomOpenAICompletionsProvider extends OpenAIChatTransport {
 
   capabilities(model: string): ModelCapabilities {
     return {
-      contentTypes: ["text"],
+      contentTypes: ["text", "image"],
       toolCalling: true,
       // Function-only transport: the schema already rejects apply_patch for every model here.
       fileTools: scopedModel(this.provider, this.#models, model).fileTools ?? "string_replace",

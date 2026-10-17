@@ -1,3 +1,11 @@
+/** Expected rejection of content that the selected model adapter cannot consume. */
+export class ContentInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ContentInputError";
+  }
+}
+
 const lineOf = (error: Error): string => {
   const code = (error as Error & { code?: unknown }).code;
   return `${error.name}: ${error.message}${typeof code === "string" ? ` [${code}]` : ""}`;

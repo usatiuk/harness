@@ -4,7 +4,7 @@ import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
 import { Tooltip } from "radix-ui";
-import type { ConversationId, DeliveryIntent, ModelInfo } from "@harness/protocol";
+import type { ConversationId, DeliveryIntent, ModelInfo, ImageContent } from "@harness/protocol";
 import { emptyState } from "@harness/client-features/transcript-reducer";
 import { conversationProjectRoot } from "@harness/protocol";
 import { createDesktopRouter } from "../../src/routes.tsx";
@@ -13,7 +13,7 @@ import { DesktopTranscript } from "../../src/transcript.ts";
 import { WindowShell } from "../../src/window-shell.tsx";
 import type { AppSettings } from "@harness/server/client-protocol";
 
-type Delivery = { text: string; intent: DeliveryIntent };
+type Delivery = { text: string; intent: DeliveryIntent; images?: ImageContent[] };
 type Deferred = { resolve(): void; reject(error: Error): void };
 declare global {
   interface Window {
@@ -23,6 +23,7 @@ declare global {
       questionResponses: unknown[];
       failQuestionResponse: boolean;
       showQuestions(owner?: string): void;
+      showImages(images: ImageContent[]): void;
       showToolsAndActivities(serverSkew?: number, phase?: string): void;
       showMultipleActivities(): void;
       showSubagents(): void;
@@ -181,8 +182,8 @@ const domain = {
     sidebarRows.push(conversation);
     return { conversation, draft: [{ type: "text" as const, text: user.text }] };
   },
-  deliver(_id: ConversationId, text: string, intent: DeliveryIntent) {
-    calls.push({ text, intent });
+  deliver(_id: ConversationId, text: string, intent: DeliveryIntent, images?: ImageContent[]) {
+    calls.push({ text, intent, ...(images?.length ? { images } : {}) });
     return new Promise<void>((resolve, reject) => {
       if (intent === "interrupt") {
         if (stopping) throw new Error("Duplicate interrupt");
@@ -538,6 +539,36 @@ const session = {
   },
 };
 window.composerFixture = {
+  showImages(images) {
+    view.state = {
+      ...view.state,
+      cells: [
+        ...view.state.cells,
+        {
+          kind: "user",
+          id: "image-user",
+          turnId: "turn",
+          createdAt: 0,
+          text: "Image message",
+          images,
+        },
+        {
+          kind: "tool",
+          id: "image-tool",
+          turnId: "turn",
+          callId: "image-call",
+          name: "read_file",
+          args: {},
+          startedAt: 0,
+          output: "Image read",
+          status: "ok",
+          images,
+        },
+      ],
+    };
+    view.transcript.update(view.state.cells, "turn");
+    changed();
+  },
   showSubagents() {
     view.conversation = { ...view.conversation, title: "Parent conversation" };
     view.state = {

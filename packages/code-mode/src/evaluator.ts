@@ -2,6 +2,10 @@ import { Worker } from "node:worker_threads";
 import {
   contentBlockSchema,
   errorResult,
+  imageByteLength,
+  imageContentsSchema,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_CONTENT_BYTES,
   type CodeEvaluator,
   type CodeToolBridge,
   type ContentBlock,
@@ -14,6 +18,7 @@ export const CODE_LIMITS = {
   stackBytes: 512 * 1024,
   cpuMs: 1000,
   outputBytes: 64 * 1024,
+  imageContentBytes: MAX_IMAGE_CONTENT_BYTES,
   bridgeBytes: 1024 * 1024,
   totalBridgeBytes: 8 * 1024 * 1024,
   calls: 128,
@@ -41,6 +46,7 @@ export class QuickJsEvaluator implements CodeEvaluator {
     });
     const content: ContentBlock[] = [];
     let outputBytes = 0;
+    let outputImageBytes = 0;
     let bridgeBytes = 0;
     let calls = 0;
     let open = true;
@@ -58,10 +64,17 @@ export class QuickJsEvaluator implements CodeEvaluator {
     signal.addEventListener("abort", onAbort, { once: true });
     const append = (blocks: ContentBlock[]) => {
       const validated = contentBlockSchema.array().parse(blocks);
-      const bytes = Buffer.byteLength(JSON.stringify(validated));
+      const images = validated.filter((block) => block.type === "image");
+      const imageBytes = images.reduce((total, image) => total + imageByteLength(image.data), 0);
+      const bytes = Buffer.byteLength(
+        JSON.stringify(validated.filter((block) => block.type === "text")),
+      );
       if (outputBytes + bytes > CODE_LIMITS.outputBytes)
         throw new Error("code output limit exceeded");
+      if (outputImageBytes + imageBytes > MAX_IMAGE_BYTES)
+        throw new Error("code image output limit exceeded");
       outputBytes += bytes;
+      outputImageBytes += imageBytes;
       content.push(...validated);
     };
     worker.on("error", (error: Error) =>
@@ -101,10 +114,15 @@ export class QuickJsEvaluator implements CodeEvaluator {
         try {
           signal.throwIfAborted();
           const result = await tools.call(message.name, message.args);
+          const images = imageContentsSchema.parse(
+            result.forModel.filter((block) => block.type === "image"),
+          );
           const value = JSON.stringify(result);
           const bytes = Buffer.byteLength(value);
+          const imageBytes = images.reduce((total, image) => total + image.data.length, 0);
           if (
-            bytes > CODE_LIMITS.bridgeBytes ||
+            bytes - imageBytes > CODE_LIMITS.bridgeBytes ||
+            bytes > CODE_LIMITS.bridgeBytes + CODE_LIMITS.imageContentBytes ||
             bridgeBytes + bytes > CODE_LIMITS.totalBridgeBytes
           ) {
             throw new Error("code tool data limit exceeded");

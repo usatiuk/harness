@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { errorResult, okResult, textOf, type CodeToolBridge } from "@harness/protocol";
+import {
+  errorResult,
+  MAX_IMAGE_BYTES,
+  okResult,
+  textOf,
+  type CodeToolBridge,
+  type ImageContent,
+} from "@harness/protocol";
 import { CODE_LIMITS, QuickJsEvaluator } from "./evaluator.ts";
 
 const bridge: CodeToolBridge = {
@@ -136,6 +143,52 @@ describe("QuickJS evaluator", () => {
     expect(textOf(result.forModel)).toBe(
       '["undefined","undefined",["call"],"undefined","undefined"]',
     );
+  });
+  it("forwards image content beyond text budgets and retains structured results", async () => {
+    const image: ImageContent = {
+      type: "image",
+      mediaType: "image/png",
+      data: Buffer.concat([
+        Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=",
+          "base64",
+        ),
+        Buffer.alloc(900_000),
+      ]).toString("base64"),
+    };
+    const result = await new QuickJsEvaluator().evaluate(
+      'const result = await tools.call("image", {}); emit(result.structured); emitContent(result.content);',
+      {
+        call: async () => ({ status: "ok", forModel: [image], structured: { caption: "screen" } }),
+      },
+      new AbortController().signal,
+    );
+    expect(result.status).toBe("ok");
+    expect(result.forModel).toContainEqual(image);
+    expect(textOf(result.forModel)).toContain('{"caption":"screen"}');
+  });
+  it("bounds aggregate emitted images and retains earlier content", async () => {
+    const image: ImageContent = {
+      type: "image",
+      mediaType: "image/png",
+      data: Buffer.concat([
+        Buffer.from("89504e470d0a1a0a", "hex"),
+        Buffer.alloc(Math.floor(MAX_IMAGE_BYTES / 2)),
+      ]).toString("base64"),
+    };
+    const result = await new QuickJsEvaluator().evaluate(
+      'const result = await tools.call("image", {}); emitContent(result.content); emitContent(result.content);',
+      { call: async () => ({ status: "ok", forModel: [image] }) },
+      new AbortController().signal,
+    );
+    expect(result.status).toBe("error");
+    expect(result.forModel.filter((block) => block.type === "image")).toEqual([image]);
+    expect(textOf(result.forModel)).toContain("image output limit");
+  });
+  it("retains plain text emission limits with image support", async () => {
+    const result = await evaluate('emitContent([{type:"text", text:"x".repeat(100000)}]);');
+    expect(result.status).toBe("error");
+    expect(textOf(result.forModel)).toContain("output limit");
   });
   it("rejects unsupported content blocks explicitly", async () => {
     const result = await evaluate('emitContent([{type:"image", data:"unsupported"}]);');

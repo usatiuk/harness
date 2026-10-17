@@ -52,6 +52,10 @@ it("uses the installed Google SDK for discovery and finalized signed search hist
                   supportedGenerationMethods: ["generateContent"],
                 },
                 { name: "models/gemini-test-tts", supportedGenerationMethods: ["generateContent"] },
+                {
+                  name: "models/gemini-3.5-transcribe",
+                  supportedGenerationMethods: ["generateContent"],
+                },
               ],
             }
           : {
@@ -70,6 +74,7 @@ it("uses the installed Google SDK for discovery and finalized signed search hist
     {
       provider: "gemini",
       model: "gemini-test",
+      supportsImages: true,
       label: "Gemini test",
       maxInputTokens: 10000,
       maxOutputTokens: 1000,

@@ -30,6 +30,7 @@ const generation = {
   thinking: thinking.optional(),
 };
 export const modelProfileSchema = z.strictObject({
+  supportsImages: z.boolean().optional(),
   codingCompatible: z.literal(true).optional(),
   transport: transportSchema.optional(),
   label: z.string().trim().min(1).max(200).optional(),

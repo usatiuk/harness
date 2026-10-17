@@ -3,6 +3,7 @@ import { MAX_MODELS } from "./catalog.ts";
 
 export const configuredModelSchema = z
   .strictObject({
+    supportsImages: z.boolean().optional(),
     label: z.string().trim().min(1).max(512).optional(),
     contextWindow: z.number().int().positive().optional(),
     maxOutputTokens: z.number().int().positive().optional(),

@@ -2,6 +2,7 @@ import type { FileToolsProfile, ModelConfig, ModelInfo } from "@harness/protocol
 
 /** The model-scoped fields every transport-style custom provider resolves at runtime. */
 export interface ModelScope {
+  supportsImages?: boolean | undefined;
   label?: string | undefined;
   contextWindow?: number | undefined;
   maxOutputTokens?: number | undefined;
@@ -17,6 +18,7 @@ export function listScopedModels(
   return [...models.entries()].map(([model, scope]) => ({
     provider,
     model,
+    ...(scope.supportsImages !== undefined ? { supportsImages: scope.supportsImages } : {}),
     ...(scope.label !== undefined ? { label: scope.label } : {}),
     presets: Object.keys(scope.presets ?? {}).map((value) => ({ value })),
     ...(scope.contextWindow !== undefined ? { contextWindow: scope.contextWindow } : {}),

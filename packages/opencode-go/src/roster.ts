@@ -2,7 +2,7 @@ import type { ModelInfo } from "@harness/protocol";
 import snapshot from "./models-dev.snapshot.json" with { type: "json" };
 import { parseCatalog, type GoModelSpec, type GoFamily, type GoPresetSpec } from "./catalog.ts";
 
-/** Validated Models.dev Go snapshot, fetched October 16, 2026; offline boot fallback. */
+/** Offline Models.dev Go snapshot from October 16, 2026; input modalities refreshed October 17. */
 export const ROSTER: readonly GoModelSpec[] = parseCatalog(snapshot).models;
 
 /** Compiled metadata for one rostered model. */
@@ -45,6 +45,7 @@ export function listModels(provider: string, models: readonly GoModelSpec[] = RO
   return models.map((spec) => ({
     provider,
     model: spec.model,
+    ...(spec.supportsImages !== undefined ? { supportsImages: spec.supportsImages } : {}),
     ...(spec.label ? { label: spec.label } : {}),
     ...(spec.reasoning ? { reasoning: spec.reasoning } : {}),
     ...(spec.maxInputTokens !== undefined ? { maxInputTokens: spec.maxInputTokens } : {}),

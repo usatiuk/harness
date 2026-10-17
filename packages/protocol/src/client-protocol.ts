@@ -1,3 +1,4 @@
+import { contentBlockSchema, imageContentsSchema } from "./content.ts";
 import { z } from "zod";
 import { outputRefSchema } from "./tools.ts";
 import { defineNotification, defineRequest, jsonValueSchema } from "./rpc.ts";
@@ -16,10 +17,7 @@ export const MAX_HISTORY_PAGE_BYTES = 1024 * 1024;
 export const MAX_ITEM_CHUNK_BYTES = 512 * 1024;
 export const MAX_CONVERSATION_PAGE_SIZE = 100;
 
-export const wireContentBlockSchema = z.strictObject({
-  type: z.literal("text"),
-  text: z.string(),
-});
+export const wireContentBlockSchema = contentBlockSchema;
 
 const itemBaseShape = {
   id: idSchema,
@@ -150,6 +148,7 @@ export const wireModelInfoSchema = z.strictObject({
   provider: z.string(),
   model: z.string(),
   label: z.string().nullable(),
+  supportsImages: z.boolean().nullable(),
   presets: z.array(z.strictObject({ value: z.string(), label: z.string().nullable() })),
   defaultPreset: z.string().nullable(),
   contextWindow: positiveInteger.nullable(),
@@ -322,6 +321,7 @@ export const conversationDeliverRequest = defineRequest({
   params: z.strictObject({
     conversationId: idSchema,
     text: z.string(),
+    images: imageContentsSchema.default([]),
     intent: z.enum(["send", "steer", "queue", "interrupt"]),
   }),
   result: z.null(),

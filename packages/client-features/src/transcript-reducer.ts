@@ -4,6 +4,8 @@ import {
   isKernelEvent,
   textOf,
   zeroUsage,
+  type ImageContent,
+  type ContentBlock,
   type PendingInput,
   type HarnessEvent,
   type Item,
@@ -31,8 +33,8 @@ import type { ModelConfig } from "@harness/protocol";
  * session. Components render cells in Ink or React; this module remains pure.
  */
 export type Cell =
-  | { kind: "plugin_message"; id: string; turnId: string; text: string; pluginId: string }
-  | { kind: "user"; id: string; turnId: string; text: string; createdAt: number }
+  | { kind: "plugin_message"; id: string; turnId: string; text: string; pluginId: string; images?: ImageContent[] }
+  | { kind: "user"; id: string; turnId: string; text: string; createdAt: number; images?: ImageContent[] }
   | {
       kind: "assistant";
       turnId: string;
@@ -65,6 +67,7 @@ export type Cell =
       completedAt?: number;
       status?: ToolStatus;
       output?: string;
+      images?: ImageContent[];
       approval?: ApprovalAnnotation;
       approvalProgress?: {
         status: "reviewing" | "allow" | "deny";
@@ -224,6 +227,13 @@ function clearPending(state: State): State {
   return state.pending.length === 0 ? state : { ...state, pending: [] };
 }
 
+function imageFields(content: ContentBlock[]): {
+  images?: ImageContent[];
+} {
+  const images = content.filter((block) => block.type === "image");
+  return images.length ? { images } : {};
+}
+
 function reduceItem(state: State, item: Item, receivedAt?: number): State {
   if (state.itemIds.has(item.id)) {
     const streamKind =
@@ -255,6 +265,7 @@ function reduceItem(state: State, item: Item, receivedAt?: number): State {
               id: item.id,
               turnId: item.turnId,
               text: textOf(item.content),
+              ...imageFields(item.content),
             },
           ],
         };
@@ -337,6 +348,7 @@ function reduceItem(state: State, item: Item, receivedAt?: number): State {
             ...cell,
             status: item.status,
             output: textOf(item.content),
+            ...imageFields(item.content),
             completedAt: item.createdAt,
             ...(approval ? { approval } : {}),
           };

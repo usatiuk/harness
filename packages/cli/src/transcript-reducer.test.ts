@@ -783,3 +783,37 @@ describe("transcript reducer", () => {
     expect(ready.sandbox).toEqual({ phase: "ready" });
   });
 });
+
+it("preserves user and tool images through live events and restored history", () => {
+  const image: ContentBlock = {
+    type: "image",
+    mediaType: "image/png",
+    data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5GQAAAAASUVORK5CYII=",
+  };
+  const entries = [
+    item({ id: "image-user", type: "message", role: "user", content: [image] }),
+    item({
+      id: "image-call",
+      type: "tool_call",
+      callId: "read-image",
+      name: "read_file",
+      args: {},
+    }),
+    item({
+      id: "image-result",
+      type: "tool_result",
+      callId: "read-image",
+      status: "ok",
+      content: [...text("Screenshot"), image],
+    }),
+  ];
+  const restored = init(entries).cells;
+  const live = fold(
+    entries.map((entry) => ({ type: "item.appended", conversationId: "c", item: entry })),
+  ).cells;
+  expect(live).toEqual(restored);
+  expect(restored).toMatchObject([
+    { kind: "user", text: "", images: [image] },
+    { kind: "tool", output: "Screenshot", images: [image] },
+  ]);
+});

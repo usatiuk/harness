@@ -552,3 +552,21 @@ describe("CustomOpenAICompletionsProvider", () => {
     ).toThrow(/unknown preset "nope"/);
   });
 });
+
+it.each(["openai-responses-compatible", "openai-completions-compatible", "anthropic-compatible"])(
+  "preserves configured image support metadata for %s",
+  async (type) => {
+    const provider = await configuredProvider("local", type, {
+      endpoint: "http://localhost:8787/v1",
+      apiKey: "test-key",
+      models: { vision: { supportsImages: true }, text: { supportsImages: false }, unknown: {} },
+    });
+    expect(
+      provider.listModels().map(({ model, supportsImages }) => ({ model, supportsImages })),
+    ).toEqual([
+      { model: "vision", supportsImages: true },
+      { model: "text", supportsImages: false },
+      { model: "unknown", supportsImages: undefined },
+    ]);
+  },
+);

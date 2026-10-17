@@ -47,6 +47,24 @@ class EscalatingTestExecution extends LocalExecutionContext {
 }
 
 describe("TextEditorTool", () => {
+  it("views images without text decoding and rejects image line ranges", async () => {
+    const ctx = await workspace();
+    const execution = ctx.service("execution") as ExecutionContext;
+    const data =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=";
+    await execution.write("image.png", Buffer.from(data, "base64"));
+    expect(await read(ctx, "image.png")).toEqual({
+      status: "ok",
+      forModel: [{ type: "image", mediaType: "image/png", data }],
+    });
+    expect(
+      await new TextEditorTool().execute(
+        { command: "view", path: "image.png", view_range: [1, -1] },
+        ctx,
+      ),
+    ).toMatchObject({ status: "error" });
+  });
+
   it("creates, views, str_replaces, and inserts", async () => {
     const ctx = await workspace();
     const tool = new TextEditorTool();

@@ -267,8 +267,9 @@ describe("inspection input boundary", () => {
       ctx.service = () => ({
         workspaceRoot: "/work",
         shellKind: "bash",
-        read: async () => {
-          await new Promise((resolve) => setTimeout(resolve, 20));
+        read: async (_path: string, options?: { length?: number }) => {
+          // The image-signature probe is bounded; model the full inspection read's cost.
+          if (options?.length !== 12) await new Promise((resolve) => setTimeout(resolve, 20));
           return new TextEncoder().encode("script");
         },
       });
@@ -362,7 +363,7 @@ describe("defaultReviewContext", () => {
     const selected = defaultReviewContext({ conversation, items, request: approvalRequest });
     const rendered = selected
       .map(({ item: selectedItem }) =>
-        "content" in selectedItem ? selectedItem.content.map((block) => block.text).join("") : "",
+        "content" in selectedItem ? textOf(selectedItem.content) : "",
       )
       .join("\n");
     expect(rendered).toContain("do it");

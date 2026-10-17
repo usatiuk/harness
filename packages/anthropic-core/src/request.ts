@@ -2,6 +2,7 @@ import { toolCallKey } from "@harness/protocol";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   textOf,
+  type ContentBlock,
   type ModelRequest,
   type ProviderPayload,
   type ToolSchema,
@@ -11,6 +12,22 @@ import { readThinkingPayload, readBlockPayload, completedSearchFilter } from "./
 type MessageParam = Anthropic.Messages.MessageParam;
 type ContentBlockParam = Anthropic.Messages.ContentBlockParam;
 type ToolUnion = Anthropic.Messages.ToolUnion;
+
+const imageContent = (
+  content: ContentBlock[],
+): (Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam)[] =>
+  !content.some((block) => block.type === "image")
+    ? [{ type: "text", text: textOf(content) }]
+    : content.map((block) =>
+        block.type === "text"
+          ? { type: "text", text: block.text }
+          : {
+              type: "image",
+              source: { type: "base64", media_type: block.mediaType, data: block.data },
+            },
+      );
+const toolContent = (content: ContentBlock[]) =>
+  content.some((block) => block.type === "image") ? imageContent(content) : textOf(content);
 
 const EPHEMERAL: Anthropic.Messages.CacheControlEphemeral = { type: "ephemeral" };
 
@@ -109,7 +126,7 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
           if (t) assistant.push({ type: "text", text: t });
         } else {
           flushAssistant();
-          user.push({ type: "text", text: textOf(item.content) });
+          user.push(...imageContent(item.content));
         }
         break;
       case "tool_call":
@@ -122,16 +139,14 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
         break;
       case "tool_result":
         flushAssistant();
-        user.push(
-          rawCallIds.has(toolCallKey(item))
-            ? { type: "text", text: textOf(item.content) }
-            : {
-                type: "tool_result",
-                tool_use_id: item.callId,
-                content: textOf(item.content),
-                ...(item.status === "error" ? { is_error: true } : {}),
-              },
-        );
+        if (rawCallIds.has(toolCallKey(item))) user.push(...imageContent(item.content));
+        else
+          user.push({
+            type: "tool_result",
+            tool_use_id: item.callId,
+            content: toolContent(item.content),
+            ...(item.status === "error" ? { is_error: true } : {}),
+          });
         break;
       case "compaction":
       case "context":

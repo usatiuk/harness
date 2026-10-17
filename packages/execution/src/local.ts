@@ -1,6 +1,6 @@
 import { createWriteStream, mkdirSync, writeFileSync, statSync } from "node:fs";
 import { spawn as nodeSpawn } from "node:child_process";
-import { mkdir, readdir, readFile, rm, stat as fsStat, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rm, stat as fsStat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { matchGlob, mayDescend } from "./glob.ts";
 import type { ByteRange, ToolCall } from "@harness/protocol";
@@ -40,8 +40,25 @@ export class LocalExecutionContext implements ExecutionContext {
   }
 
   async read(path: string, range?: ByteRange): Promise<Uint8Array> {
-    const buf = await readFile(this.#resolve(path));
-    return range ? buf.subarray(range.offset, range.offset + range.length) : buf;
+    if (!range) return readFile(this.#resolve(path));
+    const file = await open(this.#resolve(path), "r");
+    try {
+      const buffer = Buffer.alloc(range.length);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await file.read(
+          buffer,
+          length,
+          buffer.length - length,
+          range.offset + length,
+        );
+        if (bytesRead === 0) break;
+        length += bytesRead;
+      }
+      return buffer.subarray(0, length);
+    } finally {
+      await file.close();
+    }
   }
 
   async stat(path: string): Promise<{ isDirectory: boolean } | undefined> {

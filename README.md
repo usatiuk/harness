@@ -488,7 +488,7 @@ custom tools accept raw strings. Errors and denials throw with `error.result`.
 JavaScript controls child-call order: sequential `await` orders operations;
 concurrent submissions such as `Promise.all` overlap, including foreground commands.
 Direct model-call batches retain their existing sequential order.
-Only explicit `emit`, text-only `emitContent`, and the returned JSON reach the
+Only explicit `emit`, `emitContent`, and the returned JSON reach the
 main agent. Nested calls remain visible in history and approval review. Completed
 effects and emitted output survive later failures; scripts never replay or roll
 back automatically. Each invocation uses a fresh bounded QuickJS worker without
@@ -557,3 +557,25 @@ Questions belong to their conversation and survive stopping a turn, disconnectin
 a client, and restarting the server. Reconnecting restores pending questions;
 accepted answers are delivered once as conversation input. After a server restart,
 open a child conversation to restore questions owned by that child.
+
+### Image input
+
+Paste or drop PNG, JPEG, GIF or WebP images into the desktop composer. Images may
+be sent alone or with text, and stay inline in the conversation log. Click a
+message or tool-result preview to open the darkened full-app viewer; close it
+with the top-right button. Unsent image drafts remain in memory while
+navigating conversations and are lost on app restart; accepted images replay on
+reconnect. Image attachments have a combined 2 MiB decoded limit per message.
+
+`read_file` and text-editor `view` return images through the active execution
+backend; line ranges apply only to text. MCP image results use the same content.
+In code mode, forward them with `emitContent(result.content)`, including when
+structured metadata is also available on `result.structured`.
+
+Existing provider adapters project images into their supported request format.
+The selected model must support vision. Explicit model metadata saying images are
+unsupported rejects image input; missing metadata remains unknown and the vendor
+validates the request. Model switching stays allowed: incompatible active image
+context fails clearly at the next request without changing history. Ordinary
+compaction can summarize images; no special image policy is applied.
+No image resizing or generated captions are applied.

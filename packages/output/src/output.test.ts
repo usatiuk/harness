@@ -70,6 +70,21 @@ describe("outputBoundMiddleware", () => {
     expect(await readFile(join(directory, files[0]!), "utf8")).toBe(oversized);
   });
 
+  it("preserves images when accompanying text spills", async () => {
+    const image: ContentBlock = {
+      type: "image",
+      mediaType: "image/png",
+      data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=",
+    };
+    const result = await outputBoundMiddleware().wrap(
+      { callId: "image", name: "mcp", args: {} },
+      ctxWith({}, new LocalExecutionContext(await tmpRoot())),
+      passthrough({ forModel: [{ type: "text", text: oversized }, image], status: "ok" }),
+    );
+    expect(text(result.forModel)).toContain("output truncated");
+    expect(result.forModel.filter((block) => block.type === "image")).toEqual([image]);
+  });
+
   it("skips addressableOutput tools", async () => {
     const ctx = ctxWith(
       { toolMeta: () => ({ addressableOutput: true }) },

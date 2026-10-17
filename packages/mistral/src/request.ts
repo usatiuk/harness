@@ -2,6 +2,7 @@ import { toolCallKey } from "@harness/protocol";
 import { z } from "zod";
 import {
   textOf,
+  type ContentBlock,
   type ModelOutputItem,
   type ModelRequest,
   type ProviderPayload,
@@ -86,8 +87,24 @@ export function outputItems(entries: readonly NativeEntry[]): ModelOutputItem[] 
   return [...messages, ...calls];
 }
 
+const imageContent = (content: ContentBlock[]) =>
+  content.map((block) =>
+    block.type === "text"
+      ? { type: "text", text: block.text }
+      : { type: "image_url", image_url: `data:${block.mediaType};base64,${block.data}` },
+  );
+const messageContent = (content: ContentBlock[]) =>
+  content.some((block) => block.type === "image") ? imageContent(content) : textOf(content);
+
 export function buildMistralRequest(request: ModelRequest) {
   const inputs: Record<string, unknown>[] = [];
+  // Conversations function.result is a string. Attach images after the full result batch.
+  let toolImages: ReturnType<typeof imageContent> = [];
+  const flushToolImages = () => {
+    if (toolImages.length)
+      inputs.push({ type: "message.input", role: "user", content: toolImages });
+    toolImages = [];
+  };
 
   // Completed native output is anchored to its last canonical item. Replay only
   // a completely selected group; a rewind must never reveal later output.
@@ -142,6 +159,7 @@ export function buildMistralRequest(request: ModelRequest) {
     ),
   );
   for (const [index, { item, payload }] of selected.entries()) {
+    if (item.type !== "tool_result") flushToolImages();
     if (covered.has(index)) continue;
     const bundle = bundles.get(index);
     if (bundle) {
@@ -172,7 +190,7 @@ export function buildMistralRequest(request: ModelRequest) {
         inputs.push({
           type: "message.input",
           role: item.role === "assistant" ? "assistant" : "user",
-          content: textOf(item.content),
+          content: messageContent(item.content),
         });
         break;
       case "tool_call":
@@ -191,23 +209,33 @@ export function buildMistralRequest(request: ModelRequest) {
               },
         );
         break;
-      case "tool_result":
+      case "tool_result": {
+        const hasImages = item.content.some((block) => block.type === "image");
+        const raw = rawCalls.has(toolCallKey(item));
         inputs.push(
-          rawCalls.has(toolCallKey(item))
-            ? { type: "message.input", role: "user", content: textOf(item.content) }
+          raw
+            ? { type: "message.input", role: "user", content: messageContent(item.content) }
             : {
                 type: "function.result",
                 tool_call_id: item.callId,
-                result: textOf(item.content),
+                result:
+                  textOf(item.content) + (hasImages ? "\n[Images follow after tool results.]" : ""),
               },
         );
+        if (hasImages && !raw)
+          toolImages.push(
+            { type: "text", text: `Images from tool result ${item.callId}:` },
+            ...imageContent(item.content.filter((block) => block.type === "image")),
+          );
         break;
+      }
       case "context":
       case "compaction":
         inputs.push({ type: "message.input", role: "user", content: textOf(item.content) });
         break;
     }
   }
+  flushToolImages();
   if (request.prompt !== undefined)
     inputs.push({ type: "message.input", role: "user", content: request.prompt });
   const tools: Record<string, unknown>[] = (request.tools ?? []).map((tool) => {

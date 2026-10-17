@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ConversationId, FileToolsProfile, ToolContext, ToolResult } from "@harness/protocol";
+import {
+  MAX_IMAGE_BYTES,
+  type ConversationId,
+  type FileToolsProfile,
+  type ToolContext,
+  type ToolResult,
+} from "@harness/protocol";
 import {
   LocalExecutionContext,
   type ExecutionContext,
@@ -82,6 +88,32 @@ describe("workspace tools", () => {
     expect(w.status).toBe("ok");
     const r = await new ReadFileTool().execute({ path: "a.txt" }, ctx);
     expect(text(r)).toBe("hi");
+  });
+
+  it("reads an image as image content regardless of its filename", async () => {
+    const ctx = await workspace();
+    const execution = ctx.service("execution") as ExecutionContext;
+    const data =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=";
+    await execution.write("screenshot.bin", Buffer.from(data, "base64"));
+    expect(await new ReadFileTool().execute({ path: "screenshot.bin" }, ctx)).toEqual({
+      status: "ok",
+      forModel: [{ type: "image", mediaType: "image/png", data }],
+    });
+    expect(
+      await new ReadFileTool().execute({ path: "screenshot.bin", offset: 0 }, ctx),
+    ).toMatchObject({ status: "error" });
+  });
+
+  it("rejects oversized images after a bounded read", async () => {
+    const ctx = await workspace();
+    const execution = ctx.service("execution") as ExecutionContext;
+    const bytes = Buffer.alloc(MAX_IMAGE_BYTES + 1);
+    Buffer.from("89504e470d0a1a0a", "hex").copy(bytes);
+    await execution.write("large.png", bytes);
+    expect(await new ReadFileTool().execute({ path: "large.png" }, ctx)).toMatchObject({
+      status: "error",
+    });
   });
 
   // ApplyPatchTool receives changes already parsed from the V4A envelope by the kernel

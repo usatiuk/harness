@@ -112,10 +112,22 @@ export function fallbackCompaction(build: NewContextBuild): ContentBlock[] {
 
 /** Coarse provider-neutral estimate used between authoritative provider usage checkpoints. */
 export function estimateContextTokens(build: NewContextBuild): number {
+  let imageTokens = 0;
+  const estimatedContent = (content: ContentBlock[]) =>
+    content.map((block) => {
+      if (block.type !== "image") return block;
+      // Vision cost is model-specific; base64 length is not a text-token estimate.
+      // Provider accounting and context-overflow handling remain authoritative.
+      imageTokens += 4096;
+      return { type: block.type, mediaType: block.mediaType };
+    });
   const serialized = JSON.stringify({
-    instructions: build.instructions,
+    instructions: estimatedContent(build.instructions),
     tools: build.tools,
-    items: build.items,
+    items: build.items.map(({ item, ...rest }) => ({
+      ...rest,
+      item: "content" in item ? { ...item, content: estimatedContent(item.content) } : item,
+    })),
     ...(build.providerOptions !== undefined ? { providerOptions: build.providerOptions } : {}),
     ...(build.prompt ? { prompt: build.prompt } : {}),
   });
@@ -127,7 +139,7 @@ export function estimateContextTokens(build: NewContextBuild): number {
   }
   // English/JSON averages several characters per token; non-ASCII text is often
   // much denser, so count its UTF-16 units individually instead of dividing by four.
-  return Math.ceil(ascii / 4 + nonAsciiCodeUnits);
+  return imageTokens + Math.ceil(ascii / 4 + nonAsciiCodeUnits);
 }
 
 /**

@@ -114,6 +114,7 @@ export const projectModelInfo = (model: ModelInfo): WireModelInfo =>
     provider: model.provider,
     model: model.model,
     label: model.label ?? null,
+    supportsImages: model.supportsImages ?? null,
     presets: (model.presets ?? []).map((preset) => ({
       value: preset.value,
       label: preset.label ?? null,

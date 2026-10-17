@@ -59,6 +59,8 @@ export interface ModelInfo {
   model: string;
   /** Display name; falls back to `model` when absent. */
   label?: string;
+  /** Advertised model image-input support; absent means unknown, not unsupported. */
+  supportsImages?: boolean;
   /** Presets this model offers, in display order. Absent/empty = no preset axis. */
   presets?: PresetInfo[];
   /** Preset used when none is chosen; must be one of `presets` when present. */

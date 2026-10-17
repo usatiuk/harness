@@ -78,3 +78,22 @@ describe("AnthropicProvider context overflow normalization", () => {
     ).rejects.toBe(error);
   });
 });
+
+describe("Anthropic image capability metadata", () => {
+  it("declares documented image support for the maintained roster without network discovery", () => {
+    const provider = new AnthropicProvider({
+      credentials: {
+        client: async () => {
+          throw new Error("No catalog network request is needed");
+        },
+      },
+    });
+    expect(
+      provider.listModels().map(({ model, supportsImages }) => ({ model, supportsImages })),
+    ).toEqual([
+      { model: "claude-opus-4-8", supportsImages: true },
+      { model: "claude-sonnet-4-6", supportsImages: true },
+      { model: "claude-haiku-4-5", supportsImages: true },
+    ]);
+  });
+});

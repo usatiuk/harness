@@ -1624,3 +1624,54 @@ without nested scrolling at 1174×887 and 900×650. Final full validation passes
 so a visible frame does not race passive input-listener installation.
 Native desktop and remote-terminal interaction remain unqualified unless separately
 recorded in the async questions delivery plan.
+
+## Image input v1
+
+Protocol image tests cover media signatures, invalid base64, per-image and combined
+2 MiB decoded limits. Service tests send image-only input through public RPC,
+verify a large item's chunked history bytes, reconnect, reopen SQLite, and ensure
+canonical tool images reach the next model request. The fixture has a 128k context
+window to exercise preliminary context estimation. Text-only adapter rejection
+happens before user-input acceptance. Local execution tests cover bounded ranges;
+workspace tests cover both file dialects and explicit image line-range errors.
+MCP tests use a real stdio fixture and computed forwarding. Code-mode tests cover
+images exceeding the former text/bridge limits, structured metadata, cumulative
+image bounds, and unchanged text limits. Output spilling preserves images.
+
+Provider request fixtures cover native Responses/Anthropic/Gemini 3 payloads and
+Chat/Mistral/older Gemini projections after parallel result batches. They establish
+serialization and canonical-history preservation, not live vendor acceptance.
+Desktop browser cases exercise paste/drop, image-only delivery, previews/viewer,
+drafts, delivery races and history; helper tests reject oversized batches before
+FileReader allocation. Native OS clipboard/drag-drop and remote execution image
+reads require separate platform qualification and are not established by fixtures.
+
+Final image delivery validation: `VITEST_MAX_WORKERS=4 npm run check` passes
+1,557 tests / 41 skipped, plus typecheck/lint/format. Eight focused Chromium image
+and existing composer/fork cases pass. Three independent review lenses covered
+correctness, architecture/simplicity, and evidence/scope; findings and fixes are
+recorded in the [delivery plan](plans/cross-cutting/2026-10-17-image-input.md).
+
+Model metadata follow-up regressions cover true/false/unknown public round trips,
+Mistral API/Vibe aliases, LiteLLM agreement/conflict handling, Models.dev live and
+snapshot modalities, and documented image support in the Anthropic roster. The public RPC
+switch test accepts the model change, rejects a known text-only request with
+active images, preserves history, permits unknown metadata, and resumes text-only
+requests after an ordinary compaction summary boundary. This fixture does not
+claim live model summarization or vendor acceptance.
+
+Final metadata follow-up validation: `VITEST_MAX_WORKERS=4 npm run check` passes
+typecheck/lint/format and 1,568 tests / 41 skipped (176 files). Three independent
+review lenses reported no remaining blockers.
+
+Completeness audit adds an authenticated Codex transport regression using the
+actual OpenAI SDK and substituted OAuth/fetch edges. It checks user/tool inline
+images, Codex URL/account/auth headers, stream completion and unchanged canonical
+input. Maintained provider catalog claims and custom supportsImages true/false/
+unknown/configuration precedence have focused regressions. Gemini discovery
+excludes documented audio-only transcription models even when generateContent is
+advertised. These fixtures still do not establish live account/vendor acceptance.
+
+Final completeness/simplicity audit validation: full check passes 1,575 tests /
+41 skipped plus root/CLI/desktop typecheck, lint and formatting. Three independent
+review lenses found only stale documentation claims, which were corrected.

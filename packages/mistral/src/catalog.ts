@@ -138,6 +138,9 @@ export function parseCatalog(raw: unknown, mode: MistralMode, provider: string) 
         info: {
           provider,
           model: modelId,
+          ...(model.capabilities.vision !== undefined
+            ? { supportsImages: model.capabilities.vision }
+            : {}),
           ...(label ? { label } : {}),
           ...(model.max_context_length != null ? { contextWindow: model.max_context_length } : {}),
           ...(levels.length

@@ -7,7 +7,7 @@ import { MistralProvider } from "./provider.ts";
 import { fetchCatalog, parseCatalog } from "./catalog.ts";
 import { buildMistralRequest } from "./request.ts";
 import { mistralEvents } from "./stream.ts";
-import type { ConfiguredModel } from "./config.ts";
+import { configuredModelsSchema, type ConfiguredModel } from "./config.ts";
 
 const gateways: Awaited<ReturnType<typeof httpGateway>>[] = [];
 afterEach(async () => {
@@ -422,11 +422,23 @@ describe("Mistral native delivery", () => {
       done({ prompt_tokens: 10 }),
     ]);
     expect(provider.listModels()).toEqual([
-      { provider: "work", model: "coding", label: "Coding", contextWindow: 262144 },
-      { provider: "work", model: "coding-latest", label: "Coding", contextWindow: 262144 },
+      {
+        provider: "work",
+        model: "coding",
+        label: "Coding",
+        contextWindow: 262144,
+        supportsImages: true,
+      },
+      {
+        provider: "work",
+        model: "coding-latest",
+        label: "Coding",
+        contextWindow: 262144,
+        supportsImages: true,
+      },
     ]);
     expect(provider.capabilities("coding")).toEqual({
-      contentTypes: ["text"],
+      contentTypes: ["text", "image"],
       toolCalling: true,
       fileTools: "string_replace",
     });
@@ -803,3 +815,68 @@ it("preserves imported IDs exactly and leaves selected context at its original c
   expect(wire.inputs[2]).toMatchObject({ type: "function.result", tool_call_id: id });
   expect(buildMistralRequest(base)).toEqual(wire);
 });
+
+it.each(["api", "vibe"] as const)(
+  "preserves true, false and unknown image claims for %s aliases",
+  async (mode) => {
+    const rows = [true, false, undefined].map((vision, index) => ({
+      ...apiRow,
+      ...(mode === "vibe" ? { label: "Vision" } : {}),
+      id: `vision-${index}`,
+      aliases: [`alias-${index}`],
+      capabilities: { function_calling: true, ...(vision !== undefined ? { vision } : {}) },
+    }));
+    const { provider } = await fixture(
+      mode,
+      [],
+      200,
+      false,
+      {},
+      mode === "api" ? { data: rows } : { models: rows },
+    );
+    expect(
+      provider.listModels().map(({ model, supportsImages }) => ({ model, supportsImages })),
+    ).toEqual([
+      { model: "vision-0", supportsImages: true },
+      { model: "alias-0", supportsImages: true },
+      { model: "vision-1", supportsImages: false },
+      { model: "alias-1", supportsImages: false },
+      { model: "vision-2", supportsImages: undefined },
+      { model: "alias-2", supportsImages: undefined },
+    ]);
+  },
+);
+
+it.each(["api", "vibe"] as const)(
+  "lets configured image support override %s discovery per exact ID",
+  async (mode) => {
+    const rows = [true, false].map((vision, index) => ({
+      ...apiRow,
+      id: `remote-${index}`,
+      aliases: [],
+      ...(mode === "vibe" ? { label: "Configured vision" } : {}),
+      capabilities: { function_calling: true, vision },
+    }));
+    const { provider } = await fixture(
+      mode,
+      [],
+      200,
+      false,
+      configuredModelsSchema.parse({
+        "remote-0": { supportsImages: false },
+        "remote-1": { supportsImages: true },
+        configured: { supportsImages: true },
+        unknown: {},
+      }),
+      mode === "api" ? { data: rows } : { models: rows },
+    );
+    expect(
+      provider.listModels().map(({ model, supportsImages }) => ({ model, supportsImages })),
+    ).toEqual([
+      { model: "remote-0", supportsImages: false },
+      { model: "remote-1", supportsImages: true },
+      { model: "configured", supportsImages: true },
+      { model: "unknown", supportsImages: undefined },
+    ]);
+  },
+);

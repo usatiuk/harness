@@ -157,12 +157,12 @@ export class OpenCodeGoProvider implements ModelProvider {
   capabilities(model: string): ModelCapabilities {
     switch (familyOf(model, this.#models)) {
       case "responses":
-        return { contentTypes: ["text"], toolCalling: true, fileTools: "apply_patch" };
+        return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "apply_patch" };
       case "messages":
-        return { contentTypes: ["text"], toolCalling: true, fileTools: "text_editor" };
+        return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "text_editor" };
       case "chat":
         // Function-only: the chat transport cannot carry freeform custom tools.
-        return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" };
+        return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "string_replace" };
       case undefined:
         throw new Error(`unknown model "${model}" for provider ${this.provider}`);
     }

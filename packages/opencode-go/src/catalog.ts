@@ -24,6 +24,7 @@ export interface GoModelSpec {
   maxOutputTokens: number;
   maxInputTokens?: number;
   reasoning?: ModelReasoningInfo;
+  supportsImages?: boolean;
   presets?: GoPresetSpec[];
   defaultPreset?: string;
 }
@@ -51,6 +52,7 @@ const row = z.object({
     .max(32)
     .optional(),
   tool_call: z.boolean(),
+  modalities: z.object({ input: z.array(z.string()).max(32).optional() }).optional(),
   status: z.string().optional(),
   provider: routing.optional(),
 });
@@ -144,6 +146,9 @@ export function parseCatalog(value: unknown): { models: GoModelSpec[]; diagnosti
     )?.values;
     models.push({
       model: key,
+      ...(model.modalities?.input !== undefined
+        ? { supportsImages: model.modalities.input.includes("image") }
+        : {}),
       ...(model.name ? { label: model.name } : {}),
       family,
       contextWindow: model.limit.context,

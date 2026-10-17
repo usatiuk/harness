@@ -962,3 +962,117 @@ describe("LiteLLM SDK transport fidelity", () => {
     expect(provider.listModels().map((model) => model.model)).toEqual(["hidden"]);
   });
 });
+
+it("publishes agreed vision claims, preserving false and unknown metadata", async () => {
+  const ids = ["vision", "text", "unknown", "partial", "conflicting", "invalid"];
+  const rows = [
+    ...[true, true].map((supports_vision) => ({
+      model_name: "vision",
+      model_info: { supports_vision },
+    })),
+    { model_name: "text", model_info: { supports_vision: false } },
+    { model_name: "unknown", model_info: { supports_vision: null } },
+    { model_name: "partial", model_info: { supports_vision: true } },
+    { model_name: "partial", model_info: {} },
+    { model_name: "conflicting", model_info: { supports_vision: true } },
+    { model_name: "conflicting", model_info: { supports_vision: false } },
+    { model_name: "invalid", model_info: { supports_vision: "yes" } },
+  ];
+  const gateway = await httpGateway((req, res) =>
+    json(
+      res,
+      req.path.endsWith("/v1/models") ? { data: ids.map((id) => ({ id })) } : { data: rows },
+    ),
+  );
+  gateways.push(gateway);
+  const provider = new LiteLLMProvider(
+    "work",
+    liteLLMConfigSchema.parse({ baseUrl: gateway.url }),
+    "key",
+  );
+  const refreshed = await provider.refreshModels(signal);
+  expect(refreshed.diagnostics).toContain(
+    "Model 'conflicting' has conflicting image support metadata",
+  );
+  expect(refreshed.diagnostics).toContain("Model 'invalid' has invalid image support metadata");
+  expect(
+    provider.listModels().map(({ model, supportsImages }) => ({ model, supportsImages })),
+  ).toEqual([
+    { model: "vision", supportsImages: true },
+    { model: "text", supportsImages: false },
+    ...["unknown", "partial", "conflicting", "invalid"].map((model) => ({
+      model,
+      supportsImages: undefined,
+    })),
+  ]);
+});
+
+it("lets configured image support override remote metadata while preserving unknown", async () => {
+  const rows = [
+    { model_name: "remote-vision", model_info: { supports_vision: true } },
+    { model_name: "remote-text", model_info: { supports_vision: false } },
+  ];
+  const gateway = await httpGateway((req, res) =>
+    json(
+      res,
+      req.path.endsWith("/v1/models")
+        ? { data: rows.map(({ model_name }) => ({ id: model_name })) }
+        : { data: rows },
+    ),
+  );
+  gateways.push(gateway);
+  const provider = new LiteLLMProvider(
+    "work",
+    liteLLMConfigSchema.parse({
+      baseUrl: gateway.url,
+      models: {
+        "remote-vision": { supportsImages: false },
+        "remote-text": { supportsImages: true },
+        configured: { supportsImages: true },
+        unknown: {},
+      },
+    }),
+    "key",
+  );
+  await provider.refreshModels(signal);
+  expect(
+    provider.listModels().map(({ model, supportsImages }) => ({ model, supportsImages })),
+  ).toEqual([
+    { model: "remote-vision", supportsImages: false },
+    { model: "remote-text", supportsImages: true },
+    { model: "configured", supportsImages: true },
+    { model: "unknown", supportsImages: undefined },
+  ]);
+});
+
+it("retains image claims when unrelated remote generation settings are incompatible", async () => {
+  const gateway = await httpGateway((req, res) =>
+    json(
+      res,
+      req.path.endsWith("/v1/models")
+        ? { data: [{ id: "text" }] }
+        : {
+            data: [
+              {
+                model_name: "text",
+                model_info: {
+                  supports_vision: false,
+                  harness: { version: 1, thinking: { type: "adaptive" } },
+                },
+              },
+            ],
+          },
+    ),
+  );
+  gateways.push(gateway);
+  const provider = new LiteLLMProvider(
+    "work",
+    liteLLMConfigSchema.parse({ baseUrl: gateway.url }),
+    "key",
+  );
+  const result = await provider.refreshModels(signal);
+  expect(result.diagnostics).toContain(
+    "Model 'text' has incompatible metadata; using configured defaults",
+  );
+  expect(provider.listModels()[0]?.supportsImages).toBe(false);
+});

@@ -213,7 +213,9 @@ selected output, 1 MiB per bridge transfer, 8 MiB cumulative bidirectional data,
 and 32 distinct terms, returning at most twelve contracts. Waiting on tools or
 human approvals consumes no interpreter CPU. Cancellation terminates the worker
 and closes its bridge before outer completion. Unsupported content blocks fail
-explicitly; the current protocol and `emitContent` support text only.
+explicitly. `emitContent` also forwards validated images with a separate 2 MiB
+decoded aggregate budget. Image responses permit bounded base64 overhead beyond
+the normal bridge budget; text output and tool arguments retain their limits.
 Pending microtasks execute in batches of at most 256 before yielding to host
 messages. This bounds each batch and avoids paying an event-loop scheduling
 delay for every microtask; all interpreter work still consumes the same CPU budget.
@@ -261,3 +263,11 @@ Tests cover path boundaries, process-tree termination, stream decoding, tool
 dialects, patch parsing, output spill, approval classification/annotations,
 auto-approval integration, Docker sharing/retention/stop/crash behavior, and native
 namespace configuration. Native integration tests are platform/capability gated.
+
+Image files are recognized by signature through bounded ExecutionContext reads.
+Both `read_file` and text-editor `view` return canonical image blocks; line ranges
+on images fail explicitly. Local ranged reads use bounded file I/O. MCP validates
+native image blocks at ingress and preserves mixed text/image order. Output text
+spilling retains accompanying images. Image-bearing computed tool responses use
+`{content,status,structured?,full?,annotations?}` so callers can forward content
+without serializing base64 as text; structured-only responses keep their prior shape.

@@ -7,7 +7,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 16 },
+        "protocolVersion": { "type": "number", "const": 17 },
         "client": {
           "type": "object",
           "properties": {
@@ -37,7 +37,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 16 },
+        "protocolVersion": { "type": "number", "const": 17 },
         "server": {
           "type": "object",
           "properties": {
@@ -844,6 +844,7 @@
               "provider": { "type": "string" },
               "model": { "type": "string" },
               "label": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+              "supportsImages": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
               "presets": {
                 "type": "array",
                 "items": {
@@ -987,6 +988,7 @@
               "provider",
               "model",
               "label",
+              "supportsImages",
               "presets",
               "defaultPreset",
               "contextWindow",
@@ -2589,6 +2591,30 @@
       "properties": {
         "conversationId": { "type": "string", "minLength": 1 },
         "text": { "type": "string" },
+        "images": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "const": "image" },
+              "mediaType": {
+                "type": "string",
+                "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+              },
+              "data": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 2796204,
+                "format": "base64",
+                "contentEncoding": "base64",
+                "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+              }
+            },
+            "required": ["type", "mediaType", "data"],
+            "additionalProperties": false
+          }
+        },
         "intent": { "type": "string", "enum": ["send", "steer", "queue", "interrupt"] }
       },
       "required": ["conversationId", "text", "intent"],
@@ -2678,13 +2704,42 @@
                               "content": {
                                 "type": "array",
                                 "items": {
-                                  "type": "object",
-                                  "properties": {
-                                    "type": { "type": "string", "const": "text" },
-                                    "text": { "type": "string" }
-                                  },
-                                  "required": ["type", "text"],
-                                  "additionalProperties": false
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": { "type": "string", "const": "text" },
+                                        "text": { "type": "string" }
+                                      },
+                                      "required": ["type", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": { "type": "string", "const": "image" },
+                                        "mediaType": {
+                                          "type": "string",
+                                          "enum": [
+                                            "image/png",
+                                            "image/jpeg",
+                                            "image/gif",
+                                            "image/webp"
+                                          ]
+                                        },
+                                        "data": {
+                                          "type": "string",
+                                          "minLength": 4,
+                                          "maxLength": 2796204,
+                                          "format": "base64",
+                                          "contentEncoding": "base64",
+                                          "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                        }
+                                      },
+                                      "required": ["type", "mediaType", "data"],
+                                      "additionalProperties": false
+                                    }
+                                  ]
                                 }
                               },
                               "role": { "type": "string", "const": "assistant" },
@@ -2742,13 +2797,42 @@
                               "content": {
                                 "type": "array",
                                 "items": {
-                                  "type": "object",
-                                  "properties": {
-                                    "type": { "type": "string", "const": "text" },
-                                    "text": { "type": "string" }
-                                  },
-                                  "required": ["type", "text"],
-                                  "additionalProperties": false
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": { "type": "string", "const": "text" },
+                                        "text": { "type": "string" }
+                                      },
+                                      "required": ["type", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": { "type": "string", "const": "image" },
+                                        "mediaType": {
+                                          "type": "string",
+                                          "enum": [
+                                            "image/png",
+                                            "image/jpeg",
+                                            "image/gif",
+                                            "image/webp"
+                                          ]
+                                        },
+                                        "data": {
+                                          "type": "string",
+                                          "minLength": 4,
+                                          "maxLength": 2796204,
+                                          "format": "base64",
+                                          "contentEncoding": "base64",
+                                          "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                        }
+                                      },
+                                      "required": ["type", "mediaType", "data"],
+                                      "additionalProperties": false
+                                    }
+                                  ]
                                 }
                               },
                               "role": { "type": "string", "const": "user" },
@@ -2819,13 +2903,42 @@
                               "content": {
                                 "type": "array",
                                 "items": {
-                                  "type": "object",
-                                  "properties": {
-                                    "type": { "type": "string", "const": "text" },
-                                    "text": { "type": "string" }
-                                  },
-                                  "required": ["type", "text"],
-                                  "additionalProperties": false
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": { "type": "string", "const": "text" },
+                                        "text": { "type": "string" }
+                                      },
+                                      "required": ["type", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": { "type": "string", "const": "image" },
+                                        "mediaType": {
+                                          "type": "string",
+                                          "enum": [
+                                            "image/png",
+                                            "image/jpeg",
+                                            "image/gif",
+                                            "image/webp"
+                                          ]
+                                        },
+                                        "data": {
+                                          "type": "string",
+                                          "minLength": 4,
+                                          "maxLength": 2796204,
+                                          "format": "base64",
+                                          "contentEncoding": "base64",
+                                          "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                        }
+                                      },
+                                      "required": ["type", "mediaType", "data"],
+                                      "additionalProperties": false
+                                    }
+                                  ]
                                 }
                               },
                               "role": { "type": "string", "const": "system" },
@@ -2866,13 +2979,37 @@
                           "content": {
                             "type": "array",
                             "items": {
-                              "type": "object",
-                              "properties": {
-                                "type": { "type": "string", "const": "text" },
-                                "text": { "type": "string" }
-                              },
-                              "required": ["type", "text"],
-                              "additionalProperties": false
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "text" },
+                                    "text": { "type": "string" }
+                                  },
+                                  "required": ["type", "text"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "image" },
+                                    "mediaType": {
+                                      "type": "string",
+                                      "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                                    },
+                                    "data": {
+                                      "type": "string",
+                                      "minLength": 4,
+                                      "maxLength": 2796204,
+                                      "format": "base64",
+                                      "contentEncoding": "base64",
+                                      "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                    }
+                                  },
+                                  "required": ["type", "mediaType", "data"],
+                                  "additionalProperties": false
+                                }
+                              ]
                             }
                           }
                         },
@@ -2907,13 +3044,37 @@
                           "content": {
                             "type": "array",
                             "items": {
-                              "type": "object",
-                              "properties": {
-                                "type": { "type": "string", "const": "text" },
-                                "text": { "type": "string" }
-                              },
-                              "required": ["type", "text"],
-                              "additionalProperties": false
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "text" },
+                                    "text": { "type": "string" }
+                                  },
+                                  "required": ["type", "text"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "image" },
+                                    "mediaType": {
+                                      "type": "string",
+                                      "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                                    },
+                                    "data": {
+                                      "type": "string",
+                                      "minLength": 4,
+                                      "maxLength": 2796204,
+                                      "format": "base64",
+                                      "contentEncoding": "base64",
+                                      "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                    }
+                                  },
+                                  "required": ["type", "mediaType", "data"],
+                                  "additionalProperties": false
+                                }
+                              ]
                             }
                           }
                         },
@@ -2988,13 +3149,37 @@
                           "content": {
                             "type": "array",
                             "items": {
-                              "type": "object",
-                              "properties": {
-                                "type": { "type": "string", "const": "text" },
-                                "text": { "type": "string" }
-                              },
-                              "required": ["type", "text"],
-                              "additionalProperties": false
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "text" },
+                                    "text": { "type": "string" }
+                                  },
+                                  "required": ["type", "text"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "image" },
+                                    "mediaType": {
+                                      "type": "string",
+                                      "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                                    },
+                                    "data": {
+                                      "type": "string",
+                                      "minLength": 4,
+                                      "maxLength": 2796204,
+                                      "format": "base64",
+                                      "contentEncoding": "base64",
+                                      "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                    }
+                                  },
+                                  "required": ["type", "mediaType", "data"],
+                                  "additionalProperties": false
+                                }
+                              ]
                             }
                           },
                           "status": { "type": "string", "enum": ["ok", "error"] },
@@ -3103,13 +3288,37 @@
                           "content": {
                             "type": "array",
                             "items": {
-                              "type": "object",
-                              "properties": {
-                                "type": { "type": "string", "const": "text" },
-                                "text": { "type": "string" }
-                              },
-                              "required": ["type", "text"],
-                              "additionalProperties": false
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "text" },
+                                    "text": { "type": "string" }
+                                  },
+                                  "required": ["type", "text"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "image" },
+                                    "mediaType": {
+                                      "type": "string",
+                                      "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                                    },
+                                    "data": {
+                                      "type": "string",
+                                      "minLength": 4,
+                                      "maxLength": 2796204,
+                                      "format": "base64",
+                                      "contentEncoding": "base64",
+                                      "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                    }
+                                  },
+                                  "required": ["type", "mediaType", "data"],
+                                  "additionalProperties": false
+                                }
+                              ]
                             }
                           }
                         },
@@ -3144,13 +3353,37 @@
                           "content": {
                             "type": "array",
                             "items": {
-                              "type": "object",
-                              "properties": {
-                                "type": { "type": "string", "const": "text" },
-                                "text": { "type": "string" }
-                              },
-                              "required": ["type", "text"],
-                              "additionalProperties": false
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "text" },
+                                    "text": { "type": "string" }
+                                  },
+                                  "required": ["type", "text"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": { "type": "string", "const": "image" },
+                                    "mediaType": {
+                                      "type": "string",
+                                      "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                                    },
+                                    "data": {
+                                      "type": "string",
+                                      "minLength": 4,
+                                      "maxLength": 2796204,
+                                      "format": "base64",
+                                      "contentEncoding": "base64",
+                                      "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                    }
+                                  },
+                                  "required": ["type", "mediaType", "data"],
+                                  "additionalProperties": false
+                                }
+                              ]
                             }
                           },
                           "key": { "type": "string" }
@@ -3701,13 +3934,42 @@
                             "content": {
                               "type": "array",
                               "items": {
-                                "type": "object",
-                                "properties": {
-                                  "type": { "type": "string", "const": "text" },
-                                  "text": { "type": "string" }
-                                },
-                                "required": ["type", "text"],
-                                "additionalProperties": false
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": { "type": "string", "const": "text" },
+                                      "text": { "type": "string" }
+                                    },
+                                    "required": ["type", "text"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": { "type": "string", "const": "image" },
+                                      "mediaType": {
+                                        "type": "string",
+                                        "enum": [
+                                          "image/png",
+                                          "image/jpeg",
+                                          "image/gif",
+                                          "image/webp"
+                                        ]
+                                      },
+                                      "data": {
+                                        "type": "string",
+                                        "minLength": 4,
+                                        "maxLength": 2796204,
+                                        "format": "base64",
+                                        "contentEncoding": "base64",
+                                        "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                      }
+                                    },
+                                    "required": ["type", "mediaType", "data"],
+                                    "additionalProperties": false
+                                  }
+                                ]
                               }
                             },
                             "role": { "type": "string", "const": "assistant" },
@@ -3758,13 +4020,42 @@
                             "content": {
                               "type": "array",
                               "items": {
-                                "type": "object",
-                                "properties": {
-                                  "type": { "type": "string", "const": "text" },
-                                  "text": { "type": "string" }
-                                },
-                                "required": ["type", "text"],
-                                "additionalProperties": false
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": { "type": "string", "const": "text" },
+                                      "text": { "type": "string" }
+                                    },
+                                    "required": ["type", "text"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": { "type": "string", "const": "image" },
+                                      "mediaType": {
+                                        "type": "string",
+                                        "enum": [
+                                          "image/png",
+                                          "image/jpeg",
+                                          "image/gif",
+                                          "image/webp"
+                                        ]
+                                      },
+                                      "data": {
+                                        "type": "string",
+                                        "minLength": 4,
+                                        "maxLength": 2796204,
+                                        "format": "base64",
+                                        "contentEncoding": "base64",
+                                        "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                      }
+                                    },
+                                    "required": ["type", "mediaType", "data"],
+                                    "additionalProperties": false
+                                  }
+                                ]
                               }
                             },
                             "role": { "type": "string", "const": "user" },
@@ -3829,13 +4120,42 @@
                             "content": {
                               "type": "array",
                               "items": {
-                                "type": "object",
-                                "properties": {
-                                  "type": { "type": "string", "const": "text" },
-                                  "text": { "type": "string" }
-                                },
-                                "required": ["type", "text"],
-                                "additionalProperties": false
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": { "type": "string", "const": "text" },
+                                      "text": { "type": "string" }
+                                    },
+                                    "required": ["type", "text"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": { "type": "string", "const": "image" },
+                                      "mediaType": {
+                                        "type": "string",
+                                        "enum": [
+                                          "image/png",
+                                          "image/jpeg",
+                                          "image/gif",
+                                          "image/webp"
+                                        ]
+                                      },
+                                      "data": {
+                                        "type": "string",
+                                        "minLength": 4,
+                                        "maxLength": 2796204,
+                                        "format": "base64",
+                                        "contentEncoding": "base64",
+                                        "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                      }
+                                    },
+                                    "required": ["type", "mediaType", "data"],
+                                    "additionalProperties": false
+                                  }
+                                ]
                               }
                             },
                             "role": { "type": "string", "const": "system" },
@@ -3875,13 +4195,37 @@
                         "content": {
                           "type": "array",
                           "items": {
-                            "type": "object",
-                            "properties": {
-                              "type": { "type": "string", "const": "text" },
-                              "text": { "type": "string" }
-                            },
-                            "required": ["type", "text"],
-                            "additionalProperties": false
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "text" },
+                                  "text": { "type": "string" }
+                                },
+                                "required": ["type", "text"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "image" },
+                                  "mediaType": {
+                                    "type": "string",
+                                    "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                                  },
+                                  "data": {
+                                    "type": "string",
+                                    "minLength": 4,
+                                    "maxLength": 2796204,
+                                    "format": "base64",
+                                    "contentEncoding": "base64",
+                                    "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                  }
+                                },
+                                "required": ["type", "mediaType", "data"],
+                                "additionalProperties": false
+                              }
+                            ]
                           }
                         }
                       },
@@ -3916,13 +4260,37 @@
                         "content": {
                           "type": "array",
                           "items": {
-                            "type": "object",
-                            "properties": {
-                              "type": { "type": "string", "const": "text" },
-                              "text": { "type": "string" }
-                            },
-                            "required": ["type", "text"],
-                            "additionalProperties": false
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "text" },
+                                  "text": { "type": "string" }
+                                },
+                                "required": ["type", "text"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "image" },
+                                  "mediaType": {
+                                    "type": "string",
+                                    "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                                  },
+                                  "data": {
+                                    "type": "string",
+                                    "minLength": 4,
+                                    "maxLength": 2796204,
+                                    "format": "base64",
+                                    "contentEncoding": "base64",
+                                    "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                  }
+                                },
+                                "required": ["type", "mediaType", "data"],
+                                "additionalProperties": false
+                              }
+                            ]
                           }
                         }
                       },
@@ -3996,13 +4364,37 @@
                         "content": {
                           "type": "array",
                           "items": {
-                            "type": "object",
-                            "properties": {
-                              "type": { "type": "string", "const": "text" },
-                              "text": { "type": "string" }
-                            },
-                            "required": ["type", "text"],
-                            "additionalProperties": false
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "text" },
+                                  "text": { "type": "string" }
+                                },
+                                "required": ["type", "text"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "image" },
+                                  "mediaType": {
+                                    "type": "string",
+                                    "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                                  },
+                                  "data": {
+                                    "type": "string",
+                                    "minLength": 4,
+                                    "maxLength": 2796204,
+                                    "format": "base64",
+                                    "contentEncoding": "base64",
+                                    "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                  }
+                                },
+                                "required": ["type", "mediaType", "data"],
+                                "additionalProperties": false
+                              }
+                            ]
                           }
                         },
                         "status": { "type": "string", "enum": ["ok", "error"] },
@@ -4107,13 +4499,37 @@
                         "content": {
                           "type": "array",
                           "items": {
-                            "type": "object",
-                            "properties": {
-                              "type": { "type": "string", "const": "text" },
-                              "text": { "type": "string" }
-                            },
-                            "required": ["type", "text"],
-                            "additionalProperties": false
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "text" },
+                                  "text": { "type": "string" }
+                                },
+                                "required": ["type", "text"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "image" },
+                                  "mediaType": {
+                                    "type": "string",
+                                    "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                                  },
+                                  "data": {
+                                    "type": "string",
+                                    "minLength": 4,
+                                    "maxLength": 2796204,
+                                    "format": "base64",
+                                    "contentEncoding": "base64",
+                                    "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                  }
+                                },
+                                "required": ["type", "mediaType", "data"],
+                                "additionalProperties": false
+                              }
+                            ]
                           }
                         }
                       },
@@ -4148,13 +4564,37 @@
                         "content": {
                           "type": "array",
                           "items": {
-                            "type": "object",
-                            "properties": {
-                              "type": { "type": "string", "const": "text" },
-                              "text": { "type": "string" }
-                            },
-                            "required": ["type", "text"],
-                            "additionalProperties": false
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "text" },
+                                  "text": { "type": "string" }
+                                },
+                                "required": ["type", "text"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": { "type": "string", "const": "image" },
+                                  "mediaType": {
+                                    "type": "string",
+                                    "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                                  },
+                                  "data": {
+                                    "type": "string",
+                                    "minLength": 4,
+                                    "maxLength": 2796204,
+                                    "format": "base64",
+                                    "contentEncoding": "base64",
+                                    "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                                  }
+                                },
+                                "required": ["type", "mediaType", "data"],
+                                "additionalProperties": false
+                              }
+                            ]
                           }
                         },
                         "key": { "type": "string" }
@@ -4890,13 +5330,37 @@
         "content": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "text" },
-              "text": { "type": "string" }
-            },
-            "required": ["type", "text"],
-            "additionalProperties": false
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "const": "text" },
+                  "text": { "type": "string" }
+                },
+                "required": ["type", "text"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "const": "image" },
+                  "mediaType": {
+                    "type": "string",
+                    "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+                  },
+                  "data": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 2796204,
+                    "format": "base64",
+                    "contentEncoding": "base64",
+                    "pattern": "^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$"
+                  }
+                },
+                "required": ["type", "mediaType", "data"],
+                "additionalProperties": false
+              }
+            ]
           }
         }
       },

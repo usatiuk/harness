@@ -30,6 +30,7 @@ export function outputBoundMiddleware(): ToolMiddleware {
             type: "text",
             text: `…[output truncated; full output preserved at ${path} — read it with an available file tool]`,
           },
+          ...result.forModel.filter((block) => block.type === "image"),
         ],
       };
     },

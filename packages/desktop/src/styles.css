@@ -2038,3 +2038,65 @@ main {
 .question-field .question-comment {
   flex-direction: column;
 }
+
+.image-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+}
+.image-preview {
+  position: relative;
+}
+.image-preview-open {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: zoom-in;
+  background: transparent;
+}
+.image-preview-open img {
+  display: block;
+  width: 100px;
+  height: 80px;
+  object-fit: contain;
+}
+.image-preview-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  border-radius: 50%;
+  background: var(--surface-panel);
+  cursor: pointer;
+}
+.dialog.image-viewer {
+  inset: var(--window-titlebar-height, 0px) 0 0;
+  transform: none;
+  width: 100vw;
+  height: calc(100dvh - var(--window-titlebar-height, 0px));
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  padding: 48px;
+  background: rgb(0 0 0 / 90%);
+  display: grid;
+  place-items: center;
+}
+.image-viewer > img {
+  max-width: 100%;
+  max-height: calc(100dvh - var(--window-titlebar-height, 0px) - 96px);
+  object-fit: contain;
+}
+.image-viewer .dialog-close {
+  color: white;
+}
+
+.image-viewer .dialog-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}

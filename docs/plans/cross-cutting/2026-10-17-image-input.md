@@ -1,0 +1,163 @@
+# Image input v1
+
+Status: Complete
+
+## Scope and completion
+
+Implement only the user's five requirements: desktop image paste/drop; images
+stored inline in the conversation log; desktop previews and a full-app darkened
+viewer with a top-right close button; MCP image results and image reads through
+existing file tools; image request transformations for every existing provider
+transport. No upload service, blob lifecycle, image generation, resizing, OCR,
+image captioning, new CLI attachment workflow, or new provider abstraction.
+
+## Grounded design
+
+Extend the existing ContentBlock union with an inline image carrying mediaType
+and base64 data. PNG/JPEG/GIF/WebP share the same content block across messages,
+tool results, persistence and public RPC. Existing JSON item bodies need no
+SQLite migration. Desktop passes image bytes rather than client filesystem paths.
+A two-MiB decoded image budget per content/message bounds base64 below the existing
+four-MiB RPC frame. Validate untrusted image input once at ingestion; preserve
+valid blocks through output truncation and code-mode bridges.
+
+Existing text delivery gains optional images; existing pending previews append an
+image-count text marker, not repeated image payloads. Existing item history/chunking remains.
+The transcript reducer retains images rather than discarding nontext. Desktop
+owns previews/viewer/draft interactions; core has no presentation or vendor logic.
+File reads stay behind ExecutionContext; its existing ranged read must actually
+bound local I/O. Both file-tool dialects use a small shared image-read branch.
+
+Provider adapters serialize native image tool results for OpenAI Responses,
+Anthropic, and Gemini 3. Chat Completions, Mistral Conversations, and older Gemini
+use adapter-only attributed image messages after complete tool-result batches.
+Canonical history is never rewritten for vendor restrictions. Existing opaque
+provider history, cancellation and cache-stable text requests remain intact.
+Existing capability declarations represent adapter support. Model catalogs and
+existing per-model configuration carry supportsImages metadata without a new
+registry.
+
+## Milestones and checks
+
+- [x] Content/wire/runtime: canonical image schema and bounded input, image-only
+      delivery, inline persistence/reconnect, capability failure, pending counts,
+      and code-mode images without text-output regressions.
+- [x] File/MCP ingestion: bounded reads, both file dialects, native MCP image
+      mapping, explicit invalid/oversize failures; preserve text behavior.
+- [x] Providers: all existing adapter families pass native/fallback image request
+      tests, including parallel result ordering and normal text compatibility.
+- [x] Desktop: paste/drop/image-only send, safe captured drafts, message/tool
+      previews, full-app accessible closeable viewer; representative browser tests.
+- [x] Review and finish: independent correctness, architecture/simplicity and
+      evidence/scope review; focused tests plus npm run check; synchronize docs.
+
+## Research and coordination
+
+Researchers inspect actual pinned SDKs and current primary vendor documentation;
+issue #39 is not authoritative architecture. All work shares the main checkout.
+Provider researcher owns adapters; I/O researcher owns workspace/MCP and the
+necessary local ranged-read fix; UI agent owns desktop. Primary owns protocol, core, public client/service integration, reducer/CLI
+placeholder and documentation. I/O researcher also integrates code-mode/output
+budgets; provider researcher adds public-boundary persistence tests. Native desktop/remote-host qualification must be stated separately
+from browser and adapter request fixtures.
+
+## Evidence
+
+Initial checkout was clean at 0be287d (v0.3.0). Implementation is complete in the
+shared main checkout; no commit or release was made for this image delivery.
+
+Focused evidence: provider suites 390 passed/11 skipped; file/execution/MCP 56
+passed/1 skipped; code-mode/output/MCP 43 passed; public protocol/client/service
+regressions and auto-approval 41 passed; desktop image/reducer units 37 passed;
+Chromium's four image scenarios and four existing text-composer/fork scenarios
+passed (8/8). These overlap and are not a total count.
+Public tests cover SQLite close/reopen and reconnect, including chunked large
+history; max-sized image notification races an attach snapshot successfully.
+
+Three independent review lenses covered correctness, architecture/simplicity and
+evidence/scope. Findings fixed: context estimator counted base64 as text; batch
+FileReaders allocated before aggregate validation; pending-attach buffer was
+smaller than a valid image event; encoded overhead from many tiny images required
+the existing wire budget at ingestion. Documentation claims narrowed to verified
+viewer close-button behavior. No extra image framework or provider registry added.
+Final `VITEST_MAX_WORKERS=4 npm run check` passed: root/CLI/desktop typechecks,
+ESLint, Prettier, and 1,557 tests passed / 41 skipped across 175 files.
+`git diff --check` passed. Native clipboard/drop, remote execution and live vendor
+acceptance are not established by fixtures.
+
+Image arrays also have a 3 MiB serialized limit, including JSON overhead, so
+many tiny images cannot exceed the existing 4 MiB transport frame.
+
+## Model metadata follow-up
+
+User requested clean model-level image metadata across existing providers and
+explicitly chose to allow model switches, validating the next request. Compaction
+keeps its existing behavior; model-backed summaries can describe image content.
+No switch-time history scan, image cache, stripping, probing, or automatic
+compaction is introduced.
+
+Keep adapter contentTypes as serialization support. Add optional
+ModelInfo.supportsImages (wire boolean/null), preserving explicit false and unknown.
+Core checks the same predicate for new image delivery and the final effective
+provider request. A known text-only model rejects images; unknown metadata remains
+permissive and vendor validation remains authoritative. Switching itself succeeds;
+image-bearing active context then fails clearly without changing the log. Existing
+compaction boundaries naturally remove prior images from subsequent requests.
+
+- [x] Provider evidence and mappings: Mistral vision, Models.dev input modalities,
+      and LiteLLM supports_vision. The initial Anthropic API overlay and unknown
+      classifications were superseded by the completeness audit below, which
+      uses maintained/documented model facts and requested custom configuration.
+- [x] Shared protocol/service/client field preserves true, false and unknown.
+- [x] Request-boundary and public switching regressions, including summary boundary.
+- [x] Independent review, synchronized docs and full check.
+
+Metadata follow-up validation: `VITEST_MAX_WORKERS=4 npm run check` passed all
+root/CLI/desktop typechecks, lint, formatting and 1,568 tests / 41 skipped across
+176 files. Three independent read-only review lenses found no remaining blockers;
+focused independent metadata/wire/switch runs passed 130 tests / 6 skipped.
+The public switch test waits for the actual terminal RPC notification rather than
+assuming service idle implies client delivery. Model-setting test writes stay in
+its temporary home. Generated protocol schema includes nullable supportsImages.
+Metadata mappings use pinned SDKs and primary APIs; live account-specific capability
+responses and live image summarization remain unqualified. No commit/release made.
+
+## Completeness and simplicity audit
+
+User challenged unknown claims for known Codex/OpenAI/Gemini models and requested
+configurable custom-model modality metadata plus an overall research audit.
+The earlier metadata follow-up treated missing API flags as missing knowledge;
+that was incomplete for already-maintained catalogs. The audit corrects it:
+
+- [x] Official OpenAI model/vision docs establish image support for maintained
+      roster entries; share that metadata with Codex and test authenticated Codex
+      Responses user/tool-image serialization through the actual SDK.
+- [x] Official Gemini docs establish general-model image support; exclude the
+      documented audio-only/non-tool Transcribe model in the existing filter.
+- [x] Existing custom model metadata gets optional supportsImages, including
+      Mistral/LiteLLM overrides, retaining false/unknown and existing precedence.
+- [x] Simplify Anthropic: use documented support in its existing three-model
+      catalog; remove the newly added metadata API requests/cache/error paths.
+      LiteLLM also reuses existing profile merging instead of duplicate metadata.
+- [x] Recheck original five outcomes and metadata/config/switch behavior through
+      independent review, focused regressions and full validation; synchronize docs.
+
+Audit sources are linked in the owning models subsystem. Read-only end-to-end
+review found no additional blockers in GUI/log/reconnect/file/MCP/code-mode or
+context/switch ownership. Provider wire review found no additional mapping issues.
+Model-backed compaction remains unchanged as explicitly accepted by the user.
+No external catalog service, probing, image cache, automatic compaction or media
+manager is introduced. Native/live-vendor qualification limitations remain.
+
+Final completeness audit: three independent read-only lenses found only stale
+metadata documentation; the models table, testing guidance and historical plan
+claims are corrected. No further implementation blockers were identified.
+`VITEST_MAX_WORKERS=4 npm run check` passed typecheck, lint, formatting and
+1,575 tests / 41 skipped across 176 files. Provider suites passed 404 / 11 skipped;
+custom/configuration suites passed 160 / 1 skipped; authenticated Codex/OpenAI
+focused tests passed 21. These focused counts overlap the full suite.
+Final `git diff --check` and formatting of updated documentation passed.
+Native paste/drop, remote-host image reads, actual image-derived compaction and
+live vendor/account acceptance remain explicitly unqualified. Delivery is complete in the shared main checkout. The authorized commit covers
+image input, model metadata/configuration and the associated tests/documentation;
+no release is part of this commit request.

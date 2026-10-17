@@ -1,4 +1,5 @@
 import type {
+  ImageContent,
   Conversation,
   ConversationConfig,
   ConversationId,
@@ -166,6 +167,7 @@ export const decodeModelInfo = (model: WireModelInfo): ModelInfo => ({
   provider: model.provider,
   model: model.model,
   ...(model.label === null ? {} : { label: model.label }),
+  ...(model.supportsImages === null ? {} : { supportsImages: model.supportsImages }),
   ...(model.presets.length === 0
     ? {}
     : {
@@ -232,6 +234,7 @@ export interface HarnessClientService {
     id: ConversationId,
     text: string,
     intent: "send" | "steer" | "queue" | "interrupt",
+    images?: ImageContent[],
   ): Promise<void>;
   send(id: ConversationId, text: string): Promise<void>;
   compact(id: ConversationId): Promise<"compacted" | "noop">;
@@ -388,8 +391,9 @@ export class HarnessDomainClient implements HarnessClientService {
     id: ConversationId,
     text: string,
     intent: "send" | "steer" | "queue" | "interrupt",
+    images?: ImageContent[],
   ): Promise<void> {
-    await this.#client.deliver(id, text, intent);
+    await this.#client.deliver(id, text, intent, images);
   }
 
   async send(id: ConversationId, text: string): Promise<void> {

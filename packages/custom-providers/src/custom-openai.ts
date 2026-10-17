@@ -46,7 +46,7 @@ export class CustomOpenAIProvider extends OpenAIResponsesTransport {
 
   capabilities(model: string): ModelCapabilities {
     return {
-      contentTypes: ["text"],
+      contentTypes: ["text", "image"],
       toolCalling: true,
       // Defaults to string_replace: the safe function-only dialect for every OpenAI endpoint.
       fileTools: scopedModel(this.provider, this.#models, model).fileTools ?? "string_replace",

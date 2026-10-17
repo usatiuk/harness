@@ -1,6 +1,6 @@
 import {
   HARNESS_PROTOCOL_VERSION,
-  MAX_ATTACH_BYTES,
+  MAX_RPC_FRAME_BYTES,
   conversationAttachRequest,
   conversationCloseRequest,
   conversationCompactRequest,
@@ -34,6 +34,7 @@ import type {
   WireConversation,
   WireConversationEvent,
   WireItem,
+  ImageContent,
 } from "@harness/protocol";
 import { RpcPeer } from "./peer.ts";
 import type { RpcConnection } from "./peer.ts";
@@ -134,7 +135,7 @@ export class HarnessClient {
       (rootConversationId === pending.targetRootId || !this.#attachedRoots.has(rootConversationId))
     ) {
       const bytes = encodedLength(payload);
-      if (pending.bytes + bytes > MAX_ATTACH_BYTES) {
+      if (pending.bytes + bytes > MAX_RPC_FRAME_BYTES) {
         pending.events.length = 0;
         pending.bytes = 0;
         this.peer.terminateProtocol("attachment event buffer exceeded its byte limit");
@@ -282,8 +283,13 @@ export class HarnessClient {
     return this.peer.request(conversationDeleteEmptyRequest, { conversationId });
   }
 
-  deliver(conversationId: string, text: string, intent: "send" | "steer" | "queue" | "interrupt") {
-    return this.peer.request(conversationDeliverRequest, { conversationId, text, intent });
+  deliver(
+    conversationId: string,
+    text: string,
+    intent: "send" | "steer" | "queue" | "interrupt",
+    images: ImageContent[] = [],
+  ) {
+    return this.peer.request(conversationDeliverRequest, { conversationId, text, intent, images });
   }
 
   rewind(conversationId: string, itemId: string) {

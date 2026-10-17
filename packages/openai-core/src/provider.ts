@@ -26,6 +26,7 @@ export interface OpenAIModelLimits {
 /** One model in the provider catalog. */
 export interface OpenAIModelSpec extends OpenAIModelLimits {
   model: string;
+  supportsImages?: boolean;
   presets: PresetInfo[];
   /** Preset used when the selection omits one; must appear in `presets`. */
   defaultPreset: string;
@@ -49,6 +50,7 @@ function modernModel(
 ): OpenAIModelSpec {
   return {
     model,
+    supportsImages: true,
     presets: (allowNone ? modernPresets : gpt6Presets).map(preset),
     defaultPreset: "medium",
     contextWindow: 1_050_000,
@@ -78,6 +80,7 @@ export const OPENAI_MODELS: readonly OpenAIModelSpec[] = [
   modernModel("gpt-5.6-luna", 0.2, 1.2, 0.02),
   {
     model: "gpt-5.1",
+    supportsImages: true,
     presets: [preset("none"), preset("low"), preset("medium"), preset("high")],
     defaultPreset: "medium",
     contextWindow: 400_000,
@@ -86,6 +89,7 @@ export const OPENAI_MODELS: readonly OpenAIModelSpec[] = [
   },
   {
     model: "gpt-5.5",
+    supportsImages: true,
     presets: previousPresets.map(preset),
     defaultPreset: "medium",
     contextWindow: 1_050_000,
@@ -99,6 +103,7 @@ export const OPENAI_MODELS: readonly OpenAIModelSpec[] = [
   },
   {
     model: "gpt-5.4",
+    supportsImages: true,
     presets: previousPresets.map(preset),
     defaultPreset: "medium",
     contextWindow: 1_050_000,
@@ -112,6 +117,7 @@ export const OPENAI_MODELS: readonly OpenAIModelSpec[] = [
   },
   {
     model: "gpt-5.4-mini",
+    supportsImages: true,
     presets: previousPresets.map(preset),
     defaultPreset: "medium",
     contextWindow: 400_000,
@@ -120,6 +126,7 @@ export const OPENAI_MODELS: readonly OpenAIModelSpec[] = [
   },
   {
     model: "gpt-5.2",
+    supportsImages: true,
     presets: previousPresets.map(preset),
     defaultPreset: "medium",
     contextWindow: 400_000,
@@ -128,6 +135,7 @@ export const OPENAI_MODELS: readonly OpenAIModelSpec[] = [
   },
   {
     model: "gpt-5.3-codex",
+    supportsImages: true,
     presets: [preset("low"), preset("medium"), preset("high"), preset("xhigh")],
     defaultPreset: "medium",
     contextWindow: 400_000,
@@ -232,7 +240,7 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
   capabilities(model: string): ModelCapabilities {
     void model;
     // Every GPT model this class serves is trained on the V4A apply_patch dialect.
-    return { contentTypes: ["text"], toolCalling: true, fileTools: "apply_patch" };
+    return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "apply_patch" };
   }
 
   /** Fails fast on a preset the model doesn't offer; other configs are accepted unchallenged. */
@@ -252,6 +260,7 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
       return {
         provider: this.provider,
         model: m.model,
+        ...(m.supportsImages !== undefined ? { supportsImages: m.supportsImages } : {}),
         presets: m.presets,
         defaultPreset: m.defaultPreset,
         ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),

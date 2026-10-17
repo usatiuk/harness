@@ -9,6 +9,8 @@ Use await and return a JSON value. Discover tool definitions using the ordinary 
 tool_describe tools before writing code; tools.call is the only guest tool API.
 await tools.call(name, args) invokes a normal governed Harness tool. For custom tools pass a string.
 Calls return structured JSON when available, otherwise {content, status, full?, annotations?}.
+Image results always use that wrapper, with optional structured data in structured.
+Forward images with emitContent(result.content); do not serialize image data into text.
 Failures and denials throw an Error with a result property; caught errors may be handled deliberately.
 emit(value) appends JSON output; emitContent(blocks) forwards supported content blocks.
 Emitted output survives a later error. Only emitted values and the return value reach the main model.

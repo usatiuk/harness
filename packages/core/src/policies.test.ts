@@ -89,6 +89,20 @@ describe("estimateContextTokens", () => {
     items: [{ item: { ...item("m", 0), content: [{ type: "text" as const, text }] } }],
   });
 
+  it("does not count inline image base64 as text tokens", () => {
+    const withImage = (data: string) => {
+      const value = build("");
+      return {
+        ...value,
+        instructions: [{ type: "image" as const, mediaType: "image/png" as const, data }],
+      };
+    };
+    const small = estimateContextTokens(withImage("a".repeat(100)));
+    expect(estimateContextTokens(withImage("a".repeat(2_000_000)))).toBe(small);
+    expect(small).toBeGreaterThan(4096);
+    expect(small).toBeLessThan(5000);
+  });
+
   it("does not apply the sparse-English ratio to dense non-ASCII input", () => {
     const empty = estimateContextTokens(build(""));
     const ascii = estimateContextTokens(build("a".repeat(400))) - empty;

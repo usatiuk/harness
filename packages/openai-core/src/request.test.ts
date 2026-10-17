@@ -343,3 +343,87 @@ describe("buildResponseParams", () => {
     });
   });
 });
+
+describe("image request mapping", () => {
+  const image = { type: "image", mediaType: "image/png", data: "aW1hZ2U=" } as const;
+  const native = {
+    type: "input_image",
+    image_url: "data:image/png;base64,aW1hZ2U=",
+    detail: "auto",
+  };
+  it("keeps direct, function and custom images native in Responses", () => {
+    const request = baseRequest([
+      { item: item({ type: "message", role: "user", content: [image] }) },
+      { item: item({ type: "tool_call", callId: "f", name: "echo", args: {} }) },
+      { item: item({ type: "tool_result", callId: "f", status: "ok", content: [image] }) },
+      { item: item({ type: "tool_call", callId: "c", name: "patch", args: "x" }) },
+      { item: item({ type: "tool_result", callId: "c", status: "ok", content: [image] }) },
+    ]);
+    request.tools!.push({ kind: "custom", name: "patch", description: "patch" });
+    const input = buildResponseParams(request, undefined, "openai", false).input;
+    expect(input).toEqual([
+      { role: "user", content: [native] },
+      { type: "function_call", call_id: "f", name: "echo", arguments: "{}" },
+      { type: "function_call_output", call_id: "f", output: [native] },
+      { type: "custom_tool_call", call_id: "c", name: "patch", input: "x" },
+      { type: "custom_tool_call_output", call_id: "c", output: [native] },
+    ]);
+  });
+  it("projects Chat tool images only after the entire parallel result batch", () => {
+    const request = baseRequest([
+      { item: item({ type: "message", role: "user", content: [image] }) },
+      ...["a", "b"].map((callId) => ({
+        item: item({ type: "tool_call", callId, name: "echo", args: {} }),
+      })),
+      ...["a", "b"].map((callId) => ({
+        item: item({ type: "tool_result", callId, status: "ok", content: [image] }),
+      })),
+      {
+        item: item({
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: "seen" }],
+        }),
+      },
+    ]);
+    const before = structuredClone(request);
+    const messages = buildChatParams(request).messages;
+    expect(messages.map((message) => message.role)).toEqual([
+      "system",
+      "user",
+      "assistant",
+      "tool",
+      "tool",
+      "user",
+      "assistant",
+    ]);
+    expect(messages[1]).toEqual({
+      role: "user",
+      content: [{ type: "image_url", image_url: { url: native.image_url } }],
+    });
+    expect(messages[5]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Images from tool result a:" },
+        { type: "image_url", image_url: { url: native.image_url } },
+        { type: "text", text: "Images from tool result b:" },
+        { type: "image_url", image_url: { url: native.image_url } },
+      ],
+    });
+    expect(request).toEqual(before);
+  });
+  it("keeps images in historical raw-string tool results", () => {
+    const request = baseRequest([
+      { item: item({ type: "tool_call", callId: "c", name: "patch", args: "x" }) },
+      { item: item({ type: "tool_result", callId: "c", status: "ok", content: [image] }) },
+    ]);
+    expect(buildResponseParams(request, undefined, "openai", false).input).toContainEqual({
+      role: "user",
+      content: [native],
+    });
+    expect(buildChatParams(request).messages.at(-1)).toEqual({
+      role: "user",
+      content: [{ type: "image_url", image_url: { url: native.image_url } }],
+    });
+  });
+});

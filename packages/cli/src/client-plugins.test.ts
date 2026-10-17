@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { textOf } from "@harness/protocol";
 import type { ConversationId, PluginContract } from "@harness/protocol";
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
 import { HarnessRpcSession, HarnessService } from "@harness/service";
@@ -110,7 +111,7 @@ describe("CLI plugin protocol", () => {
       timeout: 10_000,
     });
     const content = await plugins.activities(conversation.id as ConversationId).peek(run.id);
-    expect(content[0]?.text).toContain("hello");
+    expect(textOf(content)).toContain("hello");
     expect(await plugins.topLevel([conversation.id as ConversationId])).toEqual(
       new Set([conversation.id]),
     );

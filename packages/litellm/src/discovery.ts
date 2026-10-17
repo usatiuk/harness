@@ -198,7 +198,16 @@ export function enrichModels(
         (info.supports_tool_calling == null || info.supports_tool_calling === true),
     );
     if (!supported) diagnostics.push(`Model '${id}' has unsupported mode or tool metadata`);
+    const supportsImages = agreedMetadata(
+      group,
+      "supports_vision",
+      z.boolean(),
+      id,
+      "image support",
+      diagnostics,
+    );
     const profile: ModelProfile = {};
+    if (supportsImages !== undefined) profile.supportsImages = supportsImages;
     for (const [field, target, label] of [
       ["max_input_tokens", "maxInputTokens", "input capacity"],
       ["max_output_tokens", "maxOutputTokens", "output capacity"],

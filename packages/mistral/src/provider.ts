@@ -69,6 +69,9 @@ export class MistralProvider implements ModelProvider {
         provider: this.provider,
         model,
         ...discovered?.info,
+        ...(configured.supportsImages !== undefined
+          ? { supportsImages: configured.supportsImages }
+          : {}),
         ...(configured.label !== undefined ? { label: configured.label } : {}),
         ...(configured.contextWindow !== undefined
           ? { contextWindow: configured.contextWindow }
@@ -104,8 +107,7 @@ export class MistralProvider implements ModelProvider {
   }
   capabilities(model: string): ModelCapabilities {
     this.#entry(model);
-    // Harness's canonical content currently supports text only.
-    return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" };
+    return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "string_replace" };
   }
   validateConfig(config: ModelConfig): void {
     if (config.provider !== this.provider) throw new Error("Provider instance identity mismatch");

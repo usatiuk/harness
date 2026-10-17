@@ -16,6 +16,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "audio", "video"],
+          "output": ["text"]
         }
       },
       "mimo-v2.5": {
@@ -30,6 +34,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "audio", "video"],
+          "output": ["text"]
         }
       },
       "grok-4.7": {
@@ -50,6 +58,10 @@
         "provider": {
           "npm": "@ai-sdk/openai",
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "pdf"],
+          "output": ["text"]
         }
       },
       "longcat-2.5-preview-free": {
@@ -68,6 +80,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image"],
+          "output": ["text"]
         }
       },
       "gemini-4-argon-contributor": {
@@ -88,6 +104,10 @@
         "provider": {
           "npm": "@ai-sdk/google",
           "api": "https://opencode.ai/inference/go/google/v1beta"
+        },
+        "modalities": {
+          "input": ["text", "image", "video", "audio", "pdf"],
+          "output": ["text"]
         }
       },
       "glm-5.3-flash": {
@@ -107,6 +127,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video", "pdf"],
+          "output": ["text"]
         }
       },
       "qwen3.8-max": {
@@ -134,6 +158,10 @@
         "provider": {
           "npm": "@ai-sdk/anthropic",
           "api": "https://opencode.ai/inference/go/anthropic/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video"],
+          "output": ["text"]
         }
       },
       "kimi-k3": {
@@ -153,6 +181,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video"],
+          "output": ["text"]
         }
       },
       "deepseek-v4.1-flash": {
@@ -172,6 +204,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image"],
+          "output": ["text"]
         }
       },
       "step-5-preview": {
@@ -192,6 +228,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video"],
+          "output": ["text"]
         }
       },
       "longcat-2.0": {
@@ -210,6 +250,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
         }
       },
       "cat-jam-free": {
@@ -229,6 +273,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
         }
       },
       "space-bunny": {
@@ -249,6 +297,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video"],
+          "output": ["text"]
         }
       },
       "minimax-m2.7": {
@@ -265,6 +317,10 @@
         "provider": {
           "npm": "@ai-sdk/anthropic",
           "api": "https://opencode.ai/inference/go/anthropic/v1"
+        },
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
         }
       },
       "mimo-v2.5-pro": {
@@ -279,6 +335,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
         }
       },
       "mimo-v2.6-flash": {
@@ -293,6 +353,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "audio", "video"],
+          "output": ["text"]
         }
       },
       "minimax-m3": {
@@ -312,6 +376,10 @@
         "provider": {
           "npm": "@ai-sdk/anthropic",
           "api": "https://opencode.ai/inference/go/anthropic/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video"],
+          "output": ["text"]
         }
       },
       "gpt-5.6-luna": {
@@ -333,6 +401,10 @@
         "provider": {
           "npm": "@ai-sdk/openai",
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "pdf"],
+          "output": ["text"]
         }
       },
       "qwen3.8-flash": {
@@ -359,6 +431,10 @@
         "provider": {
           "npm": "@ai-sdk/anthropic",
           "api": "https://opencode.ai/inference/go/anthropic/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video"],
+          "output": ["text"]
         }
       },
       "glm-5.2": {
@@ -378,6 +454,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
         }
       },
       "hy3": {
@@ -398,6 +478,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
         }
       },
       "muse-spark-1.2-contributor": {
@@ -418,6 +502,10 @@
         "provider": {
           "npm": "@ai-sdk/openai",
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video", "pdf", "audio"],
+          "output": ["text"]
         }
       },
       "claude-haiku-5-5": {
@@ -441,6 +529,10 @@
         "provider": {
           "npm": "@ai-sdk/anthropic",
           "api": "https://opencode.ai/inference/go/anthropic/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "pdf"],
+          "output": ["text"]
         }
       },
       "gpt-6-luna": {
@@ -462,6 +554,10 @@
         "provider": {
           "npm": "@ai-sdk/openai",
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "pdf"],
+          "output": ["text"]
         }
       },
       "deepseek-v4-pro": {
@@ -481,6 +577,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
         }
       },
       "hy4-preview": {
@@ -500,6 +600,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
         }
       },
       "muse-spark-1.3-contributor": {
@@ -520,6 +624,10 @@
         "provider": {
           "npm": "@ai-sdk/openai",
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video", "pdf", "audio"],
+          "output": ["text"]
         }
       },
       "step-5-preview-free": {
@@ -541,6 +649,10 @@
         "status": "deprecated",
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video"],
+          "output": ["text"]
         }
       },
       "glm-5.3": {
@@ -560,6 +672,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
         }
       },
       "kimi-k2.7-code": {
@@ -574,6 +690,10 @@
         "tool_call": true,
         "provider": {
           "api": "https://opencode.ai/inference/go/openai/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video"],
+          "output": ["text"]
         }
       },
       "qwen3.7-plus": {
@@ -597,6 +717,10 @@
         "provider": {
           "npm": "@ai-sdk/anthropic",
           "api": "https://opencode.ai/inference/go/anthropic/v1"
+        },
+        "modalities": {
+          "input": ["text", "image", "video"],
+          "output": ["text"]
         }
       }
     }

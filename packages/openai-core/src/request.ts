@@ -33,6 +33,30 @@ const textOf = (content: ContentBlock[]): string =>
     .map((b) => b.text)
     .join("");
 
+const responseContent = (
+  content: ContentBlock[],
+): string | OpenAI.Responses.ResponseInputContent[] =>
+  content.some((block) => block.type === "image")
+    ? content.map((block) =>
+        block.type === "text"
+          ? { type: "input_text", text: block.text }
+          : {
+              type: "input_image",
+              image_url: `data:${block.mediaType};base64,${block.data}`,
+              detail: "auto",
+            },
+      )
+    : textOf(content);
+
+const chatParts = (content: ContentBlock[]): OpenAI.Chat.Completions.ChatCompletionContentPart[] =>
+  content.map((block) =>
+    block.type === "text"
+      ? { type: "text", text: block.text }
+      : { type: "image_url", image_url: { url: `data:${block.mediaType};base64,${block.data}` } },
+  );
+const chatContent = (content: ContentBlock[]) =>
+  content.some((block) => block.type === "image") ? chatParts(content) : textOf(content);
+
 /** One log item → one Responses input item, or `undefined` to omit it. */
 function toInputItem(
   item: Item,
@@ -52,7 +76,7 @@ function toInputItem(
       }
       return {
         role: item.role,
-        content: textOf(item.content),
+        content: item.role === "assistant" ? textOf(item.content) : responseContent(item.content),
         ...(item.role === "assistant" &&
         (item.phase === null || item.phase === "commentary" || item.phase === "final_answer")
           ? { phase: item.phase }
@@ -93,15 +117,20 @@ function toInputItem(
         arguments: JSON.stringify(item.args),
       };
     case "tool_result":
-      if (rawCallIds.has(toolCallKey(item))) return { role: "user", content: textOf(item.content) };
+      if (rawCallIds.has(toolCallKey(item)))
+        return { role: "user", content: responseContent(item.content) };
       if (freeformCallIds.has(toolCallKey(item))) {
         return {
           type: "custom_tool_call_output",
           call_id: item.callId,
-          output: textOf(item.content),
+          output: responseContent(item.content),
         };
       }
-      return { type: "function_call_output", call_id: item.callId, output: textOf(item.content) };
+      return {
+        type: "function_call_output",
+        call_id: item.callId,
+        output: responseContent(item.content),
+      };
     case "compaction":
       // No provider concept for a fold; send it as a plain user message.
       return { role: "user", content: textOf(item.content) };
@@ -259,6 +288,12 @@ export function buildChatParams(
   // Context items are hoisted into the leading system message (not rendered at
   // their position), so collect their text while mapping the rest of the log.
   const contextTexts: string[] = [];
+  // Chat tool messages are text-only. Keep every parallel result adjacent before images.
+  let toolImages: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
+  const flushToolImages = (): void => {
+    if (toolImages.length) messages.push({ role: "user", content: toolImages });
+    toolImages = [];
+  };
   // The current generation's native assistant message, assembled from its split
   // log items. Every assistant-side item between two user-side boundaries belongs
   // to the same model response and folds into this one message — content,
@@ -284,6 +319,7 @@ export function buildChatParams(
   );
 
   for (const { item, payload } of request.items) {
+    if (item.type !== "tool_result" && item.type !== "provider_output") flushToolImages();
     switch (item.type) {
       case "reasoning": {
         if (
@@ -314,7 +350,7 @@ export function buildChatParams(
           msg.content = msg.content === null ? text : msg.content + text;
         } else {
           flushAssistant();
-          messages.push({ role: item.role, content: textOf(item.content) });
+          messages.push({ role: item.role, content: chatContent(item.content) });
         }
         break;
       case "provider_output":
@@ -340,11 +376,21 @@ export function buildChatParams(
       case "tool_result":
         // tool_result.status is not transmitted — same as the Responses transport.
         flushAssistant();
-        messages.push(
-          rawCallIds.has(toolCallKey(item))
-            ? { role: "user", content: textOf(item.content) }
-            : { role: "tool", tool_call_id: item.callId, content: textOf(item.content) },
-        );
+        if (rawCallIds.has(toolCallKey(item))) {
+          messages.push({ role: "user", content: chatContent(item.content) });
+        } else {
+          const hasImages = item.content.some((block) => block.type === "image");
+          messages.push({
+            role: "tool",
+            tool_call_id: item.callId,
+            content:
+              textOf(item.content) + (hasImages ? "\n[Images follow after tool results.]" : ""),
+          });
+          if (hasImages) {
+            toolImages.push({ type: "text", text: `Images from tool result ${item.callId}:` });
+            toolImages.push(...chatParts(item.content.filter((block) => block.type === "image")));
+          }
+        }
         break;
       case "compaction":
         flushAssistant();
@@ -357,6 +403,7 @@ export function buildChatParams(
     }
   }
   flushAssistant();
+  flushToolImages();
 
   const system = chatSystemContent(request.instructions, contextTexts);
   if (system.length > 0) messages.unshift({ role: "system", content: system });

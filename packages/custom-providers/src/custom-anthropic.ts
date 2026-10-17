@@ -46,7 +46,7 @@ export class CustomAnthropicProvider extends AnthropicMessagesTransport {
 
   capabilities(model: string): ModelCapabilities {
     return {
-      contentTypes: ["text"],
+      contentTypes: ["text", "image"],
       toolCalling: true,
       // Defaults to text_editor: the Messages API's native editor profile.
       fileTools: scopedModel(this.provider, this.#models, model).fileTools ?? "text_editor",

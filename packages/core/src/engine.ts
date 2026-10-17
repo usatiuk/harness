@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import {
   assertNever,
   ContextWindowExceededError,
+  ContentInputError,
   ModelInvocationFailure,
   conversationOf,
   costOf,
@@ -74,6 +75,17 @@ import { runModelChain, runToolChain } from "./compose.ts";
 import { runRequestChain } from "./compose.ts";
 import { reconcileConversation } from "./reconcile.ts";
 import { ModelPreview } from "./model-preview.ts";
+
+/** Adapter serialization support and advertised model support are separate facts. */
+function assertImageInput(provider: ModelProvider, model: ModelConfig, hasImages: boolean): void {
+  if (!hasImages) return;
+  if (!provider.capabilities(model.model).contentTypes.includes("image"))
+    throw new ContentInputError("The selected model adapter does not support image input");
+  if (findModel(provider.listModels(), model)?.supportsImages === false)
+    throw new ContentInputError(
+      `Model ${model.provider}/${model.model} does not support image input; select an image-capable model to use this context`,
+    );
+}
 
 const MAX_MODEL_STEPS = 100;
 
@@ -171,6 +183,11 @@ export class Engine {
       throw new Error("cannot deliver input during conversation deactivation");
     }
     const runtime = await this.#runtime(conversationId);
+    assertImageInput(
+      this.host.providers.get(runtime.conversation.config.model.provider),
+      runtime.conversation.config.model,
+      input.content.some((block) => block.type === "image"),
+    );
     this.assertWorkspaceAvailable(runtime.conversation.workspaceRoot);
     if (this.#rootScopeUnavailable(conversationId)) {
       if (input.source.kind === "plugin") return;
@@ -1976,6 +1993,15 @@ export class Engine {
         toolMeta: (name) => toolSet?.metaOf(name),
       },
       async function* (nextRequest) {
+        assertImageInput(
+          provider,
+          nextRequest.modelConfig,
+          nextRequest.instructions.some((block) => block.type === "image") ||
+            nextRequest.items.some(
+              ({ item }) =>
+                "content" in item && item.content.some((block) => block.type === "image"),
+            ),
+        );
         let attemptId: string | undefined;
         let capture: ((body: JsonValue) => Promise<void>) | undefined;
         if (evidenceByEvent) {

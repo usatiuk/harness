@@ -50,6 +50,7 @@ describe("listModels", () => {
     });
     const models = provider.listModels();
     const gpt = models.find((m) => m.model === "gpt-5.1");
+    expect(models.every((model) => model.supportsImages === true)).toBe(true);
     expect(gpt?.defaultPreset).toBe("medium");
     expect(gpt?.presets?.map((e) => e.value)).toEqual(["none", "low", "medium", "high"]);
   });

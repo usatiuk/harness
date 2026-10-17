@@ -301,3 +301,50 @@ describe("Mistral stream boundary", () => {
     ).rejects.toThrow("changed function identity");
   });
 });
+
+describe("image request mapping", () => {
+  const image = { type: "image", mediaType: "image/png", data: "aW1hZ2U=" } as const;
+  const native = { type: "image_url", image_url: `data:${image.mediaType};base64,${image.data}` };
+  it("projects tool images after parallel results and preserves direct image messages", () => {
+    const req = {
+      ...request(),
+      prompt: "continue",
+      items: [
+        { item: item({ type: "message", role: "user", content: [image] }) },
+        ...["a", "b"].map((callId) => ({
+          item: item({ type: "tool_call", callId, name: "echo", args: {} }),
+        })),
+        ...["a", "b"].map((callId) => ({
+          item: item({ type: "tool_result", callId, status: "ok", content: [image] }),
+        })),
+      ],
+    };
+    const before = structuredClone(req);
+    expect(buildMistralRequest(req).inputs).toEqual([
+      { type: "message.input", role: "user", content: [native] },
+      ...["a", "b"].map((tool_call_id) => ({
+        type: "function.call",
+        tool_call_id,
+        name: "echo",
+        arguments: "{}",
+      })),
+      ...["a", "b"].map((tool_call_id) => ({
+        type: "function.result",
+        tool_call_id,
+        result: "\n[Images follow after tool results.]",
+      })),
+      {
+        type: "message.input",
+        role: "user",
+        content: [
+          { type: "text", text: "Images from tool result a:" },
+          native,
+          { type: "text", text: "Images from tool result b:" },
+          native,
+        ],
+      },
+      { type: "message.input", role: "user", content: "continue" },
+    ]);
+    expect(req).toEqual(before);
+  });
+});

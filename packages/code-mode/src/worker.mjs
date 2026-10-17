@@ -17,6 +17,7 @@ let interrupted = false;
 let closed = false;
 let requestSeq = 0;
 let outputBytes = 0;
+let contentBytes = 0;
 let requestBytes = 0;
 const pending = new Map();
 runtime.setInterruptHandler(() => {
@@ -83,11 +84,16 @@ install("__call", (name, args) => {
 });
 install("__emit", (value, isContent) => {
   const text = stringify(value);
-  if ((outputBytes += Buffer.byteLength(text)) > limits.outputBytes)
+  const content = vm.dump(isContent);
+  if (content) {
+    if ((contentBytes += Buffer.byteLength(text)) > limits.imageContentBytes + limits.outputBytes)
+      throw new Error("code image output limit exceeded");
+  } else if ((outputBytes += Buffer.byteLength(text)) > limits.outputBytes) {
     throw new Error("code output limit exceeded");
+  }
   parentPort.postMessage({
     type: "emit",
-    content: vm.dump(isContent) ? JSON.parse(text) : [{ type: "text", text }],
+    content: content ? JSON.parse(text) : [{ type: "text", text }],
   });
   return vm.undefined;
 });
@@ -104,8 +110,9 @@ globalThis.tools = Object.freeze({
       const error = new Error(result.forModel.map(block => block.text).join(""));
       error.result = result; throw error;
     }
-    return result.structured === undefined ? {
-      content: result.forModel, status: result.status, full: result.full, annotations: result.annotations
+    return result.structured === undefined || result.forModel.some(block => block.type === "image") ? {
+      content: result.forModel, status: result.status, full: result.full, annotations: result.annotations,
+      ...(result.structured === undefined ? {} : { structured: result.structured })
     } : result.structured;
   }
 });

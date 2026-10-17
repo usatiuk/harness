@@ -368,3 +368,51 @@ describe("Gemini native search", () => {
     ]);
   });
 });
+
+describe("image request mapping", () => {
+  const image = { type: "image", mediaType: "image/png", data: "aW1hZ2U=" } as const;
+  const native = { type: "image", mime_type: image.mediaType, data: image.data };
+  it.each(["gemini-3.1-pro-preview", "gemini-2.5-pro"])("preserves images for %s", (model) => {
+    const req = {
+      ...request(),
+      prompt: "continue",
+      modelConfig: { provider: "gemini", model },
+      items: [
+        { item: item({ type: "message", role: "user", content: [image] }) },
+        ...["a", "b"].map((callId) => ({
+          item: item({ type: "tool_call", callId, name: "echo", args: {} }),
+        })),
+        ...["a", "b"].map((callId) => ({
+          item: item({ type: "tool_result", callId, status: "ok", content: [image] }),
+        })),
+      ],
+    };
+    const before = structuredClone(req);
+    const input = buildInteraction(req).input;
+    expect(input).toEqual([
+      { type: "user_input", content: [native] },
+      ...["a", "b"].map((id) => ({ type: "function_call", id, name: "echo", arguments: {} })),
+      ...["a", "b"].map((call_id) => ({
+        type: "function_result",
+        call_id,
+        is_error: false,
+        result: model.startsWith("gemini-3") ? [native] : "\n[Images follow after tool results.]",
+      })),
+      ...(model.startsWith("gemini-3")
+        ? []
+        : [
+            {
+              type: "user_input",
+              content: [
+                { type: "text", text: "Images from tool result a:" },
+                native,
+                { type: "text", text: "Images from tool result b:" },
+                native,
+              ],
+            },
+          ]),
+      { type: "user_input", content: [{ type: "text", text: "continue" }] },
+    ]);
+    expect(req).toEqual(before);
+  });
+});

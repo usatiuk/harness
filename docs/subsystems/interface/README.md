@@ -824,8 +824,9 @@ use it. No retry, periodic naming, separate queue or manual rename UI is added.
 The desktop user-message hover/focus action below the bubble and TUI `/fork` picker open an
 independent conversation before the selected user message, with its text in the
 ordinary editable composer draft. Neither action sends the draft or overwrites
-the source draft. The source can keep running. Non-text content stays persisted;
-text-only composers report the created fork ID rather than silently drop it.
+the source draft. The source can keep running. Desktop forks also seed image
+attachments in the editable draft; the text-only TUI reports the fork ID for
+non-text drafts rather than silently dropping content.
 
 Desktop user-message actions (Fork) and final assistant actions (Copy/feedback)
 reserve a small row below content. Intermediate assistant actions sit to the right
@@ -927,3 +928,20 @@ the batch and are reported to the agent as skipped, not answered. Dismissal appl
 to the entire request and remains separate. Closing a panel leaves
 the request open. Requests are conversation-owned; after server restart, opening
 a child conversation restores questions owned by that child.
+
+### Desktop image content
+
+The composer accepts pasted and dropped PNG/JPEG/GIF/WebP files, including
+image-only messages, using public deliver RPC optional images. Shared protocol
+validation enforces a 2 MiB combined decoded budget and matching signatures.
+Image bytes stay in canonical log content, not client file paths or a blob store.
+Per-conversation unsent images live in a router-owned memory map; accepted sends
+clear only the captured attachments, preserving edits made while awaiting delivery.
+Text drafts retain their existing storage. App restart loses unsent image drafts.
+
+Transcript reduction retains image blocks for user/plugin messages and tool
+results. Desktop previews open a Radix modal spanning the app with a dark backdrop
+and top-right close button, using the existing modal focus handling. CLI displays image placeholders without base64. Accepted
+images reconnect through ordinary history item references and chunk reads.
+Tauri webview native drag interception is disabled to allow DOM drop handling;
+browser tests do not qualify native operating-system drag/drop.

@@ -1,3 +1,4 @@
+import { ResponseError } from "vscode-jsonrpc";
 import type {
   NotificationHandler,
   RequestHandler,
@@ -5,6 +6,7 @@ import type {
   RpcConnection,
 } from "@harness/client";
 import {
+  ContentInputError,
   conversationAttachRequest,
   conversationCloseRequest,
   conversationCompactRequest,
@@ -310,10 +312,22 @@ export class HarnessRpcSession {
       });
     });
 
-    this.onRequest(conversationDeliverRequest, async ({ conversationId, text, intent }) => {
+    this.onRequest(conversationDeliverRequest, async ({ conversationId, text, intent, images }) => {
       const id = conversationId as ConversationId;
       return this.runWritable(id, async () => {
-        await this.#service.deliver(id, text, intent);
+        try {
+          await this.#service.deliver(
+            id,
+            {
+              source: { kind: "user" },
+              content: [...(text ? [{ type: "text" as const, text }] : []), ...images],
+            },
+            intent,
+          );
+        } catch (error) {
+          if (error instanceof ContentInputError) throw new ResponseError(-32602, error.message);
+          throw error;
+        }
         return null;
       });
     });

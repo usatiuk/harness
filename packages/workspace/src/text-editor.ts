@@ -15,6 +15,7 @@ import {
   type ToolResult,
 } from "@harness/protocol";
 import { uniqueReplace } from "./tools.ts";
+import { readImage } from "./read-image.ts";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -142,7 +143,7 @@ function numbered(text: string, range?: [number, number]): string {
 export class TextEditorTool implements Tool<EditorArgs> {
   readonly name = "str_replace_based_edit_tool";
   readonly description =
-    "View and edit files. Use workspace-relative paths for project files. Commands: view requires " +
+    "View text files or PNG, JPEG, GIF, or WebP images, and edit text files. Use workspace-relative paths for project files. Commands: view requires " +
     "path and optionally view_range; create requires path and file_text; str_replace requires " +
     "path and old_str and optionally new_str; insert requires path, insert_line, and new_str. " +
     "Only provide fields relevant to the selected command.";
@@ -161,7 +162,8 @@ export class TextEditorTool implements Tool<EditorArgs> {
         if ((await exec.stat(args.path))?.isDirectory)
           return ok(await listDirectory(exec, args.path));
         try {
-          return ok(numbered(await read(), args.view_range));
+          const image = await readImage(exec, args.path, args.view_range !== undefined);
+          return image ?? ok(numbered(await read(), args.view_range));
         } catch (error) {
           return errorResult(`view failed: cannot read ${args.path}: ${(error as Error).message}`);
         }

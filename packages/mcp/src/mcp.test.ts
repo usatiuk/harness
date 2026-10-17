@@ -37,6 +37,7 @@ async function execute(
     requests?: ModelRequest[];
     discover?: boolean;
     direct?: boolean;
+    emitContent?: boolean;
   } = {},
 ) {
   const name = runtime.tools().find((tool) => tool.rawName === rawName)!.name;
@@ -50,7 +51,9 @@ async function execute(
     options.direct
       ? toolStep("call", name, args)
       : toolStep("call", "eval", {
-          code: `return await tools.call(${JSON.stringify(name)}, ${JSON.stringify(args)});`,
+          code: options.emitContent
+            ? `const result = await tools.call(${JSON.stringify(name)}, ${JSON.stringify(args)}); emitContent(result.content);`
+            : `return await tools.call(${JSON.stringify(name)}, ${JSON.stringify(args)});`,
         }),
     ...(options.auto ? [textStep("YES")] : []),
     textStep("done"),
@@ -218,11 +221,28 @@ it("discovers raw names from a real stdio process, preserves JSON Schema and cre
     expect(
       result(await execute(runtime, "echo/with spaces", { value: "forbidden" })),
     ).toMatchObject({ status: "error" });
+    const imageItems = await execute(
+      runtime,
+      "echo/with spaces",
+      { value: "yes", mode: "image" },
+      "hybrid",
+      {},
+      { emitContent: true },
+    );
+    expect(result(imageItems)).toMatchObject({
+      status: "ok",
+      content: [
+        { type: "text", text: "Screenshot" },
+        { type: "image", mediaType: "image/png" },
+        { type: "text", text: "null" },
+      ],
+    });
+    expect(nested(imageItems)?.content).toEqual(result(imageItems)?.content.slice(0, 2));
     expect(
-      result(await execute(runtime, "echo/with spaces", { value: "yes", mode: "image" })),
+      result(await execute(runtime, "echo/with spaces", { value: "yes", mode: "invalid-image" })),
     ).toMatchObject({
       status: "error",
-      content: [{ type: "text", text: "MCP returned unsupported content" }],
+      content: [{ type: "text", text: "MCP returned invalid or unsupported image content" }],
     });
     expect(
       result(

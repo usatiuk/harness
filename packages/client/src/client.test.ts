@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   HARNESS_PROTOCOL_VERSION,
+  MAX_RPC_FRAME_BYTES,
+  MAX_IMAGE_BYTES,
   conversationAttachRequest,
   conversationReloadRequest,
   conversationDetachedNotification,
@@ -267,6 +269,63 @@ describe("HarnessClient attachment", () => {
     client.closeConnection();
   });
 
+  it("replays a maximum-sized image event after its pending attachment snapshot", async () => {
+    const connections = createInProcessMessageConnectionPair();
+    const server = new RpcPeer({ role: "server", connection: connections.right });
+    server.onInitialize(() => ({
+      protocolVersion: HARNESS_PROTOCOL_VERSION,
+      server: { name: "server", version: "1" },
+      plugins: [],
+    }));
+    const bytes = Buffer.alloc(MAX_IMAGE_BYTES);
+    bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    const content = [
+      { type: "image" as const, mediaType: "image/png" as const, data: bytes.toString("base64") },
+    ];
+    const notification = {
+      rootConversationId: "root",
+      conversationId: "root",
+      event: {
+        type: "item.appended" as const,
+        item: {
+          type: "message" as const,
+          role: "user" as const,
+          id: "image",
+          conversationId: "root",
+          turnId: "turn",
+          seq: 1,
+          parent: null,
+          createdAt: 1,
+          source: null,
+          phase: null,
+          content,
+        },
+      },
+    };
+    server.onRequest(conversationAttachRequest, async () => {
+      await server.notify(conversationEventNotification, notification);
+      return attachment;
+    });
+    server.listen();
+    const client = new HarnessClient({
+      connection: connections.left,
+      client: { name: "client", version: "1" },
+    });
+    const observed: unknown[] = [];
+    client.subscribe((event) => {
+      if (event.type === "attached") observed.push("snapshot");
+      if (event.type === "conversation") observed.push(event.event);
+    });
+    try {
+      await client.start();
+      await client.attach("root");
+      expect(observed).toEqual(["snapshot", notification.event]);
+      expect(client.peer.ready).toBe(true);
+    } finally {
+      client.closeConnection();
+    }
+  });
+
   it("closes when the bounded attach suffix overflows", async () => {
     const connections = createInProcessMessageConnectionPair();
     const server = new RpcPeer({ role: "server", connection: connections.right });
@@ -294,7 +353,10 @@ describe("HarnessClient attachment", () => {
     await client.start();
     const attaching = client.attach("root");
     await entered;
-    const payload = { rootConversationId: "root", value: "x".repeat(1_100_000) };
+    const payload = {
+      rootConversationId: "root",
+      value: "x".repeat(Math.ceil(MAX_RPC_FRAME_BYTES / 2)),
+    };
     client.receive("root", payload, () => {});
     client.receive("root", payload, () => {});
     release();

@@ -265,3 +265,26 @@ it("maps fetched metadata into real SDK requests for all three transports", asyn
     await gateway.close();
   }
 });
+
+it("exposes exact upstream input image claims and leaves absent modalities unknown", async () => {
+  const raw = catalog({
+    vision: { ...model("vision"), modalities: { input: ["text", "image"], output: ["text"] } },
+    text: { ...model("text"), modalities: { input: ["text"], output: ["text"] } },
+    unknown: model("unknown"),
+  });
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json(raw)));
+  const p = provider();
+  await p.refreshModels(new AbortController().signal);
+  expect(p.listModels().map(({ model, supportsImages }) => ({ model, supportsImages }))).toEqual([
+    { model: "vision", supportsImages: true },
+    { model: "text", supportsImages: false },
+    { model: "unknown", supportsImages: undefined },
+  ]);
+});
+
+it("retains upstream image modalities in the offline Go snapshot", () => {
+  const models = provider().listModels();
+  expect(models.find(({ model }) => model === "deepseek-v4-pro")?.supportsImages).toBe(false);
+  expect(models.find(({ model }) => model === "gpt-6-luna")?.supportsImages).toBe(true);
+  expect(models.every(({ supportsImages }) => typeof supportsImages === "boolean")).toBe(true);
+});

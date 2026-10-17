@@ -88,7 +88,9 @@ export function CellView({ cell }: { cell: Cell }): ReactElement {
       return (
         <Box>
           <Text color="cyan">{"› "}</Text>
-          <Text>{cell.text}</Text>
+          <Text>
+            {[cell.text, ...(cell.images ?? []).map(() => "[image]")].filter(Boolean).join("\n")}
+          </Text>
         </Box>
       );
     case "assistant":
@@ -213,6 +215,9 @@ function ToolCard({
         {cell.output && !approvalDenied ? (
           <Text dimColor>{indent(truncate(cell.output, TOOL_OUTPUT_CAP))}</Text>
         ) : null}
+        {cell.images?.length ? (
+          <Text dimColor>{cell.images.map(() => "[image]").join(" ")}</Text>
+        ) : null}
         <ApprovalLine cell={cell} />
       </Box>
     );
@@ -224,6 +229,9 @@ function ToolCard({
         <Text color={color}>{`${cell.parentCallId ? "  ↳ " : ""}${mark} ${cell.name}`}</Text>
         {summary ? <Text dimColor>{`  ${summary}`}</Text> : null}
       </Text>
+      {cell.images?.length ? (
+        <Text dimColor>{cell.images.map(() => "[image]").join(" ")}</Text>
+      ) : null}
       <ApprovalLine cell={cell} />
       {approvalDenied ? null : <ResultLine status={cell.status} output={cell.output} />}
     </Box>

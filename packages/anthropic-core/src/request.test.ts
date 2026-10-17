@@ -425,3 +425,48 @@ describe("buildMessages", () => {
     expect(params.output_config).toEqual({ effort: "high" });
   });
 });
+
+describe("image request mapping", () => {
+  const image = { type: "image", mediaType: "image/png", data: "aW1hZ2U=" } as const;
+  const native = {
+    type: "image",
+    source: { type: "base64", media_type: image.mediaType, data: image.data },
+  };
+  it("preserves direct and parallel tool images as native blocks", () => {
+    const request = baseRequest([
+      { item: item({ type: "message", role: "user", content: [image] }) },
+      ...["a", "b"].map((callId) => ({
+        item: item({ type: "tool_call", callId, name: "echo", args: {} }),
+      })),
+      ...["a", "b"].map((callId) => ({
+        item: item({ type: "tool_result", callId, status: "ok", content: [image] }),
+      })),
+    ]);
+    const before = structuredClone(request);
+    const messages = buildMessages(request, CONFIG, PROVIDER).messages;
+    expect(messages[0]).toEqual({ role: "user", content: [native] });
+    expect(messages[2]).toEqual({
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "a", content: [native] },
+        {
+          type: "tool_result",
+          tool_use_id: "b",
+          content: [native],
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    });
+    expect(request).toEqual(before);
+  });
+  it("keeps images from raw-string historical calls", () => {
+    const request = baseRequest([
+      { item: item({ type: "tool_call", callId: "raw", name: "patch", args: "x" }) },
+      { item: item({ type: "tool_result", callId: "raw", status: "ok", content: [image] }) },
+    ]);
+    expect(buildMessages(request, CONFIG, PROVIDER).messages.at(-1)).toEqual({
+      role: "user",
+      content: [native],
+    });
+  });
+});

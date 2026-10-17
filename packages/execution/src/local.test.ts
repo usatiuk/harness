@@ -26,6 +26,15 @@ describe("LocalExecutionContext", () => {
     expect(td.decode(await ctx.read("sub/a.txt"))).toBe("hello");
   });
 
+  it("reads bounded byte ranges and stops at end of file", async () => {
+    const ctx = new LocalExecutionContext(await tmp());
+    await ctx.write("range.txt", te.encode("0123456789"));
+    expect(td.decode(await ctx.read("range.txt", { offset: 2, length: 3 }))).toBe("234");
+    expect(td.decode(await ctx.read("range.txt", { offset: 8, length: 5 }))).toBe("89");
+    expect(await ctx.read("range.txt", { offset: 12, length: 5 })).toHaveLength(0);
+    expect(await ctx.read("range.txt", { offset: 0, length: 0 })).toHaveLength(0);
+  });
+
   it("lists workspace-relative paths matching a glob", async () => {
     const ctx = new LocalExecutionContext(await tmp());
     await ctx.write("a.ts", te.encode(""));

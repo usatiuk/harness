@@ -221,7 +221,7 @@ Responses shape (with the `sendInstructionsAsSystem` opt-in above) and
 `fileTools: "apply_patch"` on every model). Each entry strictly scopes only what an
 endpoint owns — `endpoint`, `apiKey`, and the responses-only
 `sendInstructionsAsSystem` opt-in — while each served model carries its own
-`fileTools`, `contextWindow`, `maxOutputTokens`, optional display `label`, and `presets` under
+`fileTools`, `contextWindow`, `maxOutputTokens`, optional `supportsImages` and display `label`, and `presets` under
 `models.<id>`. One entry can therefore serve several models on a shared server
 across different trained dialects and sampling knobs (e.g. an OVMS endpoint
 running both a completion-tuned and a responses-tuned model).
@@ -337,7 +337,7 @@ and expanded aliases, atomic snapshots, cancellation, safe status diagnostics,
 and no polling or disk cache. Explicit catalog rows own their IDs; conflicting
 aliases and duplicate IDs fail discovery. Only function-capable chat models are
 discovered. Optional `config.models.<exact-id>` entries declare additional models
-or override `label`, `contextWindow`, and `maxOutputTokens` for a discovered ID.
+or override `label`, `contextWindow`, `maxOutputTokens`, and `supportsImages` for a discovered ID.
 Explicit fields win without propagating to aliases; discovered temperatures and
 reasoning controls remain intact. Manual-only entries assert support for the
 existing text/function-tool transport and have no reasoning presets. Limits are
@@ -358,8 +358,9 @@ Medium 3.5 and Large 4 IDs/aliases expose `none`/`high`; GLM 5.3 exposes
 [Mistral's reasoning documentation](https://docs.mistral.ai/studio/conversations/reasoning),
 not a generic inference from the capability flag. Unknown API models retain the
 flag without invented choices. Aliases retain the row's controls.
-The public canonical content boundary currently supports text, so advertised
-vision capabilities do not enable image input.
+The canonical content boundary supports inline PNG/JPEG/GIF/WebP images.
+Adapter capability declarations describe supported input serialization; the selected
+vendor model must also support vision.
 
 Local SDK/HTTP/SSE fixtures verify transport and fidelity. No real Mistral key
 was available for this delivery; vendor signature acceptance, cache-hit rates,
@@ -553,3 +554,76 @@ The GUI can add a named LiteLLM instance through the existing global provider
 configuration and credential boundaries; a server restart activates discovery.
 
 Custom model labels flow through the existing ModelInfo catalog to GUI/TUI selectors. They do not replace the model key in API requests, settings identity or pinned conversation configuration; opaque checkpoint paths can therefore have readable names.
+
+## Image request projection
+
+Canonical image blocks carry mediaType and base64 data, stored unchanged inside
+ordinary messages and tool results. Responses and Anthropic support native image
+tool results. Gemini 3 uses native multimodal function responses; older Gemini,
+Chat Completions and Mistral Conversations receive attributed user images after
+the complete tool-result batch. These projections exist only in adapters and do
+not rewrite history. Custom, Codex, LiteLLM and OpenCode wrappers reuse their
+transport mapping. Opaque provider replay and text-only request shapes remain.
+
+Wire-format evidence: [Responses function calling](https://developers.openai.com/api/docs/guides/function-calling),
+[Anthropic tool results](https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls),
+[Gemini multimodal function responses](https://ai.google.dev/gemini-api/docs/function-calling#multimodal-function-responses),
+and the pinned Mistral SDK's string-only function-result and image-URL input types.
+Request fixtures validate serialization, not live vendor/model acceptance.
+
+The preliminary context estimate omits base64 and reserves 4,096 tokens per image.
+This is a bounded heuristic rather than a vision tokenizer; actual provider usage
+and the existing context-overflow recovery remain authoritative.
+
+### Advertised image support
+
+`ModelInfo.supportsImages?: boolean` preserves explicit support, explicit lack of
+support and unknown (absent; null on public wire). Adapter contentTypes continues
+to describe serialization support. The shared core check combines these facts:
+new image delivery and the final effective provider request reject unsupported
+adapters or explicit model false; unknown model metadata remains permissive.
+
+| Connection         | Source of model image metadata                                                            |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| Mistral API/Vibe   | Configured supportsImages, otherwise capabilities.vision including aliases                |
+| OpenCode Go        | Models.dev modalities.input, including bundled snapshot                                   |
+| LiteLLM            | Configured supportsImages, otherwise agreed model_info.supports_vision                    |
+| Anthropic          | Documented image support in the existing three-model roster                               |
+| OpenAI/Codex       | Documented image support in the existing maintained roster                                |
+| Gemini             | Documented image support for discovered general models; audio-only transcription excluded |
+| Custom connections | Per-model supportsImages; omitted means unknown                                           |
+
+Maintained OpenAI/Codex and Anthropic rosters record documented image support
+beside their existing presets and limits. This requires no extra capability-fetch
+endpoint or cache. A model-list API missing modality fields does not erase known
+facts from those rosters. Gemini's general models have documented image support;
+the existing discovery filter excludes image-generation, TTS and audio-only
+transcription models unsuitable for the agent loop. Arbitrary unlisted models
+remain unknown unless configuration supplies a claim.
+
+Custom Responses, Chat Completions and Anthropic per-model metadata accepts
+`supportsImages: true` or `false`; omission stays unknown. Mistral and LiteLLM's
+existing per-model metadata also accept the field, with explicit configuration
+overriding discovered metadata. LiteLLM merges it through the existing model
+profile rather than carrying a parallel capability record. Example model entry:
+
+```json
+{ "supportsImages": false }
+```
+
+Sources: [OpenAI model catalog](https://developers.openai.com/api/docs/models),
+[OpenAI image input](https://developers.openai.com/api/docs/guides/images-vision),
+[Claude Opus](https://platform.claude.com/docs/en/models/opus-4-8/overview),
+[Claude Sonnet](https://platform.claude.com/docs/en/models/sonnet-4-6/overview),
+[Claude Haiku](https://platform.claude.com/docs/en/models/haiku-4-5/overview),
+[Gemini image capabilities](https://ai.google.dev/gemini-api/docs/image-understanding#capabilities),
+[Gemini Transcribe](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-transcribe),
+and [Models.dev modalities](https://github.com/anomalyco/models.dev#adding-model-metadata).
+
+Switching models does not inspect history or reject the switch. If active context
+still contains images, the next request fails clearly for a known text-only model,
+with history intact. Selecting an image-capable or unknown model can continue.
+Ordinary model-backed compaction sees images and summarizes normally; subsequent
+requests start at that summary, so images before it no longer block text-only
+models. No automatic compaction, image stripping, special captions or image cache
+is added. The existing deterministic text fallback is unchanged.

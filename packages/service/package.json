@@ -14,7 +14,8 @@
     "@harness/client": "*",
     "@harness/protocol": "*",
     "@harness/core": "*",
-    "@harness/config": "*"
+    "@harness/config": "*",
+    "vscode-jsonrpc": "^8.2.1"
   },
   "devDependencies": {
     "@harness/output": "*",

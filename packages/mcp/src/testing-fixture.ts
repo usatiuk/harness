@@ -9,7 +9,10 @@ import {
 
 export const fixtureSchema = {
   type: "object" as const,
-  properties: { value: { type: "string" }, mode: { enum: ["ok", "error", "image", "hold"] } },
+  properties: {
+    value: { type: "string" },
+    mode: { enum: ["ok", "error", "image", "invalid-image", "hold"] },
+  },
   required: ["value"],
   additionalProperties: false,
   allOf: [{ if: { properties: { value: { const: "forbidden" } } }, then: false }],
@@ -28,8 +31,20 @@ export function fixtureServer(
     async (args, ctx): Promise<CallToolResult> => {
       calls.push(args);
       if (args.mode === "hold") await hold?.(ctx.mcpReq.signal);
-      if (args.mode === "image")
-        return { content: [{ type: "image", mimeType: "image/png", data: "eA==" }] };
+      if (args.mode === "image" || args.mode === "invalid-image")
+        return {
+          content: [
+            { type: "text", text: "Screenshot" },
+            {
+              type: "image",
+              mimeType: "image/png",
+              data:
+                args.mode === "invalid-image"
+                  ? "eA=="
+                  : "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=",
+            },
+          ],
+        };
       return {
         content: [{ type: "text", text: args.value }],
         structuredContent: {

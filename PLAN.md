@@ -1,5 +1,17 @@
 # Harness plan
 
+The [image-input v1 plan](docs/plans/cross-cutting/2026-10-17-image-input.md)
+is complete: inline image content, desktop paste/drop and viewer, file/MCP
+ingestion, and request transformations for existing providers. Full checks pass
+1,557 tests with 41 skipped; eight focused Chromium cases pass. The plan records
+review fixes and native/live-provider qualification limits. The model metadata
+follow-up adds explicit support/unsupported/unknown and keeps switches allowed
+with validation at the next provider request. Full revalidation passes 1,568 tests
+with 41 skipped; compaction behavior remains unchanged. The completeness audit
+finished documented static model claims, custom-model metadata, and removal of
+unnecessary Anthropic capability-fetching machinery. Final full checks pass
+1,575 tests with 41 skipped; independent reviews found no remaining blockers.
+
 The [desktop streaming performance refactor](docs/plans/interface/2026-10-17-desktop-streaming-performance.md)
 is complete: scoped UI subscriptions, a 100 ms text/reasoning publication cap,
 stable transcript rows and lazy expensive rendering. Full checks pass 1,518 tests;

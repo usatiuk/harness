@@ -2489,3 +2489,102 @@ test("each question can be explicitly skipped without dismissing the batch", asy
     },
   ]);
 });
+
+const imageBase64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5GQAAAAASUVORK5CYII=";
+async function attachFixtureImage(page: Page, event: "paste" | "drop") {
+  await page.getByRole("textbox", { name: "Message", exact: true }).evaluate(
+    (element, args) => {
+      const bytes = Uint8Array.from(atob(args.data), (character) => character.charCodeAt(0));
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], "test.png", { type: "image/png" }));
+      element.dispatchEvent(
+        args.event === "paste"
+          ? new ClipboardEvent("paste", {
+              bubbles: true,
+              cancelable: true,
+              clipboardData: transfer,
+            })
+          : new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+      );
+    },
+    { data: imageBase64, event },
+  );
+  await expect(page.locator(".composer .image-preview")).toHaveCount(1);
+}
+
+for (const event of ["paste", "drop"] as const) {
+  test(`image ${event} supports preview, full viewer, image-only send, and removal`, async ({
+    page,
+  }) => {
+    await page.goto(url + "?composer");
+    await attachFixtureImage(page, event);
+    await page.getByRole("button", { name: "Open image 1", exact: true }).click();
+    const viewer = page.getByRole("dialog", { name: "Image 1", exact: true });
+    await expect(viewer).toBeVisible();
+    await expect(viewer.locator("img")).toHaveJSProperty("naturalWidth", 1);
+    await expect(viewer).toHaveCSS("width", `${page.viewportSize()!.width}px`);
+    await viewer.getByRole("button", { name: "Close dialog" }).click();
+    await expect(viewer).toBeHidden();
+    await page.getByRole("button", { name: "Steer", exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.composerFixture.calls))
+      .toEqual([
+        {
+          text: "",
+          intent: "steer",
+          images: [{ type: "image", mediaType: "image/png", data: imageBase64 }],
+        },
+      ]);
+    await page.evaluate(() => window.composerFixture.settle(true));
+    await expect(page.getByRole("button", { name: "Remove image 1" })).toBeVisible();
+    await page.getByRole("button", { name: "Steer", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(2);
+    await page.evaluate(() => window.composerFixture.settle());
+    await expect(page.locator(".composer .image-preview")).toHaveCount(0);
+    await attachFixtureImage(page, event);
+    await page.getByRole("button", { name: "Remove image 1" }).click();
+    await expect(page.locator(".composer .image-preview")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  });
+}
+
+test("accepted image delivery preserves attachments added while sending", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await attachFixtureImage(page, "paste");
+  await page.getByRole("button", { name: "Steer", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(1);
+  await page.getByRole("textbox", { name: "Message", exact: true }).evaluate((element, data) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(
+      new File([Uint8Array.from(atob(data), (c) => c.charCodeAt(0))], "next.png", {
+        type: "image/png",
+      }),
+    );
+    element.dispatchEvent(
+      new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: transfer }),
+    );
+  }, imageBase64);
+  await expect(page.locator(".composer .image-preview")).toHaveCount(2);
+  await page.evaluate(() => window.composerFixture.settle());
+  await expect(page.locator(".composer .image-preview")).toHaveCount(1);
+});
+
+test("user and tool image history show previews and full viewer", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(
+    (data) => window.composerFixture.showImages([{ type: "image", mediaType: "image/png", data }]),
+    imageBase64,
+  );
+  await expect(page.locator(".cell.user .image-preview")).toHaveCount(1);
+  await page.locator(".cell.user").getByRole("button", { name: "Open image 1" }).click();
+  await expect(page.getByRole("dialog", { name: "Image 1", exact: true })).toBeVisible();
+  await page
+    .getByRole("dialog", { name: "Image 1", exact: true })
+    .getByRole("button", { name: "Close dialog" })
+    .click();
+  await expect(page.getByRole("dialog", { name: "Image 1", exact: true })).toBeHidden();
+  await page.getByTestId("tool-call").locator("summary").click();
+  await expect(page.getByTestId("tool-call").locator(".image-preview")).toHaveCount(1);
+});
