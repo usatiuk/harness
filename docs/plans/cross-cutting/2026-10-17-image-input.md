@@ -1,6 +1,6 @@
 # Image input v1
 
-Status: Active — fixes validated; minor release pending
+Status: Complete — released in v0.4.0
 
 ## Scope and completion
 
@@ -296,7 +296,7 @@ remaining blockers. Browser/native payload evidence above passed; no native
 clipboard code, image conversion service or new abstraction was added.
 
 - [x] Push the validated commits and dispatch the existing minor release workflow.
-- [ ] Verify all platform builds and signed draft assembly, publish the minor
+- [x] Verify all platform builds and signed draft assembly, publish the minor
       release, and record its run/tag evidence.
 
 Minor release run 39058583284 created tag v0.4.0 at 25e98d9 after its source
@@ -307,3 +307,18 @@ Windows output used the installed figures package's documented fallback symbols
 regex convention as existing host tests. Interaction/answer assertions remain
 unchanged; require new hosted Windows CI before publishing. Platform builds
 continue from the tagged source; this correction changes tests only.
+
+Release completion: [v0.4.0](https://github.com/usatiuk/harness/releases/tag/v0.4.0)
+is published as latest with 19 assets. Image review fixes are committed as
+338bf9b; the workflow's version bump/tag is 25e98d9. Test-only Windows symbol
+correction d0e5418 passes [hosted CI](https://github.com/usatiuk/harness/actions/runs/39059007719):
+Windows 1,594 passed / 53 skipped; Ubuntu 1,603 passed / 44 skipped.
+[Release run 39058583284](https://github.com/usatiuk/harness/actions/runs/39058583284)
+passes the source gate, all Windows/Linux/macOS builds and signed assembly.
+Downloaded draft metadata and anonymous published manifest/signature/update-feed
+downloads pass the production native signature verifier, report version 0.4.0,
+and contain all three expected platform entries. Local direct Node fetch timed
+out; the required external-network curl retry completed successfully.
+All test-owned native resources were cleaned; the pre-existing Vite listener was
+left untouched. Platform build results do not expand the recorded native UI
+qualification beyond the actual Linux X11 test.

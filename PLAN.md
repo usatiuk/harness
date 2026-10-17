@@ -10,8 +10,10 @@ file reader remains for explicit URIs and proven Tauri drop integration. Final
 regression checks pass 1,605 tests / 41 skipped, six focused Chromium cases, and
 the actual Linux five-image pipeline. Three independent cleanup audits are complete.
 Three subsequent review fixes are validated by 1,606 tests / 41 skipped, eight
-browser cases and native byte/pixel/persistence comparisons. A minor release is
-authorized and pending the standard hosted build/sign workflow.
+browser cases and native byte/pixel/persistence comparisons. These changes are
+released in [v0.4.0](https://github.com/usatiuk/harness/releases/tag/v0.4.0). Hosted
+Windows/Linux CI, all three platform builds, release signatures and anonymous
+manifest/update-feed downloads pass; the delivery plan records exact evidence.
 
 The [desktop streaming performance refactor](docs/plans/interface/2026-10-17-desktop-streaming-performance.md)
 is complete: scoped UI subscriptions, a 100 ms text/reasoning publication cap,
