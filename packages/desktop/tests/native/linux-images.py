@@ -10,7 +10,7 @@ keyboard/mouse events. Timers pace pointer gestures; completion checks poll actu
 preview counts and model output. A JPEG-only native bitmap is a negative browser-capability case; copying a JPEG
 file remains a positive attachment case. Artifacts remain under /tmp for analysis.
 """
-import os, subprocess, tempfile, pathlib, time, urllib.request, json, ctypes, ctypes.util, re, threading, http.server, socket, sys, atexit
+import os, subprocess, tempfile, pathlib, time, urllib.request, json, ctypes, ctypes.util, re, threading, http.server, socket, sys, atexit, base64
 repo = pathlib.Path(__file__).resolve().parents[4]
 helper = pathlib.Path(__file__).with_name('linux-image-inspector.mjs')
 if 'HARNESS_IMAGE_PROBE_ROOT' not in os.environ:
@@ -38,7 +38,7 @@ def cleanup():
             app.kill()
             app.wait()
     if (root / 'home' / 'store.db').exists():
-        result = subprocess.run(node + ['cleanup', str(root / 'home')] + (['5'] if passed else []), cwd=repo, text=True, capture_output=True)
+        result = subprocess.run(node + ['cleanup', str(root / 'home')] + ([str(root / 'model-request.json')] if passed else []), cwd=repo, text=True, capture_output=True)
         print('STORE', result.stdout, result.stderr, flush=True)
         if result.returncode:
             passed = False
@@ -385,7 +385,25 @@ def tick():
             request = json.loads((root / 'model-request.json').read_text())
             images = [b for m in request['messages'] for b in m.get('content', []) if isinstance(b, dict) and b.get('type') == 'image_url']
             assert len(images) == 5 and str(image) not in json.dumps(request)
-            report('native-send-log-and-model', {'userPreviews': previews, 'modelImages': len(images), 'clientPathInPayload': False})
+            urls = [block['image_url']['url'] for block in images]
+            png_url = 'data:image/png;base64,' + base64.b64encode(image.read_bytes()).decode('ascii')
+            jpeg_url = 'data:image/jpeg;base64,' + base64.b64encode(jpeg.read_bytes()).decode('ascii')
+            assert [urls[index] for index in [0, 2, 3, 4]] == [png_url, jpeg_url, png_url, png_url]
+            bitmap_prefix = 'data:image/png;base64,'
+            assert urls[1].startswith(bitmap_prefix)
+            loader = GdkPixbuf.PixbufLoader.new_with_type('png')
+            loader.write(base64.b64decode(urls[1][len(bitmap_prefix):], validate=True))
+            loader.close()
+            bitmap = loader.get_pixbuf()
+            assert (bitmap.get_width(), bitmap.get_height()) == (16, 16)
+            channels = bitmap.get_n_channels()
+            assert channels in (3, 4) and bitmap.get_bits_per_sample() == 8
+            expected_row = bytes([255, 68, 0, 255][:channels]) * bitmap.get_width()
+            pixels = bitmap.get_pixels()
+            for row in range(bitmap.get_height()):
+                start = row * bitmap.get_rowstride()
+                assert pixels[start:start + len(expected_row)] == expected_row
+            report('native-send-log-and-model', {'userPreviews': previews, 'modelImages': len(images), 'knownFileBytesMatch': True, 'bitmapPixelsMatch': True, 'clientPathInPayload': False})
             passed = True
             Gtk.main_quit()
             return False

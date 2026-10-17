@@ -943,6 +943,8 @@ Transcript reduction retains image blocks for user/plugin messages and tool
 results. Desktop previews open a Radix modal spanning the app with a dark backdrop
 and top-right close button, using the existing modal focus handling. CLI displays image placeholders without base64. Accepted
 images reconnect through ordinary history item references and chunk reads.
+Image signatures determine media types for both browser and native file reads;
+empty or generic browser File.type metadata does not reject valid images.
 Normal browser `ClipboardEvent.clipboardData.files`, DOM drop files and the
 paperclip's file input share FileReader ingestion. If paste exposes no files but
 indicates image/file content, the handler starts `navigator.clipboard.read()`
@@ -966,7 +968,8 @@ error, so pending reads remain visible across navigation and only accepted captu
 attachments clear. There is no separate upload manager or persisted draft blob.
 
 Actual Linux X11/WebKitGTK qualification covers file/bitmap/JPEG clipboard,
-native drag/drop, chooser, send, SQLite persistence and model-request byte delivery.
+native drag/drop, chooser, send, exact PNG/JPEG file bytes, decoded screenshot
+pixels, and equality of SQLite image payloads with model-request payloads.
 Browser event injection alone does not qualify this OS boundary. Wayland,
 Windows and macOS native execution remain unqualified.
 

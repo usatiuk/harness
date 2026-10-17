@@ -2536,23 +2536,28 @@ test("real browser clipboard paste attaches an image without native APIs", async
   await expect(page.locator(".composer .image-preview img")).toHaveJSProperty("naturalWidth", 1);
 });
 
-test("paperclip opens the image file chooser before the model control", async ({ page }) => {
-  await page.goto(url + "?composer");
-  const paperclip = page.getByRole("button", { name: "Attach images", exact: true });
-  const model = page.getByRole("button", { name: "Model and preset: Fixture model" });
-  expect((await paperclip.boundingBox())!.x).toBeLessThan((await model.boundingBox())!.x);
-  const chooser = page.waitForEvent("filechooser");
-  await paperclip.click();
-  await (
-    await chooser
-  ).setFiles({
-    name: "screenshot.png",
-    mimeType: "image/png",
-    buffer: Buffer.from(imageBase64, "base64"),
+for (const mimeType of ["image/png", "", "application/octet-stream"]) {
+  test(`paperclip reads image bytes with MIME ${mimeType || "empty"} before the model control`, async ({
+    page,
+  }) => {
+    await page.goto(url + "?composer");
+    const paperclip = page.getByRole("button", { name: "Attach images", exact: true });
+    const model = page.getByRole("button", { name: "Model and preset: Fixture model" });
+    expect((await paperclip.boundingBox())!.x).toBeLessThan((await model.boundingBox())!.x);
+    const chooser = page.waitForEvent("filechooser");
+    await paperclip.click();
+    await (
+      await chooser
+    ).setFiles({
+      name: "screenshot",
+      mimeType,
+      buffer: Buffer.from(imageBase64, "base64"),
+    });
+    await expect(page.locator(".composer .image-preview")).toHaveCount(1);
+    await expect(page.locator(".composer .image-preview img")).toHaveJSProperty("naturalWidth", 1);
+    await expect(page.getByRole("button", { name: "Steer", exact: true })).toBeEnabled();
   });
-  await expect(page.locator(".composer .image-preview")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Steer", exact: true })).toBeEnabled();
-});
+}
 
 for (const event of ["paste", "drop"] as const) {
   test(`image ${event} supports preview, full viewer, image-only send, and removal`, async ({

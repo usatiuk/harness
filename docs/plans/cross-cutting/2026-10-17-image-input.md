@@ -1,6 +1,6 @@
 # Image input v1
 
-Status: Complete — browser-first cleanup validated
+Status: Active — fixes validated; minor release pending
 
 ## Scope and completion
 
@@ -267,3 +267,34 @@ Primary browser contract: https://webkit.org/blog/10855/async-clipboard-api/
 explains image/png and text/uri-list representations and direct paste-gesture
 access. MacOS/Windows native execution and Wayland remain unqualified; this audit
 does not infer failures there from Linux observations.
+
+## Follow-up review fixes
+
+Scope is limited to the three accepted findings: browser image type detection,
+native test byte fidelity, and redundant validation of file-tool generated base64.
+
+- [x] Reuse existing signature conversion for browser files, including empty and
+      generic browser MIME types; exercise actual browser FileReader.
+- [x] Assert generated file bytes, screenshot pixels and persisted/model payload
+      equality in the existing actual Linux test, keeping its count/path checks.
+- [x] Replace generated-base64 schema validation with a raw signature comparison;
+      preserve size and changed-file rejection through public file-tool tests.
+- [x] Run focused/browser/native/full checks, review the diff, synchronize evidence
+      and commit the scoped changes.
+
+Focused verification: 46 helper/workspace tests and eight Chromium browser cases
+pass. The existing native Linux scenario passes exact known-file dataURLs,
+screenshot PNG dimensions/pixels and exact persisted/model payload equality.
+Independent product review reconfirmed all three original MIME cases preserve
+identical canonical PNG bytes. User additionally authorizes push and a minor
+release after the scoped fixes are validated and committed; use the existing
+manual release workflow, without local version-bump machinery.
+
+Final review-fix validation: full `npm run check` passes typecheck, lint, formatting
+and 1,606 tests / 41 skipped. Three independent final review lenses found no
+remaining blockers. Browser/native payload evidence above passed; no native
+clipboard code, image conversion service or new abstraction was added.
+
+- [ ] Push the validated commits and dispatch the existing minor release workflow.
+- [ ] Verify all platform builds and signed draft assembly, publish the minor
+      release, and record its run/tag evidence.

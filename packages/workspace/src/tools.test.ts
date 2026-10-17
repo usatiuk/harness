@@ -105,6 +105,26 @@ describe("workspace tools", () => {
     ).toMatchObject({ status: "error" });
   });
 
+  it("rejects an image whose format changes between the probe and full read", async () => {
+    const ctx = await workspace();
+    const execution = ctx.service("execution") as ExecutionContext;
+    await execution.write("changing.bin", Buffer.from("89504e470d0a1a0a", "hex"));
+    const read = execution.read.bind(execution);
+    let changed = false;
+    execution.read = async (path, options) => {
+      const bytes = await read(path, options);
+      if (!changed) {
+        changed = true;
+        await execution.write(path, Buffer.from("ffd8ff", "hex"));
+      }
+      return bytes;
+    };
+    expect(await new ReadFileTool().execute({ path: "changing.bin" }, ctx)).toEqual({
+      status: "error",
+      forModel: [{ type: "text", text: "Image file is invalid or changed while reading." }],
+    });
+  });
+
   it("rejects oversized images after a bounded read", async () => {
     const ctx = await workspace();
     const execution = ctx.service("execution") as ExecutionContext;

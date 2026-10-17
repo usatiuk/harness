@@ -3,7 +3,8 @@ import console from "node:console";
 import { setTimeout, clearTimeout } from "node:timers";
 const { WebSocket } = globalThis;
 // Test-only native WebKit inspection and isolated server/store setup.
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import assert from "node:assert/strict";
 import { join } from "node:path";
 
 const [mode, address, value] = process.argv.slice(2);
@@ -55,9 +56,21 @@ if (mode === "seed" || mode === "cleanup") {
       const images = items
         .filter((i) => i.type === "message" && i.role === "user")
         .flatMap((i) => i.content.filter((b) => b.type === "image"));
-      console.log(JSON.stringify({ persistedImages: images.length }));
-      if (value !== undefined && images.length !== Number(value))
-        throw new Error("Native image persistence count mismatch");
+      if (value !== undefined) {
+        const request = JSON.parse(await readFile(value, "utf8"));
+        const expected = request.messages
+          .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+          .filter((block) => block.type === "image_url")
+          .map((block) => block.image_url.url);
+        assert.deepEqual(
+          images.map((image) => `data:${image.mediaType};base64,${image.data}`),
+          expected,
+          "Persisted canonical image bytes differ from the model request",
+        );
+      }
+      console.log(
+        JSON.stringify({ persistedImages: images.length, modelBytesMatch: value !== undefined }),
+      );
     }
   } finally {
     store.close();

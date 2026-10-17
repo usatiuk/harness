@@ -1,7 +1,6 @@
 import {
   detectImageMediaType,
   errorResult,
-  imageContentSchema,
   MAX_IMAGE_BYTES,
   type ToolResult,
 } from "@harness/protocol";
@@ -20,11 +19,10 @@ export async function readImage(
   const bytes = await exec.read(path, { offset: 0, length: MAX_IMAGE_BYTES + 1 });
   if (bytes.length > MAX_IMAGE_BYTES)
     return errorResult(`Image exceeds the ${MAX_IMAGE_BYTES}-byte limit.`);
-  const image = imageContentSchema.safeParse({
-    type: "image",
-    mediaType,
-    data: Buffer.from(bytes).toString("base64"),
-  });
-  if (!image.success) return errorResult("Image file is invalid or changed while reading.");
-  return { status: "ok", forModel: [image.data] };
+  if (detectImageMediaType(bytes) !== mediaType)
+    return errorResult("Image file is invalid or changed while reading.");
+  return {
+    status: "ok",
+    forModel: [{ type: "image", mediaType, data: Buffer.from(bytes).toString("base64") }],
+  };
 }

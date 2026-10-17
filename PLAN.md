@@ -9,6 +9,9 @@ URIs. Native clipboard readers and dependencies are removed; the bounded local
 file reader remains for explicit URIs and proven Tauri drop integration. Final
 regression checks pass 1,605 tests / 41 skipped, six focused Chromium cases, and
 the actual Linux five-image pipeline. Three independent cleanup audits are complete.
+Three subsequent review fixes are validated by 1,606 tests / 41 skipped, eight
+browser cases and native byte/pixel/persistence comparisons. A minor release is
+authorized and pending the standard hosted build/sign workflow.
 
 The [desktop streaming performance refactor](docs/plans/interface/2026-10-17-desktop-streaming-performance.md)
 is complete: scoped UI subscriptions, a 100 ms text/reasoning publication cap,

@@ -1696,7 +1696,11 @@ attachments preserved, because WebKit exposes no readable representation. Actual
 OS keyboard/mouse gestures paste supported content, preserve text/URL paste,
 drag a file over the transcript, use the native
 paperclip chooser, and send five images. Inspector reads assert visible previews;
-SQLite and the HTTP fixture assert persisted/model images without client paths.
+The HTTP fixture compares known PNG/JPEG file bytes, decodes screenshot PNG
+pixels and checks dimensions/color. SQLite image data must exactly match model
+payloads, including order/MIME/base64; client paths remain absent. Browser chooser
+regressions render PNGs with normal, empty and generic file MIME metadata. The
+public file-tool regression changes format between reads and checks rejection.
 Artifacts are retained under the printed /tmp directory. It does not reuse the
 Windows native driver or add product test controls.
 

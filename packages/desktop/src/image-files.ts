@@ -2,7 +2,6 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   detectImageMediaType,
   imageContentsSchema,
-  imageContentSchema,
   imageMediaTypeSchema,
   imageByteLength,
   MAX_IMAGE_BYTES,
@@ -23,13 +22,15 @@ export async function readImageFiles(files: readonly File[]): Promise<ImageConte
               reject(new Error("Image reader did not return a data URL"));
               return;
             }
-            const result = imageContentSchema.safeParse({
-              type: "image",
-              mediaType: file.type,
-              data: reader.result.split(",")[1],
-            });
-            if (result.success) resolve(result.data);
-            else reject(new Error(`Unsupported image: ${file.name}. Use PNG, JPEG, WebP, or GIF.`));
+            try {
+              resolve(imageData([reader.result.split(",")[1]!])[0]!);
+            } catch (error) {
+              reject(
+                new Error(`Unsupported image: ${file.name}. Use PNG, JPEG, WebP, or GIF.`, {
+                  cause: error,
+                }),
+              );
+            }
           };
           reader.readAsDataURL(file);
         }),
@@ -37,7 +38,7 @@ export async function readImageFiles(files: readonly File[]): Promise<ImageConte
   );
 }
 
-function nativeImageData(data: string[]): ImageContent[] {
+function imageData(data: string[]): ImageContent[] {
   return imageContentsSchema.parse(
     data.map((data) => {
       const mediaType = detectImageMediaType(
@@ -50,7 +51,7 @@ function nativeImageData(data: string[]): ImageContent[] {
 }
 
 export async function readImagePaths(paths: string[]): Promise<ImageContent[]> {
-  return nativeImageData(await invoke<string[]>("read_image_paths", { paths }));
+  return imageData(await invoke<string[]>("read_image_paths", { paths }));
 }
 
 export async function readClipboardImages(): Promise<ImageContent[]> {
