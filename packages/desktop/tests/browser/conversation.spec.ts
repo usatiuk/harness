@@ -1647,6 +1647,45 @@ test("compact reasoning peeks stay bounded and full content mounts only when ope
   await page.screenshot({ path: test.info().outputPath("quiet-live-preview.png") });
 });
 
+for (const kind of ["tool", "thought"] as const) {
+  test(`open ${kind} headers stay reachable while scrolling Work`, async ({ page }) => {
+    await page.goto(url + "?composer");
+    await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+    await page.evaluate((kind) => {
+      if (kind === "tool") window.composerFixture.showWorkGroups();
+      else window.composerFixture.showLivePreview(true);
+    }, kind);
+    const group = page.locator(".tool-group-container").last();
+    if (kind === "tool") await group.locator(".tool-group > summary").click();
+    const item = group
+      .locator(kind === "tool" ? '[data-testid="tool-call"]' : ".reasoning")
+      .first();
+    const header = item.locator(":scope > summary");
+    await header.click();
+    await expect(item).toHaveAttribute("open");
+    await expect
+      .poll(() =>
+        group.evaluate((element) =>
+          element
+            .getAnimations({ subtree: true })
+            .some((animation) => animation.playState === "running"),
+        ),
+      )
+      .toBe(false);
+    await group.evaluate((element) => {
+      element.scrollTop = 300;
+    });
+    await expect
+      .poll(async () => {
+        const top = (await group.boundingBox())!.y;
+        return Math.abs((await header.boundingBox())!.y - top);
+      })
+      .toBeLessThanOrEqual(1);
+    await header.click();
+    await expect(item).not.toHaveAttribute("open");
+  });
+}
+
 test("only the latest Work group peeks; earlier groups fold after three items", async ({
   page,
 }) => {
@@ -1714,8 +1753,8 @@ test("only the latest Work group peeks; earlier groups fold after three items", 
     const rect = group.getBoundingClientRect();
     const x = rect.x + rect.width / 2;
     const y = rect.y + 1;
-    if (!document.elementFromPoint(x, y)?.closest('[data-testid="tool-output"]'))
-      throw new Error("Shadow probe must cover the opaque code output");
+    if (!document.elementFromPoint(x, y)?.closest('[data-testid="tool-output"], summary'))
+      throw new Error("Shadow probe must cover opaque work content");
     return { x, y, width: 40, height: 8 };
   });
   const shadow = await page.screenshot({ clip });

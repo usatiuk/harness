@@ -509,7 +509,8 @@ outer group replaces its peek with all entries.
 Native named details allow one open outer Work disclosure and one open inner
 conversation disclosure at a time. Only the outer Work container scrolls, capped
 at 40vh; arguments, outputs and reasoning do not introduce nested scrolling.
-Soft transparent scroll shadows on Work containers and sidebar navigation indicate
+Open tool/thought headers stick to the top of that scroll area so their collapse
+controls remain reachable. Soft wide oval scroll shadows on Work containers and sidebar navigation indicate
 content above/below and disappear at the corresponding edge. Work shadows use a
 pointer-transparent overlay above the scrolled content so opaque code blocks
 cannot cover them. The shared observer
@@ -651,7 +652,9 @@ theme follows OS changes. The same preference sets Tauri's native theme (includi
 returning to System) before the initially hidden window is shown, and on live
 changes without remounting routes. `WindowShell` owns one header above every route,
 including startup/error states; `window-chrome.ts` and native `appearance.rs`
-isolate window integration. Pinned `tauri-plugin-decoration` owns Windows controls,
+isolate window integration. Source development uses `Harness (Dev)` in native/custom
+window titles and startup labels; packaged builds retain `Harness`.
+Pinned `tauri-plugin-decoration` owns Windows controls,
 native Snap hit testing and macOS traffic-light positioning. Tauri owns dragging,
 double-click maximize and resizing. WebView2's native drag region opens the real
 Windows system menu; Linux retains its native frame. Decoration activates after mount and before

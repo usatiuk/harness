@@ -17,6 +17,7 @@ import { persistDesktopRoute } from "./route-persistence.ts";
 import { Button, Tooltip } from "./ui.tsx";
 import { Monitor, LoaderCircle, TriangleAlert } from "lucide-react";
 import { WindowShell } from "./window-shell.tsx";
+import { APP_NAME } from "./app-name.ts";
 import "./styles.css";
 
 const container = document.getElementById("root");
@@ -92,8 +93,8 @@ function Desktop() {
               {hosts.config
                 ? `${view?.host.label ?? "Host"} connection`
                 : error
-                  ? "Could not start Harness"
-                  : "Starting Harness…"}
+                  ? `Could not start ${APP_NAME}`
+                  : `Starting ${APP_NAME}…`}
             </h1>
             <p className="muted">
               {error && !hosts.config

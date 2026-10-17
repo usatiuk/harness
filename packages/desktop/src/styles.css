@@ -258,13 +258,13 @@ textarea.input {
 }
 .scroll-shadows,
 .work-scroll-frame::after {
-  --scroll-shadow-color: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.3));
+  --scroll-shadow-color: light-dark(rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.2));
   --scroll-shadow-top: transparent;
   --scroll-shadow-bottom: transparent;
   background-image:
-    radial-gradient(ellipse farthest-side at 50% 0, var(--scroll-shadow-top), transparent),
-    radial-gradient(ellipse farthest-side at 50% 100%, var(--scroll-shadow-bottom), transparent);
-  background-size: 100% 12px;
+    radial-gradient(ellipse 50% 100% at 50% 0, var(--scroll-shadow-top), transparent),
+    radial-gradient(ellipse 50% 100% at 50% 100%, var(--scroll-shadow-bottom), transparent);
+  background-size: 100% 16px;
   background-position: top, bottom;
   background-repeat: no-repeat;
 }
@@ -828,6 +828,15 @@ main {
 }
 .tool-group > summary {
   padding: 3px 0;
+}
+.tool-group > .collapse-grid > .collapse-body {
+  overflow: clip;
+}
+.work-items > .disclosure[open] > summary {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-canvas);
 }
 .work-group-title {
   padding: 3px 0;
@@ -1709,7 +1718,9 @@ main {
 .sidebar-project > summary .icon-control {
   color: var(--muted-ink);
   width: 22px;
-  height: 22px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
   opacity: 0;
 }
 .sidebar-project > summary:hover .icon-control,

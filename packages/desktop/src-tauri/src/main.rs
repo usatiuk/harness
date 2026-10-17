@@ -767,6 +767,9 @@ fn main() {
         .find(|window| window.label == "main")
         .expect("Desktop main window configuration is missing");
     window.transparent = cfg!(any(windows, target_os = "macos"));
+    if cfg!(dev) {
+        window.title = "Harness (Dev)".into();
+    }
     window.no_redirection_bitmap = cfg!(windows);
     #[cfg(target_os = "macos")]
     {

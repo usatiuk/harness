@@ -1,9 +1,11 @@
 import { useEffect, type ReactNode } from "react";
 import { Terminal } from "lucide-react";
 import { initializeWindowAppearance } from "./appearance.ts";
+import { APP_NAME } from "./app-name.ts";
 
 export function WindowShell({ children }: { children: ReactNode }) {
   useEffect(() => {
+    document.title = APP_NAME;
     let mounted = true;
     let dispose: (() => void) | undefined;
     void initializeWindowAppearance().then((cleanup) => {
@@ -20,7 +22,7 @@ export function WindowShell({ children }: { children: ReactNode }) {
       <header className="window-titlebar" data-window-chrome>
         <div className="window-drag-region" data-tauri-drag-region>
           <Terminal size={18} aria-hidden="true" pointerEvents="none" />
-          <span data-tauri-drag-region>Harness</span>
+          <span data-tauri-drag-region>{APP_NAME}</span>
         </div>
       </header>
       <div className="window-content">{children}</div>

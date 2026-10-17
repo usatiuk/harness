@@ -1,4 +1,5 @@
 import { FeedbackControls, FeedbackSettings } from "./components/feedback-controls.tsx";
+import { APP_NAME } from "./app-name.ts";
 import {
   NewWorktreeOption,
   WorktreeControl,
@@ -2485,7 +2486,7 @@ export function createDesktopRouter(
           return { settings };
         },
         ErrorBoundary: RouteError,
-        HydrateFallback: () => <div className="startup">Loading Harness…</div>,
+        HydrateFallback: () => <div className="startup">Loading {APP_NAME}…</div>,
         children: [
           { index: true, Component: Welcome },
           {
