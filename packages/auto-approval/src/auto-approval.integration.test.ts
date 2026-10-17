@@ -18,6 +18,7 @@ import { HarnessService } from "@harness/service";
 import { InMemoryStore } from "@harness/store";
 import { LocalExecutionContext } from "@harness/execution";
 import {
+  unusedCodeEvaluator,
   EchoTool,
   FakeProvider,
   GateTool,
@@ -115,6 +116,7 @@ const makeService = (
     },
   };
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-auto-approval-home",
     plugins: [
@@ -170,6 +172,7 @@ const makeFileReviewService = (
     },
   };
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-auto-approval-home",
     plugins: [
@@ -664,6 +667,7 @@ describe("auto approval integration", () => {
     );
     const store = new InMemoryStore();
     const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       store,
       home,
       plugins: [

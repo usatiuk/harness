@@ -129,7 +129,7 @@ export class Engine {
     /** Derives a conversation's config from its record on every load — injected so core stays free
      *  of `@harness/config`. */
     private readonly resolveConfig: ConfigResolver,
-    private readonly codeEvaluator?: CodeEvaluator,
+    private readonly codeEvaluator: CodeEvaluator,
   ) {
     this.#observers = host.observers.map((observer) => ({ observer }));
   }
@@ -308,7 +308,7 @@ export class Engine {
         const toolSet = await this.#resolveTools(conversation, runtime);
         const build = await this.#assembleContext(
           conversation,
-          modelSchemas(toolSet, conversation.config.tools?.mode ?? "direct"),
+          modelSchemas(toolSet, conversation.config.tools?.mode ?? "hybrid"),
           runtime,
           toolSet,
         );
@@ -1099,7 +1099,7 @@ export class Engine {
     const provider = this.host.providers.get(conversation.config.model.provider);
     provider.validateConfig(conversation.config.model);
     let toolSet = await this.#resolveTools(conversation, runtime);
-    let toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "direct");
+    let toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "hybrid");
     const pricing = this.#pricingFor(conversation.config.model);
     let recoveredOverflow = false;
     let compactedBeforeAttempt = false;
@@ -1335,7 +1335,7 @@ export class Engine {
             originalWorkspaceRoot: runtime.conversation.originalWorkspaceRoot!,
           };
           toolSet = await this.#resolveTools(conversation, runtime);
-          toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "direct");
+          toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "hybrid");
         }
         const item = await this.store.appendItem({
           conversationId: conversation.id,
@@ -1468,7 +1468,7 @@ export class Engine {
       this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
     }
     const callContexts: PendingContext[] = [];
-    const mode = conversation.config.tools?.mode ?? "direct";
+    const mode = conversation.config.tools?.mode ?? "hybrid";
     const available = call.parentCallId
       ? toolSet.exposes(call.name, "code")
       : allowsDirect(toolSet, call.name, mode);
@@ -1596,7 +1596,7 @@ export class Engine {
     ).then((result) => ({ result: finalize(result), completed: true }));
     try {
       // Evaluator cancellation must terminate its worker and preserve emitted content.
-      return await (call.name === EVALUATOR_NAME && conversation.config.tools?.mode !== "direct"
+      return await (call.name === EVALUATOR_NAME
         ? dispatched
         : Promise.race([dispatched, aborted]));
     } finally {
@@ -1644,7 +1644,7 @@ export class Engine {
       signal,
       toolMeta: (name) => toolSet.metaOf(name),
       toolContract: (name) => toolSet.contract(name),
-      ...(call.name === EVALUATOR_NAME && conversation.config.tools?.mode !== "direct"
+      ...(call.name === EVALUATOR_NAME
         ? {
             codeTools: {
               call: (name: string, args: unknown) => {
@@ -2201,7 +2201,7 @@ export class Engine {
       conversationId: conversation.id,
       toolMeta: (name) => tools.metaOf(name),
     });
-    const mode = conversation.config.tools?.mode ?? "direct";
+    const mode = conversation.config.tools?.mode ?? "hybrid";
     const upfront = mode === "code-only" ? upfrontTools(catalog) : [];
     const controls = discoveryTools(
       catalog,
@@ -2211,10 +2211,7 @@ export class Engine {
       ],
       async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
     );
-    if (mode !== "direct") {
-      if (!this.codeEvaluator) throw new Error("code mode selected but no evaluator is configured");
-      controls.push(evaluatorTool(this.codeEvaluator, upfront));
-    }
+    controls.push(evaluatorTool(this.codeEvaluator, upfront));
     return new ToolSet(
       [...catalog.values(), ...controls],
       catalog.schemas().map((schema) => catalog.contract(schema.name)!),
@@ -2251,7 +2248,7 @@ export class Engine {
       });
     const payloadList = await this.store.getProviderPayloads(items.map((i) => i.id));
     const payloads = new Map(payloadList.map((p) => [p.itemId, p]));
-    const mode = conversation.config.tools?.mode ?? "direct";
+    const mode = conversation.config.tools?.mode ?? "hybrid";
     const sourceContext = {
       service: (key: string) => this.#service(runtime, key),
       toolNames: scopedTools
@@ -2259,7 +2256,7 @@ export class Engine {
         .filter(
           (schema) =>
             allowsDirect(scopedTools, schema.name, mode) ||
-            (scopedTools.exposes(schema.name, "code") && mode !== "direct"),
+            scopedTools.exposes(schema.name, "code"),
         )
         .map((schema) => schema.name),
     };

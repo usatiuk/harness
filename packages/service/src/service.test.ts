@@ -7,11 +7,13 @@ import { z } from "zod";
 import { updateGlobalModel, updateGlobalPluginConfig } from "@harness/config";
 import type { HarnessEvent, Store } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
-import { EchoTool, FakeProvider, textStep, toolStep } from "@harness/testkit";
+import { SqliteStore } from "@harness/store-sqlite";
+import { unusedCodeEvaluator, EchoTool, FakeProvider, textStep, toolStep } from "@harness/testkit";
 import { HarnessService } from "./service.ts";
 
 const serviceOn = (store: Store, steps: ConstructorParameters<typeof FakeProvider>[0]) =>
   new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-harness-home", // hermetic: no real global settings
     plugins: [
@@ -20,11 +22,50 @@ const serviceOn = (store: Store, steps: ConstructorParameters<typeof FakeProvide
   });
 
 describe("HarnessService", () => {
+  it("loads legacy direct overrides as hybrid after SQLite resume", async () => {
+    const home = await mkdtemp(join(tmpdir(), "harness-legacy-tool-mode-"));
+    const path = join(home, "store.db");
+    let store = new SqliteStore(path);
+    try {
+      const first = serviceOn(store, []);
+      const conversation = await first.createConversation({
+        overrides: {
+          model: { provider: "fake", model: "fake-1" },
+          tools: { mode: "direct" },
+        },
+      });
+      expect(conversation.config.tools?.mode).toBe("hybrid");
+      await first.deactivateSession(conversation.id);
+      store.close();
+      store = new SqliteStore(path);
+
+      const resumed = serviceOn(store, [
+        toolStep("echo", "echo", { value: "resumed" }),
+        textStep("done"),
+      ]);
+      expect((await resumed.getConversation(conversation.id))?.config.tools?.mode).toBe("hybrid");
+      await resumed.send(conversation.id, "continue");
+      await resumed.whenIdle(conversation.id);
+      const items = await resumed.getItems(conversation.id);
+      expect(items.find((item) => item.type === "tool_result")).toMatchObject({ status: "ok" });
+      expect(items.at(-1)).toMatchObject({
+        type: "message",
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+      });
+      await resumed.deactivateSession(conversation.id);
+    } finally {
+      store.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("refreshes policy defaults across loaded roots without changing pinned selections, backends or overrides", async () => {
     const home = await mkdtemp(join(tmpdir(), "harness-service-defaults-"));
     try {
       const store = new InMemoryStore();
       const service = new HarnessService({
+        codeEvaluator: unusedCodeEvaluator,
         store,
         home,
         defaults: { model: { provider: "fake", model: "fake-1", preset: "low" } },
@@ -75,6 +116,7 @@ describe("HarnessService", () => {
     try {
       const store = new InMemoryStore();
       const service = new HarnessService({
+        codeEvaluator: unusedCodeEvaluator,
         store,
         home,
         plugins: [{ id: "fake", providers: () => [new FakeProvider([])] }],
@@ -119,6 +161,7 @@ describe("HarnessService", () => {
   it("drives a turn and streams the event sequence", async () => {
     const store = new InMemoryStore();
     const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       store,
       home: "/nonexistent-harness-home", // hermetic: no real global settings
       plugins: [
@@ -177,6 +220,7 @@ describe("HarnessService", () => {
     const disposed: string[] = [];
     let builds = 0;
     const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       store,
       home: "/nonexistent-harness-home",
       plugins: [
@@ -227,6 +271,7 @@ describe("HarnessService", () => {
     const store = new InMemoryStore();
     const disposed: string[] = [];
     const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       store,
       home: "/nonexistent-harness-home",
       plugins: [

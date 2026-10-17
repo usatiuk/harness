@@ -1,5 +1,10 @@
 # Harness plan
 
+The [MCP/tool-mode simplification](docs/plans/cross-cutting/2026-10-17-simplify-mcp-and-remove-direct-mode.md)
+uses raw prefixed MCP names and code-only MCP exposure. Hybrid and code-only
+remain; legacy direct settings load as Hybrid. The delivery plan records
+validation and remaining coverage limits.
+
 The [session routing and chat finish follow-up](docs/plans/models/2026-10-16-session-routing-and-chat-finish.md)
 adds conversation cache keys, shared provider session headers, and a regression
 fix for repeated terminal choices in Chat usage tails. Published in
@@ -429,7 +434,7 @@ As of 2026-10-10, Harness provides:
   payload fidelity, usage, and cost.
 - Harness-owned read/write/edit/patch/glob/command tools selected by the active
   model's trained file-tool dialect.
-- Direct, hybrid, and code-only tool modes over one scoped catalog, ordinary
+- Hybrid and code-only tool modes over one scoped catalog, ordinary
   discovery, governed recorded nested calls, and a bounded QuickJS worker.
 - Local, Linux Bubblewrap, and dev-container execution; bounded output files;
   human approval and optional model-backed auto-approval.

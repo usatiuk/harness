@@ -105,7 +105,10 @@ export const wireConversationConfigSchema = z.strictObject({
   tools: z
     .strictObject({
       allow: z.array(z.string()).nullable(),
-      mode: z.enum(["direct", "hybrid", "code-only"]).default("direct"),
+      mode: z.preprocess(
+        (val) => (val === "direct" ? "hybrid" : val),
+        z.enum(["hybrid", "code-only"]).default("hybrid"),
+      ),
     })
     .nullable(),
   plugins: z.record(z.string(), jsonValueSchema),

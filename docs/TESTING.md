@@ -168,11 +168,16 @@ complete browser suite still require verification in their respective runtimes.
 ## MCP and shared human approvals
 
 `packages/mcp/src/{mcp,oauth}.test.ts` uses the real official SDK across stdio
-processes and loopback HTTP. It covers public direct/code calls, schema/result
+processes and loopback HTTP. It covers public Hybrid/code-only eval calls, raw
+names with punctuation, discovery without direct promotion, schema/result
 adaptation, startup isolation, pagination, invalid catalogs, no replay after
 ambiguous disconnect, cancellation, permission inheritance, scoped children,
 credential target binding, redaction, resource-header isolation, and OAuth
 DCR/metadata clients/PKCE/refresh/restart/cancellation/expiry/logout.
+Config/protocol regressions cover legacy `direct` normalization, and a service
+regression verifies legacy overrides after SQLite reopen and successful continuation.
+The [tool-mode delivery plan](plans/cross-cutting/2026-10-17-simplify-mcp-and-remove-direct-mode.md)
+records validation evidence and remaining UI coverage limits.
 `server/src/mcp.test.ts` exercises real typed RPC settings, write-only secrets,
 namespace separation, reserved-key rejection before JSON normalization, safe
 credential-backend errors, and client-owned sign-in lifetime. Approval and shared-server

@@ -12,7 +12,13 @@ import {
   type ModelStreamEvent,
 } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
-import { FakeProvider, fakeCompaction, textStep, toolStep } from "@harness/testkit";
+import {
+  unusedCodeEvaluator,
+  FakeProvider,
+  fakeCompaction,
+  textStep,
+  toolStep,
+} from "@harness/testkit";
 import { localExecutionPlugin } from "@harness/execution";
 import { activitiesPlugin } from "@harness/activities";
 import { workspacePlugin } from "@harness/workspace";
@@ -60,6 +66,7 @@ function service(
 ) {
   const provider = new RecordingProvider(steps);
   const svc = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-harness-home",
     plugins: [

@@ -1,3 +1,4 @@
+import { unusedCodeEvaluator } from "@harness/testkit";
 import { dockerTestEnvironment } from "./docker.test-support.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -77,6 +78,7 @@ describe.runIf(process.env.HARNESS_DOCKER_INTEGRATION === "1")(
       const firstProject = environmentName(project, configPath),
         alternateProject = environmentName(project, alternatePath);
       const service = new HarnessService({
+        codeEvaluator: unusedCodeEvaluator,
         store: new InMemoryStore(),
         home: "/nonexistent-harness-home",
         defaults: {

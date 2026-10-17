@@ -1,3 +1,4 @@
+import { unusedCodeEvaluator } from "@harness/testkit";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -77,6 +78,7 @@ it("keeps previews ephemeral and finalized phases, reasoning and search hints du
     },
   };
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-native-output-home",
     plugins: [{ id: "fake", providers: () => [provider] }],

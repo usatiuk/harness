@@ -4,13 +4,20 @@ import { createInProcessMessageConnectionPair } from "@harness/client";
 import { HarnessService, HarnessRpcSession } from "@harness/service";
 import { InMemoryStore } from "@harness/store";
 import { sandboxPlugin } from "@harness/sandbox";
-import { FakeProvider, counterIdGenerator, fixedClock, textStep } from "@harness/testkit";
+import {
+  unusedCodeEvaluator,
+  FakeProvider,
+  counterIdGenerator,
+  fixedClock,
+  textStep,
+} from "@harness/testkit";
 import type { ConversationId, TurnId } from "@harness/protocol";
 import { DesktopSession } from "./session.ts";
 
 it("shares an earlier history load across callers and permits retry after failure", async () => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-harness-home",
     plugins: [{ id: "fake", providers: () => [new FakeProvider([])] }],
@@ -83,6 +90,7 @@ it("shares an earlier history load across callers and permits retry after failur
 it("loads earlier history for a replacement view while the detached view's request is pending", async () => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-harness-home",
     plugins: [{ id: "fake", providers: () => [new FakeProvider([])] }],
@@ -161,6 +169,7 @@ it.each([
       { provider: "fake", model: "fake-1", presets },
     ]);
     const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       store,
       home: "/nonexistent-harness-home",
       defaults: { model: { provider: "fake", model: "fake-1", preset: "high" } },
@@ -177,7 +186,7 @@ it.each([
     server.start();
     try {
       await desktop.start();
-      const id = await desktop.create("", "fake\u0000fake-1", "local", "direct", preset);
+      const id = await desktop.create("", "fake\u0000fake-1", "local", "hybrid", preset);
       const expected = { provider: "fake", model: "fake-1", ...(preset ? { preset } : {}) };
       const conversation = await service.getConversation(id as ConversationId);
       expect(conversation?.config.model).toEqual(expected);
@@ -195,6 +204,7 @@ it.each([
 it("reattaches after failed sandbox replacement while another conversation remains usable", async () => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-harness-home",
     plugins: [
@@ -260,6 +270,7 @@ it("updates saved titles in both the loaded view and cached conversation list th
     release = () => resolve("Fix conversation naming");
   });
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-harness-home",
     defaults: { model: { provider: "fake", model: "fake-1" } },
@@ -319,6 +330,7 @@ it("updates saved titles in both the loaded view and cached conversation list th
 it("marks live assistant output unread only while another conversation is selected", async () => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-harness-home",
     plugins: [

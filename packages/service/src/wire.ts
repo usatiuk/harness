@@ -65,7 +65,7 @@ export const projectConversationConfig = (
   tools:
     config.tools === undefined
       ? null
-      : { allow: config.tools.allow ?? null, mode: config.tools.mode ?? "direct" },
+      : { allow: config.tools.allow ?? null, mode: config.tools.mode ?? "hybrid" },
   plugins: jsonValueSchema.parse(config.plugins ?? {}) as Record<
     string,
     ReturnType<typeof jsonValueSchema.parse>

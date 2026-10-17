@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { wireConversationConfigSchema } from "./client-protocol.ts";
 import {
   HARNESS_PROTOCOL_VERSION,
   defineRequest,
@@ -8,6 +9,23 @@ import {
 } from "./rpc.ts";
 
 describe("RPC contracts", () => {
+  it.each([
+    [undefined, "hybrid"],
+    ["direct", "hybrid"],
+    ["hybrid", "hybrid"],
+    ["code-only", "code-only"],
+    ["invalid", null],
+  ])("normalizes wire tool mode %s to %s", (mode, expected) => {
+    const config = {
+      instructions: "",
+      model: { provider: "fake", model: "fake-1", preset: null },
+      tools: { allow: null, mode },
+      plugins: {},
+    };
+    if (expected === null) expect(() => wireConversationConfigSchema.parse(config)).toThrow();
+    else expect(wireConversationConfigSchema.parse(config).tools?.mode).toBe(expected);
+  });
+
   it("accepts only JSON values", () => {
     expect(jsonValueSchema.parse({ nested: [null, true, 3, "x"] })).toEqual({
       nested: [null, true, 3, "x"],

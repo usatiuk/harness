@@ -458,9 +458,9 @@
                       ]
                     },
                     "mode": {
-                      "default": "direct",
+                      "default": "hybrid",
                       "type": "string",
-                      "enum": ["direct", "hybrid", "code-only"]
+                      "enum": ["hybrid", "code-only"]
                     }
                   },
                   "required": ["allow", "mode"],
@@ -795,9 +795,9 @@
                       ]
                     },
                     "mode": {
-                      "default": "direct",
+                      "default": "hybrid",
                       "type": "string",
-                      "enum": ["direct", "hybrid", "code-only"]
+                      "enum": ["hybrid", "code-only"]
                     }
                   },
                   "required": ["allow", "mode"],
@@ -925,9 +925,9 @@
                           ]
                         },
                         "mode": {
-                          "default": "direct",
+                          "default": "hybrid",
                           "type": "string",
-                          "enum": ["direct", "hybrid", "code-only"]
+                          "enum": ["hybrid", "code-only"]
                         }
                       },
                       "required": ["allow", "mode"],
@@ -1113,9 +1113,9 @@
                             ]
                           },
                           "mode": {
-                            "default": "direct",
+                            "default": "hybrid",
                             "type": "string",
-                            "enum": ["direct", "hybrid", "code-only"]
+                            "enum": ["hybrid", "code-only"]
                           }
                         },
                         "required": ["allow", "mode"],
@@ -1284,9 +1284,9 @@
                           ]
                         },
                         "mode": {
-                          "default": "direct",
+                          "default": "hybrid",
                           "type": "string",
-                          "enum": ["direct", "hybrid", "code-only"]
+                          "enum": ["hybrid", "code-only"]
                         }
                       },
                       "required": ["allow", "mode"],
@@ -1393,9 +1393,9 @@
                                 ]
                               },
                               "mode": {
-                                "default": "direct",
+                                "default": "hybrid",
                                 "type": "string",
-                                "enum": ["direct", "hybrid", "code-only"]
+                                "enum": ["hybrid", "code-only"]
                               }
                             },
                             "required": ["allow", "mode"],
@@ -1782,9 +1782,9 @@
                                   ]
                                 },
                                 "mode": {
-                                  "default": "direct",
+                                  "default": "hybrid",
                                   "type": "string",
-                                  "enum": ["direct", "hybrid", "code-only"]
+                                  "enum": ["hybrid", "code-only"]
                                 }
                               },
                               "required": ["allow", "mode"],
@@ -1893,9 +1893,9 @@
                                         ]
                                       },
                                       "mode": {
-                                        "default": "direct",
+                                        "default": "hybrid",
                                         "type": "string",
-                                        "enum": ["direct", "hybrid", "code-only"]
+                                        "enum": ["hybrid", "code-only"]
                                       }
                                     },
                                     "required": ["allow", "mode"],
@@ -3079,9 +3079,9 @@
                           ]
                         },
                         "mode": {
-                          "default": "direct",
+                          "default": "hybrid",
                           "type": "string",
-                          "enum": ["direct", "hybrid", "code-only"]
+                          "enum": ["hybrid", "code-only"]
                         }
                       },
                       "required": ["allow", "mode"],
@@ -3779,9 +3779,9 @@
                               ]
                             },
                             "mode": {
-                              "default": "direct",
+                              "default": "hybrid",
                               "type": "string",
-                              "enum": ["direct", "hybrid", "code-only"]
+                              "enum": ["hybrid", "code-only"]
                             }
                           },
                           "required": ["allow"],
@@ -4640,7 +4640,7 @@
               "additionalProperties": false
             },
             "sandbox": { "type": "string", "enum": ["local", "native", "docker"] },
-            "toolMode": { "type": "string", "enum": ["direct", "hybrid", "code-only"] },
+            "toolMode": { "type": "string", "enum": ["hybrid", "code-only"] },
             "compactionThresholdTokens": {
               "anyOf": [
                 { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
@@ -4914,9 +4914,9 @@
                             ]
                           },
                           "mode": {
-                            "default": "direct",
+                            "default": "hybrid",
                             "type": "string",
-                            "enum": ["direct", "hybrid", "code-only"]
+                            "enum": ["hybrid", "code-only"]
                           }
                         },
                         "required": ["allow", "mode"],
@@ -5169,7 +5169,7 @@
           "additionalProperties": false
         },
         "sandbox": { "type": "string", "enum": ["local", "native", "docker"] },
-        "toolMode": { "type": "string", "enum": ["direct", "hybrid", "code-only"] },
+        "toolMode": { "type": "string", "enum": ["hybrid", "code-only"] },
         "compactionThresholdTokens": {
           "anyOf": [
             { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },

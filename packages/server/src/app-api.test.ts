@@ -1,3 +1,4 @@
+import { unusedCodeEvaluator } from "@harness/testkit";
 import { MemorySecretStore } from "@harness/secrets";
 import * as credentials from "./credential-store.ts";
 import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
@@ -16,6 +17,13 @@ import {
   appConversationProjectsRequest,
 } from "./client-protocol.ts";
 import { readGlobalSettings, updateGlobalSettings } from "@harness/config";
+
+it("normalizes legacy application tool mode while rejecting unsupported values", () => {
+  expect(appSettingsUpdateRequest.params.parse({ toolMode: "direct" })).toEqual({
+    toolMode: "hybrid",
+  });
+  expect(() => appSettingsUpdateRequest.params.parse({ toolMode: "invalid" })).toThrow();
+});
 
 it("creates a LiteLLM provider through RPC without storing its key in settings", async () => {
   const home = await mkdtemp(join(tmpdir(), "harness-provider-create-"));
@@ -304,6 +312,7 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
   const provider = new FakeProvider([textStep("done")]);
   vi.spyOn(provider, "listModels").mockReturnValue([{ provider: "fake", model: "fake-1" }]);
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home,
     defaults: { model: { provider: "fake", model: "fake-1" } },
@@ -382,7 +391,7 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
       cursor: page.nextCursor,
     });
     expect(next.projects).toHaveLength(65);
-    const id = await desktop.create(folders[1]!, "fake\u0000fake-1", "local", "direct", "");
+    const id = await desktop.create(folders[1]!, "fake\u0000fake-1", "local", "hybrid", "");
     expect(desktop.recents.rows[0]?.id).toBe(id);
     expect(desktop.projects.rows[0]?.workspaceRoot).toBe(folders[1]);
   } finally {

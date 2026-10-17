@@ -16,6 +16,7 @@ import {
 } from "@harness/client";
 import { InMemoryStore } from "@harness/store";
 import {
+  unusedCodeEvaluator,
   FakeProvider,
   GateProvider,
   GateTool,
@@ -48,6 +49,7 @@ const createHarness = (
 ) => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-harness-home",
     plugins: [
@@ -220,7 +222,7 @@ describe("HarnessRpcSession", () => {
       overrides: {
         instructions: "snapshot me",
         model: { provider: "fake", model: "fake-1" },
-        tools: { mode: "direct", allow: [] },
+        tools: { mode: "hybrid", allow: [] },
         plugins: { local: { choice: "chosen" } },
       },
     });
@@ -240,7 +242,7 @@ describe("HarnessRpcSession", () => {
     const { conversation: fork } = await service.forkBefore(source.id as ConversationId, user.id);
     expect(fork.config.instructions).toBe("snapshot me");
     expect(fork.config.model).toEqual({ provider: "fake", model: "fake-1" });
-    expect(fork.config.tools).toEqual({ mode: "direct", allow: [] });
+    expect(fork.config.tools).toEqual({ mode: "hybrid", allow: [] });
     expect(fork.config.plugins?.local).toEqual({ choice: "chosen" });
     expect(fork.overrides.plugins).toEqual({ local: { choice: "chosen" } });
     await service.compact(fork.id);

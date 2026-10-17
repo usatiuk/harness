@@ -11,7 +11,13 @@ import { localExecutionPlugin } from "@harness/execution";
 import { workspacePlugin } from "@harness/workspace";
 import { agentsPlugin } from "@harness/agents";
 import { approvalPlugin } from "@harness/approval";
-import { FakeProvider, interleavedStep, textStep, toolStep } from "@harness/testkit";
+import {
+  unusedCodeEvaluator,
+  FakeProvider,
+  interleavedStep,
+  textStep,
+  toolStep,
+} from "@harness/testkit";
 import {
   isKernelEvent,
   okResult,
@@ -26,7 +32,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-it.each(["direct", "code-only"] as const)(
+it.each(["hybrid", "code-only"] as const)(
   "%s switches only after a complete batch and refreshes directory-dependent instructions and tools",
   async (mode) => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "harness-switch-")));
@@ -115,6 +121,7 @@ it.each(["direct", "code-only"] as const)(
             },
             {
               name: "switch_workspace",
+              essential: true,
               description: "switch",
               input: { kind: "function", schema: z.object({}) },
               execute: async (_, ctx) => {
@@ -146,7 +153,7 @@ it.each(["direct", "code-only"] as const)(
     expect(
       items.filter((item) => item.type === "tool_result").map((item) => textOf(item.content)),
     ).toEqual(
-      mode === "direct"
+      mode === "hybrid"
         ? [
             "scheduled",
             expect.stringContaining("first file"),
@@ -180,17 +187,22 @@ it("preserves a switched workspace when an overlapping settings resolution finis
   let blocked = false;
   const entered = gate();
   const release = gate();
-  const engine = new Engine(store, new PluginHost([localExecutionPlugin]), async (record) => {
-    if (blocked) {
-      entered.resolve();
-      await release.promise;
-    }
-    return {
-      instructions: "",
-      model: { provider: "fake", model: "fake" },
-      plugins: (record.overrides.plugins as Record<string, unknown>) ?? {},
-    };
-  });
+  const engine = new Engine(
+    store,
+    new PluginHost([localExecutionPlugin]),
+    async (record) => {
+      if (blocked) {
+        entered.resolve();
+        await release.promise;
+      }
+      return {
+        instructions: "",
+        model: { provider: "fake", model: "fake" },
+        plugins: (record.overrides.plugins as Record<string, unknown>) ?? {},
+      };
+    },
+    unusedCodeEvaluator,
+  );
   await engine.prepare(record.id);
   blocked = true;
   const updating = engine.updatePluginOverrides(record.id, { test: { enabled: true } });
@@ -220,10 +232,15 @@ it("reserves source during Git preparation and aborts it on forced close", async
   await mkdir(second);
   const store = new InMemoryStore();
   const record = await store.createConversation({ workspaceRoot: first, overrides: {} });
-  const engine = new Engine(store, new PluginHost([localExecutionPlugin]), async () => ({
-    instructions: "",
-    model: { provider: "fake", model: "fake" },
-  }));
+  const engine = new Engine(
+    store,
+    new PluginHost([localExecutionPlugin]),
+    async () => ({
+      instructions: "",
+      model: { provider: "fake", model: "fake" },
+    }),
+    unusedCodeEvaluator,
+  );
   const entered = gate();
   let signal: AbortSignal | undefined;
   const switching = engine.switchWorkspace(record.id, (operationSignal) => {
@@ -253,10 +270,15 @@ it("reserves source during Git preparation and aborts it on forced close", async
 
 it("excludes administrative workspace preparation from deletion in both directions", async () => {
   const store = new InMemoryStore();
-  const engine = new Engine(store, new PluginHost([]), async () => ({
-    instructions: "",
-    model: { provider: "fake", model: "fake" },
-  }));
+  const engine = new Engine(
+    store,
+    new PluginHost([]),
+    async () => ({
+      instructions: "",
+      model: { provider: "fake", model: "fake" },
+    }),
+    unusedCodeEvaluator,
+  );
   const started = gate();
   const release = gate();
   const operation = engine.runWorkspaceOperation("/project", async () => {

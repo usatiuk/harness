@@ -1,3 +1,4 @@
+import { QuickJsEvaluator } from "@harness/code-mode";
 import { registerFeatureServer as registerCliPluginServer } from "@harness/server";
 import { registerApprovalServer } from "@harness/server/approvals";
 import { HarnessRpcHost } from "@harness/service";
@@ -16,6 +17,7 @@ const connection = createNdjsonMessageConnection(process.stdin, process.stdout);
 const closed = new Promise<void>((resolve) => connection.onClose(() => resolve()));
 const store = new SqliteStore(":memory:");
 const service = new HarnessService({
+  codeEvaluator: new QuickJsEvaluator(),
   store,
   home: process.cwd(),
   defaults: { model: { provider: "demo", model: "demo-1" } },

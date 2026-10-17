@@ -27,6 +27,7 @@ import type {
 } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import {
+  unusedCodeEvaluator,
   approvalMiddleware,
   counterIdGenerator,
   EchoTool,
@@ -56,7 +57,7 @@ const CONFIG = {
 
 it("a failed first load does not become a parent but registered children retain their root", async () => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
-  const engine = new Engine(store, new PluginHost([]), testConfigResolver());
+  const engine = new Engine(store, new PluginHost([]), testConfigResolver(), unusedCodeEvaluator);
   const missing = "missing" as import("@harness/protocol").ConversationId;
   const child = "child" as import("@harness/protocol").ConversationId;
   await expect(engine.prepare(missing)).rejects.toThrow("unknown conversation");
@@ -90,6 +91,7 @@ it("refreshes defaults captured by an activation still loading", async () => {
       }
       return config;
     },
+    unusedCodeEvaluator,
   );
   const preparing = engine.prepare(record.id);
   await started;
@@ -154,7 +156,7 @@ function setup(steps: FakeStep[], plugin?: Partial<Plugin>, existingStore?: InMe
       ...plugin,
     },
   ]);
-  const engine = new Engine(store, host, testConfigResolver());
+  const engine = new Engine(store, host, testConfigResolver(), unusedCodeEvaluator);
   const events: HarnessEvent[] = [];
   engine.subscribe({ onEvent: (e) => events.push(e) });
   return { store, engine, events };
@@ -175,6 +177,7 @@ describe("Engine — turn cycle", () => {
       {
         tools: () => [
           {
+            essential: true,
             name: "echo",
             description: "echo",
             input: { kind: "function", schema: z.object({}) },
@@ -225,6 +228,7 @@ describe("Engine — turn cycle", () => {
       },
     };
     const tool: Tool = {
+      essential: true,
       name: "echo",
       description: "echo",
       input: { kind: "function", schema: z.object({}) },
@@ -344,6 +348,7 @@ describe("Engine — turn cycle", () => {
       },
     };
     const tool: Tool = {
+      essential: true,
       name: "echo",
       description: "echo",
       input: { kind: "function", schema: z.object({}) },
@@ -550,6 +555,7 @@ describe("Engine — turn cycle", () => {
       store,
       new PluginHost([{ id: "fake", providers: () => [provider] }]),
       testConfigResolver(),
+      unusedCodeEvaluator,
     );
     const events: HarnessEvent[] = [];
     engine.subscribe({ onEvent: (event) => events.push(event) });
@@ -567,6 +573,7 @@ describe("Engine — turn cycle", () => {
       store,
       new PluginHost([{ id: "fake", providers: () => [provider] }]),
       testConfigResolver(),
+      unusedCodeEvaluator,
     );
     const conv = await store.createConversation(newConversationInput(CONFIG));
 
@@ -589,6 +596,7 @@ describe("Engine — turn cycle", () => {
       store,
       new PluginHost([{ id: "fake", providers: () => [provider] }]),
       testConfigResolver(),
+      unusedCodeEvaluator,
     );
     const conv = await store.createConversation(newConversationInput(CONFIG));
 
@@ -610,6 +618,7 @@ describe("Engine — turn cycle", () => {
       store,
       new PluginHost([{ id: "fake", providers: () => [provider] }]),
       testConfigResolver(),
+      unusedCodeEvaluator,
     );
     const root = await store.createConversation(newConversationInput(CONFIG));
     const child = await store.createConversation(newConversationInput(CONFIG));
@@ -648,6 +657,7 @@ describe("Engine — turn cycle", () => {
         },
       ]),
       testConfigResolver(),
+      unusedCodeEvaluator,
     );
     const conversation = await store.createConversation(newConversationInput(CONFIG));
     await engine.prepare(conversation.id);
@@ -686,6 +696,7 @@ describe("Engine — turn cycle", () => {
         },
       ]),
       testConfigResolver(),
+      unusedCodeEvaluator,
     );
     const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.prepare(conv.id);
@@ -736,6 +747,7 @@ describe("Engine — turn cycle", () => {
         ],
         tools: () => [
           {
+            essential: true,
             name: "capture",
             description: "capture context",
             input: { kind: "function", schema: z.strictObject({}) },
@@ -780,6 +792,7 @@ describe("Engine — turn cycle", () => {
       store,
       new PluginHost([{ id: "fake", providers: () => [provider] }]),
       testConfigResolver(),
+      unusedCodeEvaluator,
     );
     const first = await store.createConversation(
       newConversationInput({ ...CONFIG, model: { provider: "fake", model: "a" } }),
@@ -824,6 +837,7 @@ describe("Engine — turn cycle", () => {
         },
       ]),
       testConfigResolver(),
+      unusedCodeEvaluator,
     );
     const first = await store.createConversation(newConversationInput(CONFIG));
     const second = await store.createConversation(newConversationInput(CONFIG));
@@ -1091,6 +1105,7 @@ describe("Engine — delivery seam", () => {
 
   it("forwards a plugin event emitted by a tool onto the stream", async () => {
     const emitTool: Tool = {
+      essential: true,
       name: "emit",
       description: "emits a note",
       input: { kind: "function", schema: z.unknown() },
@@ -1412,6 +1427,7 @@ describe("Engine — interrupt", () => {
 const makeProbe = (): { tool: Tool; state: { ran: boolean } } => {
   const state = { ran: false };
   const tool: Tool = {
+    essential: true,
     name: "probe",
     description: "records execution",
     input: { kind: "function", schema: z.unknown() },
@@ -1471,6 +1487,7 @@ describe("Engine — tool middleware", () => {
   it("lets a middleware call next more than once (retry)", async () => {
     let attempts = 0;
     const flaky: Tool = {
+      essential: true,
       name: "flaky",
       description: "fails once",
       input: { kind: "function", schema: z.unknown() },
@@ -2997,6 +3014,7 @@ function recordingSetup() {
     store,
     new PluginHost([{ id: "rec", providers: () => [provider] }]),
     testConfigResolver(),
+    unusedCodeEvaluator,
   );
   const events: HarnessEvent[] = [];
   engine.subscribe({ onEvent: (e) => events.push(e) });
@@ -3341,6 +3359,7 @@ describe("Engine — model switching", () => {
       store,
       new PluginHost([{ id: "rec", providers: () => [provider] }]),
       testConfigResolver(),
+      unusedCodeEvaluator,
     );
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
@@ -3605,6 +3624,7 @@ describe("Engine — usage recording", () => {
   it("pairs terminal-error tool calls without executing them", async () => {
     let executions = 0;
     const tool: Tool = {
+      essential: true,
       name: "probe",
       description: "must not execute",
       input: { kind: "function", schema: z.unknown() },
@@ -3691,6 +3711,7 @@ it("binds buffered middleware output to its producing request rather than the la
       { id: "fake", providers: () => [provider], modelMiddleware: () => [middleware] },
     ]),
     testConfigResolver(),
+    unusedCodeEvaluator,
   );
   const conversation = await store.createConversation(newConversationInput(CONFIG));
   await engine.deliver(conversation.id, userInput("go"));
@@ -3746,6 +3767,7 @@ it("isolates native capture for concurrent attempts sharing the same request obj
       { id: "fake", providers: () => [provider], modelMiddleware: () => [middleware] },
     ]),
     testConfigResolver(),
+    unusedCodeEvaluator,
   );
   const conversation = await store.createConversation(newConversationInput(CONFIG));
   await engine.deliver(conversation.id, userInput("go"));

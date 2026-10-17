@@ -6,3 +6,4 @@ export * from "./middleware.ts";
 export * from "./conversation.ts";
 export * from "./device-auth.ts";
 export * from "./remote-process.ts";
+export * from "./fake-evaluator.ts";

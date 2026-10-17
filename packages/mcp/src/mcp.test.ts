@@ -26,7 +26,7 @@ async function execute(
   runtime: McpRuntime,
   rawName: string,
   args: unknown,
-  mode: ToolMode = "direct",
+  mode: ToolMode = "hybrid",
   config: Record<string, unknown> = {},
   options: {
     human?: "allow" | "deny";
@@ -35,17 +35,23 @@ async function execute(
     interruptWhen?: Promise<void>;
     auto?: boolean;
     requests?: ModelRequest[];
+    discover?: boolean;
+    direct?: boolean;
   } = {},
 ) {
   const name = runtime.tools().find((tool) => tool.rawName === rawName)!.name;
   const provider = new FakeProvider([
-    toolStep(
-      "call",
-      mode === "direct" ? name : "eval",
-      mode === "direct"
-        ? args
-        : { code: `return await tools.call(${JSON.stringify(name)}, ${JSON.stringify(args)});` },
-    ),
+    ...(options.discover
+      ? [
+          toolStep("search", "tool_search", { queries: [rawName] }),
+          toolStep("describe", "tool_describe", { name }),
+        ]
+      : []),
+    options.direct
+      ? toolStep("call", name, args)
+      : toolStep("call", "eval", {
+          code: `return await tools.call(${JSON.stringify(name)}, ${JSON.stringify(args)});`,
+        }),
     ...(options.auto ? [textStep("YES")] : []),
     textStep("done"),
   ]);
@@ -121,8 +127,13 @@ const result = (items: Item[]) =>
     (item): item is Extract<Item, { type: "tool_result" }> =>
       item.type === "tool_result" && !item.parentCallId,
   );
+const nested = (items: Item[]) =>
+  items.find(
+    (item): item is Extract<Item, { type: "tool_result" }> =>
+      item.type === "tool_result" && Boolean(item.parentCallId),
+  );
 
-it("discovers a real stdio process with host env/secret sources, preserves JSON Schema, executes through direct and code mode, and closes", async () => {
+it("discovers raw names from a real stdio process, preserves JSON Schema and credentials, and executes only through eval", async () => {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), "mcp-stdio-")));
   const config = mcpConfigSchema.parse({
     servers: {
@@ -156,13 +167,14 @@ it("discovers a real stdio process with host env/secret sources, preserves JSON 
       { service: () => undefined },
     )[0]!;
     expect(tool.input).toMatchObject({ kind: "json-schema", schema: fixtureSchema });
-    expect(tool.name).toMatch(/^[A-Za-z0-9_-]{1,64}$/u);
+    expect(tool.name).toBe("mcp_local_echo/with spaces");
+    expect(tool.exposure).toEqual({ direct: false, code: true });
     const source = runtime.plugin().create({ get: async <C>() => ({}) as C }).contextSources!()[0]!;
     expect(await source.instructions({ service: () => undefined, toolNames: [] })).toEqual([]);
     expect(
       textOf(await source.instructions({ service: () => undefined, toolNames: [tool.name] })),
     ).toContain("Available MCP servers: local");
-    for (const mode of ["direct", "code-only"] as const) {
+    for (const mode of ["hybrid", "code-only"] as const) {
       const requests: ModelRequest[] = [];
       const items = await execute(
         runtime,
@@ -170,15 +182,38 @@ it("discovers a real stdio process with host env/secret sources, preserves JSON 
         { value: "accepted" },
         mode,
         {},
-        { requests },
+        { requests, discover: true },
       );
       expect(textOf(requests[0]!.instructions)).toContain("Available MCP servers: local");
+      for (const request of requests)
+        expect(request.tools?.map((entry) => entry.name)).not.toContain(tool.name);
+      for (const callId of ["search", "describe"]) {
+        const discovery = items
+          .filter((item) => item.type === "tool_result")
+          .find((item) => item.callId === callId);
+        expect(discovery?.status).toBe("ok");
+        expect(textOf(discovery!.content)).toContain(tool.name);
+      }
       expect(items.filter((item) => item.type === "tool_result")).toContainEqual(
         expect.objectContaining({
           status: "ok",
           structured: { value: "accepted", env: "secret-value", cwd },
         }),
       );
+      const guessed = await execute(
+        runtime,
+        "echo/with spaces",
+        { value: "guessed" },
+        mode,
+        {},
+        {
+          direct: true,
+          discover: true,
+        },
+      );
+      expect(
+        guessed.find((item) => item.type === "tool_result" && item.callId === "call"),
+      ).toMatchObject({ status: "error" });
     }
     expect(
       result(await execute(runtime, "echo/with spaces", { value: "forbidden" })),
@@ -238,7 +273,7 @@ it("forwards cancellation and fails an uncertain disconnected operation without 
         runtime,
         "echo/with spaces",
         { value: "once", mode: "hold" },
-        "direct",
+        "hybrid",
         {},
         disconnect ? {} : { interruptWhen: started },
       );
@@ -255,7 +290,7 @@ it("forwards cancellation and fails an uncertain disconnected operation without 
   }
 });
 
-it("resolves global/server/exact-tool policies through direct and code calls, including scoped children", async () => {
+it("resolves global/server/exact-tool policies in both modes, including scoped children", async () => {
   const fixture = await httpFixture();
   const configurations = [
     { defaults: { readOnly: "deny", other: "deny" }, expected: "error" },
@@ -281,7 +316,7 @@ it("resolves global/server/exact-tool policies through direct and code calls, in
       try {
         await runtime.initialize();
         const before = fixture.calls.length;
-        for (const mode of ["direct", "code-only"] as const) {
+        for (const mode of ["hybrid", "code-only"] as const) {
           const items = await execute(
             runtime,
             "mutate",
@@ -356,7 +391,7 @@ it("uses real HTTP with target-bound header credentials, exact tool rules and on
     await runtime.initialize();
     expect(runtime.tools()).toHaveLength(2);
     const items = await execute(runtime, "mutate", { value: "denied" });
-    expect(result(items)).toMatchObject({
+    expect(nested(items)).toMatchObject({
       status: "error",
       annotations: {
         approval: { decision: "deny", responder: "human", reason: "human approval timed out" },
@@ -668,7 +703,7 @@ it("uses only explicit tool overrides, including prototype-named MCP tools", asy
   );
   try {
     await runtime.initialize();
-    expect(result(await execute(runtime, "toString", { value: "denied" }))).toMatchObject({
+    expect(nested(await execute(runtime, "toString", { value: "denied" }))).toMatchObject({
       status: "error",
       annotations: { approval: { decision: "deny", responder: "policy" } },
     });

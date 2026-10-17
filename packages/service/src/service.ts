@@ -52,7 +52,7 @@ export interface HarnessServiceOptions {
    * resolution can never fail "no model configured".
    */
   defaults?: SettingsDoc;
-  codeEvaluator?: CodeEvaluator;
+  codeEvaluator: CodeEvaluator;
   worktrees?: WorktreeOperations;
   removeWorkspaceEnvironment?: (path: string) => Promise<void>;
 }
@@ -268,7 +268,7 @@ export class HarnessService implements ConversationRunner {
     const overrides = {
       model: config.model,
       instructions: config.instructions,
-      tools: { mode: config.tools?.mode ?? "direct", allow: toolNames },
+      tools: { mode: config.tools?.mode ?? "hybrid", allow: toolNames },
       plugins: Object.fromEntries(
         Object.entries(config.plugins ?? {}).filter(([id]) => !this.#globalPlugins.has(id)),
       ),

@@ -80,7 +80,7 @@ const settings: AppSettings = {
   settings: {
     model: { provider: "fixture", model: "test", preset: null },
     sandbox: "local",
-    toolMode: "direct",
+    toolMode: "hybrid",
     compactionThresholdTokens: null,
     worktreeDirectory: null,
     approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },

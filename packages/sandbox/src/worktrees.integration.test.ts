@@ -1,3 +1,4 @@
+import { unusedCodeEvaluator } from "@harness/testkit";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -82,6 +83,7 @@ it
     const worktrees = new WorktreeManager(store, async () => join(directory, "worktrees"));
     let runtime = createSandboxRuntime(home);
     let service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       home,
       store,
       worktrees,
@@ -134,6 +136,7 @@ it
 
       runtime = createSandboxRuntime(home);
       service = new HarnessService({
+        codeEvaluator: unusedCodeEvaluator,
         home,
         store,
         worktrees,

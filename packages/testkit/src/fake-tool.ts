@@ -10,6 +10,7 @@ import { awaitReleaseOrAbort } from "./gate.ts";
 
 /** Echoes its JSON args back as the model-facing result. */
 export class EchoTool implements Tool {
+  readonly essential = true;
   readonly name = "echo";
   readonly description = "Echoes its arguments back.";
   readonly input: ToolInput<unknown> = { kind: "function", schema: z.unknown() };
@@ -29,6 +30,7 @@ export class EchoTool implements Tool {
  * must abandon it.
  */
 export class GateTool implements Tool {
+  readonly essential = true;
   readonly name: string;
   readonly description = "Blocks until released.";
   readonly input: ToolInput<unknown> = { kind: "function", schema: z.unknown() };

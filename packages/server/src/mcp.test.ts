@@ -1,3 +1,4 @@
+import { unusedCodeEvaluator } from "@harness/testkit";
 import { expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,6 +26,7 @@ it("exposes host-owned MCP settings and credentials over real RPC without echoin
   const home = await mkdtemp(join(tmpdir(), "mcp-rpc-"));
   const runtime = new McpRuntime({}, new MemorySecretStore());
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     home,
     store: new InMemoryStore(),
     plugins: [runtime.plugin()],
@@ -117,6 +119,7 @@ it("owns sign-in by the initiating RPC session and closes its loopback listener 
     home = await mkdtemp(join(tmpdir(), "mcp-auth-rpc-"));
   const runtime = new McpRuntime({}, new MemorySecretStore());
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     home,
     store: new InMemoryStore(),
     plugins: [],

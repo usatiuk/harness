@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { isKernelEvent } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
-import { FakeProvider, GateProvider } from "@harness/testkit";
+import { unusedCodeEvaluator, FakeProvider, GateProvider } from "@harness/testkit";
 import { HarnessService } from "./service.ts";
 
 describe("parallel conversation configuration", () => {
@@ -13,6 +13,7 @@ describe("parallel conversation configuration", () => {
     const store = new InMemoryStore();
     const provider = new GateProvider("B is streaming");
     const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       store,
       home: "/nonexistent-harness-home",
       defaults: { model: { provider: "fake", model: "first" } },
@@ -67,6 +68,7 @@ describe("parallel conversation configuration", () => {
     try {
       const store = new InMemoryStore();
       const options = {
+        codeEvaluator: unusedCodeEvaluator,
         store,
         home,
         defaults: { model: { provider: "fake", model: "first", preset: "high" } },
@@ -98,6 +100,7 @@ describe("parallel conversation configuration", () => {
 
   it("preserves concurrent deep patches and sibling plugin slices", async () => {
     const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       store: new InMemoryStore(),
       home: "/nonexistent-harness-home",
       defaults: { model: { provider: "fake", model: "first" } },
@@ -128,6 +131,7 @@ describe("parallel conversation configuration", () => {
 
   it("inherits the parent model and only plugin-owned child configuration", async () => {
     const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       store: new InMemoryStore(),
       home: "/nonexistent-harness-home",
       defaults: { model: { provider: "fake", model: "default" } },

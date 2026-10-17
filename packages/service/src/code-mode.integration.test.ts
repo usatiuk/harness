@@ -193,13 +193,13 @@ describe("ordinary tool discovery", () => {
     ).not.toContain('"name":"basic"');
   });
   it("offers discovery in every mode and never promotes deferred tools to direct calls", async () => {
-    for (const mode of ["direct", "hybrid", "code-only"] as const) {
+    for (const mode of ["hybrid", "code-only"] as const) {
       const fixture = await setup(
         [
           toolStep("search", "tool_search", { queries: ["catalog"] }),
           toolStep("describe", "tool_describe", { name: "catalog_item" }),
           toolStep("guess", "catalog_item", {}),
-          ...(mode === "direct" ? [] : [evalStep('return await tools.call("catalog_item", {});')]),
+          evalStep('return await tools.call("catalog_item", {});'),
           textStep("done"),
         ],
         [catalogTool("catalog_item")],
@@ -219,8 +219,7 @@ describe("ordinary tool discovery", () => {
       );
       for (const request of fixture.requests)
         expect(request.tools?.map((tool) => tool.name)).not.toContain("catalog_item");
-      if (mode !== "direct")
-        expect(results(items).find((item) => item.parentCallId)?.status).toBe("error");
+      expect(results(items).find((item) => item.parentCallId)?.status).toBe("error");
       expect(
         fixture.events.some((event) => isKernelEvent(event) && event.type === "request.created"),
       ).toBe(false);
@@ -512,7 +511,7 @@ describe("ordinary tool discovery", () => {
     },
   );
 
-  it.each(["direct", "hybrid", "code-only"] as const)(
+  it.each(["hybrid", "code-only"] as const)(
     "describes workspace contracts upfront only in %s code-only mode",
     async (mode) => {
       const fixture = await setup([textStep("done")], [], mode);
@@ -828,12 +827,13 @@ describe("recorded code-mode execution", () => {
   });
 
   it("preserves sequential await and direct model batch ordering", async () => {
-    for (const mode of ["code-only", "direct"] as const) {
+    for (const mode of ["code-only", "hybrid"] as const) {
       const first = gate(),
         release = gate();
       const order: string[] = [];
       const operation: Tool = {
         name: "operation",
+        essential: true,
         description: "Ordered operation",
         input: { kind: "function", schema: z.strictObject({ name: z.string() }) },
         execute: async (args) => {

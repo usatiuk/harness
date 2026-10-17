@@ -1,3 +1,4 @@
+import { unusedCodeEvaluator } from "@harness/testkit";
 import { registerFeatureServer as registerCliPluginServer } from "@harness/server";
 import { approvalDecideRequest } from "@harness/approval";
 import { HarnessRpcHost } from "@harness/service";
@@ -40,6 +41,7 @@ async function createHarness() {
   const errors: unknown[] = [];
   const store = new SqliteStore(":memory:");
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     home,
     store,
     plugins: [sandboxPlugin, activitiesPlugin],

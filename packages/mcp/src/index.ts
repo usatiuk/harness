@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -109,8 +108,7 @@ export class McpRuntime {
         const catalog: CatalogTool[] = [];
         const validator = new AjvJsonSchemaValidator();
         for (const descriptor of descriptors) {
-          const safeName = descriptor.name.replace(/[^A-Za-z0-9_-]/gu, "_");
-          const name = `mcp_${id}_${safeName.slice(0, 20)}_${createHash("sha256").update(descriptor.name).digest("hex").slice(0, 10)}`;
+          const name = `mcp_${id}_${descriptor.name}`;
           if (this.ownsTool(name) || catalog.some((tool) => tool.name === name))
             throw new McpUnavailable();
           let validate: ReturnType<typeof validator.getValidator<Record<string, unknown>>>;
@@ -136,6 +134,7 @@ export class McpRuntime {
                 return raw;
               },
             },
+            exposure: { direct: false, code: true },
             ...(descriptor.outputSchema ? { outputSchema: descriptor.outputSchema } : {}),
             execute: async (args, ctx) => {
               try {

@@ -114,17 +114,16 @@ Function inputs can supply Zod or an already-authored JSON Schema with a parser.
 Core preserves the advertised JSON Schema and invokes its parser at the ordinary
 argument boundary, so external tool adapters do not need lossy schema conversion.
 
-The shared server defaults `tools.mode` to `hybrid`; explicit settings win. The
-bare engine retains `direct` when no mode is supplied. `hybrid` offers essential
+The shared server defaults `tools.mode` to `hybrid`; explicit settings win.
+Legacy `direct` settings and overrides load as `hybrid`. Hybrid offers essential
 direct-enabled tools and the core `eval` entry point; other tools use discovery
-and eval. `direct` still offers all direct-enabled tools. The ordinary core
-`tool_search` and `tool_describe` tools are
-immediately available in every mode. `code-only` runs capabilities through `eval`
+and eval. The ordinary core `tool_search` and `tool_describe` tools are
+immediately available in both modes. `code-only` runs capabilities through `eval`
 and rejects guessed ordinary direct calls, including after discovery. Deferred
 tools have code exposure only. The evaluator itself is
-direct-only and cannot recurse. Enabling code mode without an injected evaluator
-fails explicitly. The server injects `@harness/code-mode`; core imports only its
-protocol contract.
+direct-only and cannot recurse. Engine and service composition require an
+evaluator dependency. The server injects `@harness/code-mode`; core imports only
+its protocol contract.
 
 Workspace tools mark themselves `essential`: the agent needs them for basic work
 without discovery. In code-only, their scoped resolved contracts are included

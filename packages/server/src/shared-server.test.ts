@@ -3,6 +3,7 @@ import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/cl
 import { HarnessService, HarnessRpcHost, HarnessRpcSession } from "@harness/service";
 import { InMemoryStore } from "@harness/store";
 import {
+  unusedCodeEvaluator,
   FakeProvider,
   EchoTool,
   counterIdGenerator,
@@ -28,6 +29,7 @@ import { tmpdir } from "node:os";
 
 function sharedHarness(provider: FakeProvider, plugins: PluginEntry[] = []) {
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store: new InMemoryStore(counterIdGenerator(), fixedClock()),
     home: "/nonexistent-harness-home",
     plugins: [{ id: "fake", providers: () => [provider] }, ...plugins],

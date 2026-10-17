@@ -50,8 +50,7 @@ export function modelSchemas(tools: ToolSet, mode: ToolMode) {
 export function allowsDirect(tools: ToolSet, name: string, mode: ToolMode): boolean {
   return (
     tools.exposes(name, "direct") &&
-    (mode === "direct" ||
-      name === EVALUATOR_NAME ||
+    (name === EVALUATOR_NAME ||
       isDiscoveryTool(name) ||
       (mode === "hybrid" && tools.get(name).essential === true))
   );

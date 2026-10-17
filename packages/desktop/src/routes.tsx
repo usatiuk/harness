@@ -711,7 +711,6 @@ export function createDesktopRouter(
                   <label>
                     Tool interface
                     <Select value={toolMode} onValueChange={(next) => setToolMode(next)}>
-                      <SelectItem value="direct">Direct</SelectItem>
                       <SelectItem value="hybrid">Hybrid</SelectItem>
                       <SelectItem value="code-only">Code only</SelectItem>
                     </Select>

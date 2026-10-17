@@ -417,8 +417,11 @@ existing auto-review settings; Ask human always requests a human decision.
 MCP resolves global MCP defaults, server defaults, then exact raw tool-name rules.
 Read-only declarations default to Allow; other, unknown, or contradictory behavior
 defaults to Ask. Enabling a server accepts its behavior declarations under these
-defaults; configure overrides when appropriate. Direct and code calls use the
-same permission path.
+defaults; configure overrides when appropriate. MCP calls use the ordinary
+permission path through `eval`. Tool names are `mcp_<serverId>_<rawToolName>`;
+discover them with `tool_search` or inspect them with `tool_describe`.
+Existing explicit allowlists using the former hashed names must be updated to the
+new names; scopes are never broadened automatically.
 
 `plugins.approval.humanApprovalTimeoutSeconds` defaults to 60 and accepts a positive
 duration up to 2,147,483 seconds. Desktop **Settings → Defaults** and TUI **Host
@@ -429,10 +432,12 @@ There is no later execution of an expired call.
 ### Code mode and tool discovery
 
 Set `"tools": {"mode": "hybrid"}` or `"code-only"` in settings or conversation
-overrides; `direct` is the default. Desktop creation also offers a Tool interface
+overrides; `hybrid` is the default. Legacy `direct` settings and conversation
+overrides load as `hybrid`. Desktop creation also offers a Tool interface
 selector. `tool_search` and `tool_describe` are ordinary, immediately available
-tools in every mode. Hybrid also offers ordinary capability declarations and
-`eval`; code-only runs capabilities through `eval`, which accepts an async
+tools in both modes. Hybrid also declares essential tools and `eval`; other
+capabilities, including all MCP tools, run through `eval`. Code-only runs all
+capabilities through `eval`, which accepts an async
 JavaScript function body:
 
 ```javascript
@@ -445,7 +450,7 @@ return await Promise.all(
 );
 ```
 
-Call `tool_search` with `{query: "read file"}` to discover definitions, including
+Call `tool_search` with `{queries: ["read file"]}` to discover definitions, including
 descriptions and input/output schemas. Search excludes tools already declared or
 discovered in the current context; compaction resets discovery tracking. Call
 `tool_describe` with `{name: "read_file"}` for an explicit current definition,

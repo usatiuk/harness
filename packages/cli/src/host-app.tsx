@@ -584,8 +584,8 @@ function HostSettings({ view, onError }: { view: TuiHostView; onError: (error: s
         worktreeDirectory: absolute server path; null uses ~/.harness/worktrees.
       </Text>
       <Text dimColor>
-        toolMode: hybrid = Hybrid (essential tools direct, other tools through eval); direct =
-        Direct; code-only = Code only.
+        toolMode: hybrid = Hybrid (essential tools direct, other tools through eval); code-only =
+        Code only.
       </Text>
       <TextInput
         defaultValue={initial}

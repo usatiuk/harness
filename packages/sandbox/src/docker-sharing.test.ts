@@ -1,3 +1,4 @@
+import { unusedCodeEvaluator } from "@harness/testkit";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { resolve, join } from "node:path";
@@ -56,6 +57,7 @@ const handle = () => ({
 });
 const makeService = (idleTimeoutMinutes = 0) =>
   new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store: new InMemoryStore(),
     home: join(state.project, "home"),
     defaults: {

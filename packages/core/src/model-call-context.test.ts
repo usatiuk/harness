@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import type { ModelCallContext, ModelProvider, ModelRequest } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
 import {
+  unusedCodeEvaluator,
   counterIdGenerator,
   fixedClock,
   newConversationInput,
@@ -57,6 +58,7 @@ it("preserves per-conversation identity across retries, concurrent roots, nested
         },
       ]),
       testConfigResolver(),
+      unusedCodeEvaluator,
     );
   const config = { instructions: "stable", model: { provider: "fake", model: "fake-1" } };
   const [root, other, child, nested] = await Promise.all(

@@ -161,7 +161,7 @@ export interface ToolMiddleware {
   wrap(call: ToolCall, ctx: ToolMiddlewareContext, next: ToolHandler): Promise<ToolResult>;
 }
 
-export type ToolMode = "direct" | "hybrid" | "code-only";
+export type ToolMode = "hybrid" | "code-only";
 
 /** A tool's public description and argument schema, plus its result schema when known. */
 export interface ToolContract {

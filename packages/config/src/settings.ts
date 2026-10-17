@@ -13,7 +13,10 @@ const modelSchema = z.strictObject({
 });
 const toolsSchema = z.strictObject({
   allow: z.array(z.string()).optional(),
-  mode: z.enum(["direct", "hybrid", "code-only"]).optional(),
+  mode: z.preprocess(
+    (val) => (val === "direct" ? "hybrid" : val),
+    z.enum(["hybrid", "code-only"]).optional(),
+  ),
 });
 
 /** Which credential backend `auth login` chose for this machine; resolved once and pinned. */

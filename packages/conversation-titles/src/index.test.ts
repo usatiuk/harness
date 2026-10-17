@@ -9,7 +9,7 @@ import {
   HarnessDomainClient,
   createInProcessMessageConnectionPair,
 } from "@harness/client";
-import { FakeProvider, textStep } from "@harness/testkit";
+import { unusedCodeEvaluator, FakeProvider, textStep } from "@harness/testkit";
 import { isKernelEvent, type ModelRequest, type ModelProvider } from "@harness/protocol";
 import { conversationTitlesPlugin } from "./index.ts";
 
@@ -56,6 +56,7 @@ function fixture(
     },
   };
   const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
     store,
     home,
     defaults: {

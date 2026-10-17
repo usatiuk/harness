@@ -6,7 +6,7 @@ import type { HarnessEvent, Plugin } from "@harness/protocol";
 import { readGlobalSettings } from "@harness/config";
 import { HarnessService } from "@harness/service";
 import { InMemoryStore } from "@harness/store";
-import { EchoTool } from "@harness/testkit";
+import { unusedCodeEvaluator, EchoTool } from "@harness/testkit";
 import { configuredProviders } from "./provider-fixture.ts";
 
 const fake = vi.hoisted(() => ({
@@ -124,6 +124,7 @@ describe("custom provider public boundary", () => {
     const providers = await configuredProviders(settings);
     const tools: Plugin = { id: "tools", tools: () => [new EchoTool()] };
     const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       store: new InMemoryStore(),
       home,
       plugins: [{ id: "configured-provider-instances", providers: () => providers }, tools],
@@ -146,6 +147,7 @@ describe("custom provider public boundary", () => {
     expect(fake.calls[0]?.params).toMatchObject({ model: "m", temperature: 0.2 });
     expect(fake.calls[0]?.params.tools).toMatchObject([
       { type: "function", function: { name: "echo" } },
+      { type: "function", function: { name: "eval" } },
       { type: "function", function: { name: "tool_describe" } },
       { type: "function", function: { name: "tool_search" } },
     ]);
@@ -190,6 +192,7 @@ describe("custom provider public boundary", () => {
     const settings = await readGlobalSettings(home);
     const providers = await configuredProviders(settings);
     const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
       store: new InMemoryStore(),
       home,
       plugins: [{ id: "configured-provider-instances", providers: () => providers }],

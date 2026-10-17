@@ -49,3 +49,28 @@ it("persists the baseline version while profiles and resolved settings remain fr
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it("loads legacy direct mode as hybrid in global settings and profiles without rewriting files", async () => {
+  const home = await mkdtemp(join(tmpdir(), "harness-legacy-tool-mode-"));
+  const path = join(home, "settings.json");
+  const original = JSON.stringify({
+    version: 1,
+    model: { provider: "demo", model: "demo-1" },
+    tools: { mode: "direct", allow: ["read_file"] },
+    profiles: { legacy: { tools: { mode: "direct" } } },
+  });
+  try {
+    await writeFile(path, original);
+    expect((await readGlobalSettings(home)).tools).toEqual({
+      mode: "hybrid",
+      allow: ["read_file"],
+    });
+    expect((await resolveSettings({ home, schemas: new Map(), profile: "legacy" })).tools).toEqual({
+      mode: "hybrid",
+      allow: ["read_file"],
+    });
+    expect(await readFile(path, "utf8")).toBe(original);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

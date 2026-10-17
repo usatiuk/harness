@@ -123,8 +123,9 @@ profile-selection workflow.
 
 ## Tool modes and inspection
 
-The kernel `tools.mode` setting accepts `direct` (default), `hybrid`, and
-`code-only` in the settings cascade or conversation overrides. Desktop creation
+The kernel `tools.mode` setting accepts `hybrid` (default) and `code-only`
+in the settings cascade or conversation overrides. Legacy `direct` values load
+as `hybrid`. Desktop creation
 exposes a Tool interface selector; settings-file changes take effect on reload.
 RPC carries mode, nested associations, structured values, and output references.
 Desktop nests child operation cards under their evaluator with concrete
@@ -719,11 +720,6 @@ database contention, and real PowerShell/Node cleanup. See
 [desktop delivery evidence](../../plans/interface/2026-10-03-desktop-v1.md).
 
 ## Conversation titles
-
-The tool interface choice is labeled Hybrid in desktop creation; selected-host
-TUI Settings edits the same `toolMode: "hybrid"` value. Hybrid offers essential
-tools directly and other tools through discovery/eval. It is the shared server
-fallback when no explicit tool mode is saved; saved Direct and Code-only remain.
 
 The opened conversation header exposes a pencil on title hover or keyboard focus
 (always visible on touch). It edits the title inline: Enter/check saves,

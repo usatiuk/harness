@@ -30,7 +30,10 @@ const settings = z.strictObject({
     timeoutSeconds: z.number().positive().max(2147483).default(30),
   }),
   sandbox: z.enum(["local", "native", "docker"]),
-  toolMode: z.enum(["direct", "hybrid", "code-only"]),
+  toolMode: z.preprocess(
+    (val) => (val === "direct" ? "hybrid" : val),
+    z.enum(["hybrid", "code-only"]),
+  ),
   compactionThresholdTokens: compactionThresholdSchema.nullable(),
   worktreeDirectory: z.string().trim().min(1).nullable(),
 });
