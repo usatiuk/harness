@@ -21,6 +21,7 @@ import {
   type ContentBlock,
   type DeliveryInput,
   type DeliveryIntent,
+  type PendingInput,
   type HarnessEvent,
   type Item,
   type ItemId,
@@ -64,7 +65,7 @@ import { discoveryTools, isDiscoveryTool } from "./tool-discovery.ts";
 import { parseToolArgs } from "./tools.ts";
 import { compactedWindow, estimateContextTokens, fallbackCompaction } from "./policies.ts";
 import { Runtime, type Delivery } from "./runtime.ts";
-import { applyDelivery } from "./delivery.ts";
+import { applyDelivery, pendingInput } from "./delivery.ts";
 import { runModelChain, runToolChain } from "./compose.ts";
 import { runRequestChain } from "./compose.ts";
 import { reconcileConversation } from "./reconcile.ts";
@@ -88,7 +89,7 @@ export interface ConversationTreeMemberState {
   conversation: Conversation;
   status: "idle" | "running";
   turnId: TurnId | null;
-  pendingInput: { intent: "queue" | "steer"; text: string }[];
+  pendingInput: PendingInput[];
 }
 
 /** Result for a call abandoned or never started because the turn was aborted. */
@@ -383,15 +384,7 @@ export class Engine {
       conversation: runtime.conversation,
       status: runtime.running ? "running" : "idle",
       turnId: runtime.currentTurnId ?? null,
-      pendingInput: runtime.inbox
-        .filter(
-          (delivery): delivery is Delivery & { intent: "queue" | "steer" } =>
-            delivery.intent === "queue" || delivery.intent === "steer",
-        )
-        .map((delivery) => ({
-          intent: delivery.intent,
-          text: textOf(delivery.input.content),
-        })),
+      pendingInput: pendingInput(runtime),
     }));
   }
 
@@ -989,6 +982,7 @@ export class Engine {
           type: "message",
           role: "user",
           content: delivery.input.content,
+          source: delivery.input.source,
         });
         this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
         await this.#notifyInput(
@@ -1542,6 +1536,7 @@ export class Engine {
         type: "message",
         role: "user",
         content: steer.input.content,
+        source: steer.input.source,
       });
       this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: message });
       await this.#notifyInput(runtime, conversation, turnId, steer.input, message, signal);
@@ -2317,11 +2312,7 @@ export class Engine {
     this.#emitKernel({
       type: "inbox",
       conversationId: runtime.conversation.id,
-      // Only queue/steer are "pending"; a send/interrupt passes through the buffer in the same
-      // drain tick, so it never belongs in the snapshot — keeping the event true to its contract.
-      pending: runtime.inbox
-        .filter((d) => d.intent === "queue" || d.intent === "steer")
-        .map((d) => ({ intent: d.intent, text: textOf(d.input.content) })),
+      pending: pendingInput(runtime),
     });
   }
 }

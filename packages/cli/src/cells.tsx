@@ -109,6 +109,10 @@ export function CellView({ cell }: { cell: Cell }): ReactElement {
       );
     case "provider_output":
       return <Text dimColor>{cell.text}</Text>;
+    case "plugin_message":
+      return (
+        <Text dimColor>{`✦ Message from ${cell.pluginId}${verbose ? `: ${cell.text}` : ""}`}</Text>
+      );
     case "tool":
       return <ToolCard cell={cell} verbose={verbose} />;
     case "compaction":

@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `13`. It exchanges
+`initialize` is the first application request and requires protocol version `14`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -113,6 +113,12 @@ long-lived, such as an approval or activity, is server-owned and
 included in a bounded snapshot rather than reconstructed from old events.
 
 ## History and live events
+
+Protocol 14 carries input `source` (`user` or `plugin` with its originating
+`pluginId`) in pending input snapshots/events and user-role history items. For
+older persisted messages, the wire source is null. Origin is independent of
+queue/steer delivery and model-facing role/content. Clients use explicit plugin
+origin for background presentation; they do not infer it from text.
 
 Assistant messages and text deltas carry phase as `null` when unreported or
 `{value: string | null}` when explicitly reported. This preserves absent phase

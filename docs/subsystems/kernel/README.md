@@ -52,6 +52,11 @@ kept, every persisted call remains paired, and non-empty interrupt content seeds
 the next turn. A failure ends only its turn; it does not stop the process or
 strand later inbox work.
 
+Input retains its existing `DeliverySource` in inbox events/attachment and on
+persisted user-role messages, including steers. Origin is presentation metadata:
+plugin content still reaches the model as ordinary user-role input with unchanged
+delivery semantics. Older items without origin retain their prior appearance.
+
 `whenIdle` waits for conversation quiescence: no active drain and no queued
 inbox work. It is not merely a promise for the turn that happened to be active
 when the caller started waiting.

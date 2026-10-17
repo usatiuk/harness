@@ -87,6 +87,9 @@ idle, Stop when working with an empty draft, and Steer when working with text.
 With pending input, Stop is labeled Interrupt: it interrupts the current turn and
 pending messages run next. Escape in the message box interrupts while
 retaining the draft.
+Web-search hints and background messages appear inside Working alongside tools
+and thinking. Pending background input collapses into an expandable message count;
+your queued messages keep their text. Delivery behavior is unchanged.
 The context ring opens reported request accounting. Optional last-turn token
 counts and request throughput share the current-status row above the floating
 composer. A full-height conversation scrollbar supports reading earlier output;

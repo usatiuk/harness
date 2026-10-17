@@ -574,7 +574,7 @@ export function App({
             <SandboxOverlay view={sandboxView} onClose={() => setShowSandbox(false)} />
           ) : (
             <>
-              <PendingPreview pending={state.pendingInput} />
+              <PendingPreview pending={state.pendingInput} verbose={verbose} />
               <SandboxProgress sandbox={state.sandbox} />
               <Rule />
               <Composer
@@ -757,17 +757,27 @@ function SandboxProgress({
 /** Compact preview of accepted-but-not-yet-injected input, above the composer. */
 function PendingPreview({
   pending,
+  verbose,
 }: {
-  pending: { intent: string; text: string }[];
+  pending: State["pendingInput"];
+  verbose: boolean;
 }): ReactElement | null {
   if (pending.length === 0) return null;
+  const backgroundCount = pending.filter((input) => input.source.kind === "plugin").length;
   return (
     <Box flexDirection="column">
-      {pending.map((p, i) => (
-        <Text key={i} dimColor>
-          {`⤷ ${p.intent}: ${truncate(p.text, 60)}`}
+      {pending
+        .filter((input) => verbose || input.source.kind === "user")
+        .map((p, i) => (
+          <Text key={i} dimColor>
+            {`⤷ ${p.source.kind === "plugin" ? `${p.source.pluginId} · ` : ""}${p.intent}: ${truncate(p.text, 60)}`}
+          </Text>
+        ))}
+      {backgroundCount > 0 && !verbose && (
+        <Text dimColor>
+          {`⤷ ${backgroundCount} background ${backgroundCount === 1 ? "message" : "messages"} queued`}
         </Text>
-      ))}
+      )}
     </Box>
   );
 }

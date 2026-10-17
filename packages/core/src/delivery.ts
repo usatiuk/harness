@@ -1,5 +1,13 @@
-import { assertNever } from "@harness/protocol";
+import { assertNever, textOf, type PendingInput } from "@harness/protocol";
 import type { Delivery, Runtime } from "./runtime.ts";
+
+/** Only queue/steer are pending; send/interrupt pass through the same drain tick. */
+export const pendingInput = (runtime: Runtime): PendingInput[] =>
+  runtime.inbox.flatMap(({ intent, input }) =>
+    intent === "queue" || intent === "steer"
+      ? [{ intent, text: textOf(input.content), source: input.source }]
+      : [],
+  );
 
 /**
  * Maps delivery intent → inbox mutation, the one place intent is interpreted (the

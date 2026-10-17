@@ -452,7 +452,8 @@ and simple provider activity text render without native payload inspection.
 Cost displays indicate incomplete totals when rows are unpriced or native search
 fees are unavailable. Models author Markdown links; no citation transformation
 or provider-specific search-result UI runs in clients.
-Desktop groups consecutive reasoning and tool calls between other transcript
+Desktop groups consecutive reasoning, tool calls, provider activity hints and
+plugin-origin messages between other transcript
 entries under a collapsed summary. Reasoning remains separately collapsed when
 the group opens; opening its compact Thought row mounts the full smaller muted
 text. Reasoning rows show Thinking for X s while streaming and Thought for X s
@@ -646,6 +647,11 @@ interrupt retain independent pending lifetimes, so an outstanding delivery
 acknowledgement cannot block interruption. Composition events never submit, and
 keyboard/button submission share
 the disconnected/empty/pending guard. Drafts remain keyed by host and conversation.
+Pending plugin input appears as one expandable background-message count; human
+queued input keeps its text. Consumed plugin input appears as an expandable
+message inside Working, using its recorded origin, without a user bubble or fork
+action. TUI uses compact origin labels and a pending count; verbose mode reveals
+the message text. Neither client changes delivery order or model-facing content.
 
 The context ring shows the latest agent request attempt against that exact
 model's advertised window. Missing usage or capacity is unavailable. Last-turn

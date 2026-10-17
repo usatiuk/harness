@@ -50,6 +50,7 @@ declare global {
       failProviderSave: boolean;
       settle(reject?: boolean): void;
       setPendingInput(): void;
+      showBackgroundWork(): void;
       settleStop(): void;
       disconnect(): void;
     };
@@ -846,8 +847,54 @@ window.composerFixture = {
   providerCreates,
   providerWrites,
   failProviderSave: false,
+  showBackgroundWork() {
+    const source = { kind: "plugin" as const, pluginId: "subagent" };
+    view.state = {
+      ...view.state,
+      pendingInput: [
+        { intent: "queue", text: "My follow-up", source: { kind: "user" } },
+        ...[1, 2, 3].map((index) => ({
+          intent: "steer" as const,
+          text: `Background result ${index}`,
+          source,
+        })),
+      ],
+      cells: [
+        { kind: "user", id: "human", turnId: "turn", text: "Original request", createdAt: 0 },
+        {
+          kind: "reasoning",
+          id: "thought",
+          turnId: "turn",
+          text: "Thinking about the request",
+          streaming: false,
+          startedAt: Date.now(),
+        },
+        { kind: "provider_output", id: "search", turnId: "turn", text: "Searched the web" },
+        {
+          kind: "plugin_message",
+          id: "background",
+          turnId: "turn",
+          pluginId: "subagent",
+          text: "Explorer found the answer",
+        },
+        {
+          kind: "tool",
+          turnId: "turn",
+          callId: "read",
+          name: "read_file",
+          args: { path: "answer.ts" },
+          startedAt: Date.now(),
+        },
+      ],
+    };
+    view.transcript.update(view.state.cells, "turn");
+    changed();
+  },
   setPendingInput() {
-    view.state = { ...view.state, pendingInput: [{ intent: "queue", text: "Queued follow-up" }] };
+    view.state = {
+      ...view.state,
+      pendingInput: [{ intent: "queue", text: "Queued follow-up", source: { kind: "user" } }],
+    };
     changed();
   },
   settle(reject = false) {

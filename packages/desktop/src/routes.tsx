@@ -1089,6 +1089,14 @@ export function createDesktopRouter(
               </div>
             );
           const cell = step.cell;
+          if (cell.kind !== "tool")
+            return (
+              <button type="button" className="preview-tool" key={step.key} onClick={expand}>
+                <span>
+                  {cell.kind === "plugin_message" ? `Message from ${cell.pluginId}` : cell.text}
+                </span>
+              </button>
+            );
           const ToolIcon = toolIcon(cell.name);
           const boundary = "boundary" in step ? step.boundary : undefined;
           return (
@@ -1120,14 +1128,17 @@ export function createDesktopRouter(
     const start =
       row.observedTiming?.startedAt ??
       (historicalTools
-        ? row.steps.reduce((time, { cell }) => Math.min(time, cell.startedAt), Infinity)
+        ? row.steps.reduce(
+            (time, { cell }) => (cell.kind === "tool" ? Math.min(time, cell.startedAt) : time),
+            Infinity,
+          )
         : undefined);
     const end =
       row.observedTiming?.completedAt ??
       (historicalTools
         ? row.steps.reduce<number | undefined>(
             (time, { cell }) =>
-              time === undefined || cell.completedAt === undefined
+              time === undefined || cell.kind !== "tool" || cell.completedAt === undefined
                 ? undefined
                 : Math.max(time, cell.completedAt),
             0,
@@ -1236,6 +1247,12 @@ export function createDesktopRouter(
   function TranscriptCell({ cell }: { cell: Cell }) {
     if (cell.kind === "tool") return <ToolCall cell={cell} />;
     if (cell.kind === "reasoning") return <Reasoning cell={cell} />;
+    if (cell.kind === "plugin_message")
+      return (
+        <Disclosure title={<>Message from {cell.pluginId}</>}>
+          <pre>{cell.text}</pre>
+        </Disclosure>
+      );
     if (cell.kind === "compaction" || cell.kind === "context")
       return (
         <Disclosure
@@ -1398,6 +1415,9 @@ export function createDesktopRouter(
     const disabled = !text.trim() || busy || Boolean(session.disconnected);
     const stopping = running && !text.trim();
     const hasPendingInput = view.state.pendingInput.length > 0;
+    const backgroundInput = view.state.pendingInput.filter(
+      (input) => input.source.kind === "plugin",
+    );
     useEffect(() => {
       if (send.state === "idle" && send.data?.ok && handled.current !== send.data) {
         handled.current = send.data;
@@ -1432,11 +1452,30 @@ export function createDesktopRouter(
         <div className="composer">
           {view.state.pendingInput.length > 0 && (
             <div className="pending-input">
-              {view.state.pendingInput.map((input, index) => (
-                <div key={index}>
-                  {input.intent}: {input.text}
-                </div>
-              ))}
+              {view.state.pendingInput
+                .filter((input) => input.source.kind === "user")
+                .map((input, index) => (
+                  <div key={index}>
+                    {input.intent}: {input.text}
+                  </div>
+                ))}
+              {backgroundInput.length > 0 && (
+                <Disclosure
+                  title={
+                    <>
+                      {backgroundInput.length} background{" "}
+                      {backgroundInput.length === 1 ? "message" : "messages"} queued
+                    </>
+                  }
+                >
+                  {backgroundInput.map((input, index) => (
+                    <div key={index}>
+                      {input.source.kind === "plugin" && <strong>{input.source.pluginId}: </strong>}
+                      {input.text}
+                    </div>
+                  ))}
+                </Disclosure>
+              )}
             </div>
           )}
           <send.Form

@@ -1,5 +1,10 @@
 # Harness plan
 
+The [background-input presentation change](docs/plans/interface/2026-10-17-background-input-presentation.md)
+preserves existing delivery origin through history and pending input. Desktop groups
+provider activity and plugin input into Working and collapses queued background
+messages without changing scheduling or model-facing roles/content.
+
 The [MCP/tool-mode simplification](docs/plans/cross-cutting/2026-10-17-simplify-mcp-and-remove-direct-mode.md)
 uses raw prefixed MCP names and code-only MCP exposure. Hybrid and code-only
 remain; legacy direct settings load as Hybrid. The delivery plan records

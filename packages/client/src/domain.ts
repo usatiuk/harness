@@ -120,7 +120,15 @@ export const decodeItem = (item: WireItem): Item => {
             content: item.content,
             ...(item.phase === null ? {} : { phase: item.phase.value }),
           }
-        : { ...base, type: item.type, role: item.role, content: item.content };
+        : item.role === "user"
+          ? {
+              ...base,
+              type: item.type,
+              role: item.role,
+              content: item.content,
+              ...(item.source === null ? {} : { source: item.source }),
+            }
+          : { ...base, type: item.type, role: item.role, content: item.content };
     case "reasoning":
     case "provider_output":
     case "compaction":

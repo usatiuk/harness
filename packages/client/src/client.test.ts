@@ -312,7 +312,9 @@ describe("HarnessClient attachment", () => {
             conversationId: "root",
             status: "running" as const,
             turnId: "turn-1",
-            pendingInput: [{ intent: "queue" as const, text: "next" }],
+            pendingInput: [
+              { intent: "queue" as const, text: "next", source: { kind: "user" as const } },
+            ],
           },
         },
       ],

@@ -541,10 +541,7 @@ export class HarnessRpcSession {
       case "inbox":
         return {
           type: "input.changed",
-          pending: event.pending.filter(
-            (input): input is { intent: "queue" | "steer"; text: string } =>
-              input.intent === "queue" || input.intent === "steer",
-          ),
+          pending: event.pending,
         };
       case "text_delta":
         return {

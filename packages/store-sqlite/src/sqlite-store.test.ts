@@ -38,6 +38,32 @@ describe("SqliteStore (durable-only)", () => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
+  it("retains input origin after reopen and leaves legacy messages unclassified", async () => {
+    const path = tempDb();
+    const first = new SqliteStore(path);
+    const conversation = await first.createConversation(record());
+    const turn = await first.createTurn(conversation.id);
+    const message = {
+      conversationId: conversation.id,
+      turnId: turn.id,
+      type: "message" as const,
+      role: "user" as const,
+      content: [{ type: "text" as const, text: "result" }],
+    };
+    const legacy = await first.appendItem(message);
+    const background = await first.appendItem({
+      ...message,
+      source: { kind: "plugin", pluginId: "subagent" },
+    });
+    first.close();
+    const reopened = new SqliteStore(path);
+    try {
+      expect(await reopened.listActiveItems(conversation.id)).toEqual([legacy, background]);
+    } finally {
+      reopened.close();
+    }
+  });
+
   it("persists a shared fork and upgrades schema 8 without copying history", async () => {
     const path = tempDb();
     const first = new SqliteStore(path);

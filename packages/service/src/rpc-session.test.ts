@@ -8,6 +8,8 @@ import {
   type PluginEntry,
   type ModelProvider,
   type ModelRequest,
+  type ToolMiddlewareContext,
+  type WireConversationEvent,
 } from "@harness/protocol";
 import {
   HarnessClient,
@@ -83,6 +85,91 @@ const createConversation = (client: HarnessClient) =>
   });
 
 describe("HarnessRpcSession", () => {
+  it("carries plugin origin through pending attachment, live events and history without changing content", async () => {
+    const gate = new GateTool();
+    let deliver!: ToolMiddlewareContext["deliver"];
+    const requests: ModelRequest[] = [];
+    const fake = new FakeProvider([toolStep("call", "gate", {}), textStep("done")]);
+    const { client, service } = createHarness(
+      {
+        provider: fake.provider,
+        capabilities: () => fake.capabilities(),
+        listModels: () => fake.listModels(),
+        validateConfig: () => {},
+        stream: (request) => {
+          requests.push(request);
+          return fake.stream();
+        },
+      },
+      [
+        {
+          id: "activity",
+          tools: () => [gate],
+          toolMiddleware: () => [
+            {
+              id: "capture-delivery",
+              wrap: (call, context, next) => {
+                deliver = (content) => context.deliver(content);
+                return next(call);
+              },
+            },
+          ],
+        },
+      ],
+    );
+    await client.start();
+    const conversation = await createConversation(client);
+    await client.attach(conversation.id);
+    const observed: WireConversationEvent[] = [];
+    client.subscribe((event) => {
+      if (event.type === "conversation") observed.push(event.event);
+    });
+    await client.deliver(conversation.id, "go", "send");
+    await gate.started;
+    const content = [{ type: "text" as const, text: "Background result" }];
+    deliver(content);
+    const source = { kind: "plugin", pluginId: "gate" };
+    const attachment = await client.attach(conversation.id);
+    expect(attachment.members[0]?.live.pendingInput).toEqual([
+      { intent: "steer", text: "Background result", source },
+    ]);
+    gate.release();
+    await service.whenIdle(conversation.id as ConversationId);
+    const history = await client.history({ conversationId: conversation.id });
+    const background = history.entries.find(
+      (entry) =>
+        entry.kind === "item" &&
+        entry.item.type === "message" &&
+        entry.item.role === "user" &&
+        entry.item.source?.kind === "plugin",
+    );
+    expect(background).toMatchObject({
+      kind: "item",
+      item: { type: "message", role: "user", source, content },
+    });
+    expect(
+      observed.find((event) => event.type === "input.changed" && event.pending.length > 0),
+    ).toEqual({
+      type: "input.changed",
+      pending: [{ intent: "steer", text: "Background result", source }],
+    });
+    expect(
+      observed.find(
+        (event) =>
+          event.type === "item.appended" &&
+          event.item.type === "message" &&
+          event.item.role === "user" &&
+          event.item.source?.kind === "plugin",
+      ),
+    ).toMatchObject({ item: { source, content } });
+    const modelInput = requests[1]!.items
+      .map(({ item }) => item)
+      .find(
+        (item) => item.type === "message" && item.role === "user" && item.source?.kind === "plugin",
+      );
+    expect(modelInput).toMatchObject({ type: "message", role: "user", content });
+  });
+
   it("forks through real RPC, reads an inherited prefix and sends only the edited draft in a new root", async () => {
     const requests: ModelRequest[] = [];
     const fake = new FakeProvider([

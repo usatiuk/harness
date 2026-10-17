@@ -76,6 +76,7 @@ const turnIdOf = (cell: Cell): string | undefined => {
     case "assistant":
     case "reasoning":
     case "provider_output":
+    case "plugin_message":
     case "tool":
       return cell.turnId;
     case "compaction":
@@ -113,6 +114,7 @@ const cellIdentity = (cell: Cell): string => {
     case "shell":
       return cell.id;
     case "provider_output":
+    case "plugin_message":
       return cell.id;
   }
 };

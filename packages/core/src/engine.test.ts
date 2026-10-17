@@ -1228,6 +1228,41 @@ describe("Engine — interleaving order", () => {
 });
 
 describe("Engine — steering and queueing", () => {
+  it.each(["queue", "steer"] as const)(
+    "preserves plugin origin without changing %s delivery",
+    async (intent) => {
+      const gate = new GateTool();
+      const { store, engine, events } = setup(
+        [toolStep("c1", "gate", {}), textStep("done"), textStep("next")],
+        { tools: () => [gate] },
+      );
+      const conv = await store.createConversation(newConversationInput(CONFIG));
+      await engine.deliver(conv.id, userInput("go"));
+      await gate.started;
+      const source = { kind: "plugin" as const, pluginId: "activity" };
+      await engine.deliver(
+        conv.id,
+        { source, content: userInput("background result").content },
+        intent,
+      );
+      const pending = [{ source, intent, text: "background result" }];
+      expect(engine.conversationTreeState(conv.id)[0]?.pendingInput).toEqual(pending);
+      expect(
+        events.filter(isKernelEvent).findLast((event) => event.type === "inbox"),
+      ).toMatchObject({ pending });
+      gate.release();
+      await engine.whenIdle(conv.id);
+      const messages = (await store.listActiveItems(conv.id)).filter(
+        (item) => item.type === "message" && item.role === "user",
+      );
+      expect(messages).toMatchObject([
+        { source: { kind: "user" }, content: userInput("go").content },
+        { source, content: userInput("background result").content },
+      ]);
+      expect(messages[1]!.turnId === messages[0]!.turnId).toBe(intent === "steer");
+    },
+  );
+
   it("flushes pending steers into the running turn after a tool result", async () => {
     const gate = new GateTool();
     const { store, engine } = setup([toolStep("c1", "gate", {}), textStep("done")], {

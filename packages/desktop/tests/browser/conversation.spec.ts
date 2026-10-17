@@ -663,6 +663,30 @@ test("production composer explains queued interruption and supports Escape while
   expect((await page.evaluate(() => window.composerFixture.calls)).length).toBe(1);
 });
 
+test("background input and web search stay in Working and background queue details collapse", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showBackgroundWork());
+  await expect(page.locator(".tool-group")).toHaveCount(1);
+  await expect(page.locator(".tool-group > summary")).toContainText("Working");
+  await expect(page.locator(".cell.user")).toHaveCount(1);
+  await expect(page.locator(".cell.user")).toHaveText("Original request");
+  const pending = page.locator(".pending-input");
+  await expect(pending).toContainText("queue: My follow-up");
+  await expect(pending.locator("summary")).toHaveText("3 background messages queued");
+  await expect(pending.getByText("Background result 1", { exact: false })).not.toBeVisible();
+  await pending.locator("summary").click();
+  await expect(pending).toContainText("Background result 1");
+  await expect(pending).toContainText("Background result 3");
+  await page.locator(".tool-group > summary").click();
+  const work = page.locator(".tool-group");
+  await expect(work.getByText("Searched the web", { exact: true })).toBeVisible();
+  await work.locator("summary").filter({ hasText: "Message from subagent" }).click();
+  await expect(work.getByText("Explorer found the answer", { exact: true })).toBeVisible();
+});
+
 test("production composer queues alternatively and keeps rejected drafts with disconnected guards", async ({
   page,
 }) => {

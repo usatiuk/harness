@@ -1,4 +1,4 @@
-import type { DeliveryIntent } from "./delivery.ts";
+import type { PendingInput } from "./delivery.ts";
 import type { ConversationId, TurnId } from "./ids.ts";
 import type { Item } from "./items.ts";
 import type { ModelUsageSummary } from "./usage.ts";
@@ -31,7 +31,7 @@ export type KernelEvent = ConversationEvent &
     | { type: "workspace.changed"; workspaceRoot: string; originalWorkspaceRoot: string }
     // `inbox`: snapshot of accepted-but-not-yet-injected input (queue/steer), re-emitted on
     // every inbox mutation; `pending: []` means it drained.
-    | { type: "inbox"; pending: { intent: DeliveryIntent; text: string }[] }
+    | { type: "inbox"; pending: PendingInput[] }
     | { type: "usage.changed"; summary: ModelUsageSummary }
   );
 

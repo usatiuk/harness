@@ -25,6 +25,27 @@ const worked = (duration = 0): Extract<State["cells"][number], { kind: "worked" 
 });
 
 describe("transcript reducer", () => {
+  it("uses explicit origin for background messages in both live and restored history", () => {
+    const messages = [
+      item({ type: "message", role: "user", id: "human", content: text("Activity finished") }),
+      item({
+        type: "message",
+        role: "user",
+        id: "background",
+        source: { kind: "plugin", pluginId: "subagent" },
+        content: text("Agent result"),
+      }),
+    ];
+    const restored = init(messages).cells;
+    const live = fold(
+      messages.map((entry) => ({ type: "item.appended", conversationId: "c", item: entry })),
+    ).cells;
+    expect(live).toEqual(restored);
+    expect(restored).toMatchObject([
+      { kind: "user", text: "Activity finished" },
+      { kind: "plugin_message", text: "Agent result", pluginId: "subagent" },
+    ]);
+  });
   it("keeps inherited and fork-owned tool results separate when provider IDs repeat", () => {
     const entries = ["source", "fork"].flatMap((conversationId) => [
       item({
@@ -711,9 +732,15 @@ describe("transcript reducer", () => {
 
   it("mirrors the inbox snapshot into pendingInput", () => {
     const state = fold([
-      { type: "inbox", conversationId: "c", pending: [{ intent: "queue", text: "later" }] },
+      {
+        type: "inbox",
+        conversationId: "c",
+        pending: [{ intent: "queue", text: "later", source: { kind: "user" } }],
+      },
     ]);
-    expect(state.pendingInput).toEqual([{ intent: "queue", text: "later" }]);
+    expect(state.pendingInput).toEqual([
+      { intent: "queue", text: "later", source: { kind: "user" } },
+    ]);
     const drained = fold([{ type: "inbox", conversationId: "c", pending: [] }], state);
     expect(drained.pendingInput).toEqual([]);
   });

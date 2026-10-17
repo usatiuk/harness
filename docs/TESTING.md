@@ -676,6 +676,15 @@ the production router, actions and Composer with a controlled session/data edge:
 it defers or rejects delivery to verify duplicate suppression, edited drafts,
 independent interruption, primary labels (including Interrupt with pending input),
 Escape interruption with draft retention, IME guards and disconnected behavior.
+The background-input browser case verifies a single Working group containing
+reasoning, a provider web-search hint, plugin input and a tool; it also checks
+collapsed pending background content beside visible human queued input.
+Engine queue/steer regressions check persisted origin and turn placement; the RPC
+case covers pending attachment, live events, history and model-request content.
+SQLite reopen and reducer tests cover durable origin and unclassified legacy input.
+The [background-input delivery record](plans/interface/2026-10-17-background-input-presentation.md)
+records an existing Linux headless scroll-anchor failure reproduced against the
+unchanged desktop snapshot, plus the empty `/tmp/.git` environment issue.
 Neither fixture establishes RPC or native behavior. A controlled HTTP streaming edge
 also exercises follow/pause/jump through the actual native app. Synthetic 200% CSS
 zoom checks control reachability and app-owned layout-unit clearance. Installed

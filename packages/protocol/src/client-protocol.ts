@@ -2,6 +2,7 @@ import { z } from "zod";
 import { outputRefSchema } from "./tools.ts";
 import { defineNotification, defineRequest, jsonValueSchema } from "./rpc.ts";
 import { modelReasoningInfoSchema } from "./model.ts";
+import { deliverySourceSchema, pendingInputSchema } from "./delivery.ts";
 
 const idSchema = z.string().min(1);
 const nonnegativeInteger = z.number().int().nonnegative();
@@ -44,7 +45,13 @@ export const wireItemSchema = z.discriminatedUnion("type", [
     }),
     z.strictObject({
       ...messageShape,
-      role: z.enum(["user", "system"]),
+      role: z.literal("user"),
+      source: deliverySourceSchema.nullable().default(null),
+      phase: z.null().default(null),
+    }),
+    z.strictObject({
+      ...messageShape,
+      role: z.literal("system"),
       phase: z.null().default(null),
     }),
   ]),
@@ -207,7 +214,7 @@ export const wireLiveStateSchema = z.strictObject({
   conversationId: idSchema,
   status: z.enum(["idle", "running"]),
   turnId: idSchema.nullable(),
-  pendingInput: z.array(z.strictObject({ intent: z.enum(["queue", "steer"]), text: z.string() })),
+  pendingInput: z.array(pendingInputSchema),
 });
 export type WireLiveState = z.infer<typeof wireLiveStateSchema>;
 
@@ -439,7 +446,7 @@ export const wireConversationEventSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({
     type: z.literal("input.changed"),
-    pending: z.array(z.strictObject({ intent: z.enum(["queue", "steer"]), text: z.string() })),
+    pending: z.array(pendingInputSchema),
   }),
   z.strictObject({
     type: z.literal("text.delta"),

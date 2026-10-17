@@ -3,6 +3,7 @@ import type { ConversationId, ItemId, TurnId } from "./ids.ts";
 import { contentBlockSchema, type ContentBlock } from "./content.ts";
 import { outputRefSchema, type ToolStatus, type OutputRef } from "./tools.ts";
 import { jsonValueSchema, type JsonValue } from "./rpc.ts";
+import { deliverySourceSchema, type DeliverySource } from "./delivery.ts";
 
 interface ItemBase {
   id: ItemId;
@@ -20,7 +21,12 @@ export type Item =
   | (ItemBase & {
       type: "message";
       content: ContentBlock[];
-    } & ({ role: "assistant"; phase?: string | null } | { role: "user" | "system"; phase?: never }))
+    } & (
+        | { role: "assistant"; phase?: string | null }
+        // Absent on older history; origin does not change the model-facing role.
+        | { role: "user"; source?: DeliverySource; phase?: never }
+        | { role: "system"; phase?: never }
+      ))
   | (ItemBase & { type: "reasoning"; content: ContentBlock[] })
   // Durable display hint only; omitted from every model request and summary.
   | (ItemBase & { type: "provider_output"; content: ContentBlock[] })
@@ -80,7 +86,13 @@ export const itemSchema = z.discriminatedUnion("type", [
     }),
     z.object({
       ...messageShape,
-      role: z.enum(["user", "system"]),
+      role: z.literal("user"),
+      source: deliverySourceSchema.optional(),
+      phase: z.never().optional(),
+    }),
+    z.object({
+      ...messageShape,
+      role: z.literal("system"),
       phase: z.never().optional(),
     }),
   ]),

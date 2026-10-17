@@ -31,11 +31,24 @@ describe("itemSchema", () => {
   it.each(["user", "system"])("rejects phases on %s messages", (role) => {
     const value = { ...message, role };
     expect(itemSchema.parse(value)).toEqual(value);
-    expect(wireItemSchema.parse(value)).toEqual({ ...value, phase: null });
+    expect(wireItemSchema.parse(value)).toEqual({
+      ...value,
+      phase: null,
+      ...(role === "user" ? { source: null } : {}),
+    });
     for (const phase of [null, "commentary"]) {
       expect(itemSchema.safeParse({ ...value, phase }).success).toBe(false);
       expect(wireItemSchema.safeParse({ ...value, phase: { value: phase } }).success).toBe(false);
     }
+  });
+
+  it("preserves explicit input origin and rejects an unknown origin kind", () => {
+    const value = { ...message, role: "user", source: { kind: "plugin", pluginId: "subagent" } };
+    expect(itemSchema.parse(value)).toEqual(value);
+    expect(wireItemSchema.parse(value)).toEqual({ ...value, phase: null });
+    const invalid = { ...value, source: { kind: "other" } };
+    expect(itemSchema.safeParse(invalid).success).toBe(false);
+    expect(wireItemSchema.safeParse(invalid).success).toBe(false);
   });
 
   it("round-trips a tool_result item", () => {

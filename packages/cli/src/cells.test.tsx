@@ -37,6 +37,17 @@ describe("toolSummary", () => {
 });
 
 describe("CellView: tool cards", () => {
+  it("shows background input as work and exposes its content in verbose mode", async () => {
+    const cell: Cell = {
+      kind: "plugin_message",
+      id: "notice",
+      turnId: "turn",
+      pluginId: "subagent",
+      text: "Explorer result",
+    };
+    expect(await frame(cell)).toBe("✦ Message from subagent");
+    expect(await frame(cell, true)).toContain("Explorer result");
+  });
   const okTool: Extract<Cell, { kind: "tool" }> = {
     kind: "tool",
     callId: "k1",

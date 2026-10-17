@@ -4,7 +4,7 @@ import {
   isKernelEvent,
   textOf,
   zeroUsage,
-  type DeliveryIntent,
+  type PendingInput,
   type HarnessEvent,
   type Item,
   type ModelUsage,
@@ -31,6 +31,7 @@ import type { ModelConfig } from "@harness/protocol";
  * session. Components render cells in Ink or React; this module remains pure.
  */
 export type Cell =
+  | { kind: "plugin_message"; id: string; turnId: string; text: string; pluginId: string }
   | { kind: "user"; id: string; turnId: string; text: string; createdAt: number }
   | {
       kind: "assistant";
@@ -109,7 +110,7 @@ export interface State {
   /** Durable facts already folded from history or the live suffix. */
   itemIds: ReadonlySet<string>;
   /** Accepted-but-not-yet-injected input (queue/steer), mirrored from the engine's `inbox` event. */
-  pendingInput: { intent: DeliveryIntent; text: string }[];
+  pendingInput: PendingInput[];
   /** Tracked activities this session, newest last; folded from `activity.*` plugin events. */
   activities: ActivityLine[];
   /** Latest dev-container build/start phase; folded from `sandbox.status` events. Absent until one arrives. */
@@ -247,11 +248,12 @@ function reduceItem(state: State, item: Item, receivedAt?: number): State {
           cells: [
             ...state.cells,
             {
-              kind: "user",
+              ...(item.source?.kind === "plugin"
+                ? { kind: "plugin_message" as const, pluginId: item.source.pluginId }
+                : { kind: "user" as const, createdAt: item.createdAt }),
               id: item.id,
               turnId: item.turnId,
               text: textOf(item.content),
-              createdAt: item.createdAt,
             },
           ],
         };

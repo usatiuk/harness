@@ -8,10 +8,10 @@ export interface ToolCallRow extends CellRow {
   cell: Extract<Cell, { kind: "tool" }>;
   boundary?: "begin" | "result";
 }
-export type TranscriptStep =
-  ToolCallRow | { key: string; cell: Extract<Cell, { kind: "reasoning" }> };
+type WorkCell = Extract<Cell, { kind: "reasoning" | "provider_output" | "plugin_message" }>;
+export type TranscriptStep = ToolCallRow | { key: string; cell: WorkCell };
 export type TranscriptRow =
-  | { kind: "cell"; key: string; cell: Exclude<Cell, { kind: "tool" | "reasoning" }> }
+  | { kind: "cell"; key: string; cell: Exclude<Cell, { kind: "tool" } | WorkCell> }
   | {
       kind: "steps";
       key: string;
@@ -111,7 +111,12 @@ export class DesktopTranscript {
     });
     for (const row of flat) {
       const previous = this.rows.at(-1);
-      if (row.cell.kind === "tool" || row.cell.kind === "reasoning") {
+      if (
+        row.cell.kind === "tool" ||
+        row.cell.kind === "reasoning" ||
+        row.cell.kind === "provider_output" ||
+        row.cell.kind === "plugin_message"
+      ) {
         const step: TranscriptStep =
           row.cell.kind === "tool" ? { ...row, cell: row.cell } : { key: row.key, cell: row.cell };
         if (previous?.kind === "steps") previous.steps.push(step);

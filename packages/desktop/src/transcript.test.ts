@@ -95,6 +95,43 @@ function toolGroup(row: TranscriptRow): Extract<TranscriptRow, { kind: "steps" }
   return row;
 }
 
+it("keeps provider activity and background messages inside Working without hiding human messages", () => {
+  const transcript = new DesktopTranscript();
+  const thought: Cell = {
+    kind: "reasoning",
+    turnId: "turn",
+    text: "Thinking",
+    streaming: false,
+    startedAt: 0,
+  };
+  const search: Cell = {
+    kind: "provider_output",
+    id: "search",
+    turnId: "turn",
+    text: "Searched the web",
+  };
+  const background: Cell = {
+    kind: "plugin_message",
+    id: "background",
+    turnId: "turn",
+    pluginId: "subagent",
+    text: "Result",
+  };
+  const human: Cell = { kind: "user", id: "human", turnId: "turn", text: "Continue", createdAt: 0 };
+  transcript.update([thought], "turn");
+  const key = transcript.rows[0]!.key;
+  transcript.update([thought, search, background], "turn");
+  expect(transcript.rows).toHaveLength(1);
+  expect(transcript.rows[0]!.key).toBe(key);
+  expect(toolGroup(transcript.rows[0]!).steps.map(({ cell }) => cell)).toEqual([
+    thought,
+    search,
+    background,
+  ]);
+  transcript.update([thought, search, background, human]);
+  expect(transcript.rows[1]).toMatchObject({ kind: "cell", cell: human });
+});
+
 it("places eval results after all available descendants, including nested evals", () => {
   const transcript = new DesktopTranscript();
   const call = (
