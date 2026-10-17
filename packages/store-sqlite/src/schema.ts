@@ -61,6 +61,7 @@ interface ProviderPayloadsTable {
 }
 
 interface PluginStateTable {
+  scope: string | null;
   plugin: string;
   conversation_id: string;
   key: string;
@@ -159,8 +160,12 @@ CREATE TABLE plugin_state (
   conversation_id TEXT NOT NULL REFERENCES conversations(id),
   key TEXT NOT NULL,
   value TEXT NOT NULL,
+  scope TEXT,
   PRIMARY KEY (plugin, conversation_id, key)
 );
+
+CREATE INDEX plugin_state_scope ON plugin_state(plugin, key, scope, conversation_id);
+CREATE INDEX turns_latest ON turns(conversation_id);
 
 CREATE TABLE blobs (
   id TEXT PRIMARY KEY,
@@ -197,7 +202,7 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-export const STORE_SCHEMA_VERSION = 11;
+export const STORE_SCHEMA_VERSION = 12;
 
 /** Fresh schema or supported additive upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
@@ -250,6 +255,14 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
       db.exec(
         "CREATE INDEX conversations_project_recent ON conversations(coalesce(original_workspace_root, workspace_root), last_used_at DESC, id DESC)",
       );
+      version = 11;
+    }
+    if (version === 11) {
+      db.exec(`ALTER TABLE plugin_state ADD COLUMN scope TEXT;
+        CREATE INDEX plugin_state_scope ON plugin_state(plugin, key, scope, conversation_id);
+        CREATE INDEX turns_latest ON turns(conversation_id);
+        UPDATE plugin_state SET scope = json_extract(value, '$.parent.conversationId')
+          WHERE plugin = 'subagents' AND key = 'spawn';`);
       db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }

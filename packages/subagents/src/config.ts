@@ -43,19 +43,32 @@ export const DEFAULT_AGENTS: AgentDef[] = [
       "commands that modify, create, or delete files. Report findings concisely with file:line " +
       "references.",
     // Only the substrate's active command tool is offered; its calls remain approval-gated.
-    tools: { allow: ["read_file", "glob", "bash", "powershell"] },
+    tools: {
+      allow: [
+        "read_file",
+        "glob",
+        "bash",
+        "powershell",
+        "subagent_list",
+        "subagent_send",
+        "subagent_dismiss",
+      ],
+    },
   },
 ];
 
 /** The recursion floor; a child at this depth is a leaf (cannot spawn). */
-export const DEFAULT_MAX_DEPTH = 3;
+export const DEFAULT_MAX_DEPTH = 2;
 
 /**
  * The `plugins.subagents` settings slice: the agent catalog (resolved per-conversation via the
  * cascade) and the recursion limit. Per-instance parentage is NOT here — it's metadata in `plugin_state`.
  */
-export const subagentsConfigSchema = z.object({
-  agents: z.array(agentDefSchema).default(DEFAULT_AGENTS),
+export const subagentLimitsSchema = z.strictObject({
   maxDepth: z.number().int().positive().default(DEFAULT_MAX_DEPTH),
+  maxChildren: z.number().int().positive().default(3),
+});
+export const subagentsConfigSchema = subagentLimitsSchema.extend({
+  agents: z.array(agentDefSchema).default(DEFAULT_AGENTS),
 });
 export type SubagentsConfig = z.infer<typeof subagentsConfigSchema>;

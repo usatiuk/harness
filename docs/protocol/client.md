@@ -185,11 +185,20 @@ snapshot derived only from already-created state. Large data uses a feature
 request, not the attach response.
 
 The shipped contracts cover activities, workspace shell streaming, sandbox
-control, subagent list filtering, approval, and MCP host settings, credentials,
+control, subagent inspection/list filtering, approval, and MCP host settings, credentials,
 tools and sign-in. MCP configuration belongs to the host's global settings;
 saved changes require explicit host restart. Sign-in belongs to its initiating
 client connection and is cancelled on detach. Workspace shell IDs are allocated
 with a fresh UUID; duplicate active activity IDs fail rather than overwrite.
+Subagents contract version 3 exposes `plugin.subagents.inspect` (task identity and
+full ancestor chain) and `plugin.subagents.list` (paged direct children,
+terminal outcomes, child-branch availability, per-branch running counts and the
+live descendant running count).
+Clients render nested children through the same scoped paging operation. Inspection never
+activates historical children. Marked child conversations reject client mutations;
+read-only history/live attachment and the internal parent-owned runner remain
+available.
+
 The approval contract exposes pending requests in the approval attach snapshot,
 created/resolved notifications, and a client-to-server decision request. The first
 valid decision resolves the kernel-owned request; subsequent decisions return

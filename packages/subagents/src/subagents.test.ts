@@ -88,6 +88,11 @@ function fakeRunner(): FakeRunner {
   });
   return {
     created,
+    prepare: async () => {},
+    registerChild: () => {},
+    isConversationRunning: (cid) => running.has(cid),
+    getLatestTurn: async () => undefined,
+    listConversationPage: async () => [],
     release(cid, response) {
       emit(cid, { type: "item.appended", conversationId: cid, item: msg(cid, response) });
       emit(cid, {
@@ -181,6 +186,41 @@ const AGENT = {
 };
 
 describe("SubagentTool — spawn", () => {
+  it("keeps parent-supplied task identity and rejects duplicate slugs across concurrent calls and sessions", async () => {
+    const runner = fakeRunner();
+    const registry = new SubagentRegistry();
+    const tool = new SubagentTool({
+      reader: fakeReader({ agents: [AGENT] }) as never,
+      runner: () => runner,
+      registry,
+    });
+    const args = {
+      agent: "researcher",
+      name: "Review authentication",
+      slug: "auth-review",
+      task: "review",
+    };
+    const mgr = new ActivityManager(id("parent"));
+    const results = await Promise.all([
+      tool.execute(args, ctx(mgr, id("parent"), "first")),
+      tool.execute(args, ctx(mgr, id("parent"), "second")),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual(["error", "ok"]);
+    expect(runner.created).toHaveLength(1);
+    expect(mgr.list()[0]?.title).toBe("Review authentication");
+    const fresh = new SubagentTool({
+      reader: fakeReader({ agents: [AGENT] }) as never,
+      runner: () => runner,
+      registry: new SubagentRegistry(),
+    });
+    expect((await fresh.execute(args, ctx(mgr, id("parent"), "third"))).status).toBe("error");
+    expect(
+      (await fresh.execute(args, ctx(new ActivityManager(id("other")), id("other")))).status,
+    ).toBe("ok");
+    expect(runner.created).toHaveLength(2);
+    for (const child of runner.created) runner.release(child.id, "done");
+  });
+
   it("delegates, returns the child's final output, stamps parentage, and registers live", async () => {
     const runner = fakeRunner();
     const registry = new SubagentRegistry();
@@ -192,7 +232,7 @@ describe("SubagentTool — spawn", () => {
     });
 
     const placeholder = await tool.execute(
-      { agent: "researcher", task: "find x" },
+      { agent: "researcher", name: "Research task", slug: "research-task", task: "find x" },
       ctx(mgr, id("parent")),
     );
     expect(placeholder.status).toBe("ok");
@@ -203,6 +243,8 @@ describe("SubagentTool — spawn", () => {
     expect(await runner.getPluginState("subagents", child.id, "spawn")).toEqual({
       parent: { conversationId: id("parent"), callId: "call_1" },
       agent: "researcher",
+      name: "Research task",
+      slug: "research-task",
     });
     // While the child is live, the registry tracks it for cascade-stop.
     expect(registry.descendantsOf(id("parent"))).toEqual([child.id]);
@@ -225,7 +267,7 @@ describe("SubagentTool — spawn", () => {
       registry: new SubagentRegistry(),
     });
     const result = await tool.execute(
-      { agent: "ghost", task: "x" },
+      { agent: "ghost", name: "Research task", slug: "research-task", task: "x" },
       ctx(new ActivityManager(id("parent")), id("parent")),
     );
     expect(result.status).toBe("error");
@@ -248,7 +290,7 @@ describe("SubagentTool — depth", () => {
       registry: new SubagentRegistry(),
     });
     const result = await tool.execute(
-      { agent: "researcher", task: "x" },
+      { agent: "researcher", name: "Research task", slug: "research-task", task: "x" },
       ctx(new ActivityManager(id("parent")), id("parent")),
     );
     expect(result.status).toBe("error");
@@ -270,7 +312,7 @@ describe("SubagentTool — depth", () => {
       registry: new SubagentRegistry(),
     });
     await tool.execute(
-      { agent: "researcher", task: "x" },
+      { agent: "researcher", name: "Research task", slug: "research-task", task: "x" },
       ctx(new ActivityManager(id("parent")), id("parent")),
     );
     expect(runner.created[0]!.overrides.tools).toEqual({ allow: ["read", "subagent"] });
@@ -285,7 +327,7 @@ describe("SubagentTool — depth", () => {
       registry: new SubagentRegistry(),
     });
     await tool.execute(
-      { agent: "researcher", task: "x" },
+      { agent: "researcher", name: "Research task", slug: "research-task", task: "x" },
       ctx(new ActivityManager(id("parent")), id("parent")),
     );
     expect(runner.created[0]!.overrides.tools).toEqual({ allow: ["read"] });
@@ -315,7 +357,15 @@ describe("subagentsConfigSchema — built-in agents", () => {
     expect(defaults.agents.map((a) => a.name)).toEqual(["general", "explore"]);
     const explore = defaults.agents.find((a) => a.name === "explore")!;
     expect(explore.tools).toEqual({
-      allow: ["read_file", "glob", "bash", "powershell"],
+      allow: [
+        "read_file",
+        "glob",
+        "bash",
+        "powershell",
+        "subagent_list",
+        "subagent_send",
+        "subagent_dismiss",
+      ],
     });
     expect(defaults.agents.find((a) => a.name === "general")!.tools).toBeUndefined();
 

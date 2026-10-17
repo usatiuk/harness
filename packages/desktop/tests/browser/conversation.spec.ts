@@ -1198,6 +1198,104 @@ test("tool groups are compact and activities refresh automatically only while mo
   expect(await page.evaluate(() => window.composerFixture.peekCalls)).toBe(3);
 });
 
+test("subagent header opens a bounded tree with retained outcomes and read-only child navigation", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("button", { name: "Subagents", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showSubagents());
+  const trigger = page.getByRole("button", { name: "Subagents · 1 running", exact: true });
+  await expect(trigger).toBeVisible();
+  const heading = page.locator(".conversation-header");
+  expect((await heading.boundingBox())!.height).toBeLessThanOrEqual(44);
+  expect((await trigger.boundingBox())!.x).toBeGreaterThan(
+    (await heading.boundingBox())!.x + (await heading.boundingBox())!.width / 2,
+  );
+  await trigger.click();
+  const popup = page.getByRole("dialog", { name: "Subagents", exact: true });
+  await expect(popup.getByRole("heading", { name: "Running", exact: true })).toBeVisible();
+  await expect(
+    popup
+      .getByRole("region", { name: "Running", exact: true })
+      .getByRole("link", { name: "Review authentication", exact: true }),
+  ).toBeVisible();
+  await expect(
+    popup
+      .getByRole("region", { name: "Finished", exact: true })
+      .getByRole("link", { name: "Failed review", exact: true }),
+  ).toBeVisible();
+  await expect(popup.getByText("Failed", { exact: true })).toBeVisible();
+  await expect(popup.getByText("Stopped", { exact: true })).toBeVisible();
+  await expect(popup.getByRole("link", { name: "Older review 16", exact: true })).toHaveCount(0);
+  await popup.getByRole("button", { name: "Show more", exact: true }).click();
+  await expect(popup.getByRole("link", { name: "Older review 16", exact: true })).toBeAttached();
+  await expect(popup.locator("summary")).toHaveCount(0);
+  await expect(popup.getByRole("link", { name: "Check tests", exact: true })).toBeVisible();
+  await popup.getByRole("link", { name: "Check tests", exact: true }).click();
+  await expect(page.locator(".conversation-header h1")).toHaveText("Check tests");
+  await expect(page.locator(".conversation-header .ancestor a")).toHaveText([
+    "Parent conversation",
+    "Review authentication",
+  ]);
+  await page
+    .locator(".conversation-header")
+    .getByRole("link", { name: "Parent conversation", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Subagents · 1 running", exact: true }).click();
+  await popup.getByRole("link", { name: "Review authentication", exact: true }).click();
+  await expect(page.locator(".conversation-header h1")).toHaveText("Review authentication");
+  await expect(
+    page
+      .locator(".conversation-header")
+      .getByRole("link", { name: "Parent conversation", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Rename conversation", exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole("button", { name: "Fork before this message", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator(".conversation-branch")).toHaveCount(0);
+  await expect(page.locator(".message-content")).toContainText("Child transcript");
+  await page
+    .locator(".conversation-header")
+    .getByRole("link", { name: "Parent conversation", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Subagents · 1 running", exact: true }),
+  ).toBeVisible();
+  await page.evaluate(() => window.composerFixture.finishSubagents());
+  await expect(page.getByRole("button", { name: "Subagents", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Subagents · 1 running", exact: true }),
+  ).toHaveCount(0);
+});
+
+for (const width of [420, 1440]) {
+  test(`empty subagent popover has no horizontal scrollbar at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(url + "?composer");
+    await page.getByRole("button", { name: "Subagents", exact: true }).click();
+    const popup = page.getByRole("dialog", { name: "Subagents", exact: true });
+    await expect(popup.getByText("No subagents yet.")).toBeVisible();
+    expect(
+      await popup.evaluate((element) => ({
+        overflow: element.scrollWidth > element.clientWidth,
+        nestedScrollers: [...element.querySelectorAll("*")].filter(
+          (child) =>
+            child.scrollWidth > child.clientWidth && getComputedStyle(child).overflowX === "auto",
+        ).length,
+      })),
+    ).toEqual({ overflow: false, nestedScrollers: 0 });
+    await expect(popup).toHaveCSS("scrollbar-width", "thin");
+    expect((await page.locator(".conversation-header").boundingBox())!.height).toBeLessThanOrEqual(
+      44,
+    );
+    await page.screenshot({ path: test.info().outputPath("subagent-popover.png") });
+  });
+}
+
 test("activities expand exclusively and have a compact Stop control beside running", async ({
   page,
 }) => {
@@ -2158,4 +2256,42 @@ test("feedback icons share Copy’s row and submit the actual conversation route
       comment: "Keep the original API",
     }),
   ]);
+});
+
+test("activities label their full subagent chain and keep Stop compact beside Running", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.evaluate(() => {
+    window.composerFixture.showSubagents();
+    window.composerFixture.showOwnedActivity();
+  });
+  await page.locator(".activities > summary").click();
+  const activity = page.locator(".activity");
+  await expect(activity.locator(".activity-owner .ancestor a")).toHaveText([
+    "Parent conversation",
+    "Review authentication",
+    "Check tests",
+  ]);
+  const stop = activity.getByRole("button", { name: "Stop activity", exact: true });
+  const box = (await stop.boundingBox())!;
+  expect(box.width).toBe(22);
+  expect(box.height).toBe(22);
+});
+
+test("settings saves configurable subagent depth and active child limits", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  const depth = page.getByRole("spinbutton", { name: /Subagent depth/ });
+  const children = page.getByRole("spinbutton", { name: /Active children per agent/ });
+  await expect(depth).toHaveValue("2");
+  await expect(children).toHaveValue("3");
+  await depth.fill("4");
+  await children.fill("5");
+  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toMatchObject({ subagents: { maxDepth: 4, maxChildren: 5 } });
 });

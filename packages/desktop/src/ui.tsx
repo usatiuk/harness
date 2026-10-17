@@ -258,8 +258,10 @@ export function PopoverControl({
   side = "bottom",
   align = "end",
   onOpenChange,
+  className = "",
 }: {
   trigger: ReactNode;
+  className?: string;
   label: string;
   children: ReactNode;
   side?: ComponentProps<typeof Popover.Content>["side"];
@@ -271,7 +273,7 @@ export function PopoverControl({
       <Popover.Trigger asChild>{trigger}</Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
-          className="popover"
+          className={`popover ${className}`}
           side={side}
           align={align}
           sideOffset={10}

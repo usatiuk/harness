@@ -113,6 +113,7 @@ it("edits kernel defaults through selected-host Settings", async () => {
       key:
         | "compactionThresholdTokens"
         | "worktreeDirectory"
+        | "subagents"
         | "showToolNames" = "compactionThresholdTokens",
     ) => {
       // Creating the active conversation precedes mounting its input handlers.
@@ -159,6 +160,11 @@ it("edits kernel defaults through selected-host Settings", async () => {
           .showToolNames,
       ).toBe(showToolNames);
     }
+    await edit('{"maxDepth":4,"maxChildren":5}', "subagents");
+    expect(
+      (await hosts.selected!.harness!.client.peer.request(appSettingsRequest, {})).settings
+        .subagents,
+    ).toEqual({ maxDepth: 4, maxChildren: 5 });
     await edit("1200");
     expect(
       (await hosts.selected!.harness!.client.peer.request(appSettingsRequest, {})).settings

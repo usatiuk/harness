@@ -11,6 +11,7 @@ import {
 import { approvalConfigSchema } from "@harness/approval";
 import { conversationTitlesConfigSchema } from "@harness/conversation-titles";
 import { autoApprovalConfigSchema } from "@harness/auto-approval";
+import { subagentsConfigSchema } from "@harness/subagents";
 import { sandboxConfigSchema } from "@harness/sandbox";
 import {
   projectConversationPage,
@@ -222,6 +223,7 @@ export function registerAppApi(
     const providers = await listProviders();
     const approval = approvalConfigSchema.parse(doc.plugins?.["approval"] ?? {});
     const autoApproval = autoApprovalConfigSchema.parse(doc.plugins?.["auto-approval"] ?? {});
+    const subagents = subagentsConfigSchema.parse(doc.plugins?.["subagents"] ?? {});
     const titles = conversationTitlesConfigSchema.parse(doc.plugins?.["conversation-titles"] ?? {});
     return {
       home: defaultHome(),
@@ -248,6 +250,7 @@ export function registerAppApi(
         sandbox: sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).backend,
         toolMode: doc.tools?.mode ?? "hybrid",
         showToolNames: doc.tools?.showNames ?? true,
+        subagents: { maxDepth: subagents.maxDepth, maxChildren: subagents.maxChildren },
         compactionThresholdTokens: doc.compaction?.thresholdTokens ?? null,
         worktreeDirectory:
           worktreesConfigSchema.parse(doc.plugins?.["worktrees"] ?? {}).directory ?? null,
@@ -313,6 +316,10 @@ export function registerAppApi(
             { replace: true },
           );
           changedPlugins.push("conversation-titles");
+        }
+        if (settings.subagents) {
+          await updateGlobalPluginConfig(defaultHome(), "subagents", settings.subagents);
+          changedPlugins.push("subagents");
         }
         if (settings.sandbox)
           await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });

@@ -197,6 +197,26 @@ it("saves creation defaults without changing unrelated global settings", async (
     await client.peer.request(appSettingsUpdateRequest, { compactionThresholdTokens: null });
     expect((await readGlobalSettings(home)).compaction).toBeUndefined();
     expect((await client.create({})).config.compaction).toBeNull();
+    expect(before.settings.subagents).toEqual({ maxDepth: 2, maxChildren: 3 });
+    await client.peer.request(appSettingsUpdateRequest, {
+      subagents: { maxDepth: 4, maxChildren: 5 },
+    });
+    expect((await client.peer.request(appSettingsRequest, {})).settings.subagents).toEqual({
+      maxDepth: 4,
+      maxChildren: 5,
+    });
+    expect((await readGlobalSettings(home)).plugins?.["subagents"]).toEqual({
+      maxDepth: 4,
+      maxChildren: 5,
+    });
+    expect((await client.attach(loaded.id)).root.config.plugins?.["subagents"]).toMatchObject({
+      maxDepth: 4,
+      maxChildren: 5,
+    });
+    await expect(
+      client.peer.request(appSettingsUpdateRequest, { subagents: { maxDepth: 0, maxChildren: 3 } }),
+    ).rejects.toThrow();
+    await client.peer.request(appSettingsUpdateRequest, { subagents: before.settings.subagents });
     expect((await client.peer.request(appSettingsRequest, {})).settings).toEqual(before.settings);
     await client.peer.request(appSettingsUpdateRequest, {
       model: { provider: "demo", model: "demo-1", preset: "high" },
@@ -382,6 +402,7 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
   const { sandboxPlugin } = await import("@harness/sandbox");
   const { DesktopSession } = await import("../../desktop/src/session.ts");
   const { registerAppApi } = await import("./app-api.ts");
+  const { registerFeatureServer } = await import("./features.ts");
   const home = await realpath(await mkdtemp(join(tmpdir(), "harness-sidebar-rpc-")));
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const provider = new FakeProvider([textStep("done")]);
@@ -400,6 +421,7 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
     connection: pair.right,
     server: { name: "test", version: "1" },
   });
+  registerFeatureServer(server);
   const api = registerAppApi(server, service, {
     signingIn: false,
     settingsTail: Promise.resolve(),

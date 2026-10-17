@@ -118,7 +118,21 @@ describe("HarnessClient attachment", () => {
       models: [],
       defaultModel: { provider: "demo", model: "demo-1", preset: null },
     }));
-    server.onRequest(conversationAttachRequest, () => attachment);
+    server.onRequest(conversationAttachRequest, () => ({
+      ...attachment,
+      members: [
+        ...attachment.members,
+        {
+          conversation: { ...attachment.root, id: "child" },
+          live: {
+            conversationId: "child",
+            status: "idle" as const,
+            turnId: null,
+            pendingInput: [],
+          },
+        },
+      ],
+    }));
     server.listen();
     const wire = new HarnessClient({
       connection: connections.left,

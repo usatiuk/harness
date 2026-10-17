@@ -5,6 +5,7 @@ import {
   ManagedWorktrees,
   ManagedDockerEnvironments,
 } from "./components/worktree-controls.tsx";
+import { ActivityOwner, SubagentControl, SubagentHeading } from "./components/subagent-control.tsx";
 import { SidebarLayout } from "./components/sidebar.tsx";
 import { McpSettings } from "./components/mcp-settings.tsx";
 import { DesktopUpdates } from "./components/desktop-updates.tsx";
@@ -368,6 +369,10 @@ export function createDesktopRouter(
                 : null,
             sandbox,
             showToolNames: data.get("showToolNames") === "on",
+            subagents: {
+              maxDepth: Number(field(data, "subagentMaxDepth")),
+              maxChildren: Number(field(data, "subagentMaxChildren")),
+            },
             compactionThresholdTokens,
             worktreeDirectory: field(data, "worktreeDirectory").trim() || null,
           });
@@ -1226,6 +1231,7 @@ export function createDesktopRouter(
   }
 
   function TranscriptCell({ cell, intermediate = false }: { cell: Cell; intermediate?: boolean }) {
+    const view = useLoaderData<ConversationView>();
     if (cell.kind === "tool") return <ToolCall cell={cell} />;
     if (cell.kind === "reasoning") return <Reasoning cell={cell} />;
     if (cell.kind === "plugin_message")
@@ -1251,7 +1257,7 @@ export function createDesktopRouter(
           <div className="user-text">
             <span>{cell.text}</span>
           </div>
-          <ForkBefore itemId={cell.id} />
+          {!view.subagent && <ForkBefore itemId={cell.id} />}
         </article>
       );
     if (cell.kind === "assistant")
@@ -1321,7 +1327,17 @@ export function createDesktopRouter(
       </>
     );
   }
-  function Activity({ view, id, title }: { view: ConversationView; id: string; title: string }) {
+  function Activity({
+    view,
+    id,
+    title,
+    owner,
+  }: {
+    view: ConversationView;
+    id: string;
+    title: string;
+    owner: string;
+  }) {
     const [output, setOutput] = useState("");
     const [error, setError] = useState<string>();
     const disconnected = Boolean(session.disconnected);
@@ -1359,6 +1375,7 @@ export function createDesktopRouter(
         title={
           <>
             <span className="activity-title">{title}</span>
+            <ActivityOwner session={session} id={owner} />
             <span className="activity-preview muted">
               {output.replace(/\s+/g, " ").slice(-300)}
             </span>
@@ -1793,7 +1810,12 @@ export function createDesktopRouter(
         }
         header={
           <header className="conversation-header">
-            <ConversationHeading key={view.conversation.id} view={view} />
+            {view.subagent ? (
+              <SubagentHeading view={view} />
+            ) : (
+              <ConversationHeading key={view.conversation.id} view={view} />
+            )}
+            <SubagentControl key={view.conversation.id} session={session} view={view} />
           </header>
         }
         history={<EarlierHistory key={view.conversation.id} view={view} />}
@@ -1815,54 +1837,57 @@ export function createDesktopRouter(
           )
         }
         dock={
-          <>
-            <div className="conversation-support">
-              {view.state.sandbox?.message && (
-                <p
-                  role="status"
-                  className={
-                    view.state.sandbox.phase === "error"
-                      ? "error sandbox-status"
-                      : "sandbox-status muted"
-                  }
-                >
-                  {view.state.sandbox.message}
-                </p>
-              )}
-              {view.state.activities.some((activity) => activity.status === undefined) && (
-                <Disclosure
-                  className="activities"
-                  title={
-                    <>
-                      Activities (
-                      {
-                        view.state.activities.filter((activity) => activity.status === undefined)
-                          .length
-                      }{" "}
-                      running)
-                    </>
-                  }
-                >
-                  {view.state.activities
-                    .filter((activity) => activity.status === undefined)
-                    .map((activity) => (
-                      <Activity
-                        key={activity.id}
-                        view={view}
-                        id={activity.id}
-                        title={activity.title}
-                      />
-                    ))}
-                </Disclosure>
-              )}
-              <div className="approvals">
-                {[...view.approvals.values()].map((approval) => (
-                  <Approval key={approval.requestId} approval={approval} />
-                ))}
+          view.subagent ? null : (
+            <>
+              <div className="conversation-support">
+                {view.state.sandbox?.message && (
+                  <p
+                    role="status"
+                    className={
+                      view.state.sandbox.phase === "error"
+                        ? "error sandbox-status"
+                        : "sandbox-status muted"
+                    }
+                  >
+                    {view.state.sandbox.message}
+                  </p>
+                )}
+                {view.state.activities.some((activity) => activity.status === undefined) && (
+                  <Disclosure
+                    className="activities"
+                    title={
+                      <>
+                        Activities (
+                        {
+                          view.state.activities.filter((activity) => activity.status === undefined)
+                            .length
+                        }{" "}
+                        running)
+                      </>
+                    }
+                  >
+                    {view.state.activities
+                      .filter((activity) => activity.status === undefined)
+                      .map((activity) => (
+                        <Activity
+                          key={activity.id}
+                          view={view}
+                          id={activity.id}
+                          title={activity.title}
+                          owner={activity.conversationId}
+                        />
+                      ))}
+                  </Disclosure>
+                )}
+                <div className="approvals">
+                  {[...view.approvals.values()].map((approval) => (
+                    <Approval key={approval.requestId} approval={approval} />
+                  ))}
+                </div>
               </div>
-            </div>
-            <Composer key={view.conversation.id} view={view} />
-          </>
+              <Composer key={view.conversation.id} view={view} />
+            </>
+          )
         }
       />
     );
@@ -2092,6 +2117,30 @@ export function createDesktopRouter(
                   conversations.
                 </small>
               </div>
+              <label>
+                Subagent depth
+                <Input
+                  name="subagentMaxDepth"
+                  type="number"
+                  min={1}
+                  step={1}
+                  required
+                  defaultValue={settings.settings.subagents.maxDepth}
+                />
+                <small className="muted">2 allows children and grandchildren.</small>
+              </label>
+              <label>
+                Active children per agent
+                <Input
+                  name="subagentMaxChildren"
+                  type="number"
+                  min={1}
+                  step={1}
+                  required
+                  defaultValue={settings.settings.subagents.maxChildren}
+                />
+                <small className="muted">Finished children count until dismissed.</small>
+              </label>
               <label>
                 Worktree directory
                 <Input

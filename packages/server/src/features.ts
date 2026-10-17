@@ -31,6 +31,7 @@ import {
   type SandboxBackend,
 } from "@harness/sandbox";
 import type { ExecutionContext } from "@harness/execution";
+import { registerSubagentServer } from "./subagents.ts";
 import { subagentsTopLevelRequest } from "@harness/subagents";
 import {
   createProcessActivity,
@@ -42,6 +43,7 @@ import {
 export function registerFeatureServer(session: HarnessRpcSession): void {
   const host = session.host;
   const service = host.service;
+  registerSubagentServer(session);
   const worktreeOperation = async <T>(run: () => Promise<T>): Promise<T> => {
     try {
       return await run();
@@ -68,16 +70,17 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
   session.onRequest(worktreeOptionsRequest, (params) =>
     worktreeOperation(() => service.workspaceOptions(params.conversationId as ConversationId)),
   );
-  session.onRequest(worktreeSwitchRequest, (params, signal) =>
-    worktreeOperation(() =>
+  session.onRequest(worktreeSwitchRequest, async (params, signal) => {
+    await session.assertWritable(params.conversationId as ConversationId);
+    return worktreeOperation(() =>
       service.selectWorkspace(
         params.conversationId as ConversationId,
         params.selection,
         false,
         signal,
       ),
-    ),
-  );
+    );
+  });
   session.onRequest(worktreeManagedRequest, (params) =>
     worktreeOperation(() => service.managedWorktrees(params.limit, params.before ?? undefined)),
   );
@@ -172,7 +175,7 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
   });
   session.onRequest(activityKillRequest, async ({ conversationId, activityId }) => {
     const id = conversationId as ConversationId;
-    return session.runAttached(id, async () => {
+    return session.runWritable(id, async () => {
       const manager = service.existingService(id, "activities");
       return {
         status: manager instanceof ActivityManager ? manager.kill(activityId) : "unknown",
@@ -182,7 +185,7 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
 
   session.onRequest(workspaceShellRunRequest, async ({ conversationId, shellId, command }) => {
     const id = conversationId as ConversationId;
-    return session.runAttached(id, async () => {
+    return session.runWritable(id, async () => {
       const execution = service.service(id, "execution") as ExecutionContext | undefined;
       const manager = service.service(id, "activities");
       if (execution === undefined || !(manager instanceof ActivityManager)) {
@@ -254,7 +257,7 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
   };
   session.onRequest(sandboxRebuildRequest, async ({ conversationId }, signal) => {
     const id = conversationId as ConversationId;
-    return session.runAttached(
+    return session.runWritable(
       id,
       async (operationSignal) => {
         const execution = sandbox(conversationId);
@@ -270,7 +273,7 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
   });
   session.onRequest(sandboxStopRequest, async ({ conversationId }, signal) => {
     const id = conversationId as ConversationId;
-    return session.runAttached(
+    return session.runWritable(
       id,
       async () => {
         const execution = sandbox(conversationId);

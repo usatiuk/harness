@@ -1,5 +1,16 @@
 # Harness plan
 
+The [subagent inspection follow-up](docs/plans/interface/2026-10-17-subagent-inspection.md)
+adds parent-named task identities and a header popover tree of durable child
+conversations with read-only live inspection. Full checks pass 1,487 tests;
+Chromium/WebKit coverage, independent reviews and the pre-existing history-scroll
+limitation are recorded in the delivery plan.
+The same plan tracks family-scoped list/send/dismiss tools over ordinary plugin
+input, configurable depth/roster limits in GUI/TUI, full ancestor headers,
+Running/Finished tree sections and compact activity controls with owner labels.
+Full checks pass 1,492 tests; Chromium passes 80/81 with the same baseline
+history-anchor failure, and all five affected GTK WebKit cases pass.
+
 The [disclosure presentation follow-up](docs/plans/interface/2026-10-17-disclosure-animation.md)
 shares grid/fade animations, keeps compact Work peeks, caps outer scrolling at 40vh
 and adds transparent edge shadows to Work and sidebar navigation. Validation is

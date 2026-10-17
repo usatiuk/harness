@@ -7,7 +7,11 @@ import {
   decodeUsageSummary,
   type RpcConnection,
 } from "@harness/client";
-import { FEATURE_PLUGIN_CONTRACTS, HarnessPluginClient } from "@harness/client-features";
+import {
+  FEATURE_PLUGIN_CONTRACTS,
+  HarnessPluginClient,
+  type SubagentIdentity,
+} from "@harness/client-features";
 import { init, reduce, type State } from "@harness/client-features/transcript-reducer";
 import {
   ApprovalClient,
@@ -35,6 +39,8 @@ import {
 import { DesktopTranscript } from "./transcript.ts";
 
 export interface ConversationView {
+  subagent: SubagentIdentity | null;
+  subagentRevision: number;
   conversation: Conversation;
   state: State;
   transcript: DesktopTranscript;
@@ -102,6 +108,13 @@ export class DesktopSession {
     this.plugins = new HarnessPluginClient(this.client, approvals);
     this.domain = new HarnessDomainClient(this.client);
     this.client.subscribe((event) => {
+      if (event.type === "conversation" && event.event.type === "turn.changed") {
+        for (const view of this.views.values()) {
+          if (this.client.rootOf(view.conversation.id) === event.rootConversationId)
+            view.subagentRevision++;
+        }
+        this.changed();
+      }
       if (event.type !== "detached") return;
       for (const id of event.conversationIds) {
         for (const unsubscribe of this.subscriptions.get(id) ?? []) unsubscribe();
@@ -304,6 +317,8 @@ export class DesktopSession {
     if (!conversation) throw new Error("Conversation does not exist");
     const view: ConversationView = {
       conversation,
+      subagent: await this.plugins.inspectSubagent(id),
+      subagentRevision: 0,
       state: init([]),
       transcript: new DesktopTranscript(),
       approvals: new Map(),
@@ -321,16 +336,23 @@ export class DesktopSession {
     this.subscriptions.set(id, subscriptions);
     try {
       const attachment = await this.client.attach(id);
-      view.conversation = decodeConversation(attachment.root);
+      const member = attachment.members.find((member) => member.conversation.id === id);
+      if (!member) throw new Error("Attachment omitted the requested conversation");
+      view.conversation = decodeConversation(member.conversation);
       const page = await this.client.history({
         conversationId: id,
-        ...(attachment.root.head ? { anchor: attachment.root.head } : {}),
+        ...(member.conversation.head ? { anchor: member.conversation.head } : {}),
         maxBytes: 128 * 1024,
       });
       view.anchor = page.anchor;
       view.cursor = page.nextCursor;
       view.items = await this.decodeHistory(id, page.entries);
-      view.state = init(view.items, decodeUsageSummary(attachment.usage));
+      view.state = init(
+        view.items,
+        decodeUsageSummary(
+          attachment.root.id === id ? attachment.usage : await this.client.usage(id),
+        ),
+      );
       view.transcript.update(
         view.state.cells,
         view.state.turn.status === "running" ? view.state.turn.id : undefined,
@@ -377,7 +399,9 @@ export class DesktopSession {
         }),
       );
       subscriptions.push(
-        this.plugins.subscribe(id, (event) => {
+        this.plugins.subscribe(attachment.root.id as ConversationId, (event) => {
+          if (event.type === "activity.started" || event.type === "activity.exited")
+            view.subagentRevision++;
           view.state = reduce(view.state, event, Date.now());
           view.transcript.update(
             view.state.cells,

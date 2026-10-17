@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { subagentLimitsSchema } from "@harness/subagents/client";
 import {
   defineNotification,
   defineRequest,
@@ -35,6 +36,7 @@ const settings = z.strictObject({
     z.enum(["hybrid", "code-only"]),
   ),
   showToolNames: z.boolean(),
+  subagents: subagentLimitsSchema,
   compactionThresholdTokens: compactionThresholdSchema.nullable(),
   worktreeDirectory: z.string().trim().min(1).nullable(),
 });
@@ -96,6 +98,7 @@ export const appSettingsUpdateRequest = defineRequest({
       : { conversationTitleModel: patch.conversationTitleModel }),
     ...(patch.approval === undefined ? {} : { approval: patch.approval }),
     ...(patch.autoApproval === undefined ? {} : { autoApproval: patch.autoApproval }),
+    ...(patch.subagents === undefined ? {} : { subagents: patch.subagents }),
     ...(patch.sandbox === undefined ? {} : { sandbox: patch.sandbox }),
     ...(patch.toolMode === undefined ? {} : { toolMode: patch.toolMode }),
     ...(patch.showToolNames === undefined ? {} : { showToolNames: patch.showToolNames }),

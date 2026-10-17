@@ -9,6 +9,7 @@ import type {
 } from "@harness/protocol";
 import { subagentsConfigSchema, type AgentDef, type SubagentsConfig } from "./config.ts";
 import { SubagentRegistry } from "./registry.ts";
+import { SubagentDismissTool, SubagentListTool, SubagentSendTool } from "./messages.ts";
 import { SubagentTool } from "./tool.ts";
 
 /** Renders the catalog as the parent-facing roster appended to the tool description / `agent` arg. */
@@ -61,6 +62,9 @@ class SubagentsPlugin implements Plugin {
 
   tools() {
     return [
+      new SubagentListTool(() => this.#def.runner()),
+      new SubagentDismissTool(() => this.#def.runner()),
+      new SubagentSendTool(() => this.#def.runner()),
       new SubagentTool({
         reader: this.#reader,
         runner: () => this.#def.runner(),

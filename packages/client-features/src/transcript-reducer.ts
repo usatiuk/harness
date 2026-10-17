@@ -90,6 +90,7 @@ export type Cell =
 
 /** One row in the activities overlay; `status === undefined` ⟺ still running. */
 export interface ActivityLine {
+  conversationId: string;
   id: string;
   kind: string;
   title: string;
@@ -393,7 +394,15 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
     if (event.type === "activity.started") {
       return {
         ...state,
-        activities: [...state.activities, { id: event.id, kind: event.kind, title: event.title }],
+        activities: [
+          ...state.activities,
+          {
+            conversationId: event.conversationId,
+            id: event.id,
+            kind: event.kind,
+            title: event.title,
+          },
+        ],
       };
     }
     return {

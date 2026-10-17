@@ -39,7 +39,7 @@ import { RpcPeer } from "./peer.ts";
 import type { RpcConnection } from "./peer.ts";
 
 export type HarnessClientEvent =
-  | { type: "attached"; attachment: AttachResult }
+  | { type: "attached"; conversationId: string; attachment: AttachResult }
   | { type: "detached"; rootConversationId: string; conversationIds: string[] }
   | {
       type: "conversation";
@@ -191,14 +191,14 @@ export class HarnessClient {
     });
     const run = this.#attachTail.then(async () => {
       const pending = {
-        targetRootId: this.#rootOf(conversationId),
+        targetRootId: this.rootOf(conversationId),
         events: [] as BufferedDelivery[],
         bytes: 0,
       };
       this.#pendingAttach = pending;
       try {
         const attachment = await this.peer.request(conversationAttachRequest, { conversationId });
-        this.#acceptAttachment(attachment);
+        this.#acceptAttachment(attachment, conversationId);
         for (const event of pending.events) {
           if (event.rootConversationId !== attachment.root.id) {
             this.peer.terminateProtocol(
@@ -225,7 +225,7 @@ export class HarnessClient {
       conversationId,
       force,
     });
-    if (result.status === "closed") this.#forgetRoot(this.#rootOf(conversationId));
+    if (result.status === "closed") this.#forgetRoot(this.rootOf(conversationId));
     return result;
   }
 
@@ -244,7 +244,7 @@ export class HarnessClient {
       rejectResult = reject;
     });
     const run = this.#attachTail.then(async () => {
-      const root = this.#rootOf(conversationId);
+      const root = this.rootOf(conversationId);
       const pending = { targetRootId: root, events: [] as BufferedDelivery[], bytes: 0 };
       this.#pendingAttach = pending;
       try {
@@ -387,7 +387,7 @@ export class HarnessClient {
     this.peer.close();
   }
 
-  #acceptAttachment(attachment: AttachResult): void {
+  #acceptAttachment(attachment: AttachResult, conversationId = attachment.root.id): void {
     const root = attachment.root.id;
     this.#attachedRoots.add(root);
     this.#rootByConversation.set(root, root);
@@ -397,7 +397,7 @@ export class HarnessClient {
         this.#existingStreams.set(member.conversation.id, member.live.turnId);
       else this.#existingStreams.delete(member.conversation.id);
     }
-    this.#emit({ type: "attached", attachment });
+    this.#emit({ type: "attached", conversationId, attachment });
   }
 
   #forgetRoot(root: string): void {
@@ -410,7 +410,7 @@ export class HarnessClient {
     }
   }
 
-  #rootOf(conversationId: string): string {
+  rootOf(conversationId: string): string {
     return this.#rootByConversation.get(conversationId) ?? conversationId;
   }
 

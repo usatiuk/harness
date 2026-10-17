@@ -6,10 +6,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ConversationId, NewItem, TurnId } from "@harness/protocol";
 import { counterIdGenerator, fixedClock, newConversationInput } from "@harness/testkit";
 import { storeContract } from "@harness/testkit/contract";
+import { STORE_SCHEMA_VERSION } from "./schema.ts";
 import { SqliteStore } from "./sqlite-store.ts";
 
 // The shared contract suite — same one that proves InMemoryStore (in-memory ≡ sqlite).
 storeContract("SqliteStore", () => new SqliteStore(":memory:", counterIdGenerator(), fixedClock()));
+
+const removeScopedState = (db: BetterSqlite3.Database) =>
+  db.exec(
+    "DROP INDEX plugin_state_scope; ALTER TABLE plugin_state DROP COLUMN scope; DROP INDEX turns_latest;",
+  );
 
 const record = () =>
   newConversationInput({
@@ -85,6 +91,7 @@ describe("SqliteStore (durable-only)", () => {
     });
     first.close();
     const db = new BetterSqlite3(path);
+    removeScopedState(db);
     db.exec(
       "DROP INDEX conversations_project_recent; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees; PRAGMA user_version = 8",
     );
@@ -106,6 +113,45 @@ describe("SqliteStore (durable-only)", () => {
     }
   });
 
+  it("upgrades schema 11 and indexes existing subagent parentage", async () => {
+    const path = tempDb();
+    const before = new SqliteStore(path);
+    const parent = await before.createConversation(record());
+    const child = await before.createConversation(record());
+    await before.putPluginState("subagents", child.id, "spawn", {
+      parent: { conversationId: parent.id, callId: "call" },
+      agent: "explore",
+    });
+    before.close();
+    const old = new BetterSqlite3(path);
+    removeScopedState(old);
+    old.pragma("user_version = 11");
+    old.close();
+    const upgraded = new SqliteStore(path);
+    try {
+      expect(
+        (
+          await upgraded.listConversationPage(5, undefined, {
+            includedState: { plugin: "subagents", key: "spawn", scope: parent.id },
+          })
+        ).map((row) => row.id),
+      ).toEqual([child.id]);
+    } finally {
+      upgraded.close();
+    }
+    const db = new BetterSqlite3(path);
+    try {
+      const plan = db
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT conversation_id FROM plugin_state WHERE plugin = ? AND key = ? AND scope = ?",
+        )
+        .all("subagents", "spawn", parent.id) as { detail: string }[];
+      expect(plan.some((step) => step.detail.includes("plugin_state_scope"))).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
+
   it("upgrades schema 10 with indexed project grouping without changing execution paths", async () => {
     const path = tempDb();
     const first = new SqliteStore(path);
@@ -116,6 +162,7 @@ describe("SqliteStore (durable-only)", () => {
     });
     first.close();
     const old = new BetterSqlite3(path);
+    removeScopedState(old);
     old.exec("DROP INDEX conversations_project_recent; PRAGMA user_version = 10");
     old.close();
     const upgraded = new SqliteStore(path);
@@ -140,7 +187,7 @@ describe("SqliteStore (durable-only)", () => {
         )
         .all("/project") as { detail: string }[];
       expect(plan.some((step) => step.detail.includes("conversations_project_recent"))).toBe(true);
-      expect(checked.pragma("user_version", { simple: true })).toBe(11);
+      expect(checked.pragma("user_version", { simple: true })).toBe(STORE_SCHEMA_VERSION);
     } finally {
       checked.close();
     }
@@ -180,6 +227,7 @@ describe("SqliteStore (durable-only)", () => {
     await before.updateConversationTitle(conversation.id, "Existing title", null);
     before.close();
     const previous = new BetterSqlite3(path);
+    removeScopedState(previous);
     previous.exec(
       "DROP INDEX conversations_project_recent; DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees;",
     );
@@ -310,6 +358,7 @@ describe("SqliteStore (durable-only)", () => {
       await before.updateTurn(turn.id, "completed");
       before.close();
       const previous = new BetterSqlite3(path);
+      removeScopedState(previous);
       previous.exec(
         version === 3
           ? "DROP INDEX model_usage_agent; DROP INDEX model_usage_turn; DROP INDEX turns_terminal; ALTER TABLE model_usage DROP COLUMN purpose; ALTER TABLE model_usage DROP COLUMN request_duration_ms; ALTER TABLE model_usage DROP COLUMN provider_usage; ALTER TABLE model_usage DROP COLUMN cost_incomplete; ALTER TABLE model_usage DROP COLUMN input_tokens_are_context;"

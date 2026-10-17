@@ -1538,3 +1538,48 @@ horizontal spill. The corrected policy, selectable inline user text and bubble c
 comparisons in six Chromium and five GTK WebKit cases.
 Worked/history labels stay unselected. GTK engine checks use a virtual display and
 temporary libraries, not the native Harness runtime.
+
+## Subagent inspection regressions
+
+The shared store contract checks scoped plugin-state paging and latest terminal
+turns in both stores. SQLite checks schema-11 parent-scope backfill and index use.
+Subagent tests cover parent-supplied names/slugs, concurrent duplicate rejection,
+persistence across registry replacement and independent parent namespaces.
+Real in-process RPC checks nested running counts, paged children, retained
+completed/failed/stopped outcomes, legacy names, reconnect, history and rejected
+client delivery/reconfiguration. A desktop-session case opens a currently running
+child and verifies its own live state, identity and finalized transcript while
+retaining the parent. Unobserved descendants must not accumulate event backlogs.
+
+Production-route browser cases cover the header count/icon, paged popover tree,
+expanded nesting without collapse controls, retained statuses, child navigation/breadcrumb and omitted
+mutation controls. Empty popovers have no horizontal overflow at 420px and 1440px;
+the popover owns one thin transparent-track scrollbar. Native desktop interaction
+and live-provider acceptance are not established by these controlled tests.
+
+October 17 subagent inspection validation: `npm run check` passes 1,487 tests
+(41 skipped). Chromium passes 78 of 79 browser cases; the earlier-history reading
+anchor case shifts 12px and reproduces against the pre-change `3561ae8` sources.
+The cause remains unestablished and no test assertions/timeouts were weakened.
+All three subagent cases also pass in GTK WebKit under an isolated virtual display.
+The delivery plan records review fixes and native/live-provider qualification limits.
+
+Subagent communication follow-up: the full check passes 1,492 tests (41 skipped).
+The model roster is family-scoped and bounded; real service regressions cover
+busy delivery, waking finished recipients, recursive dismissal with direct-parent
+messages always permitted, slot reuse, four concurrent admissions under a
+three-child limit and depth two. A real background tool completion wakes its
+finished, dismissed owner through the captured plugin delivery context. SQLite
+reopen verifies durable dismissal, filtered model roster and preserved inspection.
+Directly opening an old child resolves its canonical root before attachment;
+closing that root removes the loaded child. A core test rejects adoption during
+an old standalone root's teardown, then verifies later adoption and cleanup.
+
+Desktop session tests verify turn events refresh subagent presentation without
+activity events. Browser checks verify completed parents with running descendants
+stay under Running, full clickable ancestry, activity owner chains, a 22px Stop
+and GUI limit submission. The existing TUI host editor persists both limits
+through real server RPC. All five affected browser cases pass in GTK WebKit.
+Full Chromium passes 80 of 81 cases; the only failure remains the same baseline
+12px history-anchor shift described above. Native desktop and live-provider
+execution are not established by these controlled fixtures.

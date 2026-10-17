@@ -143,6 +143,34 @@ export class HarnessRpcSession {
     });
   }
 
+  #ancestry: ((id: ConversationId) => Promise<ConversationId[]>) | undefined;
+
+  /** Composition supplies durable parentage; attachment keeps one canonical root scope. */
+  registerAncestry(resolve: (id: ConversationId) => Promise<ConversationId[]>): void {
+    if (this.#ancestry) throw new Error("conversation ancestry already registered");
+    this.#ancestry = resolve;
+  }
+
+  #writeCheck: ((id: ConversationId) => Promise<void>) | undefined;
+
+  registerWriteCheck(check: (id: ConversationId) => Promise<void>): void {
+    if (this.#writeCheck) throw new Error("read-only check already registered");
+    this.#writeCheck = check;
+  }
+
+  async runWritable<T>(
+    id: ConversationId,
+    operation: (signal: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    await this.assertWritable(id);
+    return this.runAttached(id, operation, signal);
+  }
+
+  async assertWritable(id: ConversationId): Promise<void> {
+    await this.#writeCheck?.(id);
+  }
+
   start(): void {
     this.server.start();
   }
@@ -260,12 +288,14 @@ export class HarnessRpcSession {
 
     this.onRequest(conversationCloseRequest, async ({ conversationId, force }) => {
       const id = conversationId as ConversationId;
+      await this.assertWritable(id);
       const result = await this.#deactivate(id, force);
       return { status: result.status === "deactivated" ? "closed" : "busy" };
     });
 
     this.onRequest(conversationReloadRequest, async ({ conversationId, force }) => {
       const id = conversationId as ConversationId;
+      await this.assertWritable(id);
       const root = this.#service.rootConversationOf(id);
       const result = await this.#deactivate(root, force);
       if (result.status === "busy") return { status: "busy" as const };
@@ -274,7 +304,7 @@ export class HarnessRpcSession {
 
     this.onRequest(conversationDeleteEmptyRequest, async ({ conversationId }) => {
       const id = conversationId as ConversationId;
-      return this.runAttached(id, async () => {
+      return this.runWritable(id, async () => {
         await this.#service.deleteConversationIfEmpty(id);
         return null;
       });
@@ -282,7 +312,7 @@ export class HarnessRpcSession {
 
     this.onRequest(conversationDeliverRequest, async ({ conversationId, text, intent }) => {
       const id = conversationId as ConversationId;
-      return this.runAttached(id, async () => {
+      return this.runWritable(id, async () => {
         await this.#service.deliver(id, text, intent);
         return null;
       });
@@ -290,7 +320,7 @@ export class HarnessRpcSession {
 
     this.onRequest(conversationRewindRequest, async ({ conversationId, itemId }) => {
       const id = conversationId as ConversationId;
-      return this.runAttached(id, async () => {
+      return this.runWritable(id, async () => {
         await this.#service.rewind(id, itemId as ItemId);
         return null;
       });
@@ -298,7 +328,7 @@ export class HarnessRpcSession {
 
     this.onRequest(conversationCompactRequest, async ({ conversationId }, signal) => {
       const id = conversationId as ConversationId;
-      return this.runAttached(
+      return this.runWritable(
         id,
         async (operationSignal) => ({
           status: await this.#service.compact(id, operationSignal),
@@ -323,14 +353,14 @@ export class HarnessRpcSession {
 
     this.onRequest(conversationModelSetRequest, async ({ conversationId, provider, model }) => {
       const id = conversationId as ConversationId;
-      return this.runAttached(id, async () => {
+      return this.runWritable(id, async () => {
         await this.#service.setModel(id, { provider, model });
         return null;
       });
     });
 
     this.onRequest(conversationForkBeforeRequest, ({ conversationId, userMessageId }) =>
-      this.runAttached(conversationId as ConversationId, async () => {
+      this.runWritable(conversationId as ConversationId, async () => {
         const item = await this.#service.getItem(userMessageId as ItemId);
         if (item?.type !== "message" || item.role !== "user")
           throw new Error("fork target must be a user message");
@@ -351,7 +381,7 @@ export class HarnessRpcSession {
 
     this.onRequest(conversationTitleSetRequest, ({ conversationId, title }) => {
       const id = conversationId as ConversationId;
-      return this.runAttached(id, async () => {
+      return this.runWritable(id, async () => {
         await this.#service.setTitle(id, title);
         return null;
       });
@@ -359,7 +389,7 @@ export class HarnessRpcSession {
 
     this.onRequest(conversationPresetSetRequest, async ({ conversationId, expected, preset }) => {
       const id = conversationId as ConversationId;
-      return this.runAttached(id, async () => {
+      return this.runWritable(id, async () => {
         await this.#service.setPreset(id, expected, preset ?? undefined);
         return null;
       });
@@ -369,7 +399,7 @@ export class HarnessRpcSession {
       conversationPluginConfigPatchRequest,
       async ({ conversationId, pluginId, patch, saveGlobal }) => {
         const id = conversationId as ConversationId;
-        return this.runAttached(id, async () => {
+        return this.runWritable(id, async () => {
           await this.#service.setPluginConfig(id, pluginId, patch, { saveGlobal });
           return null;
         });
@@ -389,7 +419,10 @@ export class HarnessRpcSession {
     conversationId: ConversationId,
     requestSignal?: AbortSignal,
   ): Promise<AttachResult> {
-    const rootId = this.#service.rootConversationOf(conversationId);
+    const ancestry = (await this.#ancestry?.(conversationId)) ?? [conversationId];
+    if (ancestry.length === 0 || ancestry.at(-1) !== conversationId)
+      throw new Error("Invalid conversation ancestry");
+    const rootId = this.#service.rootConversationOf(ancestry[0]!);
     if (this.#shutdown !== undefined || this.host.isClosing(rootId)) {
       throw new Error("connection is shutting down");
     }
@@ -400,7 +433,15 @@ export class HarnessRpcSession {
     try {
       const result = await this.host.run(
         rootId,
-        (signal) => this.#buildAttachment(conversationId, rootId, signal),
+        async (signal) => {
+          if (ancestry.length > 1) {
+            await this.#service.prepare(rootId);
+            signal.throwIfAborted();
+            for (let index = 1; index < ancestry.length; index++)
+              this.#service.registerChild(ancestry[index - 1]!, ancestry[index]!);
+          }
+          return this.#buildAttachment(conversationId, rootId, signal);
+        },
         requestSignal,
       );
       if (this.#shutdown !== undefined || this.host.isClosing(rootId)) {

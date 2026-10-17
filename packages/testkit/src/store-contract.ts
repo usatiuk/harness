@@ -610,6 +610,44 @@ export function storeContract(name: string, makeStore: () => Store): void {
       });
     });
 
+    it("pages scoped plugin state and preserves scope across value updates", async () => {
+      const store = makeStore();
+      const parent = await store.createConversation(sampleRecord());
+      const first = await store.createConversation(sampleRecord());
+      const second = await store.createConversation(sampleRecord());
+      const other = await store.createConversation(sampleRecord());
+      await store.putPluginState("agents", first.id, "spawn", { name: "first" }, parent.id);
+      await store.putPluginState("agents", second.id, "spawn", { name: "second" }, parent.id);
+      await store.putPluginState("agents", other.id, "spawn", {}, "another-parent");
+      await store.putPluginState("agents", second.id, "spawn", { name: "renamed" });
+      const options = { includedState: { plugin: "agents", key: "spawn", scope: parent.id } };
+      const page = await store.listConversationPage(1, undefined, options);
+      expect(page.map((row) => row.id)).toEqual([second.id]);
+      const next = await store.listConversationPage(
+        1,
+        { createdAt: second.createdAt, id: second.id },
+        options,
+      );
+      expect(next.map((row) => row.id)).toEqual([first.id]);
+      expect(await store.getPluginState("agents", second.id, "spawn")).toEqual({ name: "renamed" });
+      await store.putPluginState("agents", second.id, "spawn", {}, "another-parent");
+      expect(
+        (await store.listConversationPage(10, undefined, options)).map((row) => row.id),
+      ).toEqual([first.id]);
+    });
+
+    it("returns the latest turn including terminal outcomes", async () => {
+      const store = makeStore();
+      const conv = await store.createConversation(sampleRecord());
+      expect(await store.getLatestTurn(conv.id)).toBeUndefined();
+      const first = await store.createTurn(conv.id);
+      await store.updateTurn(first.id, "completed");
+      const second = await store.createTurn(conv.id);
+      expect(await store.getLatestTurn(conv.id)).toEqual(second);
+      await store.updateTurn(second.id, "aborted");
+      expect((await store.getLatestTurn(conv.id))?.status).toBe("aborted");
+    });
+
     it("namespaces plugin state by plugin + conversation + key", async () => {
       const store = makeStore();
       const conv = await store.createConversation(sampleRecord());

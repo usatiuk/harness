@@ -4724,6 +4724,96 @@
       "required": ["conversationIds"],
       "additionalProperties": false
     },
+    "plugin_subagents_inspect_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "conversationId": { "type": "string" } },
+      "required": ["conversationId"],
+      "additionalProperties": false
+    },
+    "plugin_subagents_inspect_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "slug": { "type": "string" },
+            "agent": { "type": "string" },
+            "ancestors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": { "id": { "type": "string" }, "name": { "type": "string" } },
+                "required": ["id", "name"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["name", "slug", "agent", "ancestors"],
+          "additionalProperties": false
+        },
+        { "type": "null" }
+      ]
+    },
+    "plugin_subagents_list_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "conversationId": { "type": "string" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": { "createdAt": { "type": "number" }, "id": { "type": "string" } },
+              "required": ["createdAt", "id"],
+              "additionalProperties": false
+            },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["conversationId", "limit", "cursor"],
+      "additionalProperties": false
+    },
+    "plugin_subagents_list_result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "children": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "slug": { "type": "string" },
+              "agent": { "type": "string" },
+              "status": { "type": "string", "enum": ["running", "completed", "failed", "aborted"] },
+              "hasChildren": { "type": "boolean" },
+              "running": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+            },
+            "required": ["id", "name", "slug", "agent", "status", "hasChildren", "running"],
+            "additionalProperties": false
+          }
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": { "createdAt": { "type": "number" }, "id": { "type": "string" } },
+              "required": ["createdAt", "id"],
+              "additionalProperties": false
+            },
+            { "type": "null" }
+          ]
+        },
+        "running": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["children", "nextCursor", "running"],
+      "additionalProperties": false
+    },
     "plugin_workspace_shell_run_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -4872,6 +4962,25 @@
             "sandbox": { "type": "string", "enum": ["local", "native", "docker"] },
             "toolMode": { "type": "string", "enum": ["hybrid", "code-only"] },
             "showToolNames": { "type": "boolean" },
+            "subagents": {
+              "type": "object",
+              "properties": {
+                "maxDepth": {
+                  "default": 2,
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "maxChildren": {
+                  "default": 3,
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["maxDepth", "maxChildren"],
+              "additionalProperties": false
+            },
             "compactionThresholdTokens": {
               "anyOf": [
                 { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
@@ -4890,6 +4999,7 @@
             "sandbox",
             "toolMode",
             "showToolNames",
+            "subagents",
             "compactionThresholdTokens",
             "worktreeDirectory"
           ],
@@ -5414,6 +5524,24 @@
         "sandbox": { "type": "string", "enum": ["local", "native", "docker"] },
         "toolMode": { "type": "string", "enum": ["hybrid", "code-only"] },
         "showToolNames": { "type": "boolean" },
+        "subagents": {
+          "type": "object",
+          "properties": {
+            "maxDepth": {
+              "default": 2,
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "maxChildren": {
+              "default": 3,
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
         "compactionThresholdTokens": {
           "anyOf": [
             { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
@@ -6241,6 +6369,20 @@
       "direction": "client-to-server",
       "params": { "$ref": "#/$defs/plugin_subagents_topLevel_params" },
       "result": { "$ref": "#/$defs/plugin_subagents_topLevel_result" }
+    },
+    {
+      "method": "plugin.subagents.inspect",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_subagents_inspect_params" },
+      "result": { "$ref": "#/$defs/plugin_subagents_inspect_result" }
+    },
+    {
+      "method": "plugin.subagents.list",
+      "kind": "request",
+      "direction": "client-to-server",
+      "params": { "$ref": "#/$defs/plugin_subagents_list_params" },
+      "result": { "$ref": "#/$defs/plugin_subagents_list_result" }
     },
     {
       "method": "plugin.workspace.shell.run",

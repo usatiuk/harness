@@ -444,6 +444,20 @@ while another route is selected. This unread set is session-local, only tracks
 attached conversations, and clears when opened or detached. It is not persisted
 or synchronized between clients.
 
+A right-aligned Subagents header control shows the running descendant count,
+collapsing to an icon when zero. Its popover retains a paged tree of completed,
+failed and stopped agents alongside running work. Nested branches are shown
+expanded without collapse controls in Running and Finished sections, keeping
+branches together while any member runs. Each task name opens the child
+conversation. The child header shows the full clickable ancestor chain. Turn
+changes refresh counts and grouping even when no activity was created. Spawned
+views use the same live transcript, but omit composer, rename, worktree and Fork
+controls. Client writes to children are rejected by the server; the parent keeps
+ownership of their execution. Activity titles include the owning subagent's
+ancestor chain and a 22px Stop control beside Running. The existing GUI/TUI host
+settings expose subagent depth (default 2) and active children per parent
+(default 3; finished children count until dismissed). See [orchestration](../orchestration/README.md).
+
 `@harness/client-features` shares plugin clients, transcript reduction, and edit
 presentation with the TUI. Plugin browser entry points expose schemas and pure
 presentation without importing execution or native dependencies. A virtualized

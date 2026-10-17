@@ -1,10 +1,12 @@
 import { expect, it, vi } from "vitest";
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
 import { HarnessService, HarnessRpcHost, HarnessRpcSession } from "@harness/service";
+import { SqliteStore } from "@harness/store-sqlite";
 import { InMemoryStore } from "@harness/store";
 import {
   unusedCodeEvaluator,
   FakeProvider,
+  GateProvider,
   EchoTool,
   counterIdGenerator,
   fixedClock,
@@ -17,7 +19,8 @@ import {
   approvalDecideRequest,
   APPROVAL_CLIENT_CONTRACT_VERSION,
 } from "@harness/approval";
-import type { ConversationId, PluginEntry } from "@harness/protocol";
+import { isDismissed, rosterPage, spawnSubagent, subagentsListRequest } from "@harness/subagents";
+import type { ConversationId, PluginEntry, ModelProvider, Store } from "@harness/protocol";
 import { registerApprovalServer } from "./approvals.ts";
 import { registerFeatureServer } from "./features.ts";
 import { HarnessPluginClient, FEATURE_PLUGIN_CONTRACTS } from "@harness/client-features";
@@ -27,10 +30,14 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-function sharedHarness(provider: FakeProvider, plugins: PluginEntry[] = []) {
+function sharedHarness(
+  provider: ModelProvider,
+  plugins: PluginEntry[] = [],
+  store: Store = new InMemoryStore(counterIdGenerator(), fixedClock()),
+) {
   const service = new HarnessService({
     codeEvaluator: unusedCodeEvaluator,
-    store: new InMemoryStore(counterIdGenerator(), fixedClock()),
+    store,
     home: "/nonexistent-harness-home",
     plugins: [{ id: "fake", providers: () => [provider] }, ...plugins],
     defaults: { model: { provider: "fake", model: "fake-1" } },
@@ -335,5 +342,226 @@ it("expires one shared human-only approval with no clients, persists denial and 
   } finally {
     await harness.close();
     vi.useRealTimers();
+  }
+});
+
+it("inspects durable subagent trees over RPC and rejects client mutations without disrupting parent ownership", async () => {
+  const provider: ModelProvider = new FakeProvider([
+    textStep("Child complete"),
+    textStep("Nested complete"),
+  ]);
+  const harness = sharedHarness(provider);
+  try {
+    const first = await harness.connect();
+    const root = await first.client.create({});
+    await first.client.attach(root.id);
+    const child = await spawnSubagent({
+      runner: harness.service,
+      parent: root.id as ConversationId,
+      callId: "child",
+      agentName: "explore",
+      name: "Review authentication",
+      slug: "auth-review",
+      task: "review",
+      overrides: {},
+    });
+    await child.done;
+    await harness.service.whenIdle(child.childId);
+    const nested = await spawnSubagent({
+      runner: harness.service,
+      parent: child.childId,
+      callId: "nested",
+      agentName: "general",
+      name: "Check tests",
+      slug: "tests",
+      task: "check",
+      overrides: {},
+    });
+    await nested.done;
+    await harness.service.whenIdle(nested.childId);
+    const failed = await spawnSubagent({
+      runner: harness.service,
+      parent: root.id as ConversationId,
+      callId: "failed",
+      agentName: "explore",
+      name: "Failed review",
+      slug: "failed",
+      task: "fail",
+      overrides: {},
+    });
+    await failed.done;
+    await harness.service.whenIdle(failed.childId);
+    const gate = new GateProvider("Live child output");
+    provider.stream = gate.stream.bind(gate);
+    const active = await spawnSubagent({
+      runner: harness.service,
+      parent: child.childId,
+      callId: "active",
+      agentName: "explore",
+      name: "Live review",
+      slug: "live",
+      task: "live",
+      overrides: {},
+    });
+    await gate.started;
+    const page = await first.plugins.listSubagents(root.id as ConversationId);
+    expect(page.running).toBe(1);
+    expect(page.children).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: child.childId,
+          name: "Review authentication",
+          slug: "auth-review",
+          status: "completed",
+          hasChildren: true,
+        }),
+        expect.objectContaining({ id: failed.childId, status: "failed" }),
+      ]),
+    );
+    const nestedPage = await first.plugins.listSubagents(child.childId);
+    expect(nestedPage.running).toBe(1);
+    expect(nestedPage.children).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: nested.childId, status: "completed" }),
+        expect.objectContaining({ id: active.childId, status: "running" }),
+      ]),
+    );
+    const one = await first.client.peer.request(subagentsListRequest, {
+      conversationId: root.id,
+      limit: 1,
+      cursor: null,
+    });
+    expect(one.children).toHaveLength(1);
+    expect(one.nextCursor).not.toBeNull();
+    const two = await first.client.peer.request(subagentsListRequest, {
+      conversationId: root.id,
+      limit: 1,
+      cursor: one.nextCursor,
+    });
+    expect(two.children).toHaveLength(1);
+    expect(two.children[0]?.id).not.toBe(one.children[0]?.id);
+    expect(two.nextCursor).toBeNull();
+    const metadata = await first.plugins.inspectSubagent(nested.childId);
+    expect(metadata?.ancestors.at(-1)).toEqual({
+      id: child.childId,
+      name: "Review authentication",
+    });
+    for (const intent of ["send", "queue", "steer", "interrupt"] as const)
+      await expect(
+        first.client.deliver(active.childId, "Unrequested input", intent),
+      ).rejects.toThrow("read-only");
+    await expect(first.client.setTitle(child.childId, "rename")).rejects.toThrow("read-only");
+    await expect(first.client.reload(child.childId, true)).rejects.toThrow("read-only");
+    const allIds = (await first.client.list({})).conversations.map(
+      (row) => row.id as ConversationId,
+    );
+    expect(await first.plugins.topLevel(allIds)).toEqual(new Set([root.id]));
+    first.client.closeConnection();
+    await first.session.shutdown(false);
+    const second = await harness.connect();
+    const attachment = await second.client.attach(active.childId);
+    expect(attachment.root.id).toBe(root.id);
+    expect(
+      attachment.members.find((member) => member.conversation.id === active.childId)?.live.status,
+    ).toBe("running");
+    active.kill();
+    await active.done;
+    await harness.service.whenIdle(active.childId);
+    expect(
+      (await second.client.history({ conversationId: active.childId })).entries.length,
+    ).toBeGreaterThan(0);
+    expect((await second.plugins.listSubagents(root.id as ConversationId)).running).toBe(0);
+    expect((await second.plugins.listSubagents(child.childId)).children).toContainEqual(
+      expect.objectContaining({ id: active.childId, status: "aborted" }),
+    );
+  } finally {
+    await harness.close();
+  }
+});
+
+it("keeps legacy subagents inspectable without inventing names or resurrecting stopped work", async () => {
+  const harness = sharedHarness(new FakeProvider([]));
+  try {
+    const connection = await harness.connect();
+    const root = await connection.client.create({});
+    await connection.client.attach(root.id);
+    const child = await harness.service.createConversation({ parentId: root.id as ConversationId });
+    await harness.service.putPluginState(
+      "subagents",
+      child.id,
+      "spawn",
+      { parent: { conversationId: root.id, callId: "old" }, agent: "explore" },
+      root.id,
+    );
+    expect(await connection.plugins.inspectSubagent(child.id)).toMatchObject({
+      name: "explore",
+      slug: child.id,
+    });
+    expect((await connection.plugins.listSubagents(root.id as ConversationId)).children).toEqual([
+      expect.objectContaining({ id: child.id, name: "explore", slug: child.id, status: "aborted" }),
+    ]);
+    await connection.client.attach(child.id);
+    expect((await connection.client.history({ conversationId: child.id })).entries).toEqual([]);
+    await expect(connection.client.deliver(child.id, "resume", "send")).rejects.toThrow(
+      "read-only",
+    );
+  } finally {
+    await harness.close();
+  }
+});
+
+it("shows a stale running child as Stopped after SQLite reopen without launching its provider", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "harness-inspect-restart-"));
+  const path = join(dir, "history.db");
+  const before = new SqliteStore(path);
+  const root = await before.createConversation({
+    workspaceRoot: null,
+    overrides: { model: { provider: "fake", model: "fake-1" } },
+  });
+  const child = await before.createConversation({
+    workspaceRoot: null,
+    overrides: { model: { provider: "fake", model: "fake-1" } },
+  });
+  await before.putPluginState(
+    "subagents",
+    child.id,
+    "spawn",
+    {
+      parent: { conversationId: root.id, callId: "stale" },
+      agent: "explore",
+      name: "Interrupted review",
+      slug: "review",
+    },
+    root.id,
+  );
+  await before.putPluginState("subagents", child.id, "dismissed", true);
+  const turn = await before.createTurn(child.id);
+  before.close();
+  const reopened = new SqliteStore(path);
+  const provider = new FakeProvider([]);
+  const stream = vi.spyOn(provider, "stream");
+  const harness = sharedHarness(provider, [], reopened);
+  try {
+    const connection = await harness.connect();
+    expect(await isDismissed(harness.service, child.id)).toBe(true);
+    expect(await rosterPage(harness.service, root.id, 20)).toEqual([]);
+    const page = await connection.plugins.listSubagents(root.id);
+    expect(page.running).toBe(0);
+    expect(page.children).toEqual([expect.objectContaining({ id: child.id, status: "aborted" })]);
+    expect((await reopened.getLatestTurn(child.id))?.status).toBe("running");
+    expect(
+      harness.service.conversationTreeState(root.id).map((member) => member.conversation.id),
+    ).toEqual([]);
+    expect(stream).not.toHaveBeenCalled();
+    expect((await connection.client.attach(child.id)).root.id).toBe(root.id);
+    expect((await reopened.getLatestTurn(child.id))?.status).toBe("failed");
+    expect((await reopened.getLatestTurn(child.id))?.id).toBe(turn.id);
+    expect(stream).not.toHaveBeenCalled();
+    expect(await connection.client.close(root.id, true)).toEqual({ status: "closed" });
+    expect(harness.service.conversationTreeState(root.id)).toEqual([]);
+  } finally {
+    await harness.close();
+    reopened.close();
+    await rm(dir, { recursive: true, force: true });
   }
 });

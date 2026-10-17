@@ -32,6 +32,7 @@ export interface ConversationListOptions {
   /** Original project when recorded, otherwise the execution workspace. */
   projectRoot?: string;
   excludedState?: { plugin: string; key: string };
+  includedState?: { plugin: string; key: string; scope: string };
 }
 export interface ConversationProject {
   /** Project identity rather than a worktree's execution directory. */
@@ -127,6 +128,7 @@ export interface Store {
    * owned in-memory by the engine; this is consulted only by crash reconciliation.
    */
   getActiveTurn(conversationId: ConversationId): Promise<Turn | undefined>;
+  getLatestTurn(conversationId: ConversationId): Promise<Turn | undefined>;
 
   recordContextBuild(input: NewContextBuild): Promise<ContextBuild>;
   getContextBuild(id: string): Promise<ContextBuild | undefined>;
@@ -146,6 +148,7 @@ export interface Store {
     conversationId: ConversationId,
     key: string,
     value: unknown,
+    scope?: string,
   ): Promise<void>;
   getPluginState(plugin: string, conversationId: ConversationId, key: string): Promise<unknown>;
 

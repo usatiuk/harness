@@ -581,6 +581,7 @@ function HostSettings({ view, onError }: { view: TuiHostView; onError: (error: s
       <Text>{`Edit defaults JSON for ${view.host.label}:`}</Text>
       <Text dimColor>
         compactionThresholdTokens: positive input-token count; null uses known model limits.
+        subagents: {`{ "maxDepth": 2, "maxChildren": 3 }`}; finished children count until dismissed.
         worktreeDirectory: absolute server path; null uses ~/.harness/worktrees.
       </Text>
       <Text dimColor>

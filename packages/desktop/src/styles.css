@@ -1171,8 +1171,10 @@ main {
   min-width: 0;
 }
 .activity-stop {
-  width: 26px;
-  padding: 3px;
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 2px;
 }
 .activity-preview {
   flex: 1;
@@ -1871,4 +1873,95 @@ main {
   gap: 8px;
   border-top: 1px solid var(--line);
   padding-top: 10px;
+}
+
+.subagent-control {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.subagent-control .control {
+  min-height: 22px;
+  padding: 2px 6px;
+  line-height: 1.2;
+}
+.subagent-control .icon-control {
+  width: 22px;
+  padding: 2px;
+}
+.subagent-popover {
+  width: min(420px, 80vw);
+  max-height: min(60vh, var(--radix-popover-content-available-height));
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted-ink) transparent;
+}
+.subagent-popover h2 {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.subagent-tree .subagent-tree {
+  margin-left: 16px;
+  border-left: 1px solid var(--line);
+  padding-left: 8px;
+}
+.subagent-tree a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+  color: var(--ink);
+}
+.subagent-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+}
+.subagent-tree [data-status] {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.subagent-tree [data-status="failed"] {
+  color: var(--danger-ink);
+}
+.subagent-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.subagent-heading a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-ink);
+}
+.subagent-heading svg {
+  flex-shrink: 0;
+}
+
+.ancestor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.activity-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.activity-owner a {
+  color: inherit;
+}
+.subagent-tree h3 {
+  color: var(--muted-ink);
+  font-size: inherit;
+  font-weight: 500;
+  margin: 8px 0 4px;
 }

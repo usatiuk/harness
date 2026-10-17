@@ -44,7 +44,11 @@ import {
   sandboxSnapshotSchema,
   sandboxStopRequest,
 } from "@harness/sandbox";
-import { subagentsTopLevelRequest } from "@harness/subagents";
+import {
+  subagentsTopLevelRequest,
+  subagentsInspectRequest,
+  subagentsListRequest,
+} from "@harness/subagents";
 import { workspaceShellEventNotification, workspaceShellRunRequest } from "@harness/workspace";
 import {
   appSettingsRequest,
@@ -102,6 +106,8 @@ const messages: readonly RpcMessage[] = [
   sandboxRebuildRequest,
   sandboxStopRequest,
   subagentsTopLevelRequest,
+  subagentsInspectRequest,
+  subagentsListRequest,
   workspaceShellRunRequest,
   workspaceShellEventNotification,
   appSettingsRequest,

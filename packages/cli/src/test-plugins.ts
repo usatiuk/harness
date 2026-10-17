@@ -24,6 +24,8 @@ export const testPlugins = (overrides: Partial<CliPlugins> = {}): CliPlugins => 
   rebuildSandbox: async () => "not-docker",
   stopSandbox: async () => "not-docker",
   runShell: () => ({ id: "shell-test", accepted: Promise.resolve() }),
+  inspectSubagent: async () => null,
+  listSubagents: async () => ({ children: [], nextCursor: null, running: 0 }),
   topLevel: async (conversationIds) => new Set(conversationIds),
   ...overrides,
 });

@@ -1,3 +1,4 @@
+import type { SubagentPage } from "@harness/client-features";
 import type { Cell } from "@harness/client-features/transcript-reducer";
 import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
@@ -21,6 +22,9 @@ declare global {
       feedbackCalls: unknown[];
       showToolsAndActivities(serverSkew?: number, phase?: string): void;
       showMultipleActivities(): void;
+      showSubagents(): void;
+      showOwnedActivity(): void;
+      finishSubagents(): void;
       activityKills: string[];
       seedSidebar(longTitles?: boolean): void;
       seedWorktreeSidebar(): void;
@@ -65,6 +69,8 @@ declare global {
 }
 const id = "fixture" as ConversationId;
 const view: ConversationView = {
+  subagent: null,
+  subagentRevision: 0,
   conversation: {
     id,
     workspaceRoot: "D:\\example",
@@ -91,6 +97,7 @@ const settings: AppSettings = {
     sandbox: "local",
     toolMode: "hybrid",
     showToolNames: true,
+    subagents: { maxDepth: 2, maxChildren: 3 },
     compactionThresholdTokens: null,
     worktreeDirectory: null,
     approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
@@ -142,6 +149,7 @@ const providerWrites: { provider: string; patch: Record<string, boolean> }[] = [
 let sidebarScope = "composer-fixture";
 let worktreeBranch = "harness/one";
 let recentWorktrees: Array<{ path: string; branch: string; head: string; locked: boolean }> = [];
+const subagentPages = new Map<string, SubagentPage>();
 let sidebarRows: (typeof view.conversation)[] = [];
 let pending: Deferred | undefined;
 let stopping: Deferred | undefined;
@@ -237,6 +245,17 @@ const session = {
     changed();
   },
   plugins: {
+    inspectSubagent: async (conversationId: string) =>
+      session.views.get(conversationId as ConversationId)?.subagent ?? null,
+    listSubagents: async (parent: string, cursor?: SubagentPage["nextCursor"]) => {
+      const data = subagentPages.get(parent) ?? { children: [], nextCursor: null, running: 0 };
+      return {
+        ...data,
+        children: data.children.slice(cursor ? 20 : 0, cursor ? 40 : 20),
+        nextCursor:
+          !cursor && data.children.length > 20 ? { createdAt: 0, id: "second-page" } : null,
+      };
+    },
     async createWorktreeConversation(
       cwd: string,
       overrides: Record<string, import("@harness/protocol").JsonValue>,
@@ -494,7 +513,7 @@ const session = {
   storageKey: (key: string) => `${sidebarScope}:${key}`,
   readSettings: () => Promise.resolve(settings),
   load: (requested: string) => {
-    if (requested === "fixture-fork")
+    if (session.views.has(requested as ConversationId))
       return Promise.resolve(session.views.get(requested as ConversationId)!);
     const conversation = sidebarRows.find((row) => row.id === requested);
     if (!conversation) return Promise.resolve(view);
@@ -504,13 +523,155 @@ const session = {
   },
 };
 window.composerFixture = {
+  showSubagents() {
+    view.conversation = { ...view.conversation, title: "Parent conversation" };
+    view.state = {
+      ...view.state,
+      activities: [
+        ...view.state.activities,
+        { conversationId: id, id: "live-review", kind: "subagent", title: "Live review" },
+      ],
+    };
+    const children: SubagentPage["children"] = [
+      {
+        id: "review",
+        name: "Review authentication",
+        slug: "auth-review",
+        agent: "explore",
+        status: "completed",
+        hasChildren: true,
+        running: 1,
+      },
+      {
+        id: "live-review",
+        name: "Live review",
+        slug: "live",
+        agent: "general",
+        status: "completed",
+        hasChildren: false,
+        running: 0,
+      },
+      {
+        id: "failed-review",
+        name: "Failed review",
+        slug: "failed",
+        agent: "explore",
+        status: "failed",
+        hasChildren: false,
+        running: 0,
+      },
+      {
+        id: "stopped-review",
+        name: "Stopped review",
+        slug: "stopped",
+        agent: "explore",
+        status: "aborted",
+        hasChildren: false,
+        running: 0,
+      },
+      ...Array.from({ length: 17 }, (_, index) => ({
+        id: `older-${index}`,
+        name: `Older review ${index}`,
+        slug: `older-${index}`,
+        agent: "explore",
+        status: "completed" as const,
+        hasChildren: false,
+        running: 0,
+      })),
+    ];
+    subagentPages.set(id, { children, running: 1, nextCursor: null });
+    subagentPages.set("review", {
+      children: [
+        {
+          id: "nested",
+          name: "Check tests",
+          slug: "tests",
+          agent: "explore",
+          status: "running",
+          hasChildren: false,
+          running: 1,
+        },
+      ],
+      running: 1,
+      nextCursor: null,
+    });
+    for (const child of [...children.slice(0, 4), ...subagentPages.get("review")!.children]) {
+      const cells: Cell[] = [
+        { kind: "user", id: "task", turnId: "child-turn", text: "Delegated task", createdAt: 0 },
+        {
+          kind: "assistant",
+          id: "answer",
+          turnId: "child-turn",
+          text: "Child transcript",
+          streaming: false,
+        },
+      ];
+      const transcript = new DesktopTranscript();
+      transcript.update(cells);
+      const childView = {
+        ...view,
+        conversation: { ...view.conversation, id: child.id as ConversationId },
+        subagent: {
+          name: child.name,
+          slug: child.slug,
+          agent: child.agent,
+          ancestors: [
+            { id, name: "Parent conversation" },
+            ...(child.id === "nested" ? [{ id: "review", name: "Review authentication" }] : []),
+          ],
+        },
+        transcript,
+        state: {
+          ...view.state,
+          cells,
+          turn:
+            child.status === "running"
+              ? { id: "child-turn", status: "running", startedAt: Date.now() }
+              : { id: "child-turn", status: child.status },
+        },
+      } satisfies ConversationView;
+      session.views.set(child.id as ConversationId, childView);
+    }
+    view.subagentRevision++;
+    changed();
+  },
+  showOwnedActivity() {
+    view.state = {
+      ...view.state,
+      activities: [
+        { conversationId: "nested", id: "owned-work", kind: "command", title: "Run checks" },
+      ],
+    };
+    changed();
+  },
+  finishSubagents() {
+    const data = subagentPages.get(id)!;
+    subagentPages.set(id, {
+      ...data,
+      running: 0,
+      children: data.children.map((child) => ({
+        ...child,
+        status: child.status === "running" ? "completed" : child.status,
+        running: 0,
+      })),
+    });
+    subagentPages.set("review", {
+      ...subagentPages.get("review")!,
+      running: 0,
+      children: subagentPages
+        .get("review")!
+        .children.map((child) => ({ ...child, running: 0, status: "completed" })),
+    });
+    view.subagentRevision++;
+    changed();
+  },
   activityKills: [],
   showMultipleActivities() {
     view.state = {
       ...view.state,
       activities: [
-        { id: "first", kind: "subagent", title: "First activity" },
-        { id: "second", kind: "process", title: "Second activity" },
+        { conversationId: id, id: "first", kind: "subagent", title: "First activity" },
+        { conversationId: id, id: "second", kind: "process", title: "Second activity" },
       ],
     };
     changed();
@@ -709,8 +870,9 @@ window.composerFixture = {
     view.state = {
       ...view.state,
       activities: [
-        { id: "live", kind: "subagent", title: "explore" },
+        { conversationId: id, id: "live", kind: "subagent", title: "explore" },
         {
+          conversationId: id,
           id: "finished",
           kind: "process",
           title: "old command",

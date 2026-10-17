@@ -227,6 +227,9 @@ describe("ordinary tool discovery", () => {
       "basic",
       "eval",
       "subagent",
+      "subagent_dismiss",
+      "subagent_list",
+      "subagent_send",
       "tool_describe",
       "tool_search",
     ]);
@@ -926,7 +929,7 @@ describe("recorded code-mode execution", () => {
     const fixture = await setup(
       [
         evalStep(
-          'return await tools.call("subagent", {agent:"reader", task:"attempt unavailable writer"});',
+          'return await tools.call("subagent", {agent:"reader", name:"Reader task", slug:"reader-task", task:"attempt unavailable writer"});',
         ),
         toolStep("child-search", "tool_search", { queries: ["write_file"] }),
         toolStep("child-describe", "tool_describe", { name: "write_file" }),

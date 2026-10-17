@@ -18,7 +18,7 @@ export interface SubagentActivityInit {
   runner: ConversationRunner;
   /** The child conversation's id — also the activity id surfaced to `activity_*` and the UI. */
   childId: ConversationId;
-  /** Display title — the agent name. */
+  /** Display title supplied by the parent for this task. */
   title: string;
 }
 
@@ -118,6 +118,8 @@ export interface SpawnInit {
   parent: ConversationId;
   callId: string;
   agentName: string;
+  name: string;
+  slug: string;
   task: string;
   cwd?: string;
   overrides: ConversationOverrides;
@@ -130,14 +132,23 @@ export async function spawnSubagent(init: SpawnInit): Promise<SubagentActivity> 
       ? { cwd: init.cwd, overrides: init.overrides, parentId: init.parent }
       : { overrides: init.overrides, parentId: init.parent },
   );
-  await init.runner.putPluginState("subagents", child.id, "spawn", {
-    parent: { conversationId: init.parent, callId: init.callId },
-    agent: init.agentName,
-  } satisfies SpawnMark);
+  await init.runner.putPluginState(
+    "subagents",
+    child.id,
+    "spawn",
+    {
+      parent: { conversationId: init.parent, callId: init.callId },
+      agent: init.agentName,
+      name: init.name,
+      slug: init.slug,
+    } satisfies SpawnMark,
+    init.parent,
+  );
+  await init.runner.putPluginState("subagents", init.parent, `slug:${init.slug}`, child.id);
   const activity = new SubagentActivity({
     runner: init.runner,
     childId: child.id,
-    title: init.agentName,
+    title: init.name,
   });
   activity.arm(init.runner.subscribe(child.id, (event) => activity.onEvent(event)));
   await init.runner.deliver(child.id, init.task, "send");

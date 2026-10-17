@@ -12,6 +12,7 @@ import type {
   ConversationProjectCursor,
   ConversationRecord,
   ConversationRunner,
+  DeliveryInput,
   DeliveryIntent,
   HarnessEvent,
   Item,
@@ -308,12 +309,14 @@ export class HarnessService implements ConversationRunner {
    */
   async deliver(
     conversationId: ConversationId,
-    text: string,
+    text: string | DeliveryInput,
     intent: DeliveryIntent,
   ): Promise<void> {
     return this.#engine.deliver(
       conversationId,
-      { source: { kind: "user" }, content: text ? [{ type: "text", text }] : [] },
+      typeof text === "string"
+        ? { source: { kind: "user" }, content: text ? [{ type: "text", text }] : [] }
+        : text,
       intent,
     );
   }
@@ -534,6 +537,10 @@ export class HarnessService implements ConversationRunner {
     return this.#store.listConversationProjects(limit, before, excludedState);
   }
 
+  getLatestTurn(id: ConversationId) {
+    return this.#store.getLatestTurn(id);
+  }
+
   getItem(itemId: ItemId): Promise<Item | undefined> {
     return this.#store.getItem(itemId);
   }
@@ -544,6 +551,16 @@ export class HarnessService implements ConversationRunner {
 
   usageSummary(id: ConversationId): Promise<ModelUsageSummary> {
     return this.#store.summarizeModelUsage(id);
+  }
+
+  registerChild(parent: ConversationId, child: ConversationId): void {
+    this.#engine.registerChild(parent, child);
+  }
+
+  isConversationRunning(id: ConversationId): boolean {
+    return this.#engine
+      .conversationTreeState(id)
+      .some((member) => member.conversation.id === id && member.status === "running");
   }
 
   conversationTreeState(rootId: ConversationId) {
@@ -568,8 +585,14 @@ export class HarnessService implements ConversationRunner {
   }
 
   /** Durable per-conversation plugin metadata — the `ConversationRunner` seam, forwarded to the store. */
-  putPluginState(plugin: string, id: ConversationId, key: string, value: unknown): Promise<void> {
-    return this.#store.putPluginState(plugin, id, key, value);
+  putPluginState(
+    plugin: string,
+    id: ConversationId,
+    key: string,
+    value: unknown,
+    scope?: string,
+  ): Promise<void> {
+    return this.#store.putPluginState(plugin, id, key, value, scope);
   }
 
   getPluginState(plugin: string, id: ConversationId, key: string): Promise<unknown> {

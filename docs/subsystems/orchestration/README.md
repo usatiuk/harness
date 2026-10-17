@@ -87,10 +87,18 @@ leaves the activity conversation-owned.
 
 ## Subagents
 
-The subagents plugin contributes one `subagent({agent, task})` tool and a shared
+The subagents plugin contributes `subagent({agent, name, slug, task})`,
+`subagent_list`, `subagent_send` and `subagent_dismiss`, plus a shared
 contract resolver that enriches its schema from the per-conversation catalog.
 When no agents are configured, the tool is withheld. Otherwise the `agent`
 argument is constrained to configured names and the model sees their descriptions.
+The parent also supplies a readable task `name` (up to 100 characters) and a
+kebab-case `slug` (up to 64 characters). The name identifies the activity and
+inspection view; the configured agent remains the execution profile. A durable
+parent-scoped slug index rejects reuse, including concurrent calls and later
+sessions. Slugs identify one delegation within its parent, not a new global
+conversation identifier. Existing children display their configured agent and
+use their conversation id as the inspection slug.
 
 Each agent definition contains:
 
@@ -100,7 +108,11 @@ Each agent definition contains:
 - An optional model override; absent inherits the parent's resolved model.
 
 The shipped catalog includes `general` and read-only `explore`; setting an agent
-array replaces the defaults. Maximum recursion depth defaults to three. A child
+array replaces the defaults. Maximum recursion depth defaults to two (root, child, grandchild).
+Each parent defaults to three active direct children; finished children count
+until dismissed. Both limits are positive integer settings (`maxDepth`,
+`maxChildren`) exposed in the desktop and TUI host defaults. Parent-local spawn
+admission prevents parallel calls exceeding the limit. A child
 inherits the parent's workspace root, creates its own durable conversation,
 receives its own `AGENTS.md` snapshot, and starts from the delegated task rather
 than the parent's transcript.
@@ -118,10 +130,46 @@ discovery. A backgroundable call returns structured running/completed state and
 an activity id alongside presentation text; code must use `activity_wait` when
 it requires completed work rather than treating submission as completion.
 
+`subagent_list({relation, cursor?})` pages the caller's parent, siblings or direct
+children with stable conversation IDs and readable names/slugs. `subagent_send`
+addresses those IDs, checks the durable family relationship, derives sender
+identity from its tool context and delivers ordinary plugin input with `steer`.
+Running recipients consume it at the normal safe boundary; idle recipients start
+another turn, including after finishing. Submission acknowledges acceptance,
+not a reply. No activity or separate lifecycle is created for a message.
+
+`subagent_dismiss({to})` marks a direct child dismissed. One durable flag applies
+to its subtree through ancestor lookup, freeing its parent's roster slot. Model
+lists omit dismissed branches, and family sends to them fail, except that a child
+can always send to its direct parent. Existing activity completion can still wake
+a dismissed owner; it stays dismissed. Dismissed agents cannot spawn hidden
+children. Dismissal preserves history and does not cancel existing activities.
+GUI inspection retains paged historical branches. Tool allowlists still govern
+communication; the built-in explore profile includes the three new tools.
+
 The subagent is itself backgroundable. Foreground completion returns the child's
 final result. Background execution is tracked through the same activity tools and
 completion delivery as commands. Parent/child metadata is stored in namespaced
 plugin state; live handles and cascade-stop ownership remain activation-local.
+The desktop header opens a paged tree of durable children, with nested
+branches expanded and no collapse controls, grouped into Running and Finished.
+Keep each branch in Running while any descendant runs, preserving each row's own outcome. Each level keeps bounded paging. Rows show Running, Completed, Failed or Stopped, and remain
+available after work ends or the server restarts. Running means a matching live
+runtime and persisted running turn; unowned stale running turns display Stopped
+without starting work. Opening such a child uses ordinary crash reconciliation,
+which records the interrupted turn as Failed without resuming it.
+Names and parent links come from durable spawn metadata;
+status reuses the ordinary turn record. No orchestration handles are recreated
+merely to list children. Opening a historical child restores its durable ancestry
+inside the ordinary canonical root attachment lease, preserving live delivery
+and whole-tree teardown across restart.
+
+Spawned conversation inspection uses the ordinary attach/history path, with a
+full clickable ancestor chain and no composer, rename, worktree or Fork controls. The RPC
+write boundary rejects mutations of marked children, including delivery,
+reconfiguration and direct close/reload. Parent-owned task seeding and stop still
+use the internal runner. Sidebar and Recents continue to exclude spawn marks.
+
 Subagent activity peeks include a bounded in-progress assistant-text preview,
 including commentary, alongside finalized assistant messages and tool entries.
 Finalizing a message replaces its transient preview rather than duplicating it;

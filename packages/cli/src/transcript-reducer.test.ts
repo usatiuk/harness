@@ -755,13 +755,22 @@ describe("transcript reducer", () => {
         title: "npm run dev",
       },
     ]);
-    expect(started.activities).toEqual([{ id: "a1", kind: "process", title: "npm run dev" }]);
+    expect(started.activities).toEqual([
+      { conversationId: "c", id: "a1", kind: "process", title: "npm run dev" },
+    ]);
     const exited = fold(
       [{ type: "activity.exited", conversationId: "c", id: "a1", status: "ok", summary: "exit 0" }],
       started,
     );
     expect(exited.activities).toEqual([
-      { id: "a1", kind: "process", title: "npm run dev", status: "ok", summary: "exit 0" },
+      {
+        conversationId: "c",
+        id: "a1",
+        kind: "process",
+        title: "npm run dev",
+        status: "ok",
+        summary: "exit 0",
+      },
     ]);
   });
 

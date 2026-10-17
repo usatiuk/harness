@@ -32,6 +32,10 @@ import {
 import {
   SUBAGENTS_CLIENT_CONTRACT_VERSION,
   subagentsTopLevelRequest,
+  subagentsInspectRequest,
+  subagentsListRequest,
+  type SubagentIdentity,
+  type SubagentPage,
 } from "@harness/subagents/client";
 import {
   WORKSPACE_CLIENT_CONTRACT_VERSION,
@@ -39,6 +43,8 @@ import {
   workspaceShellRunRequest,
 } from "@harness/workspace/client";
 import type { ApprovalClient } from "@harness/approval/client";
+export type { SubagentIdentity, SubagentRow, SubagentPage } from "@harness/subagents/client";
+
 export interface ActivitiesView {
   peek(id: string): ContentBlock[] | Promise<ContentBlock[]>;
   kill(id: string): void | Promise<void>;
@@ -91,6 +97,12 @@ export interface HarnessPlugins {
     command: string,
     listener: (shellId: string, event: ShellClientEvent) => void,
   ): ShellRun;
+  inspectSubagent(id: ConversationId): Promise<SubagentIdentity | null>;
+  listSubagents(
+    id: ConversationId,
+    cursor?: SubagentPage["nextCursor"],
+    signal?: AbortSignal,
+  ): Promise<SubagentPage>;
   topLevel(conversationIds: ConversationId[]): Promise<Set<ConversationId>>;
 }
 
@@ -320,6 +332,21 @@ export class HarnessPluginClient implements HarnessPlugins {
         throw error;
       });
     return { id: shellId, accepted };
+  }
+
+  inspectSubagent(id: ConversationId) {
+    return this.#client.peer.request(subagentsInspectRequest, { conversationId: id });
+  }
+  listSubagents(
+    id: ConversationId,
+    cursor: SubagentPage["nextCursor"] = null,
+    signal?: AbortSignal,
+  ) {
+    return this.#client.peer.request(
+      subagentsListRequest,
+      { conversationId: id, limit: 20, cursor },
+      signal ? { signal } : undefined,
+    );
   }
 
   async topLevel(conversationIds: ConversationId[]): Promise<Set<ConversationId>> {

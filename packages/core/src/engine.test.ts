@@ -70,6 +70,26 @@ it("a failed first load does not become a parent but registered children retain 
   await engine.deactivate(root.id, { force: true });
 });
 
+it("does not adopt an independently inspected child while its old root is closing", async () => {
+  const store = new InMemoryStore();
+  const engine = new Engine(store, new PluginHost([]), testConfigResolver(), unusedCodeEvaluator);
+  const root = await store.createConversation(newConversationInput(CONFIG));
+  const child = await store.createConversation(newConversationInput(CONFIG));
+  await engine.prepare(root.id);
+  await engine.prepare(child.id);
+  const closing = engine.deactivate(child.id, { force: true });
+  expect(() => engine.registerChild(root.id, child.id)).toThrow("during conversation deactivation");
+  await closing;
+  expect(engine.conversationTreeState(root.id).map((member) => member.conversation.id)).toEqual([
+    root.id,
+  ]);
+  engine.registerChild(root.id, child.id);
+  await engine.prepare(child.id);
+  expect(engine.rootConversationOf(child.id)).toBe(root.id);
+  await engine.deactivate(root.id, { force: true });
+  expect(engine.conversationTreeState(root.id)).toEqual([]);
+});
+
 it("refreshes defaults captured by an activation still loading", async () => {
   const store = new InMemoryStore();
   const record = await store.createConversation({ workspaceRoot: null, overrides: {} });

@@ -4,3 +4,5 @@ export * from "./activity.ts";
 export * from "./tool.ts";
 export * from "./plugin.ts";
 export * from "./client-protocol.ts";
+export * from "./family.ts";
+export * from "./messages.ts";

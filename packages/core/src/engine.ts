@@ -392,17 +392,24 @@ export class Engine {
     return this.#rootOf(conversationId);
   }
 
-  /** Registers a freshly created child before it can be loaded or receive input. */
+  /** Establishes tree ownership before a new or historical child receives input. */
   registerChild(parentId: ConversationId, childId: ConversationId): void {
-    if (this.#roots.has(childId)) {
-      throw new Error(`conversation ${childId} already belongs to a conversation tree`);
-    }
     const root = this.#rootOf(parentId);
+    const previous = this.#roots.get(childId);
+    if (previous === root) return;
+    if (previous !== undefined && this.#closingRoots.has(previous))
+      throw new Error("cannot adopt a child during conversation deactivation");
+    if (previous !== undefined && previous !== childId)
+      throw new Error(`conversation ${childId} already belongs to a conversation tree`);
     if (this.#closingRoots.has(root) || this.#closedRoots.has(root)) {
       throw new Error(`cannot create a child while root scope ${root} is closing`);
     }
     if (!this.#runtimes.has(parentId) && !this.#roots.has(parentId)) {
       throw new Error(`cannot create a child for inactive parent ${parentId}`);
+    }
+    // Inspection can have loaded an old child independently. Adopt its loaded branch too.
+    for (const [id, owner] of this.#roots) {
+      if (owner === childId) this.#roots.set(id, root);
     }
     this.#roots.set(childId, root);
   }

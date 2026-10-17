@@ -299,6 +299,19 @@ export class SqliteStore implements Store {
     if (before && recent !== "lastUsedAt" in before) throw new Error("cursor order mismatch");
     const column = recent ? "last_used_at" : "created_at";
     let query = this.#k.selectFrom("conversations").selectAll();
+    if (options.includedState) {
+      const { plugin, key, scope } = options.includedState;
+      query = query.where(
+        "id",
+        "in",
+        this.#k
+          .selectFrom("plugin_state")
+          .select("conversation_id")
+          .where("plugin", "=", plugin)
+          .where("key", "=", key)
+          .where("scope", "=", scope),
+      );
+    }
     if (options.excludedState) {
       const { plugin, key } = options.excludedState;
       query = query.where((eb) =>
@@ -505,6 +518,17 @@ export class SqliteStore implements Store {
     return row ? rowToTurn(row) : undefined;
   }
 
+  async getLatestTurn(conversationId: ConversationId): Promise<Turn | undefined> {
+    const row = await this.#k
+      .selectFrom("turns")
+      .selectAll()
+      .where("conversation_id", "=", conversationId)
+      .orderBy(sql<number>`turns.rowid`, "desc")
+      .limit(1)
+      .executeTakeFirst();
+    return row ? rowToTurn(row) : undefined;
+  }
+
   async recordContextBuild(input: NewContextBuild): Promise<ContextBuild> {
     const build: ContextBuild = { ...input, id: randomUUID(), createdAt: this.clock.now() };
     await this.#k
@@ -686,13 +710,16 @@ export class SqliteStore implements Store {
     conversationId: ConversationId,
     key: string,
     value: unknown,
+    scope?: string,
   ): Promise<void> {
     const json = JSON.stringify(value);
     await this.#k
       .insertInto("plugin_state")
-      .values({ plugin, conversation_id: conversationId, key, value: json })
+      .values({ plugin, conversation_id: conversationId, key, value: json, scope: scope ?? null })
       .onConflict((oc) =>
-        oc.columns(["plugin", "conversation_id", "key"]).doUpdateSet({ value: json }),
+        oc
+          .columns(["plugin", "conversation_id", "key"])
+          .doUpdateSet({ value: json, ...(scope === undefined ? {} : { scope }) }),
       )
       .execute();
   }

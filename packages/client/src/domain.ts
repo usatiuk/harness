@@ -324,7 +324,9 @@ export class HarnessDomainClient implements HarnessClientService {
 
   async attachedConversation(id: ConversationId): Promise<Conversation> {
     const attachment = await this.#client.attach(id);
-    return decodeConversation(attachment.root);
+    const member = attachment.members.find((member) => member.conversation.id === id);
+    if (!member) throw new Error("Attachment omitted the requested conversation");
+    return decodeConversation(member.conversation);
   }
 
   async getItems(id: ConversationId): Promise<Item[]> {
@@ -461,36 +463,36 @@ export class HarnessDomainClient implements HarnessClientService {
     }
     if (event.type === "attached") {
       const rootId = event.attachment.root.id as ConversationId;
-      const root = event.attachment.members.find(
-        (member) => member.conversation.id === event.attachment.root.id,
-      );
-      if (root === undefined) throw new Error("attachment omitted its root live state");
-      const snapshot: HarnessEvent[] = [
-        { type: "inbox", conversationId: rootId, pending: root.live.pendingInput },
-        {
-          type: "usage.changed",
-          conversationId: rootId,
-          summary: decodeUsageSummary(event.attachment.usage),
-        },
-      ];
-      this.#usage.set(rootId, decodeUsageSummary(event.attachment.usage));
-      if (root.live.status === "running") {
-        if (root.live.turnId === null) throw new Error("running attachment omitted its turn id");
-        snapshot.push({
-          type: "turn.status",
-          conversationId: rootId,
-          turnId: root.live.turnId as TurnId,
-          status: "running",
-        });
-      }
-      const listeners = this.#listeners.get(rootId);
-      if (listeners !== undefined) {
-        for (const current of snapshot) {
-          for (const listener of listeners) listener(current);
+      for (const member of event.attachment.members) {
+        const id = member.conversation.id as ConversationId;
+        // Seed only the requested member and already-observed members. Other
+        // children must not accumulate streams in an unopened history backlog.
+        if (id !== event.conversationId && !this.#listeners.has(id)) continue;
+        const snapshot: HarnessEvent[] = [
+          { type: "inbox", conversationId: id, pending: member.live.pendingInput },
+        ];
+        if (id === rootId) {
+          const summary = decodeUsageSummary(event.attachment.usage);
+          this.#usage.set(id, summary);
+          snapshot.push({ type: "usage.changed", conversationId: id, summary });
         }
-      } else {
-        this.#replaceBacklog(rootId, snapshot);
-        this.#attaching.add(rootId);
+        if (member.live.status === "running") {
+          if (member.live.turnId === null)
+            throw new Error("running attachment omitted its turn id");
+          snapshot.push({
+            type: "turn.status",
+            conversationId: id,
+            turnId: member.live.turnId as TurnId,
+            status: "running",
+          });
+        }
+        const listeners = this.#listeners.get(id);
+        if (listeners) {
+          for (const current of snapshot) for (const listener of listeners) listener(current);
+        } else {
+          this.#replaceBacklog(id, snapshot);
+          this.#attaching.add(id);
+        }
       }
       return;
     }

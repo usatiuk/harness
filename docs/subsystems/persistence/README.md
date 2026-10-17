@@ -82,7 +82,13 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-The current SQLite format is version 11. Version 10 receives an expression index
+The current SQLite format is version 12. Version 11 receives an optional indexed
+plugin-state scope and a latest-turn index. Existing subagent spawn marks are
+scoped to their recorded parent, so historical inspection does not scan all
+conversations. Updating a plugin-state value without supplying scope preserves
+its existing scope. Latest-turn lookup uses insertion order, including when
+clock timestamps tie. No conversation content or turn outcomes are rewritten.
+Version 10 receives an expression index
 on `coalesce(original_workspace_root, workspace_root)` and recency for bounded
 project conversation pages. Project summaries group by that same expression;
 exact workspace filtering remains available separately. No conversation paths

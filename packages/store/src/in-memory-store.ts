@@ -43,6 +43,7 @@ export class InMemoryStore implements Store {
   readonly #turns = new Map<TurnId, Turn>();
   readonly #payloads = new Map<ItemId, ProviderPayload>();
   readonly #pluginState = new Map<string, unknown>();
+  readonly #pluginScopes = new Map<string, string>();
   readonly #blobs = new Map<string, Uint8Array>();
   readonly #contextBuilds: ContextBuild[] = [];
   readonly #modelUsage: ModelUsage[] = [];
@@ -194,6 +195,10 @@ export class InMemoryStore implements Store {
           (options.workspaceRoot === undefined || record.workspaceRoot === options.workspaceRoot) &&
           (options.projectRoot === undefined ||
             conversationProjectRoot(record) === options.projectRoot) &&
+          (!options.includedState ||
+            this.#pluginScopes.get(
+              pluginStateKey(options.includedState.plugin, record.id, options.includedState.key),
+            ) === options.includedState.scope) &&
           (!options.excludedState ||
             !this.#pluginState.has(
               pluginStateKey(options.excludedState.plugin, record.id, options.excludedState.key),
@@ -345,6 +350,12 @@ export class InMemoryStore implements Store {
     return this.#activeTurn(conversationId);
   }
 
+  async getLatestTurn(conversationId: ConversationId): Promise<Turn | undefined> {
+    return [...this.#turns.values()]
+      .filter((turn) => turn.conversationId === conversationId)
+      .at(-1);
+  }
+
   async recordContextBuild(input: NewContextBuild): Promise<ContextBuild> {
     const build: ContextBuild = {
       ...input,
@@ -442,7 +453,10 @@ export class InMemoryStore implements Store {
     conversationId: ConversationId,
     key: string,
     value: unknown,
+    scope?: string,
   ): Promise<void> {
+    if (scope !== undefined)
+      this.#pluginScopes.set(pluginStateKey(plugin, conversationId, key), scope);
     this.#pluginState.set(pluginStateKey(plugin, conversationId, key), value);
   }
 

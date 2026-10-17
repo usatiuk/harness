@@ -1,3 +1,4 @@
+import { registerFeatureServer } from "@harness/server";
 import { HarnessRpcHost } from "@harness/service";
 import { expect, it, vi } from "vitest";
 import { createInProcessMessageConnectionPair } from "@harness/client";
@@ -7,11 +8,13 @@ import { sandboxPlugin } from "@harness/sandbox";
 import {
   unusedCodeEvaluator,
   FakeProvider,
+  GateProvider,
   counterIdGenerator,
   fixedClock,
   textStep,
 } from "@harness/testkit";
 import type { ConversationId, TurnId } from "@harness/protocol";
+import { spawnSubagent } from "@harness/subagents";
 import { DesktopSession } from "./session.ts";
 
 it("shares an earlier history load across callers and permits retry after failure", async () => {
@@ -31,6 +34,7 @@ it("shares an earlier history load across callers and permits retry after failur
   });
   const desktop = new DesktopSession(connections.left);
   let release: (() => void) | undefined;
+  registerFeatureServer(server);
   server.start();
   try {
     await desktop.start();
@@ -105,6 +109,7 @@ it("loads earlier history for a replacement view while the detached view's reque
   const desktop = new DesktopSession(connections.left);
   let release: (() => void) | undefined;
   const pending: Promise<void>[] = [];
+  registerFeatureServer(server);
   server.start();
   try {
     await desktop.start();
@@ -183,6 +188,7 @@ it.each([
       server: { name: "test", version: "1" },
     });
     const desktop = new DesktopSession(connections.left);
+    registerFeatureServer(server);
     server.start();
     try {
       await desktop.start();
@@ -222,6 +228,7 @@ it("reattaches after failed sandbox replacement while another conversation remai
     server: { name: "test", version: "1" },
   });
   const desktop = new DesktopSession(connections.left);
+  registerFeatureServer(server);
   server.start();
   try {
     await desktop.start();
@@ -303,6 +310,7 @@ it("updates saved titles in both the loaded view and cached conversation list th
     server: { name: "test", version: "1" },
   });
   const desktop = new DesktopSession(pair.left);
+  registerFeatureServer(server);
   server.start();
   try {
     await desktop.start();
@@ -345,6 +353,7 @@ it("marks live assistant output unread only while another conversation is select
     server: { name: "test", version: "1" },
   });
   const desktop = new DesktopSession(pair.left);
+  registerFeatureServer(server);
   server.start();
   try {
     await desktop.start();
@@ -364,6 +373,99 @@ it("marks live assistant output unread only while another conversation is select
     desktop.setActiveConversation(first.id as ConversationId);
     expect(desktop.unread.size).toBe(0);
   } finally {
+    desktop.client.closeConnection();
+    await server.shutdown();
+    await host.shutdown();
+  }
+});
+
+it("opens a live child with its own identity, snapshot and final transcript while retaining the parent", async () => {
+  const provider = new GateProvider("Child result");
+  const store = new InMemoryStore();
+  const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
+    store,
+    home: "/nonexistent-harness-home",
+    plugins: [{ id: "fake", providers: () => [provider] }],
+  });
+  const pair = createInProcessMessageConnectionPair();
+  const host = new HarnessRpcHost(service);
+  const server = new HarnessRpcSession({
+    host,
+    connection: pair.right,
+    server: { name: "test", version: "1" },
+  });
+  registerFeatureServer(server);
+  server.start();
+  const desktop = new DesktopSession(pair.left);
+  try {
+    await desktop.start();
+    const root = await desktop.client.create({
+      overrides: { model: { provider: "fake", model: "fake-1" } },
+    });
+    const parentTurn = await store.createTurn(root.id as ConversationId);
+    await store.appendItem({
+      conversationId: root.id as ConversationId,
+      turnId: parentTurn.id,
+      type: "message",
+      role: "assistant",
+      content: [{ type: "text", text: "Parent-only history" }],
+    });
+    await store.updateTurn(parentTurn.id, "completed");
+    const parent = await desktop.load(root.id);
+    const child = await spawnSubagent({
+      runner: service,
+      parent: root.id as ConversationId,
+      callId: "child",
+      agentName: "explore",
+      name: "Review authentication",
+      slug: "auth-review",
+      task: "review",
+      overrides: {},
+    });
+    await provider.started;
+    const view = await desktop.load(child.childId);
+    expect(view.conversation.id).toBe(child.childId);
+    expect(view.subagent).toMatchObject({
+      name: "Review authentication",
+      slug: "auth-review",
+      ancestors: [expect.objectContaining({ id: root.id })],
+    });
+    expect(view.state.turn.status).toBe("running");
+    expect(view.state.cells).not.toContainEqual(
+      expect.objectContaining({ text: "Parent-only history" }),
+    );
+    expect(view.state.cells).toContainEqual(
+      expect.objectContaining({ kind: "user", text: "review" }),
+    );
+    expect(parent.conversation.id).toBe(root.id);
+    expect(parent.state.turn.status).not.toBe("running");
+    provider.release();
+    await child.done;
+    await service.whenIdle(child.childId);
+    await vi.waitFor(() => expect(view.state.turn.status).toBe("completed"));
+    expect(view.state.cells).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "assistant", text: "Child result", streaming: false }),
+      ]),
+    );
+    const revision = parent.subagentRevision;
+    await service.deliver(
+      child.childId,
+      {
+        source: { kind: "plugin", pluginId: "subagent_send" },
+        content: [{ type: "text", text: "Continue" }],
+      },
+      "steer",
+    );
+    await service.whenIdle(child.childId);
+    await vi.waitFor(() => expect(parent.subagentRevision).toBeGreaterThan(revision));
+    await expect(desktop.client.deliver(child.childId, "new task", "send")).rejects.toThrow(
+      "read-only",
+    );
+    expect(await desktop.load(root.id)).toBe(parent);
+  } finally {
+    provider.release();
     desktop.client.closeConnection();
     await server.shutdown();
     await host.shutdown();

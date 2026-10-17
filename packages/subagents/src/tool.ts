@@ -13,10 +13,24 @@ import {
 import { activitiesOf } from "@harness/activities";
 import { DEFAULT_MAX_DEPTH, type SubagentsConfig } from "./config.ts";
 import { depthOf, type SubagentRegistry } from "./registry.ts";
+import { isDismissed, rosterPage } from "./family.ts";
 import { spawnSubagent } from "./activity.ts";
 
 const subagentArgs = z.strictObject({
   agent: z.string().describe("The agent to delegate to (one of the catalog names)."),
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .describe("A short readable name for this task, e.g. Review authentication."),
+  slug: z
+    .string()
+    .max(64)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .describe(
+      "A stable kebab-case task identifier, unique within this parent conversation, e.g. auth-review.",
+    ),
   task: z.string().describe("The task for the subagent — its full prompt for this delegation."),
 });
 
@@ -30,7 +44,7 @@ export interface SubagentToolDeps {
 }
 
 /**
- * `subagent({ agent, task })` — delegates to a child conversation with its own scope, returning
+ * `subagent({ agent, name, slug, task })` — delegates to a child conversation with its own scope, returning
  * the child's final output. Recursion depth is bounded by a spawn-time check.
  */
 export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
@@ -52,7 +66,7 @@ export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
   }
 
   async execute(
-    { agent: agentName, task }: z.infer<typeof subagentArgs>,
+    { agent: agentName, name, slug, task }: z.infer<typeof subagentArgs>,
     ctx: ToolContext,
   ): Promise<ToolResult> {
     const runner = this.#deps.runner();
@@ -80,20 +94,36 @@ export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
     // Spawn the child in the parent's project (shared cwd ⇒ same settings cascade + catalog).
     const parent = await runner.getConversation(ctx.conversationId);
     const cwd = parent?.workspaceRoot ?? undefined;
-    const activity = await spawnSubagent({
-      runner,
-      parent: ctx.conversationId,
-      callId: ctx.callId,
-      agentName: agent.name,
-      task,
-      overrides,
-      ...(cwd !== undefined ? { cwd } : {}),
-    });
+    return this.#deps.registry.withSpawn(ctx.conversationId, async () => {
+      ctx.signal.throwIfAborted();
+      if (await isDismissed(runner, ctx.conversationId))
+        return errorResult("Dismissed subagents cannot spawn children.");
+      const maxChildren = cfg.maxChildren ?? 3;
+      if ((await rosterPage(runner, ctx.conversationId, maxChildren)).length >= maxChildren)
+        return errorResult(
+          `Subagent limit reached (${maxChildren} active children). Dismiss a child before spawning another.`,
+        );
+      if (
+        (await runner.getPluginState("subagents", ctx.conversationId, `slug:${slug}`)) !== undefined
+      )
+        return errorResult(`subagent slug already exists: ${slug}`);
+      const activity = await spawnSubagent({
+        runner,
+        parent: ctx.conversationId,
+        callId: ctx.callId,
+        agentName: agent.name,
+        name,
+        slug,
+        task,
+        overrides,
+        ...(cwd !== undefined ? { cwd } : {}),
+      });
 
-    this.#deps.registry.track(ctx.conversationId, activity.childId);
-    activitiesOf(ctx).track(activity, { callId: ctx.callId, emit: (e) => ctx.emit(e) });
-    // Placeholder; the activities consumption middleware claims this activity and owns the real
-    // model-facing result (the child's final output, foreground or backgrounded).
-    return okResult(`started subagent ${agentName} (${activity.id})`);
+      this.#deps.registry.track(ctx.conversationId, activity.childId);
+      activitiesOf(ctx).track(activity, { callId: ctx.callId, emit: (e) => ctx.emit(e) });
+      // Placeholder; the activities consumption middleware claims this activity and owns the real
+      // model-facing result (the child's final output, foreground or backgrounded).
+      return okResult(`started subagent ${name} [${slug}] (${activity.id})`);
+    });
   }
 }
