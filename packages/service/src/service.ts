@@ -224,7 +224,8 @@ export class HarnessService implements ConversationRunner {
       async (operationSignal) => {
         if (selection.kind === "original") path = original;
         else if (selection.kind === "new")
-          path = (await manager.create(record.workspaceRoot!, operationSignal)).path;
+          path = (await manager.create(record.workspaceRoot!, operationSignal, selection.branch))
+            .path;
         else {
           const tree = (await manager.list(original)).find((tree) => tree.path === selection.path);
           if (!tree)

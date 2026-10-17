@@ -809,7 +809,12 @@ the Linux browser fixture checks.
 The creation form offers a new-worktree choice for Git folders. The subtle branch
 control beside the conversation title switches to a new/existing worktree or the
 original checkout; it is disabled during running turns and the server also checks
-background work. Sidebar grouping still follows current folder paths, with a
+background work. Opening the picker rereads Git branch names, including renames
+made with ordinary Git commands. Default branches use `harness/<adjective>-<animal>`
+with numeric suffixes for collisions; directories keep their UUIDs. The agent's
+`worktree_switch` accepts optional `branch` only with `kind: "new"`; explicit names
+are validated by Git. No desktop naming/rename control or CLI name option is added.
+Sidebar grouping still follows current folder paths, with a
 worktree icon immediately before status indicators. Settings → Defaults configures
 the selected server's storage directory; Settings → Worktrees pages managed
 checkouts and Docker environments. Deletion uses explicit confirmation, retaining

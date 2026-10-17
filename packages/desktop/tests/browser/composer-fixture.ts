@@ -24,6 +24,7 @@ declare global {
       showMarkdown(): void;
       worktreeSwitches: unknown[];
       worktreeDeletes: unknown[];
+      renameWorktree(branch: string): void;
       switchSidebarScope(scope: string): void;
       showEval(): void;
       showLivePreview(reasoningOnly?: boolean): void;
@@ -133,6 +134,7 @@ const creations: Array<Parameters<DesktopSession["client"]["create"]>[0]> = [];
 const providerCreates: unknown[] = [];
 const providerWrites: { provider: string; patch: Record<string, boolean> }[] = [];
 let sidebarScope = "composer-fixture";
+let worktreeBranch = "harness/one";
 let sidebarRows: (typeof view.conversation)[] = [];
 let pending: Deferred | undefined;
 let stopping: Deferred | undefined;
@@ -249,7 +251,7 @@ const session = {
         current: view.conversation.workspaceRoot,
         worktrees: [
           { path: "D:\\example", branch: "main", head: "initial", locked: false },
-          { path: "D:\\worktrees\\one", branch: "harness/one", head: "initial", locked: false },
+          { path: "D:\\worktrees\\one", branch: worktreeBranch, head: "initial", locked: false },
         ],
       };
     },
@@ -485,6 +487,10 @@ const session = {
 window.composerFixture = {
   worktreeSwitches: [],
   worktreeDeletes: [],
+  renameWorktree(branch) {
+    // Change the server-side answer without publishing a client render/event.
+    worktreeBranch = branch;
+  },
   switchSidebarScope(scope) {
     sidebarScope = scope;
     changed();

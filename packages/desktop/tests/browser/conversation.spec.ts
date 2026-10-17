@@ -1600,6 +1600,25 @@ test("worktree selection stays subtle, refuses running switches and switches bac
   await expect(page.locator(".conversation-branch")).toContainText("main");
   await expect(page.locator(".composer")).toBeVisible();
 });
+test("opening the worktree picker reads an externally renamed branch", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.completeSteps("completed"));
+  await page.getByRole("button", { name: "main", exact: true }).click();
+  await page.getByRole("button", { name: "New worktree", exact: true }).click();
+  await expect(page.locator(".conversation-branch")).toHaveText("harness/one");
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.composerFixture.renameWorktree("feature/renamed"));
+  await page.getByRole("button", { name: "harness/one", exact: true }).click();
+  await expect(page.locator(".conversation-branch")).toHaveText("feature/renamed");
+  await expect(
+    page.locator(".worktree-options").getByRole("button", { name: "feature/renamed", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.locator(".worktree-options").getByRole("button", { name: "harness/one", exact: true }),
+  ).toHaveCount(0);
+});
+
 test("worktree manager requires explicit destructive confirmation", async ({ page }) => {
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "Settings", exact: true }).click();

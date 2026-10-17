@@ -55,7 +55,7 @@ export class WorktreesDefinition implements PluginDefinition {
           name: "worktree_switch",
           essential: true,
           description:
-            "Only when the user asks: switch this conversation to a new/existing Git worktree or back to its original checkout. No files or history are copied. The switch is applied AFTER this entire tool batch, including parallel eval calls; all remaining calls in this batch still use the old directory. Stop background activities/subagents first.",
+            "Only when the user asks: switch this conversation to a new/existing Git worktree or back to its original checkout. With kind new, optional branch selects the new Git branch name; otherwise a readable name is generated. No files or history are copied. The switch is applied AFTER this entire tool batch, including parallel eval calls; all remaining calls in this batch still use the old directory. Stop background activities/subagents first.",
           input: { kind: "function", schema: selection },
           execute: async (args: WorkspaceSelection, ctx: ToolContext) => {
             ctx.signal.throwIfAborted();

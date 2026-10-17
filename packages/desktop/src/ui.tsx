@@ -225,15 +225,17 @@ export function PopoverControl({
   children,
   side = "bottom",
   align = "end",
+  onOpenChange,
 }: {
   trigger: ReactNode;
   label: string;
   children: ReactNode;
   side?: ComponentProps<typeof Popover.Content>["side"];
   align?: ComponentProps<typeof Popover.Content>["align"];
+  onOpenChange?: ComponentProps<typeof Popover.Root>["onOpenChange"];
 }) {
   return (
-    <Popover.Root>
+    <Popover.Root {...(onOpenChange ? { onOpenChange } : {})}>
       <Popover.Trigger asChild>{trigger}</Popover.Trigger>
       <Popover.Portal>
         <Popover.Content

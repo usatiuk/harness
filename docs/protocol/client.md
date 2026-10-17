@@ -251,11 +251,20 @@ editor. A failed key write leaves the saved provider visible for credential retr
 
 Protocol 13 carries nullable `originalWorkspaceRoot` and `workspace.changed`.
 Current workspace drives execution/sidebar folders; original workspace drives
-configuration. Both survive forks/restart. The `worktrees` v1 contract exposes
+configuration. Both survive forks/restart. The `worktrees` v2 contract exposes
 Git eligibility, creation, options, switching and paged managed ownership/removal.
 Options return null for a non-Git project. Agent tools use the same service and
 defer selection until the entire tool batch ends; client switching requires idle
 work. Expected workspace refusals have safe actionable RPC errors.
+
+New-worktree selection accepts optional `branch`, shared by the `worktree_switch`
+tool and existing switch RPC. It is a literal new Git branch name, validated by
+Git before checkout allocation. Other selection kinds reject that field. Omission
+uses a readable generated branch; checkout paths retain UUID identity. Existing
+refs are never overwritten. Generated-name collisions detected atomically by Git
+may retry with another suffix on the same owned checkout, up to ten collisions;
+other failures retain existing owned-checkout recovery. Explicit names are never
+substituted. The desktop picker rereads Git on opening; renaming uses ordinary Git.
 
 The `sandbox` contract includes paged environment inventory and explicit Stop/
 Remove. `plugin.sandbox.workspace` is the local CLI's narrow start/stop seam;

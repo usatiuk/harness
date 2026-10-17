@@ -9,6 +9,8 @@ import {
   removeWorktree,
   repositoryRoot,
   validateWorktreeRemoval,
+  worktreeBranch,
+  WorktreeBranchExistsError,
 } from "./git.ts";
 
 /** Only ownership is persisted; Git supplies current branch/checkout facts. */
@@ -33,11 +35,15 @@ export class WorktreeManager implements WorktreeOperations {
     return tree;
   }
 
-  async create(repository: string, signal?: AbortSignal): Promise<WorktreeInfo> {
+  async create(repository: string, signal?: AbortSignal, branch?: string): Promise<WorktreeInfo> {
     const root = await repositoryRoot(repository);
-    const original = (await listWorktrees(root))[0];
+    const checkouts = await listWorktrees(root);
+    const original = checkouts[0];
     if (!original) throw new Error("Git repository has no checkouts");
-    const target = await allocateWorktree(await this.directory());
+    const source = checkouts.find((tree) => tree.path === root);
+    if (!source) throw new Error("Source checkout is missing from Git metadata");
+    const name = await worktreeBranch(root, branch, signal);
+    const target = { ...(await allocateWorktree(await this.directory(), name)), head: source.head };
     signal?.throwIfAborted();
     // Record ownership before Git can create files, including a cancelled/failed checkout.
     // Its managed entry remains removable if Git succeeds but response delivery fails.
@@ -46,7 +52,22 @@ export class WorktreeManager implements WorktreeOperations {
       repository: original.path,
       createdAt: Date.now(),
     });
-    return addWorktree(root, target, signal);
+    let collisions = 0;
+    for (;;) {
+      try {
+        return await addWorktree(root, target, signal);
+      } catch (error) {
+        if (
+          branch !== undefined ||
+          !(error instanceof WorktreeBranchExistsError) ||
+          ++collisions === 10
+        )
+          throw error;
+        // Git atomically claimed this name elsewhere. Retry the same owned checkout,
+        // changing only its generated branch; other failures retain normal recovery.
+        target.branch = await worktreeBranch(root, undefined, signal);
+      }
+    }
   }
 
   managed(limit: number, before?: string) {

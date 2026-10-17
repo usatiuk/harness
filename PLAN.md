@@ -1,5 +1,10 @@
 # Harness plan
 
+The [worktree branch naming follow-up](docs/plans/interface/2026-10-17-worktree-branch-names.md)
+adds optional tool-supplied branches, readable generated names with collision
+handling, and a picker refresh on opening. Git remains the naming authority and
+checkout paths remain stable; no naming or rename GUI is added.
+
 The [eager tools and name inventory follow-up](docs/plans/cross-cutting/2026-10-17-eager-tools-and-name-inventory.md)
 offers all Harness tools upfront and adds a default-on global deferred-name list
 with GUI/TUI configuration. Full validation and focused browser checks pass;

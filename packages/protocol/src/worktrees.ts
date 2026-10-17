@@ -12,14 +12,14 @@ export interface WorktreeOperations {
   repository(path: string): Promise<string | null>;
   inspect(path: string): Promise<WorktreeInfo>;
   list(repository: string): Promise<WorktreeInfo[]>;
-  create(repository: string, signal?: AbortSignal): Promise<WorktreeInfo>;
+  create(repository: string, signal?: AbortSignal, branch?: string): Promise<WorktreeInfo>;
   managed(limit: number, before?: string): Promise<ManagedWorktree[]>;
   validateRemoval(path: string, force: boolean): Promise<void>;
   remove(path: string, force: boolean): Promise<void>;
 }
 
 export type WorkspaceSelection =
-  { kind: "original" } | { kind: "new" } | { kind: "existing"; path: string };
+  { kind: "original" } | { kind: "new"; branch?: string } | { kind: "existing"; path: string };
 
 /** An expected workspace refusal whose message is safe to display to the user. */
 export class WorkspaceOperationError extends Error {}

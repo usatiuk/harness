@@ -1257,7 +1257,14 @@ instance still need real-platform/instance qualification.
 real QuickJS parallel calls), refreshed instructions/execution, overlapping config
 resolution, forced-close cancellation and deletion admission. `worktrees/src/git.test.ts`
 uses real isolated repositories for dirty/primary protection, failed creation and
-post-Git persistence failure recovery. `server/src/worktrees.test.ts` uses actual
+post-Git persistence failure recovery. It also covers explicit Git branch names,
+invalid/name-namespace conflicts before ownership,
+readable generated collisions, concurrent creation with distinct branches and one
+ownership record per checkout, and external rename readback. The RPC scenario also
+selects an explicitly named branch and verifies a Git rename without path changes.
+The picker browser case substitutes the server answer to verify refresh on opening;
+the real Git rename is separately covered by the package/RPC tests.
+`server/src/worktrees.test.ts` uses actual
 RPC/SQLite restart with temporary home and memory credentials; `cli/src/hosts.test.tsx`
 saves/clears the directory through Ink Settings. Browser regressions exercise
 creation eligibility, branch switching, confirmation and directory settings. A
@@ -1267,8 +1274,9 @@ with its form submission and non-repository disable behavior.
 
 Local qualification: `npm run check` passed 1,391 tests (41 gated skips); all 58
 browser cases passed using `PLAYWRIGHT_BROWSERS_PATH=/tmp/harness-playwright-browsers`.
-The outer sandbox inserts an empty `/tmp/.git`; run the real non-Git RPC fixture
-outside it rather than changing Git discovery expectations.
+An empty `/tmp/.git` in the current environment confuses the real non-Git RPC
+fixture, including outside the sandbox. Use `TMPDIR=/var/tmp` rather than changing
+Git discovery expectations.
 
 Run real Docker qualification with:
 

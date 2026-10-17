@@ -20,6 +20,7 @@ export function WorktreeControl({
     useState<Awaited<ReturnType<DesktopSession["plugins"]["workspaceOptions"]>>>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => {
     let current = true;
     void session.plugins.workspaceOptions(conversation.id).then(
@@ -39,7 +40,7 @@ export function WorktreeControl({
     return () => {
       current = false;
     };
-  }, [session, conversation.id, conversation.workspaceRoot]);
+  }, [session, conversation.id, conversation.workspaceRoot, refreshKey]);
   if (!conversation.workspaceRoot || options === null) return null;
   const branch = options?.worktrees.find((tree) => tree.path === options.current)?.branch;
   const select = async (selection: WorkspaceSelection) => {
@@ -60,6 +61,9 @@ export function WorktreeControl({
     <PopoverControl
       label="Conversation workspace"
       align="start"
+      onOpenChange={(open) => {
+        if (open) setRefreshKey((value) => value + 1);
+      }}
       trigger={
         <Button
           variant="ghost"

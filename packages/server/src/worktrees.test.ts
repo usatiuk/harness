@@ -96,6 +96,25 @@ it("persists worktree settings, selection, configuration origin, fork metadata a
     expect(conversation.config.instructions).toBe("ORIGINAL PROJECT SETTINGS");
     const firstPath = conversation.workspaceRoot!;
     await current.client.attach(conversation.id);
+    const named = await current.client.peer.request(worktreeSwitchRequest, {
+      conversationId: conversation.id,
+      selection: { kind: "new", branch: "feature/auth-refactor" },
+    });
+    const namedOptions = () =>
+      current.client.peer.request(worktreeOptionsRequest, { conversationId: conversation.id });
+    expect((await namedOptions())?.worktrees.find((tree) => tree.path === named.path)?.branch).toBe(
+      "feature/auth-refactor",
+    );
+    await promisify(execFile)("git", ["-C", named.path, "branch", "-m", "feature/renamed"]);
+    expect((await namedOptions())?.worktrees.find((tree) => tree.path === named.path)?.branch).toBe(
+      "feature/renamed",
+    );
+    expect((await current.client.get(conversation.id))?.workspaceRoot).toBe(named.path);
+    await current.client.peer.request(worktreeSwitchRequest, {
+      conversationId: conversation.id,
+      selection: { kind: "existing", path: firstPath },
+    });
+    await current.client.peer.request(worktreeRemoveRequest, { path: named.path, force: false });
     const turn = await current.harness.store.createTurn(
       conversation.id as import("@harness/protocol").ConversationId,
     );

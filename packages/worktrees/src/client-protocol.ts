@@ -1,7 +1,11 @@
 import { z } from "zod";
-import { conversationCreateRequest, defineRequest } from "@harness/protocol";
+import {
+  conversationCreateRequest,
+  defineRequest,
+  type WorkspaceSelection,
+} from "@harness/protocol";
 
-export const WORKTREES_CLIENT_CONTRACT_VERSION = 1;
+export const WORKTREES_CLIENT_CONTRACT_VERSION = 2;
 
 const tree = z.strictObject({
   path: z.string(),
@@ -9,11 +13,17 @@ const tree = z.strictObject({
   head: z.string(),
   locked: z.boolean(),
 });
-export const workspaceSelectionSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("original") }),
-  z.strictObject({ kind: z.literal("new") }),
-  z.strictObject({ kind: z.literal("existing"), path: z.string().min(1) }),
-]);
+export const workspaceSelectionSchema = z
+  .discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("original") }),
+    z.strictObject({ kind: z.literal("new"), branch: z.string().min(1).optional() }),
+    z.strictObject({ kind: z.literal("existing"), path: z.string().min(1) }),
+  ])
+  .transform((selection): WorkspaceSelection =>
+    selection.kind === "new"
+      ? { kind: "new", ...(selection.branch === undefined ? {} : { branch: selection.branch }) }
+      : selection,
+  );
 export const worktreeOptionsRequest = defineRequest({
   direction: "client-to-server",
   method: "plugin.worktrees.options",

@@ -372,6 +372,10 @@ the server is killed. Remove discards containers/networks and retains volumes.
 Shared stop/rebuild warns affected conversations and proceeds.
 
 New conversations can start in a Git worktree; the branch control beside the title
+refreshes from Git when opened, reflecting external branch renames. Generated
+branches use readable names such as `harness/quiet-otter`, with numeric suffixes
+for collisions. Agents can supply an explicit `branch` with `worktree_switch`
+and `kind: "new"`; desktop and CLI creation keep automatic naming. The control
 switches idle conversations between worktrees and their original checkout. No dirty
 files or history are copied. Settings → Worktrees lists managed checkouts and Docker
 environments. Deleting a checkout retains its branch/history and requires explicit
