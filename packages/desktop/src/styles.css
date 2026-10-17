@@ -1982,25 +1982,59 @@ main {
   border: 1px solid var(--line);
   border-radius: 12px;
   margin: 8px 0;
-  padding: 14px;
-  max-height: 40vh;
-  overflow: auto;
+  padding: 12px 14px;
+}
+.conversation-support:has(.question-request:not(.is-collapsed)) {
+  max-height: none;
+  overflow: visible;
+}
+.question-header,
+.question-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.question-header {
+  color: var(--muted-ink);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.question-request.is-collapsed .question-header {
+  margin-bottom: 0;
 }
 .question-request fieldset {
   border: 0;
   padding: 0;
   min-width: 0;
 }
+.question-request legend {
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.question-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+}
+.question-options label {
+  align-items: start;
+}
+@media (max-width: 600px) {
+  .question-options {
+    grid-template-columns: 1fr;
+  }
+}
 .question-field {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .question-field label {
   display: flex;
   gap: 8px;
 }
-.question-field label:has(textarea) {
+.question-field .question-comment {
   flex-direction: column;
 }

@@ -134,3 +134,28 @@ it("allows a selected option without a comment", async () => {
   );
   app.unmount();
 });
+
+it("skips an individual choice question and answers the remaining text question", async () => {
+  const app = mount([
+    { id: "scope", prompt: "Which scope?", options: [{ id: "one", label: "One" }] },
+    { id: "notes", prompt: "Any notes?" },
+  ]);
+  await app.input("\r");
+  await vi.waitFor(() => expect(app.lastFrame()).toContain("Ctrl+S skips question"));
+  await app.input("\u0013");
+  await vi.waitFor(() => expect(app.lastFrame()).toContain("Any notes?"));
+  await app.input("Keep it simple");
+  await app.input("\r");
+  await vi.waitFor(() => expect(app.lastFrame()).toContain("Which scope?: Skipped"));
+  await app.input("\r");
+  await vi.waitFor(() =>
+    expect(app.respond).toHaveBeenCalledWith("request", {
+      status: "answered",
+      answers: [
+        { questionId: "scope", skipped: true },
+        { questionId: "notes", selectedOptionIds: [], comment: "Keep it simple" },
+      ],
+    }),
+  );
+  app.unmount();
+});

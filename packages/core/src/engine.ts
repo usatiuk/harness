@@ -266,6 +266,7 @@ export class Engine {
         : `User answered your questions:\n\n${request.questions
             .map((question) => {
               const answer = response.answers.find((a) => a.questionId === question.id)!;
+              if ("skipped" in answer) return `${question.prompt}\nSkipped`;
               const labels = answer.selectedOptionIds.map(
                 (id) => question.options!.find((option) => option.id === id)!.label,
               );

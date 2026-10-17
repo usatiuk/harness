@@ -73,7 +73,7 @@ routes remain outside this metadata change.
 The [async questions change](docs/plans/cross-cutting/2026-10-17-async-questions.md)
 adds one nonblocking question tool, batch choice/freeform forms with comments,
 and durable reconnect/restart semantics. Delivered in desktop and TUI; full checks
-pass 1,518 tests (41 skipped), and three Chromium question form regressions pass.
+pass 1,520 tests (41 skipped), and six Chromium question form regressions pass.
 
 ## Goals
 

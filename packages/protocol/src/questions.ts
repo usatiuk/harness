@@ -35,11 +35,14 @@ export const questionResponseSchema = z.discriminatedUnion("status", [
     status: z.literal("answered"),
     answers: z
       .array(
-        z.strictObject({
-          questionId: identifier,
-          selectedOptionIds: z.array(identifier).max(12),
-          comment: z.string().max(8000),
-        }),
+        z.union([
+          z.strictObject({ questionId: identifier, skipped: z.literal(true) }),
+          z.strictObject({
+            questionId: identifier,
+            selectedOptionIds: z.array(identifier).max(12),
+            comment: z.string().max(8000),
+          }),
+        ]),
       )
       .min(1)
       .max(8),
@@ -83,10 +86,11 @@ export function validateQuestionResponse(
   if (response.status === "dismissed") return;
   const answers = new Map(response.answers.map((a) => [a.questionId, a]));
   if (answers.size !== response.answers.length || answers.size !== request.questions.length)
-    throw new QuestionInputError("Answer every question exactly once");
+    throw new QuestionInputError("Answer or skip every question exactly once");
   for (const question of request.questions) {
     const answer = answers.get(question.id);
     if (!answer) throw new QuestionInputError(`Missing answer: ${question.id}`);
+    if ("skipped" in answer) continue;
     const selected = new Set(answer.selectedOptionIds);
     if (
       selected.size !== answer.selectedOptionIds.length ||

@@ -2343,22 +2343,41 @@ test("question batches allow clearable choices and comments, and show submission
   await page.evaluate(() => window.composerFixture.showQuestions());
   const form = page.getByRole("region", { name: "Agent questions" });
   const comments = form.getByRole("textbox");
-  await expect(form.getByRole("button", { name: "Submit answers" })).toBeDisabled();
+  await expect(form.getByRole("button", { name: "Next", exact: true })).toBeDisabled();
+  await expect(form.getByText("Question 1 of 3", { exact: true })).toBeVisible();
+  await expect(form.getByLabel("Gamma", { exact: true })).toHaveCount(0);
   await form.getByLabel("Alpha", { exact: true }).check();
   await form.getByLabel("Beta", { exact: true }).check();
   await expect(form.getByLabel("Alpha", { exact: true })).not.toBeChecked();
   await form.getByLabel("Beta", { exact: true }).uncheck();
-  await comments.nth(0).fill("Neither option fits");
+  await comments.fill("Neither option fits");
+  await expect(comments).toHaveJSProperty("tagName", "INPUT");
+  await comments.press("Enter");
+  expect(await page.evaluate(() => window.composerFixture.questionResponses)).toEqual([]);
+  await form.getByRole("button", { name: "Hide questions", exact: true }).click();
+  await expect(comments).toBeHidden();
+  await expect(form.getByRole("button", { name: "Show questions", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.composerFixture.questionResponses)).toEqual([]);
+  await form.getByRole("button", { name: "Show questions", exact: true }).click();
+  await expect(comments).toHaveValue("Neither option fits");
+  await form.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(form.getByText("Question 2 of 3", { exact: true })).toBeVisible();
   await form.getByLabel("Gamma", { exact: true }).check();
   await form.getByLabel("Delta", { exact: true }).check();
-  await comments.nth(1).fill("Both with a comment");
-  await comments.nth(2).fill("Freeform answer");
+  await comments.fill("Both with a comment");
+  await form.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(comments).toHaveValue("Neither option fits");
+  await form.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(comments).toHaveValue("Both with a comment");
+  await expect(form.getByLabel("Gamma", { exact: true })).toBeChecked();
+  await form.getByRole("button", { name: "Next", exact: true }).click();
+  await comments.fill("Freeform answer");
   await page.evaluate(() => {
     window.composerFixture.failQuestionResponse = true;
   });
   await form.getByRole("button", { name: "Submit answers" }).click();
   await expect(form.getByRole("alert")).toHaveText("Question response rejected");
-  await expect(comments.nth(0)).toHaveValue("Neither option fits");
+  await expect(comments).toHaveValue("Freeform answer");
   await page.evaluate(() => {
     window.composerFixture.failQuestionResponse = false;
   });
@@ -2408,5 +2427,65 @@ test("read-only child views can dismiss their issued questions", async ({ page }
   await expect(form).toHaveCount(0);
   expect(await page.evaluate(() => window.composerFixture.questionResponses)).toEqual([
     { status: "dismissed" },
+  ]);
+});
+
+for (const viewport of [
+  { width: 1174, height: 887 },
+  { width: 900, height: 650 },
+]) {
+  test(`current question fits without scrolling at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await page.goto(url + "?composer");
+    await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+    await page.evaluate(() => window.composerFixture.showQuestions());
+    const form = page.getByRole("region", { name: "Agent questions" });
+    await expect(form.getByRole("textbox")).toBeVisible();
+    await expect(form.getByRole("button", { name: "Next", exact: true })).toBeVisible();
+    for (const selector of [
+      ".question-request",
+      ".conversation-support",
+      ".conversation-dock-content",
+    ])
+      expect(
+        await page
+          .locator(selector)
+          .evaluate((element) => element.scrollHeight - element.clientHeight),
+      ).toBeLessThanOrEqual(1);
+    const bounds = (await form.boundingBox())!;
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.y + bounds.height).toBeLessThan(viewport.height);
+    if (viewport.width === 1174)
+      await page.screenshot({ path: "/tmp/harness-question-layout.png" });
+  });
+}
+
+test("each question can be explicitly skipped without dismissing the batch", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showQuestions());
+  const form = page.getByRole("region", { name: "Agent questions" });
+  await form.getByRole("button", { name: "Skip", exact: true }).click();
+  await expect(form.getByText("Question 2 of 3", { exact: true })).toBeVisible();
+  await form.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(form.getByText("Choose one (skipped)", { exact: true })).toBeVisible();
+  await form.getByRole("button", { name: "Next", exact: true }).click();
+  await form.getByRole("textbox").fill("Only answer this question");
+  await form.getByRole("button", { name: "Next", exact: true }).click();
+  await form.getByRole("button", { name: "Skip", exact: true }).click();
+  expect(await page.evaluate(() => window.composerFixture.questionResponses)).toEqual([]);
+  await form.getByRole("button", { name: "Submit answers", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  expect(await page.evaluate(() => window.composerFixture.questionResponses)).toEqual([
+    {
+      status: "answered",
+      answers: [
+        { questionId: "single", skipped: true },
+        { questionId: "multiple", selectedOptionIds: [], comment: "Only answer this question" },
+        { questionId: "freeform", skipped: true },
+      ],
+    },
   ]);
 });

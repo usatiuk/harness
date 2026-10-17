@@ -6,6 +6,7 @@ import { InMemoryStore } from "@harness/store";
 import { SqliteStore } from "@harness/store-sqlite";
 import {
   questionInputSchema,
+  textOf,
   questionResponseSchema,
   type QuestionInput,
   type QuestionResponse,
@@ -287,6 +288,54 @@ describe("async questions", () => {
       await fourth.whenIdle(conversation.id);
       expect(await responseMessages(fourth, conversation.id)).toHaveLength(1);
       await fourth.deactivateSession(conversation.id);
+    } finally {
+      store.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("restores explicit skips alongside answers and also accepts an entirely skipped batch", async () => {
+    const home = await mkdtemp(join(tmpdir(), "harness-question-skips-"));
+    const path = join(home, "store.db");
+    let store = new SqliteStore(path);
+    try {
+      const first = serviceOn(store, []);
+      const conversation = await first.createConversation();
+      const request = await first.askQuestions(conversation.id, "ask", input);
+      const mixed: QuestionResponse = {
+        status: "answered",
+        answers: [
+          { questionId: "platform", skipped: true },
+          { questionId: "constraints", selectedOptionIds: [], comment: "Keep it simple" },
+        ],
+      };
+      await store.resolveQuestion(conversation.id, request.id, mixed);
+      await first.deactivateSession(conversation.id);
+      store.close();
+      store = new SqliteStore(path);
+      const restored = serviceOn(store, [
+        textStep("Received mixed response"),
+        textStep("Received skips"),
+      ]);
+      await restored.prepare(conversation.id);
+      await restored.whenIdle(conversation.id);
+      const messages = await responseMessages(restored, conversation.id);
+      expect(messages).toHaveLength(1);
+      const delivered = messages[0];
+      if (delivered?.type !== "message") throw new Error("Expected a user answer message");
+      expect(textOf(delivered.content)).toContain("Which platforms?\nSkipped");
+      await expect(
+        restored.answerQuestion(conversation.id, request.id, mixed),
+      ).resolves.toMatchObject({ response: mixed });
+      const next = await restored.askQuestions(conversation.id, "skip-all", input);
+      await restored.answerQuestion(conversation.id, next.id, {
+        status: "answered",
+        answers: input.questions.map((q) => ({ questionId: q.id, skipped: true })),
+      });
+      await restored.whenIdle(conversation.id);
+      expect(await responseMessages(restored, conversation.id)).toHaveLength(2);
+      expect(restored.pendingQuestions(conversation.id)).toEqual([]);
+      await restored.deactivateSession(conversation.id);
     } finally {
       store.close();
       await rm(home, { recursive: true, force: true });

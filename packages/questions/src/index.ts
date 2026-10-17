@@ -13,7 +13,7 @@ export function createQuestionsPlugin(options: {
     name: "ask_questions",
     essential: true,
     description:
-      "Ask the user one or more questions. Returns immediately with a request ID; the user's answer arrives as conversation input. Options are suggestions: users can select none and write a comment, or add a comment to their selection. Continue independent work while waiting. If further work needs the answer, end your turn and wait; silence is never approval.",
+      "Ask the user one or more questions. Returns immediately with a request ID; the user's answer arrives as conversation input. Options are suggestions: users can select none and write a comment, or add a comment to their selection. Users can explicitly skip individual questions; a skip is not an answer or approval. Continue independent work while waiting. If further work needs the answer, end your turn and wait; silence is never approval.",
     input: { kind: "function", schema: questionInputSchema },
     async execute(input, ctx) {
       ctx.signal.throwIfAborted();

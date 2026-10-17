@@ -1613,10 +1613,14 @@ public RPC snapshots/events, reconnect, multiple clients, answer validation,
 comment-only answers, and first-response-wins retries. CLI overlay tests cover
 freeform, clearable selections, multiple questions, and dismissal; App coverage
 checks questions survive turn completion while the composer remains available.
-Three Chromium browser regressions exercise mixed batches, comment-only answers,
+Six Chromium browser regressions exercise mixed batches, comment-only answers,
 clearable single selection, multiple selections, visible errors, retry, dismissal,
-and issued questions in read-only child views. Final full validation passes
-1,518 tests (41 skipped). Ink input tests flush React effects before sending keys
+issued questions in read-only child views, draft-preserving hide/show, and
+Back/Next navigation, and individual skips within a mixed batch. SQLite service
+tests verify explicit skips survive restart and all-skipped batches are accepted;
+TUI coverage verifies skipping one question while answering the next. Layout checks verify the current five-option question fits
+without nested scrolling at 1174×887 and 900×650. Final full validation passes
+1,520 tests (41 skipped). Ink input tests flush React effects before sending keys
 so a visible frame does not race passive input-listener installation.
 Native desktop and remote-terminal interaction remain unqualified unless separately
 recorded in the async questions delivery plan.

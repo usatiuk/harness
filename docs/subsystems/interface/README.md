@@ -910,12 +910,20 @@ bottom margins so consecutive messages and work summaries stay compact.
 
 ## Async question forms
 
-The `questions` v1 plugin contract carries pending question batches in attachment
+The `questions` v2 plugin contract carries pending question batches in attachment
 snapshots and sends created/resolved notifications. The shared QuestionsClient
 uses existing attachment buffering so reconnect snapshots precede live updates.
-Desktop renders batches beside the composer; TUI `/questions` opens a panel while
-the normal composer remains available. Each question has clearable single or
+Desktop renders one question at a time beside the composer, with Back/Next
+navigation and submission on the last question. Choices use a compact grid, and
+expanded question forms are exempt from the support area's small scroll cap.
+Hide/Show questions collapses the form while retaining its current question and
+entered answers; it does not submit or dismiss the request. Comments use a
+single-line input. TUI `/questions` opens
+a panel while the normal composer remains available. Each question has clearable single or
 multiple choices when supplied, plus a comment field. A comment alone is valid;
-a blank answer is not submission. Dismissal is explicit. Closing a panel leaves
+a blank answer is not submission. Each question can instead be explicitly skipped
+using Skip on desktop or Ctrl+S in the TUI. Skipped questions count toward completing
+the batch and are reported to the agent as skipped, not answered. Dismissal applies
+to the entire request and remains separate. Closing a panel leaves
 the request open. Requests are conversation-owned; after server restart, opening
 a child conversation restores questions owned by that child.

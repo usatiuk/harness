@@ -812,6 +812,9 @@ window.composerFixture = {
               options: [
                 { id: "a", label: "Alpha" },
                 { id: "b", label: "Beta" },
+                { id: "e", label: "Refactor / clean up" },
+                { id: "f", label: "Documentation or planning" },
+                { id: "g", label: "Just explore / answer questions" },
               ],
             },
             {

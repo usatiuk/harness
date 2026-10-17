@@ -544,7 +544,11 @@ See [feedback integration](docs/subsystems/feedback/README.md) and the sibling
 
 The `ask_questions` tool posts a batch of questions and returns immediately. The
 agent can continue independent work or end its turn until you answer. Desktop
-shows pending questions beside the composer; the TUI opens them with `/questions`.
+shows one question at a time beside the composer, with Back/Next navigation.
+Hide questions collapses the form without dismissing it or losing entered answers;
+Show questions restores it. Skip leaves an individual question unanswered while
+allowing the remaining batch to be submitted. The TUI opens pending requests with
+`/questions`; Ctrl+S skips the current question.
 Choose an option, select several when offered, write a comment without selecting
 anything, or add a comment to your selection. Submit the batch or explicitly
 dismiss it. Closing the panel leaves it pending.

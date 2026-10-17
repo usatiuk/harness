@@ -6,7 +6,7 @@ import {
   questionResponseSchema,
 } from "@harness/protocol";
 
-export const QUESTIONS_CLIENT_CONTRACT_VERSION = 1;
+export const QUESTIONS_CLIENT_CONTRACT_VERSION = 2;
 export const clientQuestionRequestSchema = questionRequestSchema.extend({
   rootConversationId: z.string(),
 });

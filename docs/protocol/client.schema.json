@@ -118,18 +118,31 @@
                       "maxItems": 8,
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "questionId": { "type": "string", "minLength": 1, "maxLength": 100 },
-                          "selectedOptionIds": {
-                            "maxItems": 12,
-                            "type": "array",
-                            "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "questionId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                              "skipped": { "type": "boolean", "const": true }
+                            },
+                            "required": ["questionId", "skipped"],
+                            "additionalProperties": false
                           },
-                          "comment": { "type": "string", "maxLength": 8000 }
-                        },
-                        "required": ["questionId", "selectedOptionIds", "comment"],
-                        "additionalProperties": false
+                          {
+                            "type": "object",
+                            "properties": {
+                              "questionId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                              "selectedOptionIds": {
+                                "maxItems": 12,
+                                "type": "array",
+                                "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+                              },
+                              "comment": { "type": "string", "maxLength": 8000 }
+                            },
+                            "required": ["questionId", "selectedOptionIds", "comment"],
+                            "additionalProperties": false
+                          }
+                        ]
                       }
                     }
                   },
@@ -187,18 +200,31 @@
                   "maxItems": 8,
                   "type": "array",
                   "items": {
-                    "type": "object",
-                    "properties": {
-                      "questionId": { "type": "string", "minLength": 1, "maxLength": 100 },
-                      "selectedOptionIds": {
-                        "maxItems": 12,
-                        "type": "array",
-                        "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "questionId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                          "skipped": { "type": "boolean", "const": true }
+                        },
+                        "required": ["questionId", "skipped"],
+                        "additionalProperties": false
                       },
-                      "comment": { "type": "string", "maxLength": 8000 }
-                    },
-                    "required": ["questionId", "selectedOptionIds", "comment"],
-                    "additionalProperties": false
+                      {
+                        "type": "object",
+                        "properties": {
+                          "questionId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                          "selectedOptionIds": {
+                            "maxItems": 12,
+                            "type": "array",
+                            "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+                          },
+                          "comment": { "type": "string", "maxLength": 8000 }
+                        },
+                        "required": ["questionId", "selectedOptionIds", "comment"],
+                        "additionalProperties": false
+                      }
+                    ]
                   }
                 }
               },
@@ -275,18 +301,39 @@
                           "maxItems": 8,
                           "type": "array",
                           "items": {
-                            "type": "object",
-                            "properties": {
-                              "questionId": { "type": "string", "minLength": 1, "maxLength": 100 },
-                              "selectedOptionIds": {
-                                "maxItems": 12,
-                                "type": "array",
-                                "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "questionId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "skipped": { "type": "boolean", "const": true }
+                                },
+                                "required": ["questionId", "skipped"],
+                                "additionalProperties": false
                               },
-                              "comment": { "type": "string", "maxLength": 8000 }
-                            },
-                            "required": ["questionId", "selectedOptionIds", "comment"],
-                            "additionalProperties": false
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "questionId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "selectedOptionIds": {
+                                    "maxItems": 12,
+                                    "type": "array",
+                                    "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+                                  },
+                                  "comment": { "type": "string", "maxLength": 8000 }
+                                },
+                                "required": ["questionId", "selectedOptionIds", "comment"],
+                                "additionalProperties": false
+                              }
+                            ]
                           }
                         }
                       },
@@ -6213,22 +6260,43 @@
                             "maxItems": 8,
                             "type": "array",
                             "items": {
-                              "type": "object",
-                              "properties": {
-                                "questionId": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 100
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "questionId": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 100
+                                    },
+                                    "skipped": { "type": "boolean", "const": true }
+                                  },
+                                  "required": ["questionId", "skipped"],
+                                  "additionalProperties": false
                                 },
-                                "selectedOptionIds": {
-                                  "maxItems": 12,
-                                  "type": "array",
-                                  "items": { "type": "string", "minLength": 1, "maxLength": 100 }
-                                },
-                                "comment": { "type": "string", "maxLength": 8000 }
-                              },
-                              "required": ["questionId", "selectedOptionIds", "comment"],
-                              "additionalProperties": false
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "questionId": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 100
+                                    },
+                                    "selectedOptionIds": {
+                                      "maxItems": 12,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 100
+                                      }
+                                    },
+                                    "comment": { "type": "string", "maxLength": 8000 }
+                                  },
+                                  "required": ["questionId", "selectedOptionIds", "comment"],
+                                  "additionalProperties": false
+                                }
+                              ]
                             }
                           }
                         },

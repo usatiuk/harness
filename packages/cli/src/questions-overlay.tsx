@@ -68,7 +68,14 @@ function QuestionForm({
     }
   };
   useInput((input, key) => {
-    if (!sending && key.ctrl && input === "d") void submit({ status: "dismissed" });
+    if (sending) return;
+    if (key.ctrl && input === "d") void submit({ status: "dismissed" });
+    if (key.ctrl && input === "s" && question) {
+      setAnswers([...answers, { questionId: question.id, skipped: true }]);
+      setChoices([]);
+      setStage(answers.length + 1 === request.questions.length ? "review" : "choice");
+      setError(undefined);
+    }
   });
   if (sending) return <Spinner label="Submitting answers" />;
   if (!question || stage === "review")
@@ -78,14 +85,17 @@ function QuestionForm({
         {answers.map((answer, i) => (
           <Text key={answer.questionId}>
             {request.questions[i]!.prompt}:{" "}
-            {[
-              ...answer.selectedOptionIds.map(
-                (id) => request.questions[i]!.options!.find((option) => option.id === id)!.label,
-              ),
-              answer.comment,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+            {"skipped" in answer
+              ? "Skipped"
+              : [
+                  ...answer.selectedOptionIds.map(
+                    (id) =>
+                      request.questions[i]!.options!.find((option) => option.id === id)!.label,
+                  ),
+                  answer.comment,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
           </Text>
         ))}
         {error && <Text color="red">{error}</Text>}
@@ -165,7 +175,9 @@ function QuestionForm({
           }
         />
       )}
-      <Text dimColor>Ctrl+D dismisses request · Esc closes without dismissing</Text>
+      <Text dimColor>
+        Ctrl+S skips question · Ctrl+D dismisses request · Esc closes without dismissing
+      </Text>
     </Box>
   );
 }

@@ -73,3 +73,31 @@ or new root index was added.
 The user subsequently authorized a combined main-checkout commit with the desktop
 streaming performance refactor. Both features share the desktop session/snapshot
 integration; no push is requested.
+
+## Question layout follow-up
+
+Desktop now shows one question at a time, with Back/Next navigation and final
+batch submission. Hide/Show questions preserves local answers and the current
+question without resolving the request. Removed nested question scrolling and
+the enclosing support area's short cap for expanded forms; choices use a compact
+grid and comments use a single-line input. Enter in that input does not dismiss
+the request. Five focused browser cases pass, including no-scroll layout at 1174×887
+and 900×650, navigation, draft preservation, errors, dismissal, and child views.
+
+Final follow-up `npm run check` passes: type checking, lint, formatting, and
+1,518 tests (41 skipped). Changes remain uncommitted.
+
+## Per-question skip follow-up
+
+Each question has an explicit Skip action (Ctrl+S in TUI), independent of whole
+request dismissal. The questions v2 contract adds `{questionId, skipped: true}`
+entries without changing ordinary answer entries or persistence schema. A batch
+contains exactly one answer or skip per question. Skips are rendered as Skipped
+in canonical user input; they never imply approval or an inferred answer.
+Desktop keeps Back navigation for revisiting skipped questions and submits the
+whole batch on the last question. Mixed and all-skipped batches, restart recovery,
+TUI skipping, and the desktop flow have regression coverage.
+
+Final skip follow-up `npm run check` passes: type checking, lint, formatting, and
+1,520 tests (41 skipped). All six focused Chromium question cases pass. The user
+authorized committing the layout, hide/show, single-line field, and skip updates.
