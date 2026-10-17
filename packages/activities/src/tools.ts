@@ -20,8 +20,9 @@ export class ActivityWaitTool implements Tool<z.infer<typeof waitArgs>> {
   readonly essential = true;
   readonly name = "activity_wait";
   readonly description =
-    "Wait (bounded) for a running activity to finish and return its result. If it is still " +
-    "running when the timeout elapses, returns a 'still running' status — not an error.";
+    "Wait for an activity result when blocked; use this instead of sleep. " +
+    `Defaults to ${DEFAULT_WAIT_S} seconds; maximum ${MAX_WAIT_S} seconds per call. ` +
+    "A timeout returns 'still running' without stopping the activity.";
   readonly input: ToolInput<z.infer<typeof waitArgs>> = { kind: "function", schema: waitArgs };
   async execute(
     { id, timeout_seconds }: z.infer<typeof waitArgs>,
@@ -46,7 +47,7 @@ export class ActivityPeekTool implements Tool<z.infer<typeof peekArgs>> {
   readonly name = "activity_peek";
   readonly description =
     "Show the latest output of an activity without waiting. Optional `filter` is a regex " +
-    "applied per line.";
+    "applied per line. For persistent servers or watchers, check readiness here instead of waiting for termination.";
   readonly input: ToolInput<z.infer<typeof peekArgs>> = { kind: "function", schema: peekArgs };
   async execute({ id, filter }: z.infer<typeof peekArgs>, ctx: ToolContext): Promise<ToolResult> {
     const activity = activitiesOf(ctx).get(id);

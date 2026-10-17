@@ -114,5 +114,9 @@ function withBackground(tool: Extract<ToolSchema, { kind: "function" }>): ToolSc
         "activity_wait / activity_peek / activity_kill it.",
     },
   };
-  return { ...tool, parameters: { ...tool.parameters, properties } };
+  return {
+    ...tool,
+    description: `${tool.description} Background completion automatically wakes this conversation if idle. When blocked on required results, use activity_wait instead of sleep. Do not report the task finished before required results arrive.`,
+    parameters: { ...tool.parameters, properties },
+  };
 }

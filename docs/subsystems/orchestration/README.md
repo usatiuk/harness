@@ -69,7 +69,10 @@ A foreground activity waits for up to ten seconds. If still running it moves to
 the background, preserves output, and returns control to the model. An explicit
 `background: true` returns immediately. On exit, the manager delivers one plugin-
 sourced completion notice using `steer`; the current turn consumes it at the next
-after-tool-result boundary or a new turn starts when idle.
+after-tool-result boundary or a new turn starts when idle. Shared background-tool descriptions direct models
+blocked on required results to use `activity_wait` rather than sleep and avoid
+reporting completion prematurely. Persistent servers/watchers use `activity_peek`
+to check readiness; no polling or wakeup mechanism is added.
 
 Activity ids identify work independently of its originating tool call. Output can be inspected while
 running, regex-filtered by line, waited on with a bounded timeout, or killed as a

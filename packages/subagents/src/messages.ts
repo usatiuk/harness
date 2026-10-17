@@ -70,7 +70,7 @@ export class SubagentSendTool implements Tool<z.infer<typeof sendArgs>> {
   readonly essential = true;
   readonly name = "subagent_send";
   readonly description =
-    "Send a message to your parent, sibling or child using its conversation ID from subagent_list. Delivery joins its ordinary inbox and wakes it if idle, including after it finished. Returns acceptance, not a reply.";
+    "Send a message to your parent, sibling or child using its conversation ID from subagent_list. Delivery joins its ordinary inbox and wakes it if idle, including after it finished. Returns acceptance, not a reply. Incoming subagent messages also wake your conversation if idle.";
   readonly input = { kind: "function" as const, schema: sendArgs };
   constructor(private readonly runner: () => ConversationRunner) {}
   async execute({ to, message }: z.infer<typeof sendArgs>, ctx: ToolContext) {
