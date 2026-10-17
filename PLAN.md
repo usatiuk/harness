@@ -362,7 +362,9 @@ The [floating composer and scroll follow-up](docs/plans/interface/2026-10-06-flo
 is complete. It keeps the accepted design while
 giving conversations a full-height scrollbar, aligned status/statistics and one
 dynamic Send/Stop/Steer action. Steer is the default while working; Ctrl/Cmd+Enter
-queues. Ten headless regressions, 24 ordinary native Windows cases and two real
+queues. Stop is labeled Interrupt when input is pending; Escape in the message
+box interrupts while retaining the draft, and pending messages run next.
+Ten headless regressions, 24 ordinary native Windows cases and two real
 Ubuntu WSL cases pass, alongside repository checks and independent review.
 
 Completed the desktop presentation refactor tracked in the

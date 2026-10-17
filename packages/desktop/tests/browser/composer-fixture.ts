@@ -49,6 +49,7 @@ declare global {
       providerWrites: { provider: string; patch: Record<string, boolean> }[];
       failProviderSave: boolean;
       settle(reject?: boolean): void;
+      setPendingInput(): void;
       settleStop(): void;
       disconnect(): void;
     };
@@ -845,6 +846,10 @@ window.composerFixture = {
   providerCreates,
   providerWrites,
   failProviderSave: false,
+  setPendingInput() {
+    view.state = { ...view.state, pendingInput: [{ intent: "queue", text: "Queued follow-up" }] };
+    changed();
+  },
   settle(reject = false) {
     if (!pending) throw new Error("No pending delivery");
     if (reject) pending.reject(new Error("Delivery rejected"));

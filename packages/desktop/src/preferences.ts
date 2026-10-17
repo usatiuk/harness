@@ -99,7 +99,7 @@ export function composerKey(
   running: boolean,
 ): "newline" | "send" | "queue" | "steer" | "interrupt" | undefined {
   if (event.isComposing || event.altKey) return undefined;
-  if (event.key === "." && (event.ctrlKey || event.metaKey) && !event.shiftKey)
+  if (event.key === "Escape" && !event.ctrlKey && !event.metaKey && !event.shiftKey)
     return running ? "interrupt" : undefined;
   if (event.key !== "Enter") return undefined;
   if (event.ctrlKey || event.metaKey) {

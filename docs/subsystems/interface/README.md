@@ -638,7 +638,10 @@ Enter sends and Shift+Enter inserts a newline by default;
 settings can swap them. Steer is the default while working; Ctrl/Cmd+Enter queues.
 The retired delivery preference is ignored. One primary button shows Send while
 idle, Stop while working with an empty/whitespace draft, and Steer with text.
-Empty Enter never stops; Ctrl/Cmd+. stops without discarding a draft. Send and
+With pending input, Stop is labeled Interrupt and explains that pending messages
+run next. Empty Enter never stops; Escape in the message box
+interrupts without discarding a draft. Unmodified Escape only acts while running
+and leaves IME composition alone. Send and
 interrupt retain independent pending lifetimes, so an outstanding delivery
 acknowledgement cannot block interruption. Composition events never submit, and
 keyboard/button submission share

@@ -674,7 +674,8 @@ latest position before simulating reading.
 The canvas fixture substitutes conversation/dock state. A second fixture uses
 the production router, actions and Composer with a controlled session/data edge:
 it defers or rejects delivery to verify duplicate suppression, edited drafts,
-independent interruption, primary labels, IME guards and disconnected behavior.
+independent interruption, primary labels (including Interrupt with pending input),
+Escape interruption with draft retention, IME guards and disconnected behavior.
 Neither fixture establishes RPC or native behavior. A controlled HTTP streaming edge
 also exercises follow/pause/jump through the actual native app. Synthetic 200% CSS
 zoom checks control reachability and app-owned layout-unit clearance. Installed

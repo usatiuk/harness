@@ -84,7 +84,9 @@ Model/preset and sandbox controls open from compact composer chips. Enter sends;
 Shift+Enter inserts a newline; composer settings can swap those two. While working,
 Steer is the default and Ctrl/Cmd+Enter queues. One primary button shows Send when
 idle, Stop when working with an empty draft, and Steer when working with text.
-Ctrl/Cmd+. stops while retaining the draft.
+With pending input, Stop is labeled Interrupt: it interrupts the current turn and
+pending messages run next. Escape in the message box interrupts while
+retaining the draft.
 The context ring opens reported request accounting. Optional last-turn token
 counts and request throughput share the current-status row above the floating
 composer. A full-height conversation scrollbar supports reading earlier output;

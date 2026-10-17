@@ -614,10 +614,10 @@ test("production composer retains new drafts and permits Stop during delivery ac
   await expect(message).toBeFocused();
   await primary.click();
   await expect(primary).toHaveText("Sending…");
-  await message.press("Control+.");
+  await message.press("Escape");
   await expect(primary).toHaveText("Stopping…");
   await expect(primary).toBeDisabled();
-  await message.press("Control+.");
+  await message.press("Escape");
   expect(
     (await page.evaluate(() => window.composerFixture.calls)).map((call) => call.intent),
   ).toEqual(["steer", "steer", "interrupt"]);
@@ -628,6 +628,39 @@ test("production composer retains new drafts and permits Stop during delivery ac
   await expect(primary).toHaveText("Send");
   await expect(primary).toBeEnabled();
   await expect(message).toHaveValue("Draft after interrupt");
+});
+
+test("production composer explains queued interruption and supports Escape while retaining drafts", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  const primary = page.locator(".composer-primary");
+  await expect(message).toBeVisible();
+  await page.evaluate(() => window.composerFixture.setPendingInput());
+  await expect(primary).toHaveText("Interrupt");
+  await expect(primary).toHaveAttribute(
+    "title",
+    "Interrupt current turn; pending messages run next (Esc)",
+  );
+  await expect(page.locator(".composer-hint")).toContainText(
+    "Esc interrupt · pending messages run next",
+  );
+  await message.fill("Keep this draft");
+  for (const event of [{ isComposing: true }, { keyCode: 229 }])
+    await message.dispatchEvent("keydown", { key: "Escape", bubbles: true, ...event });
+  expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([]);
+  await message.press("Escape");
+  await expect(primary).toHaveText("Interrupting…");
+  await message.press("Escape");
+  expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([
+    { text: "", intent: "interrupt" },
+  ]);
+  await expect(message).toHaveValue("Keep this draft");
+  await page.evaluate(() => window.composerFixture.settleStop());
+  await expect(primary).toHaveText("Send");
+  await message.press("Escape");
+  expect((await page.evaluate(() => window.composerFixture.calls)).length).toBe(1);
 });
 
 test("production composer queues alternatively and keeps rejected drafts with disconnected guards", async ({
@@ -669,7 +702,7 @@ test("production composer queues alternatively and keeps rejected drafts with di
   await message.press("Enter");
   await message.press("Control+Enter");
   await expect(message).toHaveValue("Retained disconnected draft");
-  await message.press("Control+.");
+  await message.press("Escape");
   await message.fill("");
   await expect(primary).toHaveText("Stop");
   await expect(primary).toBeDisabled();

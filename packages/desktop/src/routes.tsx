@@ -1397,6 +1397,7 @@ export function createDesktopRouter(
     const busy = send.state !== "idle" || stop.state !== "idle";
     const disabled = !text.trim() || busy || Boolean(session.disconnected);
     const stopping = running && !text.trim();
+    const hasPendingInput = view.state.pendingInput.length > 0;
     useEffect(() => {
       if (send.state === "idle" && send.data?.ok && handled.current !== send.data) {
         handled.current = send.data;
@@ -1491,6 +1492,13 @@ export function createDesktopRouter(
                 variant="accent"
                 size="sm"
                 className="composer-primary"
+                title={
+                  stopping
+                    ? hasPendingInput
+                      ? "Interrupt current turn; pending messages run next (Esc)"
+                      : "Stop current turn (Esc)"
+                    : undefined
+                }
                 disabled={
                   stopping ? stop.state !== "idle" || Boolean(session.disconnected) : disabled
                 }
@@ -1502,11 +1510,15 @@ export function createDesktopRouter(
                   <Send size={14} aria-hidden="true" />
                 )}
                 {stop.state !== "idle"
-                  ? "Stopping…"
+                  ? hasPendingInput
+                    ? "Interrupting…"
+                    : "Stopping…"
                   : send.state !== "idle" && !stopping
                     ? "Sending…"
                     : stopping
-                      ? "Stop"
+                      ? hasPendingInput
+                        ? "Interrupt"
+                        : "Stop"
                       : running
                         ? "Steer"
                         : "Send"}
@@ -1519,6 +1531,8 @@ export function createDesktopRouter(
         <small className="composer-hint">
           {preferences.sendWith} send · {preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"}{" "}
           newline
+          {running &&
+            (hasPendingInput ? " · Esc interrupt · pending messages run next" : " · Esc stop")}
         </small>
       </div>
     );

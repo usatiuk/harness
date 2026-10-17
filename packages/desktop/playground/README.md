@@ -30,7 +30,7 @@ a snapshot audit of visible text, not a full accessibility qualification or a
 measurement of button boundaries/selection prominence.
 
 The composer uses Enter to send, Shift+Enter for a newline, and Steer by default
-while working. Ctrl/Cmd+Enter queues; Ctrl/Cmd+. stops while retaining a draft.
+while working. Ctrl/Cmd+Enter queues; Escape stops while retaining a draft.
 One primary button shows Send, Stop or Steer according to work and draft state.
 Composer settings let you swap Enter and Shift+Enter and toggle last-turn stats.
 The floating preview aligns current status with those stats above the composer.

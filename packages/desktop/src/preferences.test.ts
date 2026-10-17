@@ -50,15 +50,16 @@ describe("desktop client preferences", () => {
     expect(composerKey(enter, swapped, true)).toBe("newline");
     expect(composerKey({ ...enter, shiftKey: true }, swapped, true)).toBe("steer");
     expect(composerKey({ ...enter, metaKey: true }, swapped, true)).toBe("queue");
-    expect(composerKey({ ...enter, key: ".", ctrlKey: true }, defaultComposer, true)).toBe(
-      "interrupt",
-    );
-    expect(
-      composerKey({ ...enter, key: ".", metaKey: true }, defaultComposer, false),
-    ).toBeUndefined();
-    expect(
-      composerKey({ ...enter, key: ".", metaKey: true, isComposing: true }, defaultComposer, true),
-    ).toBeUndefined();
+    for (const modifier of ["ctrlKey", "metaKey"])
+      expect(
+        composerKey({ ...enter, key: ".", [modifier]: true }, defaultComposer, true),
+      ).toBeUndefined();
+    const escape = { ...enter, key: "Escape" };
+    expect(composerKey(escape, defaultComposer, true)).toBe("interrupt");
+    expect(composerKey(escape, swapped, true)).toBe("interrupt");
+    expect(composerKey(escape, defaultComposer, false)).toBeUndefined();
+    for (const modifier of ["isComposing", "altKey", "ctrlKey", "metaKey", "shiftKey"])
+      expect(composerKey({ ...escape, [modifier]: true }, defaultComposer, true)).toBeUndefined();
     for (const event of [
       { ...enter, isComposing: true },
       { ...enter, altKey: true },

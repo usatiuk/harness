@@ -214,7 +214,7 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(
       "draft kept for alpha",
     );
-    await page.getByRole("textbox", { name: "Message", exact: true }).press("Control+.");
+    await page.getByRole("textbox", { name: "Message", exact: true }).press("Escape");
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(
       "draft kept for alpha",
     );

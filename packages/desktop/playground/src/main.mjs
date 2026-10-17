@@ -347,7 +347,7 @@ function ComposerSettings({ value, setValue }) {
     h(
       "p",
       { className: "field-hint mt-3" },
-      "Enter and Shift+Enter swap send and newline. Ctrl/Cmd+Enter queues while working. Ctrl/Cmd+. stops without clearing the draft.",
+      "Enter and Shift+Enter swap send and newline. Ctrl/Cmd+Enter queues while working. Escape stops without clearing the draft.",
     ),
     h(
       "label",
@@ -745,7 +745,7 @@ function ChatPreview({ conversation, update, composerPreferences, setComposerPre
           onKeyDown: (event) => {
             if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.altKey)
               return;
-            if (event.key === "." && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
+            if (event.key === "Escape" && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
               if (running) {
                 event.preventDefault();
                 setState("Idle");
@@ -828,7 +828,7 @@ function ChatPreview({ conversation, update, composerPreferences, setComposerPre
         h(
           "span",
           null,
-          `${composerPreferences.sendWith} ${running ? "steer" : "send"} · ${composerPreferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} newline${running ? " · Ctrl+Enter queue · Ctrl+. stop" : ""}`,
+          `${composerPreferences.sendWith} ${running ? "steer" : "send"} · ${composerPreferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} newline${running ? " · Ctrl+Enter queue · Esc stop" : ""}`,
         ),
         h("span", { role: "status", "aria-live": "polite" }, feedback),
       ),
