@@ -794,7 +794,6 @@ fn main() {
             appearance::window_decorate,
             appearance::window_modal,
             image_input::read_image_paths,
-            image_input::clipboard_image_data,
             server_connect,
             server_write,
             server_ack,

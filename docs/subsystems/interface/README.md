@@ -943,19 +943,24 @@ Transcript reduction retains image blocks for user/plugin messages and tool
 results. Desktop previews open a Radix modal spanning the app with a dark backdrop
 and top-right close button, using the existing modal focus handling. CLI displays image placeholders without base64. Accepted
 images reconnect through ordinary history item references and chunk reads.
-Tauri native drag/drop remains enabled and feeds dropped local paths through a
-bounded desktop reader. Native clipboard file URIs and bitmap targets use the
-same byte-ingestion boundary; Linux uses asynchronous GTK selection requests,
-and Windows/macOS use the maintained clipboard-rs implementation. The frontend
-uses the shared signature/schema validation before creating canonical image blocks.
-Client-local paths never cross conversation RPC or become remote execution paths.
-Browsers retain DOM File/FileReader input. The paperclip immediately before the
-model control opens the ordinary file chooser.
+Normal browser `ClipboardEvent.clipboardData.files`, DOM drop files and the
+paperclip's file input share FileReader ingestion. If paste exposes no files but
+indicates image/file content, the handler starts `navigator.clipboard.read()`
+inside the paste gesture. Screenshot blobs use the same FileReader path.
 
-Linux WebKit can expose URI targets with no DOM Files and hide bitmap data
-entirely. Native paste handles these targets, while ordinary text/HTML and visible
-non-file URLs keep browser editing behavior. Plaintext-only paths remain text;
-file clipboard targets or the explicit chooser are needed to identify attachments.
+WebKitGTK 2.52.6 exposes copied local files as URI-list blobs through that browser
+API, but cannot fetch their bytes from file URLs. Only these explicit file URIs
+and Tauri native drop paths use a bounded desktop file reader. Tauri file-drop
+handling remains enabled because actual Linux external drops did not expose DOM
+Files. Client-local paths never cross conversation RPC. There is no native
+clipboard reader, OS-specific clipboard branch, or clipboard dependency.
+
+Ordinary text/HTML and visible non-file URLs keep browser editing behavior.
+Plaintext-only paths remain text. Browser clipboard permission failures and
+unsupported image contents surface in the attachment error. WebKitGTK 2.52.6
+exposes no readable representation for raw JPEG-only native clipboard data;
+that case reports an error. Copied JPEG files and PNG screenshots are verified. Shared protocol
+signature/schema validation still owns canonical images and their aggregate limit.
 One router-owned observable draft per conversation holds images, read count and
 error, so pending reads remain visible across navigation and only accepted captured
 attachments clear. There is no separate upload manager or persisted draft blob.

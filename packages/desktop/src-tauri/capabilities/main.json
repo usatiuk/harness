@@ -11,7 +11,6 @@
     "allow-window-decorate",
     "allow-window-modal",
     "allow-read-image-paths",
-    "allow-clipboard-image-data",
     "decoration:default",
     "core:window:allow-start-dragging",
     "dialog:allow-open",

@@ -1,20 +1,14 @@
 # Harness plan
 
 The [image-input v1 plan](docs/plans/cross-cutting/2026-10-17-image-input.md)
-includes a native-input correction after user testing disproved DOM-only paste/drop.
-Actual Linux X11/WebKitGTK clipboard/drop/chooser/send/persistence now pass, with
-a retained native regression. Final follow-up checks pass 1,600 tests / 41 skipped,
-plus native GTK and focused browser regressions; the correction is complete.
-The original delivery includes: inline image content, desktop paste/drop and viewer, file/MCP
-ingestion, and request transformations for existing providers. Full checks pass
-1,557 tests with 41 skipped; eight focused Chromium cases pass. The plan records
-review fixes and native/live-provider qualification limits. The model metadata
-follow-up adds explicit support/unsupported/unknown and keeps switches allowed
-with validation at the next provider request. Full revalidation passes 1,568 tests
-with 41 skipped; compaction behavior remains unchanged. The completeness audit
-finished documented static model claims, custom-model metadata, and removal of
-unnecessary Anthropic capability-fetching machinery. Final full checks pass
-1,575 tests with 41 skipped; independent reviews found no remaining blockers.
+delivers inline images, previews/viewer, file/MCP ingestion and existing-provider
+request mappings, plus model image metadata and next-request validation. A
+browser-first simplification is complete: real WebKitGTK probes established
+that standard asynchronous clipboard reads recover image bytes and copied-file
+URIs. Native clipboard readers and dependencies are removed; the bounded local
+file reader remains for explicit URIs and proven Tauri drop integration. Final
+regression checks pass 1,605 tests / 41 skipped, six focused Chromium cases, and
+the actual Linux five-image pipeline. Three independent cleanup audits are complete.
 
 The [desktop streaming performance refactor](docs/plans/interface/2026-10-17-desktop-streaming-performance.md)
 is complete: scoped UI subscriptions, a 100 ms text/reasoning publication cap,

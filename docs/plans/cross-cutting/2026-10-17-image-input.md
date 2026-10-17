@@ -1,6 +1,6 @@
 # Image input v1
 
-Status: Complete — native input correction validated
+Status: Complete — browser-first cleanup validated
 
 ## Scope and completion
 
@@ -203,3 +203,67 @@ with the display-dependent GTK regression separately passing under Xvfb. Three
 independent review lenses have no remaining blockers. The authorized follow-up
 commit includes these corrections and retained native evidence; no release is
 part of this correction.
+
+## Browser-first simplification
+
+The user requests normal browser APIs, removal of unproven native clipboard
+branches, and maximum simplification. Keep the existing DOM File input as the
+primary path. Do not infer platform failures from a Linux WebKitGTK reproduction.
+
+- [x] Compare standard synchronous paste and asynchronous clipboard reads in an
+      isolated real WebKitGTK session before retaining a Linux fallback.
+- [x] Remove unnecessary native clipboard code and dependencies; retain native
+      file-drop integration only against existing reproduced evidence.
+- [x] Verify browser behavior, actual Linux input, focused native checks, full
+      repository validation, and independent simplicity/correctness review.
+- [x] Synchronize current documentation and commit the validated correction.
+
+Browser-first audit findings and resolution:
+
+- Actual trusted Ctrl-V in WebKitGTK 2.52.6, without clipboard preference
+  overrides, exposes PNG blobs and file-URI-list blobs through
+  navigator.clipboard.read(). The original investigation missed this API.
+  Removed all native clipboard readers, platform branches, GTK/clipboard-rs
+  direct dependencies, the clipboard command and permission.
+- File URI blobs cannot be fetched as image bytes by that WebView. Reuse the
+  existing bounded local file reader; parse URIs there with Tauri's URL type.
+  Collapse its now-single-consumer encoder into the bounded read loop instead
+  of buffering/revalidating a second batch.
+- Genuine external drop exposes no Files, getData URI, getAsString URI,
+  getAsFile, or webkitGetAsEntry. getAsFileSystemHandle is unavailable. Keep
+  the Tauri drop event; do not scrape paths out of HTML representations.
+- Browser reads enforce the aggregate image limit incrementally, propagate
+  permission errors, and report unreadable image representations. Raw JPEG-only
+  native clipboard data is not exposed by this WebView; the regression checks
+  an explicit error and preserved drafts, followed by successful copied JPEG
+  file paste. This replaces an invented native-MIME acceptance expectation,
+  not the requested JPEG file support.
+- Remove the approval deadline fixture's private 12-byte-probe timing special
+  case. Uniform read latency now checks multiple iterations sharing one signal,
+  one 100ms deadline and a timed-out denial, rather than an incidental call count.
+- Independent desktop/native/lifecycle, provider/backend/metadata, and
+  tests/evidence/scope audits covered both image commits and this correction.
+  Provider wire mappings, model metadata and admission/request checks retain
+  distinct required contracts; no speculative provider abstraction remains.
+  Remove obsolete current documentation instead of layering more platform code.
+
+Verification: six focused Chromium cases pass, including actual browser clipboard
+write and keyboard paste without Tauri APIs. Thirty focused helper/deadline tests
+pass. The native desktop builds; three remaining file-reader tests pass. The
+rebuilt actual Linux X11 app passes controlled copied PNG/JPEG file-URI and PNG
+bitmap paste, explicit JPEG-only error, ordinary text/URL paste, actual drop and
+chooser, and five-image send/store/model delivery without paths in the payload.
+The first full check passed typecheck/lint/format but had an unexplained Vitest
+worker exit (1591 passed, 41 skipped); its log is
+/tmp/harness-image-simplification-check.log. An unchanged verbose diagnostic run
+passed all 1605 tests / 41 skipped. No assertion/timeouts were changed in response
+to that worker exit; its cause remains undetermined. Final complete
+`VITEST_MAX_WORKERS=4 npm run check` passes typecheck, lint, formatting and all
+1,605 tests / 41 skipped across 176 files. All retained native/browser behavior
+and audit findings above are verified. The authorized cleanup commit contains
+these removals and updated regressions; no release or push is included.
+
+Primary browser contract: https://webkit.org/blog/10855/async-clipboard-api/
+explains image/png and text/uri-list representations and direct paste-gesture
+access. MacOS/Windows native execution and Wayland remain unqualified; this audit
+does not infer failures there from Linux observations.

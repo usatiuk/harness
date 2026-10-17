@@ -1646,12 +1646,6 @@ drafts, delivery races and history; helper tests reject oversized batches before
 FileReader allocation. Native OS clipboard/drag-drop and remote execution image
 reads require separate platform qualification and are not established by fixtures.
 
-Final image delivery validation: `VITEST_MAX_WORKERS=4 npm run check` passes
-1,557 tests / 41 skipped, plus typecheck/lint/format. Eight focused Chromium image
-and existing composer/fork cases pass. Three independent review lenses covered
-correctness, architecture/simplicity, and evidence/scope; findings and fixes are
-recorded in the [delivery plan](plans/cross-cutting/2026-10-17-image-input.md).
-
 Model metadata follow-up regressions cover true/false/unknown public round trips,
 Mistral API/Vibe aliases, LiteLLM agreement/conflict handling, Models.dev live and
 snapshot modalities, and documented image support in the Anthropic roster. The public RPC
@@ -1659,10 +1653,6 @@ switch test accepts the model change, rejects a known text-only request with
 active images, preserves history, permits unknown metadata, and resumes text-only
 requests after an ordinary compaction summary boundary. This fixture does not
 claim live model summarization or vendor acceptance.
-
-Final metadata follow-up validation: `VITEST_MAX_WORKERS=4 npm run check` passes
-typecheck/lint/format and 1,568 tests / 41 skipped (176 files). Three independent
-review lenses reported no remaining blockers.
 
 Completeness audit adds an authenticated Codex transport regression using the
 actual OpenAI SDK and substituted OAuth/fetch edges. It checks user/tool inline
@@ -1672,17 +1662,20 @@ unknown/configuration precedence have focused regressions. Gemini discovery
 excludes documented audio-only transcription models even when generateContent is
 advertised. These fixtures still do not establish live account/vendor acceptance.
 
-Final completeness/simplicity audit validation: full check passes 1,575 tests /
-41 skipped plus root/CLI/desktop typecheck, lint and formatting. Three independent
-review lenses found only stale documentation claims, which were corrected.
+## Linux image input regression
 
-## Native Linux image input regression
+The initial browser tests injected ClipboardEvent/DragEvent File payloads and did
+not qualify OS integration. Controlled real-paste probes in WebKitGTK 2.52.6 show
+empty DOM Files, but standard `navigator.clipboard.read()` inside the trusted paste
+gesture exposes screenshot PNG bytes and copied-file URI-list blobs. File-URI
+fetch fails in that WebView, so the existing bounded desktop file reader handles
+those URIs. Native clipboard readers and dependencies have been removed.
 
-The initial image browser tests created ClipboardEvent/DragEvent File payloads;
-these did not exercise Linux OS file transfer. Controlled GTK/WebKit reproduction
-showed copied files exposing URI targets with no DOM Files, bitmap paste exposing
-no DOM image data, and genuine file drops still lacking DOM Files after acceptance.
-The native correction uses Tauri paths and GTK/native clipboard bytes instead.
+The browser helper regressions cover bitmap bytes, copied file URIs, permission
+failures, unsupported content and the aggregate image budget. Native file-reader
+tests cover exact bytes, size limits, directories, URI decoding and remote URI
+rejection. Detailed audit history and validation counts live in the
+[delivery plan](plans/cross-cutting/2026-10-17-image-input.md).
 
 Run the focused actual-app regression with a default development native build and
 project Vite listening on 1420 (the ordinary desktop development setup):
@@ -1697,22 +1690,22 @@ python3 packages/desktop/tests/native/linux-images.py
 It requires Python GTK3/GdkPixbuf bindings, Xvfb, XTest, dbus-run-session, and the
 repository Node dependencies. It creates an isolated display, session bus,
 clipboard, profile and fixture model; it stops only captured test owners. Actual
-OS keyboard/mouse gestures copy file URIs, PNG bitmap and JPEG-only clipboard
-content, preserve text/URL paste, drag a file over the transcript, use the native
+Controlled GTK clipboard owners advertise PNG/JPEG file URIs and PNG bitmap
+content. A JPEG-only native bitmap case verifies an explicit error with existing
+attachments preserved, because WebKit exposes no readable representation. Actual
+OS keyboard/mouse gestures paste supported content, preserve text/URL paste,
+drag a file over the transcript, use the native
 paperclip chooser, and send five images. Inspector reads assert visible previews;
 SQLite and the HTTP fixture assert persisted/model images without client paths.
 Artifacts are retained under the printed /tmp directory. It does not reuse the
 Windows native driver or add product test controls.
 
-The native reader also has bounded-read/URI unit tests and an ignored-by-default
-real GTK clipboard regression, runnable without touching the user's clipboard:
+Run the remaining native file-reader tests with:
 
 ```sh
 cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml image_input
-xvfb-run -a cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml reads_native_clipboard_file_uris_and_png_without_dom_files -- --ignored --test-threads=1
 ```
 
-The GTK case covers file URIs, PNG, JPEG-only targets and unsupported image errors.
 The browser pending-FileReader regression leaves and reopens a chat before read
 completion, verifying read-state and resulting images stay visible. Provider
 regressions cover mixed historical custom/function calls in both orders and

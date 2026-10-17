@@ -3,7 +3,7 @@ import {
   readImageFiles,
   readImagePaths,
   readClipboardImages,
-  needsNativeImagePaste,
+  needsClipboardRead,
 } from "./image-files.ts";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -1601,8 +1601,8 @@ export function createDesktopRouter(
                 event.preventDefault();
                 void addImages(files);
               } else if (
-                isTauri() &&
-                needsNativeImagePaste(
+                typeof navigator.clipboard?.read === "function" &&
+                needsClipboardRead(
                   event.clipboardData.types,
                   event.clipboardData.getData("text/uri-list"),
                 )

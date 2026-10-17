@@ -7,7 +7,8 @@ Python gi GTK3/GdkPixbuf, Xvfb, libXtst and dbus-run-session. Run from any direc
 Uses an isolated display, session bus, clipboard, profile, fixture model and ports.
 Inspector evaluations only observe/focus/navigate; paste/drop/chooser/send use OS
 keyboard/mouse events. Timers pace pointer gestures; completion checks poll actual
-preview counts and model output. Artifacts remain under /tmp for failure analysis.
+preview counts and model output. A JPEG-only native bitmap is a negative browser-capability case; copying a JPEG
+file remains a positive attachment case. Artifacts remain under /tmp for analysis.
 """
 import os, subprocess, tempfile, pathlib, time, urllib.request, json, ctypes, ctypes.util, re, threading, http.server, socket, sys, atexit
 repo = pathlib.Path(__file__).resolve().parents[4]
@@ -149,7 +150,8 @@ def clipboard(kind):
     if kind == 'path':
         c.set_text(str(image), -1)
         return
-    payloads = [('image/jpeg', jpeg.read_bytes())] if kind == 'jpeg' else [('text/uri-list', 'https://example.com/image.png\r\n'), ('UTF8_STRING', 'https://example.com/image.png')] if kind == 'url' else [('text/uri-list', image.as_uri() + '\r\n'), ('x-special/gnome-copied-files', 'copy\n' + image.as_uri()), ('UTF8_STRING', str(image))]
+    selected = jpeg if kind == 'jpeg-file' else image
+    payloads = [('image/jpeg', jpeg.read_bytes())] if kind == 'jpeg' else [('text/uri-list', 'https://example.com/image.png\r\n'), ('UTF8_STRING', 'https://example.com/image.png')] if kind == 'url' else [('text/uri-list', selected.as_uri() + '\r\n'), ('x-special/gnome-copied-files', 'copy\n' + selected.as_uri()), ('UTF8_STRING', str(selected))]
     targets = (Target * len(payloads))(*[Target(name.encode(), 0, i) for i, (name, data) in enumerate(payloads)])
 
     @Getter
@@ -302,9 +304,20 @@ def tick():
             chord('v')
             phase = 'jpeg'
         elif phase == 'jpeg':
+            alerts = evaljs("[...document.querySelectorAll('.composer [role=alert]')].map(x=>x.textContent).join(' ')")
+            if 'Clipboard contains no supported image or image file.' not in alerts:
+                return True
+            assert count() == 2
+            report('JPEG-only-browser-limitation', {'images': 2, 'error': alerts})
+            clipboard('jpeg-file')
+            focus()
+            chord('v')
+            phase = 'jpeg-file'
+        elif phase == 'jpeg-file':
             if count() != 3:
                 return True
-            report('JPEG-only-native-paste', 3)
+            assert evaljs("document.querySelectorAll('.composer [role=alert]').length") == 0
+            report('copied-JPEG-file-paste', 3)
             clipboard('text')
             focus()
             chord('v')

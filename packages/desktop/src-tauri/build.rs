@@ -38,7 +38,6 @@ fn main() {
             "window_decorate",
             "window_modal",
             "read_image_paths",
-            "clipboard_image_data",
             "server_connect",
             "server_write",
             "server_ack",

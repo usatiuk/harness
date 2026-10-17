@@ -1,8 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   detectImageMediaType,
   imageContentsSchema,
   imageContentSchema,
+  imageMediaTypeSchema,
+  imageByteLength,
   MAX_IMAGE_BYTES,
   type ImageContent,
 } from "@harness/protocol";
@@ -52,11 +54,37 @@ export async function readImagePaths(paths: string[]): Promise<ImageContent[]> {
 }
 
 export async function readClipboardImages(): Promise<ImageContent[]> {
-  return nativeImageData(await invoke<string[]>("clipboard_image_data"));
+  // Start the browser read inside the paste gesture, before any other asynchronous work.
+  const items = await navigator.clipboard.read();
+  const images: ImageContent[] = [];
+  let bytes = 0;
+  for (const item of items) {
+    let added: ImageContent[] = [];
+    const type = item.types.find((type) => imageMediaTypeSchema.safeParse(type).success);
+    if (type) {
+      const blob = await item.getType(type);
+      if (bytes + blob.size > MAX_IMAGE_BYTES)
+        throw new Error("Images must fit within 2 MiB per message.");
+      added = await readImageFiles([new File([blob], "Clipboard image", { type })]);
+    } else if (isTauri() && item.types.includes("text/uri-list")) {
+      const uris = (await (await item.getType("text/uri-list")).text())
+        .split(/\r?\n/)
+        .map((uri) => uri.trim())
+        .filter((uri) => uri.startsWith("file:"));
+      if (uris.length) added = await readImagePaths(uris);
+    } else if (item.types.some((type) => type.startsWith("image/"))) {
+      throw new Error("Unsupported image. Use PNG, JPEG, WebP, or GIF.");
+    }
+    bytes += added.reduce((size, image) => size + imageByteLength(image.data), 0);
+    if (bytes > MAX_IMAGE_BYTES) throw new Error("Images must fit within 2 MiB per message.");
+    images.push(...added);
+  }
+  if (images.length === 0) throw new Error("Clipboard contains no supported image or image file.");
+  return imageContentsSchema.parse(images);
 }
 
 /** WebKit can expose URI/image targets while withholding file bytes from paste events. */
-export function needsNativeImagePaste(types: readonly string[], uriList = ""): boolean {
+export function needsClipboardRead(types: readonly string[], uriList = ""): boolean {
   // WebKit exposes URL text but withholds local file URIs. Preserve ordinary URL paste.
   const uris = uriList
     .split(/\r?\n/)

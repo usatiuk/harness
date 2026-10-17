@@ -2518,6 +2518,24 @@ async function attachFixtureImage(page: Page, event: "paste" | "drop") {
   await expect(page.locator(".composer .image-preview")).toHaveCount(1);
 }
 
+test("real browser clipboard paste attaches an image without native APIs", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto(url + "?composer");
+  await page.evaluate(async (data) => {
+    const bytes = Uint8Array.from(atob(data), (character) => character.charCodeAt(0));
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": new Blob([bytes], { type: "image/png" }) }),
+    ]);
+  }, imageBase64);
+  await page.getByRole("textbox", { name: "Message", exact: true }).focus();
+  await page.keyboard.press("ControlOrMeta+V");
+  await expect(page.locator(".composer .image-preview")).toHaveCount(1);
+  await expect(page.locator(".composer .image-preview img")).toHaveJSProperty("naturalWidth", 1);
+});
+
 test("paperclip opens the image file chooser before the model control", async ({ page }) => {
   await page.goto(url + "?composer");
   const paperclip = page.getByRole("button", { name: "Attach images", exact: true });
