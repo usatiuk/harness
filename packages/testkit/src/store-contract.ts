@@ -490,6 +490,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
         model: "fake-2", // differs from the conversation's config: the row snapshots the model
         usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
         cost: null,
+        attempts: 2,
       });
       const unknown = await store.recordModelUsage({
         conversationId: conv.id,

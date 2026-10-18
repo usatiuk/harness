@@ -87,6 +87,28 @@ test("running turns show Working before their first agent output", async ({ page
   await expect(pending).toHaveCount(0);
 });
 
+test("running turns show retry progress while a model call backs off", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.evaluate(() => window.composerFixture.showModelRetry());
+  const retry = page.getByRole("status").filter({ hasText: "Retrying" });
+  await expect(retry).toContainText("Retrying — attempt 2 of 5 after rate limit, waiting 2s");
+  await page.evaluate(() => window.composerFixture.showModelRetry(4));
+  await expect(retry).toContainText("attempt 4 of 5");
+  await page.evaluate(() => window.composerFixture.clearModelRetry());
+  await expect(retry).toHaveCount(0);
+});
+
+test("Settings exposes the model retry controls from host defaults", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults" }).click();
+  await expect(page.getByText("Model call retries")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: /Model call retries/ })).toHaveText("5 attempts");
+  await expect(page.getByLabel("Retry backoff base (ms)")).toHaveValue("1000");
+});
+
 for (const chrome of ["native", "fullscreen"] as const) {
   test(`${chrome} chrome keeps the view full height and Settings at the sidebar bottom`, async ({
     page,

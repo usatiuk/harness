@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import type { ModelRequest } from "@harness/protocol";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { TransientModelFailure } from "@harness/protocol";
+import type { ConversationId, ModelRequest } from "@harness/protocol";
 import { CustomOpenAIProvider } from "./custom-openai.ts";
 import { CustomOpenAICompletionsProvider } from "./custom-openai-completions.ts";
 import { CustomAnthropicProvider } from "./custom-anthropic.ts";
@@ -626,5 +627,65 @@ describe("custom model metadata", () => {
       customToolInput: { supported: true, grammars: ["lark", "regex"] },
       preferredEditTool: "replace",
     });
+  });
+});
+
+describe("custom provider failure classification", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // The client captures its fetch at construction, so the fixture is installed first.
+  async function run() {
+    const provider = new CustomOpenAIProvider({
+      id: "local",
+      endpoint: "http://localhost:8787/v1",
+      apiKey: "test-key",
+      models: { "my-model": {} },
+    });
+    for await (const event of provider.stream(REQUEST, new AbortController().signal, {
+      conversationId: "conversation" as ConversationId,
+    }))
+      void event;
+  }
+
+  it("classifies a custom endpoint rate limit as transient through the shared classifier", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              message: "slow down",
+              type: "rate_limit_error",
+              code: "rate_limit_exceeded",
+            },
+          },
+          // A zero retry-after keeps the SDK's own retries from sleeping between attempts.
+          { status: 429, headers: { "retry-after": "0" } },
+        ),
+      ),
+    );
+    await expect(run()).rejects.toMatchObject({
+      name: "TransientModelFailure",
+      reason: "rate_limit",
+      retryAfterMs: 0,
+    });
+  });
+
+  it("keeps a permanent endpoint error permanent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { message: "bad request", type: "invalid_request_error" } },
+          { status: 400 },
+        ),
+      ),
+    );
+    const error = await run().then(
+      () => undefined,
+      (failure: unknown) => failure,
+    );
+    expect(error).not.toBeInstanceOf(TransientModelFailure);
+    expect(error).toMatchObject({ status: 400 });
   });
 });

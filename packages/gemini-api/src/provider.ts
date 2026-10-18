@@ -1,5 +1,6 @@
 import { toolCallKey, mergeModelMetadata, type ModelMetadata } from "@harness/protocol";
 import { GoogleGenAI, ApiError, type Interactions } from "@google/genai";
+import { classifyTransientFailure } from "./errors.ts";
 import {
   ModelDiscoveryError,
   jsonValueSchema,
@@ -385,7 +386,15 @@ export class GeminiProvider implements ModelProvider {
       this.listModels().find((model) => model.model === request.modelConfig.model)?.reasoning
         ?.supported === true,
     );
-    const result = await this.#client.interactions.create(params, { signal, maxRetries: 0 });
-    yield* interactionEvents(result, request);
+    let result: Interactions.Interaction;
+    try {
+      result = await this.#client.interactions.create(params, { signal, maxRetries: 0 });
+      // Inside the classified region: a pre-first-event stream drop is as transient
+      // as a create-time failure (the retry middleware still never re-issues after
+      // the first yielded event).
+      yield* interactionEvents(result, request);
+    } catch (error) {
+      throw classifyTransientFailure(error, signal) ?? error;
+    }
   }
 }

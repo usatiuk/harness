@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@harness/auth": "*",
+    "@harness/openai-core": "*",
     "@harness/protocol": "*",
     "@harness/release": "*",
     "openai": "7.27.0",

@@ -511,7 +511,7 @@ export function App({
           {live.map(renderEntry)}
           {busy ? (
             <Box marginTop={1}>
-              <WorkFooterView />
+              <WorkFooterView retry={state.modelRetry} />
             </Box>
           ) : null}
           {entries.length > 0 || busy ? <Box height={1} /> : null}

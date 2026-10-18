@@ -25,7 +25,7 @@ import {
   type ApprovalResponder,
 } from "@harness/approval/client";
 import { isAutoApprovalEvent } from "@harness/auto-approval/client";
-import type { ModelConfig } from "@harness/protocol";
+import type { ModelConfig, ModelFailureReason } from "@harness/protocol";
 
 /**
  * One rendered line of transcript. Durable content derives from the event stream
@@ -106,6 +106,16 @@ type TurnState =
   | { id: string; status: "running"; startedAt: number }
   | { id: string; status: Exclude<TurnStatus, "running"> };
 
+/** One scheduled model retry: the upcoming attempt and its backoff wait. */
+export interface RetryStatus {
+  /** The model call's purpose (`agent`, `compaction`, …); presentation distinguishes them. */
+  purpose: string;
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  reason: ModelFailureReason;
+}
+
 export interface State {
   cells: Cell[];
   turn: TurnState;
@@ -119,6 +129,9 @@ export interface State {
   activities: ActivityLine[];
   /** Latest dev-container build/start phase; folded from `sandbox.status` events. Absent until one arrives. */
   sandbox?: { phase: SandboxPhase; message?: string };
+  /** Latest scheduled model retry; folded from `model.retry`, cleared when model
+   * output resumes or the turn settles. */
+  modelRetry?: RetryStatus | undefined;
   /** Running token totals across the conversation (live events + resume seed). */
   usage: Usage;
   /** At least one completed invocation omitted accounting, so totals are lower bounds. */
@@ -225,6 +238,33 @@ function finalizeStream(
 
 function clearPending(state: State): State {
   return state.pending.length === 0 ? state : { ...state, pending: [] };
+}
+
+/** Retry status is a latest-value transient: resumed model output supersedes it. */
+function clearRetry(state: State): State {
+  return state.modelRetry === undefined ? state : { ...state, modelRetry: undefined };
+}
+
+/** Short user-facing phrase for a transient model failure reason. */
+export function retryReasonLabel(reason: ModelFailureReason): string {
+  switch (reason) {
+    case "rate_limit":
+      return "rate limit";
+    case "overloaded":
+      return "provider overloaded";
+    case "server":
+      return "server error";
+    case "timeout":
+      return "timeout";
+    case "connection":
+      return "connection loss";
+  }
+}
+
+/** The full user-facing line for a scheduled model retry. */
+export function retryStatusLabel(retry: RetryStatus): string {
+  const start = retry.purpose === "compaction" ? "Compaction retrying" : "Retrying";
+  return `${start} — attempt ${retry.attempt} of ${retry.maxAttempts} after ${retryReasonLabel(retry.reason)}, waiting ${Math.ceil(retry.delayMs / 1000)}s`;
 }
 
 function imageFields(content: ContentBlock[]): {
@@ -437,6 +477,7 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
         return {
           ...state,
           turn: { id: event.turnId, status: event.status, startedAt: receivedAt },
+          modelRetry: undefined,
         };
       }
       // A terminal event owns state only when it closes the currently running turn. This makes
@@ -477,7 +518,8 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
         id: `${event.turnId}:worked`,
         duration: Math.max(0, receivedAt - state.turn.startedAt),
       };
-      if (event.status !== "failed") return { ...ended, turn, cells: [...cells, worked] };
+      if (event.status !== "failed")
+        return { ...ended, turn, cells: [...cells, worked], modelRetry: undefined };
       return {
         ...ended,
         turn,
@@ -486,14 +528,30 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
           { kind: "error", id: `${event.turnId}:error`, text: event.error ?? "turn failed" },
           worked,
         ],
+        modelRetry: undefined,
       };
     }
+    // An appended item is not model output (it may be a tool result or plugin
+    // item); only the next text or reasoning proves the retry succeeded.
     case "item.appended":
       return reduceItem(state, event.item, receivedAt);
     case "text_delta":
-      return appendDelta(state, "assistant", event.turnId, event.text, receivedAt, event.phase);
+      return clearRetry(
+        appendDelta(state, "assistant", event.turnId, event.text, receivedAt, event.phase),
+      );
     case "reasoning_delta":
-      return appendDelta(state, "reasoning", event.turnId, event.text, receivedAt);
+      return clearRetry(appendDelta(state, "reasoning", event.turnId, event.text, receivedAt));
+    case "model.retry":
+      return {
+        ...state,
+        modelRetry: {
+          purpose: event.purpose,
+          attempt: event.attempt,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          reason: event.reason,
+        },
+      };
     case "request.created": {
       if (!isApprovalRequest(event.request)) return state;
       const req = event.request;

@@ -15,6 +15,9 @@ export interface ModelUsage {
   model: string;
   /** Stable invocation role. Older records may lack it. */
   purpose?: string;
+  /** Logical invocation attempts consumed by bounded retry (1 = first try won).
+   * Older records and unobserved failures may lack it. */
+  attempts?: number;
   /** Server-measured request consumption time; excludes subsequent tool dispatch. */
   requestDurationMs?: number;
   /** `null` records an attempt whose backend omitted accounting or whose end was not observed. */

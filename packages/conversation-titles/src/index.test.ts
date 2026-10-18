@@ -11,6 +11,7 @@ import {
 } from "@harness/client";
 import { unusedCodeEvaluator, FakeProvider, textStep } from "@harness/testkit";
 import { isKernelEvent, type ModelRequest, type ModelProvider } from "@harness/protocol";
+import { TransientModelFailure } from "@harness/protocol";
 import { conversationTitlesPlugin } from "./index.ts";
 
 const usage = { inputTokens: 9, outputTokens: 3, cachedReadTokens: 0 };
@@ -227,6 +228,21 @@ describe("first-message titles", () => {
     await f.service.whenIdle(c.id);
     expect(await f.service.deactivateSession(c.id)).toEqual({ status: "deactivated" });
     expect((await f.service.getConversation(c.id))?.title).toBe("first message");
+    expect((await f.service.usage(c.id)).find((row) => row.purpose === "title")?.usage).toBeNull();
+  });
+
+  it("degrades silently when the naming call fails transiently and tears down cleanly", async () => {
+    const f = fixture(new TransientModelFailure("rate_limit", { retryAfterMs: 5 }));
+    const c = await f.service.createConversation();
+    await f.service.send(c.id, "first message");
+    await f.started;
+    f.release();
+    await f.service.whenIdle(c.id);
+    // An exhausted transient failure is a provider failure: naming degrades silently
+    // (the excerpt stays the title), and the rejected naming promise must not surface
+    // through runtime teardown.
+    expect((await f.service.getConversation(c.id))?.title).toBe("first message");
+    expect(await f.service.deactivateSession(c.id)).toEqual({ status: "deactivated" });
     expect((await f.service.usage(c.id)).find((row) => row.purpose === "title")?.usage).toBeNull();
   });
 

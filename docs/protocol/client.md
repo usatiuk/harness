@@ -13,7 +13,7 @@ cannot express.
 
 ## Connection
 
-`initialize` is the first application request and requires protocol version `17`. It exchanges
+`initialize` is the first application request and requires protocol version `19`. It exchanges
 peer identity and supported `{id, version}` plugin contracts. JSON-RPC request
 IDs may be strings or integers and are scoped to the requester, so both peers may
 use the same ID concurrently. Batches are unsupported.
@@ -148,7 +148,12 @@ history. Clients deduplicate by item ID; a duplicate canonical text/reasoning it
 also removes its overlapping transient draft. Status, pending input, head, and
 configuration carry latest semantic values; `usage.changed` replaces the full
 aggregate rather than adding a delta. Text and reasoning deltas are transient; a
-missed delta converges when the durable item arrives. Reconnect installs fresh attachment and history state. For a turn already running
+missed delta converges when the durable item arrives. Protocol 19 adds the
+transient `model.retry` event: one scheduled model retry with its purpose,
+upcoming attempt, maximum attempts, backoff delay and transient failure reason.
+The server forwards it only for user-audience purposes (agent steps and model
+compaction); title naming and auto-approval review retries are silent. It is
+never replayed, and no durable item or usage record derives from it. Reconnect installs fresh attachment and history state. For a turn already running
 in that attachment, transient text/reasoning deltas are suppressed until canonical
 items arrive; future turns stream normally. There is no replay log or automatic
 mutation resubmission. A timeout or transport loss does not prove a send was rejected.

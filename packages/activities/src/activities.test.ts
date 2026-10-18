@@ -355,6 +355,7 @@ describe("backgroundContractResolver", () => {
       conversationId: "c" as ConversationId,
       signal: new AbortController().signal,
       toolMeta: (name) => (name === "bash" ? { backgroundable: true } : undefined),
+      reportRetry: () => {},
     };
     const resolver = backgroundContractResolver();
     const seen = {

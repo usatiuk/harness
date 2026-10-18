@@ -474,6 +474,16 @@ export const wireConversationEventSchema = z.discriminatedUnion("type", [
     type: z.literal("usage.changed"),
     summary: wireUsageSummarySchema,
   }),
+  // Transient model retry progress; forwarded only for user-audience purposes.
+  // `purpose` lets presentation distinguish compaction retries from agent retries.
+  z.strictObject({
+    type: z.literal("model.retry"),
+    purpose: z.string(),
+    attempt: z.number().int().positive(),
+    maxAttempts: z.number().int().positive(),
+    delayMs: z.number().int().min(0),
+    reason: z.enum(["rate_limit", "overloaded", "server", "timeout", "connection"]),
+  }),
 ]);
 export type WireConversationEvent = z.infer<typeof wireConversationEventSchema>;
 

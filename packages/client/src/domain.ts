@@ -585,6 +585,16 @@ export class HarnessDomainClient implements HarnessClientService {
         this.#usage.set(conversationId, summary);
         return { type: "usage.changed", conversationId, summary };
       }
+      case "model.retry":
+        return {
+          type: "model.retry",
+          conversationId,
+          purpose: event.purpose,
+          attempt: event.attempt,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          reason: event.reason,
+        };
     }
   }
 }

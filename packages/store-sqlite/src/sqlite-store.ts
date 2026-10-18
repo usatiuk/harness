@@ -653,6 +653,7 @@ export class SqliteStore implements Store {
           input.providerUsage === undefined ? null : JSON.stringify(input.providerUsage),
         cost_incomplete: input.costIncomplete ? 1 : 0,
         input_tokens_are_context: input.inputTokensAreContext === false ? 0 : 1,
+        attempts: input.attempts ?? null,
         created_at: record.createdAt,
       })
       .execute();
@@ -924,6 +925,7 @@ function rowToModelUsage(row: Database["model_usage"]): ModelUsage {
       : { providerUsage: jsonValueSchema.parse(JSON.parse(row.provider_usage)) }),
     ...(row.cost_incomplete ? { costIncomplete: true } : {}),
     ...(row.input_tokens_are_context === 0 ? { inputTokensAreContext: false } : {}),
+    ...(row.attempts === null ? {} : { attempts: row.attempts }),
     createdAt: row.created_at,
   };
 }

@@ -554,14 +554,28 @@ rewrite the config and sign in again.
 
 ## Errors and observability
 
-Adapters normalize confirmed context overflow into `ContextWindowExceededError`.
-Other failures preserve their SDK error and cause chain; the CLI renders nested
-causes without dumping stacks or request bodies. Context builds record exactly
-what each logical call saw, and usage events/rows record provider, model, tokens,
-and optional cost.
+Adapters normalize confirmed context overflow into `ContextWindowExceededError`
+and classify demonstrated transient transport failures into
+`TransientModelFailure` (reason `rate_limit`, `overloaded`, `server`, `timeout`,
+`connection`, with an optional provider-requested `retryAfterMs` normalized from
+`Retry-After`/`retry-after-ms` headers or Gemini `RetryInfo` details). Anything
+an adapter does not classify is permanent by construction, including documented
+billing/quota errors. Other failures preserve their SDK error and cause chain;
+the CLI renders nested causes without dumping stacks or request bodies. Context
+builds record exactly what each logical call saw, and usage events/rows record
+provider, model, tokens, and optional cost.
 
-There is not yet a normalized transient-provider error or automatic model retry
-middleware. Deterministic request/configuration failures must never be retried.
+The `model-retry` plugin (`packages/model-retry`) owns one bounded retry over the
+model-middleware chain for every model call: up to `attempts` total provider
+invocations (default 5; 0/1 disables) with exponential full-jitter backoff from
+`backoffMs` (default 1000 ms), capped at 60 s. A provider-requested wait is a
+floor; when it exceeds the cap the failure surfaces immediately instead of
+parking the turn. Retries re-issue only before the first yielded event,
+cancellation ends backoff promptly, and provider-SDK built-in retries stay
+disabled so attempts do not multiply. Each scheduled retry publishes a transient
+`model.retry` event carrying the invocation purpose; the wire forwards it only
+for agent and compaction calls — title naming and auto-approval review retries
+are silent, and auto-approval exhaustion reports as its deny result.
 
 ## Accepted invariants
 
@@ -570,8 +584,9 @@ middleware. Deterministic request/configuration failures must never be retried.
 - Harness canonical items always render without provider payloads; payloads add
   fidelity but never replace canonical content.
 - Model-call middleware applies consistently to agentic and non-agentic calls.
-- Every provider attempt records accounting and its context build; unobserved
-  usage stays unknown, including failed/interrupted attempts.
+- Usage rows record each logical model invocation and its provider attempt count
+  (`attempts`, absent on older records); unobserved usage — including
+  failed/interrupted attempts — stays unknown.
 - Missing provider accounting is durable `null`; it is never presented or priced
   as zero usage.
 - Hard catalog capacity and advisory request output caps remain distinct.

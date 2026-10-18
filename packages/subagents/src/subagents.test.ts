@@ -385,6 +385,7 @@ describe("subagentContractResolver", () => {
     conversationId: id("c"),
     signal: new AbortController().signal,
     toolMeta: () => undefined,
+    reportRetry: () => {},
   });
   /** Drains the middleware into the request the next handler actually saw. */
   const applied = async (

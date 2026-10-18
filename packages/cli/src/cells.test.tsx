@@ -187,6 +187,40 @@ describe("semantic stage views", () => {
     expect(active.lastFrame()).toContain("Working…");
     expect(complete.lastFrame()).toContain("• Worked for 12s");
   });
+
+  it("renders a scheduled model retry instead of the generic working label", async () => {
+    const view = render(
+      <WorkFooterView
+        retry={{
+          purpose: "agent",
+          attempt: 2,
+          maxAttempts: 5,
+          delayMs: 1200,
+          reason: "rate_limit",
+        }}
+      />,
+    );
+    await flush();
+    expect(view.lastFrame()).toContain("Retrying — attempt 2 of 5 after rate limit, waiting 2s");
+  });
+
+  it("labels compaction retries distinctly", async () => {
+    const view = render(
+      <WorkFooterView
+        retry={{
+          purpose: "compaction",
+          attempt: 2,
+          maxAttempts: 5,
+          delayMs: 2000,
+          reason: "overloaded",
+        }}
+      />,
+    );
+    await flush();
+    expect(view.lastFrame()).toContain(
+      "Compaction retrying — attempt 2 of 5 after provider overloaded, waiting 2s",
+    );
+  });
 });
 
 describe("CellView: compaction", () => {

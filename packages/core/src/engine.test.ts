@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   addUsage,
   ContextWindowExceededError,
+  TransientModelFailure,
   conversationOf,
   isKernelEvent,
 } from "@harness/protocol";
@@ -3270,6 +3271,117 @@ describe("Engine — model middleware", () => {
       "user:go",
       "assistant:recovered",
     ]);
+  });
+
+  /** Minimal re-issue double for the engine contract: reports each retry through
+   * the context hook and re-issues only when nothing was yielded yet. */
+  const reportingRetry = (): ModelMiddleware => ({
+    id: "reporting-retry",
+    async *wrap(request, ctx, next) {
+      let attempt = 1;
+      for (;;) {
+        let yielded = false;
+        try {
+          for await (const event of next(request)) {
+            yielded = true;
+            yield event;
+          }
+          return;
+        } catch (error) {
+          if (yielded || !(error instanceof TransientModelFailure)) throw error;
+          if (++attempt > 2) throw error;
+          ctx.reportRetry({ attempt, maxAttempts: 2, delayMs: 0, reason: error.reason });
+        }
+      }
+    },
+  });
+
+  it("reports retries with the caller's purpose and stamps usage attempts", async () => {
+    let calls = 0;
+    const flaky: ModelProvider = {
+      provider: "fake",
+      capabilities: () => ({
+        contentTypes: ["text"],
+        toolCalling: true,
+        customToolInput: { supported: false, grammars: [] },
+        preferredEditTool: "replace",
+      }),
+      validateConfig: () => {},
+      listModels: () => [],
+      async *stream() {
+        if (++calls === 1) throw new TransientModelFailure("rate_limit", { retryAfterMs: 5 });
+        yield* textStep("recovered");
+      },
+    };
+    const { store, engine, events } = setup([], {
+      providers: () => [flaky],
+      modelMiddleware: () => [reportingRetry()],
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+    expect(calls).toBe(2);
+    expect(events.filter((e) => e.type === "model.retry")).toMatchObject([
+      { conversationId: conv.id, purpose: "agent", attempt: 2, reason: "rate_limit" },
+    ]);
+    expect((await store.listModelUsage(conv.id)).map((row) => row.attempts)).toEqual([2]);
+    // A retried call yields exactly one canonical output.
+    expect(shapeOf(await store.listOwnedItems(conv.id))).toEqual([
+      "user:go",
+      "assistant:recovered",
+    ]);
+  });
+
+  it("reports model-compaction retries with the compaction purpose", async () => {
+    let calls = 0;
+    const scripted: ModelProvider = {
+      provider: "fake",
+      capabilities: () => ({
+        contentTypes: ["text"],
+        toolCalling: true,
+        customToolInput: { supported: false, grammars: [] },
+        preferredEditTool: "replace",
+      }),
+      validateConfig: () => {},
+      listModels: () => [],
+      async *stream() {
+        calls += 1;
+        if (calls === 1) throw new ContextWindowExceededError();
+        if (calls === 2) throw new TransientModelFailure("overloaded", { retryAfterMs: 5 });
+        if (calls === 3) {
+          yield* textStep("summary");
+          return;
+        }
+        yield* textStep("recovered");
+      },
+    };
+    const { store, engine, events } = setup([], {
+      providers: () => [scripted],
+      modelMiddleware: () => [reportingRetry()],
+      policies: () => ({
+        compaction: {
+          async compact(input) {
+            const result = await input.models.invoke(
+              {
+                instructions: [],
+                items: [],
+                modelConfig: { provider: "fake", model: "fake-1" },
+              },
+              { purpose: "compaction" },
+            );
+            return { content: result.content };
+          },
+        },
+      }),
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("go"));
+    await engine.whenIdle(conv.id);
+    expect(calls).toBe(4);
+    expect(events.filter((e) => e.type === "model.retry")).toMatchObject([
+      { purpose: "compaction", attempt: 2, reason: "overloaded" },
+    ]);
+    expect(turnStatuses(events)).toEqual(["running", "completed"]);
   });
 
   it("lets a middleware short-circuit without calling the provider", async () => {

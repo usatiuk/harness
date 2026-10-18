@@ -1,5 +1,16 @@
 # Harness plan
 
+The [model retry middleware plan](docs/plans/models/2026-10-18-model-retry-middleware.md)
+adds adapter-owned transient/permanent failure classification and one bounded,
+configurable retry (`plugins["model-retry"]`, default five attempts) over the
+shared model-middleware chain for every model call — agent steps, compaction,
+title naming, auto-approval review, and subagents alike. Retries re-issue only
+before the first output with capped exponential full-jitter backoff and
+provider `Retry-After` floors; scheduled retries surface in the desktop/TUI
+Working presentation for conversation and compaction calls and stay silent for
+titles and auto-approval review. Validation evidence is tracked in the delivery
+plan.
+
 The [desktop right sidebar](docs/plans/interface/2026-10-18-right-sidebar.md)
 adds Changes/Subagents tabs, continuous responsive Git diffs via `@pierre/diffs` CodeView,
 compact file-tree jumps with line counts, five
@@ -636,8 +647,9 @@ invocations remain opt-in qualification.
 
 1. [x] Replace obsolete monolithic design documents with this product plan and
        current subsystem documentation.
-2. [ ] Add minimal provider error normalization and bounded transient model
-       retry middleware.
+2. [x] Add minimal provider error normalization and bounded transient model
+       retry middleware (delivered in
+       [the model retry middleware plan](docs/plans/models/2026-10-18-model-retry-middleware.md)).
 3. [x] Deliver [MCP tools and settings](docs/plans/cross-cutting/2026-10-10-mcp-tools-and-settings.md):
        stdio/hosted HTTP tools, env/header/OAuth configuration, scoped credentials,
        plugin-owned permissions, and desktop/TUI settings. Keep the configurable

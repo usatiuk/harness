@@ -14,6 +14,7 @@ import type {
 } from "@harness/protocol";
 import { ContextWindowExceededError } from "@harness/protocol";
 import type { OpenAICredentials } from "./credentials.ts";
+import { classifyTransientFailure } from "./errors.ts";
 import { buildResponseParams } from "./request.ts";
 import { buildChatParams } from "./request.ts";
 import { toModelEvents, toChatEvents } from "./stream.ts";
@@ -230,7 +231,7 @@ export abstract class OpenAIResponsesTransport {
       ) {
         throw new ContextWindowExceededError(message, { cause: error });
       }
-      throw error;
+      throw classifyTransientFailure(error, signal) ?? error;
     }
   }
 }
@@ -406,7 +407,7 @@ export class OpenAIChatTransport {
       ) {
         throw new ContextWindowExceededError(message, { cause: error });
       }
-      throw error;
+      throw classifyTransientFailure(error, signal) ?? error;
     }
   }
 }

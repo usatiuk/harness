@@ -817,3 +817,79 @@ it("preserves user and tool images through live events and restored history", ()
     { kind: "tool", output: "Screenshot", images: [image] },
   ]);
 });
+
+describe("model retry status", () => {
+  const retry = (attempt: number): HarnessEvent => ({
+    type: "model.retry",
+    conversationId: "c",
+    purpose: "agent",
+    attempt,
+    maxAttempts: 5,
+    delayMs: 1200,
+    reason: "rate_limit",
+  });
+
+  it("folds the latest scheduled retry as transient status", () => {
+    const state = fold([retry(2), retry(3)]);
+    expect(state.modelRetry).toEqual({
+      purpose: "agent",
+      attempt: 3,
+      maxAttempts: 5,
+      delayMs: 1200,
+      reason: "rate_limit",
+    });
+  });
+
+  it("clears retry status when model output resumes", () => {
+    for (const resumed of [
+      { type: "text_delta", conversationId: "c", turnId: "t1", text: "ok" },
+      { type: "reasoning_delta", conversationId: "c", turnId: "t1", text: "hmm" },
+    ] satisfies HarnessEvent[]) {
+      const state = fold([
+        { type: "turn.status", conversationId: "c", turnId: "t1", status: "running" },
+        retry(2),
+        resumed,
+      ]);
+      expect(state.modelRetry).toBeUndefined();
+    }
+  });
+
+  it("keeps retry status across item appends that are not model output", () => {
+    const state = fold([
+      { type: "turn.status", conversationId: "c", turnId: "t1", status: "running" },
+      retry(2),
+      {
+        type: "item.appended",
+        conversationId: "c",
+        item: item({ type: "message", role: "assistant", id: "m1", content: text("done") }),
+      },
+    ]);
+    expect(state.modelRetry).toEqual({
+      purpose: "agent",
+      attempt: 2,
+      maxAttempts: 5,
+      delayMs: 1200,
+      reason: "rate_limit",
+    });
+  });
+
+  it("clears retry status when the turn settles or a new turn starts", () => {
+    const settled = fold([
+      { type: "turn.status", conversationId: "c", turnId: "t1", status: "running" },
+      retry(2),
+      {
+        type: "turn.status",
+        conversationId: "c",
+        turnId: "t1",
+        status: "failed",
+        error: "gave up",
+      },
+    ]);
+    expect(settled.modelRetry).toBeUndefined();
+    const restarted = fold([
+      retry(2),
+      { type: "turn.status", conversationId: "c", turnId: "t2", status: "running" },
+    ]);
+    expect(restarted.modelRetry).toBeUndefined();
+  });
+});

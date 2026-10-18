@@ -34,6 +34,9 @@ export function codexCredentials(auth: CodexAuth): OpenAICredentials {
         apiKey: session.accessToken,
         baseURL: CODEX_API_BASE_URL,
         fetch: surfacingFetch,
+        // The model-retry middleware owns logical retries; SDK-internal retries
+        // would multiply attempts beneath it (belt over the per-request pin).
+        maxRetries: 0,
         defaultHeaders: {
           "ChatGPT-Account-ID": session.accountId,
           "OpenAI-Beta": "responses=experimental",

@@ -95,6 +95,7 @@ interface ModelUsageTable {
   provider_usage: string | null;
   cost_incomplete: number;
   input_tokens_are_context: number;
+  attempts: number | null;
   created_at: number;
 }
 
@@ -203,6 +204,7 @@ CREATE TABLE model_usage (
   provider_usage TEXT,
   cost_incomplete INTEGER NOT NULL DEFAULT 0 CHECK(cost_incomplete IN (0, 1)),
   input_tokens_are_context INTEGER NOT NULL DEFAULT 1 CHECK(input_tokens_are_context IN (0, 1)),
+  attempts INTEGER CHECK(attempts >= 1),
   created_at INTEGER NOT NULL
 );
 CREATE INDEX model_usage_conv ON model_usage(conversation_id);
@@ -211,7 +213,7 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-export const STORE_SCHEMA_VERSION = 13;
+export const STORE_SCHEMA_VERSION = 14;
 
 /** Fresh schema or supported additive upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
@@ -276,6 +278,11 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
     }
     if (version === 12) {
       db.exec(QUESTIONS_SCHEMA);
+      version = 13;
+    }
+    if (version === 13) {
+      // Nullable: rows predating retry accounting stay "attempts unknown" (absent).
+      db.exec("ALTER TABLE model_usage ADD COLUMN attempts INTEGER CHECK(attempts >= 1);");
       db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }

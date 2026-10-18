@@ -8,6 +8,7 @@ import {
   ContextWindowExceededError,
   ContentInputError,
   ModelInvocationFailure,
+  TransientModelFailure,
   conversationOf,
   costOf,
   errorResult,
@@ -1287,6 +1288,7 @@ export class Engine {
           requestDurationMs: requestDurationMs ?? performance.now() - requestStarted,
           usage,
           cost: pricing && usage ? costOf(usage, pricing) : null,
+          ...(completed?.attempts !== undefined ? { attempts: completed.attempts } : {}),
           ...(completed?.inputTokensAreContext === false ? { inputTokensAreContext: false } : {}),
           ...(completed?.providerUsage !== undefined
             ? { providerUsage: completed.providerUsage }
@@ -1298,6 +1300,7 @@ export class Engine {
       try {
         const stream = this.#streamModel(
           conversation.id,
+          "agent",
           request,
           signal,
           provider,
@@ -1985,6 +1988,7 @@ export class Engine {
   /** The single middleware-to-provider stream boundary for every model-backed operation. */
   #streamModel(
     conversationId: ConversationId,
+    purpose: string,
     request: ModelRequest,
     signal: AbortSignal,
     provider: ModelProvider,
@@ -2000,6 +2004,8 @@ export class Engine {
         if (!capture) throw new Error("Native request capture has no invocation scope");
         await capture(body);
       };
+    // Counted at the provider boundary: one invocation per `next()` the retry path issues.
+    let providerAttempts = 0;
     return runModelChain(
       this.host.modelMiddleware,
       request,
@@ -2007,8 +2013,19 @@ export class Engine {
         conversationId,
         signal,
         toolMeta: (name) => toolSet?.metaOf(name),
+        reportRetry: ({ attempt, maxAttempts, delayMs, reason }) =>
+          this.#emitKernel({
+            type: "model.retry",
+            conversationId,
+            purpose,
+            attempt,
+            maxAttempts,
+            delayMs,
+            reason,
+          }),
       },
       async function* (nextRequest) {
+        const attempt = ++providerAttempts;
         assertImageInput(
           provider,
           nextRequest.modelConfig,
@@ -2043,15 +2060,23 @@ export class Engine {
             for (;;) {
               const result = await captureScope.run(capture, () => iterator.next());
               if (result.done) break;
-              if (attemptId) evidenceByEvent!.set(result.value, attemptId);
-              yield result.value;
+              // Stamp terminal accounting with the provider attempts its logical invocation
+              // consumed (1 = first try won). Counted per `next()` the middleware issues.
+              const event =
+                result.value.type === "completed"
+                  ? { ...result.value, attempts: attempt }
+                  : result.value;
+              if (attemptId) evidenceByEvent!.set(event, attemptId);
+              yield event;
             }
           } finally {
             if (iterator.return) await captureScope.run(capture, () => iterator.return!());
           }
         } catch (error) {
-          // Preserve context-limit recovery; classify other provider failures at their boundary.
-          if (error instanceof ContextWindowExceededError) throw error;
+          // Preserve context-limit recovery and transient retry classification (the retry
+          // middleware sees these directly); wrap every other provider failure.
+          if (error instanceof ContextWindowExceededError || error instanceof TransientModelFailure)
+            throw error;
           throw new ModelInvocationFailure(
             error instanceof Error ? "model provider failed" : String(error),
             { cause: error },
@@ -2124,6 +2149,7 @@ export class Engine {
           requestDurationMs: requestDurationMs ?? performance.now() - requestStarted,
           usage,
           cost: pricing && usage ? costOf(usage, pricing) : null,
+          ...(completed?.attempts !== undefined ? { attempts: completed.attempts } : {}),
           ...(completed?.inputTokensAreContext === false ? { inputTokensAreContext: false } : {}),
           ...(completed?.providerUsage !== undefined
             ? { providerUsage: completed.providerUsage }
@@ -2135,6 +2161,7 @@ export class Engine {
       try {
         const stream = this.#streamModel(
           conversation.id,
+          options.purpose ?? "plugin",
           request,
           signal,
           provider,

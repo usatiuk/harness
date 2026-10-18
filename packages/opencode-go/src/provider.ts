@@ -22,6 +22,7 @@ import {
 } from "@harness/anthropic-core";
 import { ROSTER, familyOf, listModels, maxOutputOf, modelSpec, presetFor } from "./roster.ts";
 import { fetchCatalog, parseCatalog, type GoModelSpec } from "./catalog.ts";
+import { classifyTransientFailure } from "./errors.ts";
 import { PRODUCT_USER_AGENT } from "@harness/release";
 import { sessionIdHeaders } from "@harness/protocol";
 
@@ -261,20 +262,24 @@ export class OpenCodeGoProvider implements ModelProvider {
   }
 
   async *stream(request: ModelRequest, signal: AbortSignal, context: ModelCallContext) {
-    switch (familyOf(request.modelConfig.model, this.#models)) {
-      case "responses":
-        yield* this.#responses.stream(request, signal, context);
-        break;
-      case "messages":
-        yield* this.#messages.stream(request, signal, context);
-        break;
-      case "chat":
-        yield* this.#chat.stream(request, signal, context);
-        break;
-      case undefined:
-        throw new Error(
-          `unknown model "${request.modelConfig.model}" for provider ${this.provider}`,
-        );
+    try {
+      switch (familyOf(request.modelConfig.model, this.#models)) {
+        case "responses":
+          yield* this.#responses.stream(request, signal, context);
+          break;
+        case "messages":
+          yield* this.#messages.stream(request, signal, context);
+          break;
+        case "chat":
+          yield* this.#chat.stream(request, signal, context);
+          break;
+        case undefined:
+          throw new Error(
+            `unknown model "${request.modelConfig.model}" for provider ${this.provider}`,
+          );
+      }
+    } catch (error) {
+      throw classifyTransientFailure(error, signal) ?? error;
     }
   }
 }

@@ -17,6 +17,7 @@ import {
   modelMetadataSchema,
 } from "@harness/protocol";
 import type { AnthropicCredentials } from "./credentials.ts";
+import { classifyTransientFailure } from "./errors.ts";
 import { buildMessages, type AnthropicRequestConfig } from "./request.ts";
 import { toModelEvents } from "./stream.ts";
 
@@ -149,7 +150,7 @@ export abstract class AnthropicMessagesTransport {
       if (e.status === 400 && /context window|prompt is too long|too many tokens/i.test(message)) {
         throw new ContextWindowExceededError(message, { cause: error });
       }
-      throw error;
+      throw classifyTransientFailure(error, signal) ?? error;
     }
   }
 }

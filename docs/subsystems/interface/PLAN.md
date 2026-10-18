@@ -59,8 +59,9 @@ platform qualification remain open in that plan.
       failures.
 - [ ] Redact credentials, OAuth tokens, provider payloads, and unrequested prompt
       content from support output by construction.
-- [ ] Make retry/attempt information visible when model reliability middleware
-      lands.
+- [x] Make retry/attempt information visible when model reliability middleware
+      lands (`model.retry` events folded into the Working presentation; delivered
+      in the [model retry middleware plan](../../plans/models/2026-10-18-model-retry-middleware.md)).
 - [ ] Keep verbose transcript as the canonical content inspector rather than add
       parallel per-item state.
 

@@ -10,7 +10,9 @@ import {
   type ModelRequest,
   type ToolMiddlewareContext,
   type WireConversationEvent,
+  TransientModelFailure,
 } from "@harness/protocol";
+import { modelRetryPlugin } from "@harness/model-retry";
 import {
   HarnessClient,
   HarnessDomainClient,
@@ -29,7 +31,7 @@ import {
   textStep,
 } from "@harness/testkit";
 import { HarnessService } from "./service.ts";
-import { HarnessRpcSession } from "./rpc-session.ts";
+import { HarnessRpcSession, retryPurposeIsUserVisible } from "./rpc-session.ts";
 
 const fixtures: Array<{ host: HarnessRpcHost; session: HarnessRpcSession }> = [];
 const expectedCleanupFailures = new Set<HarnessRpcHost>();
@@ -168,6 +170,47 @@ describe("HarnessRpcSession", () => {
         (item) => item.type === "message" && item.role === "user" && item.source?.kind === "plugin",
       );
     expect(modelInput).toMatchObject({ type: "message", role: "user", content });
+  });
+
+  it("streams scheduled model retries to the client for conversation turns", async () => {
+    let calls = 0;
+    const fake = new FakeProvider([textStep("recovered")]);
+    const { client, service } = createHarness(
+      {
+        provider: fake.provider,
+        capabilities: () => fake.capabilities(),
+        listModels: () => fake.listModels(),
+        validateConfig: () => {},
+        stream: () => {
+          if (calls++ === 0)
+            // Fails before yielding anything; a throw-only generator trips `require-yield`.
+            return {
+              [Symbol.asyncIterator]: () => ({
+                next: () =>
+                  Promise.reject(new TransientModelFailure("rate_limit", { retryAfterMs: 5 })),
+              }),
+            };
+          return fake.stream();
+        },
+      },
+      [modelRetryPlugin],
+    );
+    await client.start();
+    const conversation = await createConversation(client);
+    await client.attach(conversation.id);
+    const observed: WireConversationEvent[] = [];
+    client.subscribe((event) => {
+      if (event.type === "conversation") observed.push(event.event);
+    });
+    await client.deliver(conversation.id, "go", "send");
+    await service.whenIdle(conversation.id as ConversationId);
+    expect(calls).toBe(2);
+    expect(observed.filter((event) => event.type === "model.retry")).toMatchObject([
+      { purpose: "agent", attempt: 2, maxAttempts: 5, reason: "rate_limit" },
+    ]);
+    expect(retryPurposeIsUserVisible("title")).toBe(false);
+    expect(retryPurposeIsUserVisible("auto-approval")).toBe(false);
+    expect(retryPurposeIsUserVisible("compaction")).toBe(true);
   });
 
   it("forks through real RPC, reads an inherited prefix and sends only the edited draft in a new root", async () => {

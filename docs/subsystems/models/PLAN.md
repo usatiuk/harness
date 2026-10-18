@@ -45,17 +45,20 @@ outside scope.
 
 ## Bounded transient reliability
 
-- [ ] Introduce one provider-neutral retryable model failure with adapters owning
+Delivered in the
+[model retry middleware delivery plan](../../plans/models/2026-10-18-model-retry-middleware.md).
+
+- [x] Introduce one provider-neutral retryable model failure with adapters owning
       classification.
-- [ ] Classify only demonstrated network disconnect, overload, rate-limit, and
+- [x] Classify only demonstrated network disconnect, overload, rate-limit, and
       selected service-unavailable failures as retryable.
-- [ ] Add one model middleware with a small bounded attempt count and
+- [x] Add one model middleware with a small bounded attempt count and
       cancellation-aware backoff.
-- [ ] Retry only before the first yielded model event; never replay observable
+- [x] Retry only before the first yielded model event; never replay observable
       streamed output.
-- [ ] Preserve the logical request, context build, tool roster, payloads, purpose,
+- [x] Preserve the logical request, context build, tool roster, payloads, purpose,
       and cancellation signal across attempts.
-- [ ] Prove deterministic 4xx/configuration/context failures do not retry.
+- [x] Prove deterministic 4xx/configuration/context failures do not retry.
 
 ### Acceptance
 

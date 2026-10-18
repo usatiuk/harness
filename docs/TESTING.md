@@ -79,6 +79,30 @@ The browser fixture controls data and transport delay; it does not qualify a
 native desktop build or real SSH/WSL execution. Exact evidence and broader-suite
 limitations are in the [delivery plan](plans/interface/2026-10-18-right-sidebar.md).
 
+## Model retry middleware
+
+Transient model failures retry through one bounded middleware for every model
+call. Classification lives in adapter error modules (`openai-core`,
+`anthropic-core`, `gemini-api`, `opencode-go`) with table-driven fixtures using
+real documented SDK error shapes; inheritor packages (`mistral`, `litellm`,
+`custom-providers`) verify their distinctive gateway bodies classify through the
+shared helpers. Middleware semantics (bounds, `retryAfterMs` floor, cap
+fail-fast, abortable backoff, no re-issue after the first yielded event) are
+unit-tested in `packages/model-retry`. Engine tests prove agent and compaction
+calls traverse the chain with the right `model.retry` purpose and stamp usage
+`attempts`; `packages/service/src/rpc-session.test.ts` proves retries reach
+attached clients only for user-audience purposes. The desktop Working line and
+its settings control have focused Chromium cases in
+`packages/desktop/tests/browser/conversation.spec.ts` (run with `npm run
+test:browser --workspace @harness/desktop -- --grep ...`; Playwright browsers
+must be installed once via `playwright install chromium`). Live-provider
+classification remains unqualified; fixtures use documented error shapes.
+
+When running the suite from inside a running Harness session, unset
+`HARNESS_SERVER_SELECTION` (`env -u HARNESS_SERVER_SELECTION`): the managed
+server selection leaked into tests makes source-run server harnesses fail the
+selection assertion.
+
 ## Desktop streaming publication
 
 `conversation-view.test.ts` uses a controlled clock to verify the 100 ms text and
