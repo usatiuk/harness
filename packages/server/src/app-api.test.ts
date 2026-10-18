@@ -609,7 +609,7 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
     });
     expect(filtered.conversations.map((row) => row.id)).toEqual([old.id]);
     await desktop.load(old.id);
-    await desktop.client.deliver(old.id, "hello", "send");
+    await desktop.deliver(old.id, "hello", "send");
     await service.whenIdle(old.id);
     await desktop.refreshSidebar();
     expect(desktop.recents.rows[0]?.id).toBe(old.id);

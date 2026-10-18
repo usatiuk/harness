@@ -427,8 +427,12 @@ tooltips; duplicate names use their full path as the label.
 
 Only successfully accepted nonempty user input (including queued input) advances
 `lastUsedAt`; new chats use creation time. Opening, Stop, approvals, agent output
-and tool activity do not change it. Sidebar data refreshes after accepted sends,
-creation and connection reload, preserving loaded page counts without polling.
+and tool activity do not change it. Accepted local sends, including queued input,
+move the conversation and its listed project to the front in place. Loaded
+conversation lists admit a touched root outside their current window; page objects
+and cursors stay intact. Background plugin messages do not change this ordering.
+Creation, workspace changes and connection reload refresh sidebar data while
+preserving loaded page counts without polling.
 The global desktop preference stores visibility and width (220px by default,
 160–400px, constrained to leave main-content space). The resize edge supports
 pointer dragging and keyboard arrows/Home/End; a show button remains available

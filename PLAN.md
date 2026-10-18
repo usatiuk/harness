@@ -1,5 +1,15 @@
 # Harness plan
 
+The [infinite-turn and activity-view delivery](docs/plans/cross-cutting/2026-10-18-infinite-turn-and-activity-views.md)
+removes the model-step cap, adds bounded per-command `max_lines`, and matches
+subagent peek results to their calls. Inclusive review of eight commits also
+corrects desktop collapse duplication and accepted-input sidebar ordering.
+Three independent review lenses are resolved; full unrestricted validation passes
+1,712 tests with 41 skips. Seven focused Chromium cases pass; a broader sweep
+passes 36/37 with one unexplained animation-test timeout that passes in isolation.
+Native installer/update interaction is not requalified. Minor release preparation
+is tracked in the delivery plan.
+
 The [desktop right sidebar](docs/plans/interface/2026-10-18-right-sidebar.md)
 adds Changes/Subagents tabs, continuous responsive Git diffs via `@pierre/diffs` CodeView,
 compact file-tree jumps with line counts, five

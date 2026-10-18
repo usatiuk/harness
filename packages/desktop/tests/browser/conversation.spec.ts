@@ -2878,7 +2878,7 @@ test("only the latest Work group peeks; every earlier group folds", async ({ pag
   await expect(groups.nth(2).getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(5);
   await expect(groups.nth(2).getByTestId("tool-call")).toHaveCount(6);
   const first = groups.nth(2).getByTestId("tool-call").nth(0);
-  const second = groups.nth(2).getByTestId("tool-call").nth(1);
+  const second = groups.nth(2).getByLabel("Recent work").getByTestId("tool-call").first();
   await first.locator(":scope > summary").click();
   await expect(first.getByTestId("tool-output")).toBeVisible();
   await second.locator(":scope > summary").click();
@@ -2949,6 +2949,58 @@ test("only the latest Work group peeks; every earlier group folds", async ({ pag
   await expect(second.getByTestId("tool-output")).toBeVisible();
   await expect(groups.nth(2)).toHaveAttribute("data-scroll-above");
   await expect(groups.nth(2)).not.toHaveAttribute("data-scroll-below");
+});
+
+test("collapsing latest work animates only its head and retains the preview rows", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showWorkGroups());
+  const group = page.locator(".tool-group-container").last();
+  await group.locator(".tool-group > summary").click();
+  await expect(group.getByLabel("Work details").getByTestId("tool-call")).toHaveCount(1);
+  await expect
+    .poll(() =>
+      group.evaluate((element) =>
+        element
+          .getAnimations({ subtree: true })
+          .some((animation) => animation.playState === "running"),
+      ),
+    )
+    .toBe(false);
+  const closing = await group.evaluate(
+    (element) =>
+      new Promise<{ head: number; tail: number; retained: boolean }>((resolve) => {
+        const disclosure = element.querySelector(".tool-group")!;
+        const preview = element.querySelector('[aria-label="Recent work"]')!;
+        const rows = [...preview.children];
+        const onStart = (event: Event) => {
+          if (
+            !(event instanceof AnimationEvent) ||
+            event.animationName !== "collapse-close" ||
+            !(event.target instanceof HTMLElement) ||
+            event.target.parentElement !== disclosure
+          )
+            return;
+          disclosure.removeEventListener("animationstart", onStart);
+          const animation = event.target.getAnimations()[0]!;
+          animation.pause();
+          animation.currentTime = 0;
+          resolve({
+            head: disclosure.querySelectorAll('[data-testid="tool-call"]').length,
+            tail: preview.querySelectorAll('[data-testid="tool-call"]').length,
+            retained: rows.every((row, index) => preview.children[index] === row),
+          });
+          animation.finish();
+        };
+        disclosure.addEventListener("animationstart", onStart);
+        disclosure.querySelector<HTMLElement>(":scope > summary")!.click();
+      }),
+  );
+  expect(closing).toEqual({ head: 1, tail: 5, retained: true });
+  await expect(group.getByLabel("Work details")).toHaveCount(0);
+  await expect(group.getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(5);
 });
 
 test("reasoning rows render identically in the tail and in expanded details", async ({ page }) => {
@@ -3087,30 +3139,13 @@ test("superseding expanded latest work preserves its tail without a new enter an
   }
 });
 
-test("superseding the latest Work group folds its tail", async ({ page }) => {
+test("superseding the latest Work group removes its settled tail", async ({ page }) => {
   await page.goto(url + "?composer");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showWorkGroups());
   const groups = page.locator(".tool-group-container");
   await expect(groups.nth(2).getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(5);
-  const closingAnimation = await page.evaluate(
-    () =>
-      new Promise<string>((resolve) => {
-        const tail = document
-          .querySelectorAll(".tool-group-container")[2]!
-          .querySelector(".work-tail")!;
-        const onStart = (event: Event) => {
-          const animation = event as AnimationEvent;
-          if (event.target === tail && animation.animationName === "collapse-close") {
-            tail.removeEventListener("animationstart", onStart);
-            resolve(animation.animationName);
-          }
-        };
-        tail.addEventListener("animationstart", onStart);
-        window.composerFixture.splitWorkGroup();
-      }),
-  );
-  expect(closingAnimation).toBe("collapse-close");
+  await page.evaluate(() => window.composerFixture.splitWorkGroup());
   await expect(groups).toHaveCount(4);
   await expect(groups.nth(2).getByLabel("Recent work")).toHaveCount(0);
   await expect(groups.nth(2).locator(".tool-group > summary")).toContainText("Worked");

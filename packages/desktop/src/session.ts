@@ -16,8 +16,10 @@ import {
   textOf,
   type Conversation,
   type ConversationId,
+  type DeliveryIntent,
   type HistoryEntry,
   type Item,
+  type ImageContent,
   type JsonValue,
   type ModelConfig,
 } from "@harness/protocol";
@@ -284,9 +286,19 @@ export class DesktopSession {
     await this.loadConversations(page, 5, workspaceRoot);
   }
 
+  async deliver(
+    id: ConversationId,
+    text: string,
+    intent: DeliveryIntent,
+    images?: ImageContent[],
+  ): Promise<void> {
+    await this.domain.deliver(id, text, intent, images);
+    if (text.length > 0 || images?.length) this.touchConversation(id);
+  }
+
   /** A sent message makes its conversation most-recent in place — no list refetch.
    * Order here is presentational; the server stays canonical on the next refetch.
-   * Recents intentionally admits a touched root missing from the loaded window; project pages only reorder. */
+   * Conversation lists admit a touched root missing from the loaded window. */
   private touchConversation(id: ConversationId): void {
     // Spawned children never appear in sidebar listings; leave them alone.
     if (this.client.rootOf(id) !== id) return;
@@ -299,8 +311,17 @@ export class DesktopSession {
     };
     this.recents.rows = front(this.recents.rows);
     const root = conversationProjectRoot(conversation);
-    // Only reorder a loaded page; fabricating an entry would masquerade as a
-    // complete list and suppress its real load.
+    const projectIndex = this.projects.rows.findIndex((project) => project.workspaceRoot === root);
+    if (projectIndex > 0) {
+      const rows = this.projects.rows;
+      this.projects.rows = [
+        rows[projectIndex]!,
+        ...rows.slice(0, projectIndex),
+        ...rows.slice(projectIndex + 1),
+      ];
+    }
+    // Only update an existing page; creating one here would suppress its real
+    // initial load when the project is expanded.
     const page = root === null ? undefined : this.projectPages.get(root);
     if (page) page.rows = front(page.rows);
     this.sidebarChanged();
@@ -419,7 +440,6 @@ export class DesktopSession {
           if (isKernelEvent(event) && event.type === "item.appended") {
             const item = event.item;
             if (!view.items.some((current) => current.id === item.id)) view.items.push(item);
-            if (item.type === "message" && item.role === "user") this.touchConversation(id);
           }
           view.state = reduce(view.state, event, Date.now());
           view.publish(

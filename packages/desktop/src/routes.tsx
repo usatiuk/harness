@@ -222,7 +222,7 @@ export function createDesktopRouter(
           const capturedImages = getImageDraft(id).images;
           if (!text && images.length === 0) throw new Error("Enter a message");
           try {
-            await session.domain.deliver(id, text, delivery, images);
+            await session.deliver(id, text, delivery, images);
           } catch (error) {
             if (!session.client.peer.ready)
               throw new Error(
@@ -1180,8 +1180,8 @@ export function createDesktopRouter(
     const [tailStartKey, setTailStartKey] = useState<string | undefined>();
     // `open` is the only visibility state. `asLatest` remembers whether the
     // group was opened as latest so losing `latest` mid-expansion keeps the
-    // same containers instead of remounting; both reset together on collapse,
-    // so no stale branch can reopen or shut the group later.
+    // same containers instead of remounting. Keep that shape through the exit
+    // animation; the next expansion captures whether the group is latest again.
     const calls = row.steps.filter(
       (step) => step.cell.kind === "tool" && !("boundary" in step && step.boundary === "result"),
     ).length;
@@ -1246,10 +1246,10 @@ export function createDesktopRouter(
     const tail = row.steps.slice(tailStart);
     // The tail preview belongs to the latest group only and is always settled:
     // it mounts with the latest group's content and never animates. Only the
-    // head disclosure animates. `split` is a pure function of open-state, so a
-    // `latest` flip while open changes nothing visible.
-    const split = open && asLatest;
-    const showTail = split || (latest && !open);
+    // head disclosure animates, including on collapse: its retained exit body
+    // must not acquire a second copy of the preview rows.
+    const split = latest || asLatest;
+    const showTail = (open && asLatest) || (latest && !open);
     return (
       <div className="cell work-scroll-frame">
         <div className="tool-group-container scroll-shadows" ref={scrollShadows}>
@@ -1266,7 +1266,6 @@ export function createDesktopRouter(
                   setAsLatest(latest);
                 } else {
                   setTailStartKey(undefined);
-                  setAsLatest(false);
                 }
                 setOpen(event.currentTarget.open);
               }}

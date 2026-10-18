@@ -307,7 +307,10 @@ describe("workspace tools", () => {
     const ctx = await workspace();
     const result = await runCommand(ctx, linesCommand(ctx, 100), { max_lines: 200 });
     expect(result.status).toBe("ok");
-    const body = text(result);
+    const output = result.forModel[1];
+    expect(output?.type).toBe("text");
+    if (output?.type !== "text") throw new Error("expected command output text");
+    const body = output.text;
     expect(body).not.toContain("more lines");
     expect(body).toMatch(/^1$/m);
     expect(body).toMatch(/^100$/m);

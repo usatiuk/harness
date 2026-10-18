@@ -256,6 +256,11 @@ through content envelopes. Full results and refs stay in canonical history.
 
 ## Output handling
 
+Commands default to a 40-line tail under a 16 KiB view budget. Optional
+`max_lines` selects up to 500 lines with a 64 KiB budget for views above 40 lines;
+each line remains capped at 1 KiB. The selection applies to both live activity
+peeks and terminal results. Larger output remains available through its spill file.
+
 Short results remain inline. The output plugin preserves large results in the
 substrate's `.harness/<conversation>/outputs` store and returns a bounded model-
 facing view plus its path. Streaming processes use the same store when they move

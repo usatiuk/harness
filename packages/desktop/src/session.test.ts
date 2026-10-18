@@ -610,6 +610,10 @@ it("moves the messaged conversation to the front of the sidebar in place", async
     const second = await desktop.domain.createConversation();
     const root = "/proj";
     desktop.recents.rows = [first, second];
+    desktop.projects.rows = [
+      { workspaceRoot: "/other", lastUsedAt: 2 },
+      { workspaceRoot: root, lastUsedAt: 1 },
+    ];
     desktop.projectPages.set(root, {
       rows: [first, second],
       cursor: null,
@@ -631,7 +635,7 @@ it("moves the messaged conversation to the front of the sidebar in place", async
     const unsubscribe = desktop.subscribeSidebar(() => {
       notified += 1;
     });
-    await desktop.client.deliver(last.id, "hello", "send");
+    await desktop.deliver(last.id, "hello", "send");
     await service.whenIdle(last.id);
     // The send path must not reset the lists: same page objects, no refetch storm.
     expect(desktop.recents).toBe(recents);
@@ -640,11 +644,91 @@ it("moves the messaged conversation to the front of the sidebar in place", async
     await vi.waitFor(() => {
       expect(desktop.recents.rows[0]?.id).toBe(last.id);
       expect(desktop.projectPages.get(root)?.rows[0]?.id).toBe(last.id);
+      expect(desktop.projects.rows.map((project) => project.workspaceRoot)).toEqual([
+        root,
+        "/other",
+      ]);
     });
     expect(notified).toBeGreaterThan(0);
     unsubscribe();
     expect(desktop.recents.rows.map((row) => row.id).sort()).toEqual([...before].sort());
   } finally {
+    desktop.client.closeConnection();
+    await host.shutdown();
+    await server.shutdown();
+  }
+});
+
+it("touches sidebar recency on accepted queued human input, excluding plugin input and empty interrupts", async () => {
+  const provider = new GateProvider("done");
+  const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
+    store: new InMemoryStore(),
+    home: "/nonexistent-harness-home",
+    defaults: { model: { provider: "fake", model: "fake-1" } },
+    plugins: [{ id: "fake", providers: () => [provider] }],
+  });
+  const pair = createInProcessMessageConnectionPair();
+  const host = new HarnessRpcHost(service);
+  const server = new HarnessRpcSession({
+    connection: pair.right,
+    host,
+    server: { name: "test", version: "1" },
+  });
+  const desktop = new DesktopSession(pair.left);
+  registerFeatureServer(server);
+  server.start();
+  try {
+    await desktop.start();
+    const first = await desktop.domain.createConversation();
+    const second = await desktop.domain.createConversation();
+    const view = await desktop.load(first.id);
+    await desktop.deliver(first.id, "start", "send");
+    await provider.started;
+    desktop.recents.rows = [second, first];
+
+    await desktop.deliver(first.id, "queued human input", "queue");
+    expect(desktop.recents.rows.map((row) => row.id)).toEqual([first.id, second.id]);
+    expect(view.items).not.toContainEqual(
+      expect.objectContaining({
+        type: "message",
+        content: [{ type: "text", text: "queued human input" }],
+      }),
+    );
+
+    desktop.recents.rows = [second, first];
+    const rejected = vi
+      .spyOn(desktop.domain, "deliver")
+      .mockRejectedValueOnce(new Error("rejected"));
+    await expect(desktop.deliver(first.id, "rejected input", "queue")).rejects.toThrow("rejected");
+    rejected.mockRestore();
+    expect(desktop.recents.rows.map((row) => row.id)).toEqual([second.id, first.id]);
+
+    await desktop.deliver(first.id, "", "interrupt");
+    expect(desktop.recents.rows.map((row) => row.id)).toEqual([second.id, first.id]);
+    provider.release();
+    await service.whenIdle(first.id);
+    await service.deliver(
+      first.id,
+      {
+        source: { kind: "plugin", pluginId: "activities" },
+        content: [{ type: "text", text: "plugin completion" }],
+      },
+      "queue",
+    );
+    await service.whenIdle(first.id);
+    await vi.waitFor(() =>
+      expect(view.items).toContainEqual(
+        expect.objectContaining({
+          type: "message",
+          role: "user",
+          content: [{ type: "text", text: "plugin completion" }],
+        }),
+      ),
+    );
+    expect(desktop.recents.rows.map((row) => row.id)).toEqual([second.id, first.id]);
+  } finally {
+    provider.release();
     desktop.client.closeConnection();
     await host.shutdown();
     await server.shutdown();

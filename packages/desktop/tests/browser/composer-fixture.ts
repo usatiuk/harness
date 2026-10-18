@@ -227,6 +227,7 @@ let releaseHistory: (() => void) | undefined;
 let collapsedPages = 0;
 let releasePeek: (() => void) | undefined;
 const session = {
+  deliver: (...args: Parameters<typeof domain.deliver>) => domain.deliver(...args),
   async older() {
     window.composerFixture.historyCalls++;
     await new Promise<void>((resolve) => {

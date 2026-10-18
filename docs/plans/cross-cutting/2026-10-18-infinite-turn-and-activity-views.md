@@ -23,7 +23,7 @@
 - [x] M1 infinite turn: remove const/loop-bound/throw + doc line; `npm run check` + new/existing core test for >100 rounds.
 - [x] M2 command max_lines: schema + per-activity view plumbing + caps; workspace/execution tests; doc touch.
 - [x] M3 subagent peek: args~100 + in-place ok/fail by callId; subagents tests; doc touch.
-- [ ] M4 validation: `npm run check`, focused Vitest, independent review, plan evidence.
+- [x] M4 validation: `npm run check`, focused Vitest, independent review, plan evidence.
 
 ## Validation (2026-10-18)
 
@@ -46,3 +46,40 @@
 - Stuck-model spend now bounded only by context/compaction or interrupt — accepted per request.
 - Over-cap `max_lines`: tool boundary (wire schema + direct `execute`) rejects, internal library (`resolveCommandView`/`createProcessActivity`) clamps defensively — intentional layering, documented in Validation.
 - Subagent `#lines` log grows unbounded per long turn (peek shows last 40; array trims only on activity GC); in-place `callId` rewrite can mutate already-emitted peek lines — accepted by design.
+
+## Inclusive commit review and minor release
+
+Scope: `78bf32d` through `593df9d`, eight commits covering work-group expansion,
+sidebar updates, composer height, unbounded turns and activity views.
+
+- [x] Three independent read-only reviews: behavior, architecture/failure risk,
+      desktop/tests/documentation, each including simplicity.
+- [x] Correct confirmed findings and verify focused regressions.
+- [x] Pass full `npm run check` outside the sandbox and record final evidence.
+- [ ] Commit and push the reviewed corrections; dispatch the standard minor
+      release workflow, verify signed assets and publish `v0.8.0`.
+
+Confirmed findings: latest work-group collapse duplicated its preview rows during
+the exit animation; project-group ordering stopped following accepted sends;
+history-based sidebar touches delayed queued input and admitted plugin output;
+the widened-command test incorrectly concatenated summary and output blocks.
+The corrections retain existing presentation/activity boundaries and add no
+ordering or lifecycle machinery. Browser assertions expecting the intentionally
+removed tail animation are updated to the settled-tail behavior.
+
+Initial full check: typecheck, lint and formatting passed; 1,705 tests passed,
+45 skipped and two failed. The command assertion failure is corrected at its
+output-block boundary. The unrelated worktree failure is caused by the sandbox's
+empty read-only `/tmp/.git` mount; the same test passes outside the sandbox.
+Seven focused Chromium cases pass, including a paused-animation regression.
+
+Final unrestricted `npm run check`: typecheck, lint and formatting pass; 168 test
+files and 1,712 tests pass, 41 tests skip. Focused session/app-API checks pass 22
+tests; session/workspace command checks pass 41 tests. All three independent
+review lenses report no remaining actionable findings after the corrections.
+
+Broader affected Chromium sweep: 36/37 pass. The existing native-scrollbar width
+test times out awaiting `animationstart`, then passes in isolation; a separate
+Chromium probe also observes the expected animation. Its intermittent timeout
+cause remains unknown and open; this does not establish a product fix or a clean
+37-case run. Native desktop installer/update interaction was not requalified.

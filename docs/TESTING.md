@@ -18,6 +18,12 @@ Current coverage boundaries, platform evidence, and gaps are documented in the
 [testing subsystem](subsystems/testing/README.md); its active checklist is in
 [the testing plan](subsystems/testing/PLAN.md).
 
+The [infinite-turn and activity-view review](plans/cross-cutting/2026-10-18-infinite-turn-and-activity-views.md)
+covers 150 tool rounds, bounded command tails and call/result-linked subagent
+peeks. Desktop RPC tests cover in-place sidebar ordering on accepted input;
+Chromium tests pause the work-group closing animation to verify that preview rows
+are retained without duplication. Native desktop qualification remains separate.
+
 ## Commands
 
 ```sh
