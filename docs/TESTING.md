@@ -1616,6 +1616,11 @@ Full Chromium passes 80 of 81 cases; the only failure remains the same baseline
 12px history-anchor shift described above. Native desktop and live-provider
 execution are not established by these controlled fixtures.
 
+Explore profile follow-up: the built-in catalog regression verifies that both
+general and explore omit a tool allowlist; explore's read-only role is
+prompt-directed. Explicit custom allowlists still pass through child creation.
+The 14 focused subagent tests pass.
+
 ## Async questions
 
 `packages/service/src/questions.test.ts` exercises question lifecycle and durable

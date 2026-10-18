@@ -110,8 +110,11 @@ Each agent definition contains:
 - An optional Harness tool allowlist.
 - An optional model override; absent inherits the parent's resolved model.
 
-The shipped catalog includes `general` and read-only `explore`; setting an agent
-array replaces the defaults. Maximum recursion depth defaults to two (root, child, grandchild).
+The shipped catalog includes `general` and `explore`, neither with a tool
+allowlist. Explore's prompt directs read-only research through available tools,
+including web search; its read-only role is instructional rather than a separate
+tool restriction. Setting an agent array replaces the defaults. Maximum recursion
+depth defaults to two (root, child, grandchild).
 Each parent defaults to three active direct children; finished children count
 until dismissed. Both limits are positive integer settings (`maxDepth`,
 `maxChildren`) exposed in the desktop and TUI host defaults. Parent-local spawn
@@ -147,8 +150,8 @@ lists omit dismissed branches, and family sends to them fail, except that a chil
 can always send to its direct parent. Existing activity completion can still wake
 a dismissed owner; it stays dismissed. Dismissed agents cannot spawn hidden
 children. Dismissal preserves history and does not cancel existing activities.
-GUI inspection retains paged historical branches. Tool allowlists still govern
-communication; the built-in explore profile includes the three new tools.
+GUI inspection retains paged historical branches. Configured tool allowlists
+still govern communication.
 
 The subagent is itself backgroundable. Foreground completion returns the child's
 final result. Background execution is tracked through the same activity tools and

@@ -31,6 +31,9 @@ input, configurable depth/roster limits in GUI/TUI, full ancestor headers,
 Running/Finished tree sections and compact activity controls with owner labels.
 Full checks pass 1,492 tests; Chromium passes 80/81 with the same baseline
 history-anchor failure, and all five affected GTK WebKit cases pass.
+The built-in explore profile now has no tool allowlist; its prompt directs
+read-only research through available tools, including web search. Custom agent
+tool scopes remain supported.
 
 The [disclosure presentation follow-up](docs/plans/interface/2026-10-17-disclosure-animation.md)
 shares grid/fade animations, keeps compact Work peeks, caps outer scrolling at 40vh

@@ -352,21 +352,11 @@ describe("depthOf", () => {
 
 describe("subagentsConfigSchema — built-in agents", () => {
   it("ships general + explore when `agents` is unset, and replacing it drops the built-ins", () => {
-    // Unset ⇒ the built-in defaults (general unrestricted, explore read-only).
+    // Both profiles expose all tools; explore's read-only role is prompt-directed.
     const defaults = subagentsConfigSchema.parse({});
     expect(defaults.agents.map((a) => a.name)).toEqual(["general", "explore"]);
     const explore = defaults.agents.find((a) => a.name === "explore")!;
-    expect(explore.tools).toEqual({
-      allow: [
-        "read_file",
-        "glob",
-        "bash",
-        "powershell",
-        "subagent_list",
-        "subagent_send",
-        "subagent_dismiss",
-      ],
-    });
+    expect(explore.tools).toBeUndefined();
     expect(defaults.agents.find((a) => a.name === "general")!.tools).toBeUndefined();
 
     // Setting `agents` replaces wholesale (no merge) — the built-ins are gone unless redeclared.
