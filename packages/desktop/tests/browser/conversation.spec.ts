@@ -1726,7 +1726,7 @@ test("long tool arguments stay within the work group width", async ({ page }) =>
   expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.width);
 });
 
-test("compact reasoning peeks stay bounded and full content mounts only when opened", async ({
+test("compact reasoning peeks wrap under the label and keep the streamed end visible", async ({
   page,
 }) => {
   await page.goto(url + "?composer");
@@ -1734,46 +1734,51 @@ test("compact reasoning peeks stay bounded and full content mounts only when ope
   await page.evaluate(() => window.composerFixture.showLivePreview());
   const preview = page.getByLabel("Recent work");
   const reasoning = preview.locator(".preview-reasoning");
-  await expect(preview).not.toContainText("old.ts");
-  await expect(reasoning).toContainText("Latest reasoning tail.");
-  expect((await reasoning.textContent())!.replace(/^\s*·\s*/u, "").length).toBeLessThanOrEqual(
-    2000,
-  );
-  expect(await reasoning.textContent()).not.toContain("\n\n");
-  const boundedLines = (budget: number) =>
-    page.evaluate((budget) => {
-      const element = document.querySelector<HTMLElement>(
-        '[aria-label="Recent work"] .preview-reasoning',
-      );
-      if (!element) return false;
-      const lines =
-        element.getBoundingClientRect().height / parseFloat(getComputedStyle(element).lineHeight);
-      return lines > 0 && lines <= budget;
-    }, budget);
-  const markerBounds = (marker?: string) =>
+  const thought = preview.locator(".reasoning");
+  const rowLayout = (marker: string) =>
     reasoning.evaluate((element, marker) => {
-      const viewport = element.querySelector(".reasoning-excerpt")!;
-      const text = viewport.querySelector("span")!.firstChild!;
-      const content = text.textContent!;
-      const offset = marker === undefined ? 0 : content.lastIndexOf(marker);
-      if (offset < 0) throw new Error(`Missing reasoning marker: ${marker}`);
+      const summary = element.closest(".reasoning-summary")!;
+      const label = summary.querySelector(".reasoning-label")!.getBoundingClientRect();
+      const text = element.querySelector(".reasoning-excerpt > span")!.firstChild;
+      if (!text) return { lines: 0, markerVisible: false };
       const range = document.createRange();
+      range.selectNodeContents(text);
+      const lines = [...range.getClientRects()];
+      if (lines.length === 0) return { lines: 0, markerVisible: false };
+      const content = text.textContent!;
+      const offset = content.lastIndexOf(marker);
+      if (offset < 0) return { lines: lines.length, markerVisible: false };
       range.setStart(text, offset);
-      range.setEnd(
-        text,
-        marker === undefined ? Math.min(20, content.length) : offset + marker.length,
-      );
+      range.setEnd(text, offset + marker.length);
       const bounds = range.getBoundingClientRect();
-      const clip = viewport.getBoundingClientRect();
+      const clip = summary.getBoundingClientRect();
       return {
-        intersects: bounds.right > clip.left && bounds.left < clip.right,
-        fullyVisible: bounds.left >= clip.left - 1 && bounds.right <= clip.right + 1,
+        lines: lines.length,
+        firstAfterLabel:
+          lines[0]!.left >= label.right - 1 && Math.abs(lines[0]!.top - label.top) <= 2,
+        secondUnderLabel: lines.length > 1 && Math.abs(lines[1]!.left - label.left) <= 2,
+        markerVisible:
+          bounds.left >= clip.left - 1 &&
+          bounds.right <= clip.right + 1 &&
+          bounds.top >= clip.top - 1 &&
+          bounds.bottom <= clip.bottom + 1,
       };
     }, marker);
-  await expect.poll(() => boundedLines(1)).toBe(true);
-  await expect.poll(() => markerBounds("Final check.")).toMatchObject({ fullyVisible: true });
-  await expect.poll(() => markerBounds()).toMatchObject({ intersects: false });
-  const thought = preview.locator(".reasoning");
+  const expectWrappedEnd = async (marker: string) => {
+    await expect
+      .poll(() => rowLayout(marker))
+      .toMatchObject({
+        lines: 2,
+        firstAfterLabel: true,
+        secondUnderLabel: true,
+        markerVisible: true,
+      });
+    const rendered = (await reasoning.textContent())!;
+    expect(rendered.length).toBeLessThan(2000);
+    expect(rendered).not.toContain("\n\n");
+  };
+  await expect(preview).not.toContainText("old.ts");
+  await expectWrappedEnd("Final check.");
   await expect(thought.locator("p")).toHaveCount(0);
   await thought.locator(":scope > summary").click();
   await expect(thought.locator("p").first()).toContainText("Latest reasoning tail.");
@@ -1789,26 +1794,65 @@ test("compact reasoning peeks stay bounded and full content mounts only when ope
       .nth(1)
       .evaluate((paragraph) => getComputedStyle(paragraph).marginTop),
   ).toBe("4px");
-  expect((await thought.textContent())!.length).toBeGreaterThan(2000);
+  const original = (await thought.locator("p").allTextContents()).join(" ").replace(/\s+/gu, " ");
+  expect(original.length).toBeGreaterThan(2000);
   await thought.locator(":scope > summary").press("Space");
   await expect(thought.locator("p")).toHaveCount(0);
-  await expect(reasoning).toBeVisible();
+  await expectWrappedEnd("Final check.");
+  expect(original.endsWith((await reasoning.textContent())!)).toBe(true);
   await page.evaluate(() => window.composerFixture.showLivePreview(true));
   await expect(page.locator(".tool-group")).toHaveCount(0);
-  await expect.poll(() => boundedLines(1)).toBe(true);
   await page.setViewportSize({ width: 760, height: 720 });
-  await expect.poll(() => boundedLines(1)).toBe(true);
-  await expect.poll(() => markerBounds("Final check.")).toMatchObject({ fullyVisible: true });
+  await expectWrappedEnd("Final check.");
+  const streamed =
+    "Streaming previous explanation. ".repeat(4000) + "A fresh streamed final marker.";
+  await page.evaluate((text) => window.composerFixture.appendPreviewReasoning(text), streamed);
+  await expectWrappedEnd("A fresh streamed final marker.");
+  expect(streamed.endsWith((await reasoning.textContent())!)).toBe(true);
+  await page.setViewportSize({ width: 1024, height: 720 });
+  await expectWrappedEnd("A fresh streamed final marker.");
+  await page.setViewportSize({ width: 760, height: 720 });
+  await expectWrappedEnd("A fresh streamed final marker.");
+  await thought.locator(":scope > summary").click();
+  await expect(reasoning).toBeHidden();
   await page.evaluate(() =>
     window.composerFixture.appendPreviewReasoning(
-      "Streaming previous explanation. ".repeat(4000) + "A fresh streamed final marker.",
+      "Expanded stream content. ".repeat(4000) + "Updated while expanded.",
     ),
   );
-  await expect
-    .poll(() => markerBounds("A fresh streamed final marker."))
-    .toMatchObject({ fullyVisible: true });
-  await expect.poll(() => markerBounds()).toMatchObject({ intersects: false });
-  await expect.poll(() => boundedLines(1)).toBe(true);
+  await expect(thought.locator("p")).toHaveText(/Updated while expanded\.$/);
+  await expect(reasoning).toBeHidden();
+  await thought.locator(":scope > summary").press("Space");
+  await expect(thought.locator("p")).toHaveCount(0);
+  await expectWrappedEnd("Updated while expanded.");
+  await page.evaluate(() => window.composerFixture.showLivePreview(true));
+  const summary = thought.locator(".reasoning-summary");
+  for (const width of [200.6, 214.6]) {
+    await summary.evaluate((element, width) => {
+      Object.assign(element.style, {
+        flex: `0 0 ${width}px`,
+        width: `${width}px`,
+        maxWidth: `${width}px`,
+      });
+    }, width);
+    expect(
+      await summary.evaluate((element) => parseFloat(getComputedStyle(element).width)),
+    ).toBeCloseTo(width, 1);
+    await expectWrappedEnd("Final check.");
+    await expect
+      .poll(() =>
+        summary.evaluate(
+          (element) =>
+            element.getBoundingClientRect().height -
+            2 * parseFloat(getComputedStyle(element).lineHeight),
+        ),
+      )
+      .toBeLessThanOrEqual(0.5);
+  }
+  await summary.evaluate((element) => {
+    for (const property of ["flex", "width", "max-width"]) element.style.removeProperty(property);
+  });
+  await expectWrappedEnd("Final check.");
   await page.screenshot({ path: test.info().outputPath("quiet-live-preview.png") });
 });
 
@@ -2062,7 +2106,9 @@ test("reasoning rows render identically in the tail and in expanded details", as
     await expect(summary.locator(".preview-reasoning")).toBeVisible();
     const inline = await summary.evaluate((element) => {
       const label = element.querySelector(".reasoning-label")!.getBoundingClientRect();
-      const preview = element.querySelector(".preview-reasoning")!.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(element.querySelector(".reasoning-excerpt > span")!);
+      const preview = range.getClientRects()[0]!;
       return {
         labelTop: label.top,
         previewTop: preview.top,

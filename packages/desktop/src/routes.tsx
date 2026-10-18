@@ -1291,6 +1291,80 @@ export function createDesktopRouter(
     );
   });
 
+  function ReasoningSummary({ label, text }: { label: ReactNode; text: string }) {
+    const observe = useCallback(
+      (element: HTMLSpanElement | null) => {
+        if (!element || text.trim() === "") return;
+        const labelElement = element.querySelector<HTMLElement>(".reasoning-label")!;
+        // React leaves this span empty; the ref owns its measured text.
+        const excerpt = element.querySelector<HTMLElement>(".reasoning-excerpt > span")!;
+        const characters = Array.from(text.slice(-2000).replace(/\s+/gu, " "));
+        const probe = document.createElement("span");
+        probe.className = "reasoning-measure";
+        probe.setAttribute("aria-hidden", "true");
+        probe.inert = true;
+        const probeLabel = labelElement.cloneNode(true) as HTMLElement;
+        probeLabel.removeAttribute("class");
+        probeLabel.style.display = "inline-block";
+        probeLabel.style.whiteSpace = "nowrap";
+        const probeText = document.createTextNode("");
+        probe.append(probeLabel, probeText);
+        document.body.append(probe);
+        let measuredWidth = -1;
+        let measuredLabelWidth = -1;
+        const measure = () => {
+          const style = getComputedStyle(element);
+          // clientWidth rounding can otherwise fit a spurious third line.
+          const width = parseFloat(style.width);
+          const labelWidth = labelElement.getBoundingClientRect().width;
+          if (!width || (width === measuredWidth && labelWidth === measuredLabelWidth)) return;
+          measuredWidth = width;
+          measuredLabelWidth = labelWidth;
+          Object.assign(probe.style, {
+            width: `${width}px`,
+            font: style.font,
+            lineHeight: style.lineHeight,
+            letterSpacing: style.letterSpacing,
+          });
+          probeLabel.textContent = labelElement.textContent;
+          const maxHeight = Math.ceil(parseFloat(style.lineHeight) * 2);
+          let start = 0;
+          let end = characters.length;
+          // Fit the newest suffix using the browser's actual inline wrapping,
+          // including the label on line one and full width on line two.
+          while (start < end) {
+            const middle = Math.floor((start + end) / 2);
+            probeText.data = ` · ${characters.slice(middle).join("")}`;
+            if (probe.clientHeight > maxHeight) start = middle + 1;
+            else end = middle;
+          }
+          excerpt.textContent = characters.slice(start).join("");
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(element);
+        observer.observe(labelElement);
+        return () => {
+          observer.disconnect();
+          probe.remove();
+        };
+      },
+      [text],
+    );
+    return (
+      <span className="reasoning-summary" ref={observe}>
+        <span className="reasoning-label">{label}</span>
+        {text.trim() !== "" && (
+          <span className="preview-reasoning">
+            <span className="reasoning-excerpt">
+              <span />
+            </span>
+          </span>
+        )}
+      </span>
+    );
+  }
+
   const Reasoning = memo(function Reasoning({
     cell,
   }: {
@@ -1316,18 +1390,7 @@ export function createDesktopRouter(
         className="cell reasoning"
         unmountOnExit
         name="conversation-step"
-        title={
-          <span className="reasoning-summary">
-            <span className="reasoning-label">{label}</span>
-            {cell.text.trim() !== "" && (
-              <span className="preview-reasoning">
-                <span className="reasoning-excerpt">
-                  <span>{cell.text.slice(-2000).replace(/\s+/gu, " ")}</span>
-                </span>
-              </span>
-            )}
-          </span>
-        }
+        title={<ReasoningSummary label={label} text={cell.text} />}
       >
         <div className="message-actions">
           <FeedbackControls session={session} itemId={cell.id} />

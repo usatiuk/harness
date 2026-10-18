@@ -502,15 +502,17 @@ until a newer group supersedes it; superseding folds the tail with the shared
 collapse animation. The latest tail appears immediately when a virtualized
 group remounts; restoration does not replay an opening animation. Expanding a
 group adds exactly the hidden entries above the tail without remounting it, so
-only the added rows animate. While expanded, the
-split stays at the same entry as new steps arrive, preserving open tool/thought
+only the added rows animate. While expanded, the split stays at the same entry
+as new steps arrive, preserving open tool/thought
 details; closing restores the five-entry tail. Empty reasoning rows are omitted.
 Step rows render identically in the tail and in expanded details. A collapsed
-reasoning row shows its Thinking/Thought label followed inline by a single-line preview of
-the text's last 2,000 characters, with whitespace collapsed. Streaming updates
-keep the newest end visible by clipping older text from the left; the label stays
-in place. Opening the thought leaves only the label in the summary and renders the full original Markdown
-below, so the preview is not repeated. A faint left guide and small content
+reasoning row shows its Thinking/Thought label followed by an inline preview.
+The second line uses the full row width, starting underneath the label. The
+latest suffix is fitted to two lines using the browser's actual wrapping, bounded
+by the last 2,000 characters with whitespace collapsed. Streaming updates retain
+the newest end, and short text uses one line. Resizing or a wider duration label
+recomputes the suffix. Opening the thought leaves only the label in the summary
+and renders the full original Markdown below, so the preview is not repeated. A faint left guide and small content
 indent associate rows with their Work heading. Work paragraphs use 4px spacing;
 compact reasoning previews collapse whitespace while expanded reasoning preserves
 the original Markdown paragraphs.

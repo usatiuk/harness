@@ -98,7 +98,7 @@ native keyboard expansion. A 60-second server-clock-skew scenario verifies live
 and completed labels use desktop observation time. Unit cases cover suffix-bearing
 call IDs and preserving a live group’s observed timing when history prepends. Quiet
 active previews are checked with long reasoning exceeding 2,000 characters,
-five-entry tails with mixed reasoning/tool rows, single-line reasoning previews at
+five-entry tails with mixed reasoning/tool rows, two-line reasoning previews at
 narrow width, tail persistence across expansion, identical reasoning rows in
 tail and expanded details, label-only expanded thought summaries, supersede
 folding, no opening animation on virtualized latest-tail restoration or

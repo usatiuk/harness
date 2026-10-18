@@ -870,37 +870,37 @@ main {
   line-height: inherit;
 }
 .reasoning-summary {
-  display: flex;
-  align-items: baseline;
+  display: block;
   flex: 1;
   min-width: 0;
-  gap: 6px;
 }
 .reasoning-label {
-  flex-shrink: 0;
-}
-.preview-reasoning {
-  display: flex;
-  min-width: 0;
-  gap: 6px;
+  display: inline-block;
+  white-space: nowrap;
 }
 .preview-reasoning::before {
-  content: "·";
-  flex-shrink: 0;
+  content: " · ";
 }
 .reasoning-excerpt {
-  /* Keep the streamed end visible while older text clips off the left. */
-  display: flex;
-  justify-content: flex-end;
-  min-width: 0;
-  overflow: hidden;
+  overflow-wrap: anywhere;
 }
-.reasoning-excerpt > span {
-  flex-shrink: 0;
-  white-space: nowrap;
+.reasoning-measure {
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+  overflow-wrap: anywhere;
 }
 .reasoning[open] .preview-reasoning {
   display: none;
+}
+.disclosure.reasoning > summary {
+  align-items: flex-start;
+}
+.reasoning > summary > .disclosure-chevron {
+  margin-top: calc((1lh - 14px) / 2);
 }
 .tool-icon {
   flex-shrink: 0;

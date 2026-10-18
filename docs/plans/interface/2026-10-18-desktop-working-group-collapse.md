@@ -1,6 +1,6 @@
 # Desktop working-group collapse, in-place expansion, and hover affordance
 
-Status: Complete (cleanup and follow-up validation recorded below).
+Status: Complete (cleanup and full-width two-line preview qualification recorded below).
 
 ## Goal and observable completion condition
 
@@ -322,3 +322,45 @@ simplicity reviews found no remaining scoped issue. Full checks pass again: type
 (41 skipped), with the same `/var/tmp` environment adjustment. The final
 nested-toggle guard and strengthened regression also receive a desktop
 typecheck and targeted Chromium/WebKit rerun.
+
+## Two-line preview correction
+
+The user clarified that the compact reasoning preview should still show up to
+**two lines**, with line two starting underneath Thinking at the row's left edge,
+rather than remaining indented in a separate preview column. The label is a
+normal inline prefix, the latest streamed suffix remains visible, and expanded
+thoughts still hide the preview and show the original body once. This supersedes
+the follow-up's single-line preview choice and the initial two-column correction.
+
+CSS clipping alone cannot preserve both the inline prefix and the latest text
+with full-width wrapping. A local summary component measures an inaccessible,
+fixed-position label clone and candidate suffix using the actual browser font
+and wrapping. A bounded binary search over the existing last 2,000 characters
+selects a trailing suffix fitting two lines. The callback ref owns text in a
+React-empty span; no duplicate React disclosure state or generic layout system
+is added. ResizeObserver responds to summary/label width changes, and cleanup
+removes the probe and observer. The original Markdown body remains untouched.
+
+The browser regression checks actual two-line height, line one after the label,
+and line two starting at the label's left edge. It verifies newest marker
+visibility in both axes and that the rendered text is a suffix of the original,
+including streaming while expanded and window resizing. Fractional CSS widths
+are preserved in measurement: rounding 214.6px to 215px admitted a third line.
+The regression fails against the rounded implementation and passes the fix at
+both 200.6px and 214.6px.
+
+Qualification: Chromium 9/9 and GTK WebKit 4/4 pass; the strengthened renderer
+cases pass again in both engines (2/2 each). Screenshots were inspected in both
+engines. Full checks pass 1,606 tests (41 skipped), with final desktop
+typechecking and focused browser validation covering the fractional-width fix.
+Independent correctness and simplicity reviews found no remaining scoped issue.
+
+## Minor release delivery
+
+The user authorized committing, pushing, and publishing the next minor release
+on October 18. The current published version is v0.4.0; use the existing release
+workflow with `bump=minor` to build v0.5.0 rather than changing versions locally.
+
+- [ ] Commit the qualified preview correction and push the scoped commits.
+- [ ] Run the release workflow and verify source checks and all three builds.
+- [ ] Verify signed metadata, publish the release, and record delivery evidence.
