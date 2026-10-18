@@ -53,6 +53,10 @@ These desktop fixes and the explore-profile update are released in
 [v0.5.0](https://github.com/usatiuk/harness/releases/tag/v0.5.0). All three platform
 builds, signed metadata verification and fresh Windows/Ubuntu CI pass; public
 metadata downloads verify after publication.
+The reasoning-preview follow-up replaces character-sliding suffixes with two
+lines that fill and advance by whole wrapped lines. All three focused headless
+Chromium/WebKit cases and full checks (1,606 tests) pass; the same delivery plan
+records qualification and baseline GTK alignment failures.
 
 The [worktree project/picker follow-up](docs/plans/interface/2026-10-17-worktree-project-picker.md)
 groups conversations by original project before pagination and gives the picker

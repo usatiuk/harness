@@ -1292,13 +1292,14 @@ export function createDesktopRouter(
   });
 
   function ReasoningSummary({ label, text }: { label: ReactNode; text: string }) {
+    const position = useRef({ text: "", start: 0, width: 0 });
     const observe = useCallback(
       (element: HTMLSpanElement | null) => {
         if (!element || text.trim() === "") return;
         const labelElement = element.querySelector<HTMLElement>(".reasoning-label")!;
         // React leaves this span empty; the ref owns its measured text.
         const excerpt = element.querySelector<HTMLElement>(".reasoning-excerpt > span")!;
-        const characters = Array.from(text.slice(-2000).replace(/\s+/gu, " "));
+        const content = text.replace(/\s+/gu, " ");
         const probe = document.createElement("span");
         probe.className = "reasoning-measure";
         probe.setAttribute("aria-hidden", "true");
@@ -1328,17 +1329,39 @@ export function createDesktopRouter(
           });
           probeLabel.textContent = labelElement.textContent;
           const maxHeight = Math.ceil(parseFloat(style.lineHeight) * 2);
-          let start = 0;
-          let end = characters.length;
-          // Fit the newest suffix using the browser's actual inline wrapping,
-          // including the label on line one and full width on line two.
-          while (start < end) {
-            const middle = Math.floor((start + end) / 2);
-            probeText.data = ` · ${characters.slice(middle).join("")}`;
-            if (probe.clientHeight > maxHeight) start = middle + 1;
-            else end = middle;
+          const previous = position.current;
+          let start =
+            text.startsWith(previous.text) && width === previous.width ? previous.start : 0;
+          start = Math.max(start, content.length - 2000);
+          probeText.data = ` · ${content.slice(start)}`;
+          // Keep the first visible line fixed while the second fills. Only a
+          // third line advances the window, always to a browser-wrapped line.
+          while (probe.clientHeight > maxHeight) {
+            const range = document.createRange();
+            range.setStart(probeText, 3);
+            range.setEnd(probeText, 4);
+            const firstTop = range.getBoundingClientRect().top;
+            range.setStart(probeText, probeText.length - 1);
+            range.setEnd(probeText, probeText.length);
+            const lastTop = range.getBoundingClientRect().top;
+            // Text can start below the label (for example, a long word).
+            // Compare glyph positions, and always move past its first line.
+            const lineHeight = parseFloat(style.lineHeight);
+            const lineTop = Math.max(firstTop + lineHeight, lastTop - lineHeight) - lineHeight / 2;
+            let low = 3;
+            let high = probeText.length;
+            while (low < high) {
+              const middle = Math.floor((low + high) / 2);
+              range.setStart(probeText, middle);
+              range.setEnd(probeText, middle + 1);
+              if (range.getBoundingClientRect().top < lineTop) low = middle + 1;
+              else high = middle;
+            }
+            start += low - 3;
+            probeText.data = ` · ${content.slice(start)}`;
           }
-          excerpt.textContent = characters.slice(start).join("");
+          position.current = { text, start, width };
+          excerpt.textContent = content.slice(start);
         };
         measure();
         const observer = new ResizeObserver(measure);

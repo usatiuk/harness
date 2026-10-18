@@ -100,7 +100,11 @@ call IDs and preserving a live group’s observed timing when history prepends. 
 active previews are checked with long reasoning exceeding 2,000 characters,
 five-entry tails with mixed reasoning/tool rows, two-line reasoning previews at
 narrow width, tail persistence across expansion, identical reasoning rows in
-tail and expanded details, label-only expanded thought summaries, supersede
+tail and expanded details. Character-by-character streaming checks that two lines
+fill before the preview advances exactly one wrapped line, using spaced text and
+emoji. Long unbroken ASCII/emoji cases cover text moving below the label without
+stalling or splitting characters. Other cases cover
+label-only expanded thought summaries, supersede
 folding, no opening animation on virtualized latest-tail restoration or
 superseding an expanded group, fold-at-any-size earlier groups,
 hover/focus highlighting, blank-reasoning chronology, bounded tool widths, and

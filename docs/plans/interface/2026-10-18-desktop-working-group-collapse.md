@@ -391,3 +391,36 @@ is published as latest with 19 assets. Test-only correction cad4337 passes fresh
 including native checks. Anonymous published manifest, signature and update-feed
 downloads pass the production signature verifier and report version 0.5.0 with
 all three expected platform entries. No released installer was executed locally.
+
+## Whole-line streaming follow-up
+
+The user found the character-sliding suffix unreadable and explicitly requested:
+fill two lines, then move up one whole line while the new line streams in. This
+supersedes suffix-fitting on every publication. Keep the inline Thinking/Thought
+label, full-width second line, and full original body on expansion.
+
+- [x] Retain the visible start across appended text; advance only at a wrapped
+      line boundary when a third line begins.
+- [x] Keep measurement bounded and handle long words that move below the label.
+- [x] Qualify incremental streaming, Unicode, replacement, resize and expansion
+      in browsers, run repository checks, and commit the verified change.
+
+The existing component now remembers only its current position, source and
+width. Its hidden probe compares text glyph positions to locate wrapped lines.
+The initial block-bottom calculation could select the same start forever when a
+long word left the label alone on line one; the regression reproduced this at
+48 characters, 340px width and 19.8px line height. Glyph-relative advancement
+always drops a text line in that case. The probe retains its 2,000-character
+bound. Three independent read-only reviews found no remaining scoped blocker.
+
+Browser qualification: the new character-by-character regression fails against
+the committed character-sliding implementation and passes the change. All three
+focused reasoning cases pass in headless Chromium and headless WPE WebKit. The
+new streaming/long-word/Unicode case also passes GTK WebKit; two existing GTK
+glyph-alignment assertions fail identically against baseline (2.898px versus a
+2px tolerance). Assertions remain unchanged. A reused GTK config opened headed
+windows; after the user's correction, all further browser runs are headless.
+
+Final `TMPDIR=/var/tmp npm run check` passes typechecking, lint, formatting and
+1,606 tests (41 skipped). The temporary-directory adjustment avoids the existing
+unrelated `/tmp/.git` test-environment interference recorded above.

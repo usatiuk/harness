@@ -1726,6 +1726,74 @@ test("long tool arguments stay within the work group width", async ({ page }) =>
   expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.width);
 });
 
+test("reasoning streams into two lines before advancing a whole line", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.showBlankReasoning();
+    window.composerFixture.appendPreviewReasoning("a");
+  });
+  const summary = page.getByLabel("Recent work").locator(".reasoning-summary");
+  const excerpt = summary.locator(".reasoning-excerpt > span");
+  await page.addStyleTag({
+    content: ".reasoning-summary { width: 340px; flex: 0 0 340px; font-family: monospace; }",
+  });
+  await expect(excerpt).toHaveText("a");
+  let source = "a";
+  let shifts = 0;
+  let secondLineGrowth = 0;
+  for (const character of " b c d e f 🐈 g h i j k l m n o p q r s t u v w x y z".repeat(3)) {
+    const before = await excerpt.evaluate((element) => {
+      const node = element.firstChild!;
+      const range = document.createRange();
+      const text = node.textContent!;
+      let firstTop = 0;
+      let secondLine = -1;
+      for (let offset = 0; offset < text.length; offset++) {
+        range.setStart(node, offset);
+        range.setEnd(node, offset + 1);
+        const top = range.getBoundingClientRect().top;
+        if (offset === 0) firstTop = top;
+        else if (top > firstTop + 2) {
+          secondLine = offset;
+          break;
+        }
+      }
+      return { text, secondLine };
+    });
+    source += character;
+    await page.evaluate((text) => window.composerFixture.appendPreviewReasoning(text), source);
+    await expect.poll(() => excerpt.textContent()).not.toBe(before.text);
+    const after = (await excerpt.textContent())!;
+    if (after === before.text + character) {
+      if (before.secondLine >= 0) secondLineGrowth++;
+    } else {
+      expect(before.secondLine).toBeGreaterThan(0);
+      expect(after).toBe(before.text.slice(before.secondLine) + character);
+      shifts++;
+    }
+  }
+  expect(secondLineGrowth).toBeGreaterThan(10);
+  expect(shifts).toBeGreaterThanOrEqual(2);
+  await summary.click();
+  await expect(page.getByLabel("Recent work").locator(".reasoning p")).toHaveText(source);
+  await expect(summary.locator(".preview-reasoning")).toBeHidden();
+  await summary.click();
+  for (const text of ["x".repeat(48), "🐈".repeat(48)]) {
+    const previous = await excerpt.textContent();
+    await page.evaluate((text) => window.composerFixture.appendPreviewReasoning(text), text);
+    await expect.poll(() => excerpt.textContent()).not.toBe(previous);
+    const rendered = (await excerpt.textContent())!;
+    expect(text.endsWith(rendered)).toBe(true);
+    expect(rendered).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(
+      await summary.evaluate(
+        (element) => element.clientHeight / parseFloat(getComputedStyle(element).lineHeight),
+      ),
+    ).toBeLessThanOrEqual(2.05);
+  }
+});
+
 test("compact reasoning peeks wrap under the label and keep the streamed end visible", async ({
   page,
 }) => {
