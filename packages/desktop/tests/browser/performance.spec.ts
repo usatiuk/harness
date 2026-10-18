@@ -109,7 +109,7 @@ test("bursty streaming updates only live text and leaves composer/header/sidebar
   expect(counts.projection).toBeLessThanOrEqual(2);
   await expect(composer).toHaveValue("Keep my draft");
   await page.getByTestId("tool-call").locator("summary").click();
-  await expect(page.locator(".diff")).toBeVisible();
+  await expect(page.locator(".edit-diff")).toBeVisible();
   expect((await page.evaluate(() => window.performanceFixture.counts())).ToolBody).toBeGreaterThan(
     0,
   );

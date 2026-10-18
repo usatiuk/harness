@@ -5,10 +5,8 @@ import { fileTargetsOfValidatedCall } from "./targets.ts";
 const call = (name: string, args: unknown): ToolCall => ({ callId: "call", name, args });
 
 describe("fileTargetsOfValidatedCall", () => {
-  it.each(["read_file", "write", "edit", "str_replace_based_edit_tool"])(
-    "extracts the path from %s",
-    (name) =>
-      expect(fileTargetsOfValidatedCall(call(name, { path: "src/a.ts" }))).toEqual(["src/a.ts"]),
+  it.each(["read_file", "write", "edit"])("extracts the path from %s", (name) =>
+    expect(fileTargetsOfValidatedCall(call(name, { path: "src/a.ts" }))).toEqual(["src/a.ts"]),
   );
 
   it("extracts every apply_patch source and move destination", () => {

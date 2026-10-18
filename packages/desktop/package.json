@@ -24,6 +24,7 @@
     "@harness/protocol": "*",
     "@harness/questions": "*",
     "@harness/server": "*",
+    "@pierre/diffs": "^1.5.2",
     "@radix-ui/react-presence": "1.1.11",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "^2.12.0",

@@ -14,6 +14,10 @@ export interface Appearance {
   radius: number;
   conversationFontSize: number;
 }
+export interface DiffPreferences {
+  wordWrap: boolean;
+  lineNumbers: boolean;
+}
 export interface ComposerPreferences {
   sendWith: "Enter" | "Shift+Enter";
   showStats: boolean;
@@ -25,6 +29,7 @@ export const defaultAppearance: Appearance = {
   radius: 9,
   conversationFontSize: 14,
 };
+export const defaultDiff: DiffPreferences = { wordWrap: true, lineNumbers: true };
 export const defaultComposer: ComposerPreferences = {
   sendWith: "Enter",
   showStats: false,
@@ -83,6 +88,14 @@ export function readComposer(raw: string | null): ComposerPreferences {
   return {
     sendWith: value.sendWith === "Shift+Enter" ? "Shift+Enter" : "Enter",
     showStats: typeof value.showStats === "boolean" ? value.showStats : defaultComposer.showStats,
+  };
+}
+export function readDiff(raw: string | null): DiffPreferences {
+  const value = storedObject(raw);
+  return {
+    wordWrap: typeof value.wordWrap === "boolean" ? value.wordWrap : defaultDiff.wordWrap,
+    lineNumbers:
+      typeof value.lineNumbers === "boolean" ? value.lineNumbers : defaultDiff.lineNumbers,
   };
 }
 /** Composer delivery and interrupt shortcuts leave composition/native editing alone. */

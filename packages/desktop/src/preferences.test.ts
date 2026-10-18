@@ -3,8 +3,10 @@ import {
   composerKey,
   defaultAppearance,
   defaultComposer,
+  defaultDiff,
   readAppearance,
   readComposer,
+  readDiff,
 } from "./preferences.ts";
 
 describe("desktop client preferences", () => {
@@ -29,6 +31,19 @@ describe("desktop client preferences", () => {
       expect(
         readAppearance(JSON.stringify({ conversationFontSize: value }), null).conversationFontSize,
       ).toBe(14);
+  });
+  it("validates persisted diff display preferences independently", () => {
+    expect(readDiff(null)).toEqual(defaultDiff);
+    expect(readDiff('{"wordWrap":false,"lineNumbers":false}')).toEqual({
+      wordWrap: false,
+      lineNumbers: false,
+    });
+    expect(readDiff('{"wordWrap":true,"lineNumbers":"false"}')).toEqual(defaultDiff);
+    expect(readDiff('{"wordWrap":0,"lineNumbers":false}')).toEqual({
+      wordWrap: true,
+      lineNumbers: false,
+    });
+    for (const raw of ["broken", "[]", "null"]) expect(readDiff(raw)).toEqual(defaultDiff);
   });
   it("maps send, newline and alternate delivery without intercepting composition", () => {
     const enter = {

@@ -51,7 +51,7 @@ describe("editPresentation", () => {
     });
   });
 
-  it("renders structured replacement and insertion operations", () => {
+  it("renders structured replacements", () => {
     expect(
       editPresentation(tool("edit", { path: "a.ts", old_string: "old", new_string: "new" })),
     ).toMatchObject({
@@ -65,36 +65,9 @@ describe("editPresentation", () => {
         },
       ],
     });
-    expect(
-      editPresentation(
-        tool("str_replace_based_edit_tool", {
-          command: "insert",
-          path: "a.ts",
-          insert_line: 3,
-          new_str: "new",
-        }),
-      ),
-    ).toMatchObject({
-      labels: {
-        running: "Inserting into a.ts",
-        succeeded: "Inserted into a.ts",
-        failed: "Failed to insert into a.ts",
-      },
-      files: [
-        {
-          lines: [
-            { kind: "hunk", text: "@@ after line 3" },
-            { kind: "add", text: "+new" },
-          ],
-        },
-      ],
-    });
   });
 
-  it("leaves views, malformed patches, and unknown tools to the generic renderer", () => {
-    expect(
-      editPresentation(tool("str_replace_based_edit_tool", { command: "view", path: "README.md" })),
-    ).toBeUndefined();
+  it("leaves malformed patches and unknown tools to the generic renderer", () => {
     expect(editPresentation(tool("apply_patch", "not a patch"))).toBeUndefined();
     expect(editPresentation(tool("plugin_tool", {}))).toBeUndefined();
   });

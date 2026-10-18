@@ -444,13 +444,66 @@ while another route is selected. This unread set is session-local, only tracks
 attached conversations, and clears when opened or detached. It is not persisted
 or synchronized between clients.
 
-A right-aligned Subagents header control shows the running descendant count,
-collapsing to an icon when zero. Its popover retains a paged tree of completed,
-failed and stopped agents alongside running work. Nested branches are shown
-expanded without collapse controls in Running and Finished sections, keeping
-branches together while any member runs. Each task name opens the child
-conversation. The child header shows the full clickable ancestor chain. Turn
-changes refresh counts and grouping even when no activity was created. Spawned
+An icon-only header control opens the resizable right sidebar with Changes and
+Subagents tabs. Changes displays one continuous, independently scrollable diff;
+its paged file tree jumps to the selected file. Folder rows match file rows and
+use Lucide chevrons with compact full-length vertical guides and green addition/red deletion counts.
+Tree folders use the shared disclosure animation and reduced-motion preference.
+Filenames stay on one line with ellipsis and full-path hover. File headers show
+the same status and line counts as tree rows and toggle individual files. CodeView
+owns collapsed layout; chevrons animate, while diff height changes immediately to
+preserve virtual positioning. Tree selection reopens a collapsed diff. The diff
+right-click menu exposes Word wrap and Line numbers, both on by default and stored
+in desktop-local preferences across viewer remounts and application reloads.
+Unwrapped code exposes a visible 8px horizontal scrollbar. Hunk metadata keeps
+its native 32px row: one label spans the wrapped diff, or stays anchored within
+the left scrolling pane in unwrapped split view. It does not add custom virtual
+rows or couple the independent horizontal panes.
+The comparison selector stays sticky at the top of the tree. Its header and the
+file headers share an exact 45px height (32px control, 12px padding, 1px border).
+The divider resizes tree height above the diff and tree width beside it. The tree sits above the diff in a narrow panel and to its
+right at 560px panel width. The default panel width adapts to the window; manual
+resizing uses pointer or arrow keys and can fill the available layout except for
+320px reserved for the main conversation. At narrow window widths it overlays the main
+conversation and retains its close-sidebar icon. `@pierre/diffs` CodeView owns multi-file line virtualization, sticky file headers
+and anchored file-ID navigation. It parses Git patches with line numbers; the actual diff pane switches to split view at
+640px and uses unified view below it. Combined merge patches retain raw Git output.
+
+Comparisons are Uncommitted (HEAD versus working content, including untracked),
+Unstaged (index versus working content, including untracked), Staged, Against the
+repository default branch, and Unpushed against the displayed upstream. The latter
+two compare committed HEAD with the merge base, excluding dirty content and
+upstream-only changes. Resolve a remote default HEAD (prefer origin), then local
+main/master. Missing checkout/base/upstream has an explicit unavailable state.
+No base selector or implicit fetch is provided.
+
+The worktrees v4 plugin owns validated list/diff requests and server-side Git
+reads. The server obtains the main conversation's current workspace from its
+attached runtime, so Local, SSH and WSL use the same request path. Lists are
+paged at 200 rows with nullable per-file addition/deletion counts (unknown for
+binary or oversized previews), and Git listing output is bounded at 4 MiB. Visible file patches
+load for rendered files and neighboring files in both directions, with at most four
+concurrent reads and priority for the selected file. Patches belong to the comparison
+and survive virtual row unmounts. Previews are bounded at 512 KiB / 10,000 lines, with
+explicit oversized/binary states. The open Changes tab polls every two seconds
+after each completed read; hidden tabs stop polling. In-flight reads finish before
+the next poll, preventing starvation on slower remote connections. Cancellation
+closes requests on selection/tab/lifetime changes. Atomic-save ENOENT is a
+classified readable transient state; other errors remain visible and retry when
+the tab/sidebar is reopened. Git supplies patches, including rename source paths
+and index-removal comparisons; temporary comparison inputs never alter the index.
+
+Subagents retains one connected, paged family tree rooted at the main parent,
+which is a static label; only subagents can be selected. The tree stays rooted there
+even when the main route displays a nested child. Running and finished outcomes
+stay in their original branches. Selecting a row displays the existing live
+conversation transcript beside the main conversation, with separate scrolling and
+history paging. It has no duplicate identity header, composer, rename, worktree or
+Fork actions, and adds no open-on-right/open-in-main controls. Tab switches retain
+the selected transcript and diff position. Existing ConversationViews, client
+attachments and ancestry APIs own all live data; no second runtime or history
+store is introduced. The child header shows the full clickable ancestor chain. Turn
+changes refresh the family tree even when no activity was created. Spawned
 views use the same live transcript, but omit composer, rename, worktree and Fork
 controls. Client writes to children are rejected by the server; the parent keeps
 ownership of their execution. Activity titles include the owning subagent's
@@ -596,8 +649,14 @@ Vite excludes `src-tauri`, packaged `resources`, and test artifacts from its
 development watcher. Cargo owns native builds; watching locked Windows build
 executables can otherwise terminate the frontend dev server.
 
+The conversation rename control is a compact 20px button immediately after the
+title and before the worktree picker. The picker retains a fixed 12px branch icon
+and truncates its label as horizontal space shrinks.
+
 The desktop-local `ui.tsx` boundary provides typed native Button/Input/Select/
 Textarea/Checkbox controls and Radix Popover/Dialog/AlertDialog/Tooltip/Tab wrappers.
+Its shared ContextMenu wraps Radix root/trigger and themed portal content/checkbox
+items, retaining library keyboard navigation, focus and dismissal semantics.
 Semantic CSS tokens define canvas, sidebar, panel, fields, navigation and button
 states; Tailwind v4 supplies layout utilities. Navigation stays flat and compact.
 Buttons use neutral faces and shallow neutral/accented bases; a generic tinted

@@ -6,8 +6,10 @@ import { initializeWindowChrome, syncWindowModal } from "./window-chrome.ts";
 import {
   readAppearance,
   readComposer,
+  readDiff,
   type Appearance,
   type ComposerPreferences,
+  type DiffPreferences,
 } from "./preferences.ts";
 
 export const shortcutModifier = navigator.platform.includes("Mac") ? "⌘" : "Ctrl";
@@ -19,6 +21,7 @@ let appearance = readAppearance(
   localStorage.getItem("theme"),
 );
 let composer = readComposer(localStorage.getItem("harness:composer"));
+let diff = readDiff(localStorage.getItem("harness:diff"));
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -83,6 +86,12 @@ export function setComposerPreferences(value: ComposerPreferences): void {
   localStorage.setItem("harness:composer", JSON.stringify(value));
   notify();
 }
+export function setDiffPreferences(value: DiffPreferences): void {
+  diff = value;
+  localStorage.setItem("harness:diff", JSON.stringify(value));
+  notify();
+}
+export const useDiffPreferences = () => useSyncExternalStore(subscribe, () => diff);
 export const useAppearance = () => useSyncExternalStore(subscribe, () => appearance);
 export const useComposerPreferences = () => useSyncExternalStore(subscribe, () => composer);
 applyAppearance();

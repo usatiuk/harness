@@ -718,6 +718,31 @@ test("conversation header exposes inline rename on hover and preserves cancellat
 }) => {
   await page.goto(url + "?composer");
   await expect(page.locator(".conversation-heading h1")).toBeVisible();
+  const title = page.locator(".conversation-heading h1");
+  const geometry = await page.locator(".conversation-title-display").evaluate((element) => {
+    const title = element.querySelector("h1")!;
+    const rename = element.querySelector(".conversation-rename")!;
+    const branch = element.querySelector(".conversation-branch")!;
+    return {
+      titleRight: title.getBoundingClientRect().right,
+      rename: {
+        width: rename.getBoundingClientRect().width,
+        height: rename.getBoundingClientRect().height,
+        left: rename.getBoundingClientRect().left,
+        right: rename.getBoundingClientRect().right,
+      },
+      branchLeft: branch.getBoundingClientRect().left,
+    };
+  });
+  expect(geometry.rename.width).toBe(20);
+  expect(geometry.rename.height).toBe(20);
+  expect(geometry.rename.left).toBeGreaterThanOrEqual(geometry.titleRight);
+  expect(geometry.branchLeft).toBeGreaterThanOrEqual(geometry.rename.right);
+  await page.setViewportSize({ width: 520, height: 900 });
+  await expect(title).toBeVisible();
+  const icon = page.locator(".conversation-branch > svg");
+  expect((await icon.boundingBox())!.width).toBe(12);
+  expect((await icon.boundingBox())!.height).toBe(12);
   const original = await page.locator(".conversation-heading h1").textContent();
   const rename = page.getByRole("button", { name: "Rename conversation", exact: true });
   await page.mouse.move(0, 0);
@@ -1216,103 +1241,727 @@ test("tool groups are compact and activities refresh automatically only while mo
   expect(await page.evaluate(() => window.composerFixture.peekCalls)).toBe(3);
 });
 
-test("subagent header opens a bounded tree with retained outcomes and read-only child navigation", async ({
+test("right sidebar retains the full family tree and shows a live read-only side conversation", async ({
   page,
 }) => {
   await page.goto(url + "?composer");
-  await expect(page.getByRole("button", { name: "Subagents", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Show right sidebar", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showSubagents());
-  const trigger = page.getByRole("button", { name: "Subagents · 1 running", exact: true });
-  await expect(trigger).toBeVisible();
-  const heading = page.locator(".conversation-header");
-  expect((await heading.boundingBox())!.height).toBeLessThanOrEqual(44);
-  expect((await trigger.boundingBox())!.x).toBeGreaterThan(
-    (await heading.boundingBox())!.x + (await heading.boundingBox())!.width / 2,
-  );
-  await trigger.click();
-  const popup = page.getByRole("dialog", { name: "Subagents", exact: true });
-  await expect(popup.getByRole("heading", { name: "Running", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Show right sidebar", exact: true }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  await sidebar.getByRole("tab", { name: "Subagents", exact: true }).click();
+  const tree = sidebar.getByRole("navigation", { name: "Conversation tree" });
+  await expect(tree.getByText("Parent conversation", { exact: true })).toBeVisible();
   await expect(
-    popup
-      .getByRole("region", { name: "Running", exact: true })
-      .getByRole("link", { name: "Review authentication", exact: true }),
-  ).toBeVisible();
-  await expect(
-    popup
-      .getByRole("region", { name: "Finished", exact: true })
-      .getByRole("link", { name: "Failed review", exact: true }),
-  ).toBeVisible();
-  await expect(popup.getByText("Failed", { exact: true })).toBeVisible();
-  await expect(popup.getByText("Stopped", { exact: true })).toBeVisible();
-  await expect(popup.getByRole("link", { name: "Older review 16", exact: true })).toHaveCount(0);
-  await popup.getByRole("button", { name: "Show more", exact: true }).click();
-  await expect(popup.getByRole("link", { name: "Older review 16", exact: true })).toBeAttached();
-  await expect(popup.locator("summary")).toHaveCount(0);
-  await expect(popup.getByRole("link", { name: "Check tests", exact: true })).toBeVisible();
-  await popup.getByRole("link", { name: "Check tests", exact: true }).click();
-  await expect(page.locator(".conversation-header h1")).toHaveText("Check tests");
-  await expect(page.locator(".conversation-header .ancestor a")).toHaveText([
-    "Parent conversation",
-    "Review authentication",
-  ]);
-  await page
-    .locator(".conversation-header")
-    .getByRole("link", { name: "Parent conversation", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Subagents · 1 running", exact: true }).click();
-  await popup.getByRole("link", { name: "Review authentication", exact: true }).click();
-  await expect(page.locator(".conversation-header h1")).toHaveText("Review authentication");
-  await expect(
-    page
-      .locator(".conversation-header")
-      .getByRole("link", { name: "Parent conversation", exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Rename conversation", exact: true })).toHaveCount(
-    0,
-  );
-  await expect(
-    page.getByRole("button", { name: "Fork before this message", exact: true }),
+    tree.getByRole("button", { name: "Parent conversation Main", exact: true }),
   ).toHaveCount(0);
-  await expect(page.locator(".conversation-branch")).toHaveCount(0);
-  await expect(page.locator(".message-content")).toContainText("Child transcript");
-  await page
-    .locator(".conversation-header")
-    .getByRole("link", { name: "Parent conversation", exact: true })
-    .click();
+  await expect(tree.getByText("Failed", { exact: true })).toBeVisible();
+  await expect(tree.getByText("Stopped", { exact: true })).toBeVisible();
+  await tree.getByRole("button", { name: "Show more", exact: true }).click();
+  await expect(tree.getByText("Older review 16", { exact: true })).toBeAttached();
+  await tree.getByRole("button", { name: "Check tests Running", exact: true }).click();
+  const side = sidebar.locator(".side-conversation");
+  await expect(side.locator(".message-content")).toContainText("Child transcript");
+  await expect(side.getByRole("textbox", { name: "Message", exact: true })).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Subagents · 1 running", exact: true }),
-  ).toBeVisible();
-  await page.evaluate(() => window.composerFixture.finishSubagents());
-  await expect(page.getByRole("button", { name: "Subagents", exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Subagents · 1 running", exact: true }),
+    side.getByRole("button", { name: "Fork before this message", exact: true }),
   ).toHaveCount(0);
+  await expect(side.locator("h1")).toHaveCount(0);
+  await expect(page.locator(".main-conversation h1")).toHaveText("Parent conversation");
+  await page.evaluate(() => window.composerFixture.updateChild("nested", "Live nested update"));
+  await expect(side.locator(".message-content")).toHaveText("Live nested update");
+  await expect(side.locator(".message-content")).toBeVisible();
+  await expect(side.locator(".message-content")).toBeInViewport();
+  await page.screenshot({ path: test.info().outputPath("right-sidebar-subagents.png") });
+  await expect(tree.getByText("Review authentication", { exact: true })).toHaveCount(1);
+  await sidebar.getByRole("tab", { name: "Changes", exact: true }).click();
+  await sidebar.getByRole("tab", { name: "Subagents", exact: true }).click();
+  await expect(side.locator(".message-content")).toHaveText("Live nested update");
+  await page.evaluate(() => window.composerFixture.openConversation("nested"));
+  await expect(page.locator(".main-conversation h1")).toHaveText("Check tests");
+  await expect(tree.getByText("Parent conversation", { exact: true })).toBeVisible();
+  await expect(tree.getByText("Failed review", { exact: true })).toBeVisible();
 });
 
 for (const width of [420, 1440]) {
-  test(`empty subagent popover has no horizontal scrollbar at ${width}px`, async ({ page }) => {
+  test(`right sidebar fits and toggles with icons at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(url + "?composer");
-    await page.getByRole("button", { name: "Subagents", exact: true }).click();
-    const popup = page.getByRole("dialog", { name: "Subagents", exact: true });
-    await expect(popup.getByText("No subagents yet.")).toBeVisible();
-    expect(
-      await popup.evaluate((element) => ({
-        overflow: element.scrollWidth > element.clientWidth,
-        nestedScrollers: [...element.querySelectorAll("*")].filter(
-          (child) =>
-            child.scrollWidth > child.clientWidth && getComputedStyle(child).overflowX === "auto",
-        ).length,
-      })),
-    ).toEqual({ overflow: false, nestedScrollers: 0 });
-    await expect(popup).toHaveCSS("scrollbar-width", "thin");
-    expect((await page.locator(".conversation-header").boundingBox())!.height).toBeLessThanOrEqual(
-      44,
+    await page.getByRole("button", { name: "Show right sidebar", exact: true }).click();
+    const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+    await sidebar.getByRole("tab", { name: "Subagents", exact: true }).click();
+    await expect(sidebar.getByText("No subagents yet.")).toBeVisible();
+    expect(await sidebar.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+      false,
     );
-    await page.screenshot({ path: test.info().outputPath("subagent-popover.png") });
+    await expect(
+      sidebar.getByRole("button", { name: "Hide right sidebar" }).locator("svg"),
+    ).toBeVisible();
+    await sidebar.getByRole("button", { name: "Hide right sidebar" }).click();
+    await expect(sidebar).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: "Show right sidebar" }).locator("svg"),
+    ).toBeVisible();
   });
 }
+
+test("Changes scrolls continuously across files and file selection jumps to a diff", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await page.goto(url + "?composer");
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  const tree = sidebar.getByRole("navigation", { name: "Changed files" });
+  const diffs = sidebar.locator(".changes-diffs");
+  await expect(diffs.getByRole("region", { name: "src/first.ts", exact: true })).toContainText(
+    "uncommitted src/first.ts line 0",
+  );
+  const mainScroll = await page
+    .locator(".main-conversation .conversation-scroll")
+    .evaluate((e) => e.scrollTop);
+  await tree.getByTitle("src/nested/second.ts", { exact: true }).click();
+  const second = diffs.getByRole("region", { name: "src/nested/second.ts", exact: true });
+  await expect(second).toContainText("src/nested/second.ts line 0");
+  await expect
+    .poll(async () => {
+      const a = await second.boundingBox();
+      const b = await diffs.boundingBox();
+      return Math.abs(a!.y - b!.y);
+    })
+    .toBeLessThan(5);
+  const scroll = diffs.locator(".changes-diff-scroll");
+  await scroll.evaluate((e) => {
+    e.scrollTop = e.scrollHeight;
+  });
+  await expect(diffs.getByRole("region", { name: "last.ts", exact: true })).toContainText(
+    "last.ts line 44",
+  );
+  expect(
+    await page.locator(".main-conversation .conversation-scroll").evaluate((e) => e.scrollTop),
+  ).toBe(mainScroll);
+  const separator = sidebar.getByRole("separator", { name: "Resize right sidebar" });
+  const box = (await separator.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 220, box.y + 80);
+  await page.mouse.up();
+  expect((await tree.boundingBox())!.x).toBeGreaterThan((await diffs.boundingBox())!.x);
+  await page.screenshot({ path: test.info().outputPath("right-sidebar-changes.png") });
+  await chooseDropdown(
+    page,
+    sidebar.getByRole("combobox", { name: "Change comparison" }),
+    "branch",
+  );
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.changeModes.at(-1)))
+    .toBe("branch");
+  await chooseDropdown(
+    page,
+    sidebar.getByRole("combobox", { name: "Change comparison" }),
+    "unpushed",
+  );
+  await expect(sidebar.getByText("origin/feature", { exact: true })).toBeVisible();
+});
+
+test("Changes keeps comparison and counts in the tree and adapts to the diff pane width", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await page.goto(url + "?composer");
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  const tree = sidebar.getByRole("navigation", { name: "Changed files" });
+  await expect(tree.getByRole("combobox", { name: "Change comparison" })).toBeVisible();
+  const file = tree.getByTitle("src/first.ts", { exact: true });
+  await expect(file.locator(".changes-additions")).toHaveText("+45");
+  await expect(file.locator(".changes-deletions")).toHaveText("−45");
+  expect(
+    await file.locator(".changes-additions").evaluate((e) => getComputedStyle(e).color),
+  ).not.toBe(await file.locator(".changes-deletions").evaluate((e) => getComputedStyle(e).color));
+  const folder = tree.locator(".changes-folder").first();
+  expect(
+    await folder.locator(":scope > .collapse-grid").evaluate((e) => getComputedStyle(e).marginLeft),
+  ).toBe("14px");
+  expect(
+    await folder
+      .locator(":scope > .collapse-grid")
+      .evaluate((e) => getComputedStyle(e, "::before").borderLeftWidth),
+  ).toBe("1px");
+  const first = sidebar.getByRole("region", { name: "src/first.ts", exact: true });
+  await expect(first.locator('[data-diff-type="single"]')).toBeVisible();
+  const geometry = await first.locator(".change-file-header").evaluate((e) => {
+    const scroll = e.closest(".changes-diff-scroll")!;
+    return {
+      top: e.getBoundingClientRect().top - scroll.getBoundingClientRect().top,
+      right: scroll.getBoundingClientRect().right - e.getBoundingClientRect().right,
+    };
+  });
+  expect(Math.abs(geometry.top)).toBeLessThan(1);
+  const fileHeaderHeight = (await first.locator(".change-file-header").boundingBox())!.height;
+  const scopeHeaderHeight = (await tree.locator(".changes-comparison").boundingBox())!.height;
+  expect(scopeHeaderHeight).toBe(fileHeaderHeight);
+  expect(Math.abs(geometry.right)).toBeLessThan(1);
+  await expect(
+    first.locator('[data-column-number][data-line-type="change-deletion"]').first(),
+  ).toHaveText("1");
+  await expect(
+    first.locator('[data-line][data-line-type="change-deletion"]').first(),
+  ).toContainText("before src/first.ts line 0");
+  const separator = sidebar.getByRole("separator", { name: "Resize right sidebar" });
+  const box = (await separator.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 220, box.y + 80);
+  await page.mouse.up();
+  await expect(first.locator('[data-diff-type="split"]')).toBeVisible();
+  await expect(first.locator("[data-code][data-deletions] [data-line]").first()).toContainText(
+    "before src/first.ts line 0",
+  );
+  await expect(first.locator("[data-code][data-additions] [data-line]").first()).toContainText(
+    "uncommitted src/first.ts line 0",
+  );
+  await expect(first.locator('[data-column-number="1"]')).toHaveCount(2);
+  await expect(first.locator("[data-code][data-additions] [data-line]").first()).toBeInViewport();
+  await page.screenshot({ path: test.info().outputPath("changes-library-split.png") });
+  await separator.press("ArrowRight");
+  // The window has not changed; shrinking only the panel must return to unified.
+  for (let i = 0; i < 10; i++) await separator.press("ArrowRight");
+  await expect(first.locator('[data-diff-type="single"]')).toBeVisible();
+  await tree.getByTitle("src/nested/second.ts", { exact: true }).click();
+  const second = sidebar.getByRole("region", { name: "src/nested/second.ts", exact: true });
+  await expect(
+    second.locator('[data-line][data-line-type="change-addition"]').first(),
+  ).toContainText("line 0");
+  await expect(second).toBeInViewport();
+});
+
+test("right sidebar expands beyond 900px and keeps file guides vertical and full length", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2200, height: 900 });
+  await page.goto(url + "?composer");
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  const separator = sidebar.getByRole("separator", { name: "Resize right sidebar" });
+  const box = (await separator.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(0, box.y + 80);
+  await page.mouse.up();
+  expect((await sidebar.boundingBox())!.width).toBeGreaterThan(1400);
+  expect((await page.locator(".main-conversation").boundingBox())!.width).toBeGreaterThanOrEqual(
+    319,
+  );
+  const children = sidebar.locator(".changes-folder > .collapse-grid").first();
+  await expect(children).toBeVisible();
+  const guides = await children.evaluate((e) => ({
+    height: e.clientHeight,
+    guide: parseFloat(getComputedStyle(e, "::before").height),
+    horizontal: getComputedStyle(e.firstElementChild!, "::after").content,
+  }));
+  expect(guides.guide).toBeGreaterThanOrEqual(guides.height);
+  expect(guides.horizontal).toBe("none");
+  await page.screenshot({ path: test.info().outputPath("wide-sidebar-vertical-guides.png") });
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBeLessThan(900);
+  expect((await page.locator(".main-conversation").boundingBox())!.width).toBeGreaterThanOrEqual(
+    319,
+  );
+});
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`Changes folders animate collapse and reopen with ${reducedMotion} motion`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.goto(url + "?composer");
+    await page.getByRole("button", { name: "Show right sidebar" }).click();
+    const tree = page.getByRole("navigation", { name: "Changed files" });
+    const folder = tree.locator(".changes-folder").first();
+    const grid = folder.locator(":scope > .collapse-grid");
+    const file = tree.getByTitle("src/first.ts", { exact: true });
+    await expect(file).toBeVisible();
+    if (reducedMotion === "no-preference") {
+      await folder.evaluate(
+        (element) =>
+          new Promise<void>((resolve) => {
+            const grid = element.querySelector<HTMLElement>(":scope > .collapse-grid")!;
+            grid.addEventListener("transitionrun", function onTransition(event) {
+              if (event.target !== grid || event.propertyName !== "grid-template-rows") return;
+              grid.removeEventListener("transitionrun", onTransition);
+              resolve();
+            });
+            element.querySelector<HTMLElement>("summary")!.click();
+          }),
+      );
+    } else {
+      await expect(grid).toHaveCSS("transition-duration", "0s");
+      await folder.locator(":scope > summary").click();
+    }
+    await expect
+      .poll(() => grid.evaluate((element) => element.getBoundingClientRect().height))
+      .toBe(0);
+    await expect(file).toBeHidden();
+    await folder.locator(":scope > summary").focus();
+    await page.keyboard.press("Enter");
+    await expect(file).toBeVisible();
+    await expect(folder).toHaveAttribute("open", "");
+  });
+}
+
+test("Changes file headers show metadata and collapse independently through keyboard and tree jumps", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  const first = sidebar.getByRole("region", { name: "src/first.ts", exact: true });
+  const header = first.locator(".change-file-header");
+  await expect(first.locator("[data-line]").first()).toBeVisible();
+  await expect(header.locator(".changes-additions")).toHaveText("+45");
+  await expect(header.locator(".changes-deletions")).toHaveText("−45");
+  await expect(header.locator(".muted").first()).toHaveText("M");
+  const reads = await page.evaluate(() => window.composerFixture.changeModes.length);
+  await header.click();
+  await expect(header).toHaveAttribute("aria-expanded", "false");
+  await expect(first.locator("[data-line]")).toHaveCount(0);
+  await expect.poll(async () => (await first.boundingBox())!.height).toBe(45);
+  const next = sidebar.getByRole("region", { name: "src/nested/second.ts", exact: true });
+  await expect(next.locator(".change-file-header")).toHaveAttribute("aria-expanded", "true");
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.changeModes.length))
+    .toBeGreaterThan(reads);
+  await expect(header).toHaveAttribute("aria-expanded", "false");
+  await header.focus();
+  await page.keyboard.press("Enter");
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+  await expect(first.locator("[data-line]").first()).toBeVisible();
+  await header.focus();
+  await page.keyboard.press("Space");
+  await expect(header).toHaveAttribute("aria-expanded", "false");
+  await sidebar
+    .getByRole("navigation", { name: "Changed files" })
+    .getByTitle("src/first.ts", { exact: true })
+    .click();
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+  await expect(first.locator("[data-line]").first()).toBeVisible();
+});
+
+test("diff context menu persists word wrap and line numbers across reopening and reload", async ({
+  playwright,
+}) => {
+  const browser = await playwright.chromium.launch({
+    ...(process.platform === "win32" ? { channel: "msedge" } : {}),
+    ignoreDefaultArgs: ["--hide-scrollbars"],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.goto(url + "?composer");
+    await expect(page.getByRole("button", { name: "Show right sidebar" })).toBeVisible();
+    await page.evaluate(() => window.composerFixture.showLongLineChanges());
+    await page.getByRole("button", { name: "Show right sidebar" }).click();
+    const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+    const code = sidebar.locator('[data-line][data-line-type="change-deletion"]').first();
+    const gutter = sidebar
+      .locator('[data-column-number][data-line-type="change-deletion"] [data-line-number-content]')
+      .first();
+    await expect(code).toContainText("before before");
+    const wrappedHeight = (await code.boundingBox())!.height;
+    expect(wrappedHeight).toBeGreaterThan(40);
+    await expect(gutter).toBeVisible();
+    await code.click({ button: "right" });
+    const menu = page.getByRole("menu", { name: "Diff display options" });
+    await expect(menu.getByRole("menuitemcheckbox", { name: "Word wrap" })).toBeChecked();
+    await expect(menu.getByRole("menuitemcheckbox", { name: "Line numbers" })).toBeChecked();
+    await menu.getByRole("menuitemcheckbox", { name: "Word wrap" }).click();
+    await expect(sidebar.locator('[data-overflow="scroll"]').first()).toBeVisible();
+    await expect.poll(async () => (await code.boundingBox())!.height).toBeLessThan(wrappedHeight);
+    const horizontal = await code.evaluate((line) => {
+      const column = line.closest<HTMLElement>("[data-code]")!;
+      column.scrollLeft = 200;
+      return {
+        overflow: column.scrollWidth > column.clientWidth,
+        scrollLeft: column.scrollLeft,
+        scrollbarHeight: getComputedStyle(column, "::-webkit-scrollbar").height,
+        allocatedHeight: column.offsetHeight - column.clientHeight,
+        thumb: getComputedStyle(column, "::-webkit-scrollbar-thumb").backgroundColor,
+      };
+    });
+    await sidebar.screenshot({ path: test.info().outputPath("horizontal-scrollbar.png") });
+    expect(horizontal.overflow).toBe(true);
+    expect(horizontal.scrollLeft).toBeGreaterThan(0);
+    expect(parseFloat(horizontal.scrollbarHeight)).toBeGreaterThan(0);
+    expect(horizontal.allocatedHeight).toBeGreaterThan(0);
+    expect(horizontal.thumb).not.toBe("rgba(0, 0, 0, 0)");
+    await code.click({ button: "right" });
+    await menu.getByRole("menuitemcheckbox", { name: "Line numbers" }).click();
+    await expect(gutter).toBeHidden();
+    await page.getByRole("button", { name: "Hide right sidebar" }).click();
+    await page.getByRole("button", { name: "Show right sidebar" }).click();
+    await expect(sidebar.locator('[data-overflow="scroll"]').first()).toBeVisible();
+    await expect(gutter).toBeHidden();
+    await page.reload();
+    await page.getByRole("button", { name: "Show right sidebar" }).click();
+    await expect(sidebar.locator('[data-overflow="scroll"]').first()).toBeVisible();
+    await expect(sidebar.locator("[data-line-number-content]").first()).toBeHidden();
+    await sidebar.locator("[data-line]").first().click({ button: "right" });
+    await expect(menu.getByRole("menuitemcheckbox", { name: "Word wrap" })).not.toBeChecked();
+    await expect(menu.getByRole("menuitemcheckbox", { name: "Line numbers" })).not.toBeChecked();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await sidebar.locator("[data-line]").first().click({ button: "right" });
+    await page.keyboard.press("w");
+    await expect(menu.getByRole("menuitemcheckbox", { name: "Word wrap" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(sidebar.locator('[data-overflow="wrap"]').first()).toBeVisible();
+    await sidebar.locator("[data-line]").first().click({ button: "right" });
+    await menu.getByRole("menuitemcheckbox", { name: "Line numbers" }).click();
+    await expect(sidebar.locator("[data-line-number-content]").first()).toBeVisible();
+  } finally {
+    await browser.close();
+  }
+});
+
+test("hunk metadata stays readable across diff layouts and horizontal scrolling", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("button", { name: "Show right sidebar" })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showLongLineChanges());
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  const metadata = sidebar.locator(
+    '[data-gutter] [data-separator="metadata"] [data-separator-wrapper]:visible',
+  );
+  const inspect = () =>
+    metadata.evaluate((element) => {
+      const range = document.createRange();
+      range.setStart(element.firstChild!, 0);
+      range.setEnd(element.firstChild!, 2);
+      const glyphs = range.getBoundingClientRect();
+      const label = element.getBoundingClientRect();
+      const pane = element.closest<HTMLElement>("[data-code]")!;
+      const pre = element.closest<HTMLElement>("[data-diff]")!;
+      const viewport = getComputedStyle(pane).display === "contents" ? pre : pane;
+      const bounds = viewport.getBoundingClientRect();
+      const root = element.getRootNode() as ShadowRoot;
+      const hit = root.elementFromPoint(glyphs.x + glyphs.width / 2, glyphs.y + glyphs.height / 2);
+      const far = root.elementFromPoint(label.right - 12, label.y + label.height / 2);
+      return {
+        text: element.textContent,
+        left: glyphs.left - bounds.left,
+        labelLeft: label.left - bounds.left,
+        width: label.width,
+        viewport: viewport.clientWidth,
+        visible: hit === element || element.contains(hit),
+        continuous: far === element || element.contains(far),
+      };
+    });
+  for (const width of [1200, 1800]) {
+    await page.setViewportSize({ width, height: 900 });
+    const divider = sidebar.getByRole("separator", { name: "Resize right sidebar" });
+    await expect
+      .poll(() =>
+        divider.evaluate(
+          (element) =>
+            Number(element.getAttribute("aria-valuemax")) ===
+            Math.max(320, element.closest(".right-sidebar-layout")!.clientWidth - 320),
+        ),
+      )
+      .toBe(true);
+    const box = (await divider.boundingBox())!;
+    await page.mouse.move(box.x + 2, box.y + 80);
+    await page.mouse.down();
+    await page.mouse.move(0, box.y + 80);
+    await page.mouse.up();
+    await expect(
+      sidebar.locator(`[data-diff-type="${width === 1800 ? "split" : "single"}"]`),
+    ).toBeVisible();
+    for (const wrap of [true, false]) {
+      await sidebar.locator("[data-line]").first().click({ button: "right" });
+      const menu = page.getByRole("menu");
+      const item = menu.getByRole("menuitemcheckbox", { name: "Word wrap" });
+      if ((await item.isChecked()) !== wrap) await item.click();
+      else await page.keyboard.press("Escape");
+      await expect(sidebar.locator(`[data-overflow="${wrap ? "wrap" : "scroll"}"]`)).toBeVisible();
+      await expect(metadata).toHaveCount(1);
+      for (const scrollLeft of [0, 200]) {
+        if (!wrap)
+          await sidebar.locator("[data-code]").evaluateAll((elements, value) => {
+            for (const element of elements) element.scrollLeft = value;
+          }, scrollLeft);
+        const result = await inspect();
+        expect(result.text).toMatch(/^@@ -10 \+10 @@/);
+        expect(result.visible).toBe(true);
+        expect(result.continuous).toBe(true);
+        expect(result.left).toBeGreaterThanOrEqual(0);
+        expect(Math.abs(result.labelLeft)).toBeLessThan(1);
+        expect(Math.abs(result.width - result.viewport)).toBeLessThan(1);
+      }
+    }
+  }
+  await page.screenshot({ path: test.info().outputPath("hunk-metadata.png") });
+});
+
+test("Changes preserves raw combined patches and unavailable counts after a file-list update", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  await expect(
+    sidebar
+      .getByRole("region", { name: "src/first.ts", exact: true })
+      .locator("[data-line]")
+      .first(),
+  ).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showCombinedChanges());
+  const merged = sidebar.getByRole("region", { name: "merge.ts", exact: true });
+  await expect(merged.locator(".change-patch-raw")).toContainText("++merged content");
+  await expect(merged.locator(".change-file-header .muted").first()).toHaveText("U");
+  const tree = sidebar.getByRole("navigation", { name: "Changed files" });
+  await tree.getByTitle("binary.dat", { exact: true }).click();
+  const binary = sidebar.getByRole("region", { name: "binary.dat", exact: true });
+  await expect(binary.getByTitle("Line counts unavailable", { exact: true })).toHaveText("—");
+  await expect(binary.locator(".change-file-header")).toContainText("Binary file");
+  await expect(
+    tree
+      .getByTitle("binary.dat", { exact: true })
+      .getByTitle("Line counts unavailable", { exact: true }),
+  ).toHaveText("—");
+  await expect(sidebar.getByRole("region", { name: "src/first.ts", exact: true })).toHaveCount(0);
+});
+
+test("Changes renders literal filename headers and preserves missing-newline information", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("button", { name: "Show right sidebar" })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showLiteralChanges());
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  await expect(sidebar.locator('[data-line][data-line-type="change-addition"]')).toHaveText(
+    "literal content",
+  );
+  await expect(
+    sidebar.locator('[data-column-number][data-line-type="change-addition"]'),
+  ).toHaveText("1");
+  await expect(sidebar.locator("[data-no-newline]")).toBeVisible();
+  const name = sidebar
+    .getByRole("navigation", { name: "Changed files" })
+    .locator(".changes-file > span:first-child");
+  await expect(name).toHaveCSS("white-space", "nowrap");
+  await expect(name).toHaveCSS("text-overflow", "ellipsis");
+  await expect(name).toHaveCSS("overflow", "hidden");
+});
+
+test("file jumps remain anchored after a delayed huge diff and file headers stay sticky", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("button", { name: "Show right sidebar" })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showDelayedChanges());
+  const start = await page.evaluate(() => performance.now());
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  const tree = sidebar.getByRole("navigation", { name: "Changed files" });
+  const scroll = sidebar.locator(".changes-diff-scroll");
+  const target = sidebar.getByRole("region", { name: "target.ts", exact: true });
+  await expect(target.locator("[data-line]").first()).toContainText("before target.ts line 0");
+  await tree.getByTitle("target.ts", { exact: true }).click();
+  const offset = () =>
+    target
+      .locator(".change-file-header")
+      .evaluate(
+        (e) =>
+          e.getBoundingClientRect().top -
+          e.closest(".changes-diff-scroll")!.getBoundingClientRect().top,
+      );
+  await expect.poll(offset).toBeLessThan(2);
+  await page.evaluate(() => window.composerFixture.releaseLargeDiff());
+  await expect.poll(() => scroll.evaluate((e) => e.scrollTop)).toBeGreaterThan(100000);
+  await expect.poll(async () => Math.abs(await offset())).toBeLessThan(2);
+  expect(await scroll.locator("[data-line]").count()).toBeLessThan(1000);
+  await scroll.evaluate((e) => {
+    e.scrollTop += 300;
+  });
+  await expect.poll(async () => Math.abs(await offset())).toBeLessThan(2);
+  const divider = sidebar.getByRole("separator", { name: "Resize right sidebar" });
+  const box = (await divider.boundingBox())!;
+  await page.mouse.move(box.x + 2, box.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 250, box.y + 80);
+  await page.mouse.up();
+  await expect(target.locator('[data-diff-type="split"]')).toBeVisible();
+  await expect.poll(async () => Math.abs(await offset())).toBeLessThan(2);
+  await tree.getByTitle("last.ts", { exact: true }).click();
+  await tree.getByTitle("target.ts", { exact: true }).click();
+  await expect(target.locator(".change-file-header")).not.toContainText("Loading");
+  await expect.poll(async () => Math.abs(await offset())).toBeLessThan(2);
+  await test.info().attach("codeview-timing", {
+    body: JSON.stringify({
+      scenarioMs: (await page.evaluate(() => performance.now())) - start,
+      renderedLines: await scroll.locator("[data-line]").count(),
+    }),
+    contentType: "application/json",
+  });
+  await page.screenshot({ path: test.info().outputPath("codeview-sticky-anchored.png") });
+});
+
+for (const split of [false, true]) {
+  test(`diff text can be selected and copied without gutters in ${split ? "split" : "inline"} view`, async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.setViewportSize({ width: 1800, height: 900 });
+    await page.goto(url + "?composer");
+    await page.getByRole("button", { name: "Show right sidebar" }).click();
+    const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+    const first = sidebar.getByRole("region", { name: "src/first.ts", exact: true });
+    if (split) {
+      const divider = sidebar.getByRole("separator", { name: "Resize right sidebar" });
+      const box = (await divider.boundingBox())!;
+      await page.mouse.move(box.x + 2, box.y + 80);
+      await page.mouse.down();
+      await page.mouse.move(box.x - 250, box.y + 80);
+      await page.mouse.up();
+    }
+    await expect(first.locator(`[data-diff-type="${split ? "split" : "single"}"]`)).toBeVisible();
+    const line = (number: number) =>
+      first.locator(`[data-line="${number}"][data-line-type="change-addition"]`);
+    await sidebar.locator(".changes-diff-scroll").evaluate(
+      (e, top) => {
+        e.scrollTop = top;
+      },
+      split ? 0 : 600,
+    );
+    await expect(line(1)).toBeInViewport();
+    await expect(line(2)).toBeInViewport();
+    const a = (await line(1).boundingBox())!;
+    const b = (await line(2).boundingBox())!;
+    await page.mouse.move(a.x + 1, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + 300, b.y + b.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await page.keyboard.press("Control+c");
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toContain("uncommitted src/first.ts line 0");
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain("uncommitted src/first.ts line 1");
+    expect(copied).not.toContain("before");
+    expect(copied).not.toMatch(/^\d+$/m);
+  });
+}
+
+test("stacked file tree height resizes and persists across comparison and layout changes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.goto(url + "?composer");
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  const tree = sidebar.getByRole("navigation", { name: "Changed files" });
+  const resize = sidebar.getByRole("separator", { name: "Resize changed file tree" });
+  await expect(tree.getByTitle("src/first.ts", { exact: true })).toBeVisible();
+  const before = (await tree.boundingBox())!.height;
+  const box = (await resize.boundingBox())!;
+  await page.mouse.move(box.x + 50, box.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 50, box.y + 102);
+  await page.mouse.up();
+  await expect.poll(async () => (await tree.boundingBox())!.height).toBeGreaterThan(before + 90);
+  await resize.press("ArrowDown");
+  const height = (await tree.boundingBox())!.height;
+  await chooseDropdown(page, tree.getByRole("combobox", { name: "Change comparison" }), "branch");
+  await expect
+    .poll(async () => Math.abs((await tree.boundingBox())!.height - height))
+    .toBeLessThan(2);
+  const sideResize = sidebar.getByRole("separator", { name: "Resize right sidebar" });
+  const sideBox = (await sideResize.boundingBox())!;
+  await page.mouse.move(sideBox.x + 2, sideBox.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(0, sideBox.y + 80);
+  await page.mouse.up();
+  await expect(resize).toHaveAttribute("aria-orientation", "vertical");
+  expect((await tree.boundingBox())!.height).toBeGreaterThan(height);
+  const width = (await tree.boundingBox())!.width;
+  const treeBox = (await resize.boundingBox())!;
+  await page.mouse.move(treeBox.x + 2, treeBox.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(treeBox.x - 60, treeBox.y + 80);
+  await page.mouse.up();
+  await expect.poll(async () => (await tree.boundingBox())!.width).toBeGreaterThan(width + 50);
+  await resize.press("ArrowLeft");
+  const expandedWidth = (await tree.boundingBox())!.width;
+  await page.setViewportSize({ width: 900, height: 900 });
+  await expect(resize).toHaveAttribute("aria-orientation", "horizontal");
+  await expect
+    .poll(async () => Math.abs((await tree.boundingBox())!.height - height))
+    .toBeLessThan(2);
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await expect(resize).toHaveAttribute("aria-orientation", "vertical");
+  await expect
+    .poll(async () => Math.abs((await tree.boundingBox())!.width - expandedWidth))
+    .toBeLessThan(2);
+});
+
+test("file-list polling lets slow diff reads finish and preserves the diff position across tabs", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("button", { name: "Show right sidebar" })).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.holdDiffs = true;
+  });
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  await expect(sidebar.getByText("Loading diff…").first()).toBeVisible();
+  await page.clock.runFor(6000);
+  expect(await page.evaluate(() => window.composerFixture.diffAborts)).toBe(0);
+  await page.evaluate(() => window.composerFixture.releaseDiffs());
+  const tree = sidebar.getByRole("navigation", { name: "Changed files" });
+  await tree.getByTitle("src/nested/second.ts", { exact: true }).click();
+  const second = sidebar.getByRole("region", { name: "src/nested/second.ts", exact: true });
+  await expect(second).toContainText("line 0");
+  const scroll = sidebar.locator(".changes-diff-scroll");
+  const top = await scroll.evaluate((e) => e.scrollTop);
+  await sidebar.getByRole("tab", { name: "Subagents", exact: true }).click();
+  await sidebar.getByRole("tab", { name: "Changes", exact: true }).click();
+  await expect.poll(() => scroll.evaluate((e) => e.scrollTop)).toBe(top);
+});
+
+test("continuous Changes scrolling loads the next file page", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("button", { name: "Show right sidebar" })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showManyChanges());
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  const tree = sidebar.getByRole("navigation", { name: "Changed files" });
+  await expect(tree.getByTitle("files/199.ts", { exact: true })).toBeAttached();
+  await tree.evaluate((e) => {
+    e.scrollTop = 500;
+  });
+  const sticky = await tree
+    .locator(".changes-comparison")
+    .evaluate((e) => e.getBoundingClientRect().top - e.parentElement!.getBoundingClientRect().top);
+  expect(Math.abs(sticky)).toBeLessThan(1);
+  await expect(tree.getByRole("combobox", { name: "Change comparison" })).toBeVisible();
+  const scroll = sidebar.locator(".changes-diff-scroll");
+  await scroll.evaluate((e) => {
+    e.scrollTop = e.scrollHeight;
+  });
+  const last = tree.getByTitle("files/204.ts", { exact: true });
+  await expect(last).toBeAttached();
+  await last.click();
+  await expect(sidebar.getByRole("region", { name: "files/204.ts", exact: true })).toContainText(
+    "files/204.ts line 0",
+  );
+});
 
 test("activities expand exclusively and have a compact Stop control beside running", async ({
   page,
@@ -1373,6 +2022,43 @@ test("activity refresh stops when the connection closes while the conversation s
   expect(await page.evaluate(() => window.composerFixture.peekCalls)).toBe(1);
 });
 
+test("custom tool previews hide successful details and feedback stays on assistant text", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("button", { name: "Show right sidebar" })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showPreviewTools());
+  await page.locator(".tool-group > summary").click();
+  const openTool = async (path: string) => {
+    const tool = page.getByTestId("tool-call").filter({ hasText: path });
+    await tool.locator(":scope > summary").click();
+    await expect(tool.locator(".message-actions")).toHaveCount(0);
+    return tool;
+  };
+  for (const path of ["good.txt", "patch.txt"]) {
+    const tool = await openTool(path);
+    await expect(tool.locator(".edit-diff")).toBeVisible();
+    await expect(tool.getByRole("heading", { name: "Arguments", exact: true })).toHaveCount(0);
+    await expect(tool.getByTestId("tool-output")).toHaveCount(0);
+  }
+  const failed = await openTool("broken.txt");
+  await expect(failed.getByRole("heading", { name: "Arguments", exact: true })).toBeVisible();
+  await expect(failed.getByTestId("tool-output")).toHaveText("Replacement failed");
+  const read = await openTool("read.txt");
+  await expect(read.getByRole("heading", { name: "Arguments", exact: true })).toBeVisible();
+  await expect(read.getByTestId("tool-output")).toHaveText("Read content");
+  const malformed = await openTool("malformed.txt");
+  await expect(malformed.getByTestId("tool-output")).toHaveText("Historical output");
+  const reasoning = page.locator(".reasoning");
+  await reasoning.locator(":scope > summary").click();
+  await expect(reasoning.locator("p")).toHaveText("Checking the edits");
+  await expect(reasoning.locator(".message-actions")).toHaveCount(0);
+  await expect(page.locator(".tool .feedback-controls, .reasoning .feedback-controls")).toHaveCount(
+    0,
+  );
+  await expect(page.getByTestId("assistant-message").locator(".feedback-controls")).toHaveCount(1);
+});
+
 test("long tool groups mount only call previews and the details actually opened", async ({
   page,
 }) => {
@@ -1383,8 +2069,9 @@ test("long tool groups mount only call previews and the details actually opened"
   const tail = page.getByLabel("Recent work");
   await expect(group.locator(":scope > summary")).toHaveText("Worked · 100 tool calls");
   await expect(group.getByTestId("tool-call")).toHaveCount(0);
-  await expect(group.locator(".diff span")).toHaveCount(0);
+  await expect(group.locator(".edit-diff span")).toHaveCount(0);
   await expect(tail.getByTestId("tool-call")).toHaveCount(5);
+  await expect(tail.getByTestId("tool-call").first().locator(":scope > summary")).toBeVisible();
   await tail
     .getByTestId("tool-call")
     .first()
@@ -1394,14 +2081,19 @@ test("long tool groups mount only call previews and the details actually opened"
   await expect(tail.getByTestId("tool-call")).toHaveCount(5);
   await expect(page.locator('[data-tail-row="kept"]')).toHaveCount(1);
   await expect(group.getByTestId("tool-output")).toHaveCount(0);
-  await expect(group.locator(".diff span")).toHaveCount(0);
+  await expect(group.locator(".edit-diff span")).toHaveCount(0);
   const first = group.getByTestId("tool-call").first();
   await first.locator(":scope > summary").click();
-  await expect(first.getByTestId("tool-output")).toHaveText("Wrote file-0.txt");
-  await expect(first.locator(".diff span")).toHaveCount(1001);
-  await expect(group.getByTestId("tool-output")).toHaveCount(1);
+  await expect(first.getByTestId("tool-output")).toHaveCount(0);
+  await expect(first.getByRole("heading", { name: "Arguments", exact: true })).toHaveCount(0);
+  await expect(first.locator(".edit-diff span")).toHaveCount(1001);
+  await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
+  expect(await first.locator(".edit-diff").evaluate((e) => getComputedStyle(e).color)).toBe(
+    await first.locator(".edit-diff").evaluate((e) => getComputedStyle(e.parentElement!).color),
+  );
+  await expect(group.getByTestId("tool-output")).toHaveCount(0);
   await first.locator(":scope > summary").click();
-  await expect(group.locator(".diff span")).toHaveCount(0);
+  await expect(group.locator(".edit-diff span")).toHaveCount(0);
   await group.locator(":scope > summary").click();
   await expect(group.getByTestId("tool-call")).toHaveCount(0);
   await expect(tail.getByTestId("tool-call")).toHaveCount(5);
@@ -3059,16 +3751,12 @@ test("question dismissal is explicit and does not require filling the form", asy
 
 test("read-only child views can dismiss their issued questions", async ({ page }) => {
   await page.goto(url + "?composer");
-  await expect(page.getByRole("button", { name: "Subagents", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Show right sidebar", exact: true })).toBeVisible();
   await page.evaluate(() => {
     window.composerFixture.showSubagents();
     window.composerFixture.showQuestions("review");
+    window.composerFixture.openConversation("review");
   });
-  await page.getByRole("button", { name: "Subagents · 1 running", exact: true }).click();
-  await page
-    .getByRole("dialog", { name: "Subagents", exact: true })
-    .getByRole("link", { name: "Review authentication", exact: true })
-    .click();
   await expect(page.locator(".conversation-header h1")).toHaveText("Review authentication");
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveCount(0);
   const form = page.getByRole("region", { name: "Agent questions" });

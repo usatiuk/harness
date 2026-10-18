@@ -17,7 +17,8 @@ import {
   ManagedWorktrees,
   ManagedDockerEnvironments,
 } from "./components/worktree-controls.tsx";
-import { ActivityOwner, SubagentControl, SubagentHeading } from "./components/subagent-control.tsx";
+import { ActivityOwner, SubagentHeading } from "./components/subagent-control.tsx";
+import { RightSidebarLayout } from "./components/right-sidebar.tsx";
 import { SidebarLayout } from "./components/sidebar.tsx";
 import { McpSettings } from "./components/mcp-settings.tsx";
 import { DesktopUpdates } from "./components/desktop-updates.tsx";
@@ -1019,8 +1020,7 @@ export function createDesktopRouter(
   }
 
   function toolIcon(name: string) {
-    if (["write", "edit", "apply_patch", "str_replace_based_edit_tool"].includes(name))
-      return PenLine;
+    if (["write", "edit", "apply_patch"].includes(name)) return PenLine;
     if (name === "read" || name === "read_file") return BookOpen;
     if (name === "glob" || name === "grep" || name === "tool_search") return Search;
     if (name === "eval") return Code;
@@ -1081,15 +1081,13 @@ export function createDesktopRouter(
     boundary?: "begin" | "result" | undefined;
   }) {
     const edit = editPresentation(cell);
+    const showDetails = !edit || cell.status !== "ok";
     return (
       <>
-        <div className="message-actions">
-          <FeedbackControls session={session} itemId={cell.id} />
-        </div>
         {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
         {edit &&
           edit.files.map((file, index) => (
-            <section className="diff" key={`${file.path}:${index}`}>
+            <section className="edit-diff" key={`${file.path}:${index}`}>
               <strong>{file.path}</strong>
               <pre>
                 {file.lines.map((line, lineIndex) => (
@@ -1101,7 +1099,7 @@ export function createDesktopRouter(
               </pre>
             </section>
           ))}
-        {boundary !== "result" && (
+        {showDetails && boundary !== "result" && (
           <>
             <h3>Arguments</h3>
             <pre>
@@ -1109,7 +1107,7 @@ export function createDesktopRouter(
             </pre>
           </>
         )}
-        {boundary !== "begin" && (
+        {showDetails && boundary !== "begin" && (
           <>
             <h3>Output</h3>
             <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
@@ -1415,9 +1413,6 @@ export function createDesktopRouter(
         name="conversation-step"
         title={<ReasoningSummary label={label} text={cell.text} />}
       >
-        <div className="message-actions">
-          <FeedbackControls session={session} itemId={cell.id} />
-        </div>
         <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
           {cell.text}
         </Markdown>
@@ -1428,11 +1423,12 @@ export function createDesktopRouter(
   const TranscriptCell = memo(function TranscriptCell({
     cell,
     intermediate = false,
+    readOnly = false,
   }: {
     cell: Cell;
     intermediate?: boolean;
+    readOnly?: boolean;
   }) {
-    const view = useLoaderData<ConversationView>();
     if (cell.kind === "tool") return <ToolCall cell={cell} />;
     if (cell.kind === "reasoning") return <Reasoning cell={cell} />;
     if (cell.kind === "plugin_message")
@@ -1460,7 +1456,7 @@ export function createDesktopRouter(
             <span>{cell.text}</span>
             {cell.images && <ImagePreviews images={cell.images} />}
           </div>
-          {!view.subagent && <ForkBefore itemId={cell.id} />}
+          {!readOnly && <ForkBefore itemId={cell.id} />}
         </article>
       );
     if (cell.kind === "assistant")
@@ -2058,7 +2054,6 @@ export function createDesktopRouter(
       <div className="conversation-heading">
         <div className="conversation-title-display" hidden={editing}>
           <h1>{label}</h1>
-          <WorktreeControl session={session} conversation={conversation} running={running} />
           <IconButton
             ref={pencil}
             icon={PenLine}
@@ -2071,6 +2066,7 @@ export function createDesktopRouter(
               setEditing(true);
             }}
           />
+          <WorktreeControl session={session} conversation={conversation} running={running} />
         </div>
         {editing && (
           <>
@@ -2124,6 +2120,30 @@ export function createDesktopRouter(
       session.setActiveConversation(view.conversation.id);
       return () => session.setActiveConversation(null);
     }, [view.conversation.id]);
+    return (
+      <RightSidebarLayout
+        key={view.subagent?.ancestors[0]?.id ?? view.conversation.id}
+        session={session}
+        view={view}
+        label={conversationLabel(view.conversation, view)}
+        renderConversation={(child) => <ConversationContent attachment={child} side />}
+      >
+        {(toggle) => <ConversationContent attachment={attachment} toggle={toggle} />}
+      </RightSidebarLayout>
+    );
+  }
+
+  function ConversationContent({
+    attachment,
+    side = false,
+    toggle,
+  }: {
+    attachment: ConversationView;
+    side?: boolean;
+    toggle?: ReactNode;
+  }) {
+    const view = useSyncExternalStore(attachment.subscribe, attachment.snapshot);
+    useSyncExternalStore(session.subscribeConnection, session.connectionSnapshot);
     const questionRequests = [...view.questions.values()].map((request) => (
       <QuestionRequestForm key={request.id} request={request} />
     ));
@@ -2144,6 +2164,7 @@ export function createDesktopRouter(
         ) : (
           <TranscriptCell
             cell={row.cell}
+            readOnly={side || Boolean(view.subagent)}
             intermediate={
               row.cell.kind === "assistant" &&
               (lastByTurn.get(row.cell.turnId) !== row.cell ||
@@ -2151,7 +2172,7 @@ export function createDesktopRouter(
             }
           />
         ),
-      [latestWork, lastByTurn, view.state.turn],
+      [latestWork, lastByTurn, view.state.turn, view.subagent, side],
     );
     return (
       <ConversationCanvas
@@ -2170,24 +2191,21 @@ export function createDesktopRouter(
           )
         }
         header={
-          <header className="conversation-header">
-            {view.subagent ? (
-              <SubagentHeading subagent={view.subagent} />
-            ) : (
-              <ConversationHeading
-                key={view.conversation.id}
-                conversation={view.conversation}
-                label={conversationLabel(view.conversation, view)}
-                running={view.state.turn.status === "running"}
-              />
-            )}
-            <SubagentControl
-              key={view.conversation.id}
-              session={session}
-              conversationId={view.conversation.id}
-              revision={view.subagentRevision}
-            />
-          </header>
+          side ? null : (
+            <header className="conversation-header">
+              {view.subagent ? (
+                <SubagentHeading subagent={view.subagent} />
+              ) : (
+                <ConversationHeading
+                  key={view.conversation.id}
+                  conversation={view.conversation}
+                  label={conversationLabel(view.conversation, view)}
+                  running={view.state.turn.status === "running"}
+                />
+              )}
+              {toggle}
+            </header>
+          )
         }
         history={
           <EarlierHistory
@@ -2198,7 +2216,7 @@ export function createDesktopRouter(
         }
         renderRow={renderRow}
         dock={
-          view.subagent ? (
+          side || view.subagent ? (
             <div className="conversation-support approvals">{questionRequests}</div>
           ) : (
             <>

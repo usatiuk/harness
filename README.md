@@ -69,7 +69,10 @@ Linux retains its native frame. Dialogs dim the shared header and content togeth
 The same theme choice applies to content and window
 chrome, including startup; custom accents remain independent.
 It shows one selected conversation with live status for other open conversations,
-streaming history, approvals, tool output and edit diffs. New conversations save a
+streaming history, approvals, tool output and edit diffs. An icon-only right-sidebar
+control opens Changes and Subagents tabs: scroll continuously through Git diffs,
+jump from the changed-file tree, or inspect a live read-only subagent transcript.
+The conversation tree stays rooted at the main parent. New conversations save a
 first-message excerpt and receive one model-generated title in the background.
 Naming defaults to the conversation model; select another in Settings → Defaults.
 Conversations keep independent turns and drafts while you navigate. Settings provide provider

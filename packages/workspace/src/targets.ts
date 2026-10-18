@@ -17,7 +17,6 @@ export function fileTargetsOfValidatedCall(call: ToolCall): string[] {
     case "read_file":
     case "write":
     case "edit":
-    case "str_replace_based_edit_tool":
       return pathArg(call.args);
     case "apply_patch": {
       const patch =

@@ -1,10 +1,10 @@
 import { memo, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { ChevronRight, Network } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { ConversationId } from "@harness/protocol";
-import type { SubagentPage, SubagentRow } from "@harness/client-features";
+import type { SubagentPage } from "@harness/client-features";
 import type { ConversationSnapshot, DesktopSession } from "../session.ts";
-import { Button, IconButton, PopoverControl } from "../ui.tsx";
+import { Button } from "../ui.tsx";
 
 const statusLabel = {
   running: "Running",
@@ -13,12 +13,19 @@ const statusLabel = {
   aborted: "Stopped",
 };
 
-function useSubagents(
-  session: DesktopSession,
-  id: string,
-  activityRevision: unknown,
-  refreshKey = 0,
-) {
+function Children({
+  session,
+  id,
+  revision,
+  selected,
+  onSelect,
+}: {
+  session: DesktopSession;
+  id: string;
+  revision: number;
+  selected: string | null;
+  onSelect: (id: string) => void;
+}) {
   const [pages, setPages] = useState(1);
   const [data, setData] = useState<SubagentPage>();
   const [error, setError] = useState<string>();
@@ -26,18 +33,18 @@ function useSubagents(
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
-      const children: SubagentRow[] = [];
+      const children: SubagentPage["children"] = [];
       let cursor: SubagentPage["nextCursor"] = null;
       let running = 0;
-      for (let index = 0; index < pages; index++) {
-        const page = await session.plugins.listSubagents(
+      for (let page = 0; page < pages; page++) {
+        const next = await session.plugins.listSubagents(
           id as ConversationId,
           cursor,
           controller.signal,
         );
-        children.push(...page.children);
-        running = page.running;
-        cursor = page.nextCursor;
+        children.push(...next.children);
+        cursor = next.nextCursor;
+        running = next.running;
         if (!cursor) break;
       }
       if (!controller.signal.aborted) {
@@ -53,133 +60,99 @@ function useSubagents(
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [session, id, pages, activityRevision, refreshKey]);
-  return {
-    data,
-    error,
-    loading,
-    more: () => {
-      setLoading(true);
-      setPages((count) => count + 1);
-    },
-  };
-}
-
-function Tree({
-  session,
-  id,
-  revision,
-}: {
-  session: DesktopSession;
-  id: string;
-  revision: unknown;
-}) {
-  const state = useSubagents(session, id, revision);
-  return <TreeRows session={session} revision={revision} state={state} />;
-}
-function TreeRows({
-  session,
-  revision,
-  state,
-  grouped = false,
-}: {
-  session: DesktopSession;
-  revision: unknown;
-  state: ReturnType<typeof useSubagents>;
-  grouped?: boolean;
-}) {
-  const rows = (children: SubagentRow[]) =>
-    children.map((child) => {
-      const title = (
-        <>
-          <Link to={`/conversations/${child.id}`} title={`${child.slug} · ${child.agent}`}>
-            {child.name}
-          </Link>
-          <span className="muted" data-status={child.status}>
-            {statusLabel[child.status]}
-          </span>
-        </>
-      );
-      return (
-        <div key={child.id}>
-          <div className="subagent-row">{title}</div>
-          {child.hasChildren && <Tree session={session} id={child.id} revision={revision} />}
-        </div>
-      );
-    });
-  const children = state.data?.children ?? [];
+  }, [session, id, revision, pages]);
   return (
-    <div className="subagent-tree">
-      {grouped
-        ? [true, false].map((running) => {
-            const branch = children.filter((child) => child.running > 0 === running);
-            return (
-              branch.length > 0 && (
-                <section key={String(running)} aria-label={running ? "Running" : "Finished"}>
-                  <h3>{running ? "Running" : "Finished"}</h3>
-                  {rows(branch)}
-                </section>
-              )
-            );
-          })
-        : rows(children)}
-      {state.error && (
-        <p role="alert" className="error">
-          {state.error}
-        </p>
+    <ul>
+      {data?.children.map((child) => (
+        <li key={child.id}>
+          <button
+            type="button"
+            className="subagent-row"
+            aria-pressed={selected === child.id}
+            onClick={() => onSelect(child.id)}
+          >
+            <span>{child.name}</span>
+            <span className="muted" data-status={child.status}>
+              {statusLabel[child.status]}
+            </span>
+          </button>
+          {child.hasChildren && (
+            <Children
+              session={session}
+              id={child.id}
+              revision={revision}
+              selected={selected}
+              onSelect={onSelect}
+            />
+          )}
+        </li>
+      ))}
+      {error && (
+        <li className="error" role="alert">
+          {error}
+        </li>
       )}
-      {!state.data && state.loading && (
-        <p className="muted" role="status">
+      {!data && loading && (
+        <li className="muted" role="status">
           Loading subagents…
-        </p>
+        </li>
       )}
-      {state.data?.children.length === 0 && <p className="muted">No subagents yet.</p>}
-      {state.data?.nextCursor && (
-        <Button size="sm" variant="ghost" disabled={state.loading} onClick={state.more}>
-          Show more
-        </Button>
+      {data?.children.length === 0 && <li className="muted">No subagents yet.</li>}
+      {data?.nextCursor && (
+        <li>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={loading}
+            onClick={() => {
+              setLoading(true);
+              setPages((count) => count + 1);
+            }}
+          >
+            Show more
+          </Button>
+        </li>
       )}
-    </div>
+    </ul>
   );
 }
 
-export const SubagentControl = memo(function SubagentControl({
+export function SubagentTree({
   session,
-  conversationId,
+  rootId,
+  rootLabel,
   revision,
+  selected,
+  onSelect,
 }: {
   session: DesktopSession;
-  conversationId: string;
+  rootId: string;
+  rootLabel: string;
   revision: number;
+  selected: string | null;
+  onSelect: (id: string) => void;
 }) {
-  const [refresh, setRefresh] = useState(0);
-  const state = useSubagents(session, conversationId, revision, refresh);
-  const running = state.data?.running ?? 0;
   return (
-    <div className="subagent-control">
-      <PopoverControl
-        className="subagent-popover"
-        label="Subagents"
-        onOpenChange={(open) => {
-          if (open) setRefresh((value) => value + 1);
-        }}
-        trigger={
-          running ? (
-            <Button variant="ghost" size="sm" aria-label={`Subagents · ${running} running`}>
-              <Network size={14} />
-              Subagents · {running} running
-            </Button>
-          ) : (
-            <IconButton icon={Network} size="sm" label="Subagents" />
-          )
-        }
-      >
-        <h2>Subagents</h2>
-        <TreeRows session={session} revision={revision} state={state} grouped />
-      </PopoverControl>
-    </div>
+    <nav className="subagent-tree" aria-label="Conversation tree">
+      <ul>
+        <li>
+          <div className="subagent-row">
+            <span>{rootLabel}</span>
+            <span className="muted">Main</span>
+          </div>
+          <Children
+            key={rootId}
+            session={session}
+            id={rootId}
+            revision={revision}
+            selected={selected}
+            onSelect={onSelect}
+          />
+        </li>
+      </ul>
+    </nav>
   );
-});
+}
 
 export const SubagentHeading = memo(function SubagentHeading({
   subagent,

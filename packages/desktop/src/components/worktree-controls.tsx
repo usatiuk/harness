@@ -82,7 +82,7 @@ export function WorktreeControl({
           title={conversation.workspaceRoot}
         >
           <GitBranch size={12} aria-hidden="true" />
-          {branch ?? "Workspace"}
+          <span>{branch ?? "Workspace"}</span>
         </Button>
       }
     >

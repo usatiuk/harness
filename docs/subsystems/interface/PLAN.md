@@ -6,6 +6,14 @@ Keep dependable local TUI and desktop clients over one reusable service/event
 boundary. Improve diagnosis and daily operation. Desktop v1 delivery is tracked
 in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 
+## Desktop right sidebar
+
+The [right-sidebar delivery](../../plans/interface/2026-10-18-right-sidebar.md)
+adds Changes/Subagents tabs, continuous unified/split diffs via `@pierre/diffs` CodeView,
+a compact file tree with line counts and comparison selector, five Git
+comparisons and a root-anchored family tree with reused live side transcripts.
+Validation evidence and qualification limits are tracked in that plan.
+
 ## Desktop streaming performance
 
 The [approved refactor](../../plans/interface/2026-10-17-desktop-streaming-performance.md)
@@ -81,6 +89,6 @@ normal Harness directory, without home/profile or executable-path controls.
 - Full branch visualization without a branch-management workflow.
 - Profile selection without an actual launch or session-switch workflow.
 - Transcript search/export until conversation length demonstrates the need.
-- Desktop side-by-side views, file explorers, editors, and worktree management.
+- General file explorers and editors beyond the scoped Changes file tree.
 - Silent provider or sandbox fallback in the name of smoother UX.
 - Storing derived transcript/UI state durably.

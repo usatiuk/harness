@@ -34,6 +34,46 @@ npm run test:wsl                 # headless Windows WSL + rendered TUI qualifica
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## Desktop right sidebar
+
+`packages/worktrees/src/changes.test.ts` uses real Git repositories to exercise
+staged/unstaged/untracked and committed comparisons, divergent upstreams,
+pagination, unborn HEAD, renames, conflicts, index removals, CRLF conversion,
+literal names, addition/deletion counts, binary index-removal transitions,
+binary/oversized files, unsafe paths and cancellation. A controlled
+filesystem ENOENT reproduces the atomic-save read race. `packages/server/src/changes.test.ts`
+drives DesktopSession through the real public RPC boundary and verifies that
+reads follow the conversation's current worktree after switching.
+
+The sidebar cases in `conversation.spec.ts` cover a root-anchored nested family,
+live side transcript updates, read-only controls, narrow layouts, icon toggling,
+continuous all-file scrolling, file-tree jumps, wide tree placement, comparison
+selection within the tree, full-length vertical guides without horizontal branches,
+resizing beyond 900px and clamping after window shrink, per-file colored line counts,
+actual-pane-width unified/split switching and multiline pairing, a static main
+root, slow requests surviving list polling, and diff position across tabs. Delayed
+8,000-line preceding-file updates preserve a clicked file anchor through responsive
+reflow. Native mouse selection and real clipboard reads cover inline and split
+text without gutters; continuous selection across virtual scrolling remains
+unqualified. Geometry checks verify flush edges and equal 45px sticky headers;
+resizing covers tree height and width. Folder checks observe the actual grid
+transition and verify reduced-motion behavior. File controls cover independent
+collapse, polling retention, keyboard expansion, tree reopening, metadata and
+raw combined-patch/unavailable-count preservation after list replacement. Diff
+context-menu coverage checks actual line wrapping/gutter visibility, checked state,
+keyboard navigation/dismissal, sidebar reopening and page-reload persistence.
+Long-line checks launch Chromium without Playwright’s headless `--hide-scrollbars`
+argument and verify actual allocated scrollbar height, opaque thumb styling and
+horizontal scroll movement. Hunk metadata checks measure the actual initial `@@` glyphs and hit-test
+the row across unified/split and wrapped/scrolled layouts. Header checks verify
+rename order/20px geometry and the fixed 12px worktree icon on a narrow window.
+Preference unit tests validate malformed/partial saved values at the storage boundary. Tool-preview regressions preserve failed
+and generic details while successful previews omit raw details, and feedback
+controls appear only on assistant text.
+The browser fixture controls data and transport delay; it does not qualify a
+native desktop build or real SSH/WSL execution. Exact evidence and broader-suite
+limitations are in the [delivery plan](plans/interface/2026-10-18-right-sidebar.md).
+
 ## Desktop streaming publication
 
 `conversation-view.test.ts` uses a controlled clock to verify the 100 ms text and
@@ -1342,9 +1382,11 @@ five linked worktrees, Show all and selection of older worktrees.
 
 Local qualification: `npm run check` passed 1,391 tests (41 gated skips); all 58
 browser cases passed using `PLAYWRIGHT_BROWSERS_PATH=/tmp/harness-playwright-browsers`.
-An empty `/tmp/.git` in the current environment confuses the real non-Git RPC
-fixture, including outside the sandbox. Use `TMPDIR=/var/tmp` rather than changing
-Git discovery expectations.
+The tool sandbox exposes an empty read-only `/tmp/.git` marker that confuses the
+real non-Git RPC fixture. Fresh unrestricted qualification on October 18 confirms
+that marker is absent outside the sandbox and the default `npm run check` passes
+(1,686 tests, 41 gated skips). Rerun unrestricted before attributing this failure
+to product Git discovery.
 
 Run real Docker qualification with:
 

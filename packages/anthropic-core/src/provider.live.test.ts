@@ -124,36 +124,35 @@ describe.skipIf(!apiKey)("AnthropicProvider (live)", () => {
     expect(second.some((e) => e.type === "text_delta")).toBe(true);
   }, 120_000);
 
-  it("emits a text_editor-shaped function call to create a file", async () => {
+  it("emits a write function call to create a file", async () => {
     const events = await drain({
-      instructions: [{ type: "text", text: "Use the text editor tool to edit files." }],
+      instructions: [{ type: "text", text: "Use the write tool to create files." }],
       modelConfig: { provider: PROVIDER, model },
       tools: [
         {
           kind: "function",
-          name: "str_replace_based_edit_tool",
+          name: "write",
           description: "the file editor",
           parameters: {
             type: "object",
             properties: {
-              command: { type: "string", enum: ["view", "create", "str_replace", "insert"] },
               path: { type: "string" },
-              file_text: { type: "string" },
+              content: { type: "string" },
             },
-            required: ["command", "path"],
+            required: ["path", "content"],
           },
         },
       ],
       items: [{ item: userItem("Create a file hello.txt containing exactly: hi") }],
     });
 
-    const call = events.find(
-      (e) => e.type === "tool_call" && e.name === "str_replace_based_edit_tool",
-    );
+    const call = events.find((e) => e.type === "tool_call" && e.name === "write");
     expect(call).toBeDefined();
     const args = (call as Extract<ModelStreamEvent, { type: "tool_call" }>).args as {
-      command?: string;
+      path?: string;
+      content?: string;
     };
-    expect(args.command).toBe("create");
+    expect(args.path).toBe("hello.txt");
+    expect(args.content?.trim()).toBe("hi");
   }, 60_000);
 });

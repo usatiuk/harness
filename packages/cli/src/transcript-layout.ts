@@ -58,13 +58,6 @@ const explorationAction = (
         target: path && path !== "." ? `${pattern} in ${path}` : pattern,
       };
     }
-    case "str_replace_based_edit_tool":
-      if (objectArgs(cell.args)?.command !== "view") return undefined;
-      return {
-        callId: cell.callId,
-        kind: "read",
-        target: stringArg(cell.args, "path") ?? "file",
-      };
     default:
       return undefined;
   }

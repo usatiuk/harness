@@ -84,11 +84,10 @@ describe("buildMessages", () => {
     expect(params.max_tokens).toBe(1000);
   });
 
-  it("renders a flat text-editor schema accepted by Anthropic", () => {
+  it("renders a flat write schema accepted by Anthropic", () => {
     const properties = {
-      command: { type: "string", enum: ["view", "create", "str_replace", "insert"] },
       path: { type: "string" },
-      file_text: { type: "string" },
+      content: { type: "string" },
     };
     const params = buildMessages(
       {
@@ -96,12 +95,12 @@ describe("buildMessages", () => {
         tools: [
           {
             kind: "function",
-            name: "str_replace_based_edit_tool",
+            name: "write",
             description: "edit",
             parameters: {
               type: "object",
               properties,
-              required: ["command", "path"],
+              required: ["path", "content"],
               additionalProperties: false,
             },
           },
@@ -113,12 +112,12 @@ describe("buildMessages", () => {
 
     expect(params.tools).toEqual([
       {
-        name: "str_replace_based_edit_tool",
+        name: "write",
         description: "edit",
         input_schema: {
           type: "object",
           properties,
-          required: ["command", "path"],
+          required: ["path", "content"],
           additionalProperties: false,
         },
       },

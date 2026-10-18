@@ -14,6 +14,7 @@ import {
   Popover,
   Tooltip,
   DropdownMenu,
+  ContextMenu as ContextMenuPrimitive,
   Tabs,
   Select as SelectPrimitive,
 } from "radix-ui";
@@ -213,6 +214,37 @@ export function SelectItem({
     </SelectPrimitive.Item>
   );
 }
+function ContextMenuContent({
+  className = "",
+  ...props
+}: ComponentProps<typeof ContextMenuPrimitive.Content>) {
+  return (
+    <ContextMenuPrimitive.Portal>
+      <ContextMenuPrimitive.Content {...props} className={`menu ${className}`} />
+    </ContextMenuPrimitive.Portal>
+  );
+}
+function ContextMenuCheckboxItem({
+  className = "",
+  children,
+  ...props
+}: ComponentProps<typeof ContextMenuPrimitive.CheckboxItem>) {
+  return (
+    <ContextMenuPrimitive.CheckboxItem {...props} className={`menu-item ${className}`}>
+      {children}
+      <ContextMenuPrimitive.ItemIndicator>
+        <Check size={12} aria-hidden="true" />
+      </ContextMenuPrimitive.ItemIndicator>
+    </ContextMenuPrimitive.CheckboxItem>
+  );
+}
+export const ContextMenu = {
+  Root: ContextMenuPrimitive.Root,
+  Trigger: ContextMenuPrimitive.Trigger,
+  Content: ContextMenuContent,
+  CheckboxItem: ContextMenuCheckboxItem,
+};
+
 export function Checkbox({ className = "", ...props }: Omit<ComponentProps<"input">, "type">) {
   return <input type="checkbox" className={`native-check ${className}`} {...props} />;
 }

@@ -109,7 +109,7 @@ const applyPatchPresentation = (args: unknown): EditPresentation | undefined => 
 };
 
 const structuredEditPresentation = (
-  name: "edit" | "write" | "str_replace_based_edit_tool",
+  name: "edit" | "write",
   value: unknown,
 ): EditPresentation | undefined => {
   const args = recordArgs(value);
@@ -125,70 +125,19 @@ const structuredEditPresentation = (
           files: [{ path, lines: prefixedLines(content, "+") }],
         };
   }
-  if (name === "edit") {
-    const before = stringField(args, "old_string");
-    const after = stringField(args, "new_string");
-    return before === undefined || after === undefined
-      ? undefined
-      : {
-          labels: labels(`Editing ${path}`, `Edited ${path}`, `Failed to edit ${path}`),
-          files: [
-            {
-              path,
-              lines: [...prefixedLines(before, "-"), ...prefixedLines(after, "+")],
-            },
-          ],
-        };
-  }
-
-  const command = stringField(args, "command");
-  if (command === "create") {
-    const content = stringField(args, "file_text");
-    return content === undefined
-      ? undefined
-      : {
-          labels: labels(`Creating ${path}`, `Created ${path}`, `Failed to create ${path}`),
-          files: [{ path, lines: prefixedLines(content, "+") }],
-        };
-  }
-  if (command === "str_replace") {
-    const before = stringField(args, "old_str");
-    const after = stringField(args, "new_str") ?? "";
-    return before === undefined
-      ? undefined
-      : {
-          labels: labels(`Editing ${path}`, `Edited ${path}`, `Failed to edit ${path}`),
-          files: [
-            {
-              path,
-              lines: [...prefixedLines(before, "-"), ...prefixedLines(after, "+")],
-            },
-          ],
-        };
-  }
-  if (command === "insert") {
-    const content = stringField(args, "new_str");
-    const line = args.insert_line;
-    return content === undefined || typeof line !== "number"
-      ? undefined
-      : {
-          labels: labels(
-            `Inserting into ${path}`,
-            `Inserted into ${path}`,
-            `Failed to insert into ${path}`,
-          ),
-          files: [
-            {
-              path,
-              lines: [
-                { kind: "hunk", text: `@@ after line ${line}` },
-                ...prefixedLines(content, "+"),
-              ],
-            },
-          ],
-        };
-  }
-  return undefined;
+  const before = stringField(args, "old_string");
+  const after = stringField(args, "new_string");
+  return before === undefined || after === undefined
+    ? undefined
+    : {
+        labels: labels(`Editing ${path}`, `Edited ${path}`, `Failed to edit ${path}`),
+        files: [
+          {
+            path,
+            lines: [...prefixedLines(before, "-"), ...prefixedLines(after, "+")],
+          },
+        ],
+      };
 };
 
 export function editPresentation(
@@ -199,7 +148,6 @@ export function editPresentation(
       return applyPatchPresentation(cell.args);
     case "edit":
     case "write":
-    case "str_replace_based_edit_tool":
       return structuredEditPresentation(cell.name, cell.args);
     default:
       return undefined;

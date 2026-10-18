@@ -211,8 +211,7 @@ function toTool(schema: ToolSchema): ToolUnion {
       input_schema: toInputSchema(schema.parameters, schema.name),
     };
   }
-  // Anthropic has no freeform/grammar tool, and the engine never routes a custom tool to a Claude
-  // model (Claude runs only under the text_editor profile), so reaching here is a wiring bug.
+  // Anthropic accepts function schemas; routing a freeform tool here is a wiring bug.
   throw new Error(`anthropic cannot render custom tool: ${schema.name}`);
 }
 

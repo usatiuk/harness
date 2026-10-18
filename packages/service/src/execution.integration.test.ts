@@ -248,7 +248,7 @@ describe("execution + approval pipeline", () => {
     await writeFile(join(root, "src", "AGENTS.md"), "must not load");
     const { svc } = service([
       toolStep("c1", "write", { path: "src/a.txt" }),
-      toolStep("c2", "str_replace_based_edit_tool", { command: "view", path: "src/a.txt" }),
+      toolStep("c2", "unavailable_file_tool", { path: "src/a.txt" }),
       textStep("done"),
     ]);
     const conv = await svc.createConversation({ cwd: root, overrides });

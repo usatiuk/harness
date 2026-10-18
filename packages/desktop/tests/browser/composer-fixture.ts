@@ -1,4 +1,4 @@
-import type { SubagentPage } from "@harness/client-features";
+import type { ChangeFile, ChangeMode, SubagentPage } from "@harness/client-features";
 import type { Cell } from "@harness/client-features/transcript-reducer";
 import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
@@ -14,6 +14,11 @@ import { WindowShell } from "../../src/window-shell.tsx";
 import type { AppSettings } from "@harness/server/client-protocol";
 
 type Delivery = { text: string; intent: DeliveryIntent; images?: ImageContent[] };
+let changePaths = ["src/first.ts", "src/nested/second.ts", "last.ts"];
+const diffWaiters: Array<() => void> = [];
+let holdLargeDiff = false;
+const largeDiffWaiters: Array<() => void> = [];
+
 type Deferred = { resolve(): void; reject(error: Error): void };
 declare global {
   interface Window {
@@ -27,6 +32,18 @@ declare global {
       showToolsAndActivities(serverSkew?: number, phase?: string): void;
       showMultipleActivities(): void;
       showSubagents(): void;
+      updateChild(id: string, text: string): void;
+      openConversation(id: string): void;
+      changeModes: string[];
+      showManyChanges(): void;
+      showLiteralChanges(): void;
+      showCombinedChanges(): void;
+      showLongLineChanges(): void;
+      showDelayedChanges(): void;
+      releaseLargeDiff(): void;
+      holdDiffs: boolean;
+      diffAborts: number;
+      releaseDiffs(): void;
       showOwnedActivity(): void;
       finishSubagents(): void;
       activityKills: string[];
@@ -43,6 +60,7 @@ declare global {
       showLivePreview(reasoningOnly?: boolean, withHistory?: boolean): void;
       showBlankReasoning(withTool?: boolean): void;
       showLongToolRun(): void;
+      showPreviewTools(): void;
       showWorkGroups(followingMessages?: number): void;
       splitWorkGroup(): void;
       seedHistory(): void;
@@ -245,6 +263,70 @@ const session = {
     changed();
   },
   plugins: {
+    async listChanges(_id: string, mode: ChangeMode, after: string | null = null) {
+      window.composerFixture.changeModes.push(mode);
+      const remaining = after === null ? changePaths : changePaths.filter((path) => path > after);
+      const paths = remaining.slice(0, 200);
+      return {
+        repository: "/fixture",
+        defaultBranch: "main",
+        upstream: "origin/feature",
+        unavailable: null,
+        files: paths.map((path) => ({
+          path,
+          previousPath: null,
+          status: path === "merge.ts" ? ("U" as const) : ("M" as const),
+          additions: path === "binary.dat" ? null : path === "large.ts" ? 4000 : 45,
+          deletions: path === "binary.dat" ? null : path === "large.ts" ? 4000 : 45,
+        })),
+        nextCursor: remaining.length > 200 ? paths.at(-1)! : null,
+      };
+    },
+    async readChangeDiff(_id: string, mode: ChangeMode, file: ChangeFile, signal?: AbortSignal) {
+      if (file.path === "large.ts" && holdLargeDiff)
+        await new Promise<void>((resolve, reject) => {
+          largeDiffWaiters.push(resolve);
+          signal?.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+        });
+      if (window.composerFixture.holdDiffs)
+        await new Promise<void>((resolve, reject) => {
+          diffWaiters.push(resolve);
+          signal?.addEventListener(
+            "abort",
+            () => {
+              window.composerFixture.diffAborts++;
+              reject(new Error("Aborted"));
+            },
+            { once: true },
+          );
+        });
+      if (file.path === "long-line.ts")
+        return {
+          patch: `diff --git a/long-line.ts b/long-line.ts\n--- a/long-line.ts\n+++ b/long-line.ts\n@@ -10 +10 @@ function ${"long_context_".repeat(80)}\n-${"before ".repeat(80)}\n+${"after ".repeat(80)}\n`,
+          unavailable: null,
+        };
+      if (file.path === "binary.dat") return { patch: "", unavailable: "Binary file" };
+      if (file.path === "merge.ts")
+        return {
+          patch:
+            "diff --cc merge.ts\nindex aaa,bbb..ccc\n--- a/merge.ts\n+++ b/merge.ts\n@@@ -1,1 -1,1 +1,1 @@@\n++merged content\n",
+          unavailable: null,
+        };
+      if (file.path.startsWith("odd\n"))
+        return {
+          patch: `diff --git ${JSON.stringify(`a/${file.path}`)} ${JSON.stringify(`b/${file.path}`)}\n--- /dev/null\n+++ ${JSON.stringify(`b/${file.path}`)}\n@@ -0,0 +1 @@\n+literal content\n\\ No newline at end of file\n`,
+          unavailable: null,
+        };
+      const lines = file.path === "large.ts" ? 4000 : 45;
+      return {
+        patch:
+          `diff --git ${JSON.stringify(`a/${file.path}`)} ${JSON.stringify(`b/${file.path}`)}\n--- a/${file.path}\n+++ b/${file.path}\n@@ -1,${lines} +1,${lines} @@\n` +
+          Array.from({ length: lines }, (_, i) => `-before ${file.path} line ${i}`)
+            .concat(Array.from({ length: lines }, (_, i) => `+${mode} ${file.path} line ${i}`))
+            .join("\n"),
+        unavailable: null,
+      };
+    },
     questions: {
       async respond(requestId: string, response: unknown) {
         if (window.composerFixture.failQuestionResponse)
@@ -542,6 +624,49 @@ const session = {
   },
 };
 window.composerFixture = {
+  changeModes: [],
+  showDelayedChanges() {
+    changePaths = ["large.ts", "target.ts", "last.ts"];
+    holdLargeDiff = true;
+  },
+  releaseLargeDiff() {
+    holdLargeDiff = false;
+    for (const release of largeDiffWaiters.splice(0)) release();
+  },
+  showLiteralChanges() {
+    changePaths = ['odd\n@@bad".ts'];
+  },
+  showLongLineChanges() {
+    changePaths = ["long-line.ts"];
+  },
+  showCombinedChanges() {
+    changePaths = ["merge.ts", "binary.dat"];
+  },
+  showManyChanges() {
+    changePaths = Array.from(
+      { length: 205 },
+      (_, index) => `files/${String(index).padStart(3, "0")}.ts`,
+    );
+  },
+  holdDiffs: false,
+  diffAborts: 0,
+  releaseDiffs() {
+    window.composerFixture.holdDiffs = false;
+    for (const release of diffWaiters.splice(0)) release();
+  },
+  openConversation(id) {
+    void router.navigate(`/conversations/${id}`);
+  },
+  updateChild(childId, text) {
+    const child = session.views.get(childId as ConversationId)!;
+    child.state = {
+      ...child.state,
+      cells: child.state.cells.map((cell) =>
+        cell.kind === "assistant" ? { ...cell, text } : cell,
+      ),
+    };
+    child.publish();
+  },
   showImages(images) {
     view.state = {
       ...view.state,
@@ -1160,6 +1285,61 @@ window.composerFixture = {
       view.state.cells,
       view.state.turn.status === "running" ? view.state.turn.id : undefined,
     );
+    changed();
+  },
+  showPreviewTools() {
+    const tool = (
+      name: string,
+      args: unknown,
+      status: "ok" | "error",
+      output: string,
+    ): Extract<Cell, { kind: "tool" }> => ({
+      kind: "tool",
+      callId: name + output,
+      name,
+      args,
+      status,
+      output,
+      startedAt: 0,
+      completedAt: 1,
+    });
+    view.state = {
+      ...view.state,
+      cells: [
+        {
+          kind: "reasoning",
+          id: "preview-thought",
+          turnId: "preview",
+          text: "Checking the edits",
+          streaming: false,
+          startedAt: 0,
+          completedAt: 1,
+        },
+        tool("write", { path: "good.txt", content: "new content" }, "ok", "Wrote good.txt"),
+        tool(
+          "edit",
+          { path: "broken.txt", old_string: "old", new_string: "new" },
+          "error",
+          "Replacement failed",
+        ),
+        tool(
+          "apply_patch",
+          { patch: "*** Begin Patch\n*** Add File: patch.txt\n+patched\n*** End Patch" },
+          "ok",
+          "Patch applied",
+        ),
+        tool("read_file", { path: "read.txt" }, "ok", "Read content"),
+        tool("write", { path: "malformed.txt" }, "ok", "Historical output"),
+        {
+          kind: "assistant",
+          id: "preview-summary",
+          turnId: "preview",
+          text: "Preview summary",
+          streaming: false,
+        },
+      ],
+    };
+    view.transcript.update(view.state.cells);
     changed();
   },
   showLongToolRun() {

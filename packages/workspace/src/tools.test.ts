@@ -308,7 +308,6 @@ describe("workspacePlugin editing preference", () => {
   it("keeps the platform shell independent of editing preference", () => {
     expect(names("replace", "powershell")).toContain("powershell");
     expect(names("patch", "powershell")).toContain("powershell");
-    expect(names("replace")).not.toContain("str_replace_based_edit_tool");
   });
 });
 
