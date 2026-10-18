@@ -24,7 +24,7 @@ first-message conversation naming.
 A provider declares:
 
 - Its registry id and selectable `ModelInfo` catalog.
-- Model capabilities used to choose Harness-owned tool dialects.
+- Model metadata used to choose editing operations and supported tool input encodings.
 - Configuration validation and optional immutable, safe provider-owned request options.
 - A cancellable stream from `ModelRequest` to provider-neutral events.
 
@@ -72,6 +72,62 @@ An explicit compaction threshold remains usable when capacity metadata is incomp
 Catalogs are explicit and may apply complete per-model capacity overrides where
 the same model differs by backend. Pricing lives beside the catalog entry so
 usage rows can calculate cost at completion.
+
+## Editing metadata and manual model configuration
+
+All eleven connection types accept shared metadata at `config.models.<id>`, adding
+new IDs and overriding existing entries. The shared protocol schema owns labels,
+image support, capacities, reasoning metadata, custom input, and editing preference.
+Provider-specific generation settings remain in their owning schemas. Direct
+OpenAI/Codex `presets` is an array of provider effort names, with `defaultPreset`;
+Anthropic has its supported effort array/default and native `thinking` object
+(adaptive, disabled, or enabled with a token budget). OpenCode Go exposes existing
+native preset entries (`value`, optional `label`, and an effort, thinking, or
+thinking-budget `control`) with `defaultPreset`; controls must match its transport.
+Mistral accepts `temperature` and explicitly configured `reasoning.effortLevels`
+as native effort presets (`off` maps to `none`); explicit reasoning disabled clears
+them. Gemini introduces no generation knobs. Custom providers/LiteLLM preserve
+their existing preset maps. Clearing/replacing presets removes an inherited
+default if absent from the new choices; an explicitly invalid default still fails.
+Omitted fields inherit catalog values; explicit false values are retained. Unknown
+limits remain unknown. Merged hard output limits cannot exceed a known context.
+OpenCode Go additions require a transport when no catalog entry supplies one.
+
+`customToolInput` is `{supported: boolean, grammars: ("lark" | "regex")[]}`.
+Grammars require supported custom input. `preferredEditTool` is `patch` or `replace`;
+it does not establish raw-text support. Unknown compatible endpoints use JSON and
+replacement; known direct OpenAI models use raw text/Lark/regex and patches, known
+Codex models use Lark and patches. Go uses JSON with an explicit maintained GPT
+patch preference, fixing the former Responses-family inference that rejected Muse
+Spark requests. JSON-only adapters reject enabled custom input configuration.
+
+Codex refreshes its authenticated `/models?client_version=<Harness version>` catalog
+at boot using the existing discovery lifecycle. Its `apply_patch_tool_type:
+"freeform"` supplies a patch recommendation. Advertised reasoning efforts and
+default are consumed so newly discovered models receive their actual native
+choices; effort names remain extensible provider tokens. A catalog entry with no
+known effort default does not inherit an invented medium effort. These fields do
+not establish arbitrary custom-input or grammar support. Existing
+known model metadata remains available for matching IDs; unknown discovered IDs
+have no invented capacities or pricing. User additions/overrides are reapplied.
+Discovery is bounded and classified failures preserve the prior usable catalog.
+No authenticated remote qualification has been performed for this integration;
+in particular, the server interpretation of the Harness `client_version` value
+has only been checked against the upstream request shape, not a live account.
+
+Provider schemas still own transport compatibility. Existing discovery in Gemini,
+Mistral/Vibe, Go, and LiteLLM continues unchanged for unrelated metadata. LiteLLM's
+version-one Harness annotation also accepts the new shared fields; generic
+`supports_tool_calling` or `structured_output` never implies raw input or grammar
+support. Removed `fileTools` configuration is rejected by strict schemas rather
+than silently changing its meaning.
+
+Model switching uses normal turn-local tool resolution. Each custom tool declares
+its JSON field and one parser; the endpoint capabilities select its advertised
+encoding and optional grammar. Calls already accepted use their original tool set.
+Stored history is never rewritten. Native request mapping preserves structured
+historical calls when a tool is now offered as custom, and existing unsupported
+raw-call textual fallbacks remain available after switches.
 
 ## Request and stream normalization
 
@@ -217,19 +273,19 @@ context are hoisted into a single leading system message. If a backend streams
 rather than silently dropping it. Config-defined providers choose the transport
 explicitly: `"openai-responses-compatible"` for the
 Responses shape (with the `sendInstructionsAsSystem` opt-in above) and
-`"openai-completions-compatible"` for chat/completions (function-only; rejects
-`fileTools: "apply_patch"` on every model). Each entry strictly scopes only what an
+`"openai-completions-compatible"` for chat/completions (JSON function input). Each entry strictly scopes only what an
 endpoint owns — `endpoint`, `apiKey`, and the responses-only
 `sendInstructionsAsSystem` opt-in — while each served model carries its own
-`fileTools`, `contextWindow`, `maxOutputTokens`, optional `supportsImages` and display `label`, and `presets` under
+`preferredEditTool`, `customToolInput`, limits, optional image/reasoning metadata,
+display `label`, and provider-specific `presets` under
 `models.<id>`. One entry can therefore serve several models on a shared server
 across different trained dialects and sampling knobs (e.g. an OVMS endpoint
 running both a completion-tuned and a responses-tuned model).
 Configured hard output limits cannot exceed the context window, and preset caps
 cannot exceed the model's declared output capacity.
 Model/preset validation runs before capability-dependent tool/context work, and
-`capabilities(model)` resolves the chosen model's `fileTools` or throws for an
-unknown id. Compatible transports are selected by the outer connection type;
+`capabilities(model)` resolves independent custom-input support and editing
+preference for the selected model. Compatible transports are selected by the outer connection type;
 there is no legacy provider configuration union or construction factory.
 
 The chat backend always sends `stream_options.include_usage` (and `tool_choice`
@@ -392,12 +448,14 @@ normalized only when deployment rows agree. Separate input/output limits never
 invent a context window.
 
 The version-one Harness annotation accepts the same fields as a local model
-profile, plus `version: 1`: transport, label, file-tool profile, capacities,
+profile, plus `version: 1`: transport, label, editing preference, custom-input support, capacities,
 advisory request cap, sampling/thinking/effort controls, presets, default preset,
 and an explicit USD-per-million-token rate card. All deployment rows for an alias
 must agree on each annotation field. Invalid/conflicting metadata is diagnostic;
-configured fields take precedence. `apply_patch` requires Responses. Unknown
-models use `string_replace`; reasoning support alone never invents effort presets.
+configured fields take precedence. Patch editing works through a JSON wrapper
+on function-only transports; enabled custom-input support requires an adapter that
+implements raw-text calls. Unknown models use JSON and replacement editing;
+reasoning support alone never invents effort presets.
 
 When explicit presets are absent, agreed effort levels generate ordinary presets
 with the same names and request effort values. An agreed supported default effort

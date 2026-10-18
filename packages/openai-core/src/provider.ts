@@ -248,7 +248,13 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
       provider: opts.provider ?? "openai",
     });
     this.#reasoning = opts.reasoning ?? { effort: "medium", summary: "auto" };
-    this.#models = opts.models ?? OPENAI_MODELS;
+    this.#models =
+      opts.models ??
+      OPENAI_MODELS.map((model) => ({
+        ...model,
+        customToolInput: { supported: true, grammars: ["lark", "regex"] },
+        preferredEditTool: "patch",
+      }));
     this.#modelOverrides = opts.modelOverrides ?? {};
     this.#supportsMaxOutputTokens = opts.supportsMaxOutputTokens ?? true;
     this.providerOptions = Object.freeze({ webSearch: opts.webSearch ?? false });
@@ -257,14 +263,12 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
   capabilities(model: string): ModelCapabilities {
     const spec = this.#models.find((entry) => entry.model === model);
     const metadata = this.#modelOverrides[model];
-    const known = OPENAI_MODELS.some((entry) => entry.model === model);
     return {
       contentTypes: ["text", "image"],
       toolCalling: true,
       customToolInput: metadata?.customToolInput ??
-        spec?.customToolInput ?? { supported: known, grammars: known ? ["lark", "regex"] : [] },
-      preferredEditTool:
-        metadata?.preferredEditTool ?? spec?.preferredEditTool ?? (known ? "patch" : "replace"),
+        spec?.customToolInput ?? { supported: false, grammars: [] },
+      preferredEditTool: metadata?.preferredEditTool ?? spec?.preferredEditTool ?? "replace",
     };
   }
 

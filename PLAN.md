@@ -1,5 +1,13 @@
 # Harness plan
 
+The [model metadata and portable tool-input refactor](docs/plans/cross-cutting/2026-10-18-model-tool-inputs.md)
+is complete: independent editing preference/custom-input support, shared JSON
+fallback, manual model configuration on every provider, and scoped Codex catalog
+discovery. Three independent review lenses are resolved; 1,671 tests pass with 41
+skipped. Typecheck, lint, and tracked/task-file formatting pass; the delivery plan
+records the unrelated untracked formatting blocker to `npm run check` and remote
+qualification limits.
+
 The [sandbox context and presentation follow-up](docs/plans/cross-cutting/2026-10-18-sandbox-context-and-message-presentation.md)
 delivers persistent native command temporary storage, active sandbox instructions,
 phase-free message presentation and the `none` backend rename/native default.

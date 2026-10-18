@@ -219,7 +219,7 @@ Add connections to the machine-global `settings.json` under your Harness home:
         "baseUrl": "https://llm.example.com/team",
         "apiKey": { "stored": true },
         "models": {
-          "coding": { "transport": "openai-responses", "fileTools": "apply_patch" },
+          "coding": { "transport": "openai-responses", "preferredEditTool": "patch" },
           "claude": { "transport": "anthropic-messages", "requestMaxOutputTokens": 8192 }
         }
       }
@@ -234,6 +234,39 @@ Add connections to the machine-global `settings.json` under your Harness home:
   "model": { "provider": "work", "model": "coding" }
 }
 ```
+
+Every connection accepts `config.models.<model-id>` entries to add models or
+override catalog metadata. Shared optional fields are `label`, `supportsImages`,
+`contextWindow`, `maxInputTokens`, `maxOutputTokens`, `reasoning`,
+`preferredEditTool` (`patch` or `replace`), and `customToolInput`:
+
+```json
+{
+  "models": {
+    "my-model": {
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "preferredEditTool": "patch",
+      "customToolInput": { "supported": true, "grammars": ["lark"] }
+    }
+  }
+}
+```
+
+Configured fields win over discovered or maintained metadata. New models retain
+unknown limits unless configured. Custom input defaults to JSON and editing to
+replacement for unknown endpoints/models. Known direct OpenAI models use plaintext
+with Lark/regex and patches; known Codex models use Lark and patches. OpenCode Go
+uses JSON, with patches for explicitly maintained GPT entries. JSON-only adapters
+reject enabled custom input; choosing patches works with either encoding. New
+OpenCode Go IDs also require `transport` (`chat`, `responses`, or `messages`).
+Generation controls remain provider-owned: OpenAI/Codex accept `presets` (effort
+names) and `defaultPreset`; Anthropic also accepts native `thinking`. Go accepts
+its native preset controls plus `defaultPreset`; Mistral accepts `temperature` and
+uses configured `reasoning.effortLevels` as its offered effort choices. Compatible
+providers and LiteLLM retain their existing richer preset maps. Gemini adds no new
+generation controls. An explicit replacement preset list clears an inherited
+default when that choice is no longer offered; explicitly invalid defaults fail.
 
 Built-in types are `openai-api`, `anthropic-api`, `gemini-api`, `opencode-go`,
 `openai-codex`, `mistral-api`, and `mistral-vibe`; default connections use IDs

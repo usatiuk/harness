@@ -3,7 +3,7 @@
 ## Status
 
 Harness owns every shipped file and command tool. Model providers declare the
-file-tool dialect a model expects; `@harness/workspace` supplies the corresponding
+preferred editing operation; `@harness/workspace` supplies the corresponding
 Harness-executed tools over one `ExecutionContext`. The configured sandbox plugin
 selects unconfined host, Linux Bubblewrap, or dev-container execution for each loaded
 conversation.
@@ -36,21 +36,25 @@ Docker temporary-file lifetime follows its container/mount configuration and
 offers no host escape. Unconfined execution adds no sandbox instructions. Tool
 schemas/descriptions remain the sole documentation for escalation syntax.
 
-## Workspace tools and dialects
+## Workspace tools and input encoding
 
-The workspace plugin contributes a roster from the active model's file-tool
-profile:
+The workspace plugin always contributes `read_file`, `write`, `glob`, and the
+platform shell. `preferredEditTool: "patch"` adds V4A `apply_patch`; `"replace"`
+adds unique string replacement `edit`. The former Anthropic-specific executable
+editor is removed; existing editor calls retain transcript presentation.
 
-- Neutral structured `read_file`, `write`, `edit`, `glob`, and shell command
-  tools.
-- OpenAI-style freeform `apply_patch` with grammar-constrained V4A input.
-- Anthropic-style `str_replace_based_edit_tool` commands.
+Editing preference is independent of endpoint input support. Custom tools declare
+one local parser, an optional grammar, and their JSON wrapper field. Core advertises
+raw text when supported, attaches only supported grammar syntax, and otherwise
+advertises a required string field (`patch` or eval's `code`). Both encodings reach
+the same parser and executor. The execution wrapper's approved-escape header stays
+inside patch text in either encoding. Middleware receives the normalized text,
+while stored calls preserve the actual wire arguments. File target extraction and
+historical edit presentation understand both patch encodings.
 
-All profiles execute through `ExecutionContext`; adapters only render schemas and
-calls. Structured path extraction is shared with hierarchical instruction
-middleware; approval classifies calls through the execution substrate instead.
-Commands are marked backgroundable and become activities through orchestration
-middleware.
+All tools execute through `ExecutionContext`; provider adapters only render schemas
+and calls. Commands remain backgroundable activities. No changes to sandbox or
+approval policy accompany the editing-interface cleanup.
 
 ## Backends
 

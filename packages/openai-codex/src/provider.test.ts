@@ -404,3 +404,20 @@ it("uses discovered native effort controls for a new Codex model", async () => {
     vi.unstubAllGlobals();
   }
 });
+
+it("does not inherit direct-API grammar defaults for manually added Codex models", () => {
+  const auth = {
+    getValidSession: async () => {
+      throw new Error("unused");
+    },
+  } as unknown as CodexAuth;
+  const provider = createCodexProvider(auth, CODEX_PROVIDER, false, { "gpt-5.1": {} });
+  expect(provider.capabilities("gpt-5.1")).toMatchObject({
+    customToolInput: { supported: false, grammars: [] },
+    preferredEditTool: "replace",
+  });
+  expect(provider.capabilities("gpt-6.1-sol")).toMatchObject({
+    customToolInput: { supported: true, grammars: ["lark"] },
+    preferredEditTool: "patch",
+  });
+});

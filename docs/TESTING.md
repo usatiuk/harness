@@ -1760,3 +1760,20 @@ completion, verifying read-state and resulting images stay visible. Provider
 regressions cover mixed historical custom/function calls in both orders and
 hoisted context interleaved with image results. Native qualification here is
 Linux X11/WebKitGTK; Wayland and native Windows/macOS remain separately unqualified.
+
+## Portable tool inputs and manual model metadata
+
+`packages/core/src/tools.test.ts` checks JSON fallback schemas, strict wrapper
+validation, shared custom parsers, and omission of unsupported grammar constraints.
+`packages/service/src/code-mode.integration.test.ts` exercises plaintext/JSON eval
+and JSON patch execution with immutable wire arguments through the real service,
+workspace tools and evaluator. Existing nested-tool tests continue to cover
+approvals, denial, scope, cancellation and output preservation.
+Provider tests cover manual catalog additions/overrides, native generation controls,
+explicit empty preset lists and conservative defaults. Gemini's SDK fixture also
+checks configured reasoning overrides after discovery;
+Codex tests mock subscription-authenticated catalog HTTP, parsing, cancellation,
+limits and failure classification. OpenAI request tests preserve structured calls
+when the current tool encoding changes. Full checks do not establish coding-quality
+parity between patch and replacement, or actual remote Codex catalog availability.
+No new paid provider calls are part of this validation.

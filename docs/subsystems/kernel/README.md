@@ -118,6 +118,13 @@ defines authority. Omitted exposure means both interfaces.
 Function inputs can supply Zod or an already-authored JSON Schema with a parser.
 Core preserves the advertised JSON Schema and invokes its parser at the ordinary
 argument boundary, so external tool adapters do not need lossy schema conversion.
+Custom inputs declare a JSON wrapper field and one text parser, optionally with
+a grammar. Turn-local model metadata selects raw text or the function wrapper,
+and unsupported grammar syntaxes are omitted. Eval uses the same mechanism with
+`code`; no separate evaluator encoding path exists. Middleware receives normalized
+text with a matching custom contract, including approval requests; stored calls
+retain their original raw or JSON arguments. Nested eval calls use the same parser
+and governing middleware.
 
 The shared server defaults `tools.mode` to `hybrid`; explicit settings win.
 Legacy `direct` settings and overrides load as `hybrid`. Hybrid offers essential
