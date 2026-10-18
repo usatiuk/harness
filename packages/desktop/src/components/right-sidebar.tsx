@@ -43,6 +43,10 @@ function SideConversation({
   );
 }
 
+type SidebarWidths = Partial<Record<"panel" | "tree", number>>;
+// Presentation-only memory survives router/session replacement, not app restart.
+const rememberedWidths = new Map<string, SidebarWidths>();
+
 export function RightSidebarLayout({
   session,
   view,
@@ -56,9 +60,24 @@ export function RightSidebarLayout({
   renderConversation: (attachment: ConversationView) => ReactNode;
   children: (toggle: ReactNode) => ReactNode;
 }) {
+  const ancestor = view.subagent?.ancestors[0];
+  const rootId = ancestor?.id ?? view.conversation.id;
+  const widthKey = session.storageKey(`sidebar-widths:${rootId}`);
+  const widths = rememberedWidths.get(widthKey);
+  const rememberWidth = (kind: keyof SidebarWidths, width: number) =>
+    rememberedWidths.set(widthKey, { ...rememberedWidths.get(widthKey), [kind]: width });
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("changes");
-  const [resizedWidth, setWidth] = useState<number>();
+  const [resizedWidth, setWidth] = useState(widths?.panel);
+  const [treeWidth, setTreeWidth] = useState(widths?.tree);
+  const resizePanel = (width: number) => {
+    setWidth(width);
+    rememberWidth("panel", width);
+  };
+  const resizeTree = (width: number) => {
+    setTreeWidth(width);
+    rememberWidth("tree", width);
+  };
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   useEffect(() => {
     const resize = () => setViewportWidth(window.innerWidth);
@@ -80,8 +99,6 @@ export function RightSidebarLayout({
     resizedWidth ?? Math.max(320, Math.min(720, Math.round(viewportWidth * 0.4))),
   );
   const [selected, setSelected] = useState<string | null>(null);
-  const ancestor = view.subagent?.ancestors[0];
-  const rootId = ancestor?.id ?? view.conversation.id;
   const toggle = (
     <IconButton
       icon={open ? PanelRightClose : PanelRightOpen}
@@ -115,7 +132,7 @@ export function RightSidebarLayout({
           }}
           onPointerMove={(event) => {
             if (event.currentTarget.hasPointerCapture(event.pointerId))
-              setWidth(
+              resizePanel(
                 Math.max(
                   320,
                   Math.min(
@@ -130,7 +147,7 @@ export function RightSidebarLayout({
           onKeyDown={(event) => {
             if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
               event.preventDefault();
-              setWidth(
+              resizePanel(
                 Math.max(320, Math.min(maxWidth, width + (event.key === "ArrowLeft" ? 10 : -10))),
               );
             }
@@ -159,6 +176,8 @@ export function RightSidebarLayout({
                 session={session}
                 conversationId={rootId}
                 workspace={view.conversation.workspaceRoot}
+                treeWidth={treeWidth}
+                setTreeWidth={resizeTree}
                 active={tab === "changes" && !session.disconnected}
               />
             )}

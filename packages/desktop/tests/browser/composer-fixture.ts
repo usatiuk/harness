@@ -34,6 +34,7 @@ declare global {
       showSubagents(): void;
       updateChild(id: string, text: string): void;
       openConversation(id: string): void;
+      recreateRouter(): void;
       changeModes: string[];
       showManyChanges(): void;
       showLiteralChanges(): void;
@@ -656,6 +657,15 @@ window.composerFixture = {
   },
   openConversation(id) {
     void router.navigate(`/conversations/${id}`);
+  },
+  recreateRouter() {
+    const path = router.state.location.pathname;
+    root.unmount();
+    router.dispose();
+    localStorage.setItem(session.storageKey("route"), path);
+    router = createFixtureRouter();
+    root = createRoot(document.getElementById("root")!);
+    renderRouter();
   },
   updateChild(childId, text) {
     const child = session.views.get(childId as ConversationId)!;
@@ -1511,14 +1521,17 @@ window.composerFixture = {
   },
 };
 localStorage.setItem(session.storageKey("route"), `/conversations/${id}`);
-const router = createDesktopRouter(session as unknown as DesktopSession, {
-  controls: h("span", null, "Fixture"),
-  local: true,
-  label: "Fixture",
-  restart: () => Promise.reject(new Error("Restart is outside fixture scope")),
-});
-createRoot(document.getElementById("root")!).render(
-  h(Tooltip.Provider, null, h(WindowShell, null, h(RouterProvider, { router }))),
-);
+const createFixtureRouter = () =>
+  createDesktopRouter(session as unknown as DesktopSession, {
+    controls: h("span", null, "Fixture"),
+    local: true,
+    label: "Fixture",
+    restart: () => Promise.reject(new Error("Restart is outside fixture scope")),
+  });
+let router = createFixtureRouter();
+let root = createRoot(document.getElementById("root")!);
+const renderRouter = () =>
+  root.render(h(Tooltip.Provider, null, h(WindowShell, null, h(RouterProvider, { router }))));
+renderRouter();
 
 export { view, session };

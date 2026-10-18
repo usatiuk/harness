@@ -1888,6 +1888,14 @@ test("stacked file tree height resizes and persists across comparison and layout
   await page.mouse.up();
   await expect(resize).toHaveAttribute("aria-orientation", "vertical");
   expect((await tree.boundingBox())!.height).toBeGreaterThan(height);
+  expect((await tree.boundingBox())!.width).toBe(240);
+  await expect(resize).toHaveAttribute("aria-valuemin", "180");
+  const minimumBox = (await resize.boundingBox())!;
+  await page.mouse.move(minimumBox.x + 2, minimumBox.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(minimumBox.x + 500, minimumBox.y + 80);
+  await page.mouse.up();
+  await expect.poll(async () => (await tree.boundingBox())!.width).toBe(180);
   const width = (await tree.boundingBox())!.width;
   const treeBox = (await resize.boundingBox())!;
   await page.mouse.move(treeBox.x + 2, treeBox.y + 80);
@@ -1907,6 +1915,88 @@ test("stacked file tree height resizes and persists across comparison and layout
   await expect
     .poll(async () => Math.abs((await tree.boundingBox())!.width - expandedWidth))
     .toBeLessThan(2);
+  await page.getByRole("button", { name: "Hide right sidebar" }).click();
+  await page.getByRole("button", { name: "Show right sidebar" }).click();
+  await expect(resize).toHaveAttribute("aria-orientation", "vertical");
+  await expect
+    .poll(async () => Math.abs((await tree.boundingBox())!.width - expandedWidth))
+    .toBeLessThan(2);
+});
+
+test("sidebar and file-tree widths are remembered per root conversation until reload", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await page.goto(url + "?composer");
+  const show = page.getByRole("button", { name: "Show right sidebar", exact: true });
+  await expect(show).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.showSubagents();
+    window.composerFixture.seedSidebar();
+  });
+  await show.click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  const panelResize = sidebar.getByRole("separator", { name: "Resize right sidebar" });
+  const treeResize = sidebar.getByRole("separator", { name: "Resize changed file tree" });
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "720");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "240");
+  await panelResize.press("ArrowLeft");
+  await treeResize.press("ArrowLeft");
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "730");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "250");
+  await page.evaluate(() => window.composerFixture.openConversation("sidebar-0-0"));
+  await expect(page.locator(".main-conversation h1")).toHaveText("Chat 0-0");
+  await show.click();
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "720");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "240");
+  await panelResize.press("ArrowLeft");
+  await panelResize.press("ArrowLeft");
+  await treeResize.press("ArrowLeft");
+  await treeResize.press("ArrowLeft");
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "740");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "260");
+  await page.evaluate(() => window.composerFixture.openConversation("fixture"));
+  await expect(page.locator(".main-conversation h1")).toHaveText("Parent conversation");
+  await show.click();
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "730");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "250");
+  expect((await sidebar.boundingBox())!.width).toBe(730);
+  expect(
+    (await sidebar.getByRole("navigation", { name: "Changed files" }).boundingBox())!.width,
+  ).toBe(250);
+  await page.evaluate(() => window.composerFixture.openConversation("nested"));
+  await expect(page.locator(".main-conversation h1")).toHaveText("Check tests");
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "730");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "250");
+  await page.evaluate(() => window.composerFixture.openConversation("sidebar-0-0"));
+  await expect(page.locator(".main-conversation h1")).toHaveText("Chat 0-0");
+  await show.click();
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "740");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "260");
+  await page.evaluate(() => window.composerFixture.recreateRouter());
+  await show.click();
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "740");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "260");
+  await page.evaluate(() => {
+    window.composerFixture.switchSidebarScope("another-host");
+    window.composerFixture.recreateRouter();
+  });
+  await show.click();
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "720");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "240");
+  await panelResize.press("ArrowLeft");
+  await treeResize.press("ArrowLeft");
+  await page.evaluate(() => {
+    window.composerFixture.switchSidebarScope("composer-fixture");
+    window.composerFixture.recreateRouter();
+  });
+  await show.click();
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "740");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "260");
+  await page.reload();
+  await show.click();
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "720");
+  await expect(treeResize).toHaveAttribute("aria-valuenow", "240");
 });
 
 test("file-list polling lets slow diff reads finish and preserves the diff position across tabs", async ({

@@ -321,3 +321,34 @@ The 26 focused Chromium cases and production build remain passing; native-bar
 qualification and all platform/selection limits above remain explicit. Delivery
 is split into server/public Changes support and desktop integration/presentation
 cleanup commits. The pre-existing untracked `tmp/` file remains excluded.
+
+## Post-commit file-tree width follow-up
+
+After the initial commits were pushed, the user requested width memory per
+conversation until application restart, a wider file-tree default/minimum, and a
+review loop followed by a separate commit/push. Both requested widths live in a
+small presentation-owned in-memory map, keyed by the existing host/server/root
+conversation identity. Closing/reopening, returning to a conversation and replacing
+a router/session retain widths; descendants share the parent root. Reload/restart
+clears them. No storage, server state or new state framework is introduced.
+
+Default tree width is 240px (was 210); minimum is 180px (was 140). Height ownership
+is unchanged. Review caught a router-local map lifetime gap across host switching
+and reconnects; the application-memory owner resolves it without changing the
+router/session API. Tests measure restored pixels and the actual minimum clamp.
+
+- [x] Keep both widths per scoped root conversation for the application lifetime.
+- [x] Lift tree width above its open-panel lifetime and widen default/minimum.
+- [x] Verify navigation, descendants, host scoping, router replacement, close/reopen,
+      reload reset, responsive bounds and full unrestricted checks/build.
+- [x] Resolve the independent review loop; commit/push authorized as a separate follow-up.
+
+Follow-up validation: all 27 focused Chromium cases pass, including actual restored
+widths, host namespace isolation, full router remount, reload reset, minimum clamp
+and consecutive keyboard resizing. Full unrestricted checks pass all phases with
+1,686 tests passed and 41 skipped; production build and diff checks pass. Three
+read-only review lenses report no remaining findings after the lifetime fix.
+The keyboard regression exposed lost increments from stale ResizeObserver
+measurements; reading current tree geometry fixes it without new coordination.
+Actual network reconnection/native execution remains unqualified. The original
+server/UI commits are 0808208 and 80900e1 and were pushed before this follow-up.

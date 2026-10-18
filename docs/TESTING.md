@@ -56,7 +56,12 @@ root, slow requests surviving list polling, and diff position across tabs. Delay
 reflow. Native mouse selection and real clipboard reads cover inline and split
 text without gutters; continuous selection across virtual scrolling remains
 unqualified. Geometry checks verify flush edges and equal 45px sticky headers;
-resizing covers tree height and width. Folder checks observe the actual grid
+resizing covers tree height and width, the 240px default/180px minimum, and width
+retention through sidebar close/reopen. Separate-root checks restore actual pixel
+widths, share dimensions with descendants, retain them through router replacement,
+isolate host/server scopes and reset after reload. Pointer dragging verifies the
+actual 180px clamp, not only its advertised separator value. Folder checks observe
+the actual grid
 transition and verify reduced-motion behavior. File controls cover independent
 collapse, polling retention, keyboard expansion, tree reopening, metadata and
 raw combined-patch/unavailable-count preservation after list replacement. Diff

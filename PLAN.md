@@ -7,7 +7,7 @@ comparisons, and a root-anchored family tree with live read-only side transcript
 The existing worktrees plugin owns server-side reads for Local/SSH/WSL; no new
 runtime, workspace package or persisted Git state is introduced. Diff display
 preferences stay client-local. Full unrestricted validation passes 1,686 tests
-with 41 gated skips; 26 focused Chromium cases and the desktop build pass. Platform
+with 41 gated skips; 27 focused Chromium cases and the desktop build pass. Platform
 limits are recorded in the delivery plan.
 
 The [model metadata and portable tool-input refactor](docs/plans/cross-cutting/2026-10-18-model-tool-inputs.md)

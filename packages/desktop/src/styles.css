@@ -2320,7 +2320,7 @@ button.subagent-row:hover {
     flex-direction: row-reverse;
   }
   .changes-files {
-    width: clamp(140px, var(--changes-tree-width, 210px), calc(100% - 245px));
+    width: clamp(180px, var(--changes-tree-width, 240px), calc(100% - 245px));
     height: auto;
     max-height: none;
     border-bottom: 0;

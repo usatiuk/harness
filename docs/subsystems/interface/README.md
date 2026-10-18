@@ -461,7 +461,11 @@ the left scrolling pane in unwrapped split view. It does not add custom virtual
 rows or couple the independent horizontal panes.
 The comparison selector stays sticky at the top of the tree. Its header and the
 file headers share an exact 45px height (32px control, 12px padding, 1px border).
-The divider resizes tree height above the diff and tree width beside it. The tree sits above the diff in a narrow panel and to its
+The divider resizes tree height above the diff and tree width beside it. Tree width
+defaults to 240px with a 180px minimum. Both requested widths are remembered per
+root conversation in application memory, keyed by the existing host/server identity. They survive
+close/reopen, conversation navigation and router/session replacement; descendants
+share their parent's widths. Reload/restart clears this memory. The tree sits above the diff in a narrow panel and to its
 right at 560px panel width. The default panel width adapts to the window; manual
 resizing uses pointer or arrow keys and can fill the available layout except for
 320px reserved for the main conversation. At narrow window widths it overlays the main

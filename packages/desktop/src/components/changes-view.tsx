@@ -81,16 +81,19 @@ export function ChangesView({
   conversationId,
   active,
   workspace,
+  treeWidth,
+  setTreeWidth,
 }: {
   session: DesktopSession;
   conversationId: string;
   active: boolean;
   workspace: string | null;
+  treeWidth: number | undefined;
+  setTreeWidth: (width: number) => void;
 }) {
   const id = conversationId as ConversationId;
   const [mode, setMode] = useState<ChangeMode>("uncommitted");
   const [treeHeight, setTreeHeight] = useState<number>();
-  const [treeWidth, setTreeWidth] = useState<number>();
   return (
     <div
       className="changes-view"
@@ -140,7 +143,7 @@ function ChangesComparison({
   const scroller = useRef<ChangesDiffHandle>(null);
   const [treeLayout, setTreeLayout] = useState({
     height: 40,
-    width: 210,
+    width: 240,
     available: 160,
     availableWidth: 0,
   });
@@ -159,7 +162,7 @@ function ChangesComparison({
     return () => observer.disconnect();
   }, []);
   const wideTree = treeLayout.availableWidth >= 560;
-  const minTreeSize = wideTree ? 140 : 40;
+  const minTreeSize = wideTree ? 180 : 40;
   const maxTreeSize = Math.max(
     minTreeSize,
     wideTree ? treeLayout.availableWidth - 245 : treeLayout.available - 120,
@@ -274,10 +277,8 @@ function ChangesComparison({
           const decrease = wideTree ? "ArrowRight" : "ArrowUp";
           if (event.key === increase || event.key === decrease) {
             event.preventDefault();
-            resizeTree(
-              (wideTree ? treeLayout.width : treeLayout.height) +
-                (event.key === increase ? 10 : -10),
-            );
+            const tree = event.currentTarget.previousElementSibling!.getBoundingClientRect();
+            resizeTree((wideTree ? tree.width : tree.height) + (event.key === increase ? 10 : -10));
           }
         }}
       />
