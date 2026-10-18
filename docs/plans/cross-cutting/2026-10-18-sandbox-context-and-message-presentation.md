@@ -1,6 +1,6 @@
 # Sandbox context and message presentation
 
-Status: Active.
+Status: Complete.
 
 ## Scope and decisions
 
@@ -46,7 +46,7 @@ the backend rename must be reflected in contract versions.
       separately.
 - [x] Independent correctness, simplicity and evidence reviews; reconcile docs,
       run full `npm run check`, record limitations and leave a clean worktree.
-- [ ] Push the qualified commits and dispatch the existing minor release workflow
+- [x] Push the qualified commits and dispatch the existing minor release workflow
       for v0.6.0; verify all builds, signed metadata and hosted CI, publish as
       latest, and verify anonymous metadata downloads. Do not execute installers.
 
@@ -115,3 +115,26 @@ now explicitly select `none`, preserving their pending-approval lifecycle
 contract. Original assertions/timeouts remain unchanged. All 14 background cases
 pass against that correction. Final `TMPDIR=/var/tmp npm run check` passes
 typechecking, lint, formatting and 1,623 tests (41 skipped).
+
+### Release qualification
+
+Implementation commits are 6d19f76 (native temporary storage), 823bcef (active
+sandbox prompt), a9b8728 (presentation only) and 5a115e3 (backend rename/default).
+The previously committed thinking-preview correction 9f5b371 is also pushed.
+[Hosted CI](https://github.com/usatiuk/harness/actions/runs/39118899434) passes
+Windows and Ubuntu source/native checks. The
+[minor release workflow](https://github.com/usatiuk/harness/actions/runs/39118907951)
+passes its source gate and creates v0.6.0 at version commit 2255c42.
+
+Release completion: [v0.6.0](https://github.com/usatiuk/harness/releases/tag/v0.6.0)
+is published as latest with 19 assets. Release run 39118907951 passes all three
+platform builds and signed draft assembly. CI run 39118899434 passes Ubuntu
+1,619 tests / 45 skipped and Windows 1,607 / 57 skipped, plus their native checks.
+Downloaded draft metadata and anonymous published manifest/signature/update-feed
+downloads pass the production native signature verifier, version/target checks
+and release URL checks. No released installer was executed locally.
+
+The two isolated server fixtures left by the first failed full check were stopped
+and removed; passing reruns clean their own fixtures. User server/configuration
+was not modified. Native command temporary directories intentionally retain the
+approved OS-cleanup ownership.

@@ -4,7 +4,9 @@ The [sandbox context and presentation follow-up](docs/plans/cross-cutting/2026-1
 delivers persistent native command temporary storage, active sandbox instructions,
 phase-free message presentation and the `none` backend rename/native default.
 Full checks pass 1,623 tests; real Bubblewrap and focused headless Chromium/WebKit
-checks pass. The authorized v0.6.0 minor release is being qualified.
+checks pass. [v0.6.0](https://github.com/usatiuk/harness/releases/tag/v0.6.0) is
+published as latest; Windows/Ubuntu CI, three platform builds and signed public
+metadata verification pass. Phase data and OpenAI replay are preserved.
 
 The [image-input v1 plan](docs/plans/cross-cutting/2026-10-17-image-input.md)
 delivers inline images, previews/viewer, file/MCP ingestion and existing-provider
