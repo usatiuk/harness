@@ -7,8 +7,10 @@ corrects desktop collapse duplication and accepted-input sidebar ordering.
 Three independent review lenses are resolved; full unrestricted validation passes
 1,712 tests with 41 skips. Seven focused Chromium cases pass; a broader sweep
 passes 36/37 with one unexplained animation-test timeout that passes in isolation.
-Native installer/update interaction is not requalified. Minor release preparation
-is tracked in the delivery plan.
+Native installer/update interaction is not requalified.
+[v0.8.0](https://github.com/usatiuk/harness/releases/tag/v0.8.0) is published as
+latest with 19 assets; hosted Linux/Windows CI, all three native builds, and public
+signed-metadata verification pass. Release evidence is recorded in the delivery plan.
 
 The [desktop right sidebar](docs/plans/interface/2026-10-18-right-sidebar.md)
 adds Changes/Subagents tabs, continuous responsive Git diffs via `@pierre/diffs` CodeView,

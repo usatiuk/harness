@@ -1,4 +1,4 @@
-# 2026-10-18 Infinite turn + activity views — Status: Active
+# 2026-10-18 Infinite turn + activity views — Status: Complete
 
 ## Goal
 
@@ -56,7 +56,7 @@ sidebar updates, composer height, unbounded turns and activity views.
       desktop/tests/documentation, each including simplicity.
 - [x] Correct confirmed findings and verify focused regressions.
 - [x] Pass full `npm run check` outside the sandbox and record final evidence.
-- [ ] Commit and push the reviewed corrections; dispatch the standard minor
+- [x] Commit and push the reviewed corrections; dispatch the standard minor
       release workflow, verify signed assets and publish `v0.8.0`.
 
 Confirmed findings: latest work-group collapse duplicated its preview rows during
@@ -83,3 +83,13 @@ test times out awaiting `animationstart`, then passes in isolation; a separate
 Chromium probe also observes the expected animation. Its intermittent timeout
 cause remains unknown and open; this does not establish a product fix or a clean
 37-case run. Native desktop installer/update interaction was not requalified.
+
+Release evidence: review corrections are committed and pushed as `28f46ee`;
+the standard workflow creates version-bump commit `78b6271` and tag `v0.8.0`.
+[Linux/Windows CI](https://github.com/usatiuk/harness/actions/runs/39160716088)
+and the [release workflow](https://github.com/usatiuk/harness/actions/runs/39160715840)
+pass, including source checks, all three native builds and signature verification.
+[v0.8.0](https://github.com/usatiuk/harness/releases/tag/v0.8.0) is published as
+latest with 19 assets. Anonymous latest-release metadata downloads and local
+production signature verification pass for the public signed manifest; manifest
+and updater metadata both identify `0.8.0` and the three supported targets.
