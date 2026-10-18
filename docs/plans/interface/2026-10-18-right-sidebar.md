@@ -352,3 +352,15 @@ The keyboard regression exposed lost increments from stale ResizeObserver
 measurements; reading current tree geometry fixes it without new coordination.
 Actual network reconnection/native execution remains unqualified. The original
 server/UI commits are 0808208 and 80900e1 and were pushed before this follow-up.
+
+## Minor release qualification
+
+Preparing v0.7.0 through the existing Release workflow. Hosted Windows CI exposed
+invalid test fixtures: Windows forbids control characters and double quotes in
+filenames. The general line-count test now uses a Windows-valid literal filename
+on that platform; the newline/quote-specific integration test runs only where
+those filenames can exist. Product behavior and assertions are unchanged.
+
+- [ ] Pass full local checks and hosted Linux/Windows CI for the fixture correction.
+- [ ] Build all three release targets and verify signed release assets.
+- [ ] Publish v0.7.0 and verify the public release/update metadata.

@@ -241,7 +241,9 @@ it("counts changed lines in tracked, untracked, binary and literal-name files", 
   await writeFile(join(root, "file.txt"), "staged\nsecond\n");
   await git("add", "file.txt");
   await writeFile(join(root, "file.txt"), "working\nsecond\nthird\n");
-  await writeFile(join(root, "tab\tand\nnewline"), "one\ntwo");
+  // Windows forbids control characters in filenames; retain literal path coverage there.
+  const literalPath = process.platform === "win32" ? "tab and [newline]" : "tab\tand\nnewline";
+  await writeFile(join(root, literalPath), "one\ntwo");
   await writeFile(join(root, "binary"), Buffer.from([0, 1]));
   await writeFile(join(root, "empty"), "");
   expect((await list("staged")).files[0]).toMatchObject({ additions: 2, deletions: 1 });
@@ -253,26 +255,31 @@ it("counts changed lines in tracked, untracked, binary and literal-name files", 
     { path: "binary", previousPath: null, status: "?", additions: null, deletions: null },
     { path: "empty", previousPath: null, status: "?", additions: 0, deletions: 0 },
     { path: "file.txt", previousPath: null, status: "M", additions: 3, deletions: 1 },
-    { path: "tab\tand\nnewline", previousPath: null, status: "?", additions: 2, deletions: 0 },
+    { path: literalPath, previousPath: null, status: "?", additions: 2, deletions: 0 },
   ]);
   await git("add", ".");
-  expect(
-    (await list("staged")).files.find((file) => file.path === "tab\tand\nnewline"),
-  ).toMatchObject({ additions: 2, deletions: 0 });
+  expect((await list("staged")).files.find((file) => file.path === literalPath)).toMatchObject({
+    additions: 2,
+    deletions: 0,
+  });
 });
 
-it("quotes synthetic Git headers for literal newline and quote filenames", async () => {
-  const { root, git, diff } = await fixture();
-  const path = 'odd\n@@bad".txt';
-  await writeFile(join(root, path), "new\n");
-  const patch = (await diff("uncommitted", path)).patch;
-  const header = `diff --git ${JSON.stringify(`a/${path}`)} ${JSON.stringify(`b/${path}`)}\n`;
-  expect(patch.startsWith(header)).toBe(true);
-  expect(patch).toContain(`+++ ${JSON.stringify(`b/${path}`)}\n`);
-  expect(patch).toContain("+new");
-  await git("add", ".");
-  await git("commit", "-m", "Literal name");
-  await git("rm", "--cached", "--", path);
-  await writeFile(join(root, path), "changed\n");
-  expect((await diff("uncommitted", path)).patch.startsWith(header)).toBe(true);
-});
+// Windows cannot create filenames containing newlines or double quotes.
+it.skipIf(process.platform === "win32")(
+  "quotes synthetic Git headers for literal newline and quote filenames",
+  async () => {
+    const { root, git, diff } = await fixture();
+    const path = 'odd\n@@bad".txt';
+    await writeFile(join(root, path), "new\n");
+    const patch = (await diff("uncommitted", path)).patch;
+    const header = `diff --git ${JSON.stringify(`a/${path}`)} ${JSON.stringify(`b/${path}`)}\n`;
+    expect(patch.startsWith(header)).toBe(true);
+    expect(patch).toContain(`+++ ${JSON.stringify(`b/${path}`)}\n`);
+    expect(patch).toContain("+new");
+    await git("add", ".");
+    await git("commit", "-m", "Literal name");
+    await git("rm", "--cached", "--", path);
+    await writeFile(join(root, path), "changed\n");
+    expect((await diff("uncommitted", path)).patch.startsWith(header)).toBe(true);
+  },
+);
