@@ -2,6 +2,75 @@ import { expect, it, vi } from "vitest";
 import type { ModelProvider } from "@harness/protocol";
 import type { ProviderEntry } from "./auth.ts";
 import { bootstrapProviders } from "./provider-bootstrap.ts";
+import { MemorySecretStore } from "@harness/secrets";
+import { providerEntries } from "./auth.ts";
+
+it("bootstraps the built-in Codex roster and configured models without catalog requests", async () => {
+  const store = new MemorySecretStore();
+  await store.set(
+    "provider-instance:openai-codex:oauth",
+    JSON.stringify({
+      accessToken: "test-token",
+      refreshToken: "test-refresh",
+      idToken: "test-id",
+      accountId: "test-account",
+      expiresAt: Date.now() + 3_600_000,
+    }),
+  );
+  // This is the successful-but-empty response that erased the roster in 0.8.0.
+  const fetch = vi.fn(async () => Response.json({ models: [] }));
+  vi.stubGlobal("fetch", fetch);
+  try {
+    const entries = providerEntries(store, {
+      providers: {
+        "openai-codex": {
+          type: "openai-codex",
+          config: {
+            models: {
+              "gpt-6.1-sol": { preferredEditTool: "replace", maxInputTokens: 123_000 },
+              "manual-model": { label: "Manual", presets: ["high"], defaultPreset: "high" },
+            },
+          },
+        },
+      },
+    });
+    const codex = entries.get("openai-codex")!;
+    const boot = await bootstrapProviders(
+      new Map([[codex.id, codex]]),
+      new AbortController().signal,
+    );
+    expect(boot.statuses.get(codex.id)).toMatchObject({
+      authenticated: true,
+      registered: true,
+      catalog: "ready",
+      modelCount: 8,
+      diagnostics: [],
+    });
+    const provider = boot.plugin.providers!()[0]!;
+    const models = provider.listModels();
+    expect(models.map(({ model }) => model)).toEqual([
+      "gpt-6.1-sol",
+      "gpt-6-astra",
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "manual-model",
+    ]);
+    expect(models[0]).toMatchObject({ maxInputTokens: 123_000 });
+    expect(provider.capabilities("gpt-6.1-sol").preferredEditTool).toBe("replace");
+    expect(models.at(-1)).toMatchObject({
+      label: "Manual",
+      presets: [{ value: "high" }],
+      defaultPreset: "high",
+    });
+    provider.validateConfig({ provider: codex.id, model: "manual-model", preset: "high" });
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 
 function entry(id: string, provider: Partial<ModelProvider>): ProviderEntry {
   return {

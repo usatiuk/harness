@@ -102,19 +102,18 @@ Lark/regex on Responses and prefer patches; other entries use JSON, including
 Muse Spark. Explicit model overrides still win, and Chat/Messages remain JSON-only.
 These Go GPT defaults are user-requested, not claims discovered from its catalog. JSON-only adapters reject enabled custom input configuration.
 
-Codex refreshes its authenticated `/models?client_version=<Harness version>` catalog
-at boot using the existing discovery lifecycle. Its `apply_patch_tool_type:
-"freeform"` supplies a patch recommendation. Advertised reasoning efforts and
-default are consumed so newly discovered models receive their actual native
-choices; effort names remain extensible provider tokens. A catalog entry with no
-known effort default does not inherit an invented medium effort. These fields do
-not establish arbitrary custom-input or grammar support. Existing
-known model metadata remains available for matching IDs; unknown discovered IDs
-have no invented capacities or pricing. User additions/overrides are reapplied.
-Discovery is bounded and classified failures preserve the prior usable catalog.
-No authenticated remote qualification has been performed for this integration;
-in particular, the server interpretation of the Harness `client_version` value
-has only been checked against the upstream request shape, not a live account.
+Codex uses a maintained built-in roster; authenticated startup makes no catalog
+request. The October 18 restoration removes discovery introduced by the metadata
+refactor: its use of the Harness version as Codex's `client_version` returned an
+empty roster for a connected account. See the
+[correction and live evidence](../../plans/models/2026-10-18-codex-builtin-catalog.md).
+Known models retain Codex-specific image support, patch/Lark inputs and reasoning
+choices. `config.models.<id>` adds a model or overrides existing metadata and effort
+settings through the same shared provider configuration. A manually added model
+has no invented limits, pricing or effort default; custom-input support defaults
+to JSON and editing to replacement unless explicitly configured. Effort names are
+extensible provider tokens. No local Codex installation, upstream version pin,
+catalog cache or model-discovery configuration is required.
 
 Provider schemas still own transport compatibility. Existing discovery in Gemini,
 Mistral/Vibe, Go, and LiteLLM continues unchanged for unrelated metadata. LiteLLM's
@@ -226,21 +225,23 @@ cards follow the [official model catalog](https://developers.openai.com/api/docs
 and individual model pages. API effort defaults remain `medium`; Astra and
 6.1 Sol reject `none`, and GPT-5.6/6 expose `max`.
 
-Codex follows the [ChatGPT roster](https://learn.chatgpt.com/docs/models), including
-GPT-5.5 until its announced 2026-10-14 retirement. Backend metadata in the local
-Codex model cache reports working windows of 272,000 tokens for most models and
+The October 18 built-in Codex roster contains GPT-6.1 Sol, GPT-6 Astra/Sol/Luna
+and GPT-5.6 Sol/Terra/Luna. It excludes GPT-5.5 after its announced October 14
+retirement and the backend's hidden internal models. A read-only authenticated
+catalog diagnostic confirmed the seven public models, image inputs, patch
+recommendations and reasoning controls. Backend metadata reports working windows of 272,000 tokens for most models and
 500,000 for GPT-6.1 Sol, with a 95% effective-window hint. Harness treats these as
 already-output-reserved operational budgets, **an explicit assumption rather than
 verified backend capacity**. The configured input ceilings are 400,000 for other
 Codex models and 628,000 for Sol 6.1, with a 128,000 output reserve and no claimed
 combined context window. The shared compaction policy therefore triggers around
 264,000 and 487,440 input tokens; it does not reproduce Codex's separate 5% margin.
-Public API model windows remain unchanged. The cache advertises `low` through `max`
-efforts on GPT-5.6/6 (`low` through `xhigh` on 5.5); Sol 6.1 and Sol 5.6 default
+Public API model windows remain unchanged. The catalog advertises `low` through `max`
+efforts on GPT-5.6/6; Sol 6.1 and Sol 5.6 default
 to `low`, the others to `medium`. These differ from public API controls/capacity.
 `ultra` is Codex orchestration and is not a Harness provider preset. Account and
 workspace access still determine whether a listed model can be invoked; the
-refresh is not live credentialed qualification. New sign-ins default to 6.1 Sol;
+catalog diagnostic does not establish paid inference or billing. New sign-ins default to 6.1 Sol;
 existing saved selections remain unchanged.
 
 GPT-5.6/6 cache writes are reported separately at the existing usage boundary,

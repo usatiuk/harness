@@ -272,6 +272,24 @@ providers and LiteLLM retain their existing richer preset maps. Gemini adds no n
 generation controls. An explicit replacement preset list clears an inherited
 default when that choice is no longer offered; explicitly invalid defaults fail.
 
+Codex uses a built-in model list without startup catalog requests. To add a model,
+add this connection entry under `providers` in global settings, replacing the
+placeholder with its actual ID:
+
+```json
+{
+  "openai-codex": {
+    "type": "openai-codex",
+    "config": { "models": { "your-model-id": {} } }
+  }
+}
+```
+
+The same `models` map can override built-in metadata or configure the new model's
+limits, tool-input support, editing preference, `presets` and `defaultPreset`.
+Restart the server after changing settings. Unknown limits and effort controls
+remain unset unless configured.
+
 Built-in types are `openai-api`, `anthropic-api`, `gemini-api`, `opencode-go`,
 `openai-codex`, `mistral-api`, and `mistral-vibe`; default connections use IDs
 `openai`, `anthropic`, `opencode-go`, `openai-codex`, `mistral-api`, and

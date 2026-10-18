@@ -1829,8 +1829,13 @@ approvals, denial, scope, cancellation and output preservation.
 Provider tests cover manual catalog additions/overrides, native generation controls,
 explicit empty preset lists and conservative defaults. Gemini's SDK fixture also
 checks configured reasoning overrides after discovery;
-Codex tests mock subscription-authenticated catalog HTTP, parsing, cancellation,
-limits and failure classification. OpenAI request tests preserve structured calls
+Codex bootstrap tests use stored fixture credentials and the real provider/config
+boundary to verify all seven built-ins remain available without a catalog request,
+even when the discovery endpoint would return an empty list. They also check
+manual additions and overrides. Provider tests verify current image/patch/effort
+metadata and configured efforts reaching native request bodies. October 18 live
+read-only catalog diagnostics established the product-version filtering defect
+and current public roster; runtime discovery is removed. OpenAI request tests preserve structured calls
 when the current tool encoding changes. Full checks do not establish coding-quality
-parity between patch and replacement, or actual remote Codex catalog availability.
+parity between patch and replacement, or paid Codex model execution.
 No new paid provider calls are part of this validation.

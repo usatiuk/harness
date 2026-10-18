@@ -238,7 +238,7 @@ export abstract class OpenAIResponsesTransport {
 export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements ModelProvider {
   readonly providerOptions: { readonly webSearch: boolean };
   readonly #reasoning: OpenAI.Reasoning;
-  #models: readonly OpenAIModelSpec[];
+  readonly #models: readonly OpenAIModelSpec[];
   readonly #modelOverrides: Record<string, OpenAIModelConfig>;
   readonly #supportsMaxOutputTokens: boolean;
 
@@ -282,10 +282,6 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
         `unknown preset "${config.preset}" for ${this.provider}/${config.model} (try: ${(spec.presets ?? []).map((p) => p.value).join(", ")})`,
       );
     }
-  }
-
-  protected replaceModels(models: readonly OpenAIModelSpec[]): void {
-    this.#models = models;
   }
 
   listModels(): ModelInfo[] {

@@ -1,5 +1,13 @@
 # Harness plan
 
+The [Codex built-in catalog restoration](docs/plans/models/2026-10-18-codex-builtin-catalog.md)
+removes runtime discovery introduced by the model/tool refactor, which erased the
+roster for an authenticated account. The correction restores the seven current
+public models, preserves manual config additions/overrides, and removes the
+superseded discovery code. Full validation passes 1,704 tests with 41 skips, and
+three independent reviews are resolved. Patch release preparation is in progress;
+local credentials, settings and running servers remain unchanged.
+
 The [infinite-turn and activity-view delivery](docs/plans/cross-cutting/2026-10-18-infinite-turn-and-activity-views.md)
 removes the model-step cap, adds bounded per-command `max_lines`, and matches
 subagent peek results to their calls. Inclusive review of eight commits also
@@ -28,8 +36,9 @@ pass; release evidence is recorded in the sidebar delivery plan.
 
 The [model metadata and portable tool-input refactor](docs/plans/cross-cutting/2026-10-18-model-tool-inputs.md)
 is complete: independent editing preference/custom-input support, shared JSON
-fallback, manual model configuration on every provider, and scoped Codex catalog
-discovery. Three independent review lenses are resolved; 1,671 tests pass with 41
+fallback and manual model configuration on every provider. Its Codex runtime
+discovery is superseded by the built-in catalog restoration above. Three
+independent review lenses are resolved; 1,671 tests pass with 41
 skipped. Typecheck, lint, and tracked/task-file formatting pass; the delivery plan
 records the unrelated untracked formatting blocker to `npm run check` and remote
 qualification limits.

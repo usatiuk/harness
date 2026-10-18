@@ -2,6 +2,12 @@
 
 Status: Complete
 
+The Codex runtime-discovery portion below is superseded by the
+[built-in catalog restoration](../models/2026-10-18-codex-builtin-catalog.md).
+The metadata refactor incorrectly sent the Harness product version as a Codex
+compatibility version, allowing a successful empty response to erase the model
+list. The restoration retains manual configuration and the portable input work.
+
 ## Outcome and design
 
 Separate endpoint support for plaintext/custom tool inputs and grammar syntaxes
