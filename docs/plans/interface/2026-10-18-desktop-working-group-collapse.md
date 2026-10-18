@@ -361,6 +361,26 @@ The user authorized committing, pushing, and publishing the next minor release
 on October 18. The current published version is v0.4.0; use the existing release
 workflow with `bump=minor` to build v0.5.0 rather than changing versions locally.
 
-- [ ] Commit the qualified preview correction and push the scoped commits.
-- [ ] Run the release workflow and verify source checks and all three builds.
+- [x] Commit the qualified preview correction and push the scoped commits.
+- [x] Run the release workflow and verify source checks and all three builds.
 - [ ] Verify signed metadata, publish the release, and record delivery evidence.
+
+Scoped commits aac8cb8, 9f1d9ba and ffea6aa are pushed. The existing
+[release workflow](https://github.com/usatiuk/harness/actions/runs/39114863455)
+passes its source gate, all three platform builds and signed draft assembly.
+It created version commit/tag 1dd526a / v0.5.0. All 19 draft assets are present;
+downloaded metadata passes the production native signature verifier, manifest
+schema, version, target/update-platform sets and release URL checks.
+
+[Regular CI](https://github.com/usatiuk/harness/actions/runs/39114860390)
+passes Ubuntu. Its first Windows attempt fails two unchanged tests: the CLI
+sandbox lifecycle assertion sees the initial input frame, and image-only history
+exceeds its five-second timeout (10.9 seconds including cleanup, versus 1.1 seconds
+in the previous passing Windows run). The lifecycle test writes input before
+waiting for mount/subscription, unlike its neighboring reload test. A diagnostic
+rerun uses identical source and assertions; no timeout or retry policy is changed.
+The rerun passes image history but repeats the lifecycle failure. Correct only
+that test's input prerequisites: await the existing subscription, then await the
+rendered command before submitting. Its mutation/deactivation assertions stay
+unchanged. All seven local lifecycle/launch tests pass; hosted Windows validation
+must confirm the correction. The image timeout cause remains unisolated.

@@ -174,13 +174,14 @@ describe("Root session lifecycle", () => {
   });
 
   it("applies a sandbox change while attached before replacing the runtime", async () => {
-    const { service, plugins, order, deactivate } = rootHarness();
+    const { service, plugins, order, deactivate, subscribe } = rootHarness();
     const { stdin, lastFrame } = render(
       <Root service={service} plugins={plugins} start={start} cwd="/work" onActive={() => {}} />,
     );
+    await vi.waitFor(() => expect(subscribe).toHaveBeenCalledOnce());
 
     stdin.write("/sandbox native");
-    await flush();
+    await vi.waitFor(() => expect(lastFrame()).toContain("/sandbox native"));
     stdin.write("\r");
     await vi.waitFor(() => expect(lastFrame()).toContain("sandbox backend → native"));
 

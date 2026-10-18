@@ -244,6 +244,18 @@ geometry case intermittently fails in the full browser suite and passes alone;
 its timing cause remains unisolated. The affected MCP/approval settings scenarios
 pass. Tests/timeouts remain unchanged.
 
+The v0.5.0 qualification's first hosted Windows attempt fails two unchanged
+tests: `index.test.tsx` sees the initial frame instead of the sandbox-change
+message, and the image-only SQLite/reconnect history case exceeds five seconds
+(10.9 seconds including cleanup, versus 1.1 seconds in the previous passing
+Windows run). The lifecycle test sends input without awaiting mount/subscription.
+The identical-source rerun passes image history but repeats the lifecycle failure.
+The lifecycle regression now awaits subscription and the rendered command before
+submitting, retaining all behavior assertions; all seven local file tests pass.
+Hosted Windows validation remains required. The image timeout cause remains
+unisolated; no assertion, timeout or retry policy is relaxed.
+See the [release delivery evidence](plans/interface/2026-10-18-desktop-working-group-collapse.md#minor-release-delivery).
+
 ## Managed runtime and release foundation
 
 The [Node 24 refresh](plans/cross-cutting/2026-10-11-node24-dependencies.md) passes
