@@ -87,8 +87,6 @@ function assertImageInput(provider: ModelProvider, model: ModelConfig, hasImages
     );
 }
 
-const MAX_MODEL_STEPS = 100;
-
 interface PendingContext {
   key: string;
   content: ContentBlock[];
@@ -1214,7 +1212,7 @@ export class Engine {
    * The tool-shaped step loop, two phases per step:
    * 1. Consume finalized provider outputs, writing immutable items in emission order.
    * 2. Dispatch, pairing every recorded call with a `tool_result` (synthetic
-   *    `interrupted` when aborted). Invariant: every call is paired before the only
+   *    `interrupted` when aborted). Invariant: every call is paired before any
    *    `throw`, so a call never dangles.
    */
   async #runSteps(
@@ -1232,7 +1230,9 @@ export class Engine {
     const pricing = this.#pricingFor(conversation.config.model);
     let recoveredOverflow = false;
     let compactedBeforeAttempt = false;
-    for (let step = 0; step < MAX_MODEL_STEPS; step++) {
+    // Unbounded: a turn ends on final response, abort, or failure.
+    // Stuck-model spend is bounded only by context/compaction/interrupt.
+    while (true) {
       const draft = await this.#assembleContext(conversation, toolSchemas, runtime, toolSet);
       if (provider.providerOptions !== undefined) draft.providerOptions = provider.providerOptions;
       const capacity = await this.#contextCapacity(conversation, draft);
@@ -1484,8 +1484,6 @@ export class Engine {
       // entries wait for the next batch.
       await this.#flushSteers(runtime, conversation, turnId, signal);
     }
-
-    throw new Error(`turn exceeded ${MAX_MODEL_STEPS} model steps`);
   }
 
   /** Persists one finalized structured model output and returns its executable call, if any. */

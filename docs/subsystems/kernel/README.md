@@ -61,7 +61,9 @@ delivery semantics. Older items without origin retain their prior appearance.
 inbox work. It is not merely a promise for the turn that happened to be active
 when the caller started waiting.
 
-The loop bounds one turn to 100 model steps. A provider stream must terminate
+The loop is unbounded: a turn ends on a final non-tool response, abort, or
+failure. Stuck-model spend is bounded only by context/compaction or interrupt.
+A provider stream must terminate
 with a `completed` event. Its usage is normalized tokens or `null`; a terminal
 error is recorded before the turn fails and never dispatches provider-invalid
 calls.

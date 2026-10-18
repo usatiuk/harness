@@ -1067,6 +1067,22 @@ describe("Engine — turn cycle", () => {
     const payloads = await store.getProviderPayloads([call!.id]);
     expect(payloads[0]?.payload).toEqual({ sig: "S" });
   });
+
+  it("completes a turn longer than the old 100-step cap without a step limit", async () => {
+    const steps: FakeStep[] = Array.from({ length: 150 }, (_, i) =>
+      toolStep(`c${i}`, "echo", { i }),
+    );
+    steps.push(textStep("done"));
+    const { store, engine, events } = setup(steps);
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("hello"));
+    await engine.whenIdle(conv.id);
+
+    expect(turnStatuses(events)).toEqual(["running", "completed"]);
+    const items = await store.listOwnedItems(conv.id);
+    expect(items.filter((i) => i.type === "tool_call")).toHaveLength(150);
+    expect(items.filter((i) => i.type === "tool_result")).toHaveLength(150);
+  });
 });
 
 describe("Engine — delivery seam", () => {
