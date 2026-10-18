@@ -49,13 +49,25 @@ async function workspace(): Promise<ToolContext> {
  * Drives the active command tool the way the engine does: the tool mints + tracks an activity (returning a
  * placeholder), then the consumption layer claims it by callId and produces the real result.
  */
-async function runCommand(ctx: ToolContext, command: string): Promise<ToolResult> {
+async function runCommand(
+  ctx: ToolContext,
+  command: string,
+  extra?: { max_lines?: number },
+): Promise<ToolResult> {
   const mgr = activitiesOf(ctx);
   const execution = ctx.service("execution") as LocalExecutionContext;
-  await new CommandTool(execution.shellKind).execute({ command }, ctx);
+  await new CommandTool(execution.shellKind).execute({ command, ...extra }, ctx);
   const activity = mgr.claim(ctx.callId);
   if (!activity) throw new Error("command did not register an activity");
   return consume(mgr, activity, false, ctx);
+}
+
+/** Prints lines 1..n via node itself, quoting for either shell kind. */
+function linesCommand(ctx: ToolContext, n: number): string {
+  const execution = ctx.service("execution") as LocalExecutionContext;
+  const invoke =
+    execution.shellKind === "powershell" ? `& "${process.execPath}"` : `"${process.execPath}"`;
+  return `${invoke} -e "for(let i=1;i<=${n};i++)console.log(i)"`;
 }
 afterEach(async () => {
   while (created.length) await rm(created.pop()!, { recursive: true, force: true });
@@ -277,6 +289,58 @@ describe("workspace tools", () => {
     const failResult = await runCommand(ctx, "exit 2");
     expect(failResult.status).toBe("error");
     expect(text(failResult)).toContain("exited 2");
+  });
+
+  it("keeps the default 40-line tail without max_lines", async () => {
+    const ctx = await workspace();
+    const result = await runCommand(ctx, linesCommand(ctx, 100));
+    expect(result.status).toBe("ok");
+    const body = text(result);
+    // A login-shell preamble may precede the command output, so assert containment, not counts:
+    // the tail is bounded (omission marker present), keeps the last line, drops the first.
+    expect(body).toMatch(/…\[\d+ more lines\]/);
+    expect(body).toMatch(/^100$/m);
+    expect(body).not.toMatch(/^1$/m);
+  });
+
+  it("returns a widened tail when max_lines is set", async () => {
+    const ctx = await workspace();
+    const result = await runCommand(ctx, linesCommand(ctx, 100), { max_lines: 200 });
+    expect(result.status).toBe("ok");
+    const body = text(result);
+    expect(body).not.toContain("more lines");
+    expect(body).toMatch(/^1$/m);
+    expect(body).toMatch(/^100$/m);
+  });
+
+  it("rejects a non-positive-integer or over-cap max_lines at the schema", async () => {
+    const ctx = await workspace();
+    const execution = ctx.service("execution") as LocalExecutionContext;
+    const tool = new CommandTool(execution.shellKind);
+    if (tool.input.kind !== "function") throw new Error("expected function command tool");
+    const schema = tool.input.schema as unknown as {
+      parse(args: unknown): { command: string; max_lines?: number };
+    };
+    expect(schema.parse({ command: "echo hi", max_lines: 200 })).toEqual({
+      command: "echo hi",
+      max_lines: 200,
+    });
+    for (const max_lines of [0, -3, 2.5, 501, 10_000]) {
+      expect(() => schema.parse({ command: "echo hi", max_lines })).toThrow();
+    }
+  });
+
+  it("returns a model-facing error for a non-positive-integer or over-cap max_lines on direct execute", async () => {
+    const ctx = await workspace();
+    const execution = ctx.service("execution") as LocalExecutionContext;
+    for (const max_lines of [0, -3, 2.5, 501, 5_000]) {
+      const result = await new CommandTool(execution.shellKind).execute(
+        { command: "echo hi", max_lines },
+        ctx,
+      );
+      expect(result.status).toBe("error");
+      expect(text(result)).toContain("positive integer");
+    }
   });
 });
 

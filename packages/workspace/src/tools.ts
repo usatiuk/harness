@@ -11,6 +11,7 @@ import {
 } from "@harness/protocol";
 import {
   boundView,
+  COMMAND_VIEW_MAX_LINES,
   contextWithExecution,
   executionOf,
   registerExecutionTool,
@@ -227,7 +228,10 @@ export class EditTool implements Tool<z.infer<typeof editArgs>> {
   }
 }
 
-const commandArgs = z.strictObject({ command: z.string() });
+const commandArgs = z.strictObject({
+  command: z.string(),
+  max_lines: z.number().int().positive().max(COMMAND_VIEW_MAX_LINES).optional(),
+});
 export class CommandTool implements Tool<z.infer<typeof commandArgs>> {
   readonly name: ShellKind;
   readonly description: string;
@@ -238,7 +242,9 @@ export class CommandTool implements Tool<z.infer<typeof commandArgs>> {
       `Run a ${shellLabel(kind)} command in the workspace root. ` +
       "Quick commands return their output inline; " +
       "long-running ones (dev servers, watchers, builds) become activities you can wait on, peek " +
-      "at, or kill.";
+      "at, or kill. " +
+      `Optional max_lines (a positive integer up to ${COMMAND_VIEW_MAX_LINES}) widens the ` +
+      "model-facing output tail past the default 40 lines; output stays bounded.";
   }
   readonly input: ToolInput<z.infer<typeof commandArgs>> = {
     kind: "function",
@@ -246,7 +252,22 @@ export class CommandTool implements Tool<z.infer<typeof commandArgs>> {
   };
   // The activities plugin reads this to inject the `background` argument into the wire schema.
   readonly meta = { backgroundable: true };
-  execute({ command }: z.infer<typeof commandArgs>, ctx: ToolContext): Promise<ToolResult> {
+  execute(
+    { command, max_lines }: z.infer<typeof commandArgs>,
+    ctx: ToolContext,
+  ): Promise<ToolResult> {
+    // The wire schema rejects non-integer/over-cap `max_lines` first; this guards
+    // direct programmatic callers with a model-facing error instead of throwing.
+    if (
+      max_lines !== undefined &&
+      (!Number.isInteger(max_lines) || max_lines <= 0 || max_lines > COMMAND_VIEW_MAX_LINES)
+    ) {
+      return Promise.resolve(
+        errorResult(
+          `${this.name}: max_lines must be a positive integer up to ${COMMAND_VIEW_MAX_LINES}, got ${String(max_lines)}`,
+        ),
+      );
+    }
     const exec = executionOf(ctx);
     const id = `act_${randomUUID().slice(0, 8)}`;
     // Spawn unbound from `ctx.signal`; backgrounded commands survive turn-end.
@@ -255,6 +276,7 @@ export class CommandTool implements Tool<z.infer<typeof commandArgs>> {
       title: command,
       proc: exec.spawn(command),
       store: exec.outputStore(ctx.conversationId),
+      ...(max_lines === undefined ? {} : { view: { maxLines: max_lines } }),
     });
     activitiesOf(ctx).track(activity, { callId: ctx.callId, emit: (e) => ctx.emit(e) });
     // Placeholder; the consumption middleware owns the real model-facing result.

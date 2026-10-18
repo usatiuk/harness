@@ -463,6 +463,94 @@ describe("subagentContractResolver", () => {
   });
 });
 
+describe("SubagentActivity — tool peek log", () => {
+  const childId = id("tools-child");
+  const turnId = "t" as TurnId;
+  let seq = 100;
+  const callItem = (callId: string, name: string, args: unknown): Item => ({
+    id: `c${++seq}` as ItemId,
+    conversationId: childId,
+    turnId,
+    seq,
+    parent: null,
+    createdAt: 0,
+    type: "tool_call",
+    callId,
+    name,
+    args,
+  });
+  const resultItem = (callId: string, status: "ok" | "error", text: string): Item => ({
+    id: `r${++seq}` as ItemId,
+    conversationId: childId,
+    turnId,
+    seq,
+    parent: null,
+    createdAt: 0,
+    type: "tool_result",
+    callId,
+    status,
+    content: [{ type: "text", text }],
+  });
+  const appended = (item: Item): HarnessEvent => ({
+    type: "item.appended",
+    conversationId: childId,
+    item,
+  });
+  const activityWith = () =>
+    new SubagentActivity({ runner: fakeRunner(), childId, title: "explore" });
+
+  it("pushes args preview on call and rewrites the same line on ok", () => {
+    const activity = activityWith();
+    activity.onEvent(appended(callItem("a1", "read", { path: "/tmp/x.txt" })));
+    expect(textOf(activity.peek())).toBe('→ read {"path":"/tmp/x.txt"}');
+    activity.onEvent(appended(resultItem("a1", "ok", "file bytes")));
+    // Same line rewritten in place — no extra line appended.
+    expect(textOf(activity.peek())).toBe('→ read {"path":"/tmp/x.txt"} — ok');
+  });
+
+  it("rewrites the same line with a fail content preview", () => {
+    const activity = activityWith();
+    activity.onEvent(appended(callItem("b1", "bash", { command: "exit 1" })));
+    activity.onEvent(appended(resultItem("b1", "error", "boom happened")));
+    expect(textOf(activity.peek())).toBe('→ bash {"command":"exit 1"} — fail: boom happened');
+  });
+
+  it("matches parallel calls by callId even when results arrive out of order", () => {
+    const activity = activityWith();
+    activity.onEvent(appended(callItem("p1", "read", { path: "a" })));
+    activity.onEvent(appended(callItem("p2", "read", { path: "b" })));
+    expect(textOf(activity.peek())).toBe('→ read {"path":"a"}\n→ read {"path":"b"}');
+    // Second call settles first — each result rewrites its own call line.
+    activity.onEvent(appended(resultItem("p2", "error", "missing")));
+    expect(textOf(activity.peek())).toBe(
+      '→ read {"path":"a"}\n→ read {"path":"b"} — fail: missing',
+    );
+    activity.onEvent(appended(resultItem("p1", "ok", "contents")));
+    expect(textOf(activity.peek())).toBe(
+      '→ read {"path":"a"} — ok\n→ read {"path":"b"} — fail: missing',
+    );
+  });
+
+  it("truncates long args and failure previews to ~100 chars", () => {
+    const activity = activityWith();
+    const longArgs = { command: "x".repeat(200) };
+    activity.onEvent(appended(callItem("t1", "bash", longArgs)));
+    const callLine = textOf(activity.peek());
+    const rawArgs = JSON.stringify(longArgs);
+    expect(callLine).toBe(`→ bash ${rawArgs.slice(0, 100)}…`);
+    activity.onEvent(appended(resultItem("t1", "error", "y".repeat(200))));
+    expect(textOf(activity.peek())).toBe(
+      `→ bash ${rawArgs.slice(0, 100)}… — fail: ${"y".repeat(100)}…`,
+    );
+  });
+
+  it("appends a fallback line for an orphan result", () => {
+    const activity = activityWith();
+    activity.onEvent(appended(resultItem("ghost", "ok", "late")));
+    expect(textOf(activity.peek())).toBe("→ ghost — ok");
+  });
+});
+
 it.each(["commentary", "final_answer", "future_provider_phase"])(
   "previews phase %s without labels and replaces it with the committed message",
   async (phase) => {

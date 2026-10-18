@@ -317,6 +317,25 @@ describe("consumeMiddleware", () => {
     expect(text(result.forModel)).not.toContain("placeholder");
   });
 
+  it("strips background but preserves sibling args like max_lines", async () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    const ctx = fakeMwCtx({ service: (k) => (k === "activities" ? mgr : undefined) });
+    const next = (call: { callId: string; args: unknown }): Promise<ToolResult> => {
+      // background is consumed by the middleware; max_lines still reaches the tool's schema.
+      expect(call.args).toEqual({ command: "x", max_lines: 200 });
+      const { activity, settle } = fakeActivity("a6");
+      settle({ status: "ok", summary: "s", view: [{ type: "text", text: "yo" }] });
+      mgr.track(activity, { callId: call.callId, emit: () => {} });
+      return Promise.resolve({ forModel: [{ type: "text", text: "placeholder" }], status: "ok" });
+    };
+    const result = await consumeMiddleware().wrap(
+      { callId: "k2", name: "bash", args: { command: "x", max_lines: 200, background: true } },
+      ctx,
+      next,
+    );
+    expect(text(result.forModel)).toContain("background");
+  });
+
   it("passes through a tool that registers no activity", async () => {
     const mgr = new ActivityManager("c" as ConversationId);
     const ctx = fakeMwCtx({ service: () => mgr });

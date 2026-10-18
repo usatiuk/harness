@@ -13,6 +13,25 @@ import type { SpawnMark } from "./registry.ts";
 
 const PEEK_LINES = 40;
 const LINE_CAP = 500;
+const ARGS_PREVIEW_CHARS = 100;
+const RESULT_PREVIEW_CHARS = 100;
+
+/** `JSON.stringify` args truncated to ~100 chars; never throws (circular/BigInt-safe). */
+function previewArgs(args: unknown): string {
+  let raw: string;
+  try {
+    raw = JSON.stringify(args) ?? "";
+  } catch {
+    raw = String(args);
+  }
+  return raw.length > ARGS_PREVIEW_CHARS ? `${raw.slice(0, ARGS_PREVIEW_CHARS)}…` : raw;
+}
+
+/** Single-line content preview truncated to ~100 chars (callers pass `textOf` output). */
+function previewResult(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > RESULT_PREVIEW_CHARS ? `${flat.slice(0, RESULT_PREVIEW_CHARS)}…` : flat;
+}
 
 export interface SubagentActivityInit {
   runner: ConversationRunner;
@@ -36,6 +55,8 @@ export class SubagentActivity implements Activity {
 
   readonly #runner: ConversationRunner;
   readonly #lines: string[] = [];
+  /** callId → index in #lines for the open `→ name args` line; lets the matching result rewrite it in place. */
+  readonly #pendingCalls = new Map<string, number>();
   #finalText = "";
   #preview = "";
   #unsub?: () => void;
@@ -70,9 +91,12 @@ export class SubagentActivity implements Activity {
           this.#finalText = textOf(item.content);
           this.#push(`assistant: ${this.#finalText}`);
         } else if (item.type === "tool_call") {
-          this.#push(`→ ${item.name}`);
+          const preview = previewArgs(item.args);
+          const line = preview ? `→ ${item.name} ${preview}` : `→ ${item.name}`;
+          this.#pendingCalls.set(item.callId, this.#lines.length);
+          this.#push(line);
         } else if (item.type === "tool_result") {
-          this.#push(`  ${item.status}`);
+          this.#resolveCall(item.callId, item.status, textOf(item.content));
         }
         break;
       }
@@ -98,6 +122,25 @@ export class SubagentActivity implements Activity {
 
   #push(line: string): void {
     this.#lines.push(line.length > LINE_CAP ? `${line.slice(0, LINE_CAP)}…` : line);
+  }
+
+  /** Rewrite the matching call line in place; orphan results append a fallback line. */
+  #resolveCall(callId: string, status: "ok" | "error", contentText: string): void {
+    const suffix =
+      status === "ok"
+        ? " — ok"
+        : (() => {
+            const preview = previewResult(contentText);
+            return preview ? ` — fail: ${preview}` : " — fail";
+          })();
+    const idx = this.#pendingCalls.get(callId);
+    this.#pendingCalls.delete(callId);
+    if (idx !== undefined && idx < this.#lines.length) {
+      const updated = `${this.#lines[idx]}${suffix}`;
+      this.#lines[idx] = updated.length > LINE_CAP ? `${updated.slice(0, LINE_CAP)}…` : updated;
+    } else {
+      this.#push(`→ ${callId}${suffix}`);
+    }
   }
 
   #settle(status: TurnStatus): void {

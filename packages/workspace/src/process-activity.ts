@@ -1,15 +1,18 @@
 import type { ContentBlock } from "@harness/protocol";
 import {
   boundView,
+  COMMAND_VIEW_DEFAULT_BYTES,
+  resolveCommandView,
+  type BoundOptions,
   type OutputStore,
   type OutputWriter,
   type SpawnedProcess,
 } from "@harness/execution";
 import type { Activity, ActivityResult } from "@harness/activities";
 
-/** Spill to a file once buffered output crosses this; below it a quick command stays file-less. */
-const MATERIALIZE_BYTES = 16 * 1024;
-const VIEW = { maxLines: 40, maxLineBytes: 1024, maxTotalBytes: 16 * 1024, mode: "tail" as const };
+/** Spill to a file once buffered output crosses this; below it a quick command stays file-less.
+ * Same value as the default command view ceiling so the default tail is always in-memory. */
+const MATERIALIZE_BYTES = COMMAND_VIEW_DEFAULT_BYTES;
 
 export interface ProcessActivityInit {
   id: string;
@@ -17,6 +20,8 @@ export interface ProcessActivityInit {
   title: string;
   proc: SpawnedProcess;
   store: OutputStore;
+  /** Per-activity output widening: `maxLines` selects a wider tail via `resolveCommandView`. */
+  view?: { maxLines?: number };
 }
 
 /**
@@ -26,13 +31,17 @@ export interface ProcessActivityInit {
  */
 export function createProcessActivity(init: ProcessActivityInit): Activity {
   const { id, title, proc, store } = init;
+  // One resolved view per activity: the default 40-line/16 KiB tail, or the caller's widened
+  // `max_lines` tail (clamped to the shared caps). Both live progress and the terminal result
+  // render through it.
+  const view: BoundOptions = resolveCommandView(init.view?.maxLines);
   const started = Date.now();
   // `recent`: full output until materialized, then a plain-slice tail (no re-bounding per chunk).
   let recent = "";
   let materialized = false;
   let writer: OutputWriter | undefined;
   const trimTail = (text: string): string =>
-    text.length > MATERIALIZE_BYTES ? text.slice(-MATERIALIZE_BYTES) : text;
+    text.length > view.maxTotalBytes ? text.slice(-view.maxTotalBytes) : text;
 
   const persist = (): void => {
     if (materialized) return;
@@ -53,8 +62,8 @@ export function createProcessActivity(init: ProcessActivityInit): Activity {
   });
 
   const peek = (opts?: { filter?: string }): ContentBlock[] => {
-    const view = boundView(recent, { ...VIEW, ...(opts?.filter ? { filter: opts.filter } : {}) });
-    return [{ type: "text", text: view || "(no output yet)" }];
+    const seen = boundView(recent, { ...view, ...(opts?.filter ? { filter: opts.filter } : {}) });
+    return [{ type: "text", text: seen || "(no output yet)" }];
   };
 
   const done: Promise<ActivityResult> = proc.exit.then(async ({ code, signal, error }) => {
@@ -66,16 +75,14 @@ export function createProcessActivity(init: ProcessActivityInit): Activity {
         : `exited ${code ?? 0}`;
     const summary = `\`${title}\` ${how} after ${secs}s`;
     const status: "ok" | "error" = error || signal || code === null || code !== 0 ? "error" : "ok";
-    const view: ContentBlock[] = [{ type: "text", text: boundView(recent, VIEW) || "(no output)" }];
+    const seen: ContentBlock[] = [{ type: "text", text: boundView(recent, view) || "(no output)" }];
     try {
-      if (writer) {
-        await writer.close(`\n--- ${summary} ---\n`);
-        view.push({ type: "text", text: `full output: ${writer.path}` });
-      }
+      await writer?.close(`\n--- ${summary} ---\n`);
+      if (writer) seen.push({ type: "text", text: `full output: ${writer.path}` });
     } catch {
       // file close failed — the in-memory view still describes the outcome
     }
-    return { status, summary, view };
+    return { status, summary, view: seen };
   });
 
   return { id, kind: "process", title, peek, kill: () => proc.kill(), persist, done };

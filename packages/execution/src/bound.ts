@@ -58,3 +58,34 @@ export function boundView(text: string, opts: BoundOptions): string {
   }
   return out;
 }
+
+/** Default model-facing command view: a 40-line tail under a 16 KiB ceiling. */
+export const COMMAND_VIEW_DEFAULT_LINES = 40;
+export const COMMAND_VIEW_DEFAULT_BYTES = 16 * 1024;
+/**
+ * Hard caps for a widened per-command view (`max_lines`): 500 lines / 64 KiB total, keeping
+ * headroom under `read_file`'s 256 KiB window.
+ */
+export const COMMAND_VIEW_MAX_LINES = 500;
+export const COMMAND_VIEW_MAX_BYTES = 64 * 1024;
+
+/**
+ * Resolves the `boundView` options for one command activity: the default 40-line/16 KiB tail, or
+ * a wider tail when the caller passes `max_lines`. Over-cap requests clamp to the hard caps;
+ * a non-positive-integer request throws (the tool schema rejects it at the wire first, so this
+ * only fires on direct programmatic misuse).
+ */
+export function resolveCommandView(maxLines?: number): BoundOptions {
+  const wanted = maxLines ?? COMMAND_VIEW_DEFAULT_LINES;
+  if (!Number.isInteger(wanted) || wanted <= 0) {
+    throw new Error(`max_lines must be a positive integer, got ${String(maxLines)}`);
+  }
+  const lines = Math.min(wanted, COMMAND_VIEW_MAX_LINES);
+  return {
+    maxLines: lines,
+    maxLineBytes: 1024,
+    maxTotalBytes:
+      lines <= COMMAND_VIEW_DEFAULT_LINES ? COMMAND_VIEW_DEFAULT_BYTES : COMMAND_VIEW_MAX_BYTES,
+    mode: "tail",
+  };
+}

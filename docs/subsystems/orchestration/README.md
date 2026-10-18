@@ -76,7 +76,8 @@ to check readiness; no polling or wakeup mechanism is added.
 
 Activity ids identify work independently of its originating tool call. Output can be inspected while
 running, regex-filtered by line, waited on with a bounded timeout, or killed as a
-complete process tree. The manager belongs to one loaded runtime and suppresses
+complete process tree. Command activities render a 40-line tail by default; `max_lines` (up to 500
+lines / 64 KiB) widens one command's view without changing the default. The manager belongs to one loaded runtime and suppresses
 completion delivery, kills, and awaits live work when that root scope is
 deactivated. Runtime handles are not durable across switch, reload, or process
 exit.
@@ -178,6 +179,8 @@ use the internal runner. Sidebar and Recents continue to exclude spawn marks.
 
 Subagent activity peeks include a bounded in-progress assistant-text preview,
 including commentary, alongside finalized assistant messages and tool entries.
+Tool lines render `→ name argsPreview` and rewrite in place to `— ok` or
+`— fail: contentPreview` (both previews ~100 chars, matched by callId).
 Finalizing a message replaces its transient preview rather than duplicating it;
 the terminal result still uses the finalized assistant message.
 
