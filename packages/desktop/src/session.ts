@@ -285,7 +285,8 @@ export class DesktopSession {
   }
 
   /** A sent message makes its conversation most-recent in place — no list refetch.
-   * Order here is presentational; the server stays canonical on the next refetch. */
+   * Order here is presentational; the server stays canonical on the next refetch.
+   * Recents intentionally admits a touched root missing from the loaded window; project pages only reorder. */
   private touchConversation(id: ConversationId): void {
     // Spawned children never appear in sidebar listings; leave them alone.
     if (this.client.rootOf(id) !== id) return;
