@@ -56,7 +56,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Presence } from "@radix-ui/react-presence";
 import { editPresentation } from "@harness/client-features/edit-presentation";
 import type { Cell, State } from "@harness/client-features/transcript-reducer";
 import { toolPermissionSchema, type ClientApproval } from "@harness/approval/client";
@@ -1177,11 +1176,13 @@ export function createDesktopRouter(
     latest: boolean;
   }) {
     const scrollShadows = useScrollShadows();
-    const [expansion, setExpansion] = useState<{
-      tailStartKey: string | undefined;
-      animateTail: boolean;
-    }>();
-    const open = expansion !== undefined;
+    const [open, setOpen] = useState(false);
+    const [asLatest, setAsLatest] = useState(false);
+    const [tailStartKey, setTailStartKey] = useState<string | undefined>();
+    // `open` is the only visibility state. `asLatest` remembers whether the
+    // group was opened as latest so losing `latest` mid-expansion keeps the
+    // same containers instead of remounting; both reset together on collapse,
+    // so no stale branch can reopen or shut the group later.
     const calls = row.steps.filter(
       (step) => step.cell.kind === "tool" && !("boundary" in step && step.boundary === "result"),
     ).length;
@@ -1230,24 +1231,26 @@ export function createDesktopRouter(
     );
     const recent = row.steps.filter(hasWorkContent).slice(-5);
     const recentStart = recent[0] ? row.steps.indexOf(recent[0]) : row.steps.length;
-    // Keep existing rows under the same parent while the expanded group grows,
-    // so streaming new steps cannot reset an open tool or reasoning disclosure.
+    // Pin the head/tail boundary while an opened latest group grows, so
+    // streaming steps cannot migrate rows between parents and reset an open
+    // tool or reasoning disclosure. Historical groups never stream; a single
+    // list needs no pinning.
     const capturedStart =
-      expansion?.tailStartKey === undefined
+      tailStartKey === undefined
         ? row.steps.length
-        : row.steps.findIndex((step) => step.key === expansion.tailStartKey);
+        : row.steps.findIndex((step) => step.key === tailStartKey);
     // History or canonical regrouping can remove the captured entry. Reconcile
     // that presentation boundary to the current tail when it no longer exists.
-    const tailStart = expansion && capturedStart >= 0 ? capturedStart : recentStart;
+    const tailStart = open && asLatest && capturedStart >= 0 ? capturedStart : recentStart;
     const head = row.steps.slice(0, tailStart);
     const hasHead = head.some(hasWorkContent);
     const tail = row.steps.slice(tailStart);
-    // The tail is the quiet live region: open while this is the latest group, or
-    // while the user expands the group. Head rows are exactly the rows a toggle
-    // adds or removes, so only they animate through the disclosure body.
-    const tailOpen = latest || open;
-    // Mounting a virtualized latest tail is restoration, not an expansion.
-    const animateTail = !tailOpen || expansion?.animateTail;
+    // The tail preview belongs to the latest group only and is always settled:
+    // it mounts with the latest group's content and never animates. Only the
+    // head disclosure animates. `split` is a pure function of open-state, so a
+    // `latest` flip while open changes nothing visible.
+    const split = open && asLatest;
+    const showTail = split || (latest && !open);
     return (
       <div className="cell work-scroll-frame">
         <div className="tool-group-container scroll-shadows" ref={scrollShadows}>
@@ -1259,31 +1262,33 @@ export function createDesktopRouter(
               open={open}
               onToggle={(event) => {
                 if (event.target !== event.currentTarget) return;
-                setExpansion(
-                  event.currentTarget.open
-                    ? { tailStartKey: tail[0]?.key, animateTail: !latest }
-                    : undefined,
-                );
+                if (event.currentTarget.open) {
+                  if (latest) setTailStartKey(tail[0]?.key);
+                  setAsLatest(latest);
+                } else {
+                  setTailStartKey(undefined);
+                  setAsLatest(false);
+                }
+                setOpen(event.currentTarget.open);
               }}
               title={title}
             >
-              {hasHead && <WorkItems steps={head} label="Work details" />}
+              {split ? (
+                hasHead && <WorkItems steps={head} label="Work details" />
+              ) : (
+                <WorkItems steps={row.steps} label="Work details" />
+              )}
             </Disclosure>
           ) : (
             <div className="work-group-title">{title}</div>
           )}
-          <Presence present={tailOpen}>
-            <div
-              className="collapse-grid work-tail"
-              data-state={tailOpen ? "open" : "closed"}
-              data-lazy={animateTail || undefined}
-              inert={!tailOpen}
-            >
+          {showTail && (
+            <div className="collapse-grid work-tail" data-state="open">
               <div className="collapse-body">
                 <WorkItems steps={tail} label="Recent work" />
               </div>
             </div>
-          </Presence>
+          )}
         </div>
       </div>
     );
