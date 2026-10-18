@@ -1,6 +1,7 @@
 import { worktreeDirectory, worktreesConfigSchema } from "@harness/worktrees";
 import {
   defaultHome,
+  deepMerge,
   readGlobalSettings,
   setAuthStore,
   updateGlobalModel,
@@ -12,7 +13,7 @@ import { approvalConfigSchema } from "@harness/approval";
 import { conversationTitlesConfigSchema } from "@harness/conversation-titles";
 import { autoApprovalConfigSchema } from "@harness/auto-approval";
 import { subagentsConfigSchema } from "@harness/subagents";
-import { sandboxConfigSchema } from "@harness/sandbox";
+import { sandboxConfigSchema, type SandboxBackend } from "@harness/sandbox";
 import {
   projectConversationPage,
   type HarnessRpcSession,
@@ -50,6 +51,7 @@ import {
 export interface AppApiState {
   signingIn: boolean;
   settingsTail: Promise<void>;
+  readonly defaultSandboxBackend: SandboxBackend;
   readonly active: {
     kind: AuthStoreKind | null;
     entries: ReadonlyMap<string, ProviderEntry>;
@@ -247,7 +249,9 @@ export function registerAppApi(
         conversationTitleModel: titles.model
           ? { ...titles.model, preset: titles.model.preset ?? null }
           : null,
-        sandbox: sandboxConfigSchema.parse(doc.plugins?.["sandbox"] ?? {}).backend,
+        sandbox: sandboxConfigSchema.parse(
+          deepMerge({ backend: state.defaultSandboxBackend }, doc.plugins?.["sandbox"] ?? {}),
+        ).backend,
         toolMode: doc.tools?.mode ?? "hybrid",
         showToolNames: doc.tools?.showNames ?? true,
         subagents: { maxDepth: subagents.maxDepth, maxChildren: subagents.maxChildren },

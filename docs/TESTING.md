@@ -1,5 +1,15 @@
 # Testing
 
+The [sandbox context and presentation follow-up](plans/cross-cutting/2026-10-18-sandbox-context-and-message-presentation.md)
+adds real Bubblewrap checks for process-shared private `/tmp`, hidden host
+temporary files and fresh `/run`. Active-prompt tests capture a real service/model
+request and control Docker provisioning/exec to verify mapped cwd, remote-user
+write access and probe failure propagation. Backend default tests cover usable
+and unavailable Bubblewrap, server/settings agreement, explicit choices, canonical
+`none` RPC values and saved `local` compatibility without file rewriting.
+Headless message tests cover phase-independent text/actions, copy and selection;
+existing protocol/reducer/OpenAI replay tests preserve phase data semantics.
+
 Harness uses Vitest for tests, TypeScript for static checking, ESLint, and
 Prettier. Tests are co-located with source as `*.test.ts` or `*.test.tsx` under
 `packages/*/src/`.

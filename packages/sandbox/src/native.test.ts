@@ -40,7 +40,7 @@ vi.mock("node:child_process", async (importOriginal) => ({
   },
 }));
 
-const { NativeExecutionContext } = await import("./native.ts");
+const { NativeExecutionContext, nativeSandboxAvailable } = await import("./native.ts");
 
 const roots: string[] = [];
 const makeRoot = async (): Promise<string> => {
@@ -61,6 +61,12 @@ afterEach(async () => {
 });
 
 describe.skipIf(process.platform !== "linux")("NativeExecutionContext", () => {
+  it("selects native by default only when the server can run Bubblewrap", () => {
+    expect(nativeSandboxAvailable()).toBe(true);
+    state.probeStatus = 1;
+    expect(nativeSandboxAvailable()).toBe(false);
+  });
+
   it("fails immediately when Bubblewrap is unusable", async () => {
     state.probeStatus = 1;
     state.probeStderr = "namespace denied";

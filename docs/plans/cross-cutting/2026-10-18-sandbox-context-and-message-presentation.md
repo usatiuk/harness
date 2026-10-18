@@ -41,11 +41,14 @@ the backend rename must be reflected in contract versions.
 - [x] Phase-free presentation: headless browser and CLI checks cover unknown and
       known phases, interim/final actions, copy text and phase-preserving data;
       commit separately.
-- [ ] Backend rename/default: saved alias, canonical API values, host support
+- [x] Backend rename/default: saved alias, canonical API values, host support
       selection, explicit choices and server/client agreement verified; commit
       separately.
-- [ ] Independent correctness, simplicity and evidence reviews; reconcile docs,
+- [x] Independent correctness, simplicity and evidence reviews; reconcile docs,
       run full `npm run check`, record limitations and leave a clean worktree.
+- [ ] Push the qualified commits and dispatch the existing minor release workflow
+      for v0.6.0; verify all builds, signed metadata and hosted CI, publish as
+      latest, and verify anonymous metadata downloads. Do not execute installers.
 
 ## Validation
 
@@ -92,3 +95,23 @@ and headless WebKit each pass 2/2 placement/copy/selection cases. The browser
 fixture now explicitly starts its tool scenario as running; previously a prior
 completion leaked a settled turn into the next scenario. No assertion was
 weakened. Three independent reviews found no remaining scoped blocker.
+
+### Backend rename/default qualification
+
+Canonical public values are `none`, `native` and `docker`; the config boundary
+accepts `local` as an alias for `none`. Sandbox contract 2 / Harness protocol 18
+reflect the public value change. One server-owned support result feeds both
+service defaults and app settings; clients do not probe their own host.
+Focused native/plugin/API/CLI tests pass 61/61. Real app-API and Bubblewrap tests pass 14/14, including explicit selections
+and legacy settings reads without rewrites. This host's server default is checked
+end-to-end; controlled native probes cover usable/unusable branches. No separate
+non-Linux host or real Docker daemon was available. Headless Chromium and WebKit
+each pass 3/3 creation-default/message-presentation cases, and all three TypeScript
+targets pass. Three independent reviews found no scoped blockers.
+
+The first full check passes 1,621 tests but exposes two background tests waiting
+for approval that routine native execution intentionally bypasses. Those tests
+now explicitly select `none`, preserving their pending-approval lifecycle
+contract. Original assertions/timeouts remain unchanged. All 14 background cases
+pass against that correction. Final `TMPDIR=/var/tmp npm run check` passes
+typechecking, lint, formatting and 1,623 tests (41 skipped).

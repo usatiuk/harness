@@ -738,7 +738,7 @@ function StatusBar({
     <Box>
       <Text color="green">●</Text>
       <Text dimColor>{`  ${label}${tokens ? ` · ${tokens}` : ""}${active} · ${cwd}`}</Text>
-      {sandboxBackend !== "local" ? (
+      {sandboxBackend !== "none" ? (
         <SandboxChip backend={sandboxBackend} phase={sandboxPhase} />
       ) : null}
     </Box>
@@ -759,7 +759,7 @@ function SandboxChip({
   backend,
   phase,
 }: {
-  backend: Exclude<SandboxBackend, "local">;
+  backend: Exclude<SandboxBackend, "none">;
   phase: SandboxPhase | undefined;
 }): ReactElement {
   if (backend === "native") return <Text dimColor>{" · 🫧 native"}</Text>;

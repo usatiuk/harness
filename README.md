@@ -332,11 +332,18 @@ window. Informational reasoning support does not invent generation presets.
 
 The `sandbox` plugin selects one execution backend per loaded conversation:
 
-- `local` runs workspace tools directly on the host.
+- `none` runs workspace tools directly on the host without a sandbox.
 - `native` (Linux only) runs commands in Bubblewrap. The host filesystem is readable, temporary
   and runtime directories are private, workspace writes and network access are independently
   configurable, and built-in file writes enforce the same workspace boundary.
 - `docker` runs execution-backed tools in the workspace's dev container.
+
+When no backend is configured, the server selects `native` on Linux if Bubblewrap
+is usable; otherwise it selects `none`. Explicit choices take precedence. Saved
+`local` values are accepted as the old name for `none`; new settings/API values
+use `none`, and reading old settings does not rewrite them. Native shell `/tmp`
+is private and shared for the server process; `/run` is fresh per command.
+The agent prompt describes the active sandbox and its actual tool workspace.
 
 The global setting (also configurable with `/sandbox`) is:
 

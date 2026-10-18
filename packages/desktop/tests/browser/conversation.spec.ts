@@ -466,6 +466,12 @@ test("new conversation choices become host defaults for the next creation", asyn
   );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Choose execution options" }).click();
+  const sandbox = page.getByRole("combobox", { name: "Sandbox", exact: true });
+  await expect(sandbox).toHaveAttribute("data-value", "none");
+  await sandbox.click();
+  await expect(page.getByRole("option", { name: "None", exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "Local", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await page.getByRole("combobox", { name: "Tool interface", exact: true }).click();
   await expect(page.getByRole("option")).toHaveText(["Hybrid", "Code only"]);
   await page.keyboard.press("Escape");

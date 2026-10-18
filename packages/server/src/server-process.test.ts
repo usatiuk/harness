@@ -137,7 +137,7 @@ describe("production server process ownership", () => {
         approval: { inWorkspace: "ask", outOfWorkspace: "deny", humanApprovalTimeoutSeconds: 60 },
         autoApproval: { ...config.settings.autoApproval, enabled: true, timeoutSeconds: 12.5 },
         conversationTitleModel: { provider: "demo", model: "demo-1", preset: null },
-        sandbox: "local",
+        sandbox: "none",
       });
       first.client.closeConnection();
       expect(await first.exited).toBe(0);

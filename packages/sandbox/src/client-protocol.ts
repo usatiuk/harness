@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { sandboxBackendSchema } from "./config.ts";
 import { defineNotification, defineRequest } from "@harness/protocol";
 
-export const SANDBOX_CLIENT_CONTRACT_VERSION = 1;
+export const SANDBOX_CLIENT_CONTRACT_VERSION = 2;
 
 export const sandboxStateSchema = z.strictObject({
   conversationId: z.string(),
-  backend: z.enum(["local", "native", "docker"]),
+  backend: sandboxBackendSchema,
   containerActive: z.boolean(),
 });
 

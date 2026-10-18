@@ -19,7 +19,7 @@ describe("auto-approval timeout settings", () => {
       humanApprovalTimeoutSeconds: 60,
     },
     autoApproval: { enabled: false, model: null },
-    sandbox: "local",
+    sandbox: "none",
   };
 
   it("defaults older client settings to thirty seconds", () => {
@@ -34,4 +34,11 @@ describe("auto-approval timeout settings", () => {
       }).success,
     ).toBe(false);
   });
+});
+
+it("uses canonical sandbox backend names at the API boundary", () => {
+  for (const sandbox of ["none", "native", "docker"]) {
+    expect(appSettingsUpdateRequest.params.parse({ sandbox }).sandbox).toBe(sandbox);
+  }
+  expect(appSettingsUpdateRequest.params.safeParse({ sandbox: "local" }).success).toBe(false);
 });

@@ -101,7 +101,10 @@ it("upgrades on reconnect only when idle and never downgrades a newer owner", as
     await observer.start();
     const conversation = await observer.create({
       cwd: await isolatedWorkspace(home),
-      overrides: { model: { provider: "demo", model: "demo-1" } },
+      overrides: {
+        model: { provider: "demo", model: "demo-1" },
+        plugins: { sandbox: { backend: "none" } },
+      },
     });
     await observer.attach(conversation.id);
     const approvals = new ApprovalClient(observer);
@@ -672,7 +675,10 @@ it("preserves a pending conversation after its last observers and bridge parent 
     const approvals = new ApprovalClient(client);
     const conversation = await client.create({
       cwd: await isolatedWorkspace(home),
-      overrides: { model: { provider: "demo", model: "demo-1" } },
+      overrides: {
+        model: { provider: "demo", model: "demo-1" },
+        plugins: { sandbox: { backend: "none" } },
+      },
     });
     await client.attach(conversation.id);
     let pendingId: string | undefined;

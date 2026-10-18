@@ -19,9 +19,14 @@ export const dockerSandboxConfigSchema = z
   .transform(({ configPath }) => ({ configPath }));
 export type DockerSandboxConfig = z.infer<typeof dockerSandboxConfigSchema>;
 
+export const sandboxBackendSchema = z.enum(["none", "native", "docker"]);
+
 /** Config under `plugins.sandbox`; backend changes take effect on activation/reload. */
 export const sandboxConfigSchema = z.strictObject({
-  backend: z.enum(["local", "native", "docker"]).default("local"),
+  backend: z.preprocess(
+    (backend) => (backend === "local" ? "none" : backend),
+    sandboxBackendSchema.default("none"),
+  ),
   native: nativeSandboxConfigSchema.default({ workspaceWrite: true, network: true }),
   docker: dockerSandboxConfigSchema.default({
     configPath: DEFAULT_DEVCONTAINER_CONFIG,

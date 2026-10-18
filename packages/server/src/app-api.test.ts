@@ -1,7 +1,7 @@
 import { unusedCodeEvaluator } from "@harness/testkit";
 import { MemorySecretStore } from "@harness/secrets";
 import * as credentials from "./credential-store.ts";
-import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
@@ -23,6 +23,53 @@ it("normalizes legacy application tool mode while rejecting unsupported values",
     toolMode: "hybrid",
   });
   expect(() => appSettingsUpdateRequest.params.parse({ toolMode: "invalid" })).toThrow();
+});
+
+it("uses the server's supported sandbox default and preserves explicit legacy choices", async () => {
+  const { nativeSandboxAvailable } = await import("@harness/sandbox");
+  const home = await mkdtemp(join(tmpdir(), "harness-sandbox-default-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
+    vi.stubEnv(key, "");
+  const expected = nativeSandboxAvailable() ? "native" : "none";
+  const pair = createInProcessMessageConnectionPair();
+  const harness = await buildServerHarness(pair.right);
+  const client = new HarnessClient({
+    connection: pair.left,
+    client: { name: "sandbox-default-test", version: "1" },
+  });
+  try {
+    await client.start();
+    expect((await client.peer.request(appSettingsRequest, {})).settings.sandbox).toBe(expected);
+    expect((await client.create({})).config.plugins?.["sandbox"]).toMatchObject({
+      backend: expected,
+    });
+    for (const backend of ["none", "native", "docker"]) {
+      expect(
+        (await client.create({ overrides: { plugins: { sandbox: { backend } } } })).config
+          .plugins?.["sandbox"],
+      ).toMatchObject({ backend });
+    }
+    await updateGlobalSettings(home, (doc) => ({
+      ...doc,
+      plugins: { ...doc.plugins, sandbox: { backend: "local" } },
+    }));
+    const before = await readFile(join(home, "settings.json"), "utf8");
+    expect((await client.peer.request(appSettingsRequest, {})).settings.sandbox).toBe("none");
+    expect((await client.create({})).config.plugins?.["sandbox"]).toMatchObject({
+      backend: "none",
+    });
+    expect(await readFile(join(home, "settings.json"), "utf8")).toBe(before);
+    await client.peer.request(appSettingsUpdateRequest, { sandbox: "none" });
+    expect((await readGlobalSettings(home)).plugins?.["sandbox"]).toMatchObject({
+      backend: "none",
+    });
+  } finally {
+    client.closeConnection();
+    await harness.close();
+    vi.unstubAllEnvs();
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 it("offers all Harness capability tools upfront in both modes", async () => {
@@ -402,7 +449,7 @@ it("drains an admitted settings refresh before closing the database", async () =
       approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
       autoApproval: { enabled: false, model: null, timeoutSeconds: 30 },
       conversationTitleModel: null,
-      sandbox: "local",
+      sandbox: "none",
     });
     const outcome = updating.then(
       () => null,
@@ -487,6 +534,7 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
   const api = registerAppApi(server, service, {
     signingIn: false,
     settingsTail: Promise.resolve(),
+    defaultSandboxBackend: "none",
     active: { kind: null, entries: new Map(), statuses: new Map() },
   });
   const desktop = new DesktopSession(pair.left);
@@ -581,7 +629,7 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
       cursor: page.nextCursor,
     });
     expect(next.projects).toHaveLength(65);
-    const id = await desktop.create(folders[1]!, "fake\u0000fake-1", "local", "hybrid", "");
+    const id = await desktop.create(folders[1]!, "fake\u0000fake-1", "none", "hybrid", "");
     expect(desktop.recents.rows[0]?.id).toBe(id);
     expect(desktop.projects.rows[0]?.workspaceRoot).toBe(folders[1]);
   } finally {

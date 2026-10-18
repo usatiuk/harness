@@ -387,7 +387,7 @@ export function createDesktopRouter(
             )
           )
             throw new Error("Invalid approval policy");
-          if (sandbox !== "local" && sandbox !== "native" && sandbox !== "docker")
+          if (sandbox !== "none" && sandbox !== "native" && sandbox !== "docker")
             throw new Error("Invalid sandbox");
           if (autoApproval !== "true" && autoApproval !== "false")
             throw new Error("Invalid auto approver setting");
@@ -633,7 +633,7 @@ export function createDesktopRouter(
   function SandboxOptions({ selected }: { selected?: string }) {
     return (
       <>
-        <SelectItem value="local">Local</SelectItem>
+        <SelectItem value="none">None</SelectItem>
         {session.settings?.platform === "linux" && <SelectItem value="native">Native</SelectItem>}
         {session.settings?.platform !== "linux" && selected === "native" && (
           <SelectItem value="native">Native (Linux only)</SelectItem>
@@ -763,7 +763,7 @@ export function createDesktopRouter(
                 align="start"
                 trigger={
                   <Button variant="ghost" size="sm" aria-label="Choose execution options">
-                    {backend === "docker" ? "Docker" : backend === "native" ? "Native" : "Local"}
+                    {backend === "docker" ? "Docker" : backend === "native" ? "Native" : "None"}
                     <ChevronDown size={12} aria-hidden="true" />
                   </Button>
                 }
@@ -807,7 +807,7 @@ export function createDesktopRouter(
         )}
         {!backendAvailable && (
           <p role="status" className="muted">
-            Native sandbox requires Linux. Select Local or Docker to continue.
+            Native sandbox requires Linux. Select None or Docker to continue.
           </p>
         )}
         {error && (
@@ -837,7 +837,7 @@ export function createDesktopRouter(
     const presets = catalog?.presets ?? [];
     const backend =
       (view.conversation.config.plugins?.["sandbox"] as { backend?: string } | undefined)
-        ?.backend ?? "local";
+        ?.backend ?? "none";
     const running = view.state.turn.status === "running";
     const disabled = Boolean(session.disconnected);
     return (
@@ -936,7 +936,7 @@ export function createDesktopRouter(
                 className="composer-chip"
                 aria-label={`Sandbox: ${backend}`}
               >
-                {backend === "docker" ? "Docker" : backend === "native" ? "Native" : "Local"}
+                {backend === "docker" ? "Docker" : backend === "native" ? "Native" : "None"}
                 <ChevronDown size={12} aria-hidden="true" />
               </Button>
             }

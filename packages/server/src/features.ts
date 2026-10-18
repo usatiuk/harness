@@ -124,7 +124,7 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
         const execution = service.existingService(conversation.id, "execution");
         return {
           conversationId: conversation.id,
-          backend: backend?.backend ?? "local",
+          backend: backend?.backend ?? "none",
           containerActive: execution instanceof DockerExecutionContext && execution.isProvisioned(),
         };
       }),

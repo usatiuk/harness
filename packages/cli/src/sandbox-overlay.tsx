@@ -33,7 +33,7 @@ export function SandboxOverlay({
   useInput((input, key) => {
     if (key.escape || input === "q") return onClose();
     if (input === "b") {
-      const backends: SandboxBackend[] = ["local", "native", "docker"];
+      const backends: SandboxBackend[] = ["none", "native", "docker"];
       const current = backends.indexOf(view.backend);
       view.setBackend(backends[(current + 1) % backends.length]!);
     } else if (input === "w") view.setWorkspaceWrite(!view.workspaceWrite);

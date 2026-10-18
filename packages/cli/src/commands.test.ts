@@ -26,7 +26,7 @@ const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
   showQuestions: vi.fn(),
   showSandbox: vi.fn(),
   sandbox: {
-    backend: "local",
+    backend: "none",
     workspaceWrite: true,
     network: true,
     containerActive: false,
@@ -104,6 +104,8 @@ describe("runCommand", () => {
 
   it("/sandbox backend, policy, and lifecycle actions dispatch to the view", () => {
     const ctx = makeCtx();
+    runCommand("/sandbox none", ctx);
+    expect(ctx.sandbox.setBackend).toHaveBeenCalledWith("none");
     runCommand("/sandbox native", ctx);
     expect(ctx.sandbox.setBackend).toHaveBeenCalledWith("native");
     runCommand("/sandbox write off", ctx);
@@ -120,7 +122,7 @@ describe("runCommand", () => {
     const ctx = makeCtx();
     runCommand("/sandbox bogus", ctx);
     expect(ctx.note).toHaveBeenCalledWith(
-      "unknown sandbox action: bogus (local|native|docker|write|network|rebuild|stop)",
+      "unknown sandbox action: bogus (none|native|docker|write|network|rebuild|stop)",
     );
   });
 

@@ -182,6 +182,7 @@ export async function buildServerComposition(
         tools: { mode: "hybrid" },
         plugins: {
           approval: { tools: BUILTIN_APPROVAL_DEFAULTS },
+          sandbox: { backend: sandbox.defaultBackend },
         },
       },
     });
@@ -198,6 +199,7 @@ export async function buildServerComposition(
     const appState = {
       signingIn: false,
       settingsTail: Promise.resolve(),
+      defaultSandboxBackend: sandbox.defaultBackend,
       active: { kind, entries: registry, statuses: built.statuses },
     };
     const connect = (connection: RpcConnection): HarnessRpcSession => {

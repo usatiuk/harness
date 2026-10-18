@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sandboxBackendSchema } from "@harness/sandbox/client";
 import { subagentLimitsSchema } from "@harness/subagents/client";
 import {
   defineNotification,
@@ -30,7 +31,7 @@ const settings = z.strictObject({
     model: model.nullable(),
     timeoutSeconds: z.number().positive().max(2147483).default(30),
   }),
-  sandbox: z.enum(["local", "native", "docker"]),
+  sandbox: sandboxBackendSchema,
   toolMode: z.preprocess(
     (val) => (val === "direct" ? "hybrid" : val),
     z.enum(["hybrid", "code-only"]),

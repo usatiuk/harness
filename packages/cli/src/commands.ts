@@ -275,12 +275,12 @@ export const commands: Command[] = [
   {
     name: "sandbox",
     summary:
-      "manage execution sandbox (/sandbox [local|native|docker|write on|off|network on|off|rebuild|stop])",
+      "manage execution sandbox (/sandbox [none|native|docker|write on|off|network on|off|rebuild|stop])",
     run: (ctx, args) => {
       switch (args[0]) {
         case undefined:
           return ctx.showSandbox();
-        case "local":
+        case "none":
         case "native":
         case "docker":
           return ctx.sandbox.setBackend(args[0]);
@@ -298,7 +298,7 @@ export const commands: Command[] = [
           return ctx.sandbox.stop();
         default:
           return ctx.note(
-            `unknown sandbox action: ${args[0]} (local|native|docker|write|network|rebuild|stop)`,
+            `unknown sandbox action: ${args[0]} (none|native|docker|write|network|rebuild|stop)`,
           );
       }
     },

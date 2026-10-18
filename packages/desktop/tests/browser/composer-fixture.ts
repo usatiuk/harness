@@ -91,7 +91,7 @@ const settings: AppSettings = {
   platform: "win32",
   settings: {
     model: { provider: "fixture", model: "test", preset: null },
-    sandbox: "local",
+    sandbox: "none",
     toolMode: "hybrid",
     showToolNames: true,
     subagents: { maxDepth: 2, maxChildren: 3 },

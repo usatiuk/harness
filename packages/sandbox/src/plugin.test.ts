@@ -33,8 +33,8 @@ describe("sandboxPlugin execution provider", () => {
     expect((execution as DockerExecutionContext).shellKind).toBe("bash");
   });
 
-  it("returns a Local substrate when local is selected or config is unset", () => {
-    const local = executionFor(conv({ backend: "local" }));
+  it("returns an unconfined substrate when none is selected or config is unset", () => {
+    const local = executionFor(conv({ backend: "none" }));
     expect(local).toBeInstanceOf(LocalExecutionContext);
     expect((local as LocalExecutionContext).shellKind).toBe(
       process.platform === "win32" ? "powershell" : "bash",
@@ -42,9 +42,14 @@ describe("sandboxPlugin execution provider", () => {
     expect(executionFor(conv())).toBeInstanceOf(LocalExecutionContext);
   });
 
+  it("accepts the saved local name and resolves only the canonical none value", () => {
+    expect(sandboxConfigSchema.parse({ backend: "local" }).backend).toBe("none");
+    expect(executionFor(conv({ backend: "local" }))).toBeInstanceOf(LocalExecutionContext);
+  });
+
   it("fills stable defaults for all backends", () => {
     expect(sandboxConfigSchema.parse({})).toEqual({
-      backend: "local",
+      backend: "none",
       native: { workspaceWrite: true, network: true },
       docker: {
         configPath: ".devcontainer/devcontainer.json",

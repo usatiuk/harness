@@ -5,7 +5,7 @@
 Harness owns every shipped file and command tool. Model providers declare the
 file-tool dialect a model expects; `@harness/workspace` supplies the corresponding
 Harness-executed tools over one `ExecutionContext`. The configured sandbox plugin
-selects local host, Linux Bubblewrap, or dev-container execution for each loaded
+selects unconfined host, Linux Bubblewrap, or dev-container execution for each loaded
 conversation.
 
 Human approval, optional model-backed auto-approval, output preservation, and
@@ -54,10 +54,19 @@ middleware.
 
 ## Backends
 
-### Local
+### None (unconfined host)
 
 Runs directly against the host workspace. It is already unconfined and therefore
 does not expose a separate host-escape context.
+
+Configuration and RPC use `none`, `native` or `docker`. Saved configuration accepts
+the former `local` spelling as an input alias for `none`, without rewriting files.
+Server composition probes usable Linux Bubblewrap once to choose an unspecified
+backend's default; unsupported hosts use `none`. The same server-owned value
+feeds settings RPC and conversation defaults. Explicit choices remain authoritative,
+and explicit native activation still validates availability and fails normally.
+Clients do not probe their own host. Sandbox plugin contract 2 and Harness protocol
+18 reflect the renamed public backend value.
 
 ### Native
 

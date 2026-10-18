@@ -23,6 +23,29 @@ let temporaryDirectory: string | undefined;
 const commandTemporaryDirectory = (): string =>
   (temporaryDirectory ??= mkdtempSync(join(tmpdir(), "harness-native-tmp-")));
 
+function bubblewrapProbe(network: boolean) {
+  return spawnSync(
+    "bwrap",
+    [
+      "--die-with-parent",
+      "--unshare-all",
+      ...(network ? ["--share-net"] : []),
+      "--ro-bind",
+      "/",
+      "/",
+      "true",
+    ],
+    { encoding: "utf8" },
+  );
+}
+
+/** Server-side default selection; explicit native activation still validates and fails. */
+export function nativeSandboxAvailable(): boolean {
+  if (process.platform !== "linux") return false;
+  const probe = bubblewrapProbe(true);
+  return !probe.error && probe.status === 0;
+}
+
 function denied(operation: string, path: string): Error {
   return Object.assign(new Error(`${operation} denied by native sandbox: ${path}`), {
     code: "EACCES",
@@ -80,19 +103,7 @@ export class NativeExecutionContext implements ExecutionContext {
         `native sandbox workspace cannot contain its private /tmp or /run mount: ${this.workspaceRoot}`,
       );
     }
-    const probe = spawnSync(
-      "bwrap",
-      [
-        "--die-with-parent",
-        "--unshare-all",
-        ...(config.network ? ["--share-net"] : []),
-        "--ro-bind",
-        "/",
-        "/",
-        "true",
-      ],
-      { encoding: "utf8" },
-    );
+    const probe = bubblewrapProbe(config.network);
     if (probe.error || probe.status !== 0) {
       throw new Error(
         `native sandbox requires usable bubblewrap (bwrap): ${

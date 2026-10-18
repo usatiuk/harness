@@ -2,12 +2,12 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Conversation, PluginDefinition, ServiceProvider } from "@harness/protocol";
 import { executionServiceOf, LocalExecutionContext } from "@harness/execution";
-import { sandboxConfigSchema } from "./config.ts";
+import { sandboxConfigSchema, type SandboxBackend } from "./config.ts";
 import { DockerExecutionContext } from "./docker.ts";
 import { dockerInventory, controlDockerWorkspace } from "./docker-inventory.ts";
 import { DockerGuardian } from "./docker-guardian.ts";
 import { DockerEnvironmentPool } from "./docker-environment.ts";
-import { NativeExecutionContext } from "./native.ts";
+import { NativeExecutionContext, nativeSandboxAvailable } from "./native.ts";
 
 /**
  * Owns the host-wide `"execution"` service key and chooses Local, native Bubblewrap, or Docker from
@@ -42,7 +42,7 @@ function definition(environments: DockerEnvironmentPool): PluginDefinition {
                 conversation.config.plugins?.["sandbox"] ?? {},
               );
               switch (config.backend) {
-                case "local":
+                case "none":
                   return new LocalExecutionContext(conversation.workspaceRoot);
                 case "native":
                   return new NativeExecutionContext(conversation.workspaceRoot, config.native);
@@ -65,6 +65,7 @@ function definition(environments: DockerEnvironmentPool): PluginDefinition {
 
 /** Server-owned physical environments; conversation services own only execution views. */
 export function createSandboxRuntime(home: string, onFailure?: (error: Error) => void) {
+  const defaultBackend: SandboxBackend = nativeSandboxAvailable() ? "native" : "none";
   const guardian = new DockerGuardian(home, onFailure);
   const metadataRoot = join(home, "docker");
   const environments = new DockerEnvironmentPool(
@@ -77,6 +78,7 @@ export function createSandboxRuntime(home: string, onFailure?: (error: Error) =>
   );
   return {
     plugin: definition(environments),
+    defaultBackend,
     environments,
     async close() {
       const errors: unknown[] = [];
