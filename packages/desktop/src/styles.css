@@ -28,7 +28,6 @@ textarea,
 }
 button,
 select,
-.message-phase,
 .message-actions {
   -webkit-user-select: none;
   user-select: none;

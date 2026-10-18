@@ -962,6 +962,7 @@ window.composerFixture = {
     const startedAt = Date.now() + serverSkew;
     view.state = {
       ...view.state,
+      turn: { id: "turn", status: "running", startedAt },
       activities: [
         { conversationId: id, id: "live", kind: "subagent", title: "explore" },
         {

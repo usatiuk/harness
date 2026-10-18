@@ -1468,12 +1468,8 @@ export function createDesktopRouter(
         <article
           className={`cell assistant ${intermediate ? "assistant-intermediate" : ""}`}
           data-testid="assistant-message"
-          data-phase={cell.phase ?? undefined}
         >
           <div className="message-content">
-            {cell.phase && cell.phase !== "final_answer" && (
-              <div className="message-phase muted">{cell.phase}</div>
-            )}
             <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
               {cell.text}
             </Markdown>
@@ -2150,10 +2146,8 @@ export function createDesktopRouter(
             cell={row.cell}
             intermediate={
               row.cell.kind === "assistant" &&
-              (row.cell.phase
-                ? row.cell.phase !== "final_answer"
-                : lastByTurn.get(row.cell.turnId) !== row.cell ||
-                  (view.state.turn.status === "running" && view.state.turn.id === row.cell.turnId))
+              (lastByTurn.get(row.cell.turnId) !== row.cell ||
+                (view.state.turn.status === "running" && view.state.turn.id === row.cell.turnId))
             }
           />
         ),

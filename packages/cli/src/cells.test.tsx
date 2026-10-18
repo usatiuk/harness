@@ -24,6 +24,21 @@ const frame = async (cell: Cell, verbose = false): Promise<string | undefined> =
   return lastFrame();
 };
 
+it.each(["commentary", "final_answer", "future_provider_phase", null])(
+  "renders assistant phase %s as ordinary text without changing its data",
+  async (phase) => {
+    const cell: Cell = {
+      kind: "assistant",
+      turnId: "turn",
+      text: "Checking the stores",
+      streaming: false,
+    };
+    const phased = { ...cell, phase };
+    expect(await frame(phased)).toBe(await frame(cell));
+    expect(phased.phase).toBe(phase);
+  },
+);
+
 describe("toolSummary", () => {
   it("prefers the command/path/pattern field", () => {
     expect(toolSummary({ command: "npm test" })).toBe("npm test");

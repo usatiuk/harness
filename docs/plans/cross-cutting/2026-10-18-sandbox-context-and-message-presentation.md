@@ -38,7 +38,7 @@ the backend rename must be reflected in contract versions.
       boundaries; focused tests pass and commit separately.
 - [x] Active sandbox prompt: tests cover actual selected service, native settings,
       mapped Docker paths/write access and absent local context; commit separately.
-- [ ] Phase-free presentation: headless browser and CLI checks cover unknown and
+- [x] Phase-free presentation: headless browser and CLI checks cover unknown and
       known phases, interim/final actions, copy text and phase-preserving data;
       commit separately.
 - [ ] Backend rename/default: saved alias, canonical API values, host support
@@ -77,3 +77,18 @@ test captures an actual model request containing native permissions; Docker
 path/user/access tests use controlled provisioning/exec edges, not a real daemon.
 Three read-only reviews report no remaining blockers after permission wording
 was corrected.
+
+### Presentation evidence
+
+Production edits are limited to desktop rendering/styles and CLI rendering;
+stored/API `phase`, reducers and OpenAI request/replay implementations are
+untouched. Known and future phases render ordinary assistant text. Desktop
+reuses position/running status for action placement. Parent-side peeks already
+omit phases; their regression now covers all phase strings.
+
+CLI/reducer/subagent/OpenAI request+stream tests pass 129/129, protocol item
+boundary tests pass 13/13, and desktop/CLI typechecks pass. Headless Chromium
+and headless WebKit each pass 2/2 placement/copy/selection cases. The browser
+fixture now explicitly starts its tool scenario as running; previously a prior
+completion leaked a settled turn into the next scenario. No assertion was
+weakened. Three independent reviews found no remaining scoped blocker.

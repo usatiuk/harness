@@ -96,8 +96,7 @@ export function CellView({ cell }: { cell: Cell }): ReactElement {
     case "assistant":
       return (
         <Box paddingLeft={GUTTER} flexDirection="column">
-          {cell.phase && cell.phase !== "final_answer" ? <Text dimColor>{cell.phase}</Text> : null}
-          <Markdown text={cell.text} streaming={cell.streaming} dim={cell.phase === "commentary"} />
+          <Markdown text={cell.text} streaming={cell.streaming} />
         </Box>
       );
     case "reasoning":

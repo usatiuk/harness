@@ -466,8 +466,10 @@ history is loaded in byte-bounded pages and large items use range requests.
 
 Both clients replace ephemeral message/reasoning previews with finalized items
 and preserve canonical append order even when a search hint arrived during a
-preview. Assistant phases remain distinct from reasoning; reported phase labels
-and simple provider activity text render without native payload inspection.
+preview. Assistant phases remain preserved in stored/API data and provider
+replay, but never affect presentation or appear as labels. Assistant text uses
+normal styling regardless of phase. Simple provider activity text renders
+without native payload inspection.
 Cost displays indicate incomplete totals when rows are unpriced or native search
 fees are unavailable. Models author Markdown links; no citation transformation
 or provider-specific search-result UI runs in clients.
@@ -845,9 +847,9 @@ non-text drafts rather than silently dropping content.
 
 Desktop user-message actions (Fork) and final assistant actions (Copy/feedback)
 reserve a small row below content. Intermediate assistant actions sit to the right
-of the text without a separate row. Explicit provider phases determine final vs
-intermediate placement; for unphased messages, only the last content in a settled
-turn gets final placement. Icons appear on hover or keyboard focus (always on
+of the text without a separate row. Only the last content in a settled turn gets
+final placement; running turns and messages followed by more content stay compact
+regardless of provider phase. Icons appear on hover or keyboard focus (always on
 touch), without shifting message text. Copy uses the message
 Markdown text through the browser clipboard API, shows success for 750ms and
 reports failures inline.

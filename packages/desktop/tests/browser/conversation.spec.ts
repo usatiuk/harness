@@ -585,15 +585,22 @@ test("intermediate assistant actions sit beside text; final and user actions sta
   const finalActions = await assistant.locator(".message-actions").boundingBox();
   expect(finalActions!.y).toBeGreaterThanOrEqual(finalText!.y + finalText!.height);
   await page.screenshot({ path: test.info().outputPath("message-actions.png") });
-  await page.evaluate(() => {
-    window.composerFixture.showToolsAndActivities(0, "commentary");
-    window.composerFixture.completeSteps();
-  });
-  await expect(assistant).toHaveClass(/assistant-intermediate/u);
-  await assistant.locator(".message-phase").dblclick();
-  expect(await page.evaluate(() => window.getSelection()!.toString())).toBe("");
-  await page.evaluate(() => window.composerFixture.showToolsAndActivities(0, "final_answer"));
-  await expect(assistant).not.toHaveClass(/assistant-intermediate/u);
+  for (const phase of ["commentary", "final_answer", "future_provider_phase"]) {
+    await page.evaluate((phase) => window.composerFixture.showToolsAndActivities(0, phase), phase);
+    await expect(assistant).toHaveClass(/assistant-intermediate/u);
+    await expect(assistant.locator(".message-phase")).toHaveCount(0);
+    await expect(assistant).not.toHaveAttribute("data-phase");
+    await expect(assistant.locator(".message-content")).toHaveText("Checking the stores");
+    await page.evaluate(() => window.composerFixture.completeSteps());
+    await expect(assistant).not.toHaveClass(/assistant-intermediate/u);
+    const content = await assistant.locator(".message-content").boundingBox();
+    const actions = await assistant.locator(".message-actions").boundingBox();
+    expect(actions!.y).toBeGreaterThanOrEqual(content!.y + content!.height);
+    await page.evaluate(() =>
+      window.composerFixture.appendPreviewReasoning("More work in the same turn."),
+    );
+    await expect(assistant).toHaveClass(/assistant-intermediate/u);
+  }
 });
 
 test("message selection excludes UI labels and blank action rows", async ({ page }) => {
