@@ -42,7 +42,12 @@ export class DemoProvider implements ModelProvider {
   #calls = 0;
 
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" as const };
+    return {
+      contentTypes: ["text"],
+      toolCalling: true,
+      customToolInput: { supported: false, grammars: [] },
+      preferredEditTool: "replace" as const,
+    };
   }
 
   validateConfig(): void {}

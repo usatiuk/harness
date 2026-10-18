@@ -13,7 +13,8 @@ const contributedCompaction = fakeCompaction({ over: 0 });
 const caps: ModelCapabilities = {
   contentTypes: ["text"],
   toolCalling: true,
-  fileTools: "string_replace",
+  customToolInput: { supported: false, grammars: [] },
+  preferredEditTool: "replace",
 };
 const toolCtx: ToolContributionContext = {
   service: () => undefined,

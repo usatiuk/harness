@@ -181,7 +181,7 @@ export function buildResponseParams(
   );
   const freeformCallIds = new Set<string>();
   for (const { item } of request.items) {
-    if (item.type === "tool_call" && freeformNames.has(item.name))
+    if (item.type === "tool_call" && typeof item.args === "string" && freeformNames.has(item.name))
       freeformCallIds.add(toolCallKey(item));
   }
   const rawCallIds = new Set(

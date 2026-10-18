@@ -4,6 +4,8 @@ export { buildResponseParams, buildChatParams } from "./request.ts";
 export { toModelEvents, toChatEvents } from "./stream.ts";
 export {
   OPENAI_MODELS,
+  openAIModelConfigSchema,
+  type OpenAIModelConfig,
   OpenAIResponsesProvider,
   OpenAIResponsesTransport,
   type OpenAIResponsesTransportOptions,

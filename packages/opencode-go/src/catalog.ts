@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { ModelDiscoveryError, type ModelReasoningInfo } from "@harness/protocol";
+import {
+  ModelDiscoveryError,
+  type ModelReasoningInfo,
+  type CustomToolInput,
+} from "@harness/protocol";
 import { PRODUCT_USER_AGENT } from "@harness/release";
 
 export const MODELS_DEV_URL = "https://models.dev/api.json";
@@ -18,10 +22,12 @@ export interface GoPresetSpec {
 }
 export interface GoModelSpec {
   model: string;
+  customToolInput?: CustomToolInput;
+  preferredEditTool?: "patch" | "replace";
   label?: string;
   family: GoFamily;
-  contextWindow: number;
-  maxOutputTokens: number;
+  contextWindow?: number;
+  maxOutputTokens?: number;
   maxInputTokens?: number;
   reasoning?: ModelReasoningInfo;
   supportsImages?: boolean;

@@ -17,7 +17,8 @@ function entry(id: string, provider: Partial<ModelProvider>): ProviderEntry {
         capabilities: () => ({
           contentTypes: ["text"],
           toolCalling: true,
-          fileTools: "string_replace",
+          customToolInput: { supported: false, grammars: [] },
+          preferredEditTool: "replace",
         }),
         validateConfig() {},
         async *stream() {},

@@ -1,4 +1,4 @@
-import { toolCallKey } from "@harness/protocol";
+import { toolCallKey, mergeModelMetadata, type ModelMetadata } from "@harness/protocol";
 import { GoogleGenAI, ApiError, type Interactions } from "@google/genai";
 import {
   ModelDiscoveryError,
@@ -306,26 +306,37 @@ export class GeminiProvider implements ModelProvider {
   readonly providerOptions: { readonly webSearch: boolean };
   readonly #client: GoogleGenAI;
   #models: ModelInfo[] = [];
-  constructor(options: { provider: string; apiKey: string; webSearch?: boolean }) {
+  readonly #configured: Record<string, ModelMetadata>;
+  constructor(options: {
+    provider: string;
+    apiKey: string;
+    webSearch?: boolean;
+    models?: Record<string, ModelMetadata>;
+  }) {
     this.provider = options.provider;
+    this.#configured = options.models ?? {};
     this.providerOptions = Object.freeze({ webSearch: options.webSearch ?? false });
     this.#client = new GoogleGenAI({
       apiKey: options.apiKey,
       httpOptions: { retryOptions: { attempts: 1 } },
     });
   }
-  capabilities() {
+  capabilities(model: string) {
     return {
       contentTypes: ["text", "image"],
       toolCalling: true,
-      fileTools: "string_replace" as const,
+      customToolInput: this.#configured[model]?.customToolInput ?? {
+        supported: false,
+        grammars: [],
+      },
+      preferredEditTool: this.#configured[model]?.preferredEditTool ?? "replace",
     };
   }
   validateConfig(config: ModelConfig): void {
     if (config.preset) throw new Error("Gemini presets are not configured");
   }
   listModels(): ModelInfo[] {
-    return this.#models;
+    return mergeModelMetadata(this.provider, this.#models, this.#configured);
   }
   async refreshModels(signal: AbortSignal) {
     const models: ModelInfo[] = [];
@@ -371,7 +382,7 @@ export class GeminiProvider implements ModelProvider {
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
     const params = buildInteraction(
       request,
-      this.#models.find((model) => model.model === request.modelConfig.model)?.reasoning
+      this.listModels().find((model) => model.model === request.modelConfig.model)?.reasoning
         ?.supported === true,
     );
     const result = await this.#client.interactions.create(params, { signal, maxRetries: 0 });

@@ -18,6 +18,8 @@ import {
   type Plugin,
   type CompactionStrategy,
   type ToolContract,
+  type CustomToolInput,
+  type ModelCapabilities,
 } from "@harness/protocol";
 import { HarnessClient, createInProcessMessageConnectionPair, decodeItem } from "@harness/client";
 import { SqliteStore } from "@harness/store-sqlite";
@@ -75,7 +77,12 @@ async function setup(
     execution?: Plugin | null;
     compaction?: CompactionStrategy;
     allow?: string[];
-    fileTools?: "string_replace" | "apply_patch" | "text_editor";
+    preferredEditTool?: "patch" | "replace";
+    customToolInput?: CustomToolInput;
+    modelCapabilities?: Record<
+      string,
+      Pick<ModelCapabilities, "customToolInput" | "preferredEditTool">
+    >;
     showNames?: boolean;
   } = {},
 ) {
@@ -93,9 +100,11 @@ async function setup(
   const requests: ModelRequest[] = [];
   const recorded: ModelProvider = {
     provider: provider.provider,
-    capabilities: () => ({
+    capabilities: (model) => ({
       ...provider.capabilities(),
-      ...(options.fileTools ? { fileTools: options.fileTools } : {}),
+      ...(options.customToolInput ? { customToolInput: options.customToolInput } : {}),
+      ...options.modelCapabilities?.[model],
+      ...(options.preferredEditTool ? { preferredEditTool: options.preferredEditTool } : {}),
     }),
     validateConfig: () => {},
     listModels: () => [],
@@ -545,16 +554,16 @@ describe("ordinary tool discovery", () => {
     }
   });
 
-  it.each(["apply_patch", "text_editor"] as const)(
+  it.each(["patch", "replace"] as const)(
     "uses the model's %s workspace roster upfront",
-    async (fileTools) => {
-      const fixture = await setup([textStep("done")], [], "code-only", {}, { fileTools });
+    async (preferredEditTool) => {
+      const fixture = await setup([textStep("done")], [], "code-only", {}, { preferredEditTool });
       await fixture.run();
       const description = fixture.requests[0]!.tools!.find(
         (tool) => tool.name === "eval",
       )!.description;
       expect(description).toContain(
-        `"name":"${fileTools === "text_editor" ? "str_replace_based_edit_tool" : "apply_patch"}"`,
+        `"name":"${preferredEditTool === "replace" ? "edit" : "apply_patch"}"`,
       );
     },
   );
@@ -702,6 +711,7 @@ describe("recorded code-mode execution", () => {
       description: "raw patch",
       input: {
         kind: "custom",
+        jsonField: "patch",
         parse: (raw) => {
           if (!raw.startsWith("PATCH:")) throw new Error("bad patch");
           return raw.slice(6);
@@ -1641,4 +1651,187 @@ describe("recorded code-mode execution", () => {
       store.close();
     }
   });
+});
+
+describe("portable eval and patch input", () => {
+  it.each([false, true])("executes eval with custom support=%s", async (supported) => {
+    const code = 'return { value: "quoted\\ntext" };';
+    const options = { customToolInput: { supported, grammars: [] } };
+    const fixture = await setup(
+      [toolStep("eval-first", "eval", supported ? code : { code }), textStep("done")],
+      [],
+      "hybrid",
+      {},
+      options,
+    );
+    const items = await fixture.run();
+    expect(results(items).find((item) => item.callId === "eval-first")?.status).toBe("ok");
+    expect(fixture.requests[0]!.tools!.find((tool) => tool.name === "eval")!.kind).toBe(
+      supported ? "custom" : "function",
+    );
+    expect(calls(items).find((item) => item.callId === "eval-first")?.args).toEqual(
+      supported ? code : { code },
+    );
+  });
+  it("keeps JSON patch execution and middleware text identical", async () => {
+    const patch = "*** Begin Patch\n*** Add File: portable.txt\n+hello\n*** End Patch";
+    const fixture = await setup(
+      [toolStep("patch-json", "apply_patch", { patch }), textStep("done")],
+      [],
+      "hybrid",
+      {},
+      { preferredEditTool: "patch" },
+    );
+    const items = await fixture.run();
+    expect(results(items).find((item) => item.callId === "patch-json")?.status).toBe("ok");
+    expect(await readFile(join(fixture.root, "portable.txt"), "utf8")).toBe("hello");
+    expect(calls(items).find((item) => item.callId === "patch-json")?.args).toEqual({ patch });
+    expect(fixture.requests[0]!.tools!.find((tool) => tool.name === "apply_patch")!.kind).toBe(
+      "function",
+    );
+  });
+});
+
+describe("model switches and JSON patch approvals", () => {
+  it("switches raw to JSON to raw without rewriting calls or confusing history encoding", async () => {
+    const raw = "return 'first';";
+    const json = "return 'second';";
+    const fixture = await setup(
+      [
+        toolStep("eval-a", "eval", raw),
+        textStep("a done"),
+        toolStep("eval-b", "eval", { code: json }),
+        textStep("b done"),
+        toolStep("eval-c", "eval", "return 'third';"),
+        textStep("c done"),
+      ],
+      [],
+      "hybrid",
+      {},
+      {
+        modelCapabilities: {
+          "fake-1": {
+            customToolInput: { supported: true, grammars: ["lark"] },
+            preferredEditTool: "patch",
+          },
+          "fake-json": {
+            customToolInput: { supported: false, grammars: [] },
+            preferredEditTool: "replace",
+          },
+        },
+      },
+    );
+    await fixture.run();
+    await fixture.svc.setModel(fixture.conversation.id, { provider: "fake", model: "fake-json" });
+    await fixture.run();
+    await fixture.svc.setModel(fixture.conversation.id, { provider: "fake", model: "fake-1" });
+    const items = await fixture.run();
+    for (const request of fixture.requests) {
+      const plaintext = request.modelConfig.model === "fake-1";
+      expect(request.tools!.find((tool) => tool.name === "eval")!.kind).toBe(
+        plaintext ? "custom" : "function",
+      );
+      expect(request.tools!.some((tool) => tool.name === "apply_patch")).toBe(plaintext);
+      expect(request.tools!.some((tool) => tool.name === "edit")).toBe(!plaintext);
+      const native = buildResponseParams(request, undefined, "fake", false);
+      const input = native.input;
+      if (!Array.isArray(input)) throw new Error("Expected native item history");
+      if (plaintext) {
+        const structured = input.find(
+          (entry) =>
+            typeof entry === "object" &&
+            "type" in entry &&
+            entry.type === "function_call" &&
+            entry.call_id === "eval-b",
+        );
+        if (
+          request.items.some(({ item }) => item.type === "tool_call" && item.callId === "eval-b")
+        ) {
+          expect(structured).toMatchObject({ arguments: JSON.stringify({ code: json }) });
+        }
+      } else {
+        expect(
+          input.some(
+            (entry) =>
+              typeof entry === "object" && "type" in entry && entry.type === "custom_tool_call",
+          ),
+        ).toBe(false);
+      }
+    }
+    expect(calls(items).map((item) => item.args)).toEqual([raw, { code: json }, "return 'third';"]);
+    expect(results(items).every((item) => item.status === "ok")).toBe(true);
+  });
+
+  it.each(["allow", "deny"] as const)(
+    "keeps JSON patch approval arguments and schema consistent on %s",
+    async (decision) => {
+      class ControlledSandbox extends LocalExecutionContext {
+        readonly unconfined: LocalExecutionContext;
+        constructor(root: string) {
+          super(root);
+          this.unconfined = new LocalExecutionContext(root);
+        }
+        override classify(call: import("@harness/protocol").ToolCall) {
+          return executionEscalationOf(call.args)
+            ? ("out-of-workspace" as const)
+            : ("in-workspace" as const);
+        }
+      }
+      const execution: Plugin = {
+        id: "patch-execution",
+        services: () => [
+          {
+            key: "execution",
+            for: (conversation) => new ControlledSandbox(conversation.workspaceRoot!),
+          },
+        ],
+      };
+      const body = "*** Begin Patch\n*** Add File: nested/approved.txt\n+hello\n*** End Patch";
+      const patch =
+        "sandbox_permissions=require_escalated\njustification=explicit patch\n---\n" + body;
+      const fixture = await setup(
+        [toolStep("approval-patch", "apply_patch", { patch }), textStep("done")],
+        [],
+        "hybrid",
+        { approval: { inWorkspace: "allow", outOfWorkspace: "ask" } },
+        { preferredEditTool: "patch", execution },
+      );
+      await mkdir(join(fixture.root, "nested"));
+      await writeFile(join(fixture.root, "nested/AGENTS.md"), "Nested portable patch instruction");
+      const approvals: unknown[] = [];
+      fixture.svc.subscribe((event) => {
+        if (
+          isKernelEvent(event) &&
+          event.type === "request.created" &&
+          isApprovalRequest(event.request)
+        ) {
+          approvals.push(event.request);
+          fixture.svc.respond(fixture.conversation.id, event.requestId, { decision });
+        }
+      });
+      const items = await fixture.run();
+      expect(approvals).toHaveLength(1);
+      expect(approvals[0]).toMatchObject({
+        call: { name: "apply_patch", args: patch },
+        input: { kind: "custom", name: "apply_patch" },
+        relationship: "out-of-workspace",
+      });
+      expect(calls(items)[0]!.args).toEqual({ patch });
+      expect(results(items).find((item) => item.callId === "approval-patch")!.status).toBe(
+        decision === "allow" ? "ok" : "error",
+      );
+      if (decision === "allow") {
+        expect(await readFile(join(fixture.root, "nested/approved.txt"), "utf8")).toBe("hello");
+        expect(
+          items.some(
+            (item) =>
+              item.type === "context" &&
+              textOf(item.content).includes("Nested portable patch instruction"),
+          ),
+        ).toBe(true);
+      } else {
+        await expect(readFile(join(fixture.root, "nested/approved.txt"))).rejects.toThrow();
+      }
+    },
+  );
 });

@@ -99,3 +99,12 @@ describe("editPresentation", () => {
     expect(editPresentation(tool("plugin_tool", {}))).toBeUndefined();
   });
 });
+
+it("renders JSON-wrapped and historical raw patches identically", () => {
+  const patch =
+    "sandbox_permissions=require_escalated\njustification=approved edit\n---\n*** Begin Patch\n*** Add File: new.ts\n+export const value = 1;\n*** End Patch";
+  expect(editPresentation(tool("apply_patch", { patch }))).toEqual(
+    editPresentation(tool("apply_patch", patch)),
+  );
+  expect(editPresentation(tool("apply_patch", { patch }))?.files[0]?.path).toBe("new.ts");
+});

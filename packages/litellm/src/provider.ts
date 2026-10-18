@@ -58,7 +58,8 @@ export class LiteLLMProvider implements ModelProvider {
     return {
       contentTypes: ["text", "image"],
       toolCalling: true,
-      fileTools: entry.profile.fileTools ?? "string_replace",
+      customToolInput: entry.profile.customToolInput ?? { supported: false, grammars: [] },
+      preferredEditTool: entry.profile.preferredEditTool ?? "replace",
     };
   }
   validateConfig(config: ModelConfig): void {
@@ -201,6 +202,12 @@ export class LiteLLMProvider implements ModelProvider {
         provider: this.provider,
         model: id,
         ...(supportsImages !== undefined ? { supportsImages } : {}),
+        ...(profile.customToolInput !== undefined
+          ? { customToolInput: profile.customToolInput }
+          : {}),
+        ...(profile.preferredEditTool !== undefined
+          ? { preferredEditTool: profile.preferredEditTool }
+          : {}),
         ...(profile.label ? { label: profile.label } : {}),
         ...(profile.contextWindow !== undefined ? { contextWindow: profile.contextWindow } : {}),
         ...(profile.maxInputTokens !== undefined ? { maxInputTokens: profile.maxInputTokens } : {}),

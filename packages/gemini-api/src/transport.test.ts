@@ -188,3 +188,63 @@ it("drains a received SDK response and accounting when cancellation wins after b
   ]);
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it("adds manual models before discovery and uses configured editing metadata", () => {
+  const provider = new GeminiProvider({
+    provider: "gemini",
+    apiKey: "test",
+    models: { manual: { preferredEditTool: "patch", label: "Manual" } },
+  });
+  expect(provider.listModels()).toEqual([
+    { provider: "gemini", model: "manual", label: "Manual", preferredEditTool: "patch" },
+  ]);
+  expect(provider.capabilities("manual")).toMatchObject({
+    preferredEditTool: "patch",
+    customToolInput: { supported: false, grammars: [] },
+  });
+});
+
+it("keeps configured metadata after discovery and disables discovered thinking in requests", async () => {
+  let body: unknown;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const req = new Request(input, init);
+      if (req.method === "GET")
+        return Response.json({
+          models: [
+            {
+              name: "models/gemini-test",
+              supportedGenerationMethods: ["generateContent"],
+              thinking: true,
+              inputTokenLimit: 10000,
+            },
+          ],
+        });
+      body = await req.json();
+      return Response.json({ id: "interaction", status: "completed", steps: [], usage: {} });
+    }),
+  );
+  const provider = new GeminiProvider({
+    provider: "gemini",
+    apiKey: "test",
+    models: {
+      "gemini-test": { label: "Override", reasoning: { supported: false } },
+      manual: { label: "Manual" },
+    },
+  });
+  await provider.refreshModels(new AbortController().signal);
+  expect(provider.listModels()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        model: "gemini-test",
+        label: "Override",
+        maxInputTokens: 10000,
+        reasoning: { supported: false },
+      }),
+      expect.objectContaining({ model: "manual", label: "Manual" }),
+    ]),
+  );
+  await collect(provider.stream(request(provider), new AbortController().signal));
+  expect(body).not.toHaveProperty("generation_config.thinking_summaries");
+});

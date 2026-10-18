@@ -121,3 +121,286 @@ it("sends user and tool images through authenticated Codex Responses transport",
     vi.unstubAllGlobals();
   }
 });
+
+it("adds manual models and overrides known Codex metadata independently", () => {
+  const provider = createCodexProvider({} as CodexAuth, CODEX_PROVIDER, false, {
+    "gpt-6.1-sol": {
+      preferredEditTool: "replace",
+      customToolInput: { supported: false, grammars: [] },
+      maxInputTokens: 123_000,
+    },
+    "manual-model": { label: "Manual", maxOutputTokens: 8192 },
+  });
+  expect(provider.capabilities("gpt-6.1-sol")).toMatchObject({
+    preferredEditTool: "replace",
+    customToolInput: { supported: false, grammars: [] },
+  });
+  expect(provider.listModels().find((model) => model.model === "gpt-6.1-sol")).toMatchObject({
+    maxInputTokens: 123_000,
+  });
+  expect(provider.listModels().find((model) => model.model === "manual-model")).toEqual({
+    provider: CODEX_PROVIDER,
+    model: "manual-model",
+    label: "Manual",
+    maxOutputTokens: 8192,
+  });
+  expect(provider.capabilities("manual-model")).toMatchObject({
+    preferredEditTool: "replace",
+    customToolInput: { supported: false, grammars: [] },
+  });
+});
+
+it("discovers Codex patch recommendations through authenticated catalog requests, with config last", async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+    const url = new URL(
+      typeof input === "string" ? input : input instanceof URL ? input : input.url,
+    );
+    expect(url.pathname).toBe("/backend-api/codex/models");
+    expect(url.searchParams.get("client_version")).toMatch(/^\d+\.\d+\.\d+/);
+    const headers = new Headers(init?.headers);
+    expect(headers.get("authorization")).toBe("Bearer test-token");
+    expect(headers.get("ChatGPT-Account-ID")).toBe("test-account");
+    return Response.json({
+      models: [
+        { slug: "gpt-6.1-sol", apply_patch_tool_type: "freeform", ignored: "native settings" },
+        { slug: "new-model", apply_patch_tool_type: "freeform" },
+      ],
+    });
+  });
+  vi.stubGlobal("fetch", fetch);
+  try {
+    const auth = {
+      getValidSession: async () => ({ accessToken: "test-token", accountId: "test-account" }),
+    } as unknown as CodexAuth;
+    const provider = createCodexProvider(auth, CODEX_PROVIDER, false, {
+      "gpt-6.1-sol": { preferredEditTool: "replace" },
+      "manual-model": { label: "Manual" },
+    });
+    expect(await provider.refreshModels(new AbortController().signal)).toEqual({
+      status: "ready",
+      diagnostics: [],
+    });
+    expect(provider.listModels().map((model) => model.model)).toEqual([
+      "gpt-6.1-sol",
+      "new-model",
+      "manual-model",
+    ]);
+    expect(provider.capabilities("gpt-6.1-sol")).toMatchObject({
+      preferredEditTool: "replace",
+      customToolInput: { supported: true, grammars: ["lark"] },
+    });
+    expect(provider.capabilities("new-model")).toMatchObject({
+      preferredEditTool: "patch",
+      customToolInput: { supported: false, grammars: [] },
+    });
+    expect(
+      provider.listModels().find((model) => model.model === "new-model")?.maxOutputTokens,
+    ).toBeUndefined();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it("leaves the last Codex catalog intact after invalid discovery or cancellation", async () => {
+  const abort = new AbortController();
+  const auth = {
+    getValidSession: async () => ({ accessToken: "test-token", accountId: "test-account" }),
+  } as unknown as CodexAuth;
+  const provider = createCodexProvider(auth, CODEX_PROVIDER);
+  const original = provider.listModels();
+  const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+    Response.json({ models: [{ slug: "broken", apply_patch_tool_type: 42 }] }),
+  );
+  vi.stubGlobal("fetch", fetch);
+  try {
+    await expect(provider.refreshModels(abort.signal)).rejects.toMatchObject({
+      name: "ModelDiscoveryError",
+      code: "invalid-response",
+    });
+    expect(provider.listModels()).toEqual(original);
+    const cancellation = new Error("cancelled");
+    fetch.mockImplementation(async () => {
+      abort.abort(cancellation);
+      return Response.json({ models: [] });
+    });
+    await expect(provider.refreshModels(abort.signal)).rejects.toBe(cancellation);
+    expect(provider.listModels()).toEqual(original);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it.each([
+  {
+    response: () =>
+      Response.json({
+        models: [
+          {
+            slug: "invalid-effort",
+            supported_reasoning_levels: [{ effort: "", description: "Empty" }],
+          },
+        ],
+      }),
+    code: "invalid-response",
+  },
+  {
+    response: () =>
+      Response.json({
+        models: [
+          {
+            slug: "invalid-default",
+            supported_reasoning_levels: [{ effort: "high", description: "High" }],
+            default_reasoning_level: "medium",
+          },
+        ],
+      }),
+    code: "invalid-response",
+  },
+  {
+    response: () => Response.json({ models: [{ slug: "duplicate" }, { slug: "duplicate" }] }),
+    code: "invalid-response",
+  },
+  { response: () => Response.json({ detail: "unavailable" }, { status: 503 }), code: "http" },
+  { response: () => new Response("x".repeat(2 * 1024 * 1024 + 1)), code: "limit" },
+])(
+  "preserves the previous catalog on classified $code discovery failure",
+  async ({ response, code }) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response()),
+    );
+    try {
+      const auth = {
+        getValidSession: async () => ({ accessToken: "test-token", accountId: "test-account" }),
+      } as unknown as CodexAuth;
+      const provider = createCodexProvider(auth, CODEX_PROVIDER);
+      const original = provider.listModels();
+      await expect(provider.refreshModels(new AbortController().signal)).rejects.toMatchObject({
+        name: "ModelDiscoveryError",
+        code,
+      });
+      expect(provider.listModels()).toEqual(original);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+it.each(["request", "body"])(
+  "only classifies recognized %s transport failures",
+  async (boundary) => {
+    const defect = new Error("fixture defect");
+    const transport = new TypeError("fetch failed", {
+      cause: Object.assign(new Error("connection reset"), { code: "ECONNRESET" }),
+    });
+    let failure = defect;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (boundary === "request") throw failure;
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(failure);
+            },
+          }),
+        );
+      }),
+    );
+    try {
+      const auth = {
+        getValidSession: async () => ({ accessToken: "test-token", accountId: "test-account" }),
+      } as unknown as CodexAuth;
+      const provider = createCodexProvider(auth, CODEX_PROVIDER);
+      const original = provider.listModels();
+      await expect(provider.refreshModels(new AbortController().signal)).rejects.toMatchObject(
+        boundary === "request" ? { cause: defect } : defect,
+      );
+      expect(provider.listModels()).toEqual(original);
+      failure = transport;
+      await expect(provider.refreshModels(new AbortController().signal)).rejects.toMatchObject({
+        name: "ModelDiscoveryError",
+        code: "network",
+      });
+      expect(provider.listModels()).toEqual(original);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+it("uses discovered native effort controls for a new Codex model", async () => {
+  let body: unknown;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async (_input, init) => {
+      if (!init?.body)
+        return Response.json({
+          models: [
+            {
+              slug: "new-reasoning-model",
+              supported_reasoning_levels: [
+                { effort: "high", description: "High effort" },
+                { effort: "xhigh", description: "Extra high effort" },
+              ],
+              default_reasoning_level: "high",
+            },
+            { slug: "unknown-controls" },
+            {
+              slug: "extensible-efforts",
+              supported_reasoning_levels: [
+                { effort: "persistent", description: "Provider-defined" },
+              ],
+              default_reasoning_level: "persistent",
+            },
+          ],
+        });
+      if (typeof init.body !== "string") throw new Error("Expected JSON request body");
+      body = JSON.parse(init.body) as unknown;
+      return new Response('data: {"type":"response.completed","response":{"usage":null}}\n\n', {
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }),
+  );
+  try {
+    const auth = {
+      getValidSession: async () => ({ accessToken: "test-token", accountId: "test-account" }),
+    } as unknown as CodexAuth;
+    const provider = createCodexProvider(auth, CODEX_PROVIDER);
+    await provider.refreshModels(new AbortController().signal);
+    expect(
+      provider.listModels().find(({ model }) => model === "new-reasoning-model"),
+    ).toMatchObject({
+      presets: [{ value: "high" }, { value: "xhigh" }],
+      defaultPreset: "high",
+    });
+    expect(() =>
+      provider.validateConfig({
+        provider: CODEX_PROVIDER,
+        model: "new-reasoning-model",
+        preset: "medium",
+      }),
+    ).toThrow("unknown preset");
+    for (const model of ["new-reasoning-model", "unknown-controls", "extensible-efforts"]) {
+      for await (const event of provider.stream(
+        { modelConfig: { provider: CODEX_PROVIDER, model }, instructions: [], items: [] },
+        new AbortController().signal,
+        { conversationId: "test" } as ModelCallContext,
+      ))
+        void event;
+      expect(body).toMatchObject({
+        model,
+        reasoning:
+          model === "new-reasoning-model"
+            ? { effort: "high" }
+            : model === "extensible-efforts"
+              ? { effort: "persistent" }
+              : { summary: "auto" },
+      });
+      if (model === "unknown-controls")
+        expect((body as { reasoning: { effort?: string } }).reasoning.effort).toBeUndefined();
+    }
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

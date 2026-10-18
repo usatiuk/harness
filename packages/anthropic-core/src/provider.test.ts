@@ -97,3 +97,100 @@ describe("Anthropic image capability metadata", () => {
     ]);
   });
 });
+
+it("adds manual models and overrides existing metadata", () => {
+  const provider = new AnthropicProvider({
+    credentials: { client: async () => ({}) as never },
+    modelOverrides: {
+      manual: { label: "Manual", preferredEditTool: "patch" },
+      "claude-sonnet-4-6": { maxOutputTokens: 8192 },
+    },
+  });
+  expect(provider.listModels().find((entry) => entry.model === "manual")).toEqual({
+    provider: "anthropic",
+    model: "manual",
+    label: "Manual",
+    preferredEditTool: "patch",
+  });
+  expect(provider.capabilities("manual")).toMatchObject({
+    preferredEditTool: "patch",
+    customToolInput: { supported: false, grammars: [] },
+  });
+  expect(
+    provider.listModels().find((entry) => entry.model === "claude-sonnet-4-6")?.maxOutputTokens,
+  ).toBe(8192);
+});
+
+describe("configured native model controls", () => {
+  it("advertises, validates, and sends configured thinking and effort for a manually added model", async () => {
+    let params: Anthropic.Messages.MessageCreateParamsStreaming | undefined;
+    const reached = new Error("Reached SDK boundary");
+    const provider = new AnthropicProvider({
+      modelOverrides: {
+        "manual-model": {
+          presets: ["low", "high"],
+          defaultPreset: "low",
+          thinking: { type: "adaptive", display: "summarized" },
+        },
+        "claude-sonnet-4-6": {
+          presets: ["low"],
+          defaultPreset: "low",
+          thinking: { type: "disabled" },
+        },
+      },
+      credentials: {
+        client: async () =>
+          ({
+            messages: {
+              create: async (value: Anthropic.Messages.MessageCreateParamsStreaming) => {
+                params = value;
+                throw reached;
+              },
+            },
+          }) as unknown as Anthropic,
+      },
+    });
+    const manual = provider.listModels().find(({ model }) => model === "manual-model");
+    expect(manual).toMatchObject({
+      presets: [{ value: "low" }, { value: "high" }],
+      defaultPreset: "low",
+    });
+    expect(manual?.contextWindow).toBeUndefined();
+    expect(() =>
+      provider.validateConfig({ provider: "anthropic", model: "manual-model", preset: "medium" }),
+    ).toThrow("unknown preset");
+    for (const model of ["manual-model", "claude-sonnet-4-6"]) {
+      await expect(
+        consume(
+          provider.stream(
+            { ...REQUEST, modelConfig: { provider: "anthropic", model } },
+            new AbortController().signal,
+            CALL_CONTEXT,
+          ),
+        ),
+      ).rejects.toBe(reached);
+      expect(params?.output_config?.effort).toBe("low");
+      expect(params?.thinking).toEqual(
+        model === "manual-model"
+          ? { type: "adaptive", display: "summarized" }
+          : { type: "disabled" },
+      );
+    }
+  });
+});
+
+it("clears inherited default effort when configured presets replace its choices", () => {
+  for (const presets of [[], ["low"] as const]) {
+    const provider = new AnthropicProvider({
+      credentials: {
+        client: async () => {
+          throw new Error("unused");
+        },
+      },
+      modelOverrides: { "claude-sonnet-4-6": { presets: [...presets] } },
+    });
+    const model = provider.listModels().find((entry) => entry.model === "claude-sonnet-4-6")!;
+    expect(model.presets).toEqual(presets.map((value) => ({ value })));
+    expect(model.defaultPreset).toBeUndefined();
+  }
+});

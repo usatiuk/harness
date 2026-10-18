@@ -84,7 +84,7 @@ describe("named provider instances", () => {
             config: {
               endpoint: "http://local",
               apiKey: "dummy",
-              models: { coding: { fileTools: "apply_patch" } },
+              models: { coding: { customToolInput: { supported: true, grammars: [] } } },
             },
           },
         },

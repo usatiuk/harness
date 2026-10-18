@@ -72,16 +72,19 @@ describe("CustomOpenAIProvider catalog", () => {
     expect(provider.listModels()).toEqual([{ provider: "local", model: "my-model", presets: [] }]);
   });
 
-  it("selects the per-model fileTools dialect, defaulting to function-only string_replace", () => {
+  it("selects per-model editing preference with conservative input defaults", () => {
     const provider = new CustomOpenAIProvider({
       id: "local",
       endpoint: "http://localhost:8787/v1",
       apiKey: "test-key",
-      models: { patched: { fileTools: "apply_patch" }, plain: {} },
+      models: { patched: { preferredEditTool: "patch" }, plain: {} },
     });
 
-    expect(provider.capabilities("patched").fileTools).toBe("apply_patch");
-    expect(provider.capabilities("plain").fileTools).toBe("string_replace");
+    expect(provider.capabilities("patched").preferredEditTool).toBe("patch");
+    expect(provider.capabilities("plain")).toMatchObject({
+      preferredEditTool: "replace",
+      customToolInput: { supported: false, grammars: [] },
+    });
     expect(() => provider.capabilities("unknown")).toThrow(/unknown model/);
   });
 });
@@ -359,19 +362,22 @@ describe("CustomAnthropicProvider", () => {
     expect(config.temperature).toBeUndefined();
   });
 
-  it("selects the per-model fileTools dialect, defaulting to the Messages-native text_editor", () => {
+  it("supports JSON patch preference independently of the Messages transport", () => {
     const provider = new CustomAnthropicProvider({
       id: "local",
       endpoint: "http://localhost:8787",
       apiKey: "test-key",
       models: {
-        patched: { fileTools: "string_replace" },
+        patched: { preferredEditTool: "patch" },
         plain: {},
       },
     });
 
-    expect(provider.capabilities("patched").fileTools).toBe("string_replace");
-    expect(provider.capabilities("plain").fileTools).toBe("text_editor");
+    expect(provider.capabilities("patched").preferredEditTool).toBe("patch");
+    expect(provider.capabilities("plain")).toMatchObject({
+      preferredEditTool: "replace",
+      customToolInput: { supported: false, grammars: [] },
+    });
     expect(() => provider.capabilities("unknown")).toThrow(/unknown model/);
   });
 
@@ -472,7 +478,7 @@ describe("CustomOpenAICompletionsProvider", () => {
         maxOutputTokens: 4096,
       },
     ]);
-    expect(provider.capabilities("qwen3.6").fileTools).toBe("string_replace");
+    expect(provider.capabilities("qwen3.6").preferredEditTool).toBe("replace");
     expect(() => provider.capabilities("unknown")).toThrow(/unknown model/);
   });
 
@@ -570,3 +576,55 @@ it.each(["openai-responses-compatible", "openai-completions-compatible", "anthro
     ]);
   },
 );
+
+describe("custom model metadata", () => {
+  it.each(["openai-responses-compatible", "openai-completions-compatible", "anthropic-compatible"])(
+    "adds a manual model with JSON patch support over %s",
+    async (type) => {
+      const provider = await configuredProvider("manual", type, {
+        endpoint: "http://localhost:8787/v1",
+        apiKey: "test-key",
+        models: {
+          custom: {
+            label: "Custom model",
+            contextWindow: 100000,
+            maxInputTokens: 90000,
+            maxOutputTokens: 10000,
+            reasoning: { supported: true },
+            preferredEditTool: "patch",
+          },
+        },
+      });
+      expect(provider.listModels()).toMatchObject([
+        {
+          model: "custom",
+          label: "Custom model",
+          maxInputTokens: 90000,
+          reasoning: { supported: true },
+          preferredEditTool: "patch",
+        },
+      ]);
+      expect(provider.capabilities("custom")).toMatchObject({
+        preferredEditTool: "patch",
+        customToolInput: { supported: false, grammars: [] },
+      });
+    },
+  );
+
+  it("advertises explicitly configured Responses custom input and grammars", async () => {
+    const provider = await configuredProvider("manual", "openai-responses-compatible", {
+      endpoint: "http://localhost:8787/v1",
+      apiKey: "test-key",
+      models: {
+        custom: {
+          customToolInput: { supported: true, grammars: ["lark", "regex"] },
+          preferredEditTool: "replace",
+        },
+      },
+    });
+    expect(provider.capabilities("custom")).toMatchObject({
+      customToolInput: { supported: true, grammars: ["lark", "regex"] },
+      preferredEditTool: "replace",
+    });
+  });
+});

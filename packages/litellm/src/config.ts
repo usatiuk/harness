@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FILE_TOOLS, modelReasoningInfoSchema } from "@harness/protocol";
+import { modelMetadataSchema } from "@harness/protocol";
 import { apiKeySourceSchema } from "@harness/auth";
 
 export const transportSchema = z.enum([
@@ -30,15 +30,9 @@ const generation = {
   thinking: thinking.optional(),
 };
 export const modelProfileSchema = z.strictObject({
-  supportsImages: z.boolean().optional(),
+  ...modelMetadataSchema.shape,
   codingCompatible: z.literal(true).optional(),
   transport: transportSchema.optional(),
-  label: z.string().trim().min(1).max(200).optional(),
-  fileTools: z.enum(FILE_TOOLS).optional(),
-  contextWindow: tokens.optional(),
-  maxInputTokens: tokens.optional(),
-  maxOutputTokens: tokens.optional(),
-  reasoning: modelReasoningInfoSchema.optional(),
   ...generation,
   reasoningSummary: z.enum(["auto", "concise", "detailed"]).optional(),
   presets: z.record(z.string().min(1).max(128), z.strictObject(generation)).optional(),
@@ -64,8 +58,8 @@ export function validateProfile(profile: ModelProfile, transport: Transport): vo
     !profile.reasoning.effortLevels.includes(profile.reasoning.defaultEffort)
   )
     throw new Error("reasoning.defaultEffort must name an advertised effort level");
-  if (profile.fileTools === "apply_patch" && transport !== "openai-responses")
-    throw new Error("apply_patch requires openai-responses");
+  if (profile.customToolInput?.supported && transport !== "openai-responses")
+    throw new Error("custom tool input requires openai-responses");
   if (
     profile.maxOutputTokens !== undefined &&
     profile.contextWindow !== undefined &&

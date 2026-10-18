@@ -440,7 +440,8 @@ describe("Mistral native delivery", () => {
     expect(provider.capabilities("coding")).toEqual({
       contentTypes: ["text", "image"],
       toolCalling: true,
-      fileTools: "string_replace",
+      customToolInput: { supported: false, grammars: [] },
+      preferredEditTool: "replace",
     });
     expect((await collect(provider, request("api"))).at(-1)).toMatchObject({
       type: "completed",
@@ -878,5 +879,64 @@ it.each(["api", "vibe"] as const)(
       { model: "configured", supportsImages: true },
       { model: "unknown", supportsImages: undefined },
     ]);
+  },
+);
+
+it.each(["api", "vibe"] as const)(
+  "uses configured editing metadata after %s discovery",
+  async (mode) => {
+    const { provider } = await fixture(mode, [], 200, false, {
+      manual: { preferredEditTool: "patch", reasoning: { supported: false }, maxInputTokens: 1234 },
+    });
+    expect(provider.listModels().find((entry) => entry.model === "manual")).toEqual({
+      provider: "work",
+      model: "manual",
+      preferredEditTool: "patch",
+      reasoning: { supported: false },
+      maxInputTokens: 1234,
+    });
+    expect(provider.capabilities("manual")).toMatchObject({
+      preferredEditTool: "patch",
+      customToolInput: { supported: false, grammars: [] },
+    });
+  },
+);
+
+it.each(["api", "vibe"] as const)(
+  "delivers configured-only reasoning and sampling controls on %s",
+  async (mode) => {
+    const { provider, gateway } = await fixture(
+      mode,
+      [message("manual reply"), done()],
+      200,
+      false,
+      {
+        manual: { temperature: 0.4, reasoning: { supported: true, effortLevels: ["off", "high"] } },
+        coding: { temperature: 0.2, reasoning: { supported: true, effortLevels: ["low"] } },
+        "coding-latest": { reasoning: { supported: false } },
+      },
+    );
+    expect(provider.listModels().find((entry) => entry.model === "manual")).toMatchObject({
+      presets: [{ value: "off" }, { value: "high" }],
+    });
+    for (const [model, preset, temperature, reasoning_effort] of [
+      ["manual", "off", 0.4, "none"],
+      ["coding", "low", 0.2, "low"],
+    ] as const) {
+      await collect(provider, {
+        ...request(mode),
+        modelConfig: { provider: "work", model, preset },
+      });
+      expect(gateway.requests.at(-1)?.body.completion_args).toMatchObject({
+        temperature,
+        reasoning_effort,
+      });
+    }
+    expect(() =>
+      provider.validateConfig({ provider: "work", model: "manual", preset: "low" }),
+    ).toThrow("Unknown preset");
+    expect(() =>
+      provider.validateConfig({ provider: "work", model: "coding-latest", preset: "high" }),
+    ).toThrow("Unknown preset");
   },
 );

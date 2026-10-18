@@ -331,6 +331,30 @@ describe("buildResponseParams", () => {
       ]);
     });
 
+    it("keeps historical JSON calls structured when the same tool is now plaintext", () => {
+      const call = item({
+        type: "tool_call",
+        callId: "call_p",
+        name: "apply_patch",
+        args: { patch },
+      });
+      const params = buildResponseParams(
+        patchRequest([{ item: call }, { item: callResult }]),
+        REASONING,
+        "openai",
+        true,
+      );
+      expect(params.input).toEqual([
+        {
+          type: "function_call",
+          call_id: "call_p",
+          name: "apply_patch",
+          arguments: JSON.stringify({ patch }),
+        },
+        { type: "function_call_output", call_id: "call_p", output: "updated a.ts" },
+      ]);
+    });
+
     it("renders a freeform tool without a grammar as a plain custom (text) tool", () => {
       const request: ModelRequest = {
         ...baseRequest([]),

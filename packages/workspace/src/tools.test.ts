@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   MAX_IMAGE_BYTES,
   type ConversationId,
-  type FileToolsProfile,
+  type ModelCapabilities,
   type ToolContext,
   type ToolResult,
 } from "@harness/protocol";
@@ -280,36 +280,35 @@ describe("workspace tools", () => {
   });
 });
 
-describe("workspacePlugin file-tools roster by profile", () => {
-  const names = (fileTools: FileToolsProfile, shellKind: "bash" | "powershell" = "bash") =>
+describe("workspacePlugin editing preference", () => {
+  const names = (
+    preferredEditTool: ModelCapabilities["preferredEditTool"],
+    shellKind: "bash" | "powershell" = "bash",
+  ) =>
     workspacePlugin.tools!(
-      { contentTypes: ["text"], toolCalling: true, fileTools },
+      {
+        contentTypes: ["text"],
+        toolCalling: true,
+        preferredEditTool,
+        customToolInput: { supported: false, grammars: [] },
+      },
       { service: () => ({ shellKind }) },
     ).map((t) => t.name);
 
   it("gives apply_patch (with read/write) to a V4A model", () => {
-    expect(names("apply_patch")).toEqual(
-      expect.arrayContaining(["read_file", "write", "apply_patch"]),
-    );
-    expect(names("apply_patch")).not.toContain("edit");
+    expect(names("patch")).toEqual(expect.arrayContaining(["read_file", "write", "apply_patch"]));
+    expect(names("patch")).not.toContain("edit");
   });
 
   it("gives edit (with read/write) to a string_replace model", () => {
-    expect(names("string_replace")).toEqual(expect.arrayContaining(["read_file", "write", "edit"]));
-    expect(names("string_replace")).not.toContain("apply_patch");
+    expect(names("replace")).toEqual(expect.arrayContaining(["read_file", "write", "edit"]));
+    expect(names("replace")).not.toContain("apply_patch");
   });
 
-  it("gives the workspace-owned text editor to a text_editor model", () => {
-    const ns = names("text_editor");
-    expect(ns).not.toContain("read_file");
-    expect(ns).not.toContain("write");
-    expect(ns).not.toContain("edit");
-    expect(ns).not.toContain("apply_patch");
-    expect(ns).toEqual(expect.arrayContaining(["glob", "bash", "str_replace_based_edit_tool"]));
-    expect(names("text_editor", "powershell")).toEqual(
-      expect.arrayContaining(["glob", "powershell", "str_replace_based_edit_tool"]),
-    );
-    expect(ns).not.toContain("grep");
+  it("keeps the platform shell independent of editing preference", () => {
+    expect(names("replace", "powershell")).toContain("powershell");
+    expect(names("patch", "powershell")).toContain("powershell");
+    expect(names("replace")).not.toContain("str_replace_based_edit_tool");
   });
 });
 

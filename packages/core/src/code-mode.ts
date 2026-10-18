@@ -43,11 +43,19 @@ export function evaluatorTool(
       (names.length
         ? `\nDeferred tool names: ${JSON.stringify(names)}. Use tool_describe to inspect arguments before calling them with tools.call.`
         : ""),
-    input: { kind: "function", schema: z.strictObject({ code: z.string().max(64 * 1024) }) },
+    input: {
+      kind: "custom",
+      jsonField: "code",
+      parse: (raw) =>
+        z
+          .string()
+          .max(64 * 1024)
+          .parse(raw),
+    },
     exposure: { direct: true, code: false },
     execute: async (args, ctx) => {
       if (!ctx.codeTools) throw new Error("evaluator invocation bridge missing");
-      return evaluator.evaluate((args as { code: string }).code, ctx.codeTools, ctx.signal);
+      return evaluator.evaluate(args as string, ctx.codeTools, ctx.signal);
     },
   };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import type { Tool } from "@harness/protocol";
+import type { Tool, ModelCapabilities } from "@harness/protocol";
 import { parseToolArgs, toToolSchema } from "./tools.ts";
 
 const fnTool: Tool<{ path: string }> = {
@@ -16,6 +16,7 @@ const customTool: Tool<string[]> = {
   description: "comma list",
   input: {
     kind: "custom",
+    jsonField: "text",
     grammar: { syntax: "lark", definition: "GRAMMAR" },
     parse: (raw) => {
       if (raw === "") throw new Error("empty");
@@ -104,5 +105,35 @@ describe("parseToolArgs", () => {
   it("surfaces a custom parser's throw as an error result", () => {
     const parsed = parseToolArgs(customTool, "");
     expect(parsed.ok === false && parsed.result.forModel[0]).toMatchObject({ text: "empty" });
+  });
+});
+
+describe("portable custom input", () => {
+  const caps = (supported: boolean, grammars: ("lark" | "regex")[] = []): ModelCapabilities => ({
+    contentTypes: ["text"],
+    toolCalling: true,
+    preferredEditTool: "replace",
+    customToolInput: { supported, grammars },
+  });
+  it("advertises JSON on function-only endpoints and runs the same parser", () => {
+    expect(toToolSchema(customTool, caps(false))).toMatchObject({
+      kind: "function",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string" } },
+        required: ["text"],
+        additionalProperties: false,
+      },
+    });
+    expect(parseToolArgs(customTool, { text: "a,b" })).toEqual(parseToolArgs(customTool, "a,b"));
+    expect(parseToolArgs(customTool, { text: "" }).ok).toBe(false);
+    expect(parseToolArgs(customTool, { text: "a", extra: true }).ok).toBe(false);
+    expect(parseToolArgs(customTool, { text: 1 }).ok).toBe(false);
+  });
+  it("uses plaintext independently of grammar support", () => {
+    expect(toToolSchema(customTool, caps(true))).toMatchObject({ kind: "custom" });
+    expect(toToolSchema(customTool, caps(true))).not.toHaveProperty("grammar");
+    expect(toToolSchema(customTool, caps(true, ["regex"]))).not.toHaveProperty("grammar");
+    expect(toToolSchema(customTool, caps(true, ["lark"]))).toHaveProperty("grammar.syntax", "lark");
   });
 });

@@ -233,7 +233,8 @@ describe("Engine — turn cycle", () => {
       capabilities: () => ({
         contentTypes: ["text"],
         toolCalling: true,
-        fileTools: "string_replace",
+        customToolInput: { supported: false, grammars: [] },
+        preferredEditTool: "replace",
       }),
       validateConfig: () => {},
       listModels: () => [],
@@ -347,7 +348,8 @@ describe("Engine — turn cycle", () => {
       capabilities: () => ({
         contentTypes: ["text"],
         toolCalling: true,
-        fileTools: "string_replace",
+        customToolInput: { supported: false, grammars: [] },
+        preferredEditTool: "replace",
       }),
       validateConfig: () => {},
       listModels: () => [],
@@ -563,7 +565,12 @@ describe("Engine — turn cycle", () => {
       },
       capabilities: () => {
         capabilitiesCalled = true;
-        return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" };
+        return {
+          contentTypes: ["text"],
+          toolCalling: true,
+          customToolInput: { supported: false, grammars: [] },
+          preferredEditTool: "replace",
+        };
       },
       listModels: () => [],
       stream() {
@@ -1714,7 +1721,12 @@ class CapacityProvider implements ModelProvider {
   #cursor = 0;
 
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: true, fileTools: "string_replace" as const };
+    return {
+      contentTypes: ["text"],
+      toolCalling: true,
+      customToolInput: { supported: false, grammars: [] },
+      preferredEditTool: "replace" as const,
+    };
   }
 
   validateConfig(): void {}
@@ -2522,7 +2534,8 @@ describe("Engine — compaction", () => {
       capabilities: () => ({
         contentTypes: ["text"],
         toolCalling: true,
-        fileTools: "string_replace",
+        customToolInput: { supported: false, grammars: [] },
+        preferredEditTool: "replace",
       }),
       listModels: () => [],
       stream() {
@@ -2744,7 +2757,8 @@ describe("Engine — compaction", () => {
       capabilities: () => ({
         contentTypes: ["text"],
         toolCalling: true,
-        fileTools: "string_replace",
+        customToolInput: { supported: false, grammars: [] },
+        preferredEditTool: "replace",
       }),
       validateConfig: () => undefined,
       listModels: () => [
@@ -2829,7 +2843,8 @@ describe("Engine — compaction", () => {
         capabilities: () => ({
           contentTypes: ["text"],
           toolCalling: true,
-          fileTools: "string_replace",
+          customToolInput: { supported: false, grammars: [] },
+          preferredEditTool: "replace",
         }),
         validateConfig: () => undefined,
         listModels: () => [],
@@ -2879,7 +2894,8 @@ describe("Engine — compaction", () => {
       capabilities: () => ({
         contentTypes: ["text"],
         toolCalling: true,
-        fileTools: "string_replace",
+        customToolInput: { supported: false, grammars: [] },
+        preferredEditTool: "replace",
       }),
       validateConfig: () => undefined,
       listModels: () => [],
@@ -3039,7 +3055,12 @@ class CatalogProvider implements ModelProvider {
   readonly provider = "rec";
   readonly seen: string[] = [];
   capabilities() {
-    return { contentTypes: ["text"], toolCalling: false, fileTools: "string_replace" as const };
+    return {
+      contentTypes: ["text"],
+      toolCalling: false,
+      customToolInput: { supported: false, grammars: [] },
+      preferredEditTool: "replace" as const,
+    };
   }
   validateConfig(config: ModelConfig): void {
     if (config.model !== "m1" && config.model !== "m2") throw new Error("unknown recording model");
@@ -3213,7 +3234,8 @@ describe("Engine — model middleware", () => {
       capabilities: () => ({
         contentTypes: ["text"],
         toolCalling: true,
-        fileTools: "string_replace",
+        customToolInput: { supported: false, grammars: [] },
+        preferredEditTool: "replace",
       }),
       validateConfig: () => {},
       listModels: () => [],
@@ -3257,7 +3279,8 @@ describe("Engine — model middleware", () => {
       capabilities: () => ({
         contentTypes: ["text"],
         toolCalling: true,
-        fileTools: "string_replace",
+        customToolInput: { supported: false, grammars: [] },
+        preferredEditTool: "replace",
       }),
       validateConfig: () => {},
       listModels: () => [],

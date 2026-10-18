@@ -12,20 +12,14 @@ import {
   WriteTool,
   executionApplyPatchTool,
 } from "./tools.ts";
-import { executionTextEditorTool } from "./text-editor.ts";
 
 export * from "./tools.ts";
 export * from "./apply-patch-parse.ts";
-export * from "./text-editor.ts";
 export * from "./targets.ts";
 export * from "./client-protocol.ts";
 export * from "./process-activity.ts";
 
-/**
- * Workspace tools: search files and run commands via the execution service, plus a file-edit roster
- * chosen by the model's `fileTools` profile. Providers declare the dialect a model expects;
- * workspace owns and executes every resulting filesystem tool.
- */
+/** Workspace owns editing operations; input encoding is resolved independently by core. */
 export const workspacePlugin: Plugin = {
   id: "workspace",
   tools: (caps, ctx) => {
@@ -38,17 +32,15 @@ export const workspacePlugin: Plugin = {
       executionFunctionTool(execution, tool);
     const base = [managed(new GlobTool()), functionTool(new CommandTool(execution.shellKind))];
     const roster = () => {
-      switch (caps.fileTools) {
-        case "apply_patch":
+      switch (caps.preferredEditTool) {
+        case "patch":
           return [
             ...base,
             managed(new ReadFileTool()),
             functionTool(new WriteTool()),
             executionApplyPatchTool(execution),
           ];
-        case "text_editor":
-          return [...base, executionTextEditorTool(execution)];
-        case "string_replace":
+        case "replace":
           return [
             ...base,
             managed(new ReadFileTool()),

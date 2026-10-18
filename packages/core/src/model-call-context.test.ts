@@ -23,7 +23,8 @@ it("preserves per-conversation identity across retries, concurrent roots, nested
     capabilities: () => ({
       contentTypes: ["text"],
       toolCalling: true,
-      fileTools: "string_replace",
+      customToolInput: { supported: false, grammars: [] },
+      preferredEditTool: "replace",
     }),
     async *stream(request, _signal, context) {
       calls.push({ context, request });

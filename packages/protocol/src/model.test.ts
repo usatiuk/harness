@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelId, selectionId } from "./model.ts";
+import { modelId, selectionId, customToolInputSchema, mergeModelMetadata } from "./model.ts";
 
 describe("selectionId", () => {
   it("is provider/model when no preset is set", () => {
@@ -13,4 +13,32 @@ describe("selectionId", () => {
       "openai/gpt-5.1/high",
     );
   });
+});
+
+it("rejects grammar support without custom input", () => {
+  expect(customToolInputSchema.safeParse({ supported: false, grammars: ["lark"] }).success).toBe(
+    false,
+  );
+});
+it("merges explicit model additions and partial overrides without inventing limits", () => {
+  expect(
+    mergeModelMetadata("fixture", [{ provider: "fixture", model: "known", contextWindow: 4096 }], {
+      known: { label: "Override", supportsImages: false },
+      added: { preferredEditTool: "patch" },
+    }),
+  ).toEqual([
+    {
+      provider: "fixture",
+      model: "known",
+      contextWindow: 4096,
+      label: "Override",
+      supportsImages: false,
+    },
+    { provider: "fixture", model: "added", preferredEditTool: "patch" },
+  ]);
+  expect(() =>
+    mergeModelMetadata("fixture", [{ provider: "fixture", model: "known", contextWindow: 4096 }], {
+      known: { maxOutputTokens: 8192 },
+    }),
+  ).toThrow("maxOutputTokens cannot exceed contextWindow");
 });

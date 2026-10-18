@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { PRODUCT_USER_AGENT } from "@harness/release";
 import type { Stream } from "openai/core/streaming";
 import {
+  mergeModelMetadata,
   ContextWindowExceededError,
   ModelDiscoveryError,
   sessionIdHeaders,
@@ -63,32 +64,21 @@ export class MistralProvider implements ModelProvider {
     return structuredClone([...this.#catalog.values()].map(({ info }) => info));
   }
   #mergeModels(entries: Map<string, CatalogEntry>): Map<string, CatalogEntry> {
-    for (const [model, configured] of Object.entries(this.#models)) {
+    for (const [model, { temperature, ...configured }] of Object.entries(this.#models)) {
       const discovered = entries.get(model);
-      const info: ModelInfo = {
-        provider: this.provider,
-        model,
-        ...discovered?.info,
-        ...(configured.supportsImages !== undefined
-          ? { supportsImages: configured.supportsImages }
-          : {}),
-        ...(configured.label !== undefined ? { label: configured.label } : {}),
-        ...(configured.contextWindow !== undefined
-          ? { contextWindow: configured.contextWindow }
-          : {}),
-        ...(configured.maxOutputTokens !== undefined
-          ? { maxOutputTokens: configured.maxOutputTokens }
-          : {}),
-      };
-      if (
-        info.contextWindow !== undefined &&
-        info.maxOutputTokens !== undefined &&
-        info.maxOutputTokens > info.contextWindow
-      )
-        throw new Error(
-          `Invalid capacity for ${this.provider}/${model}: maxOutputTokens cannot exceed contextWindow`,
-        );
-      entries.set(model, { ...discovered, info });
+      const info = mergeModelMetadata(this.provider, discovered ? [discovered.info] : [], {
+        [model]: configured,
+      })[0]!;
+      if (configured.reasoning?.supported === false) {
+        delete info.presets;
+      } else if (configured.reasoning?.effortLevels !== undefined) {
+        info.presets = configured.reasoning.effortLevels.map((value) => ({ value }));
+      }
+      entries.set(model, {
+        ...discovered,
+        info,
+        ...(temperature !== undefined ? { temperature } : {}),
+      });
     }
     if (entries.size > MAX_MODELS)
       throw new ModelDiscoveryError(
@@ -107,7 +97,13 @@ export class MistralProvider implements ModelProvider {
   }
   capabilities(model: string): ModelCapabilities {
     this.#entry(model);
-    return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "string_replace" };
+    const metadata = this.#models[model];
+    return {
+      contentTypes: ["text", "image"],
+      toolCalling: true,
+      customToolInput: metadata?.customToolInput ?? { supported: false, grammars: [] },
+      preferredEditTool: metadata?.preferredEditTool ?? "replace",
+    };
   }
   validateConfig(config: ModelConfig): void {
     if (config.provider !== this.provider) throw new Error("Provider instance identity mismatch");

@@ -4,6 +4,8 @@ export { buildMessages, type AnthropicRequestConfig } from "./request.ts";
 export { toModelEvents } from "./stream.ts";
 export {
   AnthropicProvider,
+  anthropicModelConfigSchema,
+  type AnthropicModelConfig,
   AnthropicMessagesTransport,
   type AnthropicProviderOptions,
   type AnthropicMessagesTransportOptions,

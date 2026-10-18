@@ -37,7 +37,7 @@ export type ReplaceResult =
 /**
  * Replaces the single occurrence of `oldStr` with `newStr` in `current`, or reports why it
  * can't: `absent` (no match) or `ambiguous` (more than one). The one source of truth for the
- * "edit a unique span" semantics shared by `edit` and Claude's `text_editor` `str_replace`.
+ * "edit a unique span" semantics for replacement editing.
  */
 export function uniqueReplace(current: string, oldStr: string, newStr: string): ReplaceResult {
   const count = current.split(oldStr).length - 1;
@@ -115,11 +115,10 @@ export class WriteTool implements Tool<z.infer<typeof writeArgs>> {
 /** Freeform V4A patch editor; the kernel parses the envelope, so `execute` gets `FileChange[]`. */
 export class ApplyPatchTool implements Tool<FileChange[]> {
   readonly name = "apply_patch";
-  readonly description =
-    "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap " +
-    "the patch in JSON.";
+  readonly description = "Apply V4A patches to create, update, move, or delete files.";
   readonly input: ToolInput<FileChange[]> = {
     kind: "custom",
+    jsonField: "patch",
     grammar: { syntax: "lark", definition: APPLY_PATCH_LARK },
     parse: parseEnvelope,
   };
@@ -175,6 +174,7 @@ export function executionApplyPatchTool(execution: ExecutionContext): Tool {
       "`sandbox_permissions=require_escalated`, a nonempty `justification=...`, and `---`.",
     input: {
       kind: "custom",
+      jsonField: "patch",
       grammar: { syntax: "lark", definition: ESCALATABLE_APPLY_PATCH_LARK },
       parse(raw): ManagedPatch {
         const split = splitCustomEscalation(raw);

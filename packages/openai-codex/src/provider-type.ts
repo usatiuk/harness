@@ -1,3 +1,4 @@
+import { openAIModelConfigSchema } from "@harness/openai-core";
 import { z } from "zod";
 import { defineProviderType, type ProviderOAuth } from "@harness/protocol";
 import { CodexAuth } from "./auth.ts";
@@ -6,6 +7,7 @@ import { createCodexProvider } from "./provider.ts";
 export const codexProviderType = defineProviderType({
   type: "openai-codex",
   configSchema: z.strictObject({
+    models: z.record(z.string().min(1), openAIModelConfigSchema).default({}),
     webSearch: z.boolean().default(true).meta({
       harnessSetting: true,
       title: "Web search",
@@ -37,7 +39,7 @@ export const codexProviderType = defineProviderType({
       auth,
       async buildProvider() {
         return (await codex.status()).authenticated
-          ? createCodexProvider(codex, context.id, config.webSearch)
+          ? createCodexProvider(codex, context.id, config.webSearch, config.models)
           : null;
       },
     };

@@ -4,7 +4,12 @@ import { apiKeyCredentials } from "@harness/openai-api";
 import type { ContentBlock, ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
 import type { CustomOpenAIModelConfig } from "./config.ts";
 import { applyOpenAIPreset, type RequestParams } from "./openai-presets.ts";
-import { listScopedModels, scopedModel, validateScopedConfig } from "./model-scope.ts";
+import {
+  listScopedModels,
+  scopedCapabilities,
+  scopedModel,
+  validateScopedConfig,
+} from "./model-scope.ts";
 
 /** Joins the textual blocks of an instructions list, mirroring the core mapping. */
 const textOf = (content: ContentBlock[]): string =>
@@ -45,12 +50,7 @@ export class CustomOpenAIProvider extends OpenAIResponsesTransport {
   }
 
   capabilities(model: string): ModelCapabilities {
-    return {
-      contentTypes: ["text", "image"],
-      toolCalling: true,
-      // Defaults to string_replace: the safe function-only dialect for every OpenAI endpoint.
-      fileTools: scopedModel(this.provider, this.#models, model).fileTools ?? "string_replace",
-    };
+    return scopedCapabilities(scopedModel(this.provider, this.#models, model));
   }
 
   listModels() {

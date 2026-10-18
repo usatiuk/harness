@@ -89,12 +89,16 @@ describe("OpenCodeGoProvider", () => {
     expect(p.listModels()).toHaveLength(ROSTER.length);
   });
 
-  it("selects the fileTools profile per family", () => {
+  it("keeps editing preference independent of transport support", () => {
     const p = provider();
-    expect(p.capabilities("gpt-5.6-luna").fileTools).toBe("apply_patch");
-    expect(p.capabilities("grok-4.7").fileTools).toBe("apply_patch");
-    expect(p.capabilities("minimax-m3").fileTools).toBe("text_editor");
-    expect(p.capabilities("deepseek-v4-pro").fileTools).toBe("string_replace");
+    expect(p.capabilities("gpt-5.6-luna").preferredEditTool).toBe("patch");
+    expect(p.capabilities("grok-4.7").preferredEditTool).toBe("replace");
+    expect(p.capabilities("minimax-m3").preferredEditTool).toBe("replace");
+    expect(p.capabilities("deepseek-v4-pro").preferredEditTool).toBe("replace");
+    expect(p.capabilities("gpt-5.6-luna").customToolInput).toEqual({
+      supported: false,
+      grammars: [],
+    });
     expect(() => p.capabilities("unknown-model")).toThrow(/unknown model/);
   });
 
@@ -396,4 +400,140 @@ describe("OpenCodeGoProvider", () => {
       expect(params?.thinking).toEqual(expected);
     },
   );
+});
+
+it("adds manually routed models without inventing limits", () => {
+  const p = new OpenCodeGoProvider({
+    openai: { client: neverCredentials() },
+    anthropic: { client: neverCredentials() },
+    models: {
+      manual: {
+        transport: "responses",
+        label: "Manual",
+        preferredEditTool: "patch",
+        customToolInput: { supported: true, grammars: [] },
+      },
+      "gpt-5.6-luna": { preferredEditTool: "replace" },
+    },
+  });
+  expect(p.listModels().find((entry) => entry.model === "manual")).toMatchObject({
+    provider: "opencode-go",
+    model: "manual",
+    label: "Manual",
+  });
+  expect(p.listModels().find((entry) => entry.model === "manual")?.contextWindow).toBeUndefined();
+  expect(p.capabilities("manual")).toMatchObject({
+    preferredEditTool: "patch",
+    customToolInput: { supported: true, grammars: [] },
+  });
+  expect(p.capabilities("gpt-5.6-luna").preferredEditTool).toBe("replace");
+  expect(p.capabilities("muse-spark-1.3-contributor").customToolInput.supported).toBe(false);
+  expect(() => p.validateConfig({ provider: p.provider, model: "manual" })).not.toThrow();
+});
+
+it.each(["chat", "responses", "messages"] as const)(
+  "delivers a manually configured %s preset",
+  async (transport) => {
+    let params: Record<string, unknown> | undefined;
+    const create = async (value: Record<string, unknown>) => {
+      params = value;
+      return {
+        async *[Symbol.asyncIterator]() {
+          if (transport === "responses") yield { type: "response.completed", response: {} };
+          else if (transport === "messages") {
+            yield {
+              type: "message_start",
+              message: { usage: { input_tokens: 1, output_tokens: 0 } },
+            };
+            yield { type: "message_stop" };
+          } else yield { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] };
+        },
+      };
+    };
+    const p = new OpenCodeGoProvider({
+      openai: {
+        client: async () => ({ responses: { create }, chat: { completions: { create } } }) as never,
+      },
+      anthropic: { client: async () => ({ messages: { create } }) as never },
+      models: {
+        manual: {
+          transport,
+          presets: [
+            {
+              value: "custom",
+              control:
+                transport === "messages"
+                  ? { kind: "thinking", thinking: "adaptive" }
+                  : { kind: "effort", effort: "high" },
+            },
+          ],
+          defaultPreset: "custom",
+        },
+      },
+    });
+    expect(p.listModels().find((entry) => entry.model === "manual")).toMatchObject({
+      presets: [{ value: "custom" }],
+      defaultPreset: "custom",
+    });
+    const req = { ...REQUEST, modelConfig: { provider: p.provider, model: "manual" } };
+    p.validateConfig(req.modelConfig);
+    for await (const event of p.stream(req, new AbortController().signal, CALL_CONTEXT)) void event;
+    expect(params).toMatchObject(
+      transport === "chat"
+        ? { reasoning_effort: "high" }
+        : transport === "responses"
+          ? { reasoning: { effort: "high" } }
+          : { thinking: { type: "adaptive" } },
+    );
+  },
+);
+
+it("rejects configured controls incompatible with the resolved transport", () => {
+  expect(
+    () =>
+      new OpenCodeGoProvider({
+        openai: { client: neverCredentials() },
+        anthropic: { client: neverCredentials() },
+        models: {
+          manual: {
+            transport: "messages",
+            presets: [{ value: "high", control: { kind: "effort", effort: "high" } }],
+          },
+        },
+      }),
+  ).toThrow("incompatible");
+});
+
+it("validates native model control configuration", async () => {
+  const { openCodeGoProviderType } = await import("./provider-type.ts");
+  expect(() =>
+    openCodeGoProviderType.prepare({
+      models: {
+        manual: {
+          transport: "messages",
+          presets: [{ value: "think", control: { kind: "thinking-budget", budgetTokens: 4096 } }],
+        },
+      },
+    }),
+  ).not.toThrow();
+  expect(() =>
+    openCodeGoProviderType.prepare({
+      models: {
+        manual: {
+          presets: [{ value: "think", control: { kind: "thinking-budget", budgetTokens: 0 } }],
+        },
+      },
+    }),
+  ).toThrow();
+});
+
+it("clears inherited defaults when configured presets are emptied", () => {
+  const p = new OpenCodeGoProvider({
+    openai: { client: neverCredentials() },
+    anthropic: { client: neverCredentials() },
+    models: { "gpt-5.6-luna": { presets: [] } },
+  });
+  const model = p.listModels().find((entry) => entry.model === "gpt-5.6-luna")!;
+  expect(model.presets).toEqual([]);
+  expect(model.defaultPreset).toBeUndefined();
 });

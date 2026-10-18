@@ -1,13 +1,18 @@
-import type { FileToolsProfile, ModelConfig, ModelInfo } from "@harness/protocol";
+import { mergeModelMetadata } from "@harness/protocol";
+import type { ModelCapabilities, ModelMetadata, ModelConfig, ModelInfo } from "@harness/protocol";
 
 /** The model-scoped fields every transport-style custom provider resolves at runtime. */
-export interface ModelScope {
-  supportsImages?: boolean | undefined;
-  label?: string | undefined;
-  contextWindow?: number | undefined;
-  maxOutputTokens?: number | undefined;
-  fileTools?: FileToolsProfile | undefined;
+export interface ModelScope extends ModelMetadata {
   presets?: Record<string, unknown> | undefined;
+}
+
+export function scopedCapabilities(scope: ModelScope): ModelCapabilities {
+  return {
+    contentTypes: ["text", "image"],
+    toolCalling: true,
+    customToolInput: scope.customToolInput ?? { supported: false, grammars: [] },
+    preferredEditTool: scope.preferredEditTool ?? "replace",
+  };
 }
 
 /** One `ModelInfo` catalog entry per configured model, carrying its own limits and presets. */
@@ -15,14 +20,9 @@ export function listScopedModels(
   provider: string,
   models: ReadonlyMap<string, ModelScope>,
 ): ModelInfo[] {
-  return [...models.entries()].map(([model, scope]) => ({
-    provider,
-    model,
-    ...(scope.supportsImages !== undefined ? { supportsImages: scope.supportsImages } : {}),
-    ...(scope.label !== undefined ? { label: scope.label } : {}),
-    presets: Object.keys(scope.presets ?? {}).map((value) => ({ value })),
-    ...(scope.contextWindow !== undefined ? { contextWindow: scope.contextWindow } : {}),
-    ...(scope.maxOutputTokens !== undefined ? { maxOutputTokens: scope.maxOutputTokens } : {}),
+  return [...models.entries()].map(([model, { presets, ...metadata }]) => ({
+    ...mergeModelMetadata(provider, [], { [model]: metadata })[0]!,
+    presets: Object.keys(presets ?? {}).map((value) => ({ value })),
   }));
 }
 

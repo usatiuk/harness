@@ -1,4 +1,5 @@
-import { jsonValueSchema } from "@harness/protocol";
+import { jsonValueSchema, mergeModelMetadata, modelMetadataSchema } from "@harness/protocol";
+import { z } from "zod";
 import type OpenAI from "openai";
 import type {
   PresetInfo,
@@ -17,21 +18,31 @@ import { buildResponseParams } from "./request.ts";
 import { buildChatParams } from "./request.ts";
 import { toModelEvents, toChatEvents } from "./stream.ts";
 
+const effortSchema = z.string().trim().min(1).max(64);
+export const openAIModelConfigSchema = modelMetadataSchema.extend({
+  presets: z.array(effortSchema).optional(),
+  defaultPreset: effortSchema.optional(),
+});
+export type OpenAIModelConfig = z.infer<typeof openAIModelConfigSchema>;
+
 export interface OpenAIModelLimits {
   contextWindow?: number;
   maxInputTokens?: number;
-  maxOutputTokens: number;
+  maxOutputTokens?: number;
 }
 
 /** One model in the provider catalog. */
 export interface OpenAIModelSpec extends OpenAIModelLimits {
+  label?: string;
+  customToolInput?: ModelCapabilities["customToolInput"];
+  preferredEditTool?: ModelCapabilities["preferredEditTool"];
   model: string;
   supportsImages?: boolean;
   presets: PresetInfo[];
   /** Preset used when the selection omits one; must appear in `presets`. */
-  defaultPreset: string;
+  defaultPreset?: string;
   /** USD per MTok, including cache-write charges on GPT-5.6 and later. */
-  pricing: ModelPricing;
+  pricing?: ModelPricing;
 }
 
 const preset = (value: OpenAI.ReasoningEffort & string): PresetInfo => ({ value });
@@ -154,7 +165,10 @@ export function reasoningForSelection(
   if (!spec) return base;
   const offered = spec.presets.some((e) => e.value === config.preset);
   const value = (offered ? config.preset : spec.defaultPreset) as OpenAI.ReasoningEffort;
-  return { ...base, effort: value };
+  if (value) return { ...base, effort: value };
+  const reasoning = { ...base };
+  delete reasoning.effort;
+  return reasoning;
 }
 
 export interface OpenAIProviderOptions {
@@ -168,6 +182,7 @@ export interface OpenAIProviderOptions {
   /** Whether this transport can send the advisory `max_output_tokens` request cap. */
   supportsMaxOutputTokens?: boolean;
   webSearch?: boolean;
+  modelOverrides?: Record<string, OpenAIModelConfig>;
 }
 
 /** Connection identity and credential access for the Responses wire transport. */
@@ -223,7 +238,8 @@ export abstract class OpenAIResponsesTransport {
 export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements ModelProvider {
   readonly providerOptions: { readonly webSearch: boolean };
   readonly #reasoning: OpenAI.Reasoning;
-  readonly #models: readonly OpenAIModelSpec[];
+  #models: readonly OpenAIModelSpec[];
+  readonly #modelOverrides: Record<string, OpenAIModelConfig>;
   readonly #supportsMaxOutputTokens: boolean;
 
   constructor(opts: OpenAIProviderOptions) {
@@ -233,47 +249,99 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
     });
     this.#reasoning = opts.reasoning ?? { effort: "medium", summary: "auto" };
     this.#models = opts.models ?? OPENAI_MODELS;
+    this.#modelOverrides = opts.modelOverrides ?? {};
     this.#supportsMaxOutputTokens = opts.supportsMaxOutputTokens ?? true;
     this.providerOptions = Object.freeze({ webSearch: opts.webSearch ?? false });
   }
 
   capabilities(model: string): ModelCapabilities {
-    void model;
-    // Every GPT model this class serves is trained on the V4A apply_patch dialect.
-    return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "apply_patch" };
+    const spec = this.#models.find((entry) => entry.model === model);
+    const metadata = this.#modelOverrides[model];
+    const known = OPENAI_MODELS.some((entry) => entry.model === model);
+    return {
+      contentTypes: ["text", "image"],
+      toolCalling: true,
+      customToolInput: metadata?.customToolInput ??
+        spec?.customToolInput ?? { supported: known, grammars: known ? ["lark", "regex"] : [] },
+      preferredEditTool:
+        metadata?.preferredEditTool ?? spec?.preferredEditTool ?? (known ? "patch" : "replace"),
+    };
   }
 
   /** Fails fast on a preset the model doesn't offer; other configs are accepted unchallenged. */
   validateConfig(config: ModelConfig): void {
-    const spec = this.#models.find((m) => m.model === config.model);
+    const spec = this.listModels().find((m) => m.model === config.model);
     /* c8 ignore next -- no preset guard on an uncataloged model is deliberate (let the SDK say it) */
     if (!config.preset || !spec) return;
-    if (!spec.presets.some((p) => p.value === config.preset)) {
+    if (!(spec.presets ?? []).some((p) => p.value === config.preset)) {
       throw new Error(
-        `unknown preset "${config.preset}" for ${this.provider}/${config.model} (try: ${spec.presets.map((p) => p.value).join(", ")})`,
+        `unknown preset "${config.preset}" for ${this.provider}/${config.model} (try: ${(spec.presets ?? []).map((p) => p.value).join(", ")})`,
       );
     }
   }
 
+  protected replaceModels(models: readonly OpenAIModelSpec[]): void {
+    this.#models = models;
+  }
+
   listModels(): ModelInfo[] {
-    return this.#models.map((m) => {
-      return {
-        provider: this.provider,
-        model: m.model,
-        ...(m.supportsImages !== undefined ? { supportsImages: m.supportsImages } : {}),
-        presets: m.presets,
-        defaultPreset: m.defaultPreset,
-        ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
-        ...(m.maxInputTokens === undefined ? {} : { maxInputTokens: m.maxInputTokens }),
-        maxOutputTokens: m.maxOutputTokens,
-        pricing: m.pricing,
-      };
+    return mergeModelMetadata(
+      this.provider,
+      this.#models.map((m) => {
+        return {
+          provider: this.provider,
+          model: m.model,
+          ...(m.supportsImages !== undefined ? { supportsImages: m.supportsImages } : {}),
+          ...(m.label ? { label: m.label } : {}),
+          presets: m.presets,
+          ...(m.defaultPreset ? { defaultPreset: m.defaultPreset } : {}),
+          ...(m.customToolInput ? { customToolInput: m.customToolInput } : {}),
+          ...(m.preferredEditTool ? { preferredEditTool: m.preferredEditTool } : {}),
+          ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
+          ...(m.maxInputTokens === undefined ? {} : { maxInputTokens: m.maxInputTokens }),
+          ...(m.maxOutputTokens !== undefined ? { maxOutputTokens: m.maxOutputTokens } : {}),
+          ...(m.pricing !== undefined ? { pricing: m.pricing } : {}),
+        };
+      }),
+      Object.fromEntries(
+        Object.entries(this.#modelOverrides).map(([model, config]) => {
+          const metadata = { ...config };
+          delete metadata.presets;
+          delete metadata.defaultPreset;
+          return [model, metadata];
+        }),
+      ),
+    ).map((model) => {
+      const override = this.#modelOverrides[model.model];
+      const presets = override?.presets?.map((value) => ({ value })) ?? model.presets;
+      const inheritedDefault =
+        override?.presets === undefined ||
+        override.presets.some((value) => value === model.defaultPreset)
+          ? model.defaultPreset
+          : undefined;
+      const defaultPreset = override?.defaultPreset ?? inheritedDefault;
+      if (defaultPreset && !(presets ?? []).some(({ value }) => value === defaultPreset)) {
+        throw new Error(
+          `Default preset "${defaultPreset}" is not offered by ${this.provider}/${model.model}`,
+        );
+      }
+      const resolved = { ...model, ...(presets ? { presets } : {}) };
+      if (defaultPreset) resolved.defaultPreset = defaultPreset;
+      else delete resolved.defaultPreset;
+      return resolved;
     });
   }
 
   /** Direct OpenAI/Codex generation policy over the native Responses mapper. */
   protected buildParams(request: ModelRequest): OpenAI.Responses.ResponseCreateParamsStreaming {
-    const reasoning = reasoningForSelection(request.modelConfig, this.#reasoning, this.#models);
+    const reasoning = reasoningForSelection(
+      request.modelConfig,
+      this.#reasoning,
+      this.listModels().map((model) => ({
+        ...model,
+        presets: model.presets ?? [],
+      })),
+    );
     const params = buildResponseParams(request, reasoning, this.provider, true);
     if (!this.#supportsMaxOutputTokens) delete params.max_output_tokens;
     return params;

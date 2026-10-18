@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FILE_TOOLS, sessionIdHeaderSchema } from "@harness/protocol";
+import { modelMetadataSchema, sessionIdHeaderSchema } from "@harness/protocol";
 import { apiKeySourceSchema } from "@harness/auth";
 
 const extraBodyExcluding = (reserved: ReadonlySet<string>, transport: string) =>
@@ -84,8 +84,7 @@ const anthropicPresetSchema = z.strictObject({
 
 /**
  * Fields every custom provider entry shares. Credentials and the transport dialect are
- * provider-scoped; capacity, `fileTools`, and presets are per model (each model can be
- * trained on a different dialect and offer different sampling).
+ * provider-scoped; model metadata and sampling presets are per model.
  */
 const customProviderBase = z.strictObject({
   /** Custom endpoint. OpenAI-compatible: include the API root (e.g. `http://host:8000/v1`).
@@ -95,22 +94,6 @@ const customProviderBase = z.strictObject({
   sessionIdHeader: sessionIdHeaderSchema.optional(),
   /** Inline API key literal passed to the SDK; keyless local servers require an explicit dummy value. */
   apiKey: z.union([z.string(), apiKeySourceSchema]).default({ stored: true }),
-});
-
-/** Model-scoped fields shared by every transport's model entries. */
-const customModelBase = z.strictObject({
-  /** Explicit model image-input support; absent means unknown. */
-  supportsImages: z.boolean().optional(),
-  /** Display name; the configured model key remains the API and conversation identity. */
-  label: z.string().trim().min(1).optional(),
-  /** Model context window in tokens; capacity math (auto-compaction) applies when set. */
-  contextWindow: z.number().int().positive().optional(),
-  /** Model max output in tokens; reserved when estimating whether the next input fits. */
-  maxOutputTokens: z.number().int().positive().optional(),
-  /** The file-editing dialect the model is trained on; the workspace plugin selects its tool roster
-   * from it. Absent defaults to `string_replace` for the OpenAI-compatible families and
-   * `text_editor` for anthropic-compatible. */
-  fileTools: z.enum(FILE_TOOLS).optional(),
 });
 
 const capacityIssues = (model: {
@@ -153,35 +136,30 @@ const addCapacityIssues = (
 /** An OpenAI Responses-family model entry: sampling presets keyed by preset name. */
 const openaiModelSchema = z
   .strictObject({
-    ...customModelBase.shape,
+    ...modelMetadataSchema.shape,
     presets: z.record(z.string(), openaiPresetSchema).optional(),
   })
   .superRefine((model, ctx) => addCapacityIssues(model, (issue) => ctx.addIssue(issue)));
 
-// Chat/completions and the Anthropic Messages transport are both function-only: neither can render
-// the freeform `apply_patch` custom tool, so no model of either family may offer that dialect —
-// rejected at parse time rather than failing somewhere mid-turn.
-const completionsModelSchema = z
-  .strictObject({
-    ...customModelBase.shape,
-    presets: z.record(z.string(), openaiPresetSchema).optional(),
-  })
-  .superRefine((model, ctx) => addCapacityIssues(model, (issue) => ctx.addIssue(issue)))
-  .refine((scope) => scope.fileTools !== "apply_patch", {
-    message: "openai-completions-compatible supports only function tools (not 'apply_patch')",
-    path: ["fileTools"],
-  });
+// Function-only adapters can still offer patches using the JSON fallback.
+const completionsModelSchema = openaiModelSchema.refine(
+  (scope) => !scope.customToolInput?.supported,
+  {
+    message: "openai-completions-compatible does not support custom tool input",
+    path: ["customToolInput"],
+  },
+);
 
 /** An anthropic-compatible model entry: richer preset knobs forwarded via extra_body. */
 const anthropicModelSchema = z
   .strictObject({
-    ...customModelBase.shape,
+    ...modelMetadataSchema.shape,
     presets: z.record(z.string(), anthropicPresetSchema).optional(),
   })
   .superRefine((model, ctx) => addCapacityIssues(model, (issue) => ctx.addIssue(issue)))
-  .refine((scope) => scope.fileTools !== "apply_patch", {
-    message: "anthropic-compatible supports only function tools (not 'apply_patch')",
-    path: ["fileTools"],
+  .refine((scope) => !scope.customToolInput?.supported, {
+    message: "anthropic-compatible does not support custom tool input",
+    path: ["customToolInput"],
   });
 
 /** A companion provider must serve at least one non-empty model name; an empty catalog would
@@ -219,7 +197,7 @@ export const customProviderSchema = z.discriminatedUnion("type", [
 export type CustomProviderConfig = z.infer<typeof customProviderSchema>;
 /** One model entry in an OpenAI-family custom provider. */
 export type CustomOpenAIModelConfig = z.infer<typeof openaiModelSchema>;
-/** One model entry in a completions-compatible custom provider (rejects `apply_patch`). */
+/** One model entry in a completions-compatible custom provider (function-only input). */
 export type CustomCompletionsModelConfig = z.infer<typeof completionsModelSchema>;
 /** One model entry in an anthropic-compatible custom provider. */
 export type CustomAnthropicModelConfig = z.infer<typeof anthropicModelSchema>;

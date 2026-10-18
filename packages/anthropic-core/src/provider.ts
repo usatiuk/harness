@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
 import type {
   PresetInfo,
@@ -10,10 +11,35 @@ import type {
   ModelRequest,
   ModelStreamEvent,
 } from "@harness/protocol";
-import { ContextWindowExceededError } from "@harness/protocol";
+import {
+  ContextWindowExceededError,
+  mergeModelMetadata,
+  modelMetadataSchema,
+} from "@harness/protocol";
 import type { AnthropicCredentials } from "./credentials.ts";
 import { buildMessages, type AnthropicRequestConfig } from "./request.ts";
 import { toModelEvents } from "./stream.ts";
+
+const effortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);
+export const anthropicModelConfigSchema = modelMetadataSchema.extend({
+  presets: z.array(effortSchema).optional(),
+  defaultPreset: effortSchema.optional(),
+  thinking: z
+    .discriminatedUnion("type", [
+      z.strictObject({ type: z.literal("disabled") }),
+      z.strictObject({
+        type: z.literal("adaptive"),
+        display: z.enum(["summarized", "omitted"]).optional(),
+      }),
+      z.strictObject({
+        type: z.literal("enabled"),
+        budget_tokens: z.number().int().min(1024),
+        display: z.enum(["summarized", "omitted"]).optional(),
+      }),
+    ])
+    .optional(),
+});
+export type AnthropicModelConfig = z.infer<typeof anthropicModelConfigSchema>;
 
 type Effort = NonNullable<Anthropic.Messages.OutputConfig["effort"]>;
 
@@ -77,18 +103,12 @@ const MODELS: ModelSpec[] = [
 
 const MAX_TOKENS_FALLBACK = 8192;
 
-/** Chosen preset if the model offers it, else its default; no preset axis → `undefined`. */
-function presetForSelection(spec: ModelSpec, config: ModelConfig): Effort | undefined {
-  if (spec.presets.length === 0) return undefined;
-  const offered = spec.presets.some((e) => e.value === config.preset);
-  return offered ? (config.preset as Effort) : spec.defaultPreset;
-}
-
 export interface AnthropicProviderOptions {
   credentials: AnthropicCredentials;
   /** Registry name; defaults to `"anthropic"`. A future OAuth package uses its own. */
   provider?: string;
   webSearch?: boolean;
+  modelOverrides?: Record<string, AnthropicModelConfig>;
 }
 
 /** Connection identity and credential access for the Messages wire transport. */
@@ -136,40 +156,76 @@ export abstract class AnthropicMessagesTransport {
 
 export class AnthropicProvider extends AnthropicMessagesTransport implements ModelProvider {
   readonly providerOptions: { readonly webSearch: boolean };
+  readonly #modelOverrides: Record<string, AnthropicModelConfig>;
   constructor(opts: AnthropicProviderOptions) {
     super({ credentials: opts.credentials, provider: opts.provider ?? "anthropic" });
+    this.#modelOverrides = opts.modelOverrides ?? {};
     this.providerOptions = Object.freeze({ webSearch: opts.webSearch ?? false });
   }
 
   capabilities(model: string): ModelCapabilities {
-    void model;
-    // Every Claude model this class serves is familiar with the text-editor command contract.
-    return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "text_editor" };
+    const metadata = this.#modelOverrides[model];
+    return {
+      contentTypes: ["text", "image"],
+      toolCalling: true,
+      customToolInput: metadata?.customToolInput ?? { supported: false, grammars: [] },
+      preferredEditTool: metadata?.preferredEditTool ?? "replace",
+    };
   }
 
   /** Fails fast on a preset the model doesn't offer; other configs are accepted unchallenged. */
   validateConfig(config: ModelConfig): void {
-    const spec = MODELS.find((m) => m.model === config.model);
+    const spec = this.listModels().find((m) => m.model === config.model);
     /* c8 ignore next -- no preset guard on an uncataloged model is deliberate (let the SDK say it) */
     if (!config.preset || !spec) return;
-    if (!spec.presets.some((p) => p.value === config.preset)) {
+    if (!(spec.presets ?? []).some((p) => p.value === config.preset)) {
       throw new Error(
-        `unknown preset "${config.preset}" for ${this.provider}/${config.model} (try: ${spec.presets.map((p) => p.value).join(", ")})`,
+        `unknown preset "${config.preset}" for ${this.provider}/${config.model} (try: ${(spec.presets ?? []).map((p) => p.value).join(", ")})`,
       );
     }
   }
 
   listModels(): ModelInfo[] {
-    return MODELS.map((m) => ({
-      provider: this.provider,
-      model: m.model,
-      presets: m.presets,
-      supportsImages: m.supportsImages,
-      ...(m.defaultPreset ? { defaultPreset: m.defaultPreset } : {}),
-      contextWindow: m.contextWindow,
-      maxOutputTokens: m.maxTokens,
-      pricing: m.pricing,
-    }));
+    return mergeModelMetadata(
+      this.provider,
+      MODELS.map((m) => ({
+        provider: this.provider,
+        model: m.model,
+        presets: m.presets,
+        supportsImages: m.supportsImages,
+        ...(m.defaultPreset ? { defaultPreset: m.defaultPreset } : {}),
+        contextWindow: m.contextWindow,
+        maxOutputTokens: m.maxTokens,
+        pricing: m.pricing,
+      })),
+      Object.fromEntries(
+        Object.entries(this.#modelOverrides).map(([model, config]) => {
+          const metadata = { ...config };
+          delete metadata.presets;
+          delete metadata.defaultPreset;
+          delete metadata.thinking;
+          return [model, metadata];
+        }),
+      ),
+    ).map((model) => {
+      const override = this.#modelOverrides[model.model];
+      const presets = override?.presets?.map((value) => ({ value })) ?? model.presets;
+      const inheritedDefault =
+        override?.presets === undefined ||
+        override.presets.some((value) => value === model.defaultPreset)
+          ? model.defaultPreset
+          : undefined;
+      const defaultPreset = override?.defaultPreset ?? inheritedDefault;
+      if (defaultPreset && !(presets ?? []).some(({ value }) => value === defaultPreset)) {
+        throw new Error(
+          `Default preset "${defaultPreset}" is not offered by ${this.provider}/${model.model}`,
+        );
+      }
+      const resolved = { ...model, ...(presets ? { presets } : {}) };
+      if (defaultPreset) resolved.defaultPreset = defaultPreset;
+      else delete resolved.defaultPreset;
+      return resolved;
+    });
   }
 
   /**
@@ -178,12 +234,31 @@ export class AnthropicProvider extends AnthropicMessagesTransport implements Mod
    */
   protected buildConfig(request: ModelRequest): AnthropicRequestConfig {
     const spec = MODELS.find((m) => m.model === request.modelConfig.model);
-    const preset = spec ? presetForSelection(spec, request.modelConfig) : undefined;
+    const model = this.listModels().find((entry) => entry.model === request.modelConfig.model);
+    const preset = model?.presets?.some(({ value }) => value === request.modelConfig.preset)
+      ? request.modelConfig.preset
+      : model?.defaultPreset;
+    const thinking =
+      this.#modelOverrides[request.modelConfig.model]?.thinking ??
+      (spec?.adaptiveThinking
+        ? { type: "adaptive" as const, display: "summarized" as const }
+        : undefined);
     return {
-      maxTokens: request.maxOutputTokens ?? spec?.maxTokens ?? MAX_TOKENS_FALLBACK,
+      maxTokens:
+        request.maxOutputTokens ??
+        this.#modelOverrides[request.modelConfig.model]?.maxOutputTokens ??
+        spec?.maxTokens ??
+        MAX_TOKENS_FALLBACK,
       // display must be explicit: Opus 4.7+ defaults to "omitted" (empty thinking text).
-      ...(spec?.adaptiveThinking ? { thinking: { type: "adaptive", display: "summarized" } } : {}),
-      ...(preset ? { effort: preset } : {}),
+      ...(thinking
+        ? {
+            thinking:
+              thinking.type === "disabled"
+                ? thinking
+                : { ...thinking, display: thinking.display ?? "summarized" },
+          }
+        : {}),
+      ...(preset ? { effort: preset as Effort } : {}),
     };
   }
 }

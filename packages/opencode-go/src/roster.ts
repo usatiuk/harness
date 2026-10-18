@@ -45,6 +45,8 @@ export function listModels(provider: string, models: readonly GoModelSpec[] = RO
   return models.map((spec) => ({
     provider,
     model: spec.model,
+    ...(spec.customToolInput ? { customToolInput: spec.customToolInput } : {}),
+    ...(spec.preferredEditTool ? { preferredEditTool: spec.preferredEditTool } : {}),
     ...(spec.supportsImages !== undefined ? { supportsImages: spec.supportsImages } : {}),
     ...(spec.label ? { label: spec.label } : {}),
     ...(spec.reasoning ? { reasoning: spec.reasoning } : {}),
@@ -55,7 +57,7 @@ export function listModels(provider: string, models: readonly GoModelSpec[] = RO
         }
       : {}),
     ...(spec.defaultPreset ? { defaultPreset: spec.defaultPreset } : {}),
-    contextWindow: spec.contextWindow,
-    maxOutputTokens: spec.maxOutputTokens,
+    ...(spec.contextWindow !== undefined ? { contextWindow: spec.contextWindow } : {}),
+    ...(spec.maxOutputTokens !== undefined ? { maxOutputTokens: spec.maxOutputTokens } : {}),
   }));
 }

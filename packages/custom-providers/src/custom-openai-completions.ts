@@ -4,7 +4,12 @@ import { apiKeyCredentials } from "@harness/openai-api";
 import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
 import type { CustomCompletionsModelConfig } from "./config.ts";
 import { applyOpenAIPreset, type RequestParams } from "./openai-presets.ts";
-import { listScopedModels, scopedModel, validateScopedConfig } from "./model-scope.ts";
+import {
+  listScopedModels,
+  scopedCapabilities,
+  scopedModel,
+  validateScopedConfig,
+} from "./model-scope.ts";
 
 export interface CustomOpenAICompletionsProviderOptions {
   /** Registry name; the config key that defined this provider. */
@@ -30,12 +35,7 @@ export class CustomOpenAICompletionsProvider extends OpenAIChatTransport {
   }
 
   capabilities(model: string): ModelCapabilities {
-    return {
-      contentTypes: ["text", "image"],
-      toolCalling: true,
-      // Function-only transport: the schema already rejects apply_patch for every model here.
-      fileTools: scopedModel(this.provider, this.#models, model).fileTools ?? "string_replace",
-    };
+    return scopedCapabilities(scopedModel(this.provider, this.#models, model));
   }
 
   listModels() {

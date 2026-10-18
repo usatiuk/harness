@@ -461,7 +461,7 @@ describe("LiteLLM discovery", () => {
     expect(provider.listModels().map((model) => model.model)).toEqual(["qualified", "hidden"]);
     expect(provider.listModels()[1]).toMatchObject({ contextWindow: 12345, presets: [] });
     expect(provider.listModels()[1]?.defaultPreset).toBeUndefined();
-    expect(provider.capabilities("hidden").fileTools).toBe("string_replace");
+    expect(provider.capabilities("hidden").preferredEditTool).toBe("replace");
   });
 
   it("bounds index model count and response bytes", async () => {
@@ -501,7 +501,7 @@ describe("LiteLLM discovery", () => {
               harness: {
                 version: 1,
                 transport: "openai-responses",
-                fileTools: "apply_patch",
+                preferredEditTool: "patch",
                 contextWindow: 1000,
               },
             },
@@ -534,7 +534,7 @@ describe("LiteLLM discovery", () => {
       maxOutputTokens: 50,
     });
     expect(work.listModels()[0]?.pricing).toBeUndefined();
-    expect(work.capabilities("coding").fileTools).toBe("apply_patch");
+    expect(work.capabilities("coding").preferredEditTool).toBe("patch");
     const copy = work.listModels();
     copy[0]!.model = "mutated";
     expect(work.listModels()[0]?.model).toBe("coding");
@@ -634,9 +634,9 @@ describe("LiteLLM discovery", () => {
     expect(() =>
       liteLLMConfigSchema.parse({
         baseUrl: "https://host",
-        models: { coding: { fileTools: "apply_patch" } },
+        models: { coding: { customToolInput: { supported: true, grammars: [] } } },
       }),
-    ).toThrow("apply_patch requires");
+    ).toThrow("custom tool input requires");
   });
 });
 
@@ -1075,4 +1075,72 @@ it("retains image claims when unrelated remote generation settings are incompati
     "Model 'text' has incompatible metadata; using configured defaults",
   );
   expect(provider.listModels()[0]?.supportsImages).toBe(false);
+});
+
+describe("tool-input metadata", () => {
+  it.each(["openai-completions", "openai-responses", "anthropic-messages"] as const)(
+    "adds a manual JSON patch model over %s",
+    (transport) => {
+      const config = liteLLMConfigSchema.parse({
+        baseUrl: "http://localhost:8787",
+        models: { manual: { transport, preferredEditTool: "patch", maxInputTokens: 12345 } },
+      });
+      const provider = new LiteLLMProvider("gateway", config, "test-key");
+      expect(provider.capabilities("manual")).toMatchObject({
+        preferredEditTool: "patch",
+        customToolInput: { supported: false, grammars: [] },
+      });
+      expect(provider.listModels()).toMatchObject([{ model: "manual", maxInputTokens: 12345 }]);
+    },
+  );
+
+  it("requires custom-input support before enabling grammars", () => {
+    expect(() =>
+      liteLLMConfigSchema.parse({
+        baseUrl: "http://localhost:8787",
+        models: { manual: { customToolInput: { supported: false, grammars: ["lark"] } } },
+      }),
+    ).toThrow("grammar support requires");
+  });
+
+  it("discovers agreed custom metadata and lets local configuration override it", async () => {
+    const gateway = await httpGateway((req, res) =>
+      json(
+        res,
+        req.path === "/v1/models"
+          ? {
+              data: [{ id: "coding" }],
+            }
+          : {
+              data: [
+                {
+                  model_name: "coding",
+                  model_info: {
+                    harness: {
+                      version: 1,
+                      transport: "openai-responses",
+                      preferredEditTool: "patch",
+                      customToolInput: { supported: true, grammars: ["lark"] },
+                    },
+                  },
+                },
+              ],
+            },
+      ),
+    );
+    gateways.push(gateway);
+    const provider = new LiteLLMProvider(
+      "gateway",
+      liteLLMConfigSchema.parse({
+        baseUrl: gateway.url,
+        models: { coding: { preferredEditTool: "replace" } },
+      }),
+      "test-key",
+    );
+    await provider.refreshModels(signal);
+    expect(provider.capabilities("coding")).toMatchObject({
+      preferredEditTool: "replace",
+      customToolInput: { supported: true, grammars: ["lark"] },
+    });
+  });
 });

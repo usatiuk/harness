@@ -38,7 +38,8 @@ it("keeps previews ephemeral and finalized phases, reasoning and search hints du
     capabilities: () => ({
       contentTypes: ["text"],
       toolCalling: true,
-      fileTools: "string_replace",
+      customToolInput: { supported: false, grammars: [] },
+      preferredEditTool: "replace",
     }),
     validateConfig: () => {},
     listModels: () => [],

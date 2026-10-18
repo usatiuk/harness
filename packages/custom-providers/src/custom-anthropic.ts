@@ -3,7 +3,12 @@ import { AnthropicMessagesTransport, type AnthropicRequestConfig } from "@harnes
 import { apiKeyCredentials } from "@harness/anthropic-api";
 import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
 import type { CustomAnthropicModelConfig, AnthropicPreset } from "./config.ts";
-import { listScopedModels, scopedModel, validateScopedConfig } from "./model-scope.ts";
+import {
+  listScopedModels,
+  scopedCapabilities,
+  scopedModel,
+  validateScopedConfig,
+} from "./model-scope.ts";
 
 /** Merges one configured preset's sampling knobs onto the built Messages config. */
 function applyAnthropicPreset(config: AnthropicRequestConfig, preset?: AnthropicPreset): void {
@@ -45,12 +50,7 @@ export class CustomAnthropicProvider extends AnthropicMessagesTransport {
   }
 
   capabilities(model: string): ModelCapabilities {
-    return {
-      contentTypes: ["text", "image"],
-      toolCalling: true,
-      // Defaults to text_editor: the Messages API's native editor profile.
-      fileTools: scopedModel(this.provider, this.#models, model).fileTools ?? "text_editor",
-    };
+    return scopedCapabilities(scopedModel(this.provider, this.#models, model));
   }
 
   listModels() {

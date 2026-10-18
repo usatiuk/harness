@@ -1,3 +1,4 @@
+import { toToolSchema } from "./tools.ts";
 import type {
   CompactionStrategy,
   ContextSource,
@@ -148,6 +149,13 @@ export class PluginHost {
     allow?: readonly string[],
   ): ToolSet {
     const tools = this.#toolContributors.flatMap((contribute) => contribute(caps, ctx));
-    return new ToolSet(allow ? tools.filter((tool) => allow.includes(tool.name)) : tools);
+    const selected = allow ? tools.filter((tool) => allow.includes(tool.name)) : tools;
+    return new ToolSet(
+      selected,
+      selected.map((tool) => ({
+        input: toToolSchema(tool, caps),
+        ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+      })),
+    );
   }
 }

@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@harness/protocol": "*",
-    "openai": "^7.27.0"
+    "openai": "^7.27.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

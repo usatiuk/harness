@@ -8,7 +8,10 @@ for (const type of [mistralAPIProviderType, mistralVibeProviderType]) {
         type.prepare({
           models: {
             "manual-model": { label: "Manual", contextWindow: 262144, maxOutputTokens: 8192 },
-            "another-model": {},
+            "another-model": {
+              temperature: 0.5,
+              reasoning: { supported: true, effortLevels: ["none", "high"] },
+            },
           },
         }),
       ).not.toThrow();
@@ -22,6 +25,7 @@ for (const type of [mistralAPIProviderType, mistralVibeProviderType]) {
       { label: " " },
       { context_size: 1024 },
       { presets: { high: {} } },
+      { temperature: 3 },
     ])("rejects invalid metadata %j", (model) => {
       expect(() => type.prepare({ models: { manual: model } })).toThrow();
     });
@@ -34,3 +38,11 @@ for (const type of [mistralAPIProviderType, mistralVibeProviderType]) {
     });
   });
 }
+
+it("rejects plaintext overrides on JSON-only Mistral transports", () => {
+  expect(() =>
+    mistralAPIProviderType.prepare({
+      models: { manual: { customToolInput: { supported: true, grammars: [] } } },
+    }),
+  ).toThrow("JSON tool input only");
+});

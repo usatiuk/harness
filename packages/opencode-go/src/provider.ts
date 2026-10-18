@@ -1,3 +1,5 @@
+import type { ConfiguredModel } from "./config.ts";
+import { mergeModelMetadata } from "@harness/protocol";
 import type {
   ModelCapabilities,
   ModelCallContext,
@@ -7,6 +9,7 @@ import type {
   ModelRequest,
 } from "@harness/protocol";
 import {
+  OPENAI_MODELS,
   OpenAIResponsesTransport,
   buildResponseParams,
   OpenAIChatTransport,
@@ -133,6 +136,7 @@ export interface OpenCodeGoProviderOptions {
   anthropic: AnthropicCredentials;
   /** Registry name; defaults to `"opencode-go"`. */
   provider?: string;
+  models?: Record<string, ConfiguredModel>;
 }
 
 /**
@@ -145,9 +149,12 @@ export class OpenCodeGoProvider implements ModelProvider {
   readonly #responses: GoResponsesProvider;
   readonly #messages: GoMessagesProvider;
   #models: readonly GoModelSpec[] = ROSTER;
+  readonly #configured: Record<string, ConfiguredModel>;
 
   constructor(opts: OpenCodeGoProviderOptions) {
     this.provider = opts.provider ?? "opencode-go";
+    this.#configured = opts.models ?? {};
+    this.#models = this.#mergeModels(ROSTER);
     const models = () => this.#models;
     this.#chat = new GoChatProvider(opts.openai, this.provider, models);
     this.#responses = new GoResponsesProvider(opts.openai, this.provider, models);
@@ -155,17 +162,70 @@ export class OpenCodeGoProvider implements ModelProvider {
   }
 
   capabilities(model: string): ModelCapabilities {
-    switch (familyOf(model, this.#models)) {
-      case "responses":
-        return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "apply_patch" };
-      case "messages":
-        return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "text_editor" };
-      case "chat":
-        // Function-only: the chat transport cannot carry freeform custom tools.
-        return { contentTypes: ["text", "image"], toolCalling: true, fileTools: "string_replace" };
-      case undefined:
-        throw new Error(`unknown model "${model}" for provider ${this.provider}`);
+    const spec = modelSpec(model, this.#models);
+    if (!spec) throw new Error(`unknown model "${model}" for provider ${this.provider}`);
+    const metadata = this.#configured[model];
+
+    return {
+      contentTypes: ["text", "image"],
+      toolCalling: true,
+      customToolInput: metadata?.customToolInput ?? { supported: false, grammars: [] },
+      preferredEditTool:
+        metadata?.preferredEditTool ??
+        (OPENAI_MODELS.some((entry) => entry.model === model) ? "patch" : "replace"),
+    };
+  }
+
+  #mergeModels(discovered: readonly GoModelSpec[]): GoModelSpec[] {
+    const entries = new Map(discovered.map((spec) => [spec.model, spec]));
+    for (const [model, { transport, presets, defaultPreset, ...metadata }] of Object.entries(
+      this.#configured,
+    )) {
+      const previous = entries.get(model);
+      const family = transport ?? previous?.family;
+      if (!family) throw new Error(`Model "${model}" requires a transport`);
+      if (metadata.customToolInput?.supported && family !== "responses") {
+        throw new Error(`Model "${model}" transport supports JSON tool input only`);
+      }
+      const info = mergeModelMetadata(
+        this.provider,
+        previous ? listModels(this.provider, [previous]) : [],
+        { [model]: metadata },
+      )[0]!;
+      const { presets: _presets, ...fields } = info;
+      void _presets;
+      const controls =
+        presets?.map(({ value, label, control }) => ({
+          value,
+          control,
+          ...(label !== undefined ? { label } : {}),
+        })) ?? previous?.presets;
+      const inheritedDefault =
+        presets === undefined || presets.some((preset) => preset.value === previous?.defaultPreset)
+          ? previous?.defaultPreset
+          : undefined;
+      const selectedDefault = defaultPreset ?? inheritedDefault;
+      for (const preset of controls ?? []) {
+        if ((preset.control.kind === "effort") === (family === "messages")) {
+          throw new Error(
+            `Preset "${preset.value}" for ${model} is incompatible with ${family} transport`,
+          );
+        }
+      }
+      if (selectedDefault && !controls?.some((preset) => preset.value === selectedDefault)) {
+        throw new Error(`Unknown default preset "${selectedDefault}" for ${model}`);
+      }
+      const resolved: GoModelSpec = {
+        ...previous,
+        ...fields,
+        family,
+        ...(controls ? { presets: controls } : {}),
+      };
+      if (selectedDefault) resolved.defaultPreset = selectedDefault;
+      else delete resolved.defaultPreset;
+      entries.set(model, resolved);
     }
+    return [...entries.values()];
   }
 
   validateConfig(config: ModelConfig): void {
@@ -190,7 +250,7 @@ export class OpenCodeGoProvider implements ModelProvider {
   async refreshModels(signal: AbortSignal) {
     const catalog = parseCatalog(await fetchCatalog(signal));
     signal.throwIfAborted();
-    this.#models = catalog.models;
+    this.#models = this.#mergeModels(catalog.models);
     return {
       status: catalog.diagnostics.length ? ("degraded" as const) : ("ready" as const),
       diagnostics: catalog.diagnostics,

@@ -88,7 +88,7 @@ export interface ToolContext {
 export type ToolInput<A> =
   | { kind: "function"; schema: ZodType<A> }
   | { kind: "json-schema"; schema: Record<string, unknown>; parse: (raw: unknown) => A }
-  | { kind: "custom"; grammar?: ToolGrammar; parse: (raw: string) => A };
+  | { kind: "custom"; jsonField: string; grammar?: ToolGrammar; parse: (raw: string) => A };
 
 export interface Tool<A = unknown> {
   readonly name: string;

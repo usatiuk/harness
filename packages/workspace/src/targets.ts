@@ -20,9 +20,15 @@ export function fileTargetsOfValidatedCall(call: ToolCall): string[] {
     case "str_replace_based_edit_tool":
       return pathArg(call.args);
     case "apply_patch": {
-      if (typeof call.args !== "string") return [];
+      const patch =
+        typeof call.args === "string"
+          ? call.args
+          : call.args && typeof call.args === "object" && !Array.isArray(call.args)
+            ? (call.args as Record<string, unknown>).patch
+            : undefined;
+      if (typeof patch !== "string") return [];
       try {
-        const changes = parseEnvelope(splitCustomEscalation(call.args).input);
+        const changes = parseEnvelope(splitCustomEscalation(patch).input);
         return changes.flatMap((change) =>
           change.type === "update_file" && change.newPath
             ? [change.path, change.newPath]

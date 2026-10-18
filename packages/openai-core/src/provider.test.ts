@@ -204,3 +204,106 @@ describe("context overflow normalization", () => {
     ).rejects.toBe(error);
   });
 });
+
+it("adds manual models and overrides metadata without inventing limits", () => {
+  const provider = new OpenAIResponsesProvider({
+    credentials: { client: async () => ({}) as never },
+    modelOverrides: {
+      "gpt-5.1": {
+        preferredEditTool: "replace",
+        customToolInput: { supported: false, grammars: [] },
+      },
+      manual: { label: "Manual", preferredEditTool: "patch" },
+    },
+  });
+  expect(provider.capabilities("gpt-5.1")).toMatchObject({
+    preferredEditTool: "replace",
+    customToolInput: { supported: false, grammars: [] },
+  });
+  expect(provider.capabilities("manual")).toMatchObject({
+    preferredEditTool: "patch",
+    customToolInput: { supported: false, grammars: [] },
+  });
+  expect(provider.listModels().find((entry) => entry.model === "manual")).toEqual({
+    provider: "openai",
+    model: "manual",
+    label: "Manual",
+    preferredEditTool: "patch",
+  });
+  expect(provider.capabilities("gpt-5.5").customToolInput).toEqual({
+    supported: true,
+    grammars: ["lark", "regex"],
+  });
+});
+
+describe("configured native model controls", () => {
+  it("advertises, validates, and sends configured efforts for a manually added model", async () => {
+    let params: OpenAI.Responses.ResponseCreateParamsStreaming | undefined;
+    const reached = new Error("Reached SDK boundary");
+    const provider = new OpenAIResponsesProvider({
+      modelOverrides: {
+        "manual-model": { presets: ["low", "high"], defaultPreset: "low" },
+        "gpt-5.1": { presets: ["high"], defaultPreset: "high" },
+      },
+      credentials: {
+        client: async () =>
+          ({
+            responses: {
+              create: async (value: OpenAI.Responses.ResponseCreateParamsStreaming) => {
+                params = value;
+                throw reached;
+              },
+            },
+          }) as unknown as OpenAI,
+      },
+    });
+    expect(provider.listModels().find(({ model }) => model === "manual-model")).toMatchObject({
+      presets: [{ value: "low" }, { value: "high" }],
+      defaultPreset: "low",
+    });
+    expect(
+      provider.listModels().find(({ model }) => model === "manual-model")?.contextWindow,
+    ).toBeUndefined();
+    expect(() =>
+      provider.validateConfig({ provider: "openai", model: "manual-model", preset: "medium" }),
+    ).toThrow("unknown preset");
+    expect(() =>
+      provider.validateConfig({ provider: "openai", model: "gpt-5.1", preset: "medium" }),
+    ).toThrow("unknown preset");
+    for (const preset of [undefined, "high"]) {
+      await expect(
+        consume(
+          provider.stream(
+            {
+              ...REQUEST,
+              modelConfig: {
+                provider: "openai",
+                model: "manual-model",
+                ...(preset ? { preset } : {}),
+              },
+            },
+            new AbortController().signal,
+            CALL_CONTEXT,
+          ),
+        ),
+      ).rejects.toBe(reached);
+      expect(params?.reasoning?.effort).toBe(preset ?? "low");
+    }
+  });
+});
+
+it("clears inherited default effort when configured presets replace its choices", () => {
+  for (const presets of [[], ["high"]]) {
+    const provider = new OpenAIResponsesProvider({
+      credentials: {
+        client: async () => {
+          throw new Error("unused");
+        },
+      },
+      modelOverrides: { "gpt-5.1": { presets } },
+    });
+    const model = provider.listModels().find((entry) => entry.model === "gpt-5.1")!;
+    expect(model.presets).toEqual(presets.map((value) => ({ value })));
+    expect(model.defaultPreset).toBeUndefined();
+  }
+});

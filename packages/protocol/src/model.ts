@@ -72,6 +72,8 @@ export interface ModelInfo {
   /** Maximum output reservation used when deciding whether the next input still fits. */
   maxOutputTokens?: number;
   reasoning?: ModelReasoningInfo;
+  customToolInput?: CustomToolInput;
+  preferredEditTool?: "patch" | "replace";
   /** Absent = cost not computable for this model. */
   pricing?: ModelPricing;
 }
@@ -90,19 +92,64 @@ export const findModel = (
 export const selectionId = (m: ModelConfig): string =>
   m.preset ? `${modelId(m)}/${m.preset}` : modelId(m);
 
-/**
- * The file-editing tool profile a model is trained on — one indivisible choice that selects
- * the whole edit/read/write roster, so nonsense combinations can't be expressed.
- * `string_replace` is the neutral default; `apply_patch` is OpenAI's V4A; `text_editor` is the
- * Claude-style editor profile. The workspace plugin owns every profile's concrete tools.
- */
-export const FILE_TOOLS = ["string_replace", "apply_patch", "text_editor"] as const;
-export type FileToolsProfile = (typeof FILE_TOOLS)[number];
+/** Endpoint support for raw-text tool arguments and optional generation constraints. */
+export const customToolInputSchema = z
+  .strictObject({
+    supported: z.boolean(),
+    grammars: z.array(z.enum(["lark", "regex"])),
+  })
+  .refine((value) => value.supported || value.grammars.length === 0, {
+    message: "grammar support requires custom tool input support",
+    path: ["grammars"],
+  });
+export type CustomToolInput = z.infer<typeof customToolInputSchema>;
+export const preferredEditToolSchema = z.enum(["patch", "replace"]);
+
+/** Shared optional metadata for additions and overrides in config.models.<id>. */
+export const modelMetadataSchema = z.strictObject({
+  label: z.string().trim().min(1).max(200).optional(),
+  supportsImages: z.boolean().optional(),
+  contextWindow: z.number().int().positive().optional(),
+  maxInputTokens: z.number().int().positive().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+  reasoning: modelReasoningInfoSchema.optional(),
+  customToolInput: customToolInputSchema.optional(),
+  preferredEditTool: preferredEditToolSchema.optional(),
+});
+export type ModelMetadata = z.infer<typeof modelMetadataSchema>;
+
+/** Merge configured fields onto catalog entries, appending explicitly added models. */
+export function mergeModelMetadata(
+  provider: string,
+  models: readonly ModelInfo[],
+  overrides: Readonly<Record<string, ModelMetadata>>,
+): ModelInfo[] {
+  const merged = new Map(models.map((model) => [model.model, model]));
+  for (const [model, metadata] of Object.entries(overrides)) {
+    const defined = Object.fromEntries(
+      Object.entries(metadata).filter(([, value]) => value !== undefined),
+    );
+    merged.set(model, { provider, model, ...merged.get(model), ...defined });
+  }
+  for (const model of merged.values()) {
+    if (
+      model.contextWindow !== undefined &&
+      model.maxOutputTokens !== undefined &&
+      model.maxOutputTokens > model.contextWindow
+    ) {
+      throw new Error(
+        `Invalid capacity for ${provider}/${model.model}: maxOutputTokens cannot exceed contextWindow`,
+      );
+    }
+  }
+  return [...merged.values()];
+}
 
 export interface ModelCapabilities {
   contentTypes: readonly string[];
   toolCalling: boolean;
-  fileTools: FileToolsProfile;
+  customToolInput: CustomToolInput;
+  preferredEditTool: "patch" | "replace";
 }
 
 export interface Usage {

@@ -1,13 +1,15 @@
 import { z } from "zod";
+import { modelMetadataSchema } from "@harness/protocol";
 import { MAX_MODELS } from "./catalog.ts";
 
-export const configuredModelSchema = z
-  .strictObject({
-    supportsImages: z.boolean().optional(),
-    label: z.string().trim().min(1).max(512).optional(),
-    contextWindow: z.number().int().positive().optional(),
-    maxOutputTokens: z.number().int().positive().optional(),
+export const configuredModelSchema = modelMetadataSchema
+  .extend({
+    temperature: z.number().min(0).max(2).optional(),
   })
+  .refine(
+    (model) => !model.customToolInput?.supported,
+    "This adapter supports JSON tool input only",
+  )
   .refine(
     (model) =>
       model.contextWindow === undefined ||

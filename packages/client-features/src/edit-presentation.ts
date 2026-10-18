@@ -66,9 +66,10 @@ const labels = (
 ): EditPresentation["labels"] => ({ running, succeeded, failed });
 
 const applyPatchPresentation = (args: unknown): EditPresentation | undefined => {
-  if (typeof args !== "string") return undefined;
+  const patch = typeof args === "string" ? args : recordArgs(args)?.patch;
+  if (typeof patch !== "string") return undefined;
   try {
-    const changes = parseEnvelope(splitCustomEscalation(args).input);
+    const changes = parseEnvelope(splitCustomEscalation(patch).input);
     if (changes.length === 0) return undefined;
     const first = changes[0]!;
     const operationLabels =

@@ -135,7 +135,7 @@ describe("plugin-owned compatible provider configuration", () => {
     );
   });
 
-  it("rejects fileTools apply_patch on a completions-typed model", async () => {
+  it("rejects custom input on a completions-typed model", async () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
@@ -145,17 +145,17 @@ describe("plugin-owned compatible provider configuration", () => {
           config: {
             endpoint: "http://localhost:8000/v1",
             apiKey: "k",
-            models: { "qwen3.6": { fileTools: "apply_patch" } },
+            models: { "qwen3.6": { customToolInput: { supported: true, grammars: [] } } },
           },
         },
       },
     });
     await expect(validateCustomSettings(home)).rejects.toThrow(
-      /only function tools \(not 'apply_patch'\)/,
+      /does not support custom tool input/,
     );
   });
 
-  it("rejects fileTools apply_patch on an anthropic-typed model (function-only transport)", async () => {
+  it("rejects custom input on an anthropic-typed model", async () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {
       model,
@@ -165,13 +165,13 @@ describe("plugin-owned compatible provider configuration", () => {
           config: {
             endpoint: "http://localhost:1234",
             apiKey: "k",
-            models: { claude: { fileTools: "apply_patch" } },
+            models: { claude: { customToolInput: { supported: true, grammars: [] } } },
           },
         },
       },
     });
     await expect(validateCustomSettings(home)).rejects.toThrow(
-      /only function tools \(not 'apply_patch'\)/,
+      /does not support custom tool input/,
     );
   });
 

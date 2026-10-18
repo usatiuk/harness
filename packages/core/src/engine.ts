@@ -67,7 +67,7 @@ import {
   allowsDirect,
 } from "./code-mode.ts";
 import { discoveryTools, isDiscoveryTool } from "./tool-discovery.ts";
-import { parseToolArgs } from "./tools.ts";
+import { parseToolArgs, customToolText, toToolSchema } from "./tools.ts";
 import { compactedWindow, estimateContextTokens, fallbackCompaction } from "./policies.ts";
 import { Runtime, type Delivery } from "./runtime.ts";
 import { applyDelivery, pendingInput } from "./delivery.ts";
@@ -1752,6 +1752,10 @@ export class Engine {
     children: Promise<ToolResult>[],
     modelInvocations: Promise<ModelInvocationResult>[],
   ): Promise<ToolResult> {
+    if (toolSet.has(call.name)) {
+      const text = customToolText(toolSet.get(call.name), call.args);
+      if (text !== undefined && typeof call.args !== "string") call = { ...call, args: text };
+    }
     type ParsedCall = ReturnType<typeof parseToolArgs> | undefined;
     const parsedCalls = new Map<ToolCall, ParsedCall>();
     const parseCall = (candidate: ToolCall): ParsedCall => {
@@ -1767,7 +1771,19 @@ export class Engine {
       callId: call.callId,
       signal,
       toolMeta: (name) => toolSet.metaOf(name),
-      toolContract: (name) => toolSet.contract(name),
+      toolContract: (name) => {
+        const contract = toolSet.contract(name);
+        if (!contract || name !== call.name || typeof call.args !== "string") return contract;
+        const tool = toolSet.get(name);
+        // Custom calls are normalized for middleware; its approval contract must
+        // describe that same text rather than the model-facing JSON wrapper.
+        return tool.input.kind === "custom"
+          ? {
+              ...contract,
+              input: { ...toToolSchema(tool), description: contract.input.description },
+            }
+          : contract;
+      },
       ...(call.name === EVALUATOR_NAME
         ? {
             codeTools: {
@@ -2323,8 +2339,9 @@ export class Engine {
 
   async #resolveTools(conversation: Conversation, runtime: Runtime): Promise<ToolSet> {
     const provider = this.host.providers.get(conversation.config.model.provider);
+    const caps = provider.capabilities(conversation.config.model.model);
     const tools = this.host.toolsFor(
-      provider.capabilities(conversation.config.model.model),
+      caps,
       { service: (key) => this.#service(runtime, key) },
       conversation.config.tools?.allow,
     );
@@ -2355,7 +2372,10 @@ export class Engine {
     controls.push(evaluatorTool(this.codeEvaluator, upfront, names));
     return new ToolSet(
       [...catalog.values(), ...controls],
-      catalog.schemas().map((schema) => catalog.contract(schema.name)!),
+      [
+        ...catalog.schemas().map((schema) => catalog.contract(schema.name)!),
+        ...controls.map((tool) => ({ input: toToolSchema(tool, caps) })),
+      ],
     );
   }
 
