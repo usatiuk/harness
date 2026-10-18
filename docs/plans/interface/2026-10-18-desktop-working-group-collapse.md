@@ -363,7 +363,7 @@ workflow with `bump=minor` to build v0.5.0 rather than changing versions locally
 
 - [x] Commit the qualified preview correction and push the scoped commits.
 - [x] Run the release workflow and verify source checks and all three builds.
-- [ ] Verify signed metadata, publish the release, and record delivery evidence.
+- [x] Verify signed metadata, publish the release, and record delivery evidence.
 
 Scoped commits aac8cb8, 9f1d9ba and ffea6aa are pushed. The existing
 [release workflow](https://github.com/usatiuk/harness/actions/runs/39114863455)
@@ -383,4 +383,11 @@ The rerun passes image history but repeats the lifecycle failure. Correct only
 that test's input prerequisites: await the existing subscription, then await the
 rendered command before submitting. Its mutation/deactivation assertions stay
 unchanged. All seven local lifecycle/launch tests pass; hosted Windows validation
-must confirm the correction. The image timeout cause remains unisolated.
+confirms the correction. The image timeout cause remains unisolated.
+
+Release completion: [v0.5.0](https://github.com/usatiuk/harness/releases/tag/v0.5.0)
+is published as latest with 19 assets. Test-only correction cad4337 passes fresh
+[Windows and Ubuntu CI](https://github.com/usatiuk/harness/actions/runs/39115855339),
+including native checks. Anonymous published manifest, signature and update-feed
+downloads pass the production signature verifier and report version 0.5.0 with
+all three expected platform entries. No released installer was executed locally.

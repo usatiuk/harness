@@ -49,6 +49,10 @@ follow-up prevents virtualizer-remount entrance animations and uses inline lates
 streaming previews with label-only expanded summaries. Its nine Chromium and
 four GTK WebKit regression cases pass. The delivery plan records the pre-existing
 history-anchor failure and visual limits.
+These desktop fixes and the explore-profile update are released in
+[v0.5.0](https://github.com/usatiuk/harness/releases/tag/v0.5.0). All three platform
+builds, signed metadata verification and fresh Windows/Ubuntu CI pass; public
+metadata downloads verify after publication.
 
 The [worktree project/picker follow-up](docs/plans/interface/2026-10-17-worktree-project-picker.md)
 groups conversations by original project before pagination and gives the picker

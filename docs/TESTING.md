@@ -252,7 +252,8 @@ Windows run). The lifecycle test sends input without awaiting mount/subscription
 The identical-source rerun passes image history but repeats the lifecycle failure.
 The lifecycle regression now awaits subscription and the rendered command before
 submitting, retaining all behavior assertions; all seven local file tests pass.
-Hosted Windows validation remains required. The image timeout cause remains
+Fresh hosted Windows/Ubuntu source and native checks pass in run 39115855339.
+The image timeout cause remains
 unisolated; no assertion, timeout or retry policy is relaxed.
 See the [release delivery evidence](plans/interface/2026-10-18-desktop-working-group-collapse.md#minor-release-delivery).
 
