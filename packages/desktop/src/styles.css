@@ -1137,7 +1137,7 @@ main {
   border: 0;
   padding: 0 2px;
   min-height: 52px;
-  max-height: 240px;
+  max-height: clamp(52px, 30vh, 320px);
   resize: none;
   field-sizing: content;
   background: transparent;
