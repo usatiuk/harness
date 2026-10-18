@@ -235,7 +235,6 @@ export function createDesktopRouter(
             ...draft,
             images: draft.images.filter((image) => !capturedImages.includes(image)),
           }));
-          await session.refreshSidebar();
           if (localStorage.getItem(session.storageKey(`draft:${id}`)) === field(data, "text"))
             localStorage.removeItem(session.storageKey(`draft:${id}`));
           return { ok: true };

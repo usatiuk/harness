@@ -317,14 +317,28 @@ it("updates saved titles in both the loaded view and cached conversation list th
     const conversation = await desktop.domain.createConversation();
     const id = conversation.id;
     desktop.recents.rows = [conversation];
+    desktop.projectPages.set("/proj", {
+      rows: [conversation],
+      cursor: null,
+      loading: false,
+      loaded: true,
+      error: null,
+    });
     const view = await desktop.load(conversation.id);
+    view.conversation = { ...view.conversation, workspaceRoot: "/proj" };
     await desktop.client.deliver(conversation.id, "first message", "send");
     await service.whenIdle(id);
     await vi.waitFor(() => expect(view.conversation.title).toBe("first message"));
     expect(desktop.recents.rows.find((row) => row.id === id)?.title).toBe("first message");
+    expect(desktop.projectPages.get("/proj")?.rows.find((row) => row.id === id)?.title).toBe(
+      "first message",
+    );
     release();
     await vi.waitFor(() => expect(view.conversation.title).toBe("Fix conversation naming"));
     expect(desktop.recents.rows.find((row) => row.id === id)?.title).toBe(
+      "Fix conversation naming",
+    );
+    expect(desktop.projectPages.get("/proj")?.rows.find((row) => row.id === id)?.title).toBe(
       "Fix conversation naming",
     );
   } finally {
@@ -565,6 +579,72 @@ it("isolates background streaming from connection/sidebar/other-chat subscribers
   } finally {
     startBurst();
     finish();
+    desktop.client.closeConnection();
+    await host.shutdown();
+    await server.shutdown();
+  }
+});
+
+it("moves the messaged conversation to the front of the sidebar in place", async () => {
+  const store = new InMemoryStore();
+  const service = new HarnessService({
+    codeEvaluator: unusedCodeEvaluator,
+    store,
+    home: "/nonexistent-harness-home",
+    defaults: { model: { provider: "fake", model: "fake-1" } },
+    plugins: [{ id: "fake", providers: () => [new FakeProvider([textStep("done")])] }],
+  });
+  const pair = createInProcessMessageConnectionPair();
+  const host = new HarnessRpcHost(service);
+  const server = new HarnessRpcSession({
+    connection: pair.right,
+    host,
+    server: { name: "test", version: "1" },
+  });
+  const desktop = new DesktopSession(pair.left);
+  registerFeatureServer(server);
+  server.start();
+  try {
+    await desktop.start();
+    const first = await desktop.domain.createConversation();
+    const second = await desktop.domain.createConversation();
+    const root = "/proj";
+    desktop.recents.rows = [first, second];
+    desktop.projectPages.set(root, {
+      rows: [first, second],
+      cursor: null,
+      loading: false,
+      loaded: true,
+      error: null,
+    });
+    const recents = desktop.recents;
+    const projects = desktop.projects;
+    const projectPage = desktop.projectPages.get(root)!;
+    for (const conversation of [first, second]) {
+      const view = await desktop.load(conversation.id);
+      view.conversation = { ...view.conversation, workspaceRoot: root };
+    }
+    // Deliver to whichever conversation sorted last, independent of clock granularity.
+    const before = desktop.recents.rows.map((row) => row.id);
+    const last = desktop.recents.rows.at(-1)!;
+    let notified = 0;
+    const unsubscribe = desktop.subscribeSidebar(() => {
+      notified += 1;
+    });
+    await desktop.client.deliver(last.id, "hello", "send");
+    await service.whenIdle(last.id);
+    // The send path must not reset the lists: same page objects, no refetch storm.
+    expect(desktop.recents).toBe(recents);
+    expect(desktop.projects).toBe(projects);
+    expect(desktop.projectPages.get(root)).toBe(projectPage);
+    await vi.waitFor(() => {
+      expect(desktop.recents.rows[0]?.id).toBe(last.id);
+      expect(desktop.projectPages.get(root)?.rows[0]?.id).toBe(last.id);
+    });
+    expect(notified).toBeGreaterThan(0);
+    unsubscribe();
+    expect(desktop.recents.rows.map((row) => row.id).sort()).toEqual([...before].sort());
+  } finally {
     desktop.client.closeConnection();
     await host.shutdown();
     await server.shutdown();

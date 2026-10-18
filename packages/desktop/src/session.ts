@@ -11,6 +11,7 @@ import { FEATURE_PLUGIN_CONTRACTS, HarnessPluginClient } from "@harness/client-f
 import { init, reduce } from "@harness/client-features/transcript-reducer";
 import { ApprovalClient, APPROVAL_CLIENT_CONTRACT_VERSION } from "@harness/approval/client";
 import {
+  conversationProjectRoot,
   isKernelEvent,
   textOf,
   type Conversation,
@@ -283,6 +284,27 @@ export class DesktopSession {
     await this.loadConversations(page, 5, workspaceRoot);
   }
 
+  /** A sent message makes its conversation most-recent in place — no list refetch.
+   * Order here is presentational; the server stays canonical on the next refetch. */
+  private touchConversation(id: ConversationId): void {
+    // Spawned children never appear in sidebar listings; leave them alone.
+    if (this.client.rootOf(id) !== id) return;
+    const conversation = this.views.get(id)?.conversation;
+    if (!conversation) return;
+    const front = (rows: Conversation[]): Conversation[] => {
+      const index = rows.findIndex((row) => row.id === id);
+      if (index <= 0) return index === 0 ? rows : [conversation, ...rows];
+      return [rows[index]!, ...rows.slice(0, index), ...rows.slice(index + 1)];
+    };
+    this.recents.rows = front(this.recents.rows);
+    const root = conversationProjectRoot(conversation);
+    // Only reorder a loaded page; fabricating an entry would masquerade as a
+    // complete list and suppress its real load.
+    const page = root === null ? undefined : this.projectPages.get(root);
+    if (page) page.rows = front(page.rows);
+    this.sidebarChanged();
+  }
+
   async refreshSidebar(): Promise<void> {
     const loaded = [...this.projectPages].map(
       ([root, page]) => [root, Math.max(5, page.rows.length)] as const,
@@ -386,15 +408,17 @@ export class DesktopSession {
           }
           if (isKernelEvent(event) && event.type === "title.changed") {
             view.conversation = { ...view.conversation, title: event.title };
-            this.recents.rows = this.recents.rows.map((row) =>
-              row.id === id ? { ...row, title: event.title } : row,
-            );
+            const titled = (row: Conversation): Conversation =>
+              row.id === id ? { ...row, title: event.title } : row;
+            this.recents.rows = this.recents.rows.map(titled);
+            for (const page of this.projectPages.values()) page.rows = page.rows.map(titled);
           }
           if (isKernelEvent(event) && event.type === "config.changed")
             view.conversation = { ...view.conversation, config: event.config };
           if (isKernelEvent(event) && event.type === "item.appended") {
             const item = event.item;
             if (!view.items.some((current) => current.id === item.id)) view.items.push(item);
+            if (item.type === "message" && item.role === "user") this.touchConversation(id);
           }
           view.state = reduce(view.state, event, Date.now());
           view.publish(
