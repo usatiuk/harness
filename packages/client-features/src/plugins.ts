@@ -7,6 +7,12 @@ import {
   worktreeSwitchRequest,
   worktreeManagedRequest,
   worktreeRemoveRequest,
+  changesListRequest,
+  changesDiffRequest,
+  type ChangeMode,
+  type ChangeFile,
+  type ChangesPage,
+  type FileDiff,
 } from "@harness/worktrees/client";
 import type { ManagedWorktree, WorkspaceSelection, WorktreeInfo } from "@harness/protocol";
 import type { ConversationId, HarnessEvent, ContentBlock } from "@harness/protocol";
@@ -45,6 +51,7 @@ import {
 } from "@harness/workspace/client";
 import type { ApprovalClient } from "@harness/approval/client";
 export type { SubagentIdentity, SubagentRow, SubagentPage } from "@harness/subagents/client";
+export type { ChangeMode, ChangeFile, ChangesPage, FileDiff } from "@harness/worktrees/client";
 
 export interface ActivitiesView {
   peek(id: string): ContentBlock[] | Promise<ContentBlock[]>;
@@ -68,6 +75,18 @@ export interface ShellRun {
 }
 
 export interface HarnessPlugins {
+  listChanges(
+    id: ConversationId,
+    mode: ChangeMode,
+    after?: string | null,
+    signal?: AbortSignal,
+  ): Promise<ChangesPage>;
+  readChangeDiff(
+    id: ConversationId,
+    mode: ChangeMode,
+    file: Pick<ChangeFile, "path" | "previousPath" | "status">,
+    signal?: AbortSignal,
+  ): Promise<FileDiff>;
   worktreeRepository(path: string): Promise<string | null>;
   createWorktreeConversation(
     cwd: string,
@@ -118,6 +137,31 @@ export class HarnessPluginClient implements HarnessPlugins {
   readonly #sandbox = new Map<string, SandboxState>();
   readonly #listeners = new Map<string, Set<(event: HarnessEvent) => void>>();
   readonly #shells = new Map<string, (shellId: string, event: ShellClientEvent) => void>();
+
+  listChanges(
+    id: ConversationId,
+    mode: ChangeMode,
+    after: string | null = null,
+    signal?: AbortSignal,
+  ) {
+    return this.#client.peer.request(
+      changesListRequest,
+      { conversationId: id, mode, after, limit: 200 },
+      signal ? { signal } : undefined,
+    );
+  }
+  readChangeDiff(
+    id: ConversationId,
+    mode: ChangeMode,
+    file: Pick<ChangeFile, "path" | "previousPath" | "status">,
+    signal?: AbortSignal,
+  ) {
+    return this.#client.peer.request(
+      changesDiffRequest,
+      { conversationId: id, mode, path: file.path, previousPath: file.previousPath },
+      signal ? { signal } : undefined,
+    );
+  }
 
   dockerEnvironments(limit: number, before?: string) {
     return this.#client.peer.request(sandboxEnvironmentsRequest, { limit, before: before ?? null });

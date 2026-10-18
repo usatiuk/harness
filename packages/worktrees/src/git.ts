@@ -15,13 +15,13 @@ export interface GitWorktree {
   locked: boolean;
 }
 
-async function git(cwd: string, args: string[], signal?: AbortSignal): Promise<string> {
-  const result = await execute("git", ["-C", cwd, ...args], {
+export async function git(cwd: string, args: string[], signal?: AbortSignal): Promise<string> {
+  const result = await execute("git", ["--literal-pathspecs", "-C", cwd, ...args], {
     encoding: "utf8",
     maxBuffer: 4 * 1024 * 1024,
     ...(signal ? { signal } : {}),
     // A branch-exists failure is the one Git diagnostic creation may retry.
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" },
   });
   return result.stdout;
 }

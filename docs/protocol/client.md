@@ -266,11 +266,20 @@ editor. A failed key write leaves the saved provider visible for credential retr
 
 Protocol 13 carries nullable `originalWorkspaceRoot` and `workspace.changed`.
 Current workspace drives execution; original workspace drives sidebar grouping and
-configuration. Both survive forks/restart. The `worktrees` v2 contract exposes
+configuration. Both survive forks/restart. The `worktrees` v4 contract exposes
 Git eligibility, creation, options, switching and paged managed ownership/removal.
 Options return null for a non-Git project. Agent tools use the same service and
 defer selection until the entire tool batch ends; client switching requires idle
 work. Expected workspace refusals have safe actionable RPC errors.
+
+`plugin.worktrees.changes.list` accepts a conversation ID, comparison mode,
+limit (up to 200) and nullable path cursor. It returns repository/default-branch/
+upstream metadata, an explicit unavailable reason, file status/path/rename source,
+nullable addition/deletion counts, and a continuation cursor. `plugin.worktrees.changes.diff` accepts the same
+conversation/mode and a repository-relative path with nullable rename source;
+it returns a bounded patch or unavailable reason. Both require an attached
+conversation and run on that server's current workspace. Modes are `uncommitted`,
+`unstaged`, `staged`, `branch` and `unpushed`; no Git mutation or fetch occurs.
 
 New-worktree selection accepts optional `branch`, shared by the `worktree_switch`
 tool and existing switch RPC. It is a literal new Git branch name, validated by

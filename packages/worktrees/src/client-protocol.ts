@@ -5,7 +5,54 @@ import {
   type WorkspaceSelection,
 } from "@harness/protocol";
 
-export const WORKTREES_CLIENT_CONTRACT_VERSION = 2;
+export const WORKTREES_CLIENT_CONTRACT_VERSION = 4;
+
+export const changeModeSchema = z.enum(["uncommitted", "unstaged", "staged", "branch", "unpushed"]);
+export type ChangeMode = z.infer<typeof changeModeSchema>;
+const changeFileSchema = z.strictObject({
+  path: z.string(),
+  previousPath: z.string().nullable(),
+  status: z.enum(["A", "M", "D", "R", "C", "T", "U", "?"]),
+  additions: z.number().int().nonnegative().nullable(),
+  deletions: z.number().int().nonnegative().nullable(),
+});
+export type ChangeFile = z.infer<typeof changeFileSchema>;
+const comparisonParams = {
+  conversationId: z.string(),
+  mode: changeModeSchema,
+};
+export const changesListRequest = defineRequest({
+  direction: "client-to-server",
+  method: "plugin.worktrees.changes.list",
+  params: z.strictObject({
+    ...comparisonParams,
+    after: z.string().nullable(),
+    limit: z.number().int().min(1).max(200),
+  }),
+  result: z.strictObject({
+    repository: z.string().nullable(),
+    defaultBranch: z.string().nullable(),
+    upstream: z.string().nullable(),
+    unavailable: z.string().nullable(),
+    files: z.array(changeFileSchema),
+    nextCursor: z.string().nullable(),
+  }),
+});
+export type ChangesPage = z.infer<typeof changesListRequest.result>;
+export const changesDiffRequest = defineRequest({
+  direction: "client-to-server",
+  method: "plugin.worktrees.changes.diff",
+  params: z.strictObject({
+    ...comparisonParams,
+    path: z.string().min(1),
+    previousPath: z.string().nullable(),
+  }),
+  result: z.strictObject({
+    patch: z.string(),
+    unavailable: z.string().nullable(),
+  }),
+});
+export type FileDiff = z.infer<typeof changesDiffRequest.result>;
 
 const tree = z.strictObject({
   path: z.string(),

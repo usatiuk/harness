@@ -8,7 +8,10 @@ import {
   worktreeSwitchRequest,
   worktreeManagedRequest,
   worktreeRemoveRequest,
+  changesListRequest,
+  changesDiffRequest,
 } from "@harness/worktrees/client";
+import { listChanges, readChangeDiff } from "@harness/worktrees";
 import type { ConversationId, JsonValue, RpcNotification } from "@harness/protocol";
 import { conversationOf } from "@harness/protocol";
 
@@ -52,6 +55,41 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
       throw error;
     }
   };
+  const changesWorkspace = (id: ConversationId) => {
+    const member = service
+      .conversationTreeState(id)
+      .find((member) => member.conversation.id === id);
+    if (!member) throw new Error("Attached conversation has no runtime");
+    return member.conversation.workspaceRoot;
+  };
+  session.onRequest(changesListRequest, (params, signal) =>
+    session.runAttached(
+      params.conversationId as ConversationId,
+      (operationSignal) =>
+        worktreeOperation(async () =>
+          listChanges(
+            changesWorkspace(params.conversationId as ConversationId),
+            params,
+            operationSignal,
+          ),
+        ),
+      signal,
+    ),
+  );
+  session.onRequest(changesDiffRequest, (params, signal) =>
+    session.runAttached(
+      params.conversationId as ConversationId,
+      (operationSignal) =>
+        worktreeOperation(async () =>
+          readChangeDiff(
+            changesWorkspace(params.conversationId as ConversationId),
+            params,
+            operationSignal,
+          ),
+        ),
+      signal,
+    ),
+  );
   session.onRequest(worktreeRepositoryRequest, (params) =>
     worktreeOperation(() => service.worktreeRepository(params.path)),
   );

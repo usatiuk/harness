@@ -2,6 +2,12 @@ import type { CliPlugins } from "./client-plugins.ts";
 
 /** Minimal client-plugin boundary for presentation tests. */
 export const testPlugins = (overrides: Partial<CliPlugins> = {}): CliPlugins => ({
+  listChanges: async () => {
+    throw new Error("Not configured in this fixture");
+  },
+  readChangeDiff: async () => {
+    throw new Error("Not configured in this fixture");
+  },
   worktreeRepository: async () => null,
   createWorktreeConversation: async () => {
     throw new Error("Not configured in this fixture");
