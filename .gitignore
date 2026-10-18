@@ -8,6 +8,7 @@ packages/connections/resources/
 packages/desktop/src-tauri/target/
 packages/desktop/src-tauri/gen/
 packages/desktop/test-results/
+.pw-browsers/
 native/target/
 release/output/
 release/staging/

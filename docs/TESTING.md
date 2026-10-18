@@ -97,12 +97,23 @@ separate begin/result inspection, failure-only labels, right-side tool chevrons 
 native keyboard expansion. A 60-second server-clock-skew scenario verifies live
 and completed labels use desktop observation time. Unit cases cover suffix-bearing
 call IDs and preserving a live group’s observed timing when history prepends. Quiet
-active previews are checked with long reasoning exceeding 2,000 characters, mixed
-three-reasoning/two-tool budgets, five-line reasoning-only previews at narrow
-width, peek/expansion visibility, terminal-state peeks and direct inspection
-through a preview row. A representative 100-call run with
-1,000-line writes verifies collapsed groups mount no calls and only opened calls
-mount output and diff DOM. Vitest covers desktop grouping, nested Eval result ordering, row identity and
+active previews are checked with long reasoning exceeding 2,000 characters,
+five-entry tails with mixed reasoning/tool rows, single-line reasoning previews at
+narrow width, tail persistence across expansion, identical reasoning rows in
+tail and expanded details, label-only expanded thought summaries, supersede
+folding, no opening animation on virtualized latest-tail restoration or
+superseding an expanded group, fold-at-any-size earlier groups,
+hover/focus highlighting, blank-reasoning chronology, bounded tool widths, and
+reading-anchor preservation on expansion. A DPR 1.25 screenshot comparison
+checks that scrolling output cannot bleed above a sticky header. A separate
+Chromium instance enables native scrollbars and samples row geometry throughout
+expansion to catch horizontal shifts. Streaming growth preserves open row
+details across the tail boundary. Terminal-state peeks remain directly
+inspectable. A representative 100-call run with 1,000-line writes verifies the
+latest collapsed group mounts five tail calls, keeps the hidden 95 unmounted,
+and mounts output and diff DOM only for opened calls. Qualification and
+the baseline-reproduced 12px automatic-history anchor failure are recorded in the
+[Work-group cleanup plan](plans/interface/2026-10-18-desktop-working-group-collapse.md). Vitest covers desktop grouping, nested Eval result ordering, row identity and
 subagent commentary delta replacement without changing the final result.
 Automatic-history cases cover prepend anchors, overlapping-request prevention,
 explicit retry after failure, and multipage collapsed history with keyboard
@@ -1642,7 +1653,9 @@ Provider request fixtures cover native Responses/Anthropic/Gemini 3 payloads and
 Chat/Mistral/older Gemini projections after parallel result batches. They establish
 serialization and canonical-history preservation, not live vendor acceptance.
 Desktop browser cases exercise paste/drop, image-only delivery, previews/viewer,
-drafts, delivery races and history; helper tests reject oversized batches before
+image-click retention, empty-space dismissal, initial viewer focus, single-Escape
+dismissal and trigger-focus restoration, drafts, delivery races and history;
+helper tests reject oversized batches before
 FileReader allocation. Native OS clipboard/drag-drop and remote execution image
 reads require separate platform qualification and are not established by fixtures.
 

@@ -473,9 +473,10 @@ fees are unavailable. Models author Markdown links; no citation transformation
 or provider-specific search-result UI runs in clients.
 Desktop groups consecutive reasoning, tool calls, provider activity hints and
 plugin-origin messages between other transcript
-entries into Work groups. Earlier groups with more than three entries collapse
-completely; the latest group keeps a five-entry peek and has an outer disclosure
-only above five entries. Smaller groups show their rows directly. Reasoning
+entries into Work groups. Every group except the last collapses to a single
+summary row regardless of size; only the latest group keeps a five-entry peek,
+with an outer disclosure whenever entries are hidden. A latest group with
+nothing hidden shows its rows directly under a plain title. Reasoning
 remains separately collapsed; opening its compact Thought row mounts the full
 smaller muted text. Reasoning rows show Thinking for X s while streaming and Thought for X s
 when locally observed timing is available. The group summary shows Working for X s
@@ -495,22 +496,32 @@ Eval arguments and results have separate begin/result rows with subtle horizonta
 boundaries. Child calls stay independently visible without opening their parent;
 results follow the last available descendant, including nested Eval calls.
 Desktop rows distinguish messages from nonrecursive, nonempty step groups.
-The latest group shows a quiet tail of recent tools and actual reasoning, with a
-shared five-visible-line budget, including after completion. The last five nonempty
-tool/reasoning entries stay in chronological order, with one line each; unused
-lines go to the newest reasoning entry. Reasoning renders only its last 2,000
-characters and clips from the top to keep its latest lines visible. Peek and
-expanded rows share the same rendering and individual disclosures. A faint left
-guide and small content indent associate rows with their Work heading. Work
-paragraphs use 4px spacing; compact reasoning peeks collapse blank lines while
-expanded reasoning preserves the original Markdown paragraphs. Expanding the
-outer group replaces its peek with all entries.
+The latest collapsed group shows a quiet tail of the last five nonempty
+work entries in chronological order, including after completion,
+until a newer group supersedes it; superseding folds the tail with the shared
+collapse animation. The latest tail appears immediately when a virtualized
+group remounts; restoration does not replay an opening animation. Expanding a
+group adds exactly the hidden entries above the tail without remounting it, so
+only the added rows animate. While expanded, the
+split stays at the same entry as new steps arrive, preserving open tool/thought
+details; closing restores the five-entry tail. Empty reasoning rows are omitted.
+Step rows render identically in the tail and in expanded details. A collapsed
+reasoning row shows its Thinking/Thought label followed inline by a single-line preview of
+the text's last 2,000 characters, with whitespace collapsed. Streaming updates
+keep the newest end visible by clipping older text from the left; the label stays
+in place. Opening the thought leaves only the label in the summary and renders the full original Markdown
+below, so the preview is not repeated. A faint left guide and small content
+indent associate rows with their Work heading. Work paragraphs use 4px spacing;
+compact reasoning previews collapse whitespace while expanded reasoning preserves
+the original Markdown paragraphs.
 
 Native named details allow one open outer Work disclosure and one open inner
 conversation disclosure at a time. Only the outer Work container scrolls, capped
-at 40vh; arguments, outputs and reasoning do not introduce nested scrolling.
-Open tool/thought headers stick to the top of that scroll area so their collapse
-controls remain reachable. Soft wide oval scroll shadows on Work containers and sidebar navigation indicate
+at 40vh, with a stable scrollbar gutter so expansion cannot shift row widths;
+arguments, outputs and reasoning do not introduce nested scrolling.
+Open tool/thought headers stick to the top of that scroll area with a one-pixel
+overlap to prevent fractional-scale paint gaps, so their collapse controls remain
+reachable. Soft wide oval scroll shadows on Work containers and sidebar navigation indicate
 content above/below and disappear at the corresponding edge. Work shadows use a
 pointer-transparent overlay above the scrolled content so opaque code blocks
 cannot cover them. The shared observer
@@ -527,7 +538,8 @@ used. Finished-group inspection preserves the reading position; the existing
 virtualizer measurement/follow handling owns transcript alignment. Grouping changes
 presentation only and preserves history anchors when earlier calls merge into a
 visible group. Loading earlier calls into a group can reset its disclosure to
-closed; expansion state is not persisted.
+closed; expansion state is not persisted. Clickable summary rows tint on hover
+and keyboard focus.
 
 Earlier history loads automatically near the top of the transcript through the
 existing bounded history action. A persistent intersection observer loads one page
@@ -941,7 +953,12 @@ Text drafts retain their existing storage. App restart loses unsent image drafts
 
 Transcript reduction retains image blocks for user/plugin messages and tool
 results. Desktop previews open a Radix modal spanning the app with a dark backdrop
-and top-right close button, using the existing modal focus handling. CLI displays image placeholders without base64. Accepted
+and top-right close button. The viewer surface receives initial focus, avoiding
+a close-button tooltip; one Escape press or a click on empty space dismisses it.
+Clicking the image leaves it open. The close control uses a subtle translucent
+hover/focus fill against the dark viewer. Closing restores focus to its preview
+trigger.
+CLI displays image placeholders without base64. Accepted
 images reconnect through ordinary history item references and chunk reads.
 Image signatures determine media types for both browser and native file reads;
 empty or generic browser File.type metadata does not reject valid images.

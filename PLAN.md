@@ -37,6 +37,16 @@ shares grid/fade animations, keeps compact Work peeks, caps outer scrolling at 4
 and adds transparent edge shadows to Work and sidebar navigation. Validation is
 tracked in the delivery plan.
 
+The [Work-group presentation cleanup](docs/plans/interface/2026-10-18-desktop-working-group-collapse.md)
+folds earlier groups at every size, preserves the latest tail across expansion,
+and uses uniform reasoning rows with inline previews. Review fixes preserve open
+details during streaming, bound tool widths, and prevent scrollbar width shifts.
+Full checks pass 1,606 tests; focused browser/native-WebKit regressions pass. The
+follow-up prevents virtualizer-remount entrance animations and uses inline latest
+streaming previews with label-only expanded summaries. Its nine Chromium and
+four GTK WebKit regression cases pass. The delivery plan records the pre-existing
+history-anchor failure and visual limits.
+
 The [worktree project/picker follow-up](docs/plans/interface/2026-10-17-worktree-project-picker.md)
 groups conversations by original project before pagination and gives the picker
 a readable current checkout, five recent worktrees and separated Original/New

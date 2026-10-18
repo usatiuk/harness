@@ -40,9 +40,11 @@ declare global {
       renameWorktree(branch: string): void;
       switchSidebarScope(scope: string): void;
       showEval(): void;
-      showLivePreview(reasoningOnly?: boolean): void;
+      showLivePreview(reasoningOnly?: boolean, withHistory?: boolean): void;
+      showBlankReasoning(withTool?: boolean): void;
       showLongToolRun(): void;
-      showWorkGroups(): void;
+      showWorkGroups(followingMessages?: number): void;
+      splitWorkGroup(): void;
       seedHistory(): void;
       seedCollapsedHistory(): void;
       historyCalls: number;
@@ -1025,7 +1027,31 @@ window.composerFixture = {
     );
     changed();
   },
-  showLivePreview(reasoningOnly = false) {
+  showBlankReasoning(withTool = false) {
+    const cells: Cell[] = [
+      {
+        kind: "reasoning",
+        id: "blank",
+        turnId: "turn",
+        text: "  ",
+        streaming: true,
+        startedAt: Date.now(),
+      },
+    ];
+    if (withTool)
+      cells.push({
+        kind: "tool",
+        callId: "after-blank",
+        turnId: "turn",
+        name: "read_file",
+        args: { path: "next.txt" },
+        startedAt: Date.now(),
+      });
+    view.state = { ...view.state, cells };
+    view.transcript.update(cells, "turn");
+    changed();
+  },
+  showLivePreview(reasoningOnly = false, withHistory = false) {
     const startedAt = Date.now();
     const reasoning = {
       kind: "reasoning" as const,
@@ -1052,12 +1078,22 @@ window.composerFixture = {
       startedAt,
       ...(running ? {} : { status: "ok" as const, completedAt: startedAt }),
     });
+    const history: Cell[] = withHistory
+      ? Array.from({ length: 80 }, (_, index) => ({
+          kind: "user",
+          id: `preview-history-${index}`,
+          turnId: "history",
+          text: `Earlier preview history ${index}`,
+          createdAt: index,
+        }))
+      : [];
     view.state = {
       ...view.state,
       turn: { id: "turn", status: "running", startedAt },
       cells: reasoningOnly
-        ? [reasoning]
+        ? [...history, reasoning]
         : [
+            ...history,
             call("preview-old", "read_file", { path: "old.ts" }),
             call("preview-glob", "glob", { pattern: "**/auth*" }),
             call("preview-read", "read_file", { path: "auth.ts" }),
@@ -1144,7 +1180,7 @@ window.composerFixture = {
     );
     changed();
   },
-  showWorkGroups() {
+  showWorkGroups(followingMessages = 0) {
     const cells: Cell[] = [];
     for (const [group, count] of [4, 3, 6].entries()) {
       for (let index = 0; index < count; index++)
@@ -1168,7 +1204,41 @@ window.composerFixture = {
           streaming: false,
         });
     }
+    for (let index = 0; index < followingMessages; index++)
+      cells.push({
+        kind: "user",
+        id: `following-${index}`,
+        turnId: `following-${index}`,
+        text: `Following message ${index}`,
+        createdAt: index,
+      });
     view.state = { ...view.state, turn: { id: "group-2", status: "completed" }, cells };
+    view.transcript.update(cells);
+    changed();
+  },
+  splitWorkGroup() {
+    const cells: Cell[] = [
+      ...view.state.cells,
+      {
+        kind: "assistant",
+        id: "after-split",
+        turnId: "after-split",
+        text: "Moving on",
+        streaming: false,
+      },
+      {
+        kind: "tool",
+        callId: "after-split",
+        turnId: "after-split",
+        name: "read_file",
+        args: { path: "next.txt" },
+        startedAt: 0,
+        completedAt: 1,
+        status: "ok",
+        output: "Next output",
+      },
+    ];
+    view.state = { ...view.state, cells };
     view.transcript.update(cells);
     changed();
   },

@@ -55,6 +55,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Presence } from "@radix-ui/react-presence";
 import { editPresentation } from "@harness/client-features/edit-presentation";
 import type { Cell, State } from "@harness/client-features/transcript-reducer";
 import { toolPermissionSchema, type ClientApproval } from "@harness/approval/client";
@@ -1144,30 +1145,28 @@ export function createDesktopRouter(
     );
   }
 
-  function WorkItems({ steps, preview = false }: { steps: TranscriptStep[]; preview?: boolean }) {
-    const visible = preview
-      ? steps.filter(({ cell }) => cell.kind !== "reasoning" || cell.text.trim() !== "").slice(-5)
-      : steps;
-    const reasoning = visible.findLast(({ cell }) => cell.kind === "reasoning");
+  function hasWorkContent({ cell }: TranscriptStep) {
+    return cell.kind !== "reasoning" || cell.text.trim() !== "";
+  }
+
+  function WorkItems({ steps, label }: { steps: TranscriptStep[]; label: string }) {
     return (
-      <div className="work-items" aria-label={preview ? "Recent work" : "Work details"}>
-        {visible.map((step) =>
-          step.cell.kind === "tool" ? (
-            <ToolCall
-              key={step.key}
-              cell={step.cell}
-              boundary={"boundary" in step ? step.boundary : undefined}
-            />
-          ) : step.cell.kind === "reasoning" ? (
-            <Reasoning
-              key={step.key}
-              cell={step.cell}
-              peekLines={preview ? (step === reasoning ? 6 - visible.length : 1) : undefined}
-            />
-          ) : (
-            <TranscriptCell key={step.key} cell={step.cell} />
-          ),
-        )}
+      <div className="work-items" aria-label={label}>
+        {steps
+          .filter(hasWorkContent)
+          .map((step) =>
+            step.cell.kind === "tool" ? (
+              <ToolCall
+                key={step.key}
+                cell={step.cell}
+                boundary={"boundary" in step ? step.boundary : undefined}
+              />
+            ) : step.cell.kind === "reasoning" ? (
+              <Reasoning key={step.key} cell={step.cell} />
+            ) : (
+              <TranscriptCell key={step.key} cell={step.cell} />
+            ),
+          )}
       </div>
     );
   }
@@ -1180,7 +1179,11 @@ export function createDesktopRouter(
     latest: boolean;
   }) {
     const scrollShadows = useScrollShadows();
-    const [open, setOpen] = useState(false);
+    const [expansion, setExpansion] = useState<{
+      tailStartKey: string | undefined;
+      animateTail: boolean;
+    }>();
+    const open = expansion !== undefined;
     const calls = row.steps.filter(
       (step) => step.cell.kind === "tool" && !("boundary" in step && step.boundary === "result"),
     ).length;
@@ -1227,25 +1230,62 @@ export function createDesktopRouter(
         {calls ? ` · ${calls} tool ${calls === 1 ? "call" : "calls"}` : ""}
       </span>
     );
-    const collapsible = row.steps.length > (latest ? 5 : 3);
+    const recent = row.steps.filter(hasWorkContent).slice(-5);
+    const recentStart = recent[0] ? row.steps.indexOf(recent[0]) : row.steps.length;
+    // Keep existing rows under the same parent while the expanded group grows,
+    // so streaming new steps cannot reset an open tool or reasoning disclosure.
+    const capturedStart =
+      expansion?.tailStartKey === undefined
+        ? row.steps.length
+        : row.steps.findIndex((step) => step.key === expansion.tailStartKey);
+    // History or canonical regrouping can remove the captured entry. Reconcile
+    // that presentation boundary to the current tail when it no longer exists.
+    const tailStart = expansion && capturedStart >= 0 ? capturedStart : recentStart;
+    const head = row.steps.slice(0, tailStart);
+    const hasHead = head.some(hasWorkContent);
+    const tail = row.steps.slice(tailStart);
+    // The tail is the quiet live region: open while this is the latest group, or
+    // while the user expands the group. Head rows are exactly the rows a toggle
+    // adds or removes, so only they animate through the disclosure body.
+    const tailOpen = latest || open;
+    // Mounting a virtualized latest tail is restoration, not an expansion.
+    const animateTail = !tailOpen || expansion?.animateTail;
     return (
       <div className="cell work-scroll-frame">
         <div className="tool-group-container scroll-shadows" ref={scrollShadows}>
-          {collapsible ? (
+          {hasHead || open || (!latest && recent.length > 0) ? (
             <Disclosure
               className="tool-group"
               unmountOnExit
               name="conversation-work"
               open={open}
-              onToggle={(event) => setOpen(event.currentTarget.open)}
+              onToggle={(event) => {
+                if (event.target !== event.currentTarget) return;
+                setExpansion(
+                  event.currentTarget.open
+                    ? { tailStartKey: tail[0]?.key, animateTail: !latest }
+                    : undefined,
+                );
+              }}
               title={title}
             >
-              <WorkItems steps={row.steps} />
+              {hasHead && <WorkItems steps={head} label="Work details" />}
             </Disclosure>
           ) : (
             <div className="work-group-title">{title}</div>
           )}
-          {(!collapsible || (latest && !open)) && <WorkItems steps={row.steps} preview />}
+          <Presence present={tailOpen}>
+            <div
+              className="collapse-grid work-tail"
+              data-state={tailOpen ? "open" : "closed"}
+              data-lazy={animateTail || undefined}
+              inert={!tailOpen}
+            >
+              <div className="collapse-body">
+                <WorkItems steps={tail} label="Recent work" />
+              </div>
+            </div>
+          </Presence>
         </div>
       </div>
     );
@@ -1253,12 +1293,9 @@ export function createDesktopRouter(
 
   const Reasoning = memo(function Reasoning({
     cell,
-    peekLines,
   }: {
     cell: Extract<Cell, { kind: "reasoning" }>;
-    peekLines?: number | undefined;
   }) {
-    const [open, setOpen] = useState(false);
     const duration =
       cell.observedTiming && cell.completedAt !== undefined
         ? Math.round((cell.completedAt - cell.startedAt) / 1000)
@@ -1276,19 +1313,21 @@ export function createDesktopRouter(
     );
     return (
       <Disclosure
-        className={`cell reasoning ${peekLines && !open ? "reasoning-peek" : ""}`}
+        className="cell reasoning"
         unmountOnExit
         name="conversation-step"
         title={
-          peekLines && !open ? (
-            <span className="preview-reasoning" style={{ maxHeight: `${peekLines * 1.65}em` }}>
-              <span>{cell.text.slice(-2000).replace(/\n\s*\n/gu, "\n")}</span>
-            </span>
-          ) : (
-            label
-          )
+          <span className="reasoning-summary">
+            <span className="reasoning-label">{label}</span>
+            {cell.text.trim() !== "" && (
+              <span className="preview-reasoning">
+                <span className="reasoning-excerpt">
+                  <span>{cell.text.slice(-2000).replace(/\s+/gu, " ")}</span>
+                </span>
+              </span>
+            )}
+          </span>
         }
-        onToggle={(event) => setOpen(event.currentTarget.open)}
       >
         <div className="message-actions">
           <FeedbackControls session={session} itemId={cell.id} />
