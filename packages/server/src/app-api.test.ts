@@ -613,7 +613,13 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
     await service.whenIdle(old.id);
     await desktop.refreshSidebar();
     expect(desktop.recents.rows[0]?.id).toBe(old.id);
-    expect(desktop.recents.rows).toHaveLength(60);
+    // Sending from below the fold prepends the touched root in place, so the
+    // refresh window grows by one to keep every loaded row: the 60 from paging
+    // plus the touched root, now canonically newest.
+    expect(desktop.recents.rows).toHaveLength(61);
+    expect(new Set(desktop.recents.rows.map((row) => row.id)).size).toBe(
+      desktop.recents.rows.length,
+    );
     expect(desktop.projects.rows).toHaveLength(66);
     expect(desktop.projects.rows[0]?.workspaceRoot).toBe(folders[0]);
     const unchanged = (await desktop.client.get(old.id))!.lastUsedAt;
