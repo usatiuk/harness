@@ -97,9 +97,10 @@ OpenCode Go additions require a transport when no catalog entry supplies one.
 Grammars require supported custom input. `preferredEditTool` is `patch` or `replace`;
 it does not establish raw-text support. Unknown compatible endpoints use JSON and
 replacement; known direct OpenAI models use raw text/Lark/regex and patches, known
-Codex models use Lark and patches. Go uses JSON with an explicit maintained GPT
-patch preference, fixing the former Responses-family inference that rejected Muse
-Spark requests. JSON-only adapters reject enabled custom input configuration.
+Codex models use Lark and patches. Go's known GPT entries use plaintext with
+Lark/regex on Responses and prefer patches; other entries use JSON, including
+Muse Spark. Explicit model overrides still win, and Chat/Messages remain JSON-only.
+These Go GPT defaults are user-requested, not claims discovered from its catalog. JSON-only adapters reject enabled custom input configuration.
 
 Codex refreshes its authenticated `/models?client_version=<Harness version>` catalog
 at boot using the existing discovery lifecycle. Its `apply_patch_tool_type:

@@ -165,14 +165,17 @@ export class OpenCodeGoProvider implements ModelProvider {
     const spec = modelSpec(model, this.#models);
     if (!spec) throw new Error(`unknown model "${model}" for provider ${this.provider}`);
     const metadata = this.#configured[model];
+    const knownGpt = OPENAI_MODELS.some((entry) => entry.model === model);
+    const customInput = knownGpt && spec.family === "responses";
 
     return {
       contentTypes: ["text", "image"],
       toolCalling: true,
-      customToolInput: metadata?.customToolInput ?? { supported: false, grammars: [] },
-      preferredEditTool:
-        metadata?.preferredEditTool ??
-        (OPENAI_MODELS.some((entry) => entry.model === model) ? "patch" : "replace"),
+      customToolInput: metadata?.customToolInput ?? {
+        supported: customInput,
+        grammars: customInput ? ["lark", "regex"] : [],
+      },
+      preferredEditTool: metadata?.preferredEditTool ?? (knownGpt ? "patch" : "replace"),
     };
   }
 

@@ -23,7 +23,8 @@ temperature/configured reasoning effort levels. Gemini adds no generation knobs.
 metadata. Unknown custom-input support uses JSON; unknown editing preference uses
 replacement. Unknown capacities remain unknown. OpenAI known supported models
 use plaintext plus Lark/regex and patches; Codex known models use Lark and patches.
-Go uses JSON and only explicitly known GPT entries prefer patches.
+Go's known GPT entries prefer patches and use plaintext with Lark/regex on
+Responses; other entries use JSON. User configuration takes precedence.
 
 Codex's upstream catalog explicitly exposes `apply_patch_tool_type: "freeform"`;
 consume that patch recommendation plus the required advertised reasoning choices
@@ -93,3 +94,15 @@ shared model name. A Codex regression verifies manual additions remain JSON-only
 unless explicitly configured. Final full-suite rerun: 1,671 passed, 41 skipped;
 final typecheck and targeted cleanup lint pass. The documentation/cleanup commit
 completes the handoff. Unrelated untracked `work/` content remains untouched.
+
+## Go GPT defaults follow-up
+
+The user requested enabling custom input for Go GPT models. Reuse the existing
+exact GPT roster membership check for patch preference and plaintext defaults;
+Chat/Messages remain JSON-only. `gpt-5.6-luna` and `gpt-6-luna` now default to
+plaintext with Lark/regex on their Responses route. Explicit config can disable
+it. Other model defaults, including Muse Spark, are unchanged. LiteLLM changes
+were explicitly dropped. Focused Go regression tests: 28 passed. Typecheck, lint, formatting and diff checks
+pass. The default full check hits the known `/tmp` Git-fixture environment failure;
+the full suite outside the sandbox with `TMPDIR=/var/tmp` passes 1,674 tests
+(41 skipped). No LiteLLM files or routing defaults changed.

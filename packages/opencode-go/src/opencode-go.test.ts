@@ -96,8 +96,8 @@ describe("OpenCodeGoProvider", () => {
     expect(p.capabilities("minimax-m3").preferredEditTool).toBe("replace");
     expect(p.capabilities("deepseek-v4-pro").preferredEditTool).toBe("replace");
     expect(p.capabilities("gpt-5.6-luna").customToolInput).toEqual({
-      supported: false,
-      grammars: [],
+      supported: true,
+      grammars: ["lark", "regex"],
     });
     expect(() => p.capabilities("unknown-model")).toThrow(/unknown model/);
   });
@@ -536,4 +536,31 @@ it("clears inherited defaults when configured presets are emptied", () => {
   const model = p.listModels().find((entry) => entry.model === "gpt-5.6-luna")!;
   expect(model.presets).toEqual([]);
   expect(model.defaultPreset).toBeUndefined();
+});
+
+it.each(["gpt-5.6-luna", "gpt-6-luna"])("enables plaintext and grammars for Go %s", (model) => {
+  expect(provider().capabilities(model)).toMatchObject({
+    customToolInput: { supported: true, grammars: ["lark", "regex"] },
+    preferredEditTool: "patch",
+  });
+  const configured = new OpenCodeGoProvider({
+    openai: { client: neverCredentials() },
+    anthropic: { client: neverCredentials() },
+    models: { [model]: { customToolInput: { supported: false, grammars: [] } } },
+  });
+  expect(configured.capabilities(model).customToolInput).toEqual({
+    supported: false,
+    grammars: [],
+  });
+});
+it("keeps Go GPT models JSON-only when explicitly routed through chat", () => {
+  const configured = new OpenCodeGoProvider({
+    openai: { client: neverCredentials() },
+    anthropic: { client: neverCredentials() },
+    models: { "gpt-6-luna": { transport: "chat" } },
+  });
+  expect(configured.capabilities("gpt-6-luna").customToolInput).toEqual({
+    supported: false,
+    grammars: [],
+  });
 });

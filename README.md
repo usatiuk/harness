@@ -257,7 +257,8 @@ Configured fields win over discovered or maintained metadata. New models retain
 unknown limits unless configured. Custom input defaults to JSON and editing to
 replacement for unknown endpoints/models. Known direct OpenAI models use plaintext
 with Lark/regex and patches; known Codex models use Lark and patches. OpenCode Go
-uses JSON, with patches for explicitly maintained GPT entries. JSON-only adapters
+uses plaintext with Lark/regex for its known GPT entries on Responses, and JSON
+for other entries. Known GPT entries prefer patches. JSON-only adapters
 reject enabled custom input; choosing patches works with either encoding. New
 OpenCode Go IDs also require `transport` (`chat`, `responses`, or `messages`).
 Generation controls remain provider-owned: OpenAI/Codex accept `presets` (effort
