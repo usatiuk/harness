@@ -355,12 +355,30 @@ server/UI commits are 0808208 and 80900e1 and were pushed before this follow-up.
 
 ## Minor release qualification
 
-Preparing v0.7.0 through the existing Release workflow. Hosted Windows CI exposed
+Published v0.7.0 through the existing Release workflow. Hosted Windows CI exposed
 invalid test fixtures: Windows forbids control characters and double quotes in
 filenames. The general line-count test now uses a Windows-valid literal filename
 on that platform; the newline/quote-specific integration test runs only where
 those filenames can exist. Product behavior and assertions are unchanged.
 
-- [ ] Pass full local checks and hosted Linux/Windows CI for the fixture correction.
-- [ ] Build all three release targets and verify signed release assets.
-- [ ] Publish v0.7.0 and verify the public release/update metadata.
+- [x] Pass full local checks and hosted Linux/Windows CI for the fixture correction.
+- [x] Build all three release targets and verify signed release assets.
+- [x] Publish v0.7.0 and verify the public release/update metadata.
+
+Fixture correction f6f3e45 passes full unrestricted local checks (1,686 tests,
+41 skipped). Hosted CI run 39136524848 passes Ubuntu (1,682 / 45 skipped) and
+Windows (1,668 / 59 skipped), including native checks. The first release run
+39136528641 stopped before its version bump on the existing Docker glob test's
+five-second timeout. All 11 Docker cases pass locally and in hosted Ubuntu CI;
+the timeout's cause remains unestablished, with no assertions, deadlines or retry
+policy changed. Fresh release run 39136864606 passes the complete source gate
+and creates v0.7.0 at deb45f1.
+
+[v0.7.0](https://github.com/usatiuk/harness/releases/tag/v0.7.0) is published as
+latest with 19 assets. [Release run 39136864606](https://github.com/usatiuk/harness/actions/runs/39136864606)
+passes all three platform builds and signed draft assembly. Downloaded assets
+pass the production native manifest/updater signature verifiers, all nine
+server/CLI/launcher size and SHA-256 checks, target/version and release URL checks.
+Anonymous public manifest, signature and update-feed downloads pass verification;
+the GitHub latest endpoint resolves to v0.7.0. No released installer was executed
+locally. Hosted source/native CI evidence is [run 39136524848](https://github.com/usatiuk/harness/actions/runs/39136524848).

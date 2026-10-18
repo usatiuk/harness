@@ -9,6 +9,10 @@ runtime, workspace package or persisted Git state is introduced. Diff display
 preferences stay client-local. Full unrestricted validation passes 1,686 tests
 with 41 gated skips; 27 focused Chromium cases and the desktop build pass. Platform
 limits are recorded in the delivery plan.
+[v0.7.0](https://github.com/usatiuk/harness/releases/tag/v0.7.0) is published as
+latest with the sidebar and model/tool-input changes. Hosted Windows/Ubuntu CI,
+all three native builds, 19 release assets and public signed metadata verification
+pass; release evidence is recorded in the sidebar delivery plan.
 
 The [model metadata and portable tool-input refactor](docs/plans/cross-cutting/2026-10-18-model-tool-inputs.md)
 is complete: independent editing preference/custom-input support, shared JSON
@@ -23,7 +27,7 @@ delivers persistent native command temporary storage, active sandbox instruction
 phase-free message presentation and the `none` backend rename/native default.
 Full checks pass 1,623 tests; real Bubblewrap and focused headless Chromium/WebKit
 checks pass. [v0.6.0](https://github.com/usatiuk/harness/releases/tag/v0.6.0) is
-published as latest; Windows/Ubuntu CI, three platform builds and signed public
+published; Windows/Ubuntu CI, three platform builds and signed public
 metadata verification pass. Phase data and OpenAI replay are preserved.
 
 The [image-input v1 plan](docs/plans/cross-cutting/2026-10-17-image-input.md)

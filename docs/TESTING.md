@@ -573,6 +573,10 @@ unchanged. Edge initially failed before assertions when its sandboxed temporary
 profile could not be written; the unchanged unsandboxed headless suite passed.
 No live vendor, native GUI or installed-app execution was performed locally for
 this integration.
+The same Docker glob case exceeded five seconds in the first v0.7.0 release
+source gate (run 39136528641). Its unchanged 11-case file passes locally and in
+hosted Ubuntu CI 39136524848; fresh release run 39136864606 passes the full gate.
+The timing cause remains open; no deadline, assertion or retry policy changed.
 After validation, the user's Node 24 development command failed because this
 checkout's SQLite binary targeted Node 22. Rebuilding only `better-sqlite3` for
 Node 24 restored its in-memory open/query/close smoke check. No persistent database
