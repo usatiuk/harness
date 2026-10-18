@@ -1,5 +1,9 @@
 # Harness plan
 
+The [sandbox context and presentation follow-up](docs/plans/cross-cutting/2026-10-18-sandbox-context-and-message-presentation.md)
+tracks persistent native command temporary storage, active sandbox instructions,
+phase-free message presentation and the `none` backend rename/native default.
+
 The [image-input v1 plan](docs/plans/cross-cutting/2026-10-17-image-input.md)
 delivers inline images, previews/viewer, file/MCP ingestion and existing-provider
 request mappings, plus model image metadata and next-request validation. A

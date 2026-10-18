@@ -1,8 +1,9 @@
 import { linkedGitDirectories } from "@harness/worktrees";
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import { realpath } from "node:fs/promises";
-import { realpathSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { mkdtempSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ByteRange, ToolCall } from "@harness/protocol";
 import {
   executionEscalationOf,
@@ -15,6 +16,12 @@ import {
   type SpawnedProcess,
 } from "@harness/execution";
 import type { NativeSandboxConfig } from "./config.ts";
+
+// Shared by commands in this server process. A restart gets a fresh directory;
+// old directories are left to the operating system's temporary-file cleanup.
+let temporaryDirectory: string | undefined;
+const commandTemporaryDirectory = (): string =>
+  (temporaryDirectory ??= mkdtempSync(join(tmpdir(), "harness-native-tmp-")));
 
 function denied(operation: string, path: string): Error {
   return Object.assign(new Error(`${operation} denied by native sandbox: ${path}`), {
@@ -137,7 +144,8 @@ export class NativeExecutionContext implements ExecutionContext {
       "/dev",
       "--proc",
       "/proc",
-      "--tmpfs",
+      "--bind",
+      commandTemporaryDirectory(),
       "/tmp",
       "--tmpfs",
       "/run",

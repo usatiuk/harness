@@ -58,6 +58,12 @@ configurable. Routine confined calls need no approval. Managed tools may request
 an explicit host escape; after approval only that invocation receives the local
 unconfined context.
 
+Shell commands share a private `/tmp` directory across workspaces in the server
+process. A lazy temporary host directory is bind-mounted at `/tmp`, hiding host
+temporary files; `/run` remains fresh per-command tmpfs. Server restart selects a
+new directory, and OS temporary-file cleanup owns old directories. Native file
+tools still resolve host paths; this temporary mount applies to shell commands.
+
 Native v1 validates built-in mutation paths before performing host IO. The check
 and operation are not atomic against another process replacing a path with a
 symlink. This limitation is documented and blocks stronger isolation claims.

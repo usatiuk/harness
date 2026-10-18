@@ -1,0 +1,66 @@
+# Sandbox context and message presentation
+
+Status: Active.
+
+## Scope and decisions
+
+Four separately committed changes, authorized October 18:
+
+1. Native shell `/tmp` persists across commands in one server process. Lazily
+   bind a private host temporary directory at `/tmp`, shared across workspaces.
+   A restart selects a fresh directory; rely on OS temporary-file cleanup rather
+   than adding teardown machinery. Host `/tmp` stays hidden from shell commands;
+   `/run` remains per-command tmpfs. Native file tools retain host-path semantics.
+2. The sandbox plugin contributes instructions from its active execution service.
+   Native reports actual workspace/write/network settings and command temporary
+   directory lifetime. Docker reports its mapped workspace and observed writable
+   access as the container user, with container-owned temporary storage. Explain
+   escape availability, referencing existing tool documentation rather than
+   duplicating escalation syntax. Local execution adds no sandbox prompt.
+3. Assistant phases stop affecting presentation. Desktop/CLI remove phase labels;
+   CLI removes commentary dimming. Desktop actions depend only on position and
+   running state. Stored/API phase values, reducers and provider replay remain
+   unchanged. Parent-side subagent peeks already omit phases.
+4. Rename the unconfined backend to `none` in UI/config/API, accepting saved
+   `local` as an input alias. Server-owned defaults select native only when Linux
+   Bubblewrap is usable, otherwise none. Explicit choices win and explicit native
+   failures do not silently become unconfined execution. Keep the internal
+   `LocalExecutionContext` name. No client-side host probing.
+
+Use existing context-source and settings-resolution seams. No new sandbox
+settings, generic execution lifecycle or migrations. Public contract changes for
+the backend rename must be reflected in contract versions.
+
+## Milestones and completion checks
+
+- [x] Persistent native `/tmp`: real Bubblewrap checks cover cross-command/context
+      persistence, hidden host temp, private runtime state and existing write
+      boundaries; focused tests pass and commit separately.
+- [ ] Active sandbox prompt: tests cover actual selected service, native settings,
+      mapped Docker paths/write access and absent local context; commit separately.
+- [ ] Phase-free presentation: headless browser and CLI checks cover unknown and
+      known phases, interim/final actions, copy text and phase-preserving data;
+      commit separately.
+- [ ] Backend rename/default: saved alias, canonical API values, host support
+      selection, explicit choices and server/client agreement verified; commit
+      separately.
+- [ ] Independent correctness, simplicity and evidence reviews; reconcile docs,
+      run full `npm run check`, record limitations and leave a clean worktree.
+
+## Validation
+
+Use focused Vitest tests per increment and headless Chromium/WebKit presentation
+tests. Exercise real Bubblewrap outside the outer sandbox when necessary; mocked
+mount arguments alone do not establish confinement. Docker permission/path tests
+use its existing controlled provisioning/exec boundary; report real Docker
+availability separately. Full checks use the recorded `/var/tmp` test adjustment
+to avoid the unrelated host `/tmp/.git` marker.
+
+### Native temporary storage evidence
+
+Focused native/provider tests pass 12/12. Real Bubblewrap passes 4/4, including
+two workspace roots sharing the private temporary directory, hidden host `/tmp`,
+fresh `/run`, workspace write boundaries and resolver visibility. Three unrelated
+Docker-dependent worktree integration cases skip when Docker is unavailable.
+Three read-only reviews report no scoped blockers. Restart freshness follows
+process-local ownership and `mkdtemp`; no server-restart integration was added.
