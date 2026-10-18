@@ -109,6 +109,22 @@ export class NativeExecutionContext implements ExecutionContext {
       : undefined;
   }
 
+  sandboxInstructions(): string {
+    return [
+      "Sandbox backend: native Linux (Bubblewrap).",
+      this.workspaceRoot
+        ? `Workspace: ${this.workspaceRoot} (${this.config.workspaceWrite ? "writable" : "read-only"}).`
+        : "No workspace is selected; workspace writes are disabled.",
+      `Command network access: ${this.config.network ? "enabled" : "disabled"}.`,
+      "Host files outside writable mounts are read-only. Native file tools access host paths; shell commands use the sandbox mounts.",
+      ...(this.#gitDirectory && this.config.workspaceWrite
+        ? [`Shell commands may also write linked Git metadata at ${this.#gitDirectory}.`]
+        : []),
+      "Shell /tmp is private and writable, shared across commands and workspaces in this Harness server process. Server restart selects a fresh directory. Shell /run is fresh for each command; host /tmp and /run are hidden from commands.",
+      "Host escape requires approval; use the tool's documented escalation mechanism for an individual call.",
+    ].join("\n");
+  }
+
   read(path: string, range?: ByteRange): Promise<Uint8Array> {
     return this.unconfined.read(path, range);
   }

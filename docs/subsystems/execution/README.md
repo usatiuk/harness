@@ -27,6 +27,15 @@ The kernel carries this context as the workspace-scoped `"execution"` service.
 Activation explicitly prepares it; workspace, approval, agents, output and
 activities resolve the same cached instance. Clients use the public RPC boundary.
 
+The sandbox plugin contributes model instructions from that active instance.
+Native instructions report workspace write/network settings and the shell's
+temporary mounts, and refer to tool documentation for approved host escape.
+Docker reports the mapped container cwd and probes workspace writability as its
+remote user; probe failures surface instead of becoming a permission claim.
+Docker temporary-file lifetime follows its container/mount configuration and
+offers no host escape. Unconfined execution adds no sandbox instructions. Tool
+schemas/descriptions remain the sole documentation for escalation syntax.
+
 ## Workspace tools and dialects
 
 The workspace plugin contributes a roster from the active model's file-tool

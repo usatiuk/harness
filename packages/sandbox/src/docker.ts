@@ -75,6 +75,26 @@ export class DockerExecutionContext implements ExecutionContext {
     await this.#whileOpen((await this.#openEnvironment()).start(), signal);
   }
 
+  async sandboxInstructions(): Promise<string> {
+    const result = await this.#withRetry(async (handle) => {
+      const workspace = this.#workspaceFolder(handle);
+      return {
+        ...(await captureText("docker", [...this.#exec(handle), "test", "-w", workspace], {
+          signal: this.#lifetime.signal,
+        })),
+        workspace,
+      };
+    });
+    if ((result.exitCode !== 0 && result.exitCode !== 1) || result.stderr.trim() !== "")
+      this.#fail("check workspace access", result.workspace, result);
+    return [
+      "Sandbox backend: Docker (dev container).",
+      `Tool workspace: ${result.workspace} (${result.exitCode === 0 ? "writable" : "not writable"} as the container user). Host workspace ${this.workspaceRoot} maps here.`,
+      "Tools execute inside the dev container. Its /tmp is shared between commands; its lifetime follows the container filesystem and mount configuration. Do not rely on it surviving container restart or rebuild.",
+      "Host escape is unavailable for Docker tools.",
+    ].join("\n");
+  }
+
   async read(path: string, range?: ByteRange): Promise<Uint8Array> {
     // Range read via `dd` with byte-granular skip/count (GNU `iflag`), so a large block size still
     // reads exactly `[offset, offset+length)` in a couple of syscalls rather than one byte at a time.

@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Conversation, PluginDefinition, ServiceProvider } from "@harness/protocol";
-import { LocalExecutionContext } from "@harness/execution";
+import { executionServiceOf, LocalExecutionContext } from "@harness/execution";
 import { sandboxConfigSchema } from "./config.ts";
 import { DockerExecutionContext } from "./docker.ts";
 import { dockerInventory, controlDockerWorkspace } from "./docker-inventory.ts";
@@ -21,6 +21,18 @@ function definition(environments: DockerEnvironmentPool): PluginDefinition {
     create() {
       return {
         id: "sandbox",
+        contextSources: () => [
+          {
+            id: "sandbox",
+            async instructions(ctx) {
+              const execution = executionServiceOf(ctx);
+              return execution instanceof NativeExecutionContext ||
+                execution instanceof DockerExecutionContext
+                ? [{ type: "text", text: await execution.sandboxInstructions() }]
+                : [];
+            },
+          },
+        ],
         services: (): ServiceProvider[] => [
           {
             key: "execution",
