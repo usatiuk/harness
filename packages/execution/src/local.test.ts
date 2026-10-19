@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall } from "@harness/protocol";
+import { selectUserShell } from "./shell.ts";
 import { LocalExecutionContext } from "./local.ts";
 
 const td = new TextDecoder();
@@ -90,7 +91,9 @@ describe("LocalExecutionContext", () => {
 
   it("advertises the host shell and preserves UTF-8 command output", async () => {
     const ctx = new LocalExecutionContext(await tmp());
-    expect(ctx.shellKind).toBe(process.platform === "win32" ? "powershell" : "bash");
+    expect(ctx.shellKind).toBe(
+      process.platform === "win32" ? "powershell" : selectUserShell().kind,
+    );
     const invoke =
       ctx.shellKind === "powershell" ? `& "${process.execPath}"` : `"${process.execPath}"`;
     const proc = ctx.spawn(`${invoke} -e "console.log('žluťoučký')"`);

@@ -89,6 +89,7 @@ const mount = (
   initialItems: Item[] = [],
   onReload: AppProps["onReload"] = () => {},
   plugins: CliPlugins = testPlugins(),
+  initialUsage: AppProps["initialUsage"] = { usage: zeroUsage(), incomplete: false, cost: 0 },
 ) =>
   render(
     <App
@@ -96,7 +97,7 @@ const mount = (
       plugins={plugins}
       conversation={conversation}
       initialItems={initialItems}
-      initialUsage={{ usage: zeroUsage(), incomplete: false, cost: 0 }}
+      initialUsage={initialUsage}
       cwd="/tmp"
       launchCwd="/tmp"
       onResume={() => {}}
@@ -160,7 +161,7 @@ describe("App", () => {
         undefined,
         1000,
       ),
-    ).toBe("usage incomplete");
+    ).toBe("↑0 ↓0 · agent input unavailable · shared context window 1.0k · usage incomplete");
     expect(
       usageLabel(
         { inputTokens: 10, outputTokens: 2, cachedReadTokens: 0 },
@@ -577,3 +578,62 @@ describe("appReduce: !cmd shell streaming", () => {
     expect(shellCells(s.cells)[0]!.text).toBe("");
   });
 });
+
+it.each([
+  [{ maxInputTokens: 1000 }, 100, "10% of input limit"],
+  [{ contextWindow: 2000 }, 100, "5% of shared context window"],
+  [{ maxInputTokens: 1000, contextWindow: 2000 }, 100, "10% of input limit"],
+  [{ maxOutputTokens: 500 }, 100, "input capacity unknown"],
+  [{}, 100, "input capacity unknown"],
+  [{ maxInputTokens: 1000 }, 0, "0% of input limit"],
+  [{ maxInputTokens: 1000 }, undefined, "agent input unavailable"],
+] as const)(
+  "renders authoritative agent checkpoint capacity %j independently of generic usage and selected model",
+  async (limits, used, expected) => {
+    const { service, emit } = harness();
+    Object.assign(service, {
+      availableModels: () => [
+        { provider: "demo", model: "demo-1", ...limits },
+        { provider: "demo", model: "demo-2", maxInputTokens: 50 },
+      ],
+    });
+    const summary: AppProps["initialUsage"] = {
+      usage: { inputTokens: 9999, outputTokens: 1, cachedReadTokens: 0 },
+      incomplete: false,
+      cost: 0,
+      lastInputTokens: 9999,
+      agentContext: {
+        provider: "demo",
+        model: "demo-1",
+        turnId: "t1" as import("@harness/protocol").TurnId,
+        createdAt: 0,
+        usage:
+          used === undefined ? null : { inputTokens: used, outputTokens: 0, cachedReadTokens: 0 },
+      },
+    };
+    const app = mount(service, [], () => {}, testPlugins(), summary);
+    await vi.waitFor(() => expect(app.lastFrame()).toContain(expected));
+    if ("maxInputTokens" in limits && "contextWindow" in limits) {
+      expect(app.lastFrame()?.replace(/\s+/gu, " ")).toContain(
+        "input limit 1.0k · shared context window 2.0k",
+      );
+    }
+    emit({
+      type: "config.changed",
+      conversationId: "c1",
+      config: { ...conversation.config, model: { provider: "demo", model: "demo-2" } },
+    });
+    // Auxiliary/retried accounting can change totals and generic last input, never
+    // the authoritative agent checkpoint used for the percentage.
+    emit({
+      type: "usage.changed",
+      conversationId: "c1",
+      summary: { ...summary, lastInputTokens: 42, usage: { ...summary.usage, inputTokens: 10001 } },
+    });
+    await vi.waitFor(() => {
+      expect(app.lastFrame()).toContain("demo-2");
+      expect(app.lastFrame()).toContain(expected);
+    });
+    app.unmount();
+  },
+);

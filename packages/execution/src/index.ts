@@ -5,3 +5,4 @@ export * from "./glob.ts";
 export * from "./local.ts";
 export * from "./plugin.ts";
 export * from "./tool-control.ts";
+export * from "./shell.ts";

@@ -1,8 +1,8 @@
 import { z } from "zod";
 export { subagentLimitsSchema } from "./config.ts";
-import { defineRequest } from "@harness/protocol";
+import { defineNotification, defineRequest } from "@harness/protocol";
 
-export const SUBAGENTS_CLIENT_CONTRACT_VERSION = 3;
+export const SUBAGENTS_CLIENT_CONTRACT_VERSION = 4;
 
 export const subagentsTopLevelRequest = defineRequest({
   direction: "client-to-server",
@@ -50,3 +50,18 @@ export const subagentsListRequest = defineRequest({
 export type SubagentIdentity = z.infer<typeof subagentIdentitySchema>;
 export type SubagentRow = z.infer<typeof subagentRowSchema>;
 export type SubagentPage = z.infer<typeof subagentsListRequest.result>;
+
+export const subagentsChangedEventSchema = z.strictObject({
+  type: z.literal("subagents.changed"),
+  conversationId: z.string(),
+  dismissedId: z.string(),
+});
+
+export const subagentsEventNotification = defineNotification({
+  direction: "server-to-client",
+  method: "plugin.subagents.event",
+  params: z.strictObject({
+    rootConversationId: z.string(),
+    event: subagentsChangedEventSchema,
+  }),
+});

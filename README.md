@@ -57,6 +57,16 @@ npm run format       # prettier --write
 npm run check        # typecheck + lint + format:check + test (also runs in CI)
 ```
 
+## Personal and project instructions
+
+Put personal rules in `$HARNESS_HOME/AGENTS.md` (normally
+`~/.harness/AGENTS.md`). The executing server loads this file for main agents and
+subagents, including conversations without a workspace, before applicable project
+`AGENTS.md` files. It supplements role prompts rather than replacing them.
+SSH/WSL servers use their own Harness home; client files are not uploaded.
+Instruction files are snapshotted for the loaded runtime; reload the conversation
+to pick up edits. Symlinked instruction files are not followed.
+
 ## Client/server modes
 
 The desktop client uses Tauri 2, React, React Router data routes, Radix Primitives,

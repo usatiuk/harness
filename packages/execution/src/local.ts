@@ -10,8 +10,10 @@ import type {
   OutputWriter,
   Relationship,
   SpawnedProcess,
+  ShellKind,
 } from "./context.ts";
 import { streamProcess } from "./spawn.ts";
+import { selectUserShell, shellCommandArgs, type UserShellEnvironment } from "./shell.ts";
 import { killWindowsProcessTree } from "./windows-process.ts";
 
 /** The call's target path: the `path` arg if present and a string, else undefined. */
@@ -30,9 +32,16 @@ function callPath(call: ToolCall): string | undefined {
  * adds enforcement behind the same interface. Commands run with `cwd = workspaceRoot`.
  */
 export class LocalExecutionContext implements ExecutionContext {
-  readonly shellKind = process.platform === "win32" ? "powershell" : "bash";
+  readonly shellKind: ShellKind;
 
-  constructor(readonly workspaceRoot: string | null) {}
+  constructor(
+    readonly workspaceRoot: string | null,
+    readonly commandShell: UserShellEnvironment | undefined = process.platform === "win32"
+      ? undefined
+      : selectUserShell(),
+  ) {
+    this.shellKind = commandShell?.kind ?? "powershell";
+  }
 
   async prepare(): Promise<void> {
     if (this.workspaceRoot && !(await fsStat(this.workspaceRoot)).isDirectory())
@@ -129,7 +138,15 @@ export class LocalExecutionContext implements ExecutionContext {
           ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", powershellCommand],
           { cwd, windowsHide: true },
         )
-      : nodeSpawn("bash", ["-lc", command], { cwd, detached: true });
+      : nodeSpawn(
+          this.commandShell!.executable,
+          shellCommandArgs(this.commandShell!.kind, command),
+          {
+            cwd,
+            detached: true,
+            env: this.commandShell!.env,
+          },
+        );
     let killed = false;
     let settled = false;
     child.once("exit", () => (settled = true));

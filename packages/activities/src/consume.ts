@@ -7,7 +7,7 @@ import {
   type ToolSchema,
 } from "@harness/protocol";
 import type { Activity } from "./activity.ts";
-import { ActivityManager, noticeContent } from "./manager.ts";
+import { ActivityManager, activityLabel, noticeContent } from "./manager.ts";
 
 /** How long a default (foreground) activity may block the turn before auto-backgrounding. */
 const FOREGROUND_MS = 10_000;
@@ -28,14 +28,16 @@ export async function consume(
   try {
     const outcome = await mgr.wait(activity.id, FOREGROUND_MS, ctx.signal);
     if (outcome === "running") return backgroundNotice(mgr, activity, ctx, false);
+    const reference = mgr.reference(activity.id);
     return {
-      forModel: noticeContent(activity.id, outcome),
+      forModel: noticeContent(activity.id, outcome, activity, reference),
       status: outcome.status,
       structured: {
         activityId: activity.id,
+        ...(reference !== activity.id ? { activityRef: reference } : {}),
         state: "completed",
         status: outcome.status,
-        content: noticeContent(activity.id, outcome),
+        content: noticeContent(activity.id, outcome, activity, reference),
       },
     };
   } finally {
@@ -50,17 +52,23 @@ function backgroundNotice(
   ctx: ToolContext,
   immediate: boolean,
 ): ToolResult {
+  const reference = mgr.reference(activity.id);
   activity.persist?.();
   mgr.notifyOnExit(activity.id, (content) => ctx.deliver(content));
   const lead = immediate
-    ? `Started activity ${activity.id} (${activity.title}) in the background.`
-    : `Activity ${activity.id} (${activity.title}) is still running; left in the background.`;
+    ? `Started activity ${activityLabel(activity, reference)} in the background.`
+    : `Activity ${activityLabel(activity, reference)} is still running; left in the background.`;
   return {
     ...okResult(
       `${lead} You'll get a one-shot completion notice, ` +
-        `or use activity_wait / activity_peek / activity_kill with id ${activity.id}.`,
+        `or use activity_wait / activity_peek / activity_kill with id ${JSON.stringify(reference)}.`,
     ),
-    structured: { activityId: activity.id, state: "running", title: activity.title },
+    structured: {
+      activityId: activity.id,
+      ...(reference !== activity.id ? { activityRef: reference } : {}),
+      state: "running",
+      title: activity.title,
+    },
   };
 }
 

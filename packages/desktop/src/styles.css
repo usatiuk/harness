@@ -572,7 +572,7 @@ main {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 18px;
+  padding: 8px 18px;
   border-bottom: 1px solid var(--line);
 }
 .conversation-heading {
@@ -1211,7 +1211,7 @@ main {
   white-space: nowrap;
   min-width: 0;
 }
-.activity-stop {
+.activity-stop.icon-control {
   width: 22px;
   height: 22px;
   min-height: 22px;
@@ -2039,11 +2039,6 @@ button.subagent-row:hover {
   min-height: 0;
   position: relative;
 }
-.right-sidebar-toggle {
-  width: 22px;
-  min-height: 22px;
-  padding: 2px;
-}
 .main-conversation {
   flex: 1;
   min-width: 0;
@@ -2468,4 +2463,34 @@ button.subagent-row:hover {
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
+}
+
+/* Only transcript destinations, never application navigation. */
+.content-link[href] {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.content-link[href]:hover {
+  color: var(--ink);
+}
+.context-ring[data-unknown] {
+  background: none;
+  border: 2px dashed var(--muted-ink);
+}
+.work-failed .work-group-title,
+.work-failed .tool-group > summary {
+  color: var(--danger-ink);
+}
+.app.sidebar-hidden > main {
+  border-top-left-radius: 0;
+}
+/* Chrome overlays retain the host material instead of painting opaque faces. */
+.chrome-control:hover:not(:disabled),
+.chrome-control:focus-visible {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.chrome-control:active:not(:disabled),
+.chrome-control[data-state="open"]:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
 }

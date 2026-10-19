@@ -392,7 +392,7 @@ export function HostControls({
             ref={triggerRef}
             disabled={!hosts.config}
             variant="ghost"
-            className="host-trigger"
+            className="host-trigger chrome-control"
             aria-label={`Switch host: ${hosts.selected?.host.label ?? "Local"}`}
           >
             <Monitor size={14} aria-hidden="true" />

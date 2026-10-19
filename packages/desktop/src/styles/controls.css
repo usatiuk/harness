@@ -112,6 +112,10 @@ button:disabled {
   width: 36px;
   padding: 8px;
 }
+.icon-control.control-sm {
+  width: 26px;
+  padding: 4px;
+}
 .icon {
   width: 16px;
   height: 16px;

@@ -11,6 +11,9 @@ import type {
 import {
   ActivityManager,
   ActivityWaitTool,
+  ActivityPeekTool,
+  ActivityKillTool,
+  ActivityListTool,
   backgroundContractResolver,
   consume,
   consumeMiddleware,
@@ -392,5 +395,116 @@ describe("backgroundContractResolver", () => {
     expect(find("bash").background).toBeDefined();
     expect(find("bash").command).toBeDefined(); // original args preserved
     expect(find("read").background).toBeUndefined();
+  });
+});
+
+describe("owner-local readable activity references", () => {
+  it("covers list/peek/wait/kill, labels foreground/background results and notices, and rejects cross-owner references", async () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    const ctx = fakeCtx({ service: () => mgr });
+    const { activity: base, settle } = fakeActivity("canonical-id");
+    const kill = vi.fn();
+    const activity = {
+      ...base,
+      reference: "review",
+      title: "Review changes",
+      kill,
+      peek: () => [{ type: "text" as const, text: "progress" }],
+    };
+    mgr.track(activity, { callId: "spawn", emit: () => {} });
+    const notices: ContentBlock[][] = [];
+    const launched = await consume(mgr, activity, true, {
+      ...ctx,
+      deliver: (content) => notices.push(content),
+    });
+    expect(launched.structured).toMatchObject({
+      activityId: "canonical-id",
+      activityRef: "review",
+      state: "running",
+    });
+    expect(text(launched.forModel)).toContain("Review changes [review]");
+    expect(text(launched.forModel)).not.toContain("canonical-id");
+    expect(text((await new ActivityListTool().execute({}, ctx)).forModel)).toContain(
+      "Review changes [review]",
+    );
+    expect(text((await new ActivityPeekTool().execute({ id: "review" }, ctx)).forModel)).toBe(
+      "progress",
+    );
+    expect((await new ActivityKillTool().execute({ id: "Review changes" }, ctx)).status).toBe("ok");
+    expect(kill).toHaveBeenCalledOnce();
+    const outsider = fakeCtx({ service: () => new ActivityManager("other" as ConversationId) });
+    for (const id of ["review", "Review changes", "canonical-id"])
+      expect((await new ActivityPeekTool().execute({ id }, outsider)).status).toBe("error");
+    settle({ status: "ok", summary: "finished", view: [] });
+    await activity.done;
+    expect(text(notices[0]!)).toContain("[activity review] Review changes finished");
+    expect(text((await new ActivityWaitTool().execute({ id: "review" }, ctx)).forModel)).toContain(
+      "[activity review] Review changes",
+    );
+    expect((await new ActivityKillTool().execute({ id: "review" }, ctx)).status).toBe("error");
+    const completed = await consume(mgr, activity, false, ctx);
+    expect(completed.structured).toMatchObject({
+      activityId: "canonical-id",
+      activityRef: "review",
+      state: "completed",
+    });
+  });
+
+  it("rejects duplicate names and slug/name collisions; canonical IDs still win", async () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    const ctx = fakeCtx({ service: () => mgr });
+    const a = fakeActivity("a"),
+      b = fakeActivity("b");
+    mgr.track(
+      { ...a.activity, title: "Same", reference: "review" },
+      { callId: "a", emit: () => {} },
+    );
+    mgr.track(
+      { ...b.activity, title: "Same", reference: "review" },
+      { callId: "b", emit: () => {} },
+    );
+    expect(mgr.resolve("review")).toHaveProperty("error");
+    expect(mgr.reference("a")).toBe("a");
+    for (const tool of [new ActivityWaitTool(), new ActivityPeekTool(), new ActivityKillTool()])
+      expect(text((await tool.execute({ id: "Same" }, ctx)).forModel)).toContain(
+        "ambiguous activity",
+      );
+    expect(mgr.resolve("a")).toEqual({ id: "a" });
+    expect(mgr.resolve("b")).toEqual({ id: "b" });
+    const c = fakeActivity("c");
+    mgr.track(
+      { ...c.activity, title: "review", reference: "other" },
+      { callId: "c", emit: () => {} },
+    );
+    expect(mgr.resolve("review")).toHaveProperty("error");
+    // The same slug in a different owner resolves only within that manager.
+    const other = new ActivityManager("other" as ConversationId);
+    other.track(
+      { ...fakeActivity("other-id").activity, reference: "review" },
+      { callId: "other", emit: () => {} },
+    );
+    expect(other.resolve("review")).toEqual({ id: "other-id" });
+    expect(mgr.resolve("other-id")).toHaveProperty("error");
+    mgr.track(fakeActivity("review").activity, { callId: "canonical-review", emit: () => {} });
+    expect(mgr.resolve("review")).toEqual({ id: "review" });
+  });
+
+  it("expires references at collection/restart without restoring them; legacy handles keep canonical fallback", async () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    const first = fakeActivity("old-id");
+    mgr.track(
+      { ...first.activity, title: "Old name", reference: "old-slug" },
+      { callId: "old", emit: () => {} },
+    );
+    first.settle({ status: "ok", summary: "finished", view: [] });
+    await first.activity.done;
+    expect(mgr.resolve("old-slug")).toEqual({ id: "old-id" });
+    for (let i = 0; i < 50; i++)
+      mgr.track(fakeActivity(`live-${i}`).activity, { callId: `live-${i}`, emit: () => {} });
+    for (const ref of ["old-slug", "Old name", "old-id"])
+      expect(mgr.resolve(ref)).toHaveProperty("error");
+    const restarted = new ActivityManager("c" as ConversationId);
+    expect(restarted.resolve("live-1")).toHaveProperty("error");
+    expect(mgr.resolve("live-1")).toEqual({ id: "live-1" });
   });
 });

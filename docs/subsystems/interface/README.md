@@ -533,11 +533,18 @@ normal styling regardless of phase. Simple provider activity text renders
 without native payload inspection.
 Cost displays indicate incomplete totals when rows are unpriced or native search
 fees are unavailable. Models author Markdown links; no citation transformation
-or provider-specific search-result UI runs in clients.
-Desktop groups consecutive reasoning, tool calls, provider activity hints and
-plugin-origin messages between other transcript
-entries into Work groups. Every group except the last collapses to a single
-summary row regardless of size; only the latest group keeps a five-entry peek,
+or provider-specific search-result UI runs in clients. Assistant and reasoning
+Markdown use one recognizable content-link color/underline/focus recipe, separate
+from navigation styling and the existing safe HTTP(S) opener.
+Desktop groups all non-message transcript activity into Work groups: reasoning,
+tools, provider/plugin activity, context, compaction, errors, and local notes or
+shell output. Only actual user and assistant messages/commentary break groups.
+Pending approvals/questions and composer/status controls are separate actionable
+UI, not transcript cells. Failure remains visible in a group's summary; terminal
+duration markers contribute to that summary instead of adding a duplicate row.
+Ordinary earlier groups collapse to a single summary row regardless of size;
+deliberately opened/focused steps remain inspectable across supersession.
+Only the latest group keeps a five-entry peek,
 with an outer disclosure whenever entries are hidden. A latest group with
 nothing hidden shows its rows directly under a plain title. Reasoning
 remains separately collapsed; opening its compact Thought row mounts the full
@@ -560,14 +567,21 @@ boundaries. Child calls stay independently visible without opening their parent;
 results follow the last available descendant, including nested Eval calls.
 Desktop rows distinguish messages from nonrecursive, nonempty step groups.
 The latest collapsed group shows a quiet tail of the last five nonempty
-work entries in chronological order, including after completion,
-until a newer group supersedes it; superseding folds the tail with the shared
-collapse animation. The latest tail appears immediately when a virtualized
+work entries plus explicitly opened or keyboard-focused steps, in chronological
+order, including after completion,
+until a newer group supersedes it; superseding folds the ordinary tail with the
+shared collapse animation while retaining intentional reading exceptions.
+The latest tail appears immediately when a virtualized
 group remounts; restoration does not replay an opening animation. Expanding a
 group adds exactly the hidden entries above the tail without remounting it, so
 only the added rows animate. While expanded, the split stays at the same entry
 as new steps arrive, preserving open tool/thought
-details; closing restores the five-entry tail. Empty reasoning rows are omitted.
+details; closing restores the five-entry tail plus intentional reading exceptions.
+An opened preview step keeps the same keyed DOM owner when it ages out of the
+five; closing and leaving focus releases it. Nested output/diff disclosures do
+not independently register whole-group retention. This is group-local state, not
+a durable disclosure registry or unbounded suffix. Empty textual work rows are
+omitted without dropping image-bearing messages or meaningful tool/shell rows.
 Step rows render identically in the tail and in expanded details. A collapsed
 reasoning row shows its Thinking/Thought label followed by an inline preview.
 The second line uses the full row width, starting underneath the label. The
@@ -770,8 +784,12 @@ solid themed surfaces; unexpected native appearance failures are fatal, with an
 IPC failure reported through the native dialog before the existing close/shutdown
 path. Main content and popovers retain opaque surfaces. The main panel's 1px
 divider follows its rounded top-left corner and continues across the top edge.
+With the left sidebar hidden, CSD uses a square main top-left corner.
 Native decorations and fullscreen remove the top divider and make that corner
 square when the custom header is hidden.
+Host-area chrome uses one translucent hover/open/focus recipe; both sidebar
+toggles use the same existing small icon-button geometry and expanded-state
+accessibility, with positioning left to their layouts.
 OS facilities own material
 focus, transparency, contrast and power adaptations; pastel accents are independent.
 
@@ -793,8 +811,14 @@ message inside Working, using its recorded origin, without a user bubble or fork
 action. TUI uses compact origin labels and a pending count; verbose mode reveals
 the message text. Neither client changes delivery order or model-facing content.
 
-The context ring shows the latest agent request attempt against that exact
-model's advertised window. Missing usage or capacity is unavailable. Last-turn
+Both clients derive input utilization from the latest authoritative agent
+checkpoint and its exact model, not the current selection or a naming/reviewer
+call. A known max-input limit is the denominator (labeled Input limit); otherwise
+an advertised shared context window is used and labeled accordingly. The
+inspector shows both limits when known. Missing usage/capacity is unavailable,
+and unknown is visually distinct from zero usage. Output-only limits do not
+establish input capacity; neither input-plus-output nor compaction's reserved
+threshold is substituted for a window. Last-turn
 totals include all model attempts owned by that turn, excluding separate
 child-conversation turns; throughput uses agent output divided by
 server-measured agent request time, including latency and excluding tool/approval

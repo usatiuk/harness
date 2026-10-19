@@ -16,7 +16,7 @@ export interface CaptureResult {
 export function capture(
   bin: string,
   args: string[],
-  opts: { input?: Uint8Array; signal?: AbortSignal } = {},
+  opts: { input?: Uint8Array; signal?: AbortSignal; maxBytes?: number } = {},
 ): Promise<CaptureResult> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(bin, args, {
@@ -26,15 +26,29 @@ export function capture(
     const out: Buffer[] = [];
     let err = "";
     let failure: Error | undefined;
-    child.stdout?.on("data", (b: Buffer) => out.push(b));
-    child.stderr?.on("data", (b: Buffer) => (err += b.toString("utf8")));
+    let bytes = 0;
+    const withinLimit = (b: Buffer): boolean => {
+      bytes += b.length;
+      if (opts.maxBytes !== undefined && bytes > opts.maxBytes) {
+        failure ??= new Error("Captured process output exceeds its byte limit");
+        child.kill("SIGKILL");
+        return false;
+      }
+      return true;
+    };
+    child.stdout?.on("data", (b: Buffer) => {
+      if (withinLimit(b)) out.push(b);
+    });
+    child.stderr?.on("data", (b: Buffer) => {
+      if (withinLimit(b)) err += b.toString("utf8");
+    });
     // AbortError is emitted before the child has exited. Resource owners must await close.
     child.on("error", (error: Error) => {
       failure = error;
     });
     child.on("close", (code) => {
       if (failure) reject(failure);
-      else resolvePromise({ stdout: Buffer.concat(out), stderr: err, exitCode: code ?? 0 });
+      else resolvePromise({ stdout: Buffer.concat(out), stderr: err, exitCode: code ?? 1 });
     });
     child.stdin?.end(opts.input ?? undefined);
   });
@@ -44,7 +58,7 @@ export function capture(
 export async function captureText(
   bin: string,
   args: string[],
-  opts: { input?: Uint8Array; signal?: AbortSignal } = {},
+  opts: { input?: Uint8Array; signal?: AbortSignal; maxBytes?: number } = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const r = await capture(bin, args, opts);
   return { stdout: r.stdout.toString("utf8"), stderr: r.stderr, exitCode: r.exitCode };

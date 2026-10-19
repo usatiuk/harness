@@ -52,8 +52,9 @@ export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
   readonly name = "subagent";
   readonly description =
     "Delegate a focused task to a specialized subagent that runs in its own conversation with its " +
-    "own system prompt and tool scope, then returns its final output. Prefer this for self-contained " +
-    "subtasks (research, a bounded refactor, a test sweep) over doing it inline.";
+    "own system prompt and tool scope, then returns its final output. Do small, quick work directly. " +
+    "Delegate substantive independent work when isolation or useful parallelism helps. " +
+    "Do not relay your unchanged assigned task to another agent.";
   readonly input: ToolInput<z.infer<typeof subagentArgs>> = {
     kind: "function",
     schema: subagentArgs,
@@ -123,7 +124,7 @@ export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
       activitiesOf(ctx).track(activity, { callId: ctx.callId, emit: (e) => ctx.emit(e) });
       // Placeholder; the activities consumption middleware claims this activity and owns the real
       // model-facing result (the child's final output, foreground or backgrounded).
-      return okResult(`started subagent ${name} [${slug}] (${activity.id})`);
+      return okResult(`started subagent ${name} [${slug}]`);
     });
   }
 }

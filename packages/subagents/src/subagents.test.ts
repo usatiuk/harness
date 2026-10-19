@@ -140,7 +140,7 @@ function fakeRunner(): FakeRunner {
       });
     },
     getItems: () => Promise.resolve([]),
-    getConversation: (cid) => Promise.resolve(created.find((c) => c.id === cid)),
+    getConversation: (cid) => Promise.resolve(created.find((c) => c.id === cid) ?? record(cid, {})),
     putPluginState: (plugin, cid, key, value) => {
       state.set(`${plugin}|${cid}|${key}`, value);
       return Promise.resolve();

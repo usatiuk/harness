@@ -8,10 +8,11 @@ export interface ToolCallRow extends CellRow {
   cell: Extract<Cell, { kind: "tool" }>;
   boundary?: "begin" | "result";
 }
-type WorkCell = Extract<Cell, { kind: "reasoning" | "provider_output" | "plugin_message" }>;
+type MessageCell = Extract<Cell, { kind: "user" | "assistant" }>;
+type WorkCell = Exclude<Cell, MessageCell | { kind: "tool" }>;
 export type TranscriptStep = ToolCallRow | { key: string; cell: WorkCell };
 export type TranscriptRow =
-  | { kind: "cell"; key: string; cell: Exclude<Cell, { kind: "tool" } | WorkCell> }
+  | { kind: "cell"; key: string; cell: MessageCell }
   | {
       kind: "steps";
       key: string;
@@ -49,6 +50,11 @@ export class DesktopTranscript {
     const previousSteps = new Map(
       this.rows.flatMap((row) =>
         row.kind === "steps" ? row.steps.map((step) => [step.key, step] as const) : [],
+      ),
+    );
+    const previousGroups = new Map(
+      this.rows.flatMap((row) =>
+        row.kind === "steps" ? row.steps.map((step) => [step.key, row.key] as const) : [],
       ),
     );
     const previousTimings = new Map<string, { startedAt: number; completedAt?: number }>();
@@ -120,17 +126,23 @@ export class DesktopTranscript {
     });
     for (const row of flat) {
       const previous = this.rows.at(-1);
-      if (
-        row.cell.kind === "tool" ||
-        row.cell.kind === "reasoning" ||
-        row.cell.kind === "provider_output" ||
-        row.cell.kind === "plugin_message"
-      ) {
+      if (row.cell.kind !== "user" && row.cell.kind !== "assistant") {
         const step: TranscriptStep =
           row.cell.kind === "tool" ? { ...row, cell: row.cell } : { key: row.key, cell: row.cell };
         if (previous?.kind === "steps") previous.steps.push(step);
         else this.rows.push({ kind: "steps", key: row.key, steps: [step] });
       } else this.rows.push({ kind: "cell", key: row.key, cell: row.cell });
+    }
+    // A history prepend may extend an existing group at its head. Its mounted
+    // owner follows the overlapping group, not the newly first historical step.
+    const groupKeys = new Set<string>();
+    for (const row of this.rows) {
+      if (row.kind !== "steps") continue;
+      const previous = row.steps
+        .map((step) => previousGroups.get(step.key))
+        .find((key) => key !== undefined && !groupKeys.has(key));
+      if (previous) row.key = previous;
+      groupKeys.add(row.key);
     }
     // Live elapsed labels use one client clock. Server history timestamps cannot
     // be subtracted from locally observed reasoning starts on remote connections.
@@ -141,7 +153,11 @@ export class DesktopTranscript {
         .find((timing) => timing !== undefined);
       if (previous) row.observedTiming = previous;
     }
-    this.updateTiming(activeTurnId, now);
+    this.updateTiming(
+      activeTurnId,
+      now,
+      new Set([...keys.values()].filter((key) => !previousSteps.has(key))),
+    );
     this.rows = this.rows.map((row) => {
       const previous = previousRows.get(row.key);
       if (row.kind === "cell")
@@ -165,14 +181,39 @@ export class DesktopTranscript {
     this.cells = cells;
   }
 
-  private updateTiming(activeTurnId: string | undefined, now: number): void {
+  private updateTiming(
+    activeTurnId: string | undefined,
+    now: number,
+    newKeys: ReadonlySet<string> = new Set(),
+  ): void {
+    const boundary =
+      activeTurnId === undefined
+        ? -1
+        : this.rows.findLastIndex((row) => row.kind === "cell" && row.cell.turnId === activeTurnId);
     const active =
       activeTurnId === undefined
         ? undefined
-        : this.rows.findLast(
-            (row) =>
-              row.kind === "steps" && row.steps.some(({ cell }) => cell.turnId === activeTurnId),
-          );
+        : this.rows.findLast((row, index) => {
+            if (row.kind !== "steps") return false;
+            if (row.steps.some(({ cell }) => "turnId" in cell && cell.turnId === activeTurnId))
+              return true;
+            if (row.steps.some(({ cell }) => "turnId" in cell && cell.turnId !== undefined))
+              return false;
+            if (boundary >= 0 && index > boundary) return true;
+            if (row.observedTiming && row.observedTiming.completedAt === undefined) return true;
+            // Context-only activity has no turn ID. Observe newly arriving live
+            // context, not prepended history or completed standalone tool cells.
+            return (
+              row === this.rows.at(-1) &&
+              row.steps.some(
+                ({ key, cell }) =>
+                  newKeys.has(key) &&
+                  (cell.kind === "context" ||
+                    cell.kind === "compaction" ||
+                    (cell.kind === "shell" && cell.streaming)),
+              )
+            );
+          });
     let changed = false;
     const rows = this.rows.map((row): TranscriptRow => {
       if (row.kind !== "steps") return row;

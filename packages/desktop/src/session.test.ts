@@ -450,7 +450,10 @@ it("opens a live child with its own identity, snapshot and final transcript whil
       expect.objectContaining({ text: "Parent-only history" }),
     );
     expect(view.state.cells).toContainEqual(
-      expect.objectContaining({ kind: "user", text: "review" }),
+      expect.objectContaining({
+        kind: "user",
+        text: "You are subagent Review authentication [auth-review], using the explore profile.\nYour direct parent is Untitled conversation (parent).\nAssigned task:\nreview",
+      }),
     );
     expect(parent.conversation.id).toBe(root.id);
     expect(parent.state.turn.status).not.toBe("running");
@@ -478,6 +481,13 @@ it("opens a live child with its own identity, snapshot and final transcript whil
       "read-only",
     );
     expect(await desktop.load(root.id)).toBe(parent);
+    const beforeDismiss = parent.subagentRevision;
+    await pair.right.sendNotification("plugin.subagents.event", {
+      rootConversationId: root.id,
+      event: { type: "subagents.changed", conversationId: root.id, dismissedId: child.childId },
+    });
+    await vi.waitFor(() => expect(parent.subagentRevision).toBeGreaterThan(beforeDismiss));
+    expect(await desktop.load(child.childId)).toBe(view);
   } finally {
     provider.release();
     desktop.client.closeConnection();

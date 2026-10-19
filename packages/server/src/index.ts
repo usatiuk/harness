@@ -32,7 +32,8 @@ import {
   createSandboxRuntime,
 } from "@harness/sandbox";
 import { activitiesPlugin } from "@harness/activities";
-import { agentsPlugin } from "@harness/agents";
+import { createAgentsPlugin } from "@harness/agents";
+import { initializeUserShellEnvironment } from "@harness/execution";
 import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
 import { APPROVAL_CLIENT_CONTRACT_VERSION, createApprovalPlugin } from "@harness/approval";
@@ -87,39 +88,38 @@ export async function buildServerComposition(
 ): Promise<ServerComposition> {
   const signal = options.signal ?? new AbortController().signal;
   signal.throwIfAborted();
-  const store = new SqliteStore(join(defaultHome(), "store.db"), undefined, undefined, {
+  const home = defaultHome();
+  const store = new SqliteStore(join(home, "store.db"), undefined, undefined, {
     exclusive: true,
-    beforeInitialize: () =>
-      assertSelectedServer(defaultHome(), process.env["HARNESS_SERVER_SELECTION"]),
+    beforeInitialize: () => assertSelectedServer(home, process.env["HARNESS_SERVER_SELECTION"]),
   });
   const subagents = new SubagentsDefinition();
   let closeForDockerFailure: (() => Promise<void>) | undefined;
-  const sandbox = createSandboxRuntime(defaultHome(), () => {
-    if (!closeForDockerFailure)
-      throw new Error("Docker guardian failed before server composition was ready");
-    console.error(JSON.stringify({ event: "server.failure", subsystem: "docker-guardian" }));
-    void closeForDockerFailure().catch(() =>
-      console.error(
-        JSON.stringify({ event: "server.shutdown-failed", subsystem: "docker-guardian" }),
-      ),
-    );
-  });
+  let startedSandbox: ReturnType<typeof createSandboxRuntime> | undefined;
   let mcp: McpRuntime | undefined;
   let startedHost: HarnessRpcHost | undefined;
   try {
-    const settings = await readGlobalSettings(defaultHome());
+    await initializeUserShellEnvironment({ signal });
+    const sandbox = createSandboxRuntime(home, () => {
+      if (!closeForDockerFailure)
+        throw new Error("Docker guardian failed before server composition was ready");
+      console.error(JSON.stringify({ event: "server.failure", subsystem: "docker-guardian" }));
+      void closeForDockerFailure().catch(() =>
+        console.error(
+          JSON.stringify({ event: "server.shutdown-failed", subsystem: "docker-guardian" }),
+        ),
+      );
+    });
+    startedSandbox = sandbox;
+    const settings = await readGlobalSettings(home);
     validateGlobalPluginScopes(
       settings,
       new Set(["mcp", "worktrees", "feedback"]),
       "global settings",
       true,
     );
-    const prepare = prepareProviderEntries(
-      settings,
-      providerPlugins,
-      join(defaultHome(), "settings.json"),
-    );
-    const { store: secrets, kind } = await credentialStoreForRead(defaultHome());
+    const prepare = prepareProviderEntries(settings, providerPlugins, join(home, "settings.json"));
+    const { store: secrets, kind } = await credentialStoreForRead(home);
     let pluginSecrets = secrets;
     let pluginStoreKind = kind;
     const pluginCredentials = {
@@ -127,9 +127,9 @@ export async function buildServerComposition(
       delete: (key: string) => pluginSecrets.delete(key),
       async set(key: string, value: string) {
         if (pluginStoreKind === null) {
-          const selected = await credentialStoreForLogin(defaultHome());
+          const selected = await credentialStoreForLogin(home);
           await selected.store.set(key, value);
-          await setAuthStore(defaultHome(), selected.kind);
+          await setAuthStore(home, selected.kind);
           pluginSecrets = selected.store;
           pluginStoreKind = selected.kind;
         } else await pluginSecrets.set(key, value);
@@ -141,7 +141,7 @@ export async function buildServerComposition(
     const registry = prepare(secrets);
     const built = await bootstrapProviders(registry, signal);
     const worktrees = new WorktreeManager(store, async () => {
-      const doc = await readGlobalSettings(defaultHome());
+      const doc = await readGlobalSettings(home);
       return worktreeDirectory(
         worktreesConfigSchema.parse(doc.plugins?.["worktrees"] ?? {}).directory,
       );
@@ -168,7 +168,7 @@ export async function buildServerComposition(
       workspacePlugin,
       createApprovalPlugin((name) => !mcpRuntime.ownsTool(name)),
       mcpRuntime.plugin(),
-      agentsPlugin,
+      createAgentsPlugin(home),
       autoApprovalPlugin,
       feedbackPlugin,
       subagents,
@@ -178,6 +178,7 @@ export async function buildServerComposition(
     // Lowest cascade layer: every conversation has a model even on resume with no settings, and
     // resolution never fails "no model configured".
     const service = new HarnessService({
+      home,
       codeEvaluator: new QuickJsEvaluator(),
       store,
       worktrees,
@@ -196,13 +197,14 @@ export async function buildServerComposition(
     // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
     subagents.bindRunner(service);
     worktreesDefinition.bind(service);
-    const feedback = new FeedbackRuntime(defaultHome(), store, pluginCredentials);
+    const feedback = new FeedbackRuntime(home, store, pluginCredentials);
     await feedback.start();
     const host = new HarnessRpcHost(service);
     startedHost = host;
     const sessions = new Map<HarnessRpcSession, { close(): Promise<void> }>();
     let closing: Promise<void> | undefined;
     const appState = {
+      home,
       signingIn: false,
       settingsTail: Promise.resolve(),
       defaultSandboxBackend: sandbox.defaultBackend,
@@ -238,7 +240,7 @@ export async function buildServerComposition(
         const root = await realpath(path);
         return service.runWorkspaceOperation(root, async () => {
           const managed = await store.getManagedWorktree(root);
-          const settings = await loadMergedSettings(defaultHome(), managed?.repository ?? root);
+          const settings = await loadMergedSettings(home, managed?.repository ?? root);
           const config = sandboxConfigSchema.parse(settings.plugins?.["sandbox"] ?? {});
           const owner = { emit: () => {} };
           const environment = await sandbox.environments.acquire(root, config.docker, owner);
@@ -266,7 +268,7 @@ export async function buildServerComposition(
         return null;
       });
       const app = registerAppApi(rpcSession, service, appState);
-      const mcpApi = registerMcpApi(rpcSession, mcpRuntime, defaultHome());
+      const mcpApi = registerMcpApi(rpcSession, mcpRuntime, home);
       const appApi = {
         async close() {
           await Promise.all([app.close(), mcpApi.close()]);
@@ -331,7 +333,7 @@ export async function buildServerComposition(
       cleanupErrors.push(cleanupError);
     }
     try {
-      await sandbox.close();
+      await startedSandbox?.close();
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
     }

@@ -6,6 +6,16 @@ const state = vi.hoisted(() => ({
   remove: vi.fn(),
   handle: { containerId: "retained", remoteUser: "root", remoteWorkspaceFolder: "/work" },
 }));
+// Shell startup is an OS edge, qualified separately with real shells and an opt-in container.
+vi.mock("./container-shell.ts", async (original) => ({
+  ...(await original<typeof import("./container-shell.ts")>()),
+  containerShellEnvironment: async () => ({
+    HOME: "/root",
+    SHELL: "/bin/bash",
+    PATH: "/usr/bin:/bin",
+  }),
+}));
+
 vi.mock("./devcontainer.ts", async (original) => ({
   ...(await original<typeof import("./devcontainer.ts")>()),
   containerRoot: async (path: string) => path,

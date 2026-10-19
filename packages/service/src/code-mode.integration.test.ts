@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,13 +31,14 @@ import { FakeProvider, textStep, toolStep, type FakeStep } from "@harness/testki
 import {
   localExecutionPlugin,
   LocalExecutionContext,
+  selectUserShell,
   executionFunctionTool,
   executionOf,
   executionEscalationOf,
 } from "@harness/execution";
-import { activitiesPlugin } from "@harness/activities";
+import { activitiesOf, activitiesPlugin, type ActivityResult } from "@harness/activities";
 import { workspacePlugin } from "@harness/workspace";
-import { agentsPlugin } from "@harness/agents";
+import { createAgentsPlugin } from "@harness/agents";
 import { approvalPlugin, isApprovalRequest } from "@harness/approval";
 import { autoApprovalPlugin } from "@harness/auto-approval";
 import { outputPlugin } from "@harness/output";
@@ -139,7 +140,7 @@ async function setup(
       activitiesPlugin,
       ...(options.execution === null ? [] : [workspacePlugin]),
       approvalPlugin,
-      agentsPlugin,
+      createAgentsPlugin(join(root, "home")),
       autoApprovalPlugin,
       outputPlugin,
       subagents,
@@ -155,7 +156,7 @@ async function setup(
     await svc.whenIdle(conversation.id);
     return store.listActiveItems(conversation.id);
   };
-  return { svc, store, requests, events, root, conversation, run };
+  return { svc, store, requests, events, root, conversation, run, provider };
 }
 
 const catalogTool = (name: string, description = "catalog fixture"): Tool => ({
@@ -576,7 +577,7 @@ describe("ordinary tool discovery", () => {
       const tools = fixture.requests[0]!.tools!;
       const evaluator = tools.find((tool) => tool.name === "eval");
       if (mode === "code-only") {
-        const shell = process.platform === "win32" ? "powershell" : "bash";
+        const shell = process.platform === "win32" ? "powershell" : selectUserShell().kind;
         expect(tools.map((tool) => tool.name)).not.toContain(shell);
         expect(evaluator?.description).toContain(`"name":"${shell}"`);
         expect(evaluator?.description).toContain("inside eval only");
@@ -675,7 +676,7 @@ describe("recorded code-mode execution", () => {
       [
         toolStep("search", "tool_search", { queries: ["issue"] }),
         toolStep("shell", "tool_describe", {
-          name: process.platform === "win32" ? "powershell" : "bash",
+          name: process.platform === "win32" ? "powershell" : selectUserShell().kind,
         }),
         toolStep("agent", "tool_describe", { name: "subagent" }),
         evalStep('return await tools.call("server.issue_search", {});'),
@@ -999,7 +1000,7 @@ describe("recorded code-mode execution", () => {
   });
 
   it("keeps ordinary background activity meaning and waiting available inside code", async () => {
-    const shell = process.platform === "win32" ? "powershell" : "bash";
+    const shell = process.platform === "win32" ? "powershell" : selectUserShell().kind;
     const waiting = gate(),
       release = gate();
     let output!: (chunk: string) => void;
@@ -1832,6 +1833,230 @@ describe("model switches and JSON patch approvals", () => {
       } else {
         await expect(readFile(join(fixture.root, "nested/approved.txt"))).rejects.toThrow();
       }
+    },
+  );
+});
+
+describe("readable orchestration references through public dispatch", () => {
+  it.each(["hybrid", "code-only"] as const)(
+    "%s does not let readable references bypass a withheld activity tool",
+    async (mode) => {
+      let finish!: (result: ActivityResult) => void;
+      const done = new Promise<ActivityResult>((resolve) => {
+        finish = resolve;
+      });
+      const kill = vi.fn(() => finish({ status: "ok", summary: "Stopped", view: [] }));
+      const launch: Tool = {
+        essential: true,
+        name: "launch",
+        description: "Controlled scoped work",
+        meta: { backgroundable: true },
+        input: { kind: "function", schema: z.strictObject({}) },
+        execute: async (_args, ctx) => {
+          activitiesOf(ctx).track(
+            {
+              id: "private-id",
+              reference: "private",
+              title: "Private work",
+              kind: "test",
+              done,
+              peek: () => [{ type: "text", text: "Still running" }],
+              kill,
+            },
+            { callId: ctx.callId, emit: (event) => ctx.emit(event) },
+          );
+          return okResult("Started");
+        },
+      };
+      const fixture = await setup(
+        mode === "hybrid"
+          ? [
+              toolStep("launch", "launch", { background: true }),
+              toolStep("denied", "activity_kill", { id: "private" }),
+              toolStep("peek", "activity_peek", { id: "private" }),
+              textStep("Finished"),
+            ]
+          : [
+              evalStep(`await tools.call("launch", {background:true});
+      try { await tools.call("activity_kill", {id:"private"}); } catch (error) { emit("Denied as expected"); }
+      return await tools.call("activity_peek", {id:"private"});`),
+              textStep("Finished"),
+            ],
+        [launch],
+        mode,
+        {},
+        { allow: ["launch", "activity_peek"] },
+      );
+      const items = await fixture.run();
+      expect(kill).not.toHaveBeenCalled();
+      const denied = calls(items).find((call) => call.name === "activity_kill")!;
+      expect(results(items).find((result) => result.callId === denied.callId)?.status).toBe(
+        "error",
+      );
+      expect(
+        results(items).some((result) => textOf(result.content).includes("Still running")),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["hybrid", "code-only"] as const)(
+    "%s keeps family IDs authoritative while accepting parent and readable child references",
+    async (mode) => {
+      const spawn = {
+        agent: "general",
+        name: "Review changes",
+        slug: "review",
+        task: "Review independently",
+      };
+      const fixture = await setup(
+        [
+          mode === "hybrid"
+            ? toolStep("spawn", "subagent", spawn)
+            : evalStep(`return await tools.call("subagent", ${JSON.stringify(spawn)});`),
+          toolStep("child-message", "eval", {
+            code: 'return await tools.call("subagent_send", {to:"parent", message:"Child evidence"});',
+          }),
+          textStep("Child finished"),
+          mode === "hybrid"
+            ? toolStep("list", "activity_list", {})
+            : toolStep("inspect", "eval", {
+                code: `
+        await tools.call("activity_list", {});
+        await tools.call("activity_peek", {id:"review"});
+        await tools.call("activity_wait", {id:"Review changes"});
+        return await tools.call("subagent_dismiss", {to:"review"});`,
+              }),
+          ...(mode === "hybrid"
+            ? [
+                toolStep("peek", "activity_peek", { id: "review" }),
+                toolStep("wait", "activity_wait", { id: "Review changes" }),
+                toolStep("dismiss", "subagent_dismiss", { to: "review" }),
+              ]
+            : []),
+          textStep("Parent finished"),
+        ],
+        [],
+        mode,
+      );
+      const items = await fixture.run();
+      const childId = (await fixture.svc.getPluginState(
+        "subagents",
+        fixture.conversation.id,
+        "slug:review",
+      )) as ConversationId;
+      const childItems = await fixture.store.listActiveItems(childId);
+      const allResults = [...results(items), ...results(childItems)];
+      expect(allResults.every((result) => result.status === "ok")).toBe(true);
+      expect(
+        allResults.some((result) => textOf(result.content).includes("Review changes [review]")),
+      ).toBe(true);
+      expect(await fixture.svc.getPluginState("subagents", childId, "dismissed")).toBe(true);
+      expect(
+        items.some(
+          (item) =>
+            item.type === "message" &&
+            item.role === "user" &&
+            textOf(item.content).includes("Child evidence"),
+        ),
+      ).toBe(true);
+      expect(
+        results(childItems).some((item) =>
+          textOf(item.content).includes("Message accepted by Untitled conversation [parent]"),
+        ),
+      ).toBe(true);
+      const description = fixture.requests[0]!.tools!.find(
+        (tool) => tool.name === (mode === "hybrid" ? "subagent" : "eval"),
+      )!.description;
+      expect(description).toContain("Do small, quick work directly");
+      expect(description).toContain("useful parallelism");
+      expect(description).toContain("Do not relay your unchanged assigned task");
+    },
+  );
+
+  it.each(["hybrid", "code-only"] as const)(
+    "%s resolves caller-owned activity controls without a family lookup",
+    async (mode) => {
+      let settle!: (result: ActivityResult) => void;
+      const done = new Promise<ActivityResult>((resolve) => {
+        settle = resolve;
+      });
+      const controlled: Tool = {
+        essential: true,
+        name: "launch",
+        description: "Launch controlled work",
+        meta: { backgroundable: true },
+        input: { kind: "function", schema: z.strictObject({}) },
+        execute: async (_args, ctx) => {
+          activitiesOf(ctx).track(
+            {
+              id: "canonical-work",
+              reference: "work",
+              title: "Controlled work",
+              kind: "test",
+              done,
+              peek: () => [{ type: "text", text: "In progress" }],
+              kill: () => settle({ status: "ok", summary: "Stopped as requested", view: [] }),
+            },
+            { callId: ctx.callId, emit: (event) => ctx.emit(event) },
+          );
+          return okResult("Started");
+        },
+      };
+      const fixture = await setup(
+        mode === "hybrid"
+          ? [
+              toolStep("launch", "launch", { background: true }),
+              toolStep("list", "activity_list", {}),
+              toolStep("peek", "activity_peek", { id: "work" }),
+              toolStep("kill", "activity_kill", { id: "Controlled work" }),
+              toolStep("wait", "activity_wait", { id: "work" }),
+              textStep("Finished"),
+            ]
+          : [
+              evalStep(`
+      const launched = await tools.call("launch", {background:true});
+      await tools.call("activity_list", {});
+      await tools.call("activity_peek", {id:"work"});
+      await tools.call("activity_kill", {id:"Controlled work"});
+      await tools.call("activity_wait", {id:"work"});
+      return launched;`),
+              textStep("Finished"),
+            ],
+        [controlled],
+        mode,
+      );
+      const items = await fixture.run();
+      expect(results(items).every((result) => result.status === "ok")).toBe(true);
+      const launch = calls(items).find((call) => call.name === "launch")!;
+      expect(
+        results(items).find((result) => result.callId === launch.callId)?.structured,
+      ).toMatchObject({ activityId: "canonical-work", activityRef: "work", state: "running" });
+      expect(
+        results(items).some((result) =>
+          textOf(result.content).includes("[activity work] Controlled work"),
+        ),
+      ).toBe(true);
+      // Runtime reactivation must not recreate handles from the durable transcript/family.
+      await fixture.svc.deactivateSession(fixture.conversation.id, { force: true });
+      const reloaded = new FakeProvider([
+        mode === "hybrid"
+          ? toolStep("after-reload", "activity_peek", { id: "work" })
+          : toolStep("after-reload", "eval", {
+              code: 'try { await tools.call("activity_peek", {id:"work"}); } catch (error) { return "Handle expired"; }',
+            }),
+        textStep("Reload checked"),
+      ]);
+      fixture.provider.stream = reloaded.stream.bind(reloaded);
+      await fixture.svc.prepare(fixture.conversation.id);
+      const history = await fixture.run();
+      const peekCall = calls(history).find(
+        (call) =>
+          call.name === "activity_peek" &&
+          (call.callId === "after-reload" || call.parentCallId === "after-reload"),
+      )!;
+      const expired = results(history).find((result) => result.callId === peekCall.callId)!;
+      expect(expired.status).toBe("error");
+      expect(textOf(expired.content)).toContain("unknown activity: work");
     },
   );
 });

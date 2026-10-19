@@ -4,20 +4,30 @@ import type { HarnessRpcSession } from "@harness/service";
 import {
   ancestorChain,
   conversationStatus,
-  childrenPage,
+  rosterPage,
+  isDismissed,
   spawnMark,
   subagentsInspectRequest,
   subagentsListRequest,
+  subagentsChangedEventSchema,
+  subagentsEventNotification,
 } from "@harness/subagents";
 
 export function registerSubagentServer(session: HarnessRpcSession): void {
   const service = session.host.service;
+  session.observeEvents((event, rootId) => {
+    if (event.type !== "subagents.changed") return;
+    const changed = subagentsChangedEventSchema.parse(event);
+    void session
+      .notify(subagentsEventNotification, { rootConversationId: rootId, event: changed })
+      .catch(() => session.server.peer.terminateProtocol("failed to send a subagent event"));
+  });
   session.registerAncestry(async (id) =>
     (await ancestorChain(service, id)).map((member) => member.id),
   );
   const spawn = (id: string) => spawnMark(service, id as ConversationId);
   const children = (id: string, limit: number, cursor?: { createdAt: number; id: string }) =>
-    childrenPage(service, id as ConversationId, limit, cursor);
+    rosterPage(service, id as ConversationId, limit, cursor);
   session.registerWriteCheck(async (id) => {
     if ((await service.getPluginState("subagents", id, "spawn")) !== undefined)
       throw new ResponseError(-32000, "Subagent conversations are read-only");
@@ -44,6 +54,7 @@ export function registerSubagentServer(session: HarnessRpcSession): void {
     };
     const counts = new Map<string, number>();
     for (const member of live) {
+      if (await isDismissed(service, member.conversation.id)) continue;
       if (member.status !== "running" || member.conversation.id === conversationId) continue;
       if ((await service.getLatestTurn(member.conversation.id))?.status !== "running") continue;
       const seen = new Set<string>();

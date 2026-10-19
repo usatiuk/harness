@@ -1,6 +1,5 @@
 import { worktreeDirectory, worktreesConfigSchema } from "@harness/worktrees";
 import {
-  defaultHome,
   deepMerge,
   readGlobalSettings,
   setAuthStore,
@@ -50,6 +49,7 @@ import {
 
 /** Concrete application configuration/auth composition, separate from core dispatch. */
 export interface AppApiState {
+  readonly home: string;
   signingIn: boolean;
   settingsTail: Promise<void>;
   readonly defaultSandboxBackend: SandboxBackend;
@@ -65,7 +65,7 @@ export function registerAppApi(
   service: HarnessService,
   state: AppApiState,
 ): { close(): Promise<void> } {
-  const active = state.active;
+  const { home, active } = state;
   const lifetime = new AbortController();
   const operations = new Set<Promise<unknown>>();
   const serializeSettings = <T>(operation: () => Promise<T>): Promise<T> => {
@@ -96,13 +96,9 @@ export function registerAppApi(
       : entry.instance.auth;
   };
   const listProviders = async (): Promise<ProviderStatus[]> => {
-    const doc = await readGlobalSettings(defaultHome());
-    const prepare = prepareProviderEntries(
-      doc,
-      providerPlugins,
-      join(defaultHome(), "settings.json"),
-    );
-    const { store, kind } = await credentialStoreForRead(defaultHome());
+    const doc = await readGlobalSettings(home);
+    const prepare = prepareProviderEntries(doc, providerPlugins, join(home, "settings.json"));
+    const { store, kind } = await credentialStoreForRead(home);
     return Promise.all(
       [...prepare(store).values()].map(async (entry) => {
         const method = authFor(entry, kind);
@@ -163,8 +159,8 @@ export function registerAppApi(
     track(
       serializeSettings(async () => {
         lifetime.signal.throwIfAborted();
-        const { store } = await credentialStoreForRead(defaultHome());
-        await updateGlobalSettings(defaultHome(), (doc) => {
+        const { store } = await credentialStoreForRead(home);
+        await updateGlobalSettings(home, (doc) => {
           if (prepareProviderEntries(doc)(store).has(params.id) || params.id === "demo")
             return invalid("Provider ID already exists");
           const updated = {
@@ -196,8 +192,8 @@ export function registerAppApi(
     track(
       serializeSettings(async () => {
         lifetime.signal.throwIfAborted();
-        const { store } = await credentialStoreForRead(defaultHome());
-        await updateGlobalSettings(defaultHome(), (doc) => {
+        const { store } = await credentialStoreForRead(home);
+        await updateGlobalSettings(home, (doc) => {
           const entry = prepareProviderEntries(doc)(store).get(params.provider);
           if (!entry) return invalid("Unknown provider connection");
           for (const key of Object.keys(params.patch))
@@ -222,7 +218,7 @@ export function registerAppApi(
     ),
   );
   session.onRequest(appSettingsRequest, async () => {
-    const doc = await readGlobalSettings(defaultHome());
+    const doc = await readGlobalSettings(home);
     const providers = await listProviders();
     const approval = approvalConfigSchema.parse(doc.plugins?.["approval"] ?? {});
     const autoApproval = autoApprovalConfigSchema.parse(doc.plugins?.["auto-approval"] ?? {});
@@ -230,7 +226,7 @@ export function registerAppApi(
     const titles = conversationTitlesConfigSchema.parse(doc.plugins?.["conversation-titles"] ?? {});
     const retryConfig = modelRetryConfigSchema.parse(doc.plugins?.["model-retry"] ?? {});
     return {
-      home: defaultHome(),
+      home: home,
       cwd: process.cwd(),
       platform: process.platform as "win32" | "darwin" | "linux",
       providers,
@@ -269,7 +265,7 @@ export function registerAppApi(
       serializeSettings(async () => {
         lifetime.signal.throwIfAborted();
         if (settings.model) {
-          await updateGlobalModel(defaultHome(), {
+          await updateGlobalModel(home, {
             provider: settings.model.provider,
             model: settings.model.model,
             ...(settings.model.preset === null ? {} : { preset: settings.model.preset }),
@@ -277,12 +273,12 @@ export function registerAppApi(
         }
         const changedPlugins: string[] = [];
         if (settings.approval) {
-          await updateGlobalPluginConfig(defaultHome(), "approval", settings.approval);
+          await updateGlobalPluginConfig(home, "approval", settings.approval);
           changedPlugins.push("approval");
         }
         if (settings.autoApproval) {
           await updateGlobalPluginConfig(
-            defaultHome(),
+            home,
             "auto-approval",
             {
               enabled: settings.autoApproval.enabled,
@@ -305,7 +301,7 @@ export function registerAppApi(
         }
         if (settings.conversationTitleModel !== undefined) {
           await updateGlobalPluginConfig(
-            defaultHome(),
+            home,
             "conversation-titles",
             {
               ...(settings.conversationTitleModel
@@ -325,20 +321,20 @@ export function registerAppApi(
           changedPlugins.push("conversation-titles");
         }
         if (settings.subagents) {
-          await updateGlobalPluginConfig(defaultHome(), "subagents", settings.subagents);
+          await updateGlobalPluginConfig(home, "subagents", settings.subagents);
           changedPlugins.push("subagents");
         }
         if (settings.modelRetries) {
-          await updateGlobalPluginConfig(defaultHome(), "model-retry", settings.modelRetries, {
+          await updateGlobalPluginConfig(home, "model-retry", settings.modelRetries, {
             replace: true,
           });
           changedPlugins.push("model-retry");
         }
         if (settings.sandbox)
-          await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });
+          await updateGlobalPluginConfig(home, "sandbox", { backend: settings.sandbox });
         const toolMode = settings.toolMode;
         if (toolMode !== undefined || settings.showToolNames !== undefined)
-          await updateGlobalSettings(defaultHome(), (doc) => ({
+          await updateGlobalSettings(home, (doc) => ({
             ...doc,
             tools: {
               ...doc.tools,
@@ -358,7 +354,7 @@ export function registerAppApi(
               invalid("Worktree directory must be an absolute path");
             }
           }
-          await updateGlobalSettings(defaultHome(), (doc) => {
+          await updateGlobalSettings(home, (doc) => {
             const plugins = { ...doc.plugins };
             plugins["worktrees"] = directory === null ? {} : { directory };
             return { ...doc, plugins };
@@ -366,7 +362,7 @@ export function registerAppApi(
         }
         const thresholdTokens = settings.compactionThresholdTokens;
         if (thresholdTokens !== undefined)
-          await updateGlobalSettings(defaultHome(), (doc) => {
+          await updateGlobalSettings(home, (doc) => {
             if (thresholdTokens === null) {
               const remaining = { ...doc };
               delete remaining.compaction;
@@ -384,19 +380,15 @@ export function registerAppApi(
     const operation = (async () => {
       const signal = AbortSignal.any([requestSignal, lifetime.signal]);
       signal.throwIfAborted();
-      const doc = await readGlobalSettings(defaultHome());
+      const doc = await readGlobalSettings(home);
       let prepare: ReturnType<typeof prepareProviderEntries>;
       try {
-        prepare = prepareProviderEntries(
-          doc,
-          providerPlugins,
-          join(defaultHome(), "settings.json"),
-        );
+        prepare = prepareProviderEntries(doc, providerPlugins, join(home, "settings.json"));
       } catch (error) {
         if (error instanceof ProviderConfigurationError) invalid(error.message);
         throw error;
       }
-      const { store, kind } = await credentialStoreForLogin(defaultHome());
+      const { store, kind } = await credentialStoreForLogin(home);
       const entry = prepare(store).get(params.provider);
       const method = entry && authFor(entry, kind);
       if (!entry || !method) return invalid("Unknown authentication provider");
@@ -423,8 +415,8 @@ export function registerAppApi(
         }
       }
       signal.throwIfAborted();
-      await setAuthStore(defaultHome(), kind);
-      if (entry.defaultModel) await updateGlobalModel(defaultHome(), entry.defaultModel);
+      await setAuthStore(home, kind);
+      if (entry.defaultModel) await updateGlobalModel(home, entry.defaultModel);
       return { restartRequired: true as const };
     })();
     void operation
@@ -439,10 +431,8 @@ export function registerAppApi(
       (async () => {
         lifetime.signal.throwIfAborted();
         if (state.signingIn) invalid("Wait for provider sign-in to finish");
-        const { store, kind } = await credentialStoreForRead(defaultHome());
-        const entry = prepareProviderEntries(await readGlobalSettings(defaultHome()))(store).get(
-          provider,
-        );
+        const { store, kind } = await credentialStoreForRead(home);
+        const entry = prepareProviderEntries(await readGlobalSettings(home))(store).get(provider);
         const method = entry && authFor(entry, kind);
         if (!method) return invalid("Unknown authentication provider");
         await method.logout();

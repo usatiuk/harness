@@ -5676,6 +5676,25 @@
       "required": ["children", "nextCursor", "running"],
       "additionalProperties": false
     },
+    "plugin_subagents_event_params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "rootConversationId": { "type": "string" },
+        "event": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "subagents.changed" },
+            "conversationId": { "type": "string" },
+            "dismissedId": { "type": "string" }
+          },
+          "required": ["type", "conversationId", "dismissedId"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["rootConversationId", "event"],
+      "additionalProperties": false
+    },
     "plugin_workspace_shell_run_params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -7431,6 +7450,12 @@
       "direction": "client-to-server",
       "params": { "$ref": "#/$defs/plugin_subagents_list_params" },
       "result": { "$ref": "#/$defs/plugin_subagents_list_result" }
+    },
+    {
+      "method": "plugin.subagents.event",
+      "kind": "notification",
+      "direction": "server-to-client",
+      "params": { "$ref": "#/$defs/plugin_subagents_event_params" }
     },
     {
       "method": "plugin.workspace.shell.run",

@@ -56,6 +56,7 @@ import {
   subagentsTopLevelRequest,
   subagentsInspectRequest,
   subagentsListRequest,
+  subagentsEventNotification,
 } from "@harness/subagents";
 import { workspaceShellEventNotification, workspaceShellRunRequest } from "@harness/workspace";
 import {
@@ -121,6 +122,7 @@ const messages: readonly RpcMessage[] = [
   subagentsTopLevelRequest,
   subagentsInspectRequest,
   subagentsListRequest,
+  subagentsEventNotification,
   workspaceShellRunRequest,
   workspaceShellEventNotification,
   appSettingsRequest,

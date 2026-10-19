@@ -315,3 +315,100 @@ it("reuses unchanged rows and steps without mutating previously published timing
     vi.useRealTimers();
   }
 });
+
+it("groups every non-message kind and preserves the group owner across history prepend and replacement", () => {
+  const work: Cell[] = [
+    { kind: "context", id: "context", text: "Context" },
+    { kind: "compaction", id: "compaction", text: "Compacted" },
+    { kind: "error", id: "error", text: "Failure" },
+    { kind: "worked", id: "worked", duration: 1000 },
+    { kind: "note", id: "note", text: "Note" },
+    { kind: "shell", id: "shell", command: "pwd", text: "/workspace", streaming: false },
+  ];
+  const transcript = new DesktopTranscript();
+  transcript.update(work);
+  const key = transcript.rows[0]!.key;
+  expect(toolGroup(transcript.rows[0]!).steps.map(({ cell }) => cell)).toEqual(work);
+  transcript.update([
+    { kind: "note", id: "older", text: "Older history" },
+    ...work.map((cell) => ({ ...cell })),
+  ]);
+  expect(transcript.rows).toHaveLength(1);
+  expect(transcript.rows[0]!.key).toBe(key);
+  const commentary: Cell = {
+    kind: "assistant",
+    turnId: "turn",
+    text: "Progress",
+    streaming: false,
+    phase: "commentary",
+  };
+  transcript.update([...work, commentary, { kind: "context", id: "later", text: "Later" }]);
+  expect(transcript.rows.map((row) => row.kind)).toEqual(["steps", "cell", "steps"]);
+});
+
+it.each(["completed", "failed", "aborted"] as const)(
+  "projects real reducer %s terminals and context-only live timing without inventing history timing",
+  async (status) => {
+    const { emptyState, reduce } = await import("@harness/client-features/transcript-reducer");
+    let state = reduce(
+      emptyState,
+      { type: "turn.status", conversationId: "conversation", turnId: "turn", status: "running" },
+      100,
+    );
+    const user: Cell = { kind: "user", id: "user", turnId: "turn", createdAt: 100, text: "Go" };
+    state = { ...state, cells: [user, { kind: "context", id: "context", text: "Instructions" }] };
+    const transcript = new DesktopTranscript();
+    transcript.update(state.cells, "turn");
+    expect(toolGroup(transcript.rows[1]!).observedTiming?.completedAt).toBeUndefined();
+    expect(toolGroup(transcript.rows[1]!).observedTiming).toBeDefined();
+    state = reduce(
+      state,
+      {
+        type: "turn.status",
+        conversationId: "conversation",
+        turnId: "turn",
+        status,
+        ...(status === "failed" ? { error: "Original failure" } : {}),
+      },
+      1100,
+    );
+    transcript.update(state.cells);
+    const work = toolGroup(transcript.rows[1]!);
+    expect(work.steps.filter(({ cell }) => cell.kind === "worked")).toHaveLength(1);
+    expect(work.observedTiming?.completedAt).toBeDefined();
+    expect(work.steps.some(({ cell }) => cell.kind === "error")).toBe(status === "failed");
+    const reopened = new DesktopTranscript();
+    reopened.update(state.cells);
+    expect(toolGroup(reopened.rows[1]!).observedTiming).toBeUndefined();
+  },
+);
+
+it("does not start historical context timing when history is prepended during a pending turn", () => {
+  const transcript = new DesktopTranscript();
+  const user: Cell = { kind: "user", id: "current", turnId: "turn", text: "Go", createdAt: 0 };
+  transcript.update([user], "turn");
+  transcript.update(
+    [{ kind: "context", id: "older", text: "Historical instructions" }, user],
+    "turn",
+  );
+  expect(toolGroup(transcript.rows[0]!).observedTiming).toBeUndefined();
+});
+
+it("does not infer current-turn timing from newly loaded standalone historical tools", () => {
+  const transcript = new DesktopTranscript();
+  transcript.update(
+    [
+      {
+        kind: "tool",
+        callId: "historic",
+        name: "read_file",
+        args: {},
+        startedAt: 0,
+        completedAt: 1000,
+        status: "ok",
+      },
+    ],
+    "turn",
+  );
+  expect(toolGroup(transcript.rows[0]!).observedTiming).toBeUndefined();
+});

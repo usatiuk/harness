@@ -13,6 +13,7 @@ import {
 import { z } from "zod";
 import {
   ActivityManager,
+  ActivityPeekTool,
   activitiesOf,
   activitiesPlugin,
   type ActivityResult,
@@ -82,9 +83,9 @@ async function setup(tools: Tool[] = []) {
       }),
     } as never,
   });
-  const create = async (parent: ConversationId, slug: string) => {
+  const create = async (parent: ConversationId, slug: string, name = slug) => {
     const result = await spawn.execute(
-      { agent: "general", name: slug, slug, task: slug },
+      { agent: "general", name, slug, task: slug },
       context(parent),
     );
     expect(result.status).toBe("ok");
@@ -190,7 +191,7 @@ it("uses ordinary plugin delivery to wake finished family members, while dismiss
   );
   expect(input).toMatchObject({ source: { kind: "plugin", pluginId: "subagent_send" } });
   expect(input && input.type === "message" && textOf(input.content)).toContain(
-    `Message from child [child] (${child})`,
+    "Message from child:",
   );
   const outsider = await f.service.createConversation({});
   expect((await f.send.execute({ to: outsider.id, message: "No" }, f.context(child))).status).toBe(
@@ -318,4 +319,116 @@ it("real background completion wakes a dismissed finished subagent through its c
         textOf(item.content).includes("Activity completed"),
     ),
   ).toBe(true);
+});
+
+it("briefs projectless children and grandchildren truthfully with their own identity, parent and task", async () => {
+  const f = await setup();
+  await f.service.setTitle(f.root.id, "Root work");
+  const child = await f.create(f.root.id, "review", "Review changes");
+  const nested = await f.create(child, "tests", "Check tests");
+  for (const [id, expected] of [
+    [child, ["Review changes [review]", "Root work (parent)", "Assigned task:\nreview"]],
+    [nested, ["Check tests [tests]", "Review changes [review]", "Assigned task:\ntests"]],
+  ] as const) {
+    const first = (await f.store.listActiveItems(id)).find(
+      (item) => item.type === "message" && item.role === "user",
+    );
+    expect(first?.type).toBe("message");
+    const text = first?.type === "message" ? textOf(first.content) : "";
+    for (const part of expected) expect(text).toContain(part);
+    expect(text).not.toContain(id);
+    expect(text).not.toContain(f.root.id);
+    expect(text).toContain("using the general profile");
+  }
+});
+
+it("resolves readable family references, rejects ambiguity, scopes dismissal to children, and retains legacy/canonical authorization", async () => {
+  const f = await setup();
+  const child = await f.create(f.root.id, "review", "Review changes");
+  const sibling = await f.create(f.root.id, "tests", "Same name");
+  const duplicate = await f.create(f.root.id, "other", "Same name");
+  const nested = await f.create(child, "tests", "Nested task");
+  const ordinary = await f.list.execute({ relation: "children" }, f.context(f.root.id));
+  for (const canonical of [child, sibling, duplicate])
+    expect(textOf(ordinary.forModel)).not.toContain(canonical);
+  expect(textOf(ordinary.forModel)).toContain('"reference":"review"');
+  expect(
+    (ordinary.structured as { agents: { id: string }[] }).agents.some((row) => row.id === child),
+  ).toBe(true);
+  // This sibling's slug collides with our child and its name with another sibling.
+  const ambiguousList = await f.list.execute({ relation: "siblings" }, f.context(child));
+  expect(textOf(ambiguousList.forModel)).toContain(sibling);
+
+  // A durable reachable family member does not grant access to its owner's activity manager.
+  const peek = new ActivityPeekTool();
+  expect((await peek.execute({ id: "review" }, f.context(f.root.id))).status).toBe("ok");
+  expect((await peek.execute({ id: "review" }, f.context(child))).status).toBe("error");
+  expect((await peek.execute({ id: child }, f.context(sibling))).status).toBe("error");
+
+  expect(
+    (await f.send.execute({ to: "Review changes", message: "Hello" }, f.context(f.root.id))).status,
+  ).toBe("ok");
+  await f.service.whenIdle(child);
+  expect((await f.send.execute({ to: "parent", message: "Upward" }, f.context(child))).status).toBe(
+    "ok",
+  );
+  await f.service.whenIdle(f.root.id);
+  expect(
+    textOf(
+      (await f.send.execute({ to: "Same name", message: "Ambiguous" }, f.context(child))).forModel,
+    ),
+  ).toContain("Ambiguous");
+  // A child and sibling share a slug; send sees both, dismissal sees only direct children.
+  expect(
+    textOf(
+      (await f.send.execute({ to: "tests", message: "Ambiguous" }, f.context(child))).forModel,
+    ),
+  ).toContain("Ambiguous");
+  expect((await f.dismiss.execute({ to: "tests" }, f.context(child))).status).toBe("ok");
+  expect(await f.service.getPluginState("subagents", nested, "dismissed")).toBe(true);
+  expect(await f.service.getPluginState("subagents", sibling, "dismissed")).toBeUndefined();
+  expect(
+    (await f.send.execute({ to: duplicate, message: "Canonical" }, f.context(child))).status,
+  ).toBe("ok");
+  await f.service.whenIdle(duplicate);
+  await f.service.putPluginState(
+    "subagents",
+    sibling,
+    "spawn",
+    { parent: { conversationId: f.root.id, callId: "legacy" }, agent: "general" },
+    f.root.id,
+  );
+  const roster = await f.list.execute({ relation: "siblings" }, f.context(child));
+  const agents = (roster.structured as { agents: { id: string; name: string; slug: string }[] })
+    .agents;
+  expect(agents.find((member) => member.id === sibling)).toMatchObject({
+    id: sibling,
+    name: "general",
+    slug: sibling,
+  });
+  expect(
+    (await f.send.execute({ to: sibling, message: "Legacy UUID" }, f.context(child))).status,
+  ).toBe("ok");
+  await f.service.whenIdle(sibling);
+  const legacyChild = await f.create(sibling, "legacy-child", "Legacy parent task");
+  const seed = (await f.store.listActiveItems(legacyChild)).find(
+    (item) => item.type === "message" && item.role === "user",
+  );
+  expect(seed?.type === "message" ? textOf(seed.content) : "").toContain(
+    "Your direct parent is general (parent)",
+  );
+  await f.service.deactivateSession(f.root.id, { force: true });
+  await f.service.prepare(f.root.id);
+  expect(
+    (await f.send.execute({ to: "review", message: "After reload" }, f.context(f.root.id))).status,
+  ).toBe("ok");
+  await f.service.whenIdle(child);
+  const outsider = await f.service.createConversation({});
+  await f.service.setTitle(outsider.id, "Outside");
+  expect((await f.send.execute({ to: "Outside", message: "No" }, f.context(child))).status).toBe(
+    "error",
+  );
+  expect((await f.send.execute({ to: outsider.id, message: "No" }, f.context(child))).status).toBe(
+    "error",
+  );
 });

@@ -1,3 +1,6 @@
+import { mockIPC } from "@tauri-apps/api/mocks";
+import { HostControls } from "../../src/connections-menu.tsx";
+import type { DesktopHosts } from "../../src/hosts.ts";
 import type { ChangeFile, ChangeMode, SubagentPage } from "@harness/client-features";
 import type { Cell } from "@harness/client-features/transcript-reducer";
 import { createElement as h } from "react";
@@ -32,6 +35,7 @@ declare global {
       showToolsAndActivities(serverSkew?: number, phase?: string): void;
       showMultipleActivities(): void;
       showSubagents(): void;
+      dismissSubagent(id: string): void;
       updateChild(id: string, text: string): void;
       openConversation(id: string): void;
       recreateRouter(): void;
@@ -53,6 +57,11 @@ declare global {
       seedRecentWorktrees(): void;
       markUnread(id: string): void;
       showMarkdown(): void;
+      setWork(cells: Cell[]): void;
+      mockOpener(fail?: boolean): void;
+      openedUrls: unknown[];
+      appendWork(count: number, prepend?: boolean, canonical?: boolean): void;
+      setCapacity(limits: Partial<ModelInfo>, used?: number, checkpointModel?: string): void;
       worktreeSwitches: unknown[];
       worktreeDeletes: unknown[];
       renameWorktree(branch: string): void;
@@ -170,22 +179,25 @@ let sidebarScope = "composer-fixture";
 let worktreeBranch = "harness/one";
 let recentWorktrees: Array<{ path: string; branch: string; head: string; locked: boolean }> = [];
 const subagentPages = new Map<string, SubagentPage>();
+const pluginListeners = new Set<(event: import("@harness/protocol").HarnessEvent) => void>();
 let sidebarRows: (typeof view.conversation)[] = [];
 let pending: Deferred | undefined;
 let stopping: Deferred | undefined;
+let capacityModels: ModelInfo[] | undefined;
 const domain = {
-  availableModels: (): ModelInfo[] => [
-    {
-      provider: "fixture",
-      model: "test",
-      label: "Fixture model",
-      contextWindow: 262144,
-      reasoning: { supported: true },
-      supportsImages: true,
-      presets: [{ value: "none" }, { value: "high" }],
-    },
-    { provider: "fixture", model: "test-latest", label: "Fixture model", supportsImages: false },
-  ],
+  availableModels: (): ModelInfo[] =>
+    capacityModels ?? [
+      {
+        provider: "fixture",
+        model: "test",
+        label: "Fixture model",
+        contextWindow: 262144,
+        reasoning: { supported: true },
+        supportsImages: true,
+        presets: [{ value: "none" }, { value: "high" }],
+      },
+      { provider: "fixture", model: "test-latest", label: "Fixture model", supportsImages: false },
+    ],
   defaultModel: () => view.conversation.config.model,
   async forkBefore(_source: ConversationId, itemId: import("@harness/protocol").ItemId) {
     const user = view.state.cells.find((cell) => cell.kind === "user" && cell.id === itemId);
@@ -268,6 +280,13 @@ const session = {
     changed();
   },
   plugins: {
+    subscribe(
+      _rootId: string,
+      listener: (event: import("@harness/protocol").HarnessEvent) => void,
+    ) {
+      pluginListeners.add(listener);
+      return () => pluginListeners.delete(listener);
+    },
     async listChanges(_id: string, mode: ChangeMode, after: string | null = null) {
       window.composerFixture.changeModes.push(mode);
       const remaining = after === null ? changePaths : changePaths.filter((path) => path > after);
@@ -824,6 +843,32 @@ window.composerFixture = {
     view.subagentRevision++;
     changed();
   },
+  dismissSubagent(dismissedId) {
+    for (const [parent, page] of subagentPages) {
+      subagentPages.set(parent, {
+        ...page,
+        children: page.children.filter(
+          (child) =>
+            child.id !== dismissedId &&
+            !session.views
+              .get(child.id as ConversationId)
+              ?.subagent?.ancestors.some((ancestor) => ancestor.id === dismissedId),
+        ),
+      });
+    }
+    for (const [parent, page] of subagentPages)
+      subagentPages.set(parent, {
+        ...page,
+        children: page.children.map((child) => ({
+          ...child,
+          hasChildren: (subagentPages.get(child.id)?.children.length ?? 0) > 0,
+        })),
+      });
+    view.subagentRevision++;
+    for (const listener of pluginListeners)
+      listener({ type: "subagents.changed", conversationId: id, dismissedId });
+    changed();
+  },
   showOwnedActivity() {
     view.state = {
       ...view.state,
@@ -937,6 +982,60 @@ window.composerFixture = {
   },
   markUnread(id) {
     session.unread.add(id as ConversationId);
+    changed();
+  },
+  openedUrls: [],
+  mockOpener(fail = false) {
+    mockIPC((command, args) => {
+      if (command !== "plugin:opener|open_url")
+        throw new Error(`Unexpected native operation ${command}`);
+      window.composerFixture.openedUrls.push(args);
+      if (fail) throw new Error("Opener rejected destination");
+      return null;
+    });
+  },
+  setWork(cells) {
+    view.state = { ...view.state, cells };
+    view.publish();
+    changed();
+  },
+  appendWork(count, prepend = false, canonical = false) {
+    const cells: Cell[] = Array.from({ length: count }, (_, index) => ({
+      kind: "tool",
+      turnId: "turn",
+      callId: `${prepend ? "older" : "appended"}-${view.state.cells.length}-${index}`,
+      name: "read_file",
+      args: { path: `next-${index}.ts` },
+      startedAt: Date.now(),
+      status: "ok",
+      output: "Readable output with selectable text",
+    }));
+    view.state = {
+      ...view.state,
+      cells: prepend ? [...cells, ...view.state.cells] : [...view.state.cells, ...cells],
+    };
+    if (canonical)
+      view.state = { ...view.state, cells: view.state.cells.map((cell) => ({ ...cell })) };
+    changed();
+  },
+  setCapacity(limits, used, checkpointModel = "test") {
+    capacityModels = [{ provider: "fixture", model: "test", ...limits }];
+    view.conversation = {
+      ...view.conversation,
+      config: { ...view.conversation.config, model: { provider: "fixture", model: "test-latest" } },
+    };
+    view.state = {
+      ...view.state,
+      lastInputTokens: 999999,
+      agentContext: {
+        provider: "fixture",
+        model: checkpointModel,
+        turnId: "agent-turn" as import("@harness/protocol").TurnId,
+        createdAt: 0,
+        usage:
+          used === undefined ? null : { inputTokens: used, outputTokens: 1, cachedReadTokens: 0 },
+      },
+    };
     changed();
   },
   showMarkdown() {
@@ -1544,7 +1643,22 @@ window.composerFixture = {
 localStorage.setItem(session.storageKey("route"), `/conversations/${id}`);
 const createFixtureRouter = () =>
   createDesktopRouter(session as unknown as DesktopSession, {
-    controls: h("span", null, "Fixture"),
+    controls: h(HostControls, {
+      hosts: {
+        config: {
+          hosts: [{ id: "local", kind: "local", label: "Fixture" }],
+          selectedHostId: "local",
+        },
+        selected: { host: { label: "Fixture" } },
+        views: new Map(),
+        subscribe: () => () => {},
+        snapshot: () => 0,
+      } as unknown as DesktopHosts,
+      onManage: () => {
+        throw new Error("Managing hosts is outside fixture scope");
+      },
+      triggerRef: { current: null },
+    }),
     local: true,
     label: "Fixture",
     restart: () => Promise.reject(new Error("Restart is outside fixture scope")),

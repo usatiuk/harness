@@ -1,3 +1,5 @@
+import { discoverUserShellEnvironment } from "@harness/execution";
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -28,6 +30,31 @@ describe.skipIf(!bwrapOk)("NativeExecutionContext (real Bubblewrap)", () => {
       rm(outside, { recursive: true, force: true }),
     ]);
   });
+
+  for (const shell of ["/bin/bash", "/bin/zsh"].filter(existsSync)) {
+    it(`imports ${shell} owner startup exports without executing rc again inside confinement`, async () => {
+      const home = await mkdtemp(join(root, "shell-"));
+      const rc =
+        'echo invocation >> "$HOME/rc-count"\nexport NATIVE_STARTUP_EXPORT=available\nalias startup_alias="echo no"\nstartup_function() { echo no; }\n';
+      await writeFile(join(home, shell.endsWith("zsh") ? ".zshrc" : ".bashrc"), rc);
+      if (shell.endsWith("bash"))
+        await writeFile(join(home, ".bash_profile"), 'source "$HOME/.bashrc"\n');
+      const environment = await discoverUserShellEnvironment({
+        env: { HOME: home, SHELL: shell, PATH: "/usr/bin:/bin" },
+      });
+      const context = new NativeExecutionContext(
+        root,
+        { workspaceWrite: true, network: false },
+        environment,
+      );
+      expect(context.shellKind).toBe(environment.kind);
+      const result = await context.spawn(
+        'test "$NATIVE_STARTUP_EXPORT" = available && ! type startup_alias >/dev/null 2>&1 && ! type startup_function >/dev/null 2>&1',
+      ).exit;
+      expect(result.code).toBe(0);
+      expect(await readFile(join(home, "rc-count"), "utf8")).toBe("invocation\n");
+    });
+  }
 
   it("writes the rebound workspace but cannot write a sibling host path", async () => {
     const ctx = new NativeExecutionContext(root, { workspaceWrite: true, network: true });

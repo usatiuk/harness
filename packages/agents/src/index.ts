@@ -20,6 +20,7 @@ interface InstructionFile {
   key: string;
   path: string;
   content: string;
+  scope: "global" | "project";
 }
 
 const canonicalKey = (path: string): string =>
@@ -43,7 +44,13 @@ const readInstruction = async (directory: string): Promise<InstructionFile | und
     throw error;
   });
   if (!info?.isFile() || info.isSymbolicLink()) return undefined;
-  return { key: canonicalKey(path), path, content: await readFile(path, "utf8") };
+  const canonicalPath = await realpath(path);
+  return {
+    key: canonicalKey(canonicalPath),
+    path: canonicalPath,
+    content: await readFile(canonicalPath, "utf8"),
+    scope: "project",
+  };
 };
 
 const discoverFrom = async (directory: string): Promise<InstructionFile[]> => {
@@ -74,7 +81,9 @@ const nearestExistingRealPath = async (start: string): Promise<string> => {
 const renderInstruction = (file: InstructionFile): string =>
   [
     `AGENTS.md instructions from ${file.path}`,
-    `Scope: ${dirname(file.path)} and its descendants. Deeper AGENTS.md files take precedence.`,
+    file.scope === "global"
+      ? "Scope: all conversations on this Harness server. Applicable project instructions follow."
+      : `Scope: ${dirname(file.path)} and its descendants. Deeper AGENTS.md files take precedence.`,
     "",
     file.content,
   ].join("\n");
@@ -82,23 +91,32 @@ const renderInstruction = (file: InstructionFile): string =>
 /** Per-conversation host-path discovery and the one runtime-local initial-prefix snapshot. */
 class AgentsInstructions {
   readonly #workspaceRoot: string | null;
+  readonly #home: string;
   #initial: Promise<InstructionFile[]> | undefined;
 
-  constructor(workspaceRoot: string | null) {
+  constructor(home: string, workspaceRoot: string | null) {
+    this.#home = resolve(home);
     this.#workspaceRoot = workspaceRoot === null ? null : resolve(workspaceRoot);
   }
 
   initial(): Promise<InstructionFile[]> {
     if (this.#initial) return this.#initial;
-    const pending =
-      this.#workspaceRoot === null
-        ? Promise.resolve([])
-        : realpath(this.#workspaceRoot).then(discoverFrom);
+    const pending = this.#loadInitial();
     this.#initial = pending;
     void pending.catch(() => {
       if (this.#initial === pending) this.#initial = undefined;
     });
     return pending;
+  }
+
+  async #loadInitial(): Promise<InstructionFile[]> {
+    const global = await readInstruction(this.#home);
+    const project =
+      this.#workspaceRoot === null ? [] : await discoverFrom(await realpath(this.#workspaceRoot));
+    return [
+      ...(global ? [{ ...global, scope: "global" as const }] : []),
+      ...project.filter((file) => file.key !== global?.key),
+    ];
   }
 
   async forTargets(paths: readonly string[], allowOutside: boolean): Promise<InstructionFile[]> {
@@ -178,17 +196,18 @@ const middleware: ToolMiddleware = {
   },
 };
 
-const service: ServiceProvider = {
-  key: SERVICE_KEY,
-  scope: "workspace",
-  for: (conversation) => new AgentsInstructions(conversation.workspaceRoot),
-};
-
-/** Hierarchical project instructions, independent from providers and the tools they annotate. */
-export const agentsPlugin: Plugin = {
-  id: "agents",
-  toolMiddlewareAfter: ["approval"],
-  services: () => [service],
-  contextSources: () => [source],
-  toolMiddleware: () => [middleware],
-};
+/** Host-global and hierarchical project guidance, independently of agent role prompts. */
+export function createAgentsPlugin(home: string): Plugin {
+  const service: ServiceProvider = {
+    key: SERVICE_KEY,
+    scope: "workspace",
+    for: (conversation) => new AgentsInstructions(home, conversation.workspaceRoot),
+  };
+  return {
+    id: "agents",
+    toolMiddlewareAfter: ["approval"],
+    services: () => [service],
+    contextSources: () => [source],
+    toolMiddleware: () => [middleware],
+  };
+}

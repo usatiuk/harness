@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ConfigReader, Conversation } from "@harness/protocol";
-import { LocalExecutionContext } from "@harness/execution";
+import { selectUserShell, LocalExecutionContext } from "@harness/execution";
 import { sandboxPlugin } from "./plugin.ts";
 import { sandboxConfigSchema } from "./config.ts";
 import { DockerExecutionContext } from "./docker.ts";
@@ -37,7 +37,7 @@ describe("sandboxPlugin execution provider", () => {
     const local = executionFor(conv({ backend: "none" }));
     expect(local).toBeInstanceOf(LocalExecutionContext);
     expect((local as LocalExecutionContext).shellKind).toBe(
-      process.platform === "win32" ? "powershell" : "bash",
+      process.platform === "win32" ? "powershell" : selectUserShell().kind,
     );
     expect(executionFor(conv())).toBeInstanceOf(LocalExecutionContext);
   });

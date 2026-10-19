@@ -9,10 +9,11 @@ in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 ## Working, controls, and family navigation follow-up
 
 The [cross-cutting follow-up](../../plans/cross-cutting/2026-10-19-agent-desktop-and-shell-follow-up.md)
-is in planning/review. It owns the requested non-message Working grouping,
+is complete. It delivers the requested non-message Working grouping,
 opened-preview retention, links/CSD control consistency, input-limit-aware
-indicators, and readable non-dismissed family navigation. Implementation and
-qualification remain open in that single checklist.
+indicators, and readable non-dismissed family navigation. Its single checklist
+records full-check/focused-browser evidence and the baseline history-anchor and
+native-platform qualification limits.
 
 ## Desktop right sidebar
 

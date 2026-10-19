@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -11,7 +11,7 @@ import {
   type ToolMiddlewareContext,
   type ToolResult,
 } from "@harness/protocol";
-import { agentsPlugin } from "./index.ts";
+import { createAgentsPlugin } from "./index.ts";
 import { LocalExecutionContext } from "@harness/execution";
 
 const created: string[] = [];
@@ -26,7 +26,11 @@ afterEach(async () => {
   await Promise.all(created.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-const setup = (workspaceRoot: string) => {
+const setup = (
+  workspaceRoot: string | null,
+  home = join(workspaceRoot ?? tmpdir(), ".harness-test-home"),
+) => {
+  const agentsPlugin = createAgentsPlugin(home);
   const provider = agentsPlugin.services!()[0]!;
   const service = provider.for({ workspaceRoot } as Conversation);
   const execution = new LocalExecutionContext(workspaceRoot);
@@ -69,6 +73,91 @@ const middlewareContext = (
 });
 
 describe("agentsPlugin", () => {
+  it("loads global guidance before unrelated project guidance with truthful scope", async () => {
+    const root = await tempRoot();
+    const home = join(root, "account", ".harness");
+    const cwd = join(root, "project");
+    await mkdir(home, { recursive: true });
+    await mkdir(cwd);
+    await writeFile(join(home, "AGENTS.md"), "personal global guidance");
+    await writeFile(join(cwd, "AGENTS.md"), "project guidance");
+    const { source, serviceOf } = setup(cwd, home);
+    const text = textOf(await source.instructions(sourceContext(serviceOf)));
+    expect(text.indexOf("personal global guidance")).toBeLessThan(text.indexOf("project guidance"));
+    expect(text).toContain("Scope: all conversations on this Harness server.");
+    expect(text).toContain(`Scope: ${cwd} and its descendants.`);
+  });
+
+  it("loads global guidance for projectless conversations and snapshots absence and edits", async () => {
+    const home = await tempRoot();
+    const missing = setup(null, home);
+    expect(await missing.source.instructions(sourceContext(missing.serviceOf))).toEqual([]);
+    await writeFile(join(home, "AGENTS.md"), "version one");
+    expect(await missing.source.instructions(sourceContext(missing.serviceOf))).toEqual([]);
+    const loaded = setup(null, home);
+    const first = await loaded.source.instructions(sourceContext(loaded.serviceOf));
+    expect(textOf(first)).toContain("version one");
+    await writeFile(join(home, "AGENTS.md"), "version two");
+    expect(await loaded.source.instructions(sourceContext(loaded.serviceOf))).toEqual(first);
+    const reloaded = setup(null, home);
+    expect(textOf(await reloaded.source.instructions(sourceContext(reloaded.serviceOf)))).toContain(
+      "version two",
+    );
+  });
+
+  it("does not duplicate global guidance discovered in project ancestry", async () => {
+    const home = await tempRoot();
+    const cwd = join(home, "worktrees", "project");
+    await mkdir(cwd, { recursive: true });
+    await writeFile(join(home, "AGENTS.md"), "once-only guidance");
+    const { source, serviceOf } = setup(cwd, home);
+    const files = await source.instructions(sourceContext(serviceOf));
+    expect(files).toHaveLength(1);
+    expect(textOf(files)).toContain("Scope: all conversations on this Harness server.");
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "deduplicates aliased home ancestry without following symlinked global files",
+    async () => {
+      const root = await tempRoot();
+      const home = join(root, "home");
+      const cwd = join(home, "project");
+      const alias = join(root, "home-alias");
+      await mkdir(cwd, { recursive: true });
+      await symlink(home, alias);
+      await writeFile(join(home, "AGENTS.md"), "global once");
+      const global = setup(cwd, alias);
+      expect(await global.source.instructions(sourceContext(global.serviceOf))).toHaveLength(1);
+      const other = join(root, "other");
+      await mkdir(other);
+      await symlink(join(home, "AGENTS.md"), join(other, "AGENTS.md"));
+      const linked = setup(null, other);
+      expect(await linked.source.instructions(sourceContext(linked.serviceOf))).toEqual([]);
+    },
+  );
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "reports unreadable global guidance rather than silently dropping it",
+    async () => {
+      const root = await tempRoot();
+      const home = join(root, "home");
+      await mkdir(home);
+      await writeFile(join(home, "AGENTS.md"), "must not disappear");
+      const { source, serviceOf } = setup(null, home);
+      await chmod(home, 0);
+      try {
+        await expect(source.instructions(sourceContext(serviceOf))).rejects.toMatchObject({
+          code: "EACCES",
+        });
+      } finally {
+        await chmod(home, 0o700);
+      }
+      expect(textOf(await source.instructions(sourceContext(serviceOf)))).toContain(
+        "must not disappear",
+      );
+    },
+  );
+
   it("loads the host ancestor chain broadest-first and snapshots its initial prefix", async () => {
     const root = await tempRoot();
     const cwd = join(root, "project", "src");

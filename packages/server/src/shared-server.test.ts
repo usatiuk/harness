@@ -19,7 +19,15 @@ import {
   approvalDecideRequest,
   APPROVAL_CLIENT_CONTRACT_VERSION,
 } from "@harness/approval";
-import { isDismissed, rosterPage, spawnSubagent, subagentsListRequest } from "@harness/subagents";
+import {
+  SubagentsDefinition,
+  isDismissed,
+  rosterPage,
+  spawnSubagent,
+  subagentsListRequest,
+  subagentsEventNotification,
+  type SubagentPage,
+} from "@harness/subagents";
 import type { ConversationId, PluginEntry, ModelProvider, Store } from "@harness/protocol";
 import { registerApprovalServer } from "./approvals.ts";
 import { registerFeatureServer } from "./features.ts";
@@ -510,7 +518,7 @@ it("keeps legacy subagents inspectable without inventing names or resurrecting s
   }
 });
 
-it("shows a stale running child as Stopped after SQLite reopen without launching its provider", async () => {
+it("keeps dismissed branches hidden and retained stale children Stopped after SQLite reopen without launching providers", async () => {
   const dir = await mkdtemp(join(tmpdir(), "harness-inspect-restart-"));
   const path = join(dir, "history.db");
   const before = new SqliteStore(path);
@@ -536,6 +544,23 @@ it("shows a stale running child as Stopped after SQLite reopen without launching
   );
   await before.putPluginState("subagents", child.id, "dismissed", true);
   const turn = await before.createTurn(child.id);
+  const retained = await before.createConversation({
+    workspaceRoot: null,
+    overrides: { model: { provider: "fake", model: "fake-1" } },
+  });
+  await before.putPluginState(
+    "subagents",
+    retained.id,
+    "spawn",
+    {
+      parent: { conversationId: root.id, callId: "retained-stale" },
+      agent: "explore",
+      name: "Retained review",
+      slug: "retained",
+    },
+    root.id,
+  );
+  await before.createTurn(retained.id);
   before.close();
   const reopened = new SqliteStore(path);
   const provider = new FakeProvider([]);
@@ -544,10 +569,14 @@ it("shows a stale running child as Stopped after SQLite reopen without launching
   try {
     const connection = await harness.connect();
     expect(await isDismissed(harness.service, child.id)).toBe(true);
-    expect(await rosterPage(harness.service, root.id, 20)).toEqual([]);
+    expect((await rosterPage(harness.service, root.id, 20)).map((row) => row.id)).toEqual([
+      retained.id,
+    ]);
     const page = await connection.plugins.listSubagents(root.id);
     expect(page.running).toBe(0);
-    expect(page.children).toEqual([expect.objectContaining({ id: child.id, status: "aborted" })]);
+    expect(page.children).toEqual([
+      expect.objectContaining({ id: retained.id, status: "aborted" }),
+    ]);
     expect((await reopened.getLatestTurn(child.id))?.status).toBe("running");
     expect(
       harness.service.conversationTreeState(root.id).map((member) => member.conversation.id),
@@ -563,5 +592,148 @@ it("shows a stale running child as Stopped after SQLite reopen without launching
     await harness.close();
     reopened.close();
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("filters dismissed GUI branches before paging, reports honest counts/expanders and publishes changes without cancelling live descendants", async () => {
+  const provider: ModelProvider = new FakeProvider(
+    Array.from({ length: 8 }, () => textStep("Finished")),
+  );
+  const subagents = new SubagentsDefinition();
+  const harness = sharedHarness(provider, [activitiesPlugin, subagents]);
+  subagents.bindRunner(harness.service);
+  try {
+    const connection = await harness.connect();
+    const root = await connection.client.create({});
+    await connection.client.attach(root.id);
+    const foreign = await harness.connect();
+    const otherRoot = await foreign.client.create({});
+    await foreign.client.attach(otherRoot.id);
+    const unattached = await harness.connect();
+    const foreignEvents: unknown[] = [];
+    const unattachedEvents: unknown[] = [];
+    foreign.client.peer.onNotification(subagentsEventNotification, (event) =>
+      foreignEvents.push(event),
+    );
+    unattached.client.peer.onNotification(subagentsEventNotification, (event) =>
+      unattachedEvents.push(event),
+    );
+    for (let i = 0; i < 5; i++) {
+      const child = await spawnSubagent({
+        runner: harness.service,
+        parent: root.id as ConversationId,
+        callId: `seed-${i}`,
+        agentName: "general",
+        name: `Task ${i}`,
+        slug: `task-${i}`,
+        task: "Work",
+        overrides: {},
+      });
+      await child.done;
+      await harness.service.whenIdle(child.childId);
+    }
+    const initial = await connection.plugins.listSubagents(root.id as ConversationId);
+    expect(initial.children).toHaveLength(5);
+    const firstId = initial.children[0]!.id as ConversationId;
+    const middleId = initial.children[2]!.id as ConversationId;
+    // A retained parent's only dismissed child must not leave a stale expander.
+    const retainedId = initial.children[1]!.id as ConversationId;
+    const finished = await spawnSubagent({
+      runner: harness.service,
+      parent: retainedId,
+      callId: "finished",
+      agentName: "general",
+      name: "Finished nested",
+      slug: "finished",
+      task: "Work",
+      overrides: {},
+    });
+    await finished.done;
+    await harness.service.whenIdle(finished.childId);
+    expect(
+      (await connection.plugins.listSubagents(root.id as ConversationId)).children.find(
+        (row) => row.id === retainedId,
+      )?.hasChildren,
+    ).toBe(true);
+    await harness.service.putPluginState("subagents", finished.childId, "dismissed", true);
+    const gate = new GateProvider("Still working after dismissal");
+    provider.stream = gate.stream.bind(gate);
+    const active = await spawnSubagent({
+      runner: harness.service,
+      parent: middleId,
+      callId: "live",
+      agentName: "general",
+      name: "Live work",
+      slug: "live",
+      task: "Wait",
+      overrides: {},
+    });
+    await gate.started;
+    expect((await connection.plugins.listSubagents(root.id as ConversationId)).running).toBe(1);
+    const events: unknown[] = [];
+    const unsubscribe = connection.plugins.subscribe(root.id as ConversationId, (event) => {
+      if (event.type === "subagents.changed") events.push(event);
+    });
+    const dismiss = async (to: string) => {
+      const scripted = new FakeProvider([
+        toolStep(`dismiss-${to}`, "subagent_dismiss", { to }),
+        textStep("Dismissed"),
+      ]);
+      provider.stream = scripted.stream.bind(scripted);
+      await harness.service.deliver(root.id as ConversationId, "Dismiss task", "send");
+      await harness.service.whenIdle(root.id as ConversationId);
+    };
+    await dismiss(firstId);
+    await dismiss(middleId);
+    await vi.waitFor(() => expect(events).toHaveLength(2));
+    expect(events).toContainEqual({
+      type: "subagents.changed",
+      conversationId: root.id,
+      dismissedId: middleId,
+    });
+    // Round trips settle any earlier notifications on these transports.
+    await foreign.client.history({ conversationId: otherRoot.id });
+    await unattached.client.list();
+    expect(foreignEvents).toEqual([]);
+    expect(unattachedEvents).toEqual([]);
+    const listed: string[] = [];
+    let cursor: { createdAt: number; id: string } | null = null;
+    do {
+      const page: SubagentPage = await connection.client.peer.request(subagentsListRequest, {
+        conversationId: root.id,
+        limit: 1,
+        cursor,
+      });
+      expect(page.children).toHaveLength(1);
+      expect(page.running).toBe(0);
+      expect(page.children[0]!.hasChildren).toBe(false);
+      listed.push(page.children[0]!.id);
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(listed).toHaveLength(3);
+    expect(listed).not.toContain(firstId);
+    expect(listed).not.toContain(middleId);
+    expect((await connection.plugins.listSubagents(middleId)).children).toEqual([]);
+    expect((await connection.plugins.listSubagents(middleId)).running).toBe(0);
+    expect(harness.service.isConversationRunning(active.childId)).toBe(true);
+    // Hidden histories and direct attachment remain available; dismissal is not cancellation.
+    expect((await connection.plugins.inspectSubagent(active.childId))?.name).toBe("Live work");
+    expect((await connection.client.attach(active.childId)).root.id).toBe(root.id);
+    for (const id of listed) await dismiss(id);
+    const empty = await connection.client.peer.request(subagentsListRequest, {
+      conversationId: root.id,
+      limit: 1,
+      cursor: null,
+    });
+    expect(empty).toEqual({ children: [], running: 0, nextCursor: null });
+    gate.release();
+    expect((await active.done).status).toBe("ok");
+    await harness.service.whenIdle(active.childId);
+    expect(
+      (await connection.client.history({ conversationId: active.childId })).entries.length,
+    ).toBeGreaterThan(0);
+    unsubscribe();
+  } finally {
+    await harness.close();
   }
 });

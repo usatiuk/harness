@@ -2360,7 +2360,9 @@ test("eval boundaries keep child tools flat with right chevrons and failure-only
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showEval());
   const group = page.locator(".tool-group-container");
-  await expect(group.locator(".work-group-title")).toHaveText("Worked for 12 s · 3 tool calls");
+  await expect(group.locator(".work-group-title")).toHaveText(
+    "Worked for 12 s · Failed · 3 tool calls",
+  );
   await expect(group.locator(".tool-group")).toHaveCount(0);
   const calls = group.getByTestId("tool-call");
   await expect(calls).toHaveCount(4);
@@ -2796,6 +2798,9 @@ test("expanding work keeps row width stable when native scrollbars appear", asyn
     await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
     await page.evaluate(() => window.composerFixture.showLongToolRun());
     await expect(page.getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(5);
+    // Virtuoso's sizing copy is measurable but hidden; observe the mounted
+    // disclosure before installing animation listeners on its DOM owner.
+    await expect(page.locator(".tool-group > summary")).toBeVisible();
     const samples = await page.evaluate(
       () =>
         new Promise<Array<{ left: number; width: number }>>((resolve) => {
@@ -4184,4 +4189,346 @@ test("user and tool image history show previews and full viewer", async ({ page 
   await expect(viewer).toBeHidden();
   await page.getByTestId("tool-call").locator("summary").click();
   await expect(page.getByTestId("tool-call").locator(".image-preview")).toHaveCount(1);
+});
+
+test("collapsed Working retains only deliberate open/focus exceptions through append and history replacement", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.evaluate(() => {
+    window.composerFixture.setWork([]);
+    window.composerFixture.appendWork(6);
+  });
+  const preview = page.getByLabel("Recent work");
+  const original = preview.getByTestId("tool-call").first();
+  await original.locator(":scope > summary").click();
+  await expect(original.getByTestId("tool-output")).toBeVisible();
+  await original.evaluate((element) => {
+    element.setAttribute("data-intent-owner", "kept");
+    const body = element.querySelector('[data-testid="tool-output"]')!;
+    body.setAttribute("data-intent-body", "kept");
+    const range = document.createRange();
+    range.selectNodeContents(body);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+  });
+  // A DOM range exists before the opening animation reveals selectable text.
+  // Establish the actual reading prerequisite before appending work.
+  await expect
+    .poll(() => page.evaluate(() => window.getSelection()!.toString()))
+    .toBe("Readable output with selectable text");
+  await page.evaluate(() => window.composerFixture.appendWork(12));
+  const retained = page.locator('[data-intent-owner="kept"]');
+  await expect(preview.getByTestId("tool-call")).toHaveCount(6);
+  await expect(retained).toHaveAttribute("open");
+  await expect(retained.locator('[data-intent-body="kept"]')).toBeVisible();
+  expect(await page.evaluate(() => window.getSelection()!.toString())).toBe(
+    "Readable output with selectable text",
+  );
+  expect(await retained.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  await page.evaluate(() => window.composerFixture.appendWork(7, true, true));
+  await expect(preview.getByTestId("tool-call")).toHaveCount(6);
+  await expect(retained.locator('[data-intent-body="kept"]')).toBeVisible();
+  // A nested toggle is not the step's own disclosure.
+  await retained.getByTestId("tool-output").evaluate((element) => {
+    const nested = document.createElement("details");
+    nested.innerHTML = "<summary>Nested disclosure</summary>Nested body";
+    element.append(nested);
+    nested.open = true;
+    nested.open = false;
+  });
+  await page.getByRole("textbox", { name: "Message", exact: true }).focus();
+  await expect(retained).toBeVisible();
+  await retained.locator(":scope > summary").click();
+  await page.getByRole("textbox", { name: "Message", exact: true }).focus();
+  await expect(retained).toHaveCount(0);
+  await expect(preview.getByTestId("tool-call")).toHaveCount(5);
+  // A closed but keyboard-focused row is also an intentional exception.
+  await preview.getByTestId("tool-call").first().locator(":scope > summary").focus();
+  await page.evaluate(() => window.composerFixture.appendWork(8));
+  await expect(preview.getByTestId("tool-call")).toHaveCount(6);
+  await page.getByRole("textbox", { name: "Message", exact: true }).focus();
+  await expect(preview.getByTestId("tool-call")).toHaveCount(5);
+});
+
+test("context-only work has one Working owner and terminal errors and duration stay in its summary", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.evaluate(() =>
+    window.composerFixture.setWork([
+      { kind: "context", id: "initial-context", text: "Initial instructions" },
+    ]),
+  );
+  await expect(page.locator(".tool-group-container")).toHaveCount(1);
+  await expect(page.getByRole("status").filter({ hasText: /^Working$/ })).toHaveCount(0);
+  await page.evaluate(() =>
+    window.composerFixture.setWork([
+      { kind: "user", id: "user", turnId: "turn", text: "Go", createdAt: 0 },
+      { kind: "context", id: "context", text: "Loaded instructions" },
+    ]),
+  );
+  await expect(page.locator(".tool-group-container")).toHaveCount(1);
+  await expect(page.getByRole("status").filter({ hasText: /^Working$/ })).toHaveCount(0);
+  await page.evaluate(() =>
+    window.composerFixture.setWork([
+      { kind: "user", id: "user", turnId: "turn", text: "Go", createdAt: 0 },
+      { kind: "error", id: "error", text: "Original failure" },
+      { kind: "worked", id: "worked", duration: 1234 },
+      ...Array.from({ length: 6 }, (_, index) => ({
+        kind: "note" as const,
+        id: `note-${index}`,
+        text: `Note ${index}`,
+      })),
+    ]),
+  );
+  await page.evaluate(() => window.composerFixture.completeSteps());
+  await expect(page.locator(".tool-group > summary")).toContainText("Failed");
+  await expect(page.locator(".tool-group > summary")).toContainText("Worked for 1 s");
+  await expect(page.getByText(/Worked for/)).toHaveCount(1);
+  await page.locator(".tool-group > summary").click();
+  await expect(page.locator(".work-items [role=alert]")).toHaveText("Original failure");
+});
+
+for (const [name, limits, used, expected] of [
+  ["input", { maxInputTokens: 1000 }, 100, "10% of input limit"],
+  ["context", { contextWindow: 2000 }, 100, "5% of shared context window"],
+  ["both", { maxInputTokens: 1000, contextWindow: 2000 }, 100, "10% of input limit"],
+  ["output-only", { maxOutputTokens: 500 }, 100, "unknown"],
+  ["unknown", {}, 100, "unknown"],
+  ["zero", { maxInputTokens: 1000 }, 0, "0% of input limit"],
+  ["missing usage", { maxInputTokens: 1000 }, undefined, "unknown"],
+] as const) {
+  test(`agent checkpoint capacity uses ${name} metadata independently of selected model`, async ({
+    page,
+  }) => {
+    await page.goto(url + "?composer");
+    await page.waitForFunction(() => window.composerFixture !== undefined);
+    await page.evaluate(({ limits, used }) => window.composerFixture.setCapacity(limits, used), {
+      limits,
+      used,
+    });
+    const trigger = page.getByRole("button", { name: `Context usage: ${expected}`, exact: true });
+    await expect(trigger).toBeVisible();
+    if (expected === "unknown")
+      await expect(trigger.locator(".context-ring")).toHaveAttribute("data-unknown", "");
+    else await expect(trigger.locator(".context-ring")).not.toHaveAttribute("data-unknown");
+    await trigger.click();
+    const facts = page.locator(".context-facts");
+    await expect(facts.locator("dt", { hasText: "Last agent input" }).locator("+ dd")).toHaveText(
+      used === undefined ? "Unavailable" : `${used}`,
+    );
+    await expect(facts.locator("dt", { hasText: "Input limit" }).locator("+ dd")).toHaveText(
+      "maxInputTokens" in limits ? "1,000" : "Unavailable",
+    );
+    await expect(
+      facts.locator("dt", { hasText: "Shared context window" }).locator("+ dd"),
+    ).toHaveText("contextWindow" in limits ? "2,000" : "Unavailable");
+  });
+}
+
+for (const theme of ["light", "dark"] as const) {
+  test(`content links are scoped, underlined, keyboard accessible and use the safe opener in ${theme}`, async ({
+    page,
+  }) => {
+    await page.goto(url + "?composer");
+    await page.waitForFunction(() => window.composerFixture !== undefined);
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      window.composerFixture.mockOpener();
+      window.composerFixture.setWork([
+        {
+          kind: "assistant",
+          turnId: "turn",
+          text: "[Assistant link](https://example.com/assistant) [Unsupported](file:///etc/passwd)",
+          streaming: false,
+        },
+        {
+          kind: "reasoning",
+          turnId: "turn",
+          id: "links-thought",
+          text: "[Reasoning link](http://example.com/reasoning)",
+          streaming: false,
+          startedAt: 0,
+        },
+      ]);
+    }, theme);
+    const link = page.getByRole("link", { name: "Assistant link" });
+    await expect(link).toHaveCSS("text-decoration-line", "underline");
+    await expect(page.getByRole("link", { name: "Settings", exact: true })).toHaveCSS(
+      "text-decoration-line",
+      "none",
+    );
+    await expect(page.getByText("Unsupported", { exact: true })).not.toHaveAttribute("href");
+    await expect(page.getByText("Unsupported", { exact: true })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await link.focus();
+    await expect(link).toBeFocused();
+    await expect(link).toHaveCSS("outline-style", "solid");
+    await link.press("Enter");
+    await expect
+      .poll(() => page.evaluate(() => window.composerFixture.openedUrls))
+      .toEqual([{ url: "https://example.com/assistant" }]);
+    await page.locator(".reasoning > summary").click();
+    const reasoning = page.getByRole("link", { name: "Reasoning link" });
+    await expect(reasoning).toHaveCSS("text-decoration-line", "underline");
+    await page.evaluate(() => window.composerFixture.mockOpener(true));
+    await reasoning.click();
+    await expect(page.getByRole("alert")).toHaveText("Opener rejected destination");
+    await reasoning.evaluate(async (element) => {
+      await Promise.all(
+        element
+          .closest(".collapse-grid")!
+          .getAnimations()
+          .map((animation) => animation.finished),
+      );
+    });
+    await expect(reasoning).toBeInViewport();
+    await page.screenshot({ path: test.info().outputPath(`content-links-${theme}.png`) });
+  });
+
+  for (const chrome of ["csd", "native", "fullscreen"] as const) {
+    test(`${theme} ${chrome} chrome uses shared sidebar geometry and translucent host interactions`, async ({
+      page,
+    }) => {
+      await page.goto(url + "?composer");
+      await page.waitForFunction(() => window.composerFixture !== undefined);
+      await page.evaluate(
+        ({ theme, chrome }) => {
+          document.documentElement.dataset.theme = theme;
+          if (chrome === "native") document.documentElement.dataset.windowDecoration = "native";
+          if (chrome === "fullscreen")
+            document.body.setAttribute("data-tauri-decoration-fullscreen", "");
+        },
+        { theme, chrome },
+      );
+      const left = page.getByRole("button", { name: "Hide sidebar", exact: true });
+      const right = page.getByRole("button", { name: "Show right sidebar", exact: true });
+      await expect(left).toHaveAttribute("aria-expanded", "true");
+      const geometry = async (button: ReturnType<Page["getByRole"]>) =>
+        button.evaluate((element) => ({
+          width: element.getBoundingClientRect().width,
+          height: element.getBoundingClientRect().height,
+        }));
+      expect(await geometry(left)).toEqual(await geometry(right));
+      expect(await geometry(right)).toEqual({ width: 26, height: 26 });
+      const host = page.getByRole("button", { name: "Switch host: Fixture", exact: true });
+      await host.hover();
+      await expect(host).toHaveCSS(
+        "background-color",
+        /(?:rgba\(.+, 0\.08\)|color\(srgb .+ \/ 0\.08\))/,
+      );
+      await host.focus();
+      await expect(host).toHaveCSS("outline-style", "solid");
+      await host.press("Enter");
+      await expect(host).toHaveAttribute("data-state", "open");
+      await expect(host).toHaveCSS(
+        "background-color",
+        /(?:rgba\(.+, 0\.14\)|color\(srgb .+ \/ 0\.14\))/,
+      );
+      await page.keyboard.press("Escape");
+      await expect(page.locator("main")).toHaveCSS(
+        "border-top-left-radius",
+        chrome === "csd" ? "12px" : "0px",
+      );
+      await left.click();
+      await expect(page.locator("main")).toHaveCSS("border-top-left-radius", "0px");
+      const show = page.getByRole("button", { name: "Show sidebar", exact: true });
+      await expect(show).toHaveAttribute("aria-expanded", "false");
+      expect(await geometry(show)).toEqual(await geometry(right));
+      await page.keyboard.press("Tab");
+      await show.focus();
+      await expect(show).toHaveCSS("outline-style", "solid");
+      await right.click();
+      await expect(
+        page.getByRole("button", { name: "Hide right sidebar", exact: true }),
+      ).toHaveAttribute("aria-expanded", "true");
+      await page.screenshot({ path: test.info().outputPath(`chrome-${theme}-${chrome}.png`) });
+    });
+  }
+}
+
+test("dismissal refreshes the navigator and clears a selected hidden descendant without deleting history", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.evaluate(() => window.composerFixture.showSubagents());
+  await page.getByRole("button", { name: "Show right sidebar", exact: true }).click();
+  const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+  await sidebar.getByRole("tab", { name: "Subagents", exact: true }).click();
+  const tree = sidebar.getByRole("navigation", { name: "Conversation tree" });
+  await tree.getByRole("button", { name: /Review authentication/ }).click();
+  await expect(sidebar.locator(".side-conversation")).toContainText("Child transcript");
+  await tree.getByRole("button", { name: /Check tests/ }).click();
+  await expect(sidebar.locator(".side-conversation")).toContainText("Child transcript");
+  await page.evaluate(() => window.composerFixture.dismissSubagent("review"));
+  await expect(tree.getByRole("button", { name: /Review authentication/ })).toHaveCount(0);
+  await expect(tree.getByRole("button", { name: /Check tests/ })).toHaveCount(0);
+  await expect(sidebar.locator(".side-conversation")).toHaveText("Select a conversation.");
+  await expect(tree.getByRole("button", { name: /Live review/ })).toBeVisible();
+});
+
+test("Eval result inspection keeps its owner across rolling previews, outer disclosure and superseding groups", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.evaluate(() => window.composerFixture.showEval());
+  const result = page.locator(".eval-result");
+  await result.locator(":scope > summary").click();
+  await expect(result.getByTestId("tool-output")).toHaveText('{"updated":true}');
+  await result.evaluate((element) => {
+    element.setAttribute("data-eval-reader", "kept");
+    element.querySelector('[data-testid="tool-output"]')!.setAttribute("data-eval-body", "kept");
+  });
+  await page.evaluate(() => window.composerFixture.appendWork(8));
+  await expect(page.getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(6);
+  await expect(page.locator('[data-eval-reader="kept"] [data-eval-body="kept"]')).toBeVisible();
+  await page.evaluate(() => window.composerFixture.splitWorkGroup());
+  const old = page.locator(".tool-group-container").first();
+  await expect(old.getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(1);
+  await old.locator(".tool-group > summary").click();
+  await expect(old.getByLabel("Work details").getByTestId("tool-call")).toHaveCount(11);
+  await expect(page.locator('[data-eval-reader="kept"] [data-eval-body="kept"]')).toBeVisible();
+  await old.locator(".tool-group > summary").click();
+  await expect(old.getByLabel("Work details")).toHaveCount(0);
+  await expect(page.locator('[data-eval-reader="kept"] [data-eval-body="kept"]')).toBeVisible();
+  // Canonical removal releases the exception rather than retaining stale keys.
+  await page.evaluate(() =>
+    window.composerFixture.setWork([
+      { kind: "context", id: "replacement", text: "Canonical replacement" },
+    ]),
+  );
+  await expect(page.locator('[data-eval-reader="kept"]')).toHaveCount(0);
+  await expect(page.locator(".tool-group-container")).toHaveCount(1);
+});
+
+test("empty nonmessage text does not displace the five nonempty Working preview entries", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.evaluate(() =>
+    window.composerFixture.setWork([
+      ...Array.from({ length: 5 }, (_, index) => ({
+        kind: "note" as const,
+        id: `content-${index}`,
+        text: `Meaningful work ${index}`,
+      })),
+      { kind: "context", id: "empty-context", text: "  " },
+      { kind: "compaction", id: "empty-compaction", text: "" },
+      { kind: "provider_output", id: "empty-provider", turnId: "turn", text: "\n" },
+      { kind: "plugin_message", id: "empty-plugin", turnId: "turn", pluginId: "fixture", text: "" },
+      { kind: "worked", id: "marker", duration: 1000 },
+    ]),
+  );
+  await expect(page.getByLabel("Recent work").locator(":scope > *")).toHaveCount(5);
+  await expect(page.getByLabel("Recent work")).toContainText("Meaningful work 0");
+  await expect(page.getByLabel("Recent work")).toContainText("Meaningful work 4");
+  await expect(page.locator(".tool-group")).toHaveCount(0);
 });

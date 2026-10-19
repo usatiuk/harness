@@ -10,6 +10,9 @@ import {
   LocalExecutionContext,
   LocalOutputStore,
   streamProcess,
+  selectUserShell,
+  shellCommandArgs,
+  type UserShellEnvironment,
   type ExecutionContext,
   type OutputStore,
   type Relationship,
@@ -82,7 +85,10 @@ function resolverMountArgs(): string[] {
  */
 export class NativeExecutionContext implements ExecutionContext {
   readonly workspaceRoot: string | null;
-  readonly shellKind = "bash" as const;
+  readonly commandShell: UserShellEnvironment;
+  get shellKind() {
+    return this.commandShell.kind;
+  }
   readonly unconfined: LocalExecutionContext;
   readonly #managedTools = new Set<string>();
   #gitDirectory: string | undefined;
@@ -90,6 +96,7 @@ export class NativeExecutionContext implements ExecutionContext {
   constructor(
     workspaceRoot: string | null,
     readonly config: NativeSandboxConfig,
+    commandShell?: UserShellEnvironment,
   ) {
     if (process.platform !== "linux") {
       throw new Error(`native sandbox is unsupported on ${process.platform}`);
@@ -111,7 +118,8 @@ export class NativeExecutionContext implements ExecutionContext {
         }`,
       );
     }
-    this.unconfined = new LocalExecutionContext(this.workspaceRoot);
+    this.commandShell = commandShell ?? selectUserShell();
+    this.unconfined = new LocalExecutionContext(this.workspaceRoot, this.commandShell);
   }
 
   async prepare(): Promise<void> {
@@ -199,9 +207,15 @@ export class NativeExecutionContext implements ExecutionContext {
     // The process already inherits Harness's environment. Avoid a login shell: host profile
     // scripts can attempt IPC through services intentionally absent from the private /run (for
     // example Ubuntu im-config invokes systemd-cat and leaks journald errors into command output).
-    args.push("--chdir", cwd, "--", "bash", "-c", command);
+    args.push(
+      "--chdir",
+      cwd,
+      "--",
+      this.commandShell.executable,
+      ...shellCommandArgs(this.shellKind, command),
+    );
 
-    const child = nodeSpawn("bwrap", args, { cwd, detached: true });
+    const child = nodeSpawn("bwrap", args, { cwd, detached: true, env: this.commandShell.env });
     let killed = false;
     let settled = false;
     child.once("exit", () => (settled = true));

@@ -350,7 +350,7 @@ describe("workspace tools", () => {
 describe("workspacePlugin editing preference", () => {
   const names = (
     preferredEditTool: ModelCapabilities["preferredEditTool"],
-    shellKind: "bash" | "powershell" = "bash",
+    shellKind: "bash" | "zsh" | "powershell" = "bash",
   ) =>
     workspacePlugin.tools!(
       {
@@ -375,6 +375,12 @@ describe("workspacePlugin editing preference", () => {
   it("keeps the platform shell independent of editing preference", () => {
     expect(names("replace", "powershell")).toContain("powershell");
     expect(names("patch", "powershell")).toContain("powershell");
+    expect(names("patch", "zsh")).toContain("zsh");
+    expect(names("patch", "zsh")).not.toContain("bash");
+    const tool = new CommandTool("zsh");
+    expect(tool.description).toContain("fresh noninteractive shell");
+    expect(tool.description).toContain("Aliases, functions, and shell options are not persisted");
+    expect(new CommandTool("powershell").description).toContain("profiles are disabled");
   });
 });
 

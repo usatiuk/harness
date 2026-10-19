@@ -28,8 +28,9 @@ const delay = (ms: number, signal: AbortSignal): Promise<void> =>
     );
   });
 
-const bashQuote = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
+const posixQuote = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
 const powershellQuote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
+const commandTools = ["powershell", "bash", "zsh"];
 
 /**
  * Demo-only provider. Each turn calls the offered command tool to echo the user's text, then replies —
@@ -109,7 +110,7 @@ export class DemoProvider implements ModelProvider {
       const shell = [
         ...tools.map((tool) => tool.name),
         ...definitions.map((tool) => tool.input.name),
-      ].find((name) => ["powershell", "bash"].includes(name));
+      ].find((name) => commandTools.includes(name));
       if (!shell) {
         if (last?.type === "tool_result" && discoveryIds.has(toolCallKey(last)))
           throw new Error("demo provider requires a command tool");
@@ -117,7 +118,7 @@ export class DemoProvider implements ModelProvider {
           type: "tool_call",
           callId: `call-${++this.#calls}`,
           name: "tool_search",
-          args: { queries: ["powershell", "bash"] },
+          args: { queries: commandTools },
         };
         yield { type: "completed", usage: ZERO_USAGE };
         return;
@@ -127,18 +128,14 @@ export class DemoProvider implements ModelProvider {
         callId: `call-${++this.#calls}`,
         name: "eval",
         args: {
-          code: `return await tools.call(${JSON.stringify(shell)}, {command:${JSON.stringify(shell === "powershell" ? `Write-Output ${powershellQuote(youSaid)}` : `printf '%s\\n' ${bashQuote(youSaid)}`)}});`,
+          code: `return await tools.call(${JSON.stringify(shell)}, {command:${JSON.stringify(shell === "powershell" ? `Write-Output ${powershellQuote(youSaid)}` : `printf '%s\\n' ${posixQuote(youSaid)}`)}});`,
         },
       };
       yield { type: "completed", usage: ZERO_USAGE };
       return;
     }
-    const shell = tools.some((tool) => tool.name === "powershell")
-      ? "powershell"
-      : tools.some((tool) => tool.name === "bash")
-        ? "bash"
-        : undefined;
-    if (!shell) throw new Error("demo provider requires a bash or powershell tool");
+    const shell = tools.map((tool) => tool.name).find((name) => commandTools.includes(name));
+    if (!shell) throw new Error("demo provider requires a Bash, zsh or PowerShell tool");
     yield {
       type: "tool_call",
       callId: `call-${++this.#calls}`,
@@ -147,7 +144,7 @@ export class DemoProvider implements ModelProvider {
         command:
           shell === "powershell"
             ? `Write-Output ${powershellQuote(youSaid)}`
-            : `printf '%s\\n' ${bashQuote(youSaid)}`,
+            : `printf '%s\\n' ${posixQuote(youSaid)}`,
       },
     };
     yield { type: "completed", usage: ZERO_USAGE };

@@ -1,3 +1,4 @@
+import { PassThrough } from "node:stream";
 import { unusedCodeEvaluator } from "@harness/testkit";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
@@ -20,6 +21,16 @@ const state = vi.hoisted(() => ({
   nextId: 0,
 }));
 
+// Shell startup is an OS edge, qualified separately with real shells and an opt-in container.
+vi.mock("./container-shell.ts", async (original) => ({
+  ...(await original<typeof import("./container-shell.ts")>()),
+  containerShellEnvironment: async () => ({
+    HOME: "/root",
+    SHELL: "/bin/bash",
+    PATH: "/usr/bin:/bin",
+  }),
+}));
+
 vi.mock("./devcontainer.ts", async (original) => ({
   ...(await original<typeof import("./devcontainer.ts")>()),
   containerRoot: async () => state.project,
@@ -35,9 +46,13 @@ vi.mock("node:child_process", async (original) => ({
   ...(await original<typeof import("node:child_process")>()),
   spawn: (_bin: string, args: string[]) => {
     const child = new EventEmitter() as ChildProcess;
-    Object.assign(child, { stdout: new EventEmitter(), stderr: new EventEmitter() });
+    Object.assign(child, {
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+      stdin: new PassThrough(),
+    });
     const command = args.at(-1)!;
-    const containerId = args[args.indexOf("bash") - 1]!;
+    const containerId = args[args.indexOf("/usr/bin/env") - 1]!;
     state.children.push({ child, containerId, command });
     return child;
   },

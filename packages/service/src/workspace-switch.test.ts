@@ -9,7 +9,7 @@ import { z } from "zod";
 import { InMemoryStore } from "@harness/store";
 import { localExecutionPlugin } from "@harness/execution";
 import { workspacePlugin } from "@harness/workspace";
-import { agentsPlugin } from "@harness/agents";
+import { createAgentsPlugin } from "@harness/agents";
 import { approvalPlugin } from "@harness/approval";
 import {
   unusedCodeEvaluator,
@@ -138,7 +138,7 @@ it.each(["hybrid", "code-only"] as const)(
         localExecutionPlugin,
         workspacePlugin,
         approvalPlugin,
-        agentsPlugin,
+        createAgentsPlugin(join(root, "home")),
       ],
       defaults: { model: { provider: "fake", model: "fake-1" }, tools: { mode } },
     });

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
+import { isKernelEvent, type ConversationId } from "@harness/protocol";
 import type { DesktopSession, ConversationView, ConversationSnapshot } from "../session.ts";
 import { Button, IconButton, Tabs } from "../ui.tsx";
 import { SubagentTree } from "./subagent-control.tsx";
@@ -99,12 +100,40 @@ export function RightSidebarLayout({
     resizedWidth ?? Math.max(320, Math.min(720, Math.round(viewportWidth * 0.4))),
   );
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectionError, setSelectionError] = useState<string>();
+  useEffect(() => {
+    if (!selected) return;
+    let disposed = false;
+    const unsubscribe = session.plugins.subscribe(rootId as ConversationId, (event) => {
+      if (isKernelEvent(event) || event.type !== "subagents.changed") return;
+      // History remains accessible; only the navigator's live selection follows
+      // the always-visible family root when its branch leaves the roster.
+      void session
+        .load(selected)
+        .then((attachment) => {
+          if (disposed) return;
+          const branch = [...(attachment.subagent?.ancestors ?? []), { id: selected }];
+          const index = branch.findIndex((ancestor) => ancestor.id === event["dismissedId"]);
+          if (index >= 0) {
+            setSelected(null);
+            setSelectionError(undefined);
+          }
+        })
+        .catch((cause: unknown) => {
+          if (!disposed) setSelectionError(cause instanceof Error ? cause.message : String(cause));
+        });
+    });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [session, rootId, selected]);
   const toggle = (
     <IconButton
       icon={open ? PanelRightClose : PanelRightOpen}
       label={open ? "Hide right sidebar" : "Show right sidebar"}
       aria-expanded={open}
-      className="right-sidebar-toggle"
+      className="right-sidebar-toggle chrome-control"
       size="sm"
       onClick={() => setOpen((value) => !value)}
     />
@@ -195,6 +224,11 @@ export function RightSidebarLayout({
                   onSelect={setSelected}
                 />
                 <div className="side-conversation">
+                  {selectionError && (
+                    <p className="error" role="alert">
+                      {selectionError}
+                    </p>
+                  )}
                   {selected ? (
                     <SideConversation
                       key={selected}

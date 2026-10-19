@@ -106,3 +106,44 @@ export async function rosterPage(
     },
   );
 }
+
+/** Resolve only the caller's visible family. Authorization still runs on the canonical ID. */
+export async function resolveFamilyReference(
+  runner: ConversationRunner,
+  caller: ConversationId,
+  reference: string,
+  scope: "family" | "children" = "family",
+): Promise<{ id: ConversationId } | { error: string }> {
+  const parent = (await spawnMark(runner, caller))?.parent.conversationId as
+    ConversationId | undefined;
+  if (reference === "parent")
+    return parent ? { id: parent } : { error: "This conversation has no parent." };
+  // IDs remain usable for denied/dismissed targets so the existing authorization is authoritative.
+  if (await runner.getConversation(reference as ConversationId))
+    return { id: reference as ConversationId };
+  const matches = new Set<ConversationId>();
+  const consider = async (id: ConversationId) => {
+    if (id === caller) return;
+    const member = await identity(runner, id);
+    if (member.name === reference || member.slug === reference) matches.add(id);
+  };
+  if (parent && scope === "family") await consider(parent);
+  for (const owner of [caller, ...(parent && scope === "family" ? [parent] : [])]) {
+    let cursor: { createdAt: number; id: string } | undefined;
+    for (;;) {
+      const page = await rosterPage(runner, owner, 100, cursor);
+      for (const row of page) await consider(row.id);
+      if (page.length < 100) break;
+      const last = page.at(-1)!;
+      cursor = { createdAt: last.createdAt, id: last.id };
+    }
+  }
+  if (matches.size > 1)
+    return { error: `Ambiguous family reference: ${reference}. Use a canonical conversation ID.` };
+  const id = matches.values().next().value;
+  return id
+    ? { id }
+    : {
+        error: `Unknown family reference: ${reference}. Use subagent_list or a canonical conversation ID.`,
+      };
+}

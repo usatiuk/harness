@@ -10,6 +10,11 @@ import type {
 } from "@harness/execution";
 import { LocalOutputStore, matchGlob, streamProcess } from "@harness/execution";
 import { capture, captureText } from "./docker-cli.ts";
+import {
+  containerShellEnvironment,
+  encodeContainerEnvironment,
+  CONTAINER_COMMAND,
+} from "./container-shell.ts";
 import { type Provisioned } from "./devcontainer.ts";
 import {
   DockerEnvironmentPool,
@@ -72,7 +77,8 @@ export class DockerExecutionContext implements ExecutionContext {
   }
 
   async prepare(signal?: AbortSignal): Promise<void> {
-    await this.#whileOpen((await this.#openEnvironment()).start(), signal);
+    const handle = await this.#whileOpen((await this.#openEnvironment()).start(), signal);
+    await this.#whileOpen(containerShellEnvironment(handle), signal);
   }
 
   async sandboxInstructions(): Promise<string> {
@@ -220,17 +226,39 @@ export class DockerExecutionContext implements ExecutionContext {
       if (killed) return undefined;
       return this.#whileOpen(environment.ready());
     });
-    void ready.then(
-      (h) => {
+    const initialized = ready.then(async (handle) =>
+      handle
+        ? { handle, env: await this.#whileOpen(containerShellEnvironment(handle)) }
+        : undefined,
+    );
+    void initialized.then(
+      (initialized) => {
+        const h = initialized?.handle;
         if (killed || !h) {
           terminal = true;
           resolveExit({ code: null, signal: "SIGTERM" });
           return;
         }
-        const c = nodeSpawn("docker", [...this.#exec(h, { cwd: true }), "bash", "-lc", script], {
-          detached: true,
-          windowsHide: true,
-        });
+        const c = nodeSpawn(
+          "docker",
+          [
+            ...this.#exec(h, { cwd: true, interactive: true }),
+            "/usr/bin/env",
+            "-i",
+            "/bin/bash",
+            "--norc",
+            "-c",
+            CONTAINER_COMMAND,
+            "harness-command",
+            script,
+          ],
+          {
+            detached: true,
+            windowsHide: true,
+          },
+        );
+        c.stdin.on("error", () => {}); // A cancelled/failed exec can close before consuming exports.
+        c.stdin.end(encodeContainerEnvironment(initialized.env));
         child = c;
         c.once("exit", () => (terminal = true));
         c.once("error", () => (terminal = true));
@@ -413,13 +441,33 @@ export class DockerExecutionContext implements ExecutionContext {
       `for p in $(pgrep -f '${marker}' 2>/dev/null); do ` +
       `pg=$(ps -o pgid= -p "$p" 2>/dev/null | tr -d ' '); ` +
       `[ -n "$pg" ] && kill -${sig} -"$pg" 2>/dev/null; done; true`;
-    await captureText("docker", ["exec", h.containerId, "bash", "-lc", killGroup("TERM")]).catch(
-      () => {},
-    );
+    await captureText("docker", [
+      "exec",
+      h.containerId,
+      "/usr/bin/env",
+      "-u",
+      "BASH_ENV",
+      "-u",
+      "ENV",
+      "/bin/bash",
+      "--norc",
+      "-c",
+      killGroup("TERM"),
+    ]).catch(() => {});
     setTimeout(() => {
-      void captureText("docker", ["exec", h.containerId, "bash", "-lc", killGroup("KILL")]).catch(
-        () => {},
-      );
+      void captureText("docker", [
+        "exec",
+        h.containerId,
+        "/usr/bin/env",
+        "-u",
+        "BASH_ENV",
+        "-u",
+        "ENV",
+        "/bin/bash",
+        "--norc",
+        "-c",
+        killGroup("KILL"),
+      ]).catch(() => {});
     }, 5000).unref();
   }
 }

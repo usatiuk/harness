@@ -1149,27 +1149,73 @@ export function createDesktopRouter(
   }
 
   function hasWorkContent({ cell }: TranscriptStep) {
-    return cell.kind !== "reasoning" || cell.text.trim() !== "";
+    if (cell.kind === "worked") return false;
+    if (cell.kind === "tool") return true;
+    if (cell.kind === "shell")
+      return cell.streaming || cell.command.trim() !== "" || cell.text.trim() !== "";
+    if (cell.kind === "plugin_message" && cell.images?.length) return true;
+    return cell.text.trim() !== "";
   }
 
-  function WorkItems({ steps, label }: { steps: TranscriptStep[]; label: string }) {
+  function WorkItems({
+    steps,
+    label,
+    onIntent,
+  }: {
+    steps: TranscriptStep[];
+    label: string;
+    onIntent?: (key: string, retained: boolean) => void;
+  }) {
+    const visible = steps.filter(hasWorkContent);
+    const retain = (
+      owner: HTMLElement,
+      target: EventTarget,
+      disclosure = false,
+      focus: EventTarget | null = document.activeElement,
+    ) => {
+      if (!(target instanceof HTMLElement)) return;
+      let entry = target;
+      while (entry.parentElement && entry.parentElement !== owner) entry = entry.parentElement;
+      if (entry.parentElement !== owner || (disclosure && entry !== target)) return;
+      const key = visible[Array.prototype.indexOf.call(owner.children, entry)]?.key;
+      if (key)
+        onIntent?.(
+          key,
+          (entry instanceof HTMLDetailsElement && entry.open) ||
+            (focus instanceof Node && entry.contains(focus)),
+        );
+    };
     return (
-      <div className="work-items" aria-label={label}>
-        {steps
-          .filter(hasWorkContent)
-          .map((step) =>
-            step.cell.kind === "tool" ? (
-              <ToolCall
-                key={step.key}
-                cell={step.cell}
-                boundary={"boundary" in step ? step.boundary : undefined}
-              />
-            ) : step.cell.kind === "reasoning" ? (
-              <Reasoning key={step.key} cell={step.cell} />
-            ) : (
-              <TranscriptCell key={step.key} cell={step.cell} />
-            ),
-          )}
+      <div
+        className="work-items"
+        aria-label={label}
+        ref={(owner) => {
+          if (!owner) return;
+          // Native capture observes the step's own toggle, not nested details.
+          const toggle = (event: Event) => {
+            if (event.target) retain(owner, event.target, true);
+          };
+          owner.addEventListener("toggle", toggle, true);
+          return () => owner.removeEventListener("toggle", toggle, true);
+        }}
+        onFocusCapture={(event) => retain(event.currentTarget, event.target)}
+        onBlurCapture={(event) =>
+          retain(event.currentTarget, event.target, false, event.relatedTarget)
+        }
+      >
+        {visible.map((step) =>
+          step.cell.kind === "tool" ? (
+            <ToolCall
+              key={step.key}
+              cell={step.cell}
+              boundary={"boundary" in step ? step.boundary : undefined}
+            />
+          ) : step.cell.kind === "reasoning" ? (
+            <Reasoning key={step.key} cell={step.cell} />
+          ) : (
+            <TranscriptCell key={step.key} cell={step.cell} />
+          ),
+        )}
       </div>
     );
   }
@@ -1185,8 +1231,27 @@ export function createDesktopRouter(
     const [open, setOpen] = useState(false);
     const [asLatest, setAsLatest] = useState(false);
     const [tailStartKey, setTailStartKey] = useState<string | undefined>();
-    // `open` is the only visibility state. `asLatest` remembers whether the
-    // group was opened as latest so losing `latest` mid-expansion keeps the
+    const [retained, setRetained] = useState<Set<string>>(() => new Set());
+    const retain = useCallback((key: string, keep: boolean) => {
+      setRetained((previous) => {
+        if (previous.has(key) === keep) return previous;
+        const next = new Set(previous);
+        if (keep) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    }, []);
+    useEffect(() => {
+      const keys = new Set(row.steps.map((step) => step.key));
+      setRetained((previous) =>
+        [...previous].every((key) => keys.has(key))
+          ? previous
+          : new Set([...previous].filter((key) => keys.has(key))),
+      );
+    }, [row.steps]);
+    // Outer expansion is explicit; preview exceptions retain only intentional
+    // reading. `asLatest` remembers whether the group was opened as latest so
+    // losing `latest` mid-expansion keeps the
     // same containers instead of remounting. Keep that shape through the exit
     // animation; the next expansion captures whether the group is latest again.
     const calls = row.steps.filter(
@@ -1216,8 +1281,13 @@ export function createDesktopRouter(
             0,
           )
         : undefined);
+    const terminal = row.steps.findLast(({ cell }) => cell.kind === "worked")?.cell;
     const duration =
-      start === undefined || end === undefined ? undefined : Math.round((end - start) / 1000);
+      terminal?.kind === "worked"
+        ? Math.round(terminal.duration / 1000)
+        : start === undefined || end === undefined
+          ? undefined
+          : Math.round((end - start) / 1000);
     const label = working ? (
       row.observedTiming ? (
         <ActiveDuration startedAt={row.observedTiming.startedAt} label="Working" />
@@ -1229,9 +1299,21 @@ export function createDesktopRouter(
     ) : (
       `Worked for ${duration} s`
     );
+    const failed = row.steps.some(
+      ({ cell }) =>
+        cell.kind === "error" ||
+        (cell.kind === "tool" && cell.status === "error") ||
+        (cell.kind === "shell" && cell.exitCode !== undefined && cell.exitCode !== 0),
+    );
     const title = (
       <span>
         {label}
+        {failed && (
+          <>
+            {" "}
+            · <span role="alert">Failed</span>
+          </>
+        )}
         {calls ? ` · ${calls} tool ${calls === 1 ? "call" : "calls"}` : ""}
       </span>
     );
@@ -1248,17 +1330,22 @@ export function createDesktopRouter(
     // History or canonical regrouping can remove the captured entry. Reconcile
     // that presentation boundary to the current tail when it no longer exists.
     const tailStart = open && asLatest && capturedStart >= 0 ? capturedStart : recentStart;
-    const head = row.steps.slice(0, tailStart);
+    const tail = row.steps.filter(
+      (step, index) =>
+        retained.has(step.key) || (index >= tailStart && (latest || (open && asLatest))),
+    );
+    const tailKeys = new Set(tail.map((step) => step.key));
+    const head = row.steps.filter((step) => !tailKeys.has(step.key));
     const hasHead = head.some(hasWorkContent);
-    const tail = row.steps.slice(tailStart);
-    // The tail preview belongs to the latest group only and is always settled:
-    // it mounts with the latest group's content and never animates. Only the
+    // The ordinary preview belongs to the latest group; intentional exceptions
+    // keep this same owner even after supersession. It never animates. Only the
     // head disclosure animates, including on collapse: its retained exit body
     // must not acquire a second copy of the preview rows.
-    const split = latest || asLatest;
-    const showTail = (open && asLatest) || (latest && !open);
+    const split = latest || asLatest || retained.size > 0;
+    const showTail =
+      (open && asLatest) || (latest && !open) || tail.some((step) => retained.has(step.key));
     return (
-      <div className="cell work-scroll-frame">
+      <div className={`cell work-scroll-frame${failed ? " work-failed" : ""}`}>
         <div className="tool-group-container scroll-shadows" ref={scrollShadows}>
           {hasHead || open || (!latest && recent.length > 0) ? (
             <Disclosure
@@ -1290,7 +1377,7 @@ export function createDesktopRouter(
           {showTail && (
             <div className="collapse-grid work-tail" data-state="open">
               <div className="collapse-body">
-                <WorkItems steps={tail} label="Recent work" />
+                <WorkItems steps={tail} label="Recent work" onIntent={retain} />
               </div>
             </div>
           )}
@@ -1515,6 +1602,8 @@ export function createDesktopRouter(
     return (
       <>
         <a
+          className="content-link"
+          aria-disabled={browserUrl ? undefined : true}
           href={browserUrl}
           onClick={(event) => {
             event.preventDefault();
@@ -2194,6 +2283,12 @@ export function createDesktopRouter(
           (view.state.modelRetry ? (
             <RetryStatusLine retry={view.state.modelRetry} />
           ) : (
+            !view.transcript.rows.some(
+              (row) =>
+                row.kind === "steps" &&
+                row.observedTiming?.completedAt === undefined &&
+                row.observedTiming !== undefined,
+            ) &&
             !view.state.cells.some(
               (cell) =>
                 cell.kind !== "user" && "turnId" in cell && cell.turnId === view.state.turn.id,

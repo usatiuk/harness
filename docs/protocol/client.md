@@ -199,10 +199,15 @@ tools and sign-in. MCP configuration belongs to the host's global settings;
 saved changes require explicit host restart. Sign-in belongs to its initiating
 client connection and is cancelled on detach. Workspace shell IDs are allocated
 with a fresh UUID; duplicate active activity IDs fail rather than overwrite.
-Subagents contract version 3 exposes `plugin.subagents.inspect` (task identity and
+Subagents contract version 4 exposes `plugin.subagents.inspect` (task identity and
 full ancestor chain) and `plugin.subagents.list` (paged direct children,
 terminal outcomes, child-branch availability, per-branch running counts and the
-live descendant running count).
+live descendant running count). Lists/counts/expanders exclude dismissed branches
+before pagination; completed-but-not-dismissed children remain. The
+`plugin.subagents.event` notification carries an attached-root-scoped
+`subagents.changed` event with the parent conversation and dismissed child ID.
+Clients refresh navigation and close any dismissed side selection; there is no
+new polling or remote runtime object.
 Clients render nested children through the same scoped paging operation. Inspection never
 activates historical children. Marked child conversations reject client mutations;
 read-only history/live attachment and the internal parent-owned runner remain

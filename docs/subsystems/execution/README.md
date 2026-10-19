@@ -58,6 +58,47 @@ approval policy accompany the editing-interface cleanup.
 
 ## Backends
 
+### Shell startup and exported environment
+
+After claiming database ownership, the executing server initializes its Unix
+user environment once, before constructing plugins. Explicit target `SHELL`
+selects an absolute Bash/zsh executable; otherwise account information supplies
+the shell. Unsupported shells fail with a configuration error instead of silently
+changing language. Windows retains its explicit noninteractive PowerShell
+`-NoProfile` contract.
+
+The Unix owner uses native interactive-login startup and captures exports over a
+bounded private binary channel (10-second deadline, 1 MiB export limit). Bash
+follows normal first-login-profile ordering: that profile must source `.bashrc`
+if desired; Harness does not replay files or source them twice. zsh follows its
+normal login/rc order and `ZDOTDIR`. When present, `BASH_ENV` is imported once by
+Bash itself. Startup chatter is not RPC/environment data. Process failure,
+timeout, cancellation and malformed export transport are reported; a startup
+script may itself mask internal failed statements according to native semantics.
+
+This is exported environment initialization, not a persistent terminal. Aliases,
+functions, shell options and `cd` are not retained. Fresh model commands use
+selected Bash `--norc -c` or zsh `-f -c`, omit `BASH_ENV`/`ENV` and exported Bash
+functions/intrinsic identity-option state, and keep the existing confinement and
+process-tree cancellation. Startup failure destroys the owned export pipe and
+kills the original process group, with a one-second explicit physical-child
+cleanup deadline; an escaped process cannot hold startup ownership by retaining
+a descriptor. This does not claim termination of processes that deliberately
+escape that group.
+zsh's system `zshenv` remains an OS startup rule. Tool names/descriptions advertise
+the actual command language. Native commands do not replay login scripts inside
+the private `/run` namespace.
+
+Harness identity/selection variables and packaged AppImage loader sanitation are
+preserved. New clients never import their environment into an existing owner;
+restart that owner to refresh startup exports. SSH/WSL initialize on the target,
+not the controlling client. Docker retains its declared Bash command dialect and
+captures the remote user's supported default-shell exports inside each physical
+container handle; handle recreation refreshes them. Its probe requires the
+container's existing Bash/sh, `env`, GNU `timeout`, and `getent` account lookup to
+establish the actual remote user's home even when inherited container `HOME`
+names a different user. No host profile or environment is injected into the container.
+
 ### None (unconfined host)
 
 Runs directly against the host workspace. It is already unconfined and therefore

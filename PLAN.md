@@ -1,11 +1,13 @@
 # Harness plan
 
 The [agent, desktop, and shell follow-up](docs/plans/cross-cutting/2026-10-19-agent-desktop-and-shell-follow-up.md)
-is in implementation after independent plan review. It tracks all twelve
-reported issues: Working grouping/reading state, desktop links and CSD controls,
+is complete: Working grouping/reading state, desktop links and CSD controls,
 subagent delegation/identity/navigation, global `$HARNESS_HOME/AGENTS.md`,
 shell startup/environment ownership, and input-limit-aware context indicators.
-The linked research distinguishes upstream evidence from proposed behavior.
+Full checks pass 2,079 tests (45 skips); focused Chromium, real Bash/zsh,
+Bubblewrap and cached-image Docker regressions pass. Independent reviews and
+shell re-review are resolved. The plan records the unchanged baseline history
+anchor defect and live-model/remote/native-platform qualification limits.
 
 The [Codex built-in catalog restoration](docs/plans/models/2026-10-18-codex-builtin-catalog.md)
 removes runtime discovery introduced by the model/tool refactor, which erased the

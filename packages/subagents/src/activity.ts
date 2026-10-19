@@ -9,6 +9,7 @@ import {
   type TurnStatus,
 } from "@harness/protocol";
 import type { Activity, ActivityResult } from "@harness/activities";
+import { identity } from "./family.ts";
 import type { SpawnMark } from "./registry.ts";
 
 const PEEK_LINES = 40;
@@ -39,6 +40,7 @@ export interface SubagentActivityInit {
   childId: ConversationId;
   /** Display title supplied by the parent for this task. */
   title: string;
+  reference?: string;
 }
 
 /**
@@ -49,6 +51,7 @@ export class SubagentActivity implements Activity {
   readonly id: string;
   readonly kind = "subagent";
   readonly title: string;
+  readonly reference?: string;
   readonly done: Promise<ActivityResult>;
   /** The child conversation id (typed, vs the `string` the `Activity` interface exposes). */
   readonly childId: ConversationId;
@@ -69,6 +72,7 @@ export class SubagentActivity implements Activity {
     this.childId = init.childId;
     this.#runner = init.runner;
     this.title = init.title;
+    if (init.reference !== undefined) this.reference = init.reference;
     this.done = new Promise<ActivityResult>((res) => (this.#resolveDone = res));
   }
 
@@ -192,8 +196,16 @@ export async function spawnSubagent(init: SpawnInit): Promise<SubagentActivity> 
     runner: init.runner,
     childId: child.id,
     title: init.name,
+    reference: init.slug,
   });
   activity.arm(init.runner.subscribe(child.id, (event) => activity.onEvent(event)));
-  await init.runner.deliver(child.id, init.task, "send");
+  const parent = await identity(init.runner, init.parent);
+  await init.runner.deliver(
+    child.id,
+    `You are subagent ${init.name} [${init.slug}], using the ${init.agentName} profile.\n` +
+      `Your direct parent is ${parent.name}${parent.slug !== parent.id ? ` [${parent.slug}]` : ""} (parent).\n` +
+      `Assigned task:\n${init.task}`,
+    "send",
+  );
   return activity;
 }

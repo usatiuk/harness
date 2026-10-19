@@ -1,3 +1,4 @@
+import { inputCapacity } from "@harness/client-features";
 import type { CSSProperties } from "react";
 import type { ModelInfo } from "@harness/protocol";
 import type { State } from "@harness/client-features/transcript-reducer";
@@ -5,14 +6,7 @@ import { Button, PopoverControl } from "../ui.tsx";
 
 export function ContextUsage({ state, models }: { state: State; models: ModelInfo[] }) {
   const checkpoint = state.agentContext;
-  const catalog =
-    checkpoint &&
-    models.find(
-      (model) => model.provider === checkpoint.provider && model.model === checkpoint.model,
-    );
-  const capacity = catalog?.contextWindow;
-  const used = checkpoint?.usage?.inputTokens;
-  const percent = used !== undefined && capacity ? Math.round((100 * used) / capacity) : undefined;
+  const { model: catalog, used, basis, percent } = inputCapacity(checkpoint, models);
   const unknown = "Unavailable";
   return (
     <PopoverControl
@@ -21,10 +15,11 @@ export function ContextUsage({ state, models }: { state: State; models: ModelInf
         <Button
           variant="ghost"
           className="context-control"
-          aria-label={`Context usage: ${percent === undefined ? "unknown" : `${percent}%`}`}
+          aria-label={`Context usage: ${percent === undefined ? "unknown" : `${percent}% of ${basis}`}`}
         >
           <span
             className="context-ring"
+            data-unknown={percent === undefined ? "" : undefined}
             style={{ "--context-progress": `${Math.min(percent ?? 0, 100)}%` } as CSSProperties}
           />
         </Button>
@@ -34,8 +29,12 @@ export function ContextUsage({ state, models }: { state: State; models: ModelInf
       <dl className="context-facts">
         <dt>Last agent input</dt>
         <dd>{used?.toLocaleString() ?? unknown}</dd>
-        <dt>Context capacity</dt>
-        <dd>{capacity?.toLocaleString() ?? unknown}</dd>
+        <dt>Input limit</dt>
+        <dd>{catalog?.maxInputTokens?.toLocaleString() ?? unknown}</dd>
+        <dt>Shared context window</dt>
+        <dd>{catalog?.contextWindow?.toLocaleString() ?? unknown}</dd>
+        <dt>Input utilization</dt>
+        <dd>{percent === undefined ? unknown : `${percent}% of ${basis}`}</dd>
         <dt>Cached input</dt>
         <dd>{checkpoint?.usage?.cachedReadTokens.toLocaleString() ?? unknown}</dd>
         <dt>Conversation input</dt>

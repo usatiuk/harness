@@ -1886,3 +1886,75 @@ and current public roster; runtime discovery is removed. OpenAI request tests pr
 when the current tool encoding changes. Full checks do not establish coding-quality
 parity between patch and replacement, or paid Codex model execution.
 No new paid provider calls are part of this validation.
+
+## Agent, desktop, and shell follow-up
+
+The [delivery plan](plans/cross-cutting/2026-10-19-agent-desktop-and-shell-follow-up.md)
+tracks all twelve requested outcomes and integrated results. Coverage is divided
+by the boundary actually exercised:
+
+- Desktop projection and production-route Chromium cover exhaustive non-message
+  Working grouping, context-only timing, terminal errors/duration, blank versus
+  image-bearing rows, Eval begin/result identity, and retained open/focused
+  previews. The collapsed preview mounts last-five plus deliberate exceptions,
+  preserving the actual body/text-node owner, selected text, keyboard focus,
+  outer expansion, history replacement and supersession. A test must establish
+  visible text selection before appending work; an animated/inert disclosure can
+  retain a Range while exposing no actual selection. No repeat selection, sleeps,
+  widened tolerance or timeout substitute for that prerequisite.
+- Link/chrome fixtures exercise actual controls across light/dark and
+  CSD/native/fullscreen states, keyboard focus, safe opener failure, unsupported
+  URLs and sidebar geometry. Window-material and actual OS URL-opening behavior
+  remain separate native qualification. The native-scrollbar case waits for the
+  visible Virtuoso owner before installing an animation listener, not its
+  transient detached sizing copy; original geometry assertions remain unchanged.
+- Shared capacity-helper, CLI and browser fixtures distinguish missing usage,
+  zero, input-only, context-only, both limits, output-only and unknown metadata,
+  model changes and auxiliary calls. The exact authoritative agent checkpoint is
+  required. This does not change or qualify engine compaction thresholds.
+- Family/activity tests cover names/slugs and canonical fallbacks, ambiguity,
+  owner isolation, collection/restart, direct/eval contracts, briefing and ordinary
+  no-UUID presentation. Public-server dismissal coverage filters before paging,
+  preserves running/history access, and excludes notifications from unattached
+  clients/other roots. Browser coverage clears a selected dismissed side branch.
+  Prompt assertions do not establish live-model delegation compliance.
+- Agents/service tests cover isolated global homes, additive root/general/explore/
+  custom roles, projectless use, canonical deduplication, symlink/access policy,
+  cached absence/edits, reload, actual compaction/rewind, and repeated request
+  prefixes. No test reads the developer's personal global guidance.
+- Real isolated Bash/zsh fixtures cover native login/profile/rc order, guarded
+  exports, noisy/multiline data, `BASH_ENV`, `ZDOTDIR`, startup exit/launch errors,
+  export bounds, option/function nonpersistence and cancellation/deadlines.
+  Detached-descriptor fixtures clean up their own escaped PIDs; the product
+  guarantees bounded original-child/pipe cleanup, not termination of arbitrary
+  deliberately detached startup processes.
+- Routine server-composition tests substitute only the shell-initialization OS
+  edge. A real cold-owner subprocess uses isolated HOME/profile/guarded rc and
+  minimal PATH, executes a startup-only tool, observes global guidance, then
+  accepts a second client with conflicting PATH/invalid shell without changing
+  owner exports. Composition regressions separately prove native-default probing
+  sees initialized PATH, resolved home survives changed HOME, and startup failure
+  releases SQLite ownership. Background lifecycle fixtures use an isolated account
+  home rather than the developer's startup files.
+
+Real Bubblewrap cases run when the capability probe succeeds. On a host where
+`/tmp` is intentionally hidden from confined commands, use a temporary directory
+under the writable checkout for `TMPDIR`; do not change confinement assertions.
+The focused real-container suite is opt-in:
+
+```sh
+HARNESS_DOCKER_SHELL_TEST_IMAGE=debian:stable-slim \
+  npm exec -- vitest run packages/sandbox/src/container-shell.integration.test.ts
+```
+
+It uses an already cached image with `--pull=never --network=none`, no host mounts,
+and cleans up only its own labeled container. It checks target startup exports,
+non-root account HOME despite conflicting container HOME, startup failure and
+process-group timeout. Default adapter fixtures are not real container evidence.
+Real SSH/WSL, Windows/macOS shell execution and native desktop materials are not
+established by these Linux/Chromium fixtures.
+
+The broader automatic-history reading-anchor defect remains separate: the
+previously baseline-reproduced scenario drifts 12px against its original 1.5px
+assertion. Do not describe a full browser suite as green because focused changed
+behavior passes, and do not weaken that assertion to absorb the known defect.

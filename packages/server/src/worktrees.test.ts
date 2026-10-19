@@ -6,6 +6,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { expect, it, vi } from "vitest";
+
+// Shell startup is an OS edge; the real cold-owner path is covered in shell-startup.test.ts.
+vi.mock("@harness/execution", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@harness/execution")>()),
+  initializeUserShellEnvironment: vi.fn(async () => {}),
+}));
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
 import { MemorySecretStore } from "@harness/secrets";
 import { appSettingsRequest, appSettingsUpdateRequest } from "./client-protocol.ts";

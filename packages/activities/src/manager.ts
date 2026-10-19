@@ -63,6 +63,29 @@ export class ActivityManager {
     return this.#byId.get(id);
   }
 
+  /** Resolve only currently tracked handles, never durable family metadata or other owners. */
+  resolve(reference: string): { id: string } | { error: string } {
+    if (this.#byId.has(reference)) return { id: reference };
+    const matches = [...this.#byId.values()].filter(
+      (activity) => activity.reference === reference || activity.title === reference,
+    );
+    if (matches.length > 1)
+      return { error: `ambiguous activity: ${reference}; use the canonical activity ID` };
+    return matches[0] ? { id: matches[0].id } : { error: `unknown activity: ${reference}` };
+  }
+
+  /** Prefer an unambiguous readable handle; canonical IDs remain the collision fallback. */
+  reference(id: string): string {
+    const activity = this.#byId.get(id);
+    if (!activity) throw new Error(`Cannot label unknown activity: ${id}`);
+    for (const candidate of [activity.reference, activity.title]) {
+      if (!candidate) continue;
+      const resolved = this.resolve(candidate);
+      if ("id" in resolved && resolved.id === id) return candidate;
+    }
+    return id;
+  }
+
   list(): Activity[] {
     return [...this.#byId.values()];
   }
@@ -179,13 +202,27 @@ export class ActivityManager {
       return;
     this.#notices.delete(id);
     this.#surfaced.add(id);
-    deliver(noticeContent(id, result));
+    deliver(noticeContent(id, result, this.#byId.get(id), this.reference(id)));
   }
 }
 
-/** The one-shot completion message body: a self-describing line plus the bounded output view. */
-export function noticeContent(id: string, result: ActivityResult): ContentBlock[] {
-  return [{ type: "text", text: `[activity ${id}] ${result.summary}` }, ...result.view];
+/** Labels use canonical IDs only when no readable reference can identify the handle. */
+export function activityLabel(activity: Activity, reference: string): string {
+  return activity.title === reference ? reference : `${activity.title} [${reference}]`;
+}
+
+/** The one-shot completion message body, using a resolved owner-local reference when available. */
+export function noticeContent(
+  id: string,
+  result: ActivityResult,
+  activity?: Activity,
+  reference = id,
+): ContentBlock[] {
+  const label = activity && activity.title !== reference ? ` ${activity.title}` : "";
+  return [
+    { type: "text", text: `[activity ${reference}]${label} ${result.summary}` },
+    ...result.view,
+  ];
 }
 
 /** Narrows the opaque `ctx.service("activities")` to `ActivityManager`; throws if not wired. */

@@ -82,6 +82,15 @@ completion delivery, kills, and awaits live work when that root scope is
 deactivated. Runtime handles are not durable across switch, reload, or process
 exit.
 
+Activities may also carry an immutable owner-local readable reference, supplied
+from a subagent's existing task slug. Activity tools accept a canonical ID or a
+unique tracked reference/title; ordinary results, lists and completion notices
+prefer a readable reference, falling back to the canonical ID for ambiguity or
+legacy handles. Structured results retain `activityId` and expose `activityRef`.
+Resolution stays inside the caller's manager and ends on collection/deactivation:
+family parent/sibling references cannot access another owner's activities or
+recreate a handle from durable history. No alias registry is persisted.
+
 Concurrent waits share a waiter count. A timeout or cancellation releases only
 that waiter's registration; a successful wait consumes the pending completion
 notice. The manager retains the notice callback while waiters are present, so an
@@ -96,6 +105,11 @@ The subagents plugin contributes `subagent({agent, name, slug, task})`,
 contract resolver that enriches its schema from the per-conversation catalog.
 When no agents are configured, the tool is withheld. Otherwise the `agent`
 argument is constrained to configured names and the model sees their descriptions.
+Shipped guidance favors doing small, tightly coupled work directly and delegating
+meaningful independent work for parallelism, specialization or review. A child
+owns its deliverable instead of relaying the same assignment unchanged to another
+child. Existing configurable depth/roster limits remain the enforcement boundary;
+guidance is not a guarantee of live-model behavior.
 The parent also supplies a readable task `name` (up to 100 characters) and a
 kebab-case `slug` (up to 64 characters). The name identifies the activity and
 inspection view; the configured agent remains the execution profile. A durable
@@ -137,22 +151,34 @@ discovery. A backgroundable call returns structured running/completed state and
 an activity id alongside presentation text; code must use `activity_wait` when
 it requires completed work rather than treating submission as completion.
 
+Children receive a short task/profile/name/slug and direct-parent briefing from
+existing spawn metadata, followed by the assigned task; no parent transcript is
+copied. Global/project instructions are independently assembled for each child.
+
 `subagent_list({relation, cursor?})` pages the caller's parent, siblings or direct
-children with stable conversation IDs and readable names/slugs. `subagent_send`
-addresses those IDs, checks the durable family relationship, derives sender
+children with readable names/slugs and a preferred reference. Structured results
+retain canonical conversation IDs. `subagent_send` accepts explicit `parent`, a
+unique visible-family slug/name, or canonical ID fallback, checks the durable
+family relationship, derives sender
 identity from its tool context and delivers ordinary plugin input with `steer`.
 Running recipients consume it at the normal safe boundary; idle recipients start
 another turn, including after finishing. Submission acknowledges acceptance,
 not a reply. No activity or separate lifecycle is created for a message.
 
-`subagent_dismiss({to})` marks a direct child dismissed. One durable flag applies
+`subagent_dismiss({to})` resolves a direct child's unique slug/name or canonical
+ID and marks it dismissed. Ambiguous aliases reject rather than select a target.
+One durable flag applies
 to its subtree through ancestor lookup, freeing its parent's roster slot. Model
 lists omit dismissed branches, and family sends to them fail, except that a child
 can always send to its direct parent. Existing activity completion can still wake
 a dismissed owner; it stays dismissed. Dismissed agents cannot spawn hidden
 children. Dismissal preserves history and does not cancel existing activities.
-GUI inspection retains paged historical branches. Configured tool allowlists
-still govern communication.
+GUI navigation omits dismissed branches before paging, including running counts
+and child expanders; completed-but-not-dismissed work remains. History and direct
+inspection/attachment remain available. The attached-root-scoped
+`plugin.subagents.event` notification (`subagents.changed`, contract version 4)
+refreshes navigation immediately; a selected dismissed side branch closes back
+to the root. Configured tool allowlists still govern communication.
 
 The subagent is itself backgroundable. Foreground completion returns the child's
 final result. Background execution is tracked through the same activity tools and

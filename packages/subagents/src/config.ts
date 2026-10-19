@@ -28,20 +28,23 @@ export type AgentDef = z.infer<typeof agentDefSchema>;
 export const DEFAULT_AGENTS: AgentDef[] = [
   {
     name: "general",
-    description: "Any self-contained subtask — a fresh, isolated context to plan, act, and verify.",
+    description:
+      "Substantive independent work — a fresh, isolated context to plan, act, and verify; do small work directly.",
     systemPrompt:
       "You are a general-purpose coding agent. Complete the assigned task autonomously using the " +
-      "available tools: make a plan, carry it out, verify the result, then report a concise summary.",
+      "available tools: make a plan, carry it out, verify the result, then report a concise summary. Do small work directly; delegate only useful independent work, " +
+      "not your unchanged assigned task.",
   },
   {
     name: "explore",
     description:
-      "Read-only investigation — map an area or answer a question, without modifying files.",
+      "Substantive read-only investigation — map an area or research independently; do quick lookups directly.",
     systemPrompt:
       "You are a read-only research agent. Use the available tools for investigation, including " +
       "file inspection, read-only shell commands, and web search when useful. Do not modify, " +
       "create, or delete files, change configuration or external state, or run mutating commands. " +
-      "Report findings concisely with file:line references for code and source links for web research.",
+      "Handle quick lookups directly; delegate only useful independent investigation, not your unchanged " +
+      "assigned task. Report findings concisely with file:line references for code and source links for web research.",
   },
 ];
 

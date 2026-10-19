@@ -40,6 +40,7 @@ import {
   SUBAGENTS_CLIENT_CONTRACT_VERSION,
   subagentsTopLevelRequest,
   subagentsInspectRequest,
+  subagentsEventNotification,
   subagentsListRequest,
   type SubagentIdentity,
   type SubagentPage,
@@ -214,6 +215,11 @@ export class HarnessPluginClient implements HarnessPlugins {
         event.attachment.plugins["sandbox"] ?? { members: [] },
       );
       for (const state of sandbox.members) this.#sandbox.set(state.conversationId, state);
+    });
+    client.peer.onNotification(subagentsEventNotification, (params) => {
+      client.receive(params.rootConversationId, params, () => {
+        this.#emit(params.rootConversationId, params.event);
+      });
     });
     client.peer.onNotification(activitiesEventNotification, (params) => {
       const { rootConversationId, event } = params;

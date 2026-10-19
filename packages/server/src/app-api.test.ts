@@ -5,6 +5,12 @@ import { mkdtemp, mkdir, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
+
+// Shell startup is an OS edge; the real cold-owner path is covered in shell-startup.test.ts.
+vi.mock("@harness/execution", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@harness/execution")>()),
+  initializeUserShellEnvironment: vi.fn(async () => {}),
+}));
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
 import { buildServerHarness, buildServerComposition } from "./index.ts";
 import {
@@ -573,6 +579,7 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
   });
   registerFeatureServer(server);
   const api = registerAppApi(server, service, {
+    home,
     signingIn: false,
     settingsTail: Promise.resolve(),
     defaultSandboxBackend: "none",

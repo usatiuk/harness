@@ -1,7 +1,7 @@
 # Agent, desktop, and shell follow-up
 
 Date: 2026-10-19. Baseline: `b215b8e` (`main`).
-Status: Active — implementation authorized; M5 design/probe gate precedes shell edits.
+Status: Complete — implementation and available qualification verified; limits below.
 Research: [repository audit and primary-source comparisons](../../research/2026-10-19-agent-desktop-and-shell-audit.md).
 
 ## Goal and scope
@@ -121,14 +121,14 @@ regression coverage, and independent review proportional to risk.
 
 ### M1 — Working projection and intentional reading state (W1, W2)
 
-- [ ] Make non-message grouping exhaustive in desktop row types and projection;
+- [x] Make non-message grouping exhaustive in desktop row types and projection;
       reuse renderers, preserve Eval begin/result identities, and reconcile timing
       for cells without turn IDs. Avoid duplicate pending Working placeholders
       during context-only activity and duplicate terminal elapsed labels.
       Check: reducer-to-projection tests cover all cell kinds, actual terminal
       events, context-only/failed/aborted turns, commentary boundaries, history
       reconstruction, and unchanged-array terminal updates without invented timing.
-- [ ] Retain open/focused preview steps without moving/remounting their keyed
+- [x] Retain open/focused preview steps without moving/remounting their keyed
       owner. Track the step's own disclosure rather than arbitrary nested toggles;
       release retained steps on close/focus exit and reconcile removed keys.
       Check: outer-collapsed/inner-open append-more-than-five browser regression
@@ -138,12 +138,12 @@ regression coverage, and independent review proportional to risk.
 
 ### M2 — Client capacity and desktop control polish (U1, D1–D3)
 
-- [ ] Correct both clients' checkpoint/model/denominator selection and label the
+- [x] Correct both clients' checkpoint/model/denominator selection and label the
       basis. Use a small shared pure presentation helper only if both clients need
       identical selection/format-independent logic; leave compaction separate.
       Check: input-only, context-only, both, output-only, fully unknown, missing
       usage, zero usage, model-switch and auxiliary-call fixtures pass.
-- [ ] Add scoped Markdown link styling and standardize existing sidebar/chrome
+- [x] Add scoped Markdown link styling and standardize existing sidebar/chrome
       control recipes, corner state, sizing and accessibility.
       Check: focused browser cases cover actual left/right toggles, host hover/
       focus, CSD sidebar open/closed, native/fullscreen, light/dark, links in
@@ -153,7 +153,7 @@ regression coverage, and independent review proportional to risk.
 
 ### M3 — Useful delegation and readable family interaction (A1–A4)
 
-- [ ] Replace blanket delegation preference in shipped tool/catalog text with
+- [x] Replace blanket delegation preference in shipped tool/catalog text with
       direct-small-work, useful-independent-work, and no-unchanged-relay guidance.
       Add the compact child identity/parent/task briefing at spawn using existing
       metadata. Preserve project rules, assigned read-only scope, depth limits,
@@ -162,14 +162,14 @@ regression coverage, and independent review proportional to risk.
       grandchild, projectless and legacy metadata cases have truthful identity.
       Exercise small-lookup versus substantive parallel-review prompts when a
       model is available; text assertions alone do not prove model compliance.
-- [ ] Resolve readable family and activity references at their owning tool
+- [x] Resolve readable family and activity references at their owning tool
       boundaries, retaining canonical IDs and owner/family checks.
       Check: send/dismiss/wait/peek/kill, list/results/notices and direct/eval paths
       cover family parent references, duplicate names, owner-local activity
       references/slug collisions, legacy UUID fallback, permission denial,
       settlement/collection and restart. Parent/sibling activity access remains
       denied; do not resolve activities through durable family records.
-- [ ] Filter dismissed GUI branches through the public server projection before
+- [x] Filter dismissed GUI branches through the public server projection before
       paging; refresh affected navigation and handle an already selected child.
       Check: dismissed first/middle/all pages and descendants disappear without
       empty-page dead ends or stale expanders; completed-but-not-dismissed agents
@@ -177,20 +177,20 @@ regression coverage, and independent review proportional to risk.
 
 ### M4 — Global AGENTS.md through the existing plugin (G1)
 
-- [ ] Supply the resolved executing-host Harness home to the agents plugin and
+- [x] Supply the resolved executing-host Harness home to the agents plugin and
       load its global file before initial project instructions. Preserve source
       labeling, deduplication, instruction security, and runtime snapshot behavior.
       Check: main and custom/general/explore children, no-workspace conversations,
       non-default `HARNESS_HOME`, ancestor duplication, missing/unreadable/symlink
       files, deeper rules, reload/rewind/compaction and stable repeated requests.
-- [ ] Prove the global file is additive even when `config.instructions` is a
+- [x] Prove the global file is additive even when `config.instructions` is a
       client baseline or custom child-role override; do not alter scalar merges.
       Check: public service/request fixtures observe both role and global/project
       instructions, with isolated local/remote homes and no client file transfer.
 
 ### M5 — Supported shell and startup environment (E1)
 
-- [ ] Before broad edits, run isolated Bash/zsh startup probes and compare existing
+- [x] Before broad edits, run isolated Bash/zsh startup probes and compare existing
       OS/maintained-library facilities with the required contract. Record the
       smallest chosen design in this plan: shell-selection precedence and tool
       language, startup files/interactive guards, exports versus aliases/functions,
@@ -200,7 +200,7 @@ regression coverage, and independent review proportional to risk.
       required behavior remains a blocker, not a deferral. No full persistent PTY,
       general snapshot framework or retry/fallback chain without demonstrated need.
       Record the supported shell/backend and exports/aliases/functions matrix.
-- [ ] Implement the chosen narrow contract across local/native/container and
+- [x] Implement the chosen narrow contract across local/native/container and
       SSH/WSL target startup as applicable. Preserve confinement and cancellation;
       bound startup work and classify observable initialization failures without
       logging environment values or treating deterministic defects as transient.
@@ -217,15 +217,15 @@ regression coverage, and independent review proportional to risk.
 
 Depends on M1–M5 for complete delivery; partial slices may be independently verified.
 
-- [ ] Update affected public protocol/schema/tool documentation and subsystem
+- [x] Update affected public protocol/schema/tool documentation and subsystem
       READMEs to actual behavior, plus `docs/TESTING.md` for coverage/limits. Remove
       superseded local recipes/descriptions rather than leave parallel paths.
-- [ ] Run `env -u HARNESS_SERVER_SELECTION npm run check`, focused production-route
+- [x] Run `env -u HARNESS_SERVER_SELECTION npm run check`, focused production-route
       browser regressions, and relevant real shell/remote/native checks. Diagnose
       original failures before changing behavior or test expectations.
       Check: actual results and unsupported platform/live-model limits recorded;
       source/typecheck or mock success is not substituted for process/UI evidence.
-- [ ] Independently review the integrated changes with correctness, simplicity/
+- [x] Independently review the integrated changes with correctness, simplicity/
       architecture, and evidence lenses; resolve findings and update this plan.
       Check: every required outcome has evidence, with no unfinished required
       integration relabeled as cleanup or deferral. No commit/push/release is
@@ -269,7 +269,8 @@ capacity interpretation changes; do not rewrite engine capacity semantics.
   workstreams own desktop/presentation (M1/M2), family/activity interaction (M3),
   and shell probes/execution (M5); the coordinating workstream owns global
   instructions (M4), shared composition, documentation, integration and review.
-  No nested delegation, commit, push, or release is part of this authorization.
+  No nested delegation, push, or release is part of this authorization. The user
+  subsequently authorized coherent validated local commits as work progresses.
 - Planning evidence above is historical, not implementation qualification.
 - M4 focused verification: 30 tests pass across agents, global service requests,
   execution integration and workspace switching. The service fixtures observe
@@ -302,5 +303,92 @@ broad fallback unsuitable for NUL-safe fail-fast capture; the existing
 devcontainers CLI probe is not a public checked startup-result seam. Reuse Node
 account-shell lookup and process facilities, adding only bounded private-FD NUL
 export transport. Preserve Harness identity/selection and packaged loader
-sanitation. Real Docker/SSH targets are unavailable in this environment; source
-or transport fixtures must not be reported as real remote/container qualification.
+sanitation. Initial contained inspection could not reach Docker; the approved
+host retry found real Docker and Bubblewrap. Final real tests pass six Bubblewrap
+cases and four cached-image Docker cases, including non-root account HOME and
+process-group timeout. Only a new owned container was used (`--pull=never`, no
+network/mounts) and removed. Real SSH/WSL, Windows/macOS and native desktop
+material qualification remain unavailable; adapter/source fixtures do not replace them.
+
+### Integrated review and focused delivery evidence
+
+- M1/M2: 60 focused unit tests pass (projection 15, capacity helper 6, CLI 27,
+  desktop session 12); final production-route Chromium matrix passes 32/32, with a
+  subsequent screenshot/control/retention rerun 12/12. Working rows preserve real
+  DOM/body/text-node/selection/focus across append, prepend/replacement and
+  supersession while mounting last-five plus intentional exceptions. Blank work
+  does not consume slots; images and meaningful tool/shell rows remain.
+- Broad Chromium evidence is not all green: 145/147 in the last complete run. One
+  failure is the previously baseline-reproduced 12px history anchor; the new
+  selection case failed because selection was absent before append while its
+  disclosure animated. The test now establishes actual selected text first,
+  keeps the post-append assertion, and passes in final focused runs. The separate
+  scrollbar case captured a detached Virtuoso sizing copy; archived original
+  source reproduced its timeout, and waiting for the actual visible owner fixes
+  the prerequisite without changing geometry assertions or timeout.
+- M3: 107 focused tests pass across subagents, activities, family service, shared
+  server and code-mode integration. Ordinary text/briefings/notices use readable
+  references; canonical IDs remain structured compatibility/ambiguity fallbacks.
+  Desktop dismissal refresh/selected-side clearing passes production-route cases.
+- M4/integration: the focused 30-test run and subsequent 25-test regression run
+  cover root/child roles, projectless use, separate homes, runtime snapshots,
+  actual compaction/rewind and byte-equivalent repeated instruction prefixes.
+  Negative public notification cases verify other-root/unattached isolation.
+- Independent family/global review passes 133 tests across eight files and finds
+  no material blocker. Its two proof gaps were addressed by the compaction/rewind
+  and negative-notification assertions above. Desktop review finds no product
+  blocker; final corrected selection evidence and older-group reading exceptions
+  are reflected in accepted architecture.
+- Initial shell review finds three material defects despite focused tests:
+  pre-initialization sandbox probing, exported Bash options/readonly import, and
+  escaped descriptor holders extending startup deadlines. Fixes initialize before
+  sandbox construction, filter intrinsic Bash state at one shared boundary, and
+  close owned pipes/kill the original group with bounded direct-child cleanup.
+  Non-root Docker HOME and resolved-owner-home regressions were added too.
+- Public composition and real cold-owner tests pass 18/18: backend default sees
+  initialized PATH, owner home survives changed HOME, failed startup releases
+  SQLite ownership, actual rc-derived commands/global guidance work, and a later
+  conflicting client retains the same owner PID/exports. Demo provider direct,
+  evaluator and discovery paths now support the offered zsh tool (7/7).
+- Shell fix sweep passes 80 tests with one platform skip; final live Bubblewrap 6
+  and Docker 4 pass. Independent re-review passes 47 tests with seven capability/
+  platform skips and finds the original defects resolved. It does not claim
+  escaped detached processes are killed: their descriptors cannot retain owner
+  startup, and tests clean up their own escaped PIDs.
+- Final integrated simplicity review finds no new material blocker or added role,
+  alias, disclosure, or environment registry. Repeated alias scans on small
+  visible-family rosters are a nonblocking potential operation-local optimization;
+  no persistent index/store redesign is justified for this delivery.
+- Both real Bash and zsh startup/native paths were rechecked by the coordinator:
+  26/26 tests pass, including six real Bubblewrap cases. This account reports zsh
+  through both explicit `SHELL` and account metadata; local/native use zsh without
+  requiring Bash configuration.
+- Final `env -u HARNESS_SERVER_SELECTION npm run check` passes **2,079 tests / 45
+  skips / 0 failures** across 185 passing and 11 skipped files, including all
+  three typechecks, lint and repository formatting. Earlier attempts caught a
+  test-only unsupported `Array.fromAsync` use, asymmetric-matcher lint, and
+  unformatted generated evidence Markdown; each was corrected at its source
+  without changing the TypeScript target, test contract, or formatter scope.
+- Desktop production Vite build passes. Server and CLI bundles pass with the
+  shared production bundle options and external dependency sets; these checks
+  do not claim a rebuilt native installer. An initial ad-hoc CLI bundle probe
+  used the wrong `.tsx` entry; the real `.ts` entry from the production script
+  passes without product changes.
+
+### Completion and remaining qualification limits
+
+All twelve required outcomes are implemented and covered at their practical
+public boundaries. Independent correctness, architecture/simplicity, desktop/
+evidence reviews and the substantive shell fix re-review leave no material
+blocker. No extra role framework, alias store, disclosure registry, persistent
+terminal or engine capacity policy was added. Source documentation and plugin
+contract/schema are synchronized.
+
+The known baseline automatic-history anchor defect is not repaired or hidden;
+the full browser sweep is not claimed green. Native window material/OS opening,
+real SSH/WSL, Windows/macOS shell execution and live-model delegation compliance
+remain unqualified. This delivery uses real Linux Bash/zsh, Bubblewrap and owned
+cached-image Docker evidence, not mocked platform claims. Restart the executing
+owner to refresh shell exports and reload a conversation for changed initial
+global/project instructions. No user credentials, running installed server,
+remote branch or release was changed.

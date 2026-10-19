@@ -52,10 +52,21 @@ requests the whole active branch before selecting its bounded evidence.
 Nested `AGENTS.md` discoveries stage context after the complete outer batch;
 they do not interrupt, resume, or inject instructions into a running script.
 
-## Hierarchical project instructions
+## Global and hierarchical project instructions
 
-The standalone agents plugin owns `AGENTS.md` behavior independently of providers
-and workspace tools.
+The standalone agents plugin owns `AGENTS.md` behavior independently of providers,
+role prompts, and workspace tools. Server composition supplies its resolved
+Harness home to `createAgentsPlugin(home)`; the package does not guess a client's
+home or import server configuration.
+
+The first assembly snapshots `$HARNESS_HOME/AGENTS.md`, when present, as guidance
+for all conversations on that executing server, including projectless
+conversations and subagents. It precedes applicable project files and is
+deduplicated by canonical file identity if also found in workspace ancestry.
+Missing guidance is normal; filesystem access failures are reported rather than
+silently omitted. Symlinked instruction files are not followed. No new role
+configuration or change to scalar `config.instructions` precedence is involved:
+the global file contributes through the existing independent instruction source.
 
 For a conversation with a workspace:
 
@@ -77,8 +88,10 @@ ordering validation enforces that dependency.
 Loaded state is derived from canonical context items. Rewind therefore restores
 the selected branch's loaded set. Compaction removes older nested markers from the
 model window; a later structured access reloads the instructions if still needed.
-Subagents inherit the workspace root but build their own instruction snapshot and
-lazy context.
+Subagents inherit the workspace root but build their own global/project
+instruction snapshot and lazy context. Changing files does not mutate a loaded
+initial prefix; reload to obtain a fresh snapshot. Remote servers use target-local
+Harness homes, not files transferred from a client.
 
 V1 does not parse arbitrary shell commands, watch instruction files for changes,
 or discover instruction trees that exist only inside a container.

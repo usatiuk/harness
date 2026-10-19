@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { once } from "node:events";
 import { createConnection } from "node:net";
-import { expect, it, vi, onTestFailed } from "vitest";
+import { afterAll, beforeAll, expect, it, vi, onTestFailed } from "vitest";
 import { HarnessClient } from "@harness/client";
 import { createNdjsonMessageConnection } from "@harness/client/node";
 import {
@@ -37,6 +37,13 @@ import { ApprovalClient, APPROVAL_CLIENT_CONTRACT_VERSION } from "@harness/appro
 import { textOf } from "@harness/protocol";
 import { CacheUse } from "@harness/native";
 import { build } from "esbuild";
+
+// Owner-lifetime tests must not execute the developer account's startup files.
+const accountHome = join(tmpdir(), `harness-background-account-${randomUUID()}`);
+const ownerEnvironment: NodeJS.ProcessEnv =
+  process.platform === "win32" ? {} : { HOME: accountHome, SHELL: "/bin/bash" };
+beforeAll(() => mkdir(accountHome, { mode: 0o700 }));
+afterAll(() => rm(accountHome, { recursive: true, force: true }));
 
 it("upgrades on reconnect only when idle and never downgrades a newer owner", async () => {
   const id = randomUUID();
@@ -82,6 +89,7 @@ it("upgrades on reconnect only when idle and never downgrades a newer owner", as
     await cp(resolve("packages/code-mode/src/worker.mjs"), join(bundles, "worker.mjs"));
     return {
       executable: process.execPath,
+      env: ownerEnvironment,
       args: ["--conditions=development", outfile, "--background"],
       selection: `${version}-${target}`,
     };
@@ -180,7 +188,11 @@ it("upgrades on reconnect only when idle and never downgrades a newer owner", as
 
 const entry = resolve("packages/server/src/bin.ts");
 const args = ["--conditions=development", "--import=tsx", entry];
-const launch = { executable: process.execPath, args: [...args, "--background"] };
+const launch = {
+  executable: process.execPath,
+  args: [...args, "--background"],
+  env: ownerEnvironment,
+};
 const exec = promisify(execFile);
 
 it("protects a cancelled managed candidate until its own cache guards are held", async () => {
@@ -206,6 +218,7 @@ await import(${JSON.stringify(pathToFileURL(entry).href)});`,
       home,
       {
         executable: process.execPath,
+        env: ownerEnvironment,
         args: ["--conditions=development", "--import=tsx", fixture, "--background"],
         retainUse: () => {
           const usage = new CacheUse(home);
@@ -288,6 +301,7 @@ it.each(["waiter", "bridge"])(
     const gate = join(home, "release");
     const delayedLaunch = {
       executable: process.execPath,
+      env: ownerEnvironment,
       args: ["--conditions=development", "--import=tsx", fixture, "--background"],
     };
     let bridge: ReturnType<typeof spawn> | undefined;
@@ -415,6 +429,7 @@ await import(${JSON.stringify(pathToFileURL(entry).href)});`,
       home,
       {
         executable: process.execPath,
+        env: ownerEnvironment,
         args: ["--conditions=development", "--import=tsx", fixture, "--background"],
       },
       abort.signal,
@@ -431,7 +446,7 @@ await import(${JSON.stringify(pathToFileURL(entry).href)});`,
     const log = await open(join(home, ".running-server", "startup.log"), "a", 0o600);
     try {
       independentOwner = spawn(launch.executable, launch.args, {
-        env: { ...process.env, HARNESS_HOME: home },
+        env: { ...process.env, ...ownerEnvironment, HARNESS_HOME: home },
         stdio: ["ignore", log.fd, log.fd],
         windowsHide: true,
       });
@@ -649,7 +664,7 @@ it("preserves a pending conversation after its last observers and bridge parent 
   const { phase, failure } = backgroundPhases(home);
   phase("launch-bridge-owner");
   const bridge = spawn(process.execPath, [...args, "--bridge"], {
-    env: { ...process.env, HARNESS_HOME: home },
+    env: { ...process.env, ...ownerEnvironment, HARNESS_HOME: home },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -789,6 +804,7 @@ it("retries classified startup contention but never retries a broken entry point
     );
     const host = await ensureLocalServer(home, {
       executable: process.execPath,
+      env: ownerEnvironment,
       args: ["--conditions=development", "--import=tsx", fixture, "--background"],
     });
     identity = host.identity;

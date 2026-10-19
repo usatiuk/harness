@@ -1,8 +1,19 @@
+import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ children: [] as ChildProcess[] }));
+
+// Shell startup is an OS edge, qualified separately with real shells and an opt-in container.
+vi.mock("./container-shell.ts", async (original) => ({
+  ...(await original<typeof import("./container-shell.ts")>()),
+  containerShellEnvironment: async () => ({
+    HOME: "/root",
+    SHELL: "/bin/bash",
+    PATH: "/usr/bin:/bin",
+  }),
+}));
 
 vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:child_process")>()),
@@ -10,6 +21,7 @@ vi.mock("node:child_process", async (importOriginal) => ({
     const child = new EventEmitter() as ChildProcess;
     Object.assign(child, {
       pid: 42,
+      stdin: new PassThrough(),
       stdout: new EventEmitter(),
       stderr: new EventEmitter(),
     });

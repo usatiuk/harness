@@ -199,6 +199,9 @@ export function SidebarLayout({
           </Link>
           <IconButton
             label="Hide sidebar"
+            aria-expanded={true}
+            className="chrome-control"
+            size="sm"
             icon={PanelLeftClose}
             onClick={() => setLayout((current) => ({ ...current, visible: false }))}
           />
@@ -308,7 +311,8 @@ export function SidebarLayout({
         <IconButton
           label="Show sidebar"
           icon={PanelLeftOpen}
-          className="sidebar-show"
+          className="sidebar-show chrome-control"
+          aria-expanded={false}
           size="sm"
           onClick={() => setLayout((current) => ({ ...current, visible: true }))}
         />

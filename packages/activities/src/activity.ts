@@ -17,6 +17,8 @@ export interface Activity {
   readonly id: string;
   readonly kind: string;
   readonly title: string;
+  /** Optional owner-local readable reference; expires with this tracked handle. */
+  readonly reference?: string;
   /** Live progress projection; callable repeatedly, before or after completion. */
   peek(opts?: { filter?: string }): ContentBlock[];
   kill(): void;

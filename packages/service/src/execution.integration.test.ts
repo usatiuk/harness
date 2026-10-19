@@ -19,10 +19,10 @@ import {
   textStep,
   toolStep,
 } from "@harness/testkit";
-import { localExecutionPlugin } from "@harness/execution";
+import { LocalExecutionContext, localExecutionPlugin } from "@harness/execution";
 import { activitiesPlugin } from "@harness/activities";
 import { workspacePlugin } from "@harness/workspace";
-import { agentsPlugin } from "@harness/agents";
+import { createAgentsPlugin } from "@harness/agents";
 import { approvalPlugin, approvalAnnotationOf } from "@harness/approval";
 import { HarnessService } from "./service.ts";
 
@@ -63,19 +63,20 @@ function service(
   steps: ReturnType<typeof toolStep>[],
   onRequest?: (id: string) => unknown,
   store = new InMemoryStore(),
+  home = "/nonexistent-harness-home",
 ) {
   const provider = new RecordingProvider(steps);
   const svc = new HarnessService({
     codeEvaluator: unusedCodeEvaluator,
     store,
-    home: "/nonexistent-harness-home",
+    home,
     plugins: [
       { id: "fake", providers: () => [provider] },
       localExecutionPlugin,
       activitiesPlugin,
       workspacePlugin,
       approvalPlugin,
-      agentsPlugin,
+      createAgentsPlugin(home),
       { id: "test-compaction", policies: () => ({ compaction: fakeCompaction({ over: 0 }) }) },
     ],
   });
@@ -90,7 +91,7 @@ function service(
 }
 
 const overrides = { instructions: "go", model: { provider: "fake", model: "fake-1" } };
-const commandTool = process.platform === "win32" ? "powershell" : "bash";
+const commandTool = new LocalExecutionContext(null).shellKind;
 
 describe("execution + approval pipeline", () => {
   it("loads initial and nested AGENTS.md instructions through a real file-tool turn", async () => {
@@ -261,16 +262,24 @@ describe("execution + approval pipeline", () => {
 
   it("reloads nested instructions after compaction removes their active marker", async () => {
     const root = await workspace();
+    const home = join(root, "personal-home");
+    await mkdir(home);
+    await writeFile(join(home, "AGENTS.md"), "stable personal guidance");
     await mkdir(join(root, "src"));
     const instructions = join(root, "src", "AGENTS.md");
     await writeFile(instructions, "version one");
     await writeFile(join(root, "src", "a.txt"), "hello");
-    const { svc, provider } = service([
-      toolStep("c1", "read_file", { path: "src/a.txt" }),
-      textStep("first done"),
-      toolStep("c2", "read_file", { path: "src/a.txt" }),
-      textStep("second done"),
-    ]);
+    const { svc, provider } = service(
+      [
+        toolStep("c1", "read_file", { path: "src/a.txt" }),
+        textStep("first done"),
+        toolStep("c2", "read_file", { path: "src/a.txt" }),
+        textStep("second done"),
+      ],
+      undefined,
+      undefined,
+      home,
+    );
     const conv = await svc.createConversation({ cwd: root, overrides });
 
     await svc.send(conv.id, "first");
@@ -292,20 +301,32 @@ describe("execution + approval pipeline", () => {
           ({ item }) => item.type === "context" && textOf(item.content).includes("version two"),
         ),
     ).toBe(true);
+    for (const request of provider.requests) {
+      expect(request.instructions).toEqual(provider.requests[0]!.instructions);
+      expect(textOf(request.instructions).match(/stable personal guidance/gu)).toHaveLength(1);
+    }
   });
 
   it("reloads nested instructions when continuing from before their marker after rewind", async () => {
     const root = await workspace();
+    const home = join(root, "personal-home");
+    await mkdir(home);
+    await writeFile(join(home, "AGENTS.md"), "stable personal guidance");
     await mkdir(join(root, "src"));
     const instructions = join(root, "src", "AGENTS.md");
     await writeFile(instructions, "version one");
     await writeFile(join(root, "src", "a.txt"), "hello");
-    const { svc } = service([
-      toolStep("c1", "read_file", { path: "src/a.txt" }),
-      textStep("first done"),
-      toolStep("c2", "read_file", { path: "src/a.txt" }),
-      textStep("second done"),
-    ]);
+    const { svc, provider } = service(
+      [
+        toolStep("c1", "read_file", { path: "src/a.txt" }),
+        textStep("first done"),
+        toolStep("c2", "read_file", { path: "src/a.txt" }),
+        textStep("second done"),
+      ],
+      undefined,
+      undefined,
+      home,
+    );
     const conv = await svc.createConversation({ cwd: root, overrides });
 
     await svc.send(conv.id, "first");
@@ -323,6 +344,10 @@ describe("execution + approval pipeline", () => {
     expect(contexts[0]!.type === "context" && textOf(contexts[0]!.content)).toContain(
       "version two",
     );
+    for (const request of provider.requests) {
+      expect(request.instructions).toEqual(provider.requests[0]!.instructions);
+      expect(textOf(request.instructions).match(/stable personal guidance/gu)).toHaveLength(1);
+    }
   });
 
   it("runs an approved command as an activity and inlines its output", async () => {

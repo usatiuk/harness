@@ -4,6 +4,12 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
+
+// Shell startup is an OS edge; the real cold-owner path is covered in shell-startup.test.ts.
+vi.mock("@harness/execution", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@harness/execution")>()),
+  initializeUserShellEnvironment: vi.fn(async () => {}),
+}));
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
 import {
   feedbackConfigureRequest,

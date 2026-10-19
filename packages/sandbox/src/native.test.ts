@@ -1,3 +1,4 @@
+import { selectUserShell, shellCommandArgs } from "@harness/execution";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
@@ -116,9 +117,8 @@ describe.skipIf(process.platform !== "linux")("NativeExecutionContext", () => {
       "--chdir",
       root,
       "--",
-      "bash",
-      "-c",
-      "echo hi",
+      selectUserShell().executable,
+      ...shellCommandArgs(selectUserShell().kind, "echo hi"),
     ]);
     expect(state.spawnArgs).not.toContain("--share-net");
   });

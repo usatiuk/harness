@@ -7,13 +7,17 @@ import {
   type ToolInput,
   type ToolResult,
 } from "@harness/protocol";
-import { activitiesOf, noticeContent } from "./manager.ts";
+import { activitiesOf, activityLabel, noticeContent } from "./manager.ts";
 
 const DEFAULT_WAIT_S = 30;
 const MAX_WAIT_S = 300;
 
 const waitArgs = z.strictObject({
-  id: z.string(),
+  id: z
+    .string()
+    .describe(
+      "An unambiguous name/readable reference from your own activity_list; use its canonical ID only to disambiguate. References expire when collected or after restart.",
+    ),
   timeout_seconds: z.number().positive().max(MAX_WAIT_S).optional(),
 });
 export class ActivityWaitTool implements Tool<z.infer<typeof waitArgs>> {
@@ -29,19 +33,27 @@ export class ActivityWaitTool implements Tool<z.infer<typeof waitArgs>> {
     ctx: ToolContext,
   ): Promise<ToolResult> {
     const mgr = activitiesOf(ctx);
-    if (!mgr.get(id)) return errorResult(`unknown activity: ${id}`);
+    const resolved = mgr.resolve(id);
+    if ("error" in resolved) return errorResult(resolved.error);
+    id = resolved.id;
     const seconds = timeout_seconds ?? DEFAULT_WAIT_S;
     const outcome = await mgr.wait(id, seconds * 1000, ctx.signal);
     if (outcome === "running") {
       return okResult(
-        `activity ${id} still running after ${seconds}s; wait again or activity_peek it.`,
+        `activity ${mgr.reference(id)} still running after ${seconds}s; wait again or activity_peek it.`,
       );
     }
-    return { forModel: noticeContent(id, outcome), status: outcome.status };
+    return {
+      forModel: noticeContent(id, outcome, mgr.get(id), mgr.reference(id)),
+      status: outcome.status,
+    };
   }
 }
 
-const peekArgs = z.strictObject({ id: z.string(), filter: z.string().optional() });
+const peekArgs = z.strictObject({
+  id: z.string().describe("Caller-owned unambiguous name/reference, or canonical ID fallback."),
+  filter: z.string().optional(),
+});
 export class ActivityPeekTool implements Tool<z.infer<typeof peekArgs>> {
   readonly essential = true;
   readonly name = "activity_peek";
@@ -50,7 +62,10 @@ export class ActivityPeekTool implements Tool<z.infer<typeof peekArgs>> {
     "applied per line. For persistent servers or watchers, check readiness here instead of waiting for termination.";
   readonly input: ToolInput<z.infer<typeof peekArgs>> = { kind: "function", schema: peekArgs };
   async execute({ id, filter }: z.infer<typeof peekArgs>, ctx: ToolContext): Promise<ToolResult> {
-    const activity = activitiesOf(ctx).get(id);
+    const mgr = activitiesOf(ctx);
+    const resolved = mgr.resolve(id);
+    if ("error" in resolved) return errorResult(resolved.error);
+    const activity = mgr.get(resolved.id);
     if (!activity) return errorResult(`unknown activity: ${id}`);
     return { forModel: activity.peek(filter ? { filter } : undefined), status: "ok" };
   }
@@ -70,22 +85,29 @@ export class ActivityListTool implements Tool<Record<string, never>> {
     if (activities.length === 0) return okResult("no activities");
     const lines = activities.map((a) => {
       const result = mgr.resultOf(a.id);
-      return `${a.id}  ${result ? result.summary : `running  \`${a.title}\``}`;
+      return `${activityLabel(a, mgr.reference(a.id))}  ${result ? result.summary : `running  \`${a.title}\``}`;
     });
     return okResult(lines.join("\n"));
   }
 }
 
-const killArgs = z.strictObject({ id: z.string() });
+const killArgs = z.strictObject({
+  id: z.string().describe("Caller-owned unambiguous name/reference, or canonical ID fallback."),
+});
 export class ActivityKillTool implements Tool<z.infer<typeof killArgs>> {
   readonly essential = true;
   readonly name = "activity_kill";
   readonly description = "Terminate a running activity.";
   readonly input: ToolInput<z.infer<typeof killArgs>> = { kind: "function", schema: killArgs };
   async execute({ id }: z.infer<typeof killArgs>, ctx: ToolContext): Promise<ToolResult> {
-    const outcome = activitiesOf(ctx).kill(id);
+    const mgr = activitiesOf(ctx);
+    const resolved = mgr.resolve(id);
+    if ("error" in resolved) return errorResult(resolved.error);
+    id = resolved.id;
+    const outcome = mgr.kill(id);
     if (outcome === "unknown") return errorResult(`unknown activity: ${id}`);
-    if (outcome === "settled") return errorResult(`activity ${id} has already completed`);
-    return okResult(`requested kill of activity ${id}`);
+    if (outcome === "settled")
+      return errorResult(`activity ${mgr.reference(id)} has already completed`);
+    return okResult(`requested kill of activity ${mgr.reference(id)}`);
   }
 }

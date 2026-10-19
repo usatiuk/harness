@@ -1,3 +1,4 @@
+import { inputCapacity } from "@harness/client-features";
 import type { ClientQuestionRequest } from "@harness/questions/client";
 import { QuestionsOverlay } from "./questions-overlay.tsx";
 import {
@@ -13,7 +14,6 @@ import {
 import { Box, Static, Text, useApp, useInput, useStdout, useWindowSize } from "ink";
 import { ConfirmInput, Spinner, Select } from "@inkjs/ui";
 import {
-  findModel,
   formatError,
   textOf,
   type ItemId,
@@ -216,10 +216,9 @@ export function App({
     () => state.activities.filter((a) => a.status === undefined).length,
     [state.activities],
   );
-  // Keeps the catalog scan off the per-delta render path.
-  const contextWindow = useMemo(
-    () => findModel(service.availableModels(), model)?.contextWindow,
-    [service, model],
+  const capacity = useMemo(
+    () => inputCapacity(state.agentContext, service.availableModels()),
+    [service, state.agentContext],
   );
   const sandboxConfig = sandboxConfigSchema.parse(config.plugins?.["sandbox"] ?? {});
 
@@ -626,8 +625,10 @@ export function App({
                 usageIncomplete={state.usageIncomplete ?? false}
                 cost={state.cost}
                 costIncomplete={state.costIncomplete ?? false}
-                lastInputTokens={state.lastInputTokens}
-                contextWindow={contextWindow}
+                lastInputTokens={capacity.used}
+                contextWindow={capacity.limit}
+                capacityBasis={capacity.basis}
+                sharedContextWindow={capacity.model?.contextWindow}
                 activeCount={activeCount}
                 sandboxBackend={activeSandboxBackend}
                 sandboxPhase={state.sandbox?.phase}
@@ -670,7 +671,7 @@ const fmtTokens = (n: number): string => {
   return `${Math.round(n / 1000)}k`;
 };
 
-/** `↑124k 38% cached ↓8.2k · $0.41 · ctx 31%`; empty until any tokens flow. */
+/** Totals plus the last authoritative agent input and its labeled capacity basis. */
 export function usageLabel(
   usage: Usage,
   usageIncomplete: boolean,
@@ -678,8 +679,17 @@ export function usageLabel(
   lastInputTokens: number | undefined,
   contextWindow: number | undefined,
   costIncomplete = false,
+  capacityBasis: "input limit" | "shared context window" | undefined = contextWindow === undefined
+    ? undefined
+    : "shared context window",
+  sharedContextWindow?: number,
 ): string {
-  if (usage.inputTokens === 0 && usage.outputTokens === 0) {
+  if (
+    usage.inputTokens === 0 &&
+    usage.outputTokens === 0 &&
+    lastInputTokens === undefined &&
+    contextWindow === undefined
+  ) {
     return usageIncomplete ? "usage incomplete" : "";
   }
   const cachedPct = Math.round((usage.cachedReadTokens / Math.max(usage.inputTokens, 1)) * 100);
@@ -688,9 +698,22 @@ export function usageLabel(
   label += ` ↓${fmtTokens(usage.outputTokens)}`;
   if (cost > 0) label += ` · ${costIncomplete ? "≥" : ""}$${cost.toFixed(2)}`;
   if (costIncomplete) label += " · cost incomplete";
-  if (lastInputTokens !== undefined && contextWindow) {
-    label += ` · ctx ${Math.round((lastInputTokens / contextWindow) * 100)}%`;
+  if (lastInputTokens !== undefined) {
+    label += ` · agent input ${fmtTokens(lastInputTokens)}`;
+    label +=
+      contextWindow !== undefined
+        ? ` · ${Math.round((lastInputTokens / contextWindow) * 100)}% of ${capacityBasis} ${fmtTokens(contextWindow)}`
+        : " · input capacity unknown";
   }
+  if (lastInputTokens === undefined) {
+    label += " · agent input unavailable";
+    label +=
+      contextWindow === undefined
+        ? " · input capacity unknown"
+        : ` · ${capacityBasis} ${fmtTokens(contextWindow)}`;
+  }
+  if (capacityBasis === "input limit" && sharedContextWindow !== undefined)
+    label += ` · shared context window ${fmtTokens(sharedContextWindow)}`;
   if (usageIncomplete) label += " · usage incomplete";
   return label;
 }
@@ -705,6 +728,8 @@ function StatusBar({
   costIncomplete,
   lastInputTokens,
   contextWindow,
+  capacityBasis,
+  sharedContextWindow,
   activeCount,
   sandboxBackend,
   sandboxPhase,
@@ -718,6 +743,8 @@ function StatusBar({
   costIncomplete: boolean;
   lastInputTokens: number | undefined;
   contextWindow: number | undefined;
+  capacityBasis: "input limit" | "shared context window" | undefined;
+  sharedContextWindow: number | undefined;
   activeCount: number;
   sandboxBackend: SandboxBackend;
   sandboxPhase: SandboxPhase | undefined;
@@ -730,6 +757,8 @@ function StatusBar({
     lastInputTokens,
     contextWindow,
     costIncomplete,
+    capacityBasis,
+    sharedContextWindow,
   );
   const active =
     activeCount > 0 ? ` · ${activeCount} ${activeCount === 1 ? "activity" : "activities"}` : "";

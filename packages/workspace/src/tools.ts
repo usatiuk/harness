@@ -240,6 +240,10 @@ export class CommandTool implements Tool<z.infer<typeof commandArgs>> {
     this.name = kind;
     this.description =
       `Run a ${shellLabel(kind)} command in the workspace root. ` +
+      (kind === "powershell"
+        ? "Commands use a fresh noninteractive shell with the server environment; PowerShell profiles are disabled. "
+        : "Commands use a fresh noninteractive shell with the execution host’s captured startup exports. ") +
+      "Aliases, functions, and shell options are not persisted; define them explicitly in the command if needed. " +
       "Quick commands return their output inline; " +
       "long-running ones (dev servers, watchers, builds) become activities you can wait on, peek " +
       "at, or kill. " +
@@ -291,6 +295,8 @@ function shellLabel(kind: ShellKind): string {
   switch (kind) {
     case "bash":
       return "Bash";
+    case "zsh":
+      return "zsh";
     case "powershell":
       return "PowerShell";
     default: {

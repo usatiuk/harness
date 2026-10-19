@@ -461,7 +461,11 @@ export class DesktopSession {
       );
       subscriptions.push(
         this.plugins.subscribe(attachment.root.id as ConversationId, (event) => {
-          if (event.type === "activity.started" || event.type === "activity.exited")
+          if (
+            event.type === "activity.started" ||
+            event.type === "activity.exited" ||
+            event.type === "subagents.changed"
+          )
             view.subagentRevision++;
           view.state = reduce(view.state, event, Date.now());
           view.publish();

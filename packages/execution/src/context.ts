@@ -12,7 +12,7 @@ import type {
  * there is no workspace against which to resolve one.
  */
 export type Relationship = "in-workspace" | "out-of-workspace" | "unknown";
-export type ShellKind = "bash" | "powershell";
+export type ShellKind = "bash" | "zsh" | "powershell";
 
 export interface ProcessExit {
   /** The child exit code, or null when it did not exit normally. */
@@ -115,7 +115,11 @@ export function executionServiceOf(
   if (!execution) {
     throw new Error("no execution backend configured (add an execution plugin)");
   }
-  if (execution.shellKind !== "bash" && execution.shellKind !== "powershell") {
+  if (
+    execution.shellKind !== "bash" &&
+    execution.shellKind !== "zsh" &&
+    execution.shellKind !== "powershell"
+  ) {
     throw new Error("execution backend has an invalid shell kind");
   }
   return execution;
