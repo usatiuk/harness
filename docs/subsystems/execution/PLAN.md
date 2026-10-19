@@ -6,6 +6,14 @@ Keep one Harness-controlled execution path across tool dialects and substrates,
 make authorization and confinement observable, and strengthen security claims
 only with matching implementation evidence.
 
+## Shell and startup environment follow-up
+
+The [cross-cutting follow-up](../../plans/cross-cutting/2026-10-19-agent-desktop-and-shell-follow-up.md)
+tracks supported user-shell selection and target-owned startup environment.
+Its design/probe checkpoint precedes implementation; it must preserve native
+confinement and shared-owner lifetime rather than blindly enable login or
+interactive startup on every command. This does not close the mutation race below.
+
 ## Milestone 1: native mutation containment
 
 - [ ] Move built-in write, edit, patch, and remove operations fully inside the
