@@ -1,5 +1,6 @@
-import type Anthropic from "@anthropic-ai/sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import {
+  APIError,
   APIConnectionError,
   APIConnectionTimeoutError,
   APIUserAbortError,
@@ -30,12 +31,8 @@ function apiError(
   withSdkType = true,
 ): Error {
   const body = { type: "error", error: { ...(type ? { type } : {}), message: type ?? "failed" } };
-  return Object.assign(new Error(`${status} ${type ?? "failed"}`), {
-    status,
-    headers: new Headers(headers),
-    error: body,
-    ...(withSdkType && type ? { type } : {}),
-  });
+  const error = APIError.generate(status, body, undefined, new Headers(headers));
+  return withSdkType ? error : Object.assign(error, { type: null });
 }
 
 interface TransientCase {
@@ -118,6 +115,16 @@ const permanentCases: { name: string; error: unknown; signal?: AbortSignal | und
   { name: "400 invalid_request_error", error: apiError(400, "invalid_request_error") },
   { name: "401 authentication_error", error: apiError(401, "authentication_error") },
   { name: "402 billing_error", error: apiError(402, "billing_error") },
+  {
+    name: "explicit billing error overrides a retryable status",
+    error: apiError(429, "billing_error"),
+  },
+  {
+    name: "billing error overrides a coded cause",
+    error: Object.assign(apiError(503, "billing_error"), {
+      cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+    }),
+  },
   { name: "403 permission_error", error: apiError(403, "permission_error") },
   { name: "404 not_found_error", error: apiError(404, "not_found_error") },
   { name: "413 request_too_large", error: apiError(413, "request_too_large") },
@@ -143,6 +150,7 @@ describe("classifyTransientFailure", () => {
     expect(failure?.reason).toBe(reason);
     expect(failure?.retryAfterMs).toBe(retryAfterMs);
     expect(failure?.cause).toBe(error);
+    expect(failure?.message).toBe((error as Error).message);
   });
 
   it.each(permanentCases)("leaves $name unchanged (permanent)", ({ error, signal }) => {
@@ -185,5 +193,40 @@ describe("AnthropicMessagesTransport classification", () => {
     await expect(
       consume(transport(error).stream(REQUEST, controller.signal, CALL_CONTEXT)),
     ).rejects.toBe(error);
+  });
+});
+
+describe("SDK connection wrapper precision", () => {
+  it("prefers a coded timeout over a generic connection wrapper", () => {
+    const error = new APIConnectionError({
+      cause: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),
+    });
+    expect(classifyTransientFailure(error)?.reason).toBe("timeout");
+  });
+  it("does not infer transience from an unwrapped fetch-failed message", () => {
+    expect(
+      classifyTransientFailure(
+        new TypeError("fetch failed", { cause: new Error("unknown scheme") }),
+      ),
+    ).toBeUndefined();
+  });
+  it("uses SDK connection identity when the SDK wraps an unknown fetch failure", async () => {
+    const raw = new TypeError("fetch failed", { cause: new Error("unknown scheme") });
+    const client = new Anthropic({
+      apiKey: "test",
+      maxRetries: 0,
+      fetch: async () => {
+        throw raw;
+      },
+    });
+    const error = await client.messages
+      .create({ model: "test", max_tokens: 1, messages: [] })
+      .catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(APIConnectionError);
+    expect(classifyTransientFailure(error)).toMatchObject({ reason: "connection", cause: error });
+  });
+  it("does not confuse an arbitrary constructor name with an SDK error", () => {
+    class APIConnectionError extends Error {}
+    expect(classifyTransientFailure(new APIConnectionError("fake"))).toBeUndefined();
   });
 });

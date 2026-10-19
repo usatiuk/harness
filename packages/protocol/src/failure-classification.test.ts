@@ -1,71 +1,75 @@
 import { describe, expect, it } from "vitest";
-import { classifyTransientFailure } from "./failure-classification.ts";
-import { TransientModelFailure } from "./model.ts";
+import { networkFailureReason, retryAfterMsFromHeaders } from "./failure-classification.ts";
 
-/**
- * Stand-ins for SDK transport errors: the installed OpenAI and Anthropic SDKs
- * keep `name` as `"Error"` and carry their identity on the constructor, so
- * classification must read both spellings.
- */
-class APIConnectionError extends Error {}
-class APIConnectionTimeoutError extends APIConnectionError {}
-class APIUserAbortError extends Error {}
+function coded(code: string, cause?: unknown): Error {
+  return Object.assign(new Error(code, { cause }), { code });
+}
 
-describe("classifyTransientFailure error identity", () => {
-  it("classifies SDK connection errors by constructor when name stays Error", () => {
-    const error = new APIConnectionError("Connection error.");
-    expect(error.name).toBe("Error");
-    const failure = classifyTransientFailure(error);
-    expect(failure).toBeInstanceOf(TransientModelFailure);
-    expect(failure?.reason).toBe("connection");
-    expect(failure?.cause).toBe(error);
+describe("networkFailureReason", () => {
+  it.each(["ECONNRESET", "ECONNREFUSED", "EAI_AGAIN", "UND_ERR_SOCKET"])(
+    "recognizes the transport code %s",
+    (code) => expect(networkFailureReason(coded(code))).toBe("connection"),
+  );
+
+  it.each(["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT"])(
+    "recognizes the timeout code %s through wrappers",
+    (code) => {
+      const error = new Error("SDK wrapper", {
+        cause: new TypeError("fetch failed", { cause: coded(code) }),
+      });
+      expect(networkFailureReason(error)).toBe("timeout");
+    },
+  );
+
+  it("does not mask a timeout behind a generic connection code", () => {
+    expect(networkFailureReason(coded("ECONNRESET", coded("ETIMEDOUT")))).toBe("timeout");
   });
 
-  it("classifies SDK connection timeouts as timeout", () => {
-    const error = new APIConnectionTimeoutError("Request timed out.");
-    expect(error.name).toBe("Error");
-    expect(classifyTransientFailure(error)?.reason).toBe("timeout");
+  it("bounds cause traversal", () => {
+    let error: unknown = coded("ECONNRESET");
+    for (let depth = 0; depth < 4; depth++) error = new Error("wrapper", { cause: error });
+    expect(networkFailureReason(error)).toBeUndefined();
   });
 
-  it("walks the cause chain when the SDK error carries a coded cause", () => {
-    const cause = Object.assign(new Error("refused"), { code: "ECONNREFUSED" });
-    const error = Object.assign(new APIConnectionError("Connection error."), { cause });
-    expect(classifyTransientFailure(error)?.reason).toBe("connection");
+  it("terminates cyclic causes", () => {
+    const error = new Error("cycle");
+    error.cause = error;
+    expect(networkFailureReason(error)).toBeUndefined();
   });
 
-  it("never classifies an SDK user abort", () => {
-    const error = new APIUserAbortError("Request was aborted.");
-    expect(error.name).toBe("Error");
-    expect(classifyTransientFailure(error)).toBeUndefined();
+  it.each([
+    new TypeError("fetch failed", { cause: new Error("unknown scheme") }),
+    new TypeError("network socket failure"),
+    Object.assign(new Error("SDK-like"), { name: "APIConnectionError" }),
+    Object.assign(new Error("invalid configuration"), { code: "UND_ERR_INVALID_ARG" }),
+    null,
+    "ECONNRESET",
+  ])("does not infer transport failures from identity or prose: %s", (error) => {
+    expect(networkFailureReason(error)).toBeUndefined();
+  });
+});
+
+describe("retryAfterMsFromHeaders", () => {
+  it("prefers the millisecond header", () => {
+    expect(
+      retryAfterMsFromHeaders({
+        headers: new Headers({ "retry-after-ms": "1250", "retry-after": "5" }),
+      }),
+    ).toBe(1250);
   });
 
-  it("never classifies an abort even when it carries transient signals", () => {
-    const network = Object.assign(new Error("reset"), { code: "ECONNRESET" });
-    const byKind = Object.assign(new APIUserAbortError("Request was aborted."), {
-      cause: network,
-      status: 503,
-    });
-    expect(classifyTransientFailure(byKind)).toBeUndefined();
-    const byName = Object.assign(new Error("aborted"), {
-      name: "APIUserAbortError",
-      cause: network,
-      status: 503,
-    });
-    expect(classifyTransientFailure(byName)).toBeUndefined();
+  it("falls back from invalid milliseconds to delta-seconds", () => {
+    expect(
+      retryAfterMsFromHeaders({
+        headers: new Headers({ "retry-after-ms": "later", "retry-after": "0.5" }),
+      }),
+    ).toBe(500);
   });
 
-  it("prefers a coded cause over the bare fetch-failed message", () => {
-    const cause = Object.assign(new Error("timed out"), { code: "ETIMEDOUT" });
-    expect(classifyTransientFailure(new TypeError("fetch failed", { cause }))?.reason).toBe(
-      "timeout",
-    );
-  });
-
-  it("never classifies a DOMException abort", () => {
-    expect(classifyTransientFailure(new DOMException("aborted", "AbortError"))).toBeUndefined();
-  });
-
-  it("leaves unrecognized errors for the caller to rethrow", () => {
-    expect(classifyTransientFailure(new Error("boom"))).toBeUndefined();
+  it("leaves unavailable or invalid waits unspecified", () => {
+    expect(retryAfterMsFromHeaders({})).toBeUndefined();
+    expect(
+      retryAfterMsFromHeaders({ headers: new Headers({ "retry-after": "later" }) }),
+    ).toBeUndefined();
   });
 });

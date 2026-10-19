@@ -5,21 +5,45 @@ import { CODEX_API_BASE_URL, CODEX_ORIGINATOR } from "./oauth.ts";
 
 /**
  * The Codex backend reports errors as `{"detail": "..."}`, which the OpenAI SDK can't read
- * (it looks for `error.message`) — surfacing only "400 status code (no body)". Lift `detail`
- * off a failed response and throw it; everything else passes through to the SDK.
+ * (it looks for `error.message`). Normalize only that HTTP error body, keeping machine
+ * fields and HTTP metadata so the SDK does not mistake a rejection for a transport failure.
  */
 const surfacingFetch: typeof fetch = async (input, init) => {
   const res = await fetch(input, init);
   if (res.ok) return res;
-  let detail: string | undefined;
+  let body: unknown;
   try {
-    const body = (await res.clone().json()) as { detail?: unknown };
-    if (typeof body.detail === "string") detail = body.detail;
+    body = await res.clone().json();
   } catch {
     // non-JSON error body — let the SDK handle it
+    return res;
   }
-  if (detail) throw new Error(`Codex request failed (${res.status}): ${detail}`);
-  return res;
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("detail" in body) ||
+    typeof body.detail !== "string" ||
+    body.detail.length === 0
+  )
+    return res;
+  const { error } = body as Record<string, unknown>;
+  const headers = new Headers(res.headers);
+  // Fetch has already decoded the body; these describe the replaced wire bytes.
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+  return Response.json(
+    {
+      ...body,
+      error: {
+        ...(typeof error === "object" && error !== null ? error : {}),
+        // Retain the original nested error as well as top-level machine fields.
+        // Neither may hide the other's permanent billing/quota signal.
+        ...body,
+        message: body.detail,
+      },
+    },
+    { status: res.status, statusText: res.statusText, headers },
+  );
 };
 
 /**

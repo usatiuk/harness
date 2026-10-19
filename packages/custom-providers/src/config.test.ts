@@ -59,6 +59,23 @@ describe("plugin-owned compatible provider configuration", () => {
     await expect(validateCustomSettings(home)).resolves.toBeTruthy();
   });
 
+  it.each(["openai-responses-compatible", "openai-completions-compatible", "anthropic-compatible"])(
+    "rejects unsupported endpoint schemes before constructing %s",
+    async (type) => {
+      const home = await tmp();
+      await writeJson(join(home, "settings.json"), {
+        model,
+        providers: {
+          local: {
+            type,
+            config: { endpoint: "ftp://invalid/v1", apiKey: "k", models: { m: {} } },
+          },
+        },
+      });
+      await expect(validateCustomSettings(home)).rejects.toThrow(/endpoint|URL/);
+    },
+  );
+
   it("rejects unknown custom model fields instead of silently stripping typos", async () => {
     const home = await tmp();
     await writeJson(join(home, "settings.json"), {

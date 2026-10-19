@@ -31,18 +31,22 @@ import {
   textStep,
 } from "@harness/testkit";
 import { HarnessService } from "./service.ts";
-import { HarnessRpcSession, retryPurposeIsUserVisible } from "./rpc-session.ts";
+import { HarnessRpcSession } from "./rpc-session.ts";
 
 const fixtures: Array<{ host: HarnessRpcHost; session: HarnessRpcSession }> = [];
 const expectedCleanupFailures = new Set<HarnessRpcHost>();
 afterEach(async () => {
-  for (const { host, session } of fixtures.splice(0)) {
-    await session.shutdown();
-    try {
-      await host.shutdown();
-    } catch (error) {
-      if (!expectedCleanupFailures.delete(host)) throw error;
+  try {
+    for (const { host, session } of fixtures.splice(0)) {
+      await session.shutdown();
+      try {
+        await host.shutdown();
+      } catch (error) {
+        if (!expectedCleanupFailures.delete(host)) throw error;
+      }
     }
+  } finally {
+    vi.restoreAllMocks();
   }
 });
 
@@ -174,12 +178,15 @@ describe("HarnessRpcSession", () => {
 
   it("streams scheduled model retries to the client for conversation turns", async () => {
     let calls = 0;
-    const fake = new FakeProvider([textStep("recovered")]);
+    const usage = { inputTokens: 1000, outputTokens: 50, cachedReadTokens: 0 };
+    const fake = new FakeProvider([textStep("recovered", undefined, usage)]);
     const { client, service } = createHarness(
       {
         provider: fake.provider,
         capabilities: () => fake.capabilities(),
-        listModels: () => fake.listModels(),
+        listModels: () => [
+          { provider: fake.provider, model: "fake-1", pricing: { input: 1, output: 2 } },
+        ],
         validateConfig: () => {},
         stream: () => {
           if (calls++ === 0)
@@ -199,19 +206,87 @@ describe("HarnessRpcSession", () => {
     const conversation = await createConversation(client);
     await client.attach(conversation.id);
     const observed: WireConversationEvent[] = [];
-    client.subscribe((event) => {
-      if (event.type === "conversation") observed.push(event.event);
+    const settled = new Promise<void>((resolve) => {
+      client.subscribe((event) => {
+        if (event.type !== "conversation") return;
+        observed.push(event.event);
+        if (event.event.type === "turn.changed" && event.event.status !== "running") resolve();
+      });
     });
     await client.deliver(conversation.id, "go", "send");
     await service.whenIdle(conversation.id as ConversationId);
+    await settled;
     expect(calls).toBe(2);
     expect(observed.filter((event) => event.type === "model.retry")).toMatchObject([
       { purpose: "agent", attempt: 2, maxAttempts: 5, reason: "rate_limit" },
     ]);
-    expect(retryPurposeIsUserVisible("title")).toBe(false);
-    expect(retryPurposeIsUserVisible("auto-approval")).toBe(false);
-    expect(retryPurposeIsUserVisible("compaction")).toBe(true);
+    expect(observed.filter((event) => event.type === "usage.changed").at(-1)).toMatchObject({
+      summary: {
+        usage,
+        cost: 0.0011,
+        incomplete: true,
+        costIncomplete: true,
+        agentContext: { usage },
+        lastTurn: { usage, cost: 0.0011, incomplete: true, costIncomplete: true },
+      },
+    });
   });
+
+  it.each(["compaction", "title", "auto-approval", "plugin"])(
+    "projects retries for %s through the actual RPC audience boundary",
+    async (purpose) => {
+      vi.spyOn(Math, "random").mockReturnValue(0);
+      let calls = 0;
+      const fake = new FakeProvider([textStep("auxiliary result"), textStep("agent result")]);
+      const { client, service } = createHarness(
+        {
+          provider: fake.provider,
+          capabilities: () => fake.capabilities(),
+          listModels: () => fake.listModels(),
+          validateConfig: () => {},
+          async *stream() {
+            if (++calls === 1) throw new TransientModelFailure("overloaded");
+            yield* fake.stream();
+          },
+        },
+        [
+          modelRetryPlugin,
+          {
+            id: "auxiliary-invocation",
+            services: () => [
+              {
+                key: "auxiliary-invocation",
+                for: () => null,
+                async onInput(_service, context) {
+                  await context
+                    .model(context.signal)
+                    .invoke({ instructions: [], items: [] }, { purpose });
+                },
+              },
+            ],
+          },
+        ],
+      );
+      await client.start();
+      const conversation = await createConversation(client);
+      await client.attach(conversation.id);
+      const observed: WireConversationEvent[] = [];
+      const settled = new Promise<void>((resolve) => {
+        client.subscribe((event) => {
+          if (event.type !== "conversation") return;
+          observed.push(event.event);
+          if (event.event.type === "turn.changed" && event.event.status !== "running") resolve();
+        });
+      });
+      await client.deliver(conversation.id, "go", "send");
+      await service.whenIdle(conversation.id as ConversationId);
+      await settled;
+      expect(calls).toBe(3);
+      expect(
+        observed.filter((event) => event.type === "model.retry").map((event) => event.purpose),
+      ).toEqual(purpose === "compaction" ? ["compaction"] : []);
+    },
+  );
 
   it("forks through real RPC, reads an inherited prefix and sends only the edited draft in a new root", async () => {
     const requests: ModelRequest[] = [];

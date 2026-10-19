@@ -8,8 +8,16 @@ title naming, auto-approval review, and subagents alike. Retries re-issue only
 before the first output with capped exponential full-jitter backoff and
 provider `Retry-After` floors; scheduled retries surface in the desktop/TUI
 Working presentation for conversation and compaction calls and stay silent for
-titles and auto-approval review. Validation evidence is tracked in the delivery
-plan.
+titles and auto-approval review. Its productization follow-up replaces generic
+SDK-name reflection with adapter-local identity, gives OpenCode one raw-error
+policy boundary, and keeps host accounting independent of provider completion.
+Regressions cover bundled timeouts, pre-output SSE errors, exhaustion and
+tool-only recovery. A further autonomous review preserves Codex HTTP failure
+metadata, marks unobserved earlier-attempt spend as partial, and removes unused
+client-owned usage aggregation. Full checks pass 1,984 tests (41 gated skips), both focused
+Chromium cases pass, and three independent reviews are resolved. Schema 15
+preserves historical attempts while allowing accurate zero-provider accounting.
+Validation evidence and remaining live/native limits are in the delivery plan.
 
 The [desktop right sidebar](docs/plans/interface/2026-10-18-right-sidebar.md)
 adds Changes/Subagents tabs, continuous responsive Git diffs via `@pierre/diffs` CodeView,

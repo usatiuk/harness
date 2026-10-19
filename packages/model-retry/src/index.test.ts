@@ -12,10 +12,18 @@ import {
 } from "@harness/protocol";
 import {
   MAX_RETRY_DELAY_MS,
-  createModelRetryMiddleware,
+  modelRetryPlugin,
   modelRetryConfigSchema,
   retryDelayMs,
 } from "./index.ts";
+import { modelRetriesSettingsSchema } from "./client.ts";
+
+function createModelRetryMiddleware(config: {
+  attempts: number;
+  backoffMs: number;
+}): ModelMiddleware {
+  return modelRetryPlugin.create({ get: async <C>() => config as C }).modelMiddleware!()[0]!;
+}
 
 const request: ModelRequest = {
   instructions: [],
@@ -76,6 +84,15 @@ afterEach(() => {
 });
 
 describe("modelRetryConfigSchema", () => {
+  it("requires complete settings at the wire boundary without configuration defaults", () => {
+    expect(modelRetriesSettingsSchema.parse({ attempts: 3, backoffMs: 50 })).toEqual({
+      attempts: 3,
+      backoffMs: 50,
+    });
+    for (const value of [{}, { attempts: 3 }, { backoffMs: 50 }, { attempts: 11, backoffMs: 50 }])
+      expect(modelRetriesSettingsSchema.safeParse(value).success).toBe(false);
+  });
+
   it("defaults to five attempts with a one-second backoff", () => {
     expect(modelRetryConfigSchema.parse({})).toEqual({ attempts: 5, backoffMs: 1000 });
     expect(modelRetryConfigSchema.parse({ attempts: 0, backoffMs: 60000 })).toEqual({

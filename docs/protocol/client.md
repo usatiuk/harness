@@ -164,6 +164,10 @@ nullable reported usage. It is published before tools/approval waits; a newer
 unknown attempt clears the reported count instead of retaining a stale value.
 Cumulative native-search billing can retain known spend while exposing null
 checkpoint usage; it is not a single-prompt context measurement.
+Recovered retries retain the successful completion's known checkpoint while
+marking aggregate usage and cost incomplete: earlier provider calls have no
+accounting. These totals are lower bounds, not estimates that failed calls
+cost zero.
 The latest terminal turn includes aggregate usage/cost, incomplete accounting and
 nullable agent output/duration facts. Request duration includes provider latency
 and stream consumption, excluding tools and approval waits. Unknown accounting,

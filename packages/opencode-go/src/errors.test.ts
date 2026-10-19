@@ -1,3 +1,5 @@
+import OpenAI, { APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 import { TransientModelFailure, type ModelFailureReason } from "@harness/protocol";
 import type { ModelCallContext, ModelRequest } from "@harness/protocol";
@@ -16,21 +18,8 @@ function apiError(
   body: { code?: string | null; type?: string; message?: string } = {},
   headers: Record<string, string> = {},
 ): Error {
-  return Object.assign(new Error(`${status} ${body.message ?? "failed"}`), {
-    name: "APIError",
-    status,
-    headers: new Headers(headers),
-    error: body,
-    code: body.code ?? null,
-    type: body.type,
-  });
+  return new OpenAI.APIError(status, body, undefined, new Headers(headers));
 }
-
-/** Stand-ins for SDK transport errors: the installed SDKs keep `name` as
- * `"Error"` and carry their identity on the constructor. */
-class APIConnectionError extends Error {}
-class APIConnectionTimeoutError extends APIConnectionError {}
-class APIUserAbortError extends Error {}
 
 interface TransientCase {
   name: string;
@@ -107,12 +96,12 @@ const transientCases: TransientCase[] = [
   },
   {
     name: "SDK connection error",
-    error: new APIConnectionError("Connection error."),
+    error: new APIConnectionError({ message: "Connection error." }),
     reason: "connection",
   },
   {
     name: "SDK connection timeout error",
-    error: new APIConnectionTimeoutError("Request timed out."),
+    error: new APIConnectionTimeoutError({ message: "Request timed out." }),
     reason: "timeout",
   },
   {
@@ -194,7 +183,7 @@ describe("classifyTransientFailure", () => {
     },
     {
       name: "user abort error",
-      error: new APIUserAbortError("Request was aborted."),
+      error: new APIUserAbortError({ message: "Request was aborted." }),
     },
     {
       name: "AbortError DOMException",
@@ -280,9 +269,9 @@ describe("provider classification", () => {
     },
   );
 
-  it("keeps an OpenAI billing 429 permanent through the chat transport", async () => {
+  it.each(FAMILIES)("keeps a billing 429 permanent through %s", async (family) => {
     const error = apiError(429, { code: "insufficient_quota" }, { "retry-after": "7" });
-    await expect(streamFor("chat", error)).rejects.toBe(error);
+    await expect(streamFor(family, error)).rejects.toBe(error);
   });
 
   it.each(FAMILIES)("never classifies cancellation through the %s transport", async (family) => {
@@ -311,4 +300,77 @@ describe("provider classification", () => {
       cause: error,
     });
   });
+});
+
+describe("real gateway SDK responses", () => {
+  for (const status of [429, 501, 507]) {
+    it.each(FAMILIES)(
+      `keeps quota permanent before the raw %s SDK classifies HTTP ${status}`,
+      async (family) => {
+        const body = {
+          error: { type: "rate_limit_error", code: "insufficient_quota", message: "add credits" },
+        };
+        const fetch = async () =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json", "retry-after": "1" },
+          });
+        const openai = new OpenAI({ apiKey: "test-key", maxRetries: 0, fetch });
+        const anthropic = new Anthropic({ apiKey: "test-key", maxRetries: 0, fetch });
+        const provider = new OpenCodeGoProvider({
+          openai: { client: async () => openai },
+          anthropic: { client: async () => anthropic },
+        });
+        await expect(
+          consume(provider.stream(requestFor(family), new AbortController().signal, CALL_CONTEXT)),
+        ).rejects.toBeInstanceOf(family === "messages" ? Anthropic.APIError : OpenAI.APIError);
+      },
+    );
+  }
+});
+
+describe("gateway fallback and SDK identities", () => {
+  it.each(FAMILIES)("retains the all-5xx rule through %s", async (family) => {
+    const fetch = async () =>
+      new Response(JSON.stringify({ error: { message: "gateway unavailable" } }), {
+        status: 501,
+        headers: { "content-type": "application/json", "retry-after": "3" },
+      });
+    const openai = new OpenAI({ apiKey: "test-key", maxRetries: 0, fetch });
+    const anthropic = new Anthropic({ apiKey: "test-key", maxRetries: 0, fetch });
+    const provider = new OpenCodeGoProvider({
+      openai: { client: async () => openai },
+      anthropic: { client: async () => anthropic },
+    });
+    await expect(
+      consume(provider.stream(requestFor(family), new AbortController().signal, CALL_CONTEXT)),
+    ).rejects.toMatchObject({
+      name: "TransientModelFailure",
+      reason: "server",
+      retryAfterMs: 3000,
+      cause: expect.any(family === "messages" ? Anthropic.APIError : OpenAI.APIError) as unknown,
+    });
+  });
+  it.each([
+    new OpenAI.APIConnectionTimeoutError(),
+    new Anthropic.APIConnectionTimeoutError(),
+    new OpenAI.APIConnectionError({
+      cause: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),
+    }),
+    new Anthropic.APIConnectionError({
+      cause: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),
+    }),
+  ])("classifies actual SDK timeout identity and cause", (error) => {
+    expect(classifyTransientFailure(error)?.reason).toBe("timeout");
+  });
+  it.each([new OpenAI.APIUserAbortError(), new Anthropic.APIUserAbortError()])(
+    "preserves actual SDK abort identity",
+    (error) => {
+      Object.assign(error, {
+        status: 503,
+        cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+      });
+      expect(classifyTransientFailure(error)).toBeUndefined();
+    },
+  );
 });

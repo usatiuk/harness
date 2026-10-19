@@ -18,6 +18,7 @@
     "vscode-jsonrpc": "^8.2.1"
   },
   "devDependencies": {
+    "@harness/model-retry": "*",
     "@harness/output": "*",
     "@harness/store-sqlite": "*",
     "@harness/openai-core": "*",

@@ -3,6 +3,7 @@ import { mergeModelMetadata } from "@harness/protocol";
 import type {
   ModelCapabilities,
   ModelCallContext,
+  TransientModelFailure,
   ModelConfig,
   ModelInfo,
   ModelProvider,
@@ -52,6 +53,13 @@ class GoChatProvider extends OpenAIChatTransport {
   ) {
     super({ credentials, provider, requestHeaders });
   }
+  protected override classifyFailure(
+    error: unknown,
+    signal: AbortSignal,
+  ): TransientModelFailure | undefined {
+    return classifyTransientFailure(error, signal);
+  }
+
   protected override buildParams(request: ModelRequest) {
     const params = super.buildParams(request);
     const effort = effortFor(request, this.models());
@@ -81,6 +89,13 @@ class GoResponsesProvider extends OpenAIResponsesTransport {
     });
   }
 
+  protected override classifyFailure(
+    error: unknown,
+    signal: AbortSignal,
+  ): TransientModelFailure | undefined {
+    return classifyTransientFailure(error, signal);
+  }
+
   protected override buildParams(request: ModelRequest) {
     const effort = effortFor(request, this.models());
     const reasoning = { summary: "auto", ...(effort ? { effort } : {}) } as Parameters<
@@ -98,6 +113,13 @@ class GoMessagesProvider extends AnthropicMessagesTransport {
     readonly models: () => readonly GoModelSpec[],
   ) {
     super({ provider, credentials, requestHeaders });
+  }
+
+  protected override classifyFailure(
+    error: unknown,
+    signal: AbortSignal,
+  ): TransientModelFailure | undefined {
+    return classifyTransientFailure(error, signal);
   }
 
   protected override buildConfig(request: ModelRequest): AnthropicRequestConfig {
@@ -262,24 +284,20 @@ export class OpenCodeGoProvider implements ModelProvider {
   }
 
   async *stream(request: ModelRequest, signal: AbortSignal, context: ModelCallContext) {
-    try {
-      switch (familyOf(request.modelConfig.model, this.#models)) {
-        case "responses":
-          yield* this.#responses.stream(request, signal, context);
-          break;
-        case "messages":
-          yield* this.#messages.stream(request, signal, context);
-          break;
-        case "chat":
-          yield* this.#chat.stream(request, signal, context);
-          break;
-        case undefined:
-          throw new Error(
-            `unknown model "${request.modelConfig.model}" for provider ${this.provider}`,
-          );
-      }
-    } catch (error) {
-      throw classifyTransientFailure(error, signal) ?? error;
+    switch (familyOf(request.modelConfig.model, this.#models)) {
+      case "responses":
+        yield* this.#responses.stream(request, signal, context);
+        break;
+      case "messages":
+        yield* this.#messages.stream(request, signal, context);
+        break;
+      case "chat":
+        yield* this.#chat.stream(request, signal, context);
+        break;
+      case undefined:
+        throw new Error(
+          `unknown model "${request.modelConfig.model}" for provider ${this.provider}`,
+        );
     }
   }
 }

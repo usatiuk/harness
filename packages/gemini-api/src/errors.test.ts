@@ -55,34 +55,6 @@ function apiError(
   });
 }
 
-/**
- * A real Interactions `APIError` (e.g. `RateLimitError`): same HTTP error body,
- * but the SDK keeps it in `body`/`error` and composes the message from it
- * instead of stringifying the body into `message`.
- */
-function wrappedApiError(
-  status: number,
-  fields: { message?: string; details?: unknown[] } = {},
-): Error {
-  const payload = {
-    httpMeta: { response: {}, request: {} },
-    error: {
-      code: status,
-      message: fields.message ?? "failed",
-      status: STATUS_NAMES[status] ?? "UNKNOWN",
-      ...(fields.details ? { details: fields.details } : {}),
-    },
-  };
-  return Object.assign(new Error(`${status} ${fields.message ?? "failed"}`), {
-    name: "RateLimitError",
-    status,
-    statusCode: status,
-    headers: new Headers(),
-    error: payload,
-    body: JSON.stringify(payload),
-  });
-}
-
 interface TransientCase {
   name: string;
   error: unknown;
@@ -131,7 +103,13 @@ const transientCases: TransientCase[] = [
   {
     name: "429 with unrelated details omits retryAfterMs",
     error: apiError(429, {
-      details: [{ "@type": "type.googleapis.com/google.rpc.DebugInfo", detail: "traced" }],
+      details: [
+        {
+          "@type": "type.googleapis.com/google.rpc.DebugInfo",
+          detail: "traced",
+          retryDelay: "12s",
+        },
+      ],
     }),
     reason: "rate_limit",
     retryAfterMs: undefined,
@@ -139,21 +117,6 @@ const transientCases: TransientCase[] = [
   {
     name: "429 without details omits retryAfterMs",
     error: apiError(429),
-    reason: "rate_limit",
-    retryAfterMs: undefined,
-  },
-  {
-    name: "429 Interactions error with RetryInfo in the structured payload",
-    error: wrappedApiError(429, {
-      message: "Resource has been exhausted",
-      details: [retryInfo("12s")],
-    }),
-    reason: "rate_limit",
-    retryAfterMs: 12_000,
-  },
-  {
-    name: "429 Interactions error without details omits retryAfterMs",
-    error: wrappedApiError(429, { message: "Resource has been exhausted" }),
     reason: "rate_limit",
     retryAfterMs: undefined,
   },
@@ -229,6 +192,10 @@ describe("classifyTransientFailure", () => {
       signal: AbortSignal.abort(),
     },
     {
+      name: "an arbitrary error with a transient status",
+      error: Object.assign(new Error("defect"), { status: 503 }),
+    },
+    {
       name: "an unrecognized TypeError stays a defect, not a connection failure",
       error: new TypeError("cannot read properties of undefined"),
     },
@@ -269,6 +236,78 @@ describe("gemini transport classification", () => {
       reason: "rate_limit",
       retryAfterMs: 12_000,
     });
+  });
+
+  it.each([
+    [408, "timeout"],
+    [429, "rate_limit"],
+    [500, "server"],
+    [502, "server"],
+    [503, "server"],
+    [504, "server"],
+  ] as const)("classifies a real Interactions HTTP %i error", async (status, reason) => {
+    const fetch = vi.fn(async () =>
+      Response.json(
+        { error: { code: status, message: "failed", status: STATUS_NAMES[status] } },
+        { status, headers: { "retry-after": "2" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      consume(provider().stream(REQUEST, new AbortController().signal)),
+    ).rejects.toMatchObject({
+      reason,
+      retryAfterMs: 2000,
+      cause: { status },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {
+      name: "the SDK's timeout wrapper without a cause",
+      error: () => new DOMException("timed out", "TimeoutError"),
+      reason: "timeout",
+      sdkName: "APIConnectionTimeoutError",
+    },
+    {
+      name: "a coded timeout below the SDK's generic connection wrapper",
+      error: () =>
+        new TypeError("fetch failed", {
+          cause: Object.assign(new Error("headers deadline"), { code: "UND_ERR_HEADERS_TIMEOUT" }),
+        }),
+      reason: "timeout",
+      sdkName: "APIConnectionError",
+    },
+    {
+      name: "a bare connection error wrapped by the SDK",
+      error: () => new TypeError("fetch failed"),
+      reason: "connection",
+      sdkName: "APIConnectionError",
+    },
+  ])("classifies $name", async ({ error, reason, sdkName }) => {
+    const fetch = vi.fn(async () => {
+      throw error();
+    });
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      consume(provider().stream(REQUEST, new AbortController().signal)),
+    ).rejects.toMatchObject({
+      reason,
+      cause: { name: sdkName },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the real SDK user-abort wrapper permanent even with a live caller signal", async () => {
+    const fetch = vi.fn(async () => {
+      throw new DOMException("cancelled", "AbortError");
+    });
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      consume(provider().stream(REQUEST, new AbortController().signal)),
+    ).rejects.toMatchObject({ name: "APIUserAbortError" });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("rethrows permanent failures unchanged through the provider", async () => {

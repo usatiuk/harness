@@ -1,5 +1,5 @@
-import type OpenAI from "openai";
-import { APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } from "openai";
+import OpenAI from "openai";
+import { APIError, APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } from "openai";
 import { describe, expect, it, vi } from "vitest";
 import { TransientModelFailure, type ModelFailureReason } from "@harness/protocol";
 import type { ModelCallContext, ModelRequest } from "@harness/protocol";
@@ -24,13 +24,7 @@ function apiError(
   body: { code?: string | null; type?: string; message?: string; error?: unknown } = {},
   headers: Record<string, string> = {},
 ): Error {
-  return Object.assign(new Error(`${status} ${body.message ?? "failed"}`), {
-    status,
-    headers: new Headers(headers),
-    error: body,
-    code: body.code ?? null,
-    type: body.type,
-  });
+  return new APIError(status, body, undefined, new Headers(headers));
 }
 
 interface TransientCase {
@@ -300,4 +294,99 @@ describe("transport classification", () => {
       ).rejects.toBe(error);
     },
   );
+});
+
+describe("SDK SSE failures", () => {
+  const transient = [
+    { type: "server_error", code: "server_error", reason: "server" },
+    { type: "rate_limit_error", code: "rate_limit_exceeded", reason: "rate_limit" },
+  ];
+  for (const family of ["chat", "responses"] as const) {
+    it.each(transient)(
+      `classifies a pre-first-event ${family} $type`,
+      async ({ type, code, reason }) => {
+        const client = new OpenAI({
+          apiKey: "test-key",
+          maxRetries: 0,
+          fetch: async () =>
+            new Response(
+              `event: error\ndata: ${JSON.stringify({ error: { type, code, message: "try later" } })}\n\n`,
+              {
+                headers: { "content-type": "text/event-stream", "retry-after": "2" },
+              },
+            ),
+        });
+        const credentials = { client: async () => client };
+        const provider =
+          family === "chat"
+            ? new OpenAIChatTransport({ provider: "openai", credentials })
+            : new OpenAIResponsesProvider({ credentials });
+        await expect(
+          consume(provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)),
+        ).rejects.toMatchObject({
+          name: "TransientModelFailure",
+          reason,
+          retryAfterMs: 2000,
+          cause: expect.any(APIError) as unknown,
+          message: "try later",
+        });
+      },
+    );
+    it(`keeps a statusless ${family} quota failure permanent`, async () => {
+      const client = new OpenAI({
+        apiKey: "test-key",
+        maxRetries: 0,
+        fetch: async () =>
+          new Response(
+            `event: error\ndata: ${JSON.stringify({ error: { type: "server_error", code: "insufficient_quota", message: "add credits" } })}\n\n`,
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      });
+      const credentials = { client: async () => client };
+      const provider =
+        family === "chat"
+          ? new OpenAIChatTransport({ provider: "openai", credentials })
+          : new OpenAIResponsesProvider({ credentials });
+      await expect(
+        consume(provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)),
+      ).rejects.toBeInstanceOf(APIError);
+    });
+  }
+  it("quota wins over status and a transport cause", () => {
+    const error = Object.assign(
+      new APIError(503, { code: "insufficient_quota" }, undefined, new Headers()),
+      {
+        cause: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),
+      },
+    );
+    expect(classifyTransientFailure(error)).toBeUndefined();
+  });
+  it("prefers the actual timeout cause over a generic SDK connection wrapper", () => {
+    const error = new APIConnectionError({
+      cause: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),
+    });
+    expect(classifyTransientFailure(error)?.reason).toBe("timeout");
+  });
+  it("does not infer transience from an unwrapped fetch-failed message", () => {
+    expect(
+      classifyTransientFailure(
+        new TypeError("fetch failed", { cause: new Error("unknown scheme") }),
+      ),
+    ).toBeUndefined();
+  });
+  it("uses SDK connection identity when the SDK wraps an unknown fetch failure", async () => {
+    const raw = new TypeError("fetch failed", { cause: new Error("unknown scheme") });
+    const client = new OpenAI({
+      apiKey: "test",
+      maxRetries: 0,
+      fetch: async () => {
+        throw raw;
+      },
+    });
+    const error = await client.responses
+      .create({ model: "test", input: "go" })
+      .catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(APIConnectionError);
+    expect(classifyTransientFailure(error)).toMatchObject({ reason: "connection", cause: error });
+  });
 });

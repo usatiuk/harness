@@ -1,6 +1,138 @@
 # Bounded model retry middleware and retry visibility
 
-Status: **Active**
+Status: **Complete**
+
+## Autonomous review loop (2026-10-19)
+
+The requested additional loop reviews the entire feature against its release
+base, including the original retry commit and current productization changes.
+It does not expand the accepted product scope.
+
+- [x] Three fresh independent read-only reviews: correctness,
+      architecture/simplicity, and client/persistence/tests/evidence.
+- [x] Resolve concrete findings, re-review substantive corrections, and record
+      evidence without adding speculative machinery.
+- [x] Run affected checks and the full repository check after code changes;
+      synchronize final evidence and remaining limitations.
+
+Findings selected for correction:
+
+- Codex's detail-surfacing fetch must retain HTTP status/body/headers instead of
+  turning HTTP failures into SDK connection errors. Verify permanent failure,
+  provider wait, and quota handling through the real credentials/SDK path.
+- A recovered invocation's earlier provider attempts have unobserved spend.
+  Keep the successful completion's usage/context checkpoint but mark conversation
+  and last-turn usage/cost as lower bounds when `attempts > 1`. Use existing
+  counters and flags, not another accounting record or retry ledger.
+- Restore test-owned random mocks and correct the Mistral coverage claim.
+- Remove the test-only raw-row resume compatibility branch: real desktop and
+  CLI consumers already receive authoritative summaries. Narrow the reducer and
+  CLI prop to that contract instead of duplicating server accounting rules.
+
+The accounting regression failed before the correction in the real retry
+engine and both store contracts (three failures; the six zero/one/historical
+count controls passed). No timing limit or assertion was weakened.
+Codex's regression also failed against the original wrapper before correction
+(six failures). Response normalization preserves both top-level and nested
+machine fields as well as HTTP metadata; empty detail and ordinary responses
+remain unchanged.
+
+Loop closure:
+
+- The three fresh review lenses found the Codex HTTP metadata defect, partial
+  recovered-call accounting, and an overstated Mistral coverage claim. All are
+  corrected. Scoped re-review independently verified accounting and summary-only
+  resume; a further fresh reviewer checked all substantive fixes and found no
+  material blocker (571 focused tests across 16 files passed).
+- Final `env -u HARNESS_SERVER_SELECTION npm run check`, outside containment:
+  **1,984 passed / 41 skipped / 0 failed**, 178 test files passed and 10 skipped.
+  Typechecking, lint and formatting pass. Both focused Chromium cases pass.
+- The sandbox-only execution stream-fd failure was reproduced independently
+  inside containment and passed outside it; no product/test assertion was
+  patched around that environmental difference.
+- No new retry framework, per-attempt ledger, transport replacement, retry
+  lifecycle protocol, or compatibility fallback was added. The unused raw-row
+  client aggregation branch was removed instead of acquiring another copy of
+  server accounting policy.
+
+## Productization follow-up (2026-10-19)
+
+The post-delivery review reproduced ordinary bundled SDK timeout classification
+failure, pre-output OpenAI SSE errors bypassing retry, OpenCode Messages billing
+errors bypassing permanent-error policy, missing attempt counts on exhaustion,
+and stale retry presentation after tool-only output. The original validation
+did not cover these boundaries. This follow-up is required work, not a deferral.
+
+- [x] Research official SDK practices and pinned implementations; settle the
+      smallest adapter-local normalization contract. Record evidence in the
+      existing research note. No constructor-name identity or generic
+      configurable classification framework.
+- [x] Correct classification and gateway policy ownership, preserving causes,
+      cancellation, retry-after, permanent failures, and pre-first-event replay.
+      Check: real-SDK transport and bundled regressions pass.
+- [x] Keep known attempt accounting independent of provider completion; clear
+      retry presentation on authoritative output. Check: engine regressions use
+      the shipped middleware for exhaustion/cancellation and tool-only recovery.
+- [x] Remove duplicated retry schema/policy definitions and misleading tests or
+      documentation without adding speculative infrastructure.
+- [x] Run focused tests, full repository checks, and three independent reviews
+      (behavior, architecture/simplicity, tests/scope). Update actual evidence,
+      architecture, and limitations before marking complete.
+
+Chosen design, grounded in the official SDK sources and installed versions:
+
+- OpenAI/Anthropic adapters use their own exported SDK classes, structured
+  error types/codes, and HTTP status. Protocol keeps only small neutral
+  parsing/transport-code helpers, not a configurable classification skeleton.
+  Unrecognized raw errors remain unchanged. SDK connection-error classes are
+  themselves retry evidence; unknown wrapped causes are not parsed as prose.
+  Custom endpoint configuration rejects non-HTTP(S) schemes before SDK creation.
+- OpenCode's existing transport subclasses override one protected raw-error
+  classification method; remove the second outer classification pass. Known
+  permanent quota codes win before transient type/status mapping.
+- Pinned Gemini Interactions does not export its connection-error classes and
+  discards the timeout cause. Use its exact adapter-local error names with an
+  explicit `keepNames` payload build contract and a real bundled regression.
+  Do not deep-import SDK internals, create a loader, wrap fetch, or recreate SDK
+  timeout behavior merely to recover identity.
+- Engine accounting reads a private invocation-local attempt counter regardless
+  of provider completion. Host attempt metadata leaves the provider event
+  contract. Existing canonical model/compaction output clears retry UI; no new
+  event, state machine, timer, or durable record is needed.
+- Share required settings bounds through the plugin's client-safe export;
+  plugin configuration alone adds defaults. Tests use production plugin
+  construction rather than a second retry-loop implementation.
+
+Non-goals remain unchanged: no provider routing, durable retry state, proactive
+throttling, replay after streamed output, or generic error taxonomy.
+
+### Follow-up validation and review evidence
+
+- Final `env -u HARNESS_SERVER_SELECTION npm run check`, outside containment:
+  **1,984 passed / 41 skipped / 0 failed** across 188 files (178 passed,
+  10 skipped). All three TypeScript configurations, repository lint and
+  formatting pass. Protocol-schema regeneration produces no wire-schema drift.
+- Both focused Chromium cases pass: retry Working presentation and retry
+  settings controls. These are rendering/control checks, not new live-provider
+  or native-desktop qualification.
+- The bundle regression now exercises 29 actual SDK/fetch scenarios in each of
+  ordinary and minified bundles using production options: 58 scenarios total,
+  including the Codex credentials path. The suite also covers actual pre-output
+  SSE failures and all Go transports.
+- The first follow-up full check reproduced a real integration defect:
+  preflight correctly made zero provider calls, but SQLite's old positive-only
+  count constraint masked the original image-input error. Schema 15 corrects
+  the constraint without discarding schema-14 counts or historical nulls.
+  Migration, shared store-contract and public image-boundary regressions pass.
+- Three independent final reviews covered correctness, simplicity/boundaries,
+  and tests/evidence/scope. Findings were addressed: reject unsupported custom
+  endpoint schemes before SDK creation, explicitly test raw-vs-SDK-wrapped fetch
+  behavior, remove an unused quota-code export, and reconcile historical docs.
+  Review of the schema correction found no further blocker. No new framework,
+  durable retry state, timer, transport wrapper or lifecycle protocol was added.
+- The new settings-schema export preserves required wire fields while plugin
+  configuration alone adds defaults. Engine and middleware regressions use the
+  shipped plugin, not a second implementation of retry policy.
 
 ## Goal and observable completion
 
@@ -18,7 +150,7 @@ action while the desktop/TUI shows the retry progress; a permanent failure (bad
 request, billing) fails immediately; title naming stays silent; auto-approval
 exhaustion surfaces as the existing deny result; `npm run check` passes.
 
-## Current behavior
+## Baseline before the original implementation
 
 Every model call already flows through the single `Kernel.#streamModel` choke
 point and `runModelChain` ([engine.ts](../../packages/core/src/engine.ts)); the
@@ -48,16 +180,17 @@ classify at their catch boundaries, where response headers are available:
   `anthropic-api`, `custom-anthropic`, opencode-go's Anthropic route).
 - `gemini-api` owns `@google/genai` errors (status/code based; `RetryInfo`
   details parsed when trivially present).
-- `opencode-go` classifies its own fetch/SSE transport failures.
+- `opencode-go` overrides classification on its existing shared SDK transport
+  subclasses. Its gateway policy sees raw failures once, before normalization.
 
 Retryable: connection failures, timeouts, 408, 429 rate-limit, 500/502/503/504,
 529/overloaded. Everything unclassified is permanent, including known billing
 429 codes. `ContextWindowExceededError` keeps its separate compact-and-retry
 path. Mid-stream failures (`completed.error`) are yielded events and are never
 retried by construction. Pre-first-byte timeouts after a forwarded request are
-ordinary retryable connection/timeout failures: a retried call can rarely
-duplicate a provider-side call (documented; no provider offers idempotency
-keys). No ambiguity classes or special cases.
+ordinary retryable connection/timeout failures: a retried call can duplicate
+provider work. This implementation does not rely on a model-call idempotency
+contract. No ambiguity classes or special cases are introduced.
 
 ### Retry middleware (`@harness/model-retry` plugin)
 
@@ -92,11 +225,17 @@ settles. Nothing is persisted into the transcript.
 
 ### Accounting
 
-One `ModelUsage` row per logical invocation, unchanged. `ModelStreamEvent`
-`completed` and `ModelUsage` gain an optional `attempts`, stamped by
-`#streamModel` on every call (1 = the first try succeeded) and absent only on
-records written before this change. Failed attempts record no completed usage;
-an exhausted call records one `usage: null` row that still carries `attempts`.
+One `ModelUsage` row per logical invocation, unchanged. `ModelUsage` carries
+optional `attempts`, populated from the engine's private
+invocation-local counter rather than from provider events. It counts actual
+provider calls (zero for middleware-only output) on success, exhaustion, and
+cancellation; historical rows remain unknown. An exhausted call records one
+`usage: null` row that still carries its known attempt count.
+Successful recovery retains its final completion's known usage and cost, but
+multiple provider calls make conversation/turn totals incomplete because earlier
+calls are unaccounted. Preserve the final context checkpoint and suppress
+throughput derived from incomplete agent accounting. This uses existing counts
+and summary flags, not a per-attempt ledger or additional persisted state.
 
 ### Non-goals
 
@@ -112,8 +251,8 @@ an exhausted call records one `usage: null` row that still carries `attempts`.
 ### M1 — Protocol contracts
 
 - [x] 1.1 Add `TransientModelFailure` and `parseRetryAfterMs` to
-      `@harness/protocol` (`model.ts`), `attempts?` to the `completed` event and
-      `ModelUsage`, a `report` hook to `ModelMiddlewareContext`, and the kernel +
+      `@harness/protocol` (`model.ts`), `attempts?` to `ModelUsage`, a
+      `reportRetry` hook to `ModelMiddlewareContext`, and the kernel +
       wire `model.retry` event; bump `HARNESS_PROTOCOL_VERSION` to 19,
       regenerate `docs/protocol/client.schema.json`, update
       `docs/protocol/client.md`.
@@ -150,7 +289,7 @@ an exhausted call records one `usage: null` row that still carries `attempts`.
       cancellation during backoff, and no retry after first event.
 - [x] 3.2 Engine plumbing: `#streamModel` passes `purpose` and a report hook
       into `ModelMiddlewareContext`, publishes `model.retry` kernel events,
-      stamps `attempts` on `completed`, and lets `TransientModelFailure`
+      owns a private provider-attempt counter, and lets `TransientModelFailure`
       propagate like `ContextWindowExceededError`; `recordModelUsage` stores
       `attempts`. Register the plugin at the server composition root.
       Depends on 3.1, 2.x for real classification. Completion check: engine
@@ -163,8 +302,8 @@ an exhausted call records one `usage: null` row that still carries `attempts`.
 
 - [x] 4.1 Wire projection audience table in the service; protocol doc updated.
       Depends on 3.2. Completion check: RPC test proves `model.retry` reaches
-      clients for `agent` and is dropped for `title`; `compaction` and
-      `auto-approval` behavior is proven by the audience-predicate unit test.
+      clients for `agent`/`compaction` and is dropped for `title`,
+      `auto-approval`, and `plugin` through actual attached RPC notifications.
 - [x] 4.2 Client presentation: transient retry slot in
       `client-features/transcript-reducer` (cleared on resumed output or settled
       turn), desktop Working-group line, TUI spinner label.
@@ -186,16 +325,19 @@ an exhausted call records one `usage: null` row that still carries `attempts`.
 
 ## Validation
 
-Failing-provider fixtures at the transport boundary construct the SDKs' own
-error classes (their `name` stays `"Error"`; classification reads the
-constructor name — a fabricated `name` fixture once masked a dead detection
-path), scripted-handler middleware tests, engine/RPC tests over the real
-service for shared call-path semantics and visibility, and focused browser/TUI
-checks for presentation. Table-driven classification keeps provider quirks at
-adapter boundaries. Live-provider qualification is credential-dependent and out
-of scope: classification fixtures use real documented error shapes instead.
+Failing-provider fixtures construct real SDK errors or inject HTTP/SSE/fetch
+failures through the installed SDKs. OpenAI/Anthropic classify by SDK class
+identity; Gemini's hidden classes are covered under the actual payload build
+options in normal and minified bundles. Unknown raw fetch prose does not imply
+transience; real-SDK regressions explicitly distinguish SDK connection wrappers
+from raw errors. Custom configuration rejects unsupported endpoint schemes.
+Engine tests use the production retry plugin, actual RPC notifications prove
+audience filtering, and reducer tests cover semantic retry clearing. SQLite
+migration, shared store-contract, and public image-preflight tests prove known
+zero-call accounting without masking the original error. Live-provider and
+native packaged-server qualification remain outside these local fixtures.
 
-## Evidence
+## Original validation (before productization)
 
 - `env -u HARNESS_SERVER_SELECTION npm run check` (host, outside the sandbox):
   1878 passed / 41 skipped / 0 failed across 186 test files (176 passed), incl.
@@ -205,28 +347,17 @@ of scope: classification fixtures use real documented error shapes instead.
 - Chromium (`playwright.browser.config.ts`, host): both retry cases pass —
   "running turns show retry progress while a model call backs off" and
   "Settings exposes the model retry controls from host defaults".
-- The dead SDK-error-name defect is pinned three ways: skeleton constructor-kind
-  tests (`failure-classification.test.ts`), adapter fixture tables built from
-  the SDKs' own error classes, and engine tests that a transient failure
-  recovers a call. Title naming's silent degrade has a fail-without/pin-with
-  regression test (`conversation-titles`).
-- Review loop: three independent reviews (architecture, tests/scope, behavior)
-  plus a final read-only spot-check of the classification fixes; all findings
-  fixed or recorded under gaps. The behavior review's core finding (SDK error
-  `name`-keyed detection was dead code, masked by fabricated fixtures) is
-  addressed with constructor-identity detection and real SDK error fixtures;
-  the spot-check verified the premise empirically against the installed SDKs
-  and its two precision findings (fetch-failed label, raw-body quota nesting)
-  are fixed with tests.
+- The original reviews and fixture coverage did not establish bundled identity,
+  statusless SSE errors, gateway quota precedence, failed-invocation attempts, or
+  tool-only retry clearing. The follow-up above supersedes the reflective
+  classifier, its stand-in tests, and the understated accounting deferral.
 
 ## Remaining gaps at handoff
 
-- Deferred redesign (architecture review N2): `attempts` rides on `completed`
-  and is re-stamped by `recordModelUsage`, so transport interruption of a
-  multi-retry call can persist the last-attempt number instead of the true
-  count. Flushing the engine's attempt counter into the usage row would close
-  it; deferred because failures already record `usage: null` and the drift
-  window is a transport abort.
+- Resolved in productization: provider attempts no longer ride on `completed`.
+  The original limitation also affected ordinary exhaustion, not merely abort.
+  Both invocation paths now persist their independent counter, with regression
+  coverage for exhaustion, cancellation and buffered/concurrent middleware.
 - Test hermeticity: local test runs still need `env -u HARNESS_SERVER_SELECTION`
   (documented in `docs/TESTING.md`) because the hosting shell leaks it.
 - Retry semantics: a stream whose first yielded event is `completed.error`
@@ -239,11 +370,13 @@ of scope: classification fixtures use real documented error shapes instead.
 - Permanent billing failures: explicit code lists plus the `billing_` family and
   `access_terminated` are permanent by construction (`isPermanentQuotaCode` in
   `openai-core`, shared with the OpenCode Go gateway).
-- Cleanup nits: `model.retry`'s wire `reason` enum duplicates the
-  `ModelFailureReason` tuple and could derive from it.
-- Latent constraints noted at review: constructor-name error identity assumes
-  the adapters run from unminified Node output (a bundled deployment would need
-  `instanceof` against SDK error classes instead); and classification never
+- Resolved in productization: wire reason validation derives from the protocol's
+  canonical schema, and required settings bounds are shared without wire defaults.
+- SDK identity is adapter-owned; the original unminified-output assumption was
+  incorrect because bundling also renames colliding classes. OpenAI/Anthropic
+  use SDK class references; pinned Gemini's hidden error names require the
+  explicit payload `keepNames` contract and bundled regression.
+- Classification never
   runs on an already-aborted signal by policy, so a failure surfaced under a
   fired `AbortSignal.timeout()` is permanent even when its standalone shape
   would be transient (no current adapter passes such a signal).

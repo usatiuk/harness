@@ -1276,6 +1276,8 @@ export class Engine {
       // --- Consume phase: assistant content, in emission order. ---
       const requestStarted = performance.now();
       let requestDurationMs: number | undefined;
+      let invocation:
+        { stream: AsyncIterable<ModelStreamEvent>; readonly attempts: number } | undefined;
       const recordUsage = async (): Promise<void> => {
         const usage = completed?.usage ?? null;
         await this.store.recordModelUsage({
@@ -1288,7 +1290,7 @@ export class Engine {
           requestDurationMs: requestDurationMs ?? performance.now() - requestStarted,
           usage,
           cost: pricing && usage ? costOf(usage, pricing) : null,
-          ...(completed?.attempts !== undefined ? { attempts: completed.attempts } : {}),
+          attempts: invocation?.attempts ?? 0,
           ...(completed?.inputTokensAreContext === false ? { inputTokensAreContext: false } : {}),
           ...(completed?.providerUsage !== undefined
             ? { providerUsage: completed.providerUsage }
@@ -1298,7 +1300,7 @@ export class Engine {
         await this.#publishUsage(conversation.id);
       };
       try {
-        const stream = this.#streamModel(
+        invocation = this.#streamModel(
           conversation.id,
           "agent",
           request,
@@ -1307,7 +1309,7 @@ export class Engine {
           toolSet,
           evidenceByEvent,
         );
-        for await (const event of stream) {
+        for await (const event of invocation.stream) {
           evidenceId = evidenceByEvent.get(event);
           if (completed)
             throw new Error("provider emitted an event after completed", {
@@ -1994,7 +1996,7 @@ export class Engine {
     provider: ModelProvider,
     toolSet?: ToolSet,
     evidenceByEvent?: WeakMap<ModelStreamEvent, string>,
-  ): AsyncIterable<ModelStreamEvent> {
+  ): { stream: AsyncIterable<ModelStreamEvent>; readonly attempts: number } {
     const store = this.store;
     const context: ModelCallContext = { conversationId };
     const captureScope = new AsyncLocalStorage<((body: JsonValue) => Promise<void>) | undefined>();
@@ -2004,9 +2006,9 @@ export class Engine {
         if (!capture) throw new Error("Native request capture has no invocation scope");
         await capture(body);
       };
-    // Counted at the provider boundary: one invocation per `next()` the retry path issues.
+    // Host accounting belongs to the logical invocation, not any selected output event.
     let providerAttempts = 0;
-    return runModelChain(
+    const stream = runModelChain(
       this.host.modelMiddleware,
       request,
       {
@@ -2025,7 +2027,6 @@ export class Engine {
           }),
       },
       async function* (nextRequest) {
-        const attempt = ++providerAttempts;
         assertImageInput(
           provider,
           nextRequest.modelConfig,
@@ -2055,17 +2056,13 @@ export class Engine {
           };
         }
         try {
+          providerAttempts++;
           const iterator = provider.stream(nextRequest, signal, context)[Symbol.asyncIterator]();
           try {
             for (;;) {
               const result = await captureScope.run(capture, () => iterator.next());
               if (result.done) break;
-              // Stamp terminal accounting with the provider attempts its logical invocation
-              // consumed (1 = first try won). Counted per `next()` the middleware issues.
-              const event =
-                result.value.type === "completed"
-                  ? { ...result.value, attempts: attempt }
-                  : result.value;
+              const event = result.value;
               if (attemptId) evidenceByEvent!.set(event, attemptId);
               yield event;
             }
@@ -2084,6 +2081,12 @@ export class Engine {
         }
       },
     );
+    return {
+      stream,
+      get attempts() {
+        return providerAttempts;
+      },
+    };
   }
 
   /** Builds a one-provider-call model capability scoped to this turn. */
@@ -2136,6 +2139,8 @@ export class Engine {
       const requestStarted = performance.now();
       let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
       let requestDurationMs: number | undefined;
+      let invocation:
+        { stream: AsyncIterable<ModelStreamEvent>; readonly attempts: number } | undefined;
       const pricing = this.#pricingFor(modelConfig);
       const recordUsage = async (): Promise<void> => {
         const usage = completed?.usage ?? null;
@@ -2149,7 +2154,7 @@ export class Engine {
           requestDurationMs: requestDurationMs ?? performance.now() - requestStarted,
           usage,
           cost: pricing && usage ? costOf(usage, pricing) : null,
-          ...(completed?.attempts !== undefined ? { attempts: completed.attempts } : {}),
+          attempts: invocation?.attempts ?? 0,
           ...(completed?.inputTokensAreContext === false ? { inputTokensAreContext: false } : {}),
           ...(completed?.providerUsage !== undefined
             ? { providerUsage: completed.providerUsage }
@@ -2159,7 +2164,7 @@ export class Engine {
         await this.#publishUsage(conversation.id);
       };
       try {
-        const stream = this.#streamModel(
+        invocation = this.#streamModel(
           conversation.id,
           options.purpose ?? "plugin",
           request,
@@ -2167,7 +2172,7 @@ export class Engine {
           provider,
           modelMiddlewareTools,
         );
-        for await (const event of stream) {
+        for await (const event of invocation.stream) {
           if (completed)
             throw new Error("provider emitted an event after completed", {
               cause: completed.error,

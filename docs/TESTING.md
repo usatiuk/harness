@@ -84,14 +84,37 @@ limitations are in the [delivery plan](plans/interface/2026-10-18-right-sidebar.
 Transient model failures retry through one bounded middleware for every model
 call. Classification lives in adapter error modules (`openai-core`,
 `anthropic-core`, `gemini-api`, `opencode-go`) with table-driven fixtures using
-real documented SDK error shapes; inheritor packages (`mistral`, `litellm`,
+real SDK errors and injected HTTP/SSE responses; inheritor packages (`litellm`,
 `custom-providers`) verify their distinctive gateway bodies classify through the
 shared helpers. Middleware semantics (bounds, `retryAfterMs` floor, cap
 fail-fast, abortable backoff, no re-issue after the first yielded event) are
 unit-tested in `packages/model-retry`. Engine tests prove agent and compaction
-calls traverse the chain with the right `model.retry` purpose and stamp usage
-`attempts`; `packages/service/src/rpc-session.test.ts` proves retries reach
-attached clients only for user-audience purposes. The desktop Working line and
+calls traverse the production plugin with the right `model.retry` purpose and
+persist known `attempts` on recovery, exhaustion, permanent failure after retry,
+and cancellation. Buffered/concurrent middleware and zero-provider short-circuits
+keep host accounting independent of selected completion events.
+Recovered-call regressions also preserve known final-response usage/context
+while marking conversation and last-turn totals partial for unobserved earlier
+attempts; public RPC notifications and authoritative-summary resume retain these
+flags. Clients do not reconstruct accounting from provider rows.
+Codex credentials/provider regressions use the real SDK and shipped middleware
+to preserve readable detail, HTTP status, quota codes and Retry-After floors;
+HTTP rejections must not become fetch connection exceptions.
+Mistral inherits the OpenAI transport classifier, but its distinctive error-body
+shapes do not yet have a dedicated regression; do not infer that coverage from
+the other inheritor tests.
+The shared store contract accepts zero-provider records, the schema-14 upgrade
+preserves historical nulls/counts, and the public image-preflight test verifies
+that zero accounting does not mask the intended validation error. Custom
+provider settings reject unsupported URL schemes before SDK construction.
+`packages/service/src/rpc-session.test.ts` exercises actual attached RPC
+notifications for agent/compaction visibility and silent auxiliary purposes,
+not just an audience predicate. Reducer regressions clear stale progress on
+tool-only and compaction output while retaining it for unrelated appends.
+A bundled SDK regression uses the payload's bundle options (including the
+Gemini-required `keepNames` contract); OpenAI/Anthropic identities use SDK class
+references. These tests cover local SDK and bundle behavior, not live vendor
+acceptance. The desktop Working line and
 its settings control have focused Chromium cases in
 `packages/desktop/tests/browser/conversation.spec.ts` (run with `npm run
 test:browser --workspace @harness/desktop -- --grep ...`; Playwright browsers

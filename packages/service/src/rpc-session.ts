@@ -62,7 +62,7 @@ const HISTORY_READ_BATCH = 200;
 /** The one audience table for `model.retry`: retry progress reaches the user
  * only for conversation-driving calls (agent steps, model compaction). Title
  * naming is silent; auto-approval review exhaustion reports as its deny result. */
-export function retryPurposeIsUserVisible(purpose: string): boolean {
+function retryPurposeIsUserVisible(purpose: string): boolean {
   return purpose === "agent" || purpose === "compaction";
 }
 

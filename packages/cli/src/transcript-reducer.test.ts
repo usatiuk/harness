@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ContentBlock, HarnessEvent, Item, ModelUsage, Usage } from "@harness/protocol";
+import type { ContentBlock, HarnessEvent, Item, Usage } from "@harness/protocol";
 import { emptyState, init, reduce, type State } from "./transcript-reducer.ts";
 
 const text = (t: string): ContentBlock[] => [{ type: "text", text: t }];
@@ -669,62 +669,56 @@ describe("transcript reducer", () => {
     expect(state.lastInputTokens).toBeUndefined();
   });
 
-  it("seeds totals from stored usage rows on resume", () => {
-    const row = (id: string, usage: Usage, cost: number | null): ModelUsage => ({
-      id,
-      conversationId: "c" as ModelUsage["conversationId"],
-      turnId: "t1" as ModelUsage["turnId"],
-      contextBuildId: null,
-      provider: "fake",
-      model: "fake-1",
-      usage,
-      cost,
-      createdAt: 0,
+  it("seeds authoritative usage totals on resume", () => {
+    const seeded = init([], {
+      usage: { inputTokens: 500, outputTokens: 50, cachedReadTokens: 150 },
+      cost: 0.03,
+      incomplete: false,
+      lastInputTokens: 300,
     });
-    const seeded = init(
-      [],
-      [
-        row("u1", { inputTokens: 200, outputTokens: 20, cachedReadTokens: 0 }, 0.02),
-        row("u2", { inputTokens: 300, outputTokens: 30, cachedReadTokens: 150 }, 0.01),
-      ],
-    );
     expect(seeded.usage).toEqual({ inputTokens: 500, outputTokens: 50, cachedReadTokens: 150 });
     expect(seeded.cost).toBeCloseTo(0.03, 10);
     expect(seeded.lastInputTokens).toBe(300);
-    expect(init([]).lastInputTokens).toBeUndefined(); // no rows → no ctx-fill yet
+    expect(init([]).lastInputTokens).toBeUndefined();
   });
 
-  it("restores incomplete usage state from a durable null row", () => {
-    const row: ModelUsage = {
-      id: "u",
-      conversationId: "c" as ModelUsage["conversationId"],
-      turnId: "t" as ModelUsage["turnId"],
-      contextBuildId: null,
-      provider: "local",
-      model: "m",
-      usage: null,
-      cost: null,
-      createdAt: 0,
-    };
-    expect(init([], [row])).toMatchObject({ usageIncomplete: true });
-    expect(init([], [row]).lastInputTokens).toBeUndefined();
+  it("restores the server's incomplete usage state without a stale input checkpoint", () => {
+    const seeded = init([], {
+      usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
+      cost: 0,
+      incomplete: true,
+      costIncomplete: true,
+    });
+    expect(seeded).toMatchObject({ usageIncomplete: true, costIncomplete: true });
+    expect(seeded.lastInputTokens).toBeUndefined();
+  });
+
+  it("restores lower-bound totals after retries without losing known context usage", () => {
+    const usage = { inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 };
+    expect(
+      init([], {
+        usage,
+        cost: 0.01,
+        incomplete: true,
+        costIncomplete: true,
+        lastInputTokens: 100,
+      }),
+    ).toMatchObject({
+      usage,
+      cost: 0.01,
+      usageIncomplete: true,
+      costIncomplete: true,
+      lastInputTokens: 100,
+    });
   });
 
   it("restores cumulative billing totals without presenting them as context fill", () => {
     const usage = { inputTokens: 20_000, outputTokens: 2, cachedReadTokens: 0 };
-    const row: ModelUsage = {
-      id: "u",
-      conversationId: "c" as ModelUsage["conversationId"],
-      turnId: "t" as ModelUsage["turnId"],
-      contextBuildId: null,
-      provider: "native",
-      model: "m",
+    const state = init([], {
       usage,
-      inputTokensAreContext: false,
       cost: 1,
-      createdAt: 0,
-    };
-    const state = init([], [row]);
+      incomplete: false,
+    });
     expect(state.usage).toEqual(usage);
     expect(state.cost).toBe(1);
     expect(state.lastInputTokens).toBeUndefined();
@@ -819,10 +813,10 @@ it("preserves user and tool images through live events and restored history", ()
 });
 
 describe("model retry status", () => {
-  const retry = (attempt: number): HarnessEvent => ({
+  const retry = (attempt: number, purpose = "agent"): HarnessEvent => ({
     type: "model.retry",
     conversationId: "c",
-    purpose: "agent",
+    purpose,
     attempt,
     maxAttempts: 5,
     delayMs: 1200,
@@ -854,23 +848,50 @@ describe("model retry status", () => {
     }
   });
 
-  it("keeps retry status across item appends that are not model output", () => {
-    const state = fold([
-      { type: "turn.status", conversationId: "c", turnId: "t1", status: "running" },
-      retry(2),
-      {
-        type: "item.appended",
-        conversationId: "c",
-        item: item({ type: "message", role: "assistant", id: "m1", content: text("done") }),
-      },
-    ]);
-    expect(state.modelRetry).toEqual({
-      purpose: "agent",
-      attempt: 2,
-      maxAttempts: 5,
-      delayMs: 1200,
-      reason: "rate_limit",
-    });
+  it("clears retry status for finalized model-owned items without deltas", () => {
+    for (const output of [
+      item({ type: "message", role: "assistant", content: text("done") }),
+      item({ type: "reasoning", content: text("thought") }),
+      item({ type: "provider_output", content: text("searched") }),
+      item({ type: "tool_call", callId: "call", name: "echo", args: {} }),
+      item({ type: "compaction", content: text("summary") }),
+    ]) {
+      const state = fold([
+        { type: "turn.status", conversationId: "c", turnId: "t1", status: "running" },
+        retry(2, output.type === "compaction" ? "compaction" : "agent"),
+        { type: "item.appended", conversationId: "c", item: output },
+      ]);
+      expect(state.modelRetry, output.type).toBeUndefined();
+    }
+  });
+
+  it("keeps retry status across unrelated appends and nested tool calls", () => {
+    for (const unrelated of [
+      item({ type: "message", role: "user", content: text("queued") }),
+      item({ type: "message", role: "system", content: text("system") }),
+      item({
+        type: "message",
+        role: "user",
+        source: { kind: "plugin", pluginId: "test" },
+        content: text("notice"),
+      }),
+      item({ type: "context", key: "context", content: text("context") }),
+      item({ type: "tool_result", callId: "call", content: text("done"), status: "ok" }),
+      item({ type: "tool_call", callId: "nested", parentCallId: "call", name: "echo", args: {} }),
+    ]) {
+      const state = fold([
+        { type: "turn.status", conversationId: "c", turnId: "t1", status: "running" },
+        retry(2),
+        { type: "item.appended", conversationId: "c", item: unrelated },
+      ]);
+      expect(state.modelRetry, unrelated.type).toEqual({
+        purpose: "agent",
+        attempt: 2,
+        maxAttempts: 5,
+        delayMs: 1200,
+        reason: "rate_limit",
+      });
+    }
   });
 
   it("clears retry status when the turn settles or a new turn starts", () => {

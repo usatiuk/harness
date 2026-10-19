@@ -681,9 +681,10 @@ export class SqliteStore implements Store {
           cost: number | null;
           cost_incomplete: number;
           input_tokens_are_context: number;
+          attempts: number | null;
         }
       >(
-        `SELECT usage, cost, cost_incomplete, input_tokens_are_context FROM model_usage
+        `SELECT usage, cost, cost_incomplete, input_tokens_are_context, attempts FROM model_usage
          WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC`,
       )
       .iterate(conversationId);
@@ -693,8 +694,10 @@ export class SqliteStore implements Store {
     let costIncomplete = false;
     let lastInputTokens: number | undefined;
     for (const row of rows) {
+      const unobservedAttempts = (row.attempts ?? 0) > 1;
       cost += row.cost ?? 0;
-      costIncomplete ||= row.cost === null || row.cost_incomplete === 1;
+      costIncomplete ||= unobservedAttempts || row.cost === null || row.cost_incomplete === 1;
+      incomplete ||= unobservedAttempts;
       const parsed = usageSchema.nullable().parse(JSON.parse(row.usage)) as Usage | null;
       if (parsed === null) {
         incomplete = true;

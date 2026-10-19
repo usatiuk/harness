@@ -1,5 +1,4 @@
 import {
-  addUsage,
   assertNever,
   isKernelEvent,
   textOf,
@@ -9,7 +8,6 @@ import {
   type PendingInput,
   type HarnessEvent,
   type Item,
-  type ModelUsage,
   type ModelUsageSummary,
   type ToolStatus,
   type TurnStatus,
@@ -531,10 +529,18 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
         modelRetry: undefined,
       };
     }
-    // An appended item is not model output (it may be a tool result or plugin
-    // item); only the next text or reasoning proves the retry succeeded.
-    case "item.appended":
-      return reduceItem(state, event.item, receivedAt);
+    case "item.appended": {
+      const item = event.item;
+      const next = reduceItem(state, item, receivedAt);
+      // Finalized output may arrive without deltas (including tool-only responses).
+      return (item.type === "message" && item.role === "assistant") ||
+        item.type === "reasoning" ||
+        item.type === "provider_output" ||
+        (item.type === "tool_call" && item.parentCallId === undefined) ||
+        item.type === "compaction"
+        ? clearRetry(next)
+        : next;
+    }
     case "text_delta":
       return clearRetry(
         appendDelta(state, "assistant", event.turnId, event.text, receivedAt, event.phase),
@@ -612,39 +618,23 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
 /**
  * Seed state from a committed item log (resume). Folds items into finalized durable
  * cells, pairing `tool_call`+`tool_result` by `callId`; session-local work footers
- * are intentionally absent. `usageRows` seed the running totals so a resumed usage
- * footer matches a live one.
+ * are intentionally absent. The server's usage summary seeds the same authoritative
+ * accounting used by live events; clients never aggregate provider records.
  */
-export function init(items: Item[], usageSeed: ModelUsage[] | ModelUsageSummary = []): State {
+export function init(items: Item[], usageSeed?: ModelUsageSummary): State {
   let state: State = { ...emptyState, itemIds: new Set() };
   for (const item of items) state = reduceItem(state, item);
-  if (!Array.isArray(usageSeed)) {
-    return {
-      ...state,
-      usage: usageSeed.usage,
-      ...(usageSeed.incomplete ? { usageIncomplete: true as const } : {}),
-      cost: usageSeed.cost,
-      costIncomplete: usageSeed.costIncomplete ?? false,
-      agentContext: usageSeed.agentContext,
-      lastTurn: usageSeed.lastTurn,
-      ...(usageSeed.lastInputTokens === undefined
-        ? {}
-        : { lastInputTokens: usageSeed.lastInputTokens }),
-    };
-  }
-  const knownUsageRows = usageSeed.filter(
-    (row): row is ModelUsage & { usage: Usage } => row.usage !== null,
-  );
-  const usage = knownUsageRows.reduce((sum, row) => addUsage(sum, row.usage), zeroUsage());
-  const cost = usageSeed.reduce((sum, row) => sum + (row.cost ?? 0), 0);
-  const latest = usageSeed.at(-1);
-  const last = latest?.inputTokensAreContext === false ? undefined : latest?.usage?.inputTokens;
+  if (!usageSeed) return state;
   return {
     ...state,
-    usage,
-    ...(usageSeed.some((row) => row.usage === null) ? { usageIncomplete: true as const } : {}),
-    cost,
-    costIncomplete: usageSeed.some((row) => row.cost === null || row.costIncomplete === true),
-    ...(last !== undefined ? { lastInputTokens: last } : {}),
+    usage: usageSeed.usage,
+    ...(usageSeed.incomplete ? { usageIncomplete: true as const } : {}),
+    cost: usageSeed.cost,
+    costIncomplete: usageSeed.costIncomplete ?? false,
+    agentContext: usageSeed.agentContext,
+    lastTurn: usageSeed.lastTurn,
+    ...(usageSeed.lastInputTokens === undefined
+      ? {}
+      : { lastInputTokens: usageSeed.lastInputTokens }),
   };
 }

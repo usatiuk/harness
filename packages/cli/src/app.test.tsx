@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
-import type { Conversation, HarnessEvent, Item } from "@harness/protocol";
+import { zeroUsage, type Conversation, type HarnessEvent, type Item } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import { App, appReduce, usageLabel, type AppProps } from "./app.tsx";
 import { emptyState, type Cell } from "./transcript-reducer.ts";
@@ -96,7 +96,7 @@ const mount = (
       plugins={plugins}
       conversation={conversation}
       initialItems={initialItems}
-      initialUsage={[]}
+      initialUsage={{ usage: zeroUsage(), incomplete: false, cost: 0 }}
       cwd="/tmp"
       launchCwd="/tmp"
       onResume={() => {}}
@@ -132,7 +132,7 @@ describe("App", () => {
         plugins={testPlugins()}
         conversation={conversation}
         initialItems={[target]}
-        initialUsage={[]}
+        initialUsage={{ usage: zeroUsage(), incomplete: false, cost: 0 }}
         cwd="/tmp"
         launchCwd="/tmp"
         drafts={drafts}

@@ -268,7 +268,14 @@ export class ModelInvocationFailure extends Error {
 
 /** Why a model call failed transiently. Everything an adapter does not classify
  * into one of these reasons is permanent and must never be retried. */
-export type ModelFailureReason = "rate_limit" | "overloaded" | "server" | "timeout" | "connection";
+export const modelFailureReasonSchema = z.enum([
+  "rate_limit",
+  "overloaded",
+  "server",
+  "timeout",
+  "connection",
+]);
+export type ModelFailureReason = z.infer<typeof modelFailureReasonSchema>;
 
 /** A provider failure the bounded retry middleware may re-issue. Thrown by
  * adapters at their transport boundary, where response headers are available.
@@ -348,10 +355,6 @@ export type ModelStreamEvent =
       providerUsage?: JsonValue;
       /** Additional hosted-tool charges are not included in the token rate card. */
       costIncomplete?: boolean;
-      /** Logical invocation attempts consumed by bounded retry; stamped by the
-       * stream boundary, never by providers. 1 means the first try succeeded;
-       * absent only on records that predate bounded retry. */
-      attempts?: number;
       /** Terminal provider outcome that must be recorded, then fail the logical invocation. */
       error?: string;
     };

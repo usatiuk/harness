@@ -4,18 +4,18 @@ import {
   TransientModelFailure,
   type ConfigReader,
   type ModelHandler,
-  type ModelMiddleware,
   type ModelMiddlewareContext,
   type ModelRequest,
   type ModelStreamEvent,
   type PluginDefinition,
 } from "@harness/protocol";
+import { modelRetriesSettingsSchema } from "./client.ts";
 
 /** Effective retry policy under `plugins["model-retry"]` (global scope). `attempts`
  * counts total provider invocations per logical model call; 0/1 disables retry. */
-export const modelRetryConfigSchema = z.strictObject({
-  attempts: z.number().int().min(0).max(10).default(5),
-  backoffMs: z.number().int().min(50).max(60000).default(1000),
+export const modelRetryConfigSchema = modelRetriesSettingsSchema.extend({
+  attempts: modelRetriesSettingsSchema.shape.attempts.default(5),
+  backoffMs: modelRetriesSettingsSchema.shape.backoffMs.default(1000),
 });
 
 export type ModelRetryConfig = z.infer<typeof modelRetryConfigSchema>;
@@ -95,15 +95,6 @@ async function* retryModel(
       await abortableSleep(delayMs, ctx.signal);
     }
   }
-}
-
-/** The bounded retry middleware: re-issues `next` only for `TransientModelFailure`
- * before the first yielded event, with capped exponential full-jitter backoff. */
-export function createModelRetryMiddleware(config: ModelRetryConfig): ModelMiddleware {
-  return {
-    id: "model-retry",
-    wrap: (request, ctx, next) => retryModel(config, request, ctx, next),
-  };
 }
 
 export const modelRetryPlugin: PluginDefinition = {

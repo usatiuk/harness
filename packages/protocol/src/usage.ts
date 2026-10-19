@@ -3,7 +3,7 @@ import type { ModelPricing, Usage } from "./model.ts";
 import type { Turn } from "./conversation.ts";
 import type { JsonValue } from "./rpc.ts";
 
-/** One provider request's spend. A sidecar fact, never an item: it stays out of the transcript. */
+/** One logical invocation's observed spend. A sidecar fact, never a transcript item. */
 export interface ModelUsage {
   id: string;
   conversationId: ConversationId;
@@ -15,12 +15,13 @@ export interface ModelUsage {
   model: string;
   /** Stable invocation role. Older records may lack it. */
   purpose?: string;
-  /** Logical invocation attempts consumed by bounded retry (1 = first try won).
-   * Older records and unobserved failures may lack it. */
+  /** Actual provider invocations, including failed attempts; zero for a middleware
+   * short-circuit without a provider call. Absent on older rows. */
   attempts?: number;
   /** Server-measured request consumption time; excludes subsequent tool dispatch. */
   requestDurationMs?: number;
-  /** `null` records an attempt whose backend omitted accounting or whose end was not observed. */
+  /** Usage from the returned completion, or null when absent. With attempts > 1,
+   * earlier provider calls are unaccounted and aggregate totals are lower bounds. */
   usage: Usage | null;
   /** Absent means true. Cumulative billing input cannot serve as a context checkpoint. */
   inputTokensAreContext?: boolean;
@@ -56,7 +57,7 @@ export interface TurnUsageSummary {
   incomplete: boolean;
   cost: number;
   costIncomplete?: boolean;
-  /** Both null if any agent request omitted accounting or timing, or none exists. */
+  /** Both null if agent accounting/timing is incomplete (including prior attempts), or none exists. */
   agentOutputTokens: number | null;
   agentDurationMs: number | null;
 }
@@ -71,14 +72,17 @@ export function summarizeTurnUsage(turn: Turn, rows: readonly ModelUsage[]): Tur
     agentCount = 0,
     speedKnown = true;
   for (const row of rows) {
+    const unobservedAttempts = (row.attempts ?? 0) > 1;
     cost += row.cost ?? 0;
-    costIncomplete ||= row.cost === null || row.costIncomplete === true;
+    costIncomplete ||= unobservedAttempts || row.cost === null || row.costIncomplete === true;
+    incomplete ||= unobservedAttempts;
     if (row.purpose === undefined) speedKnown = false;
     if (row.usage) usage = addUsage(usage, row.usage);
     else incomplete = true;
     if (row.purpose === "agent") {
       agentCount++;
-      if (row.usage === null || row.requestDurationMs === undefined) speedKnown = false;
+      if (unobservedAttempts || row.usage === null || row.requestDurationMs === undefined)
+        speedKnown = false;
       else {
         agentOutputTokens += row.usage.outputTokens;
         agentDurationMs += row.requestDurationMs;

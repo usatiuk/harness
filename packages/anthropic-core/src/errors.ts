@@ -1,13 +1,16 @@
-import { classifyTransientFailure as classify, retryAfterMsFromHeaders } from "@harness/protocol";
-import type { ModelFailureReason, TransientModelFailure } from "@harness/protocol";
-
-/**
- * Transient/permanent classification for Anthropic-shaped transport failures,
- * performed at the adapter boundary where response headers are still available.
- * Anthropic spend-cap 429s are indistinguishable from rate limits without body
- * heuristics and are deliberately treated as transient `rate_limit` failures
- * (bounded wasted work). Aborts and cancellation are never transient.
- */
+import {
+  APIConnectionError,
+  APIConnectionTimeoutError,
+  APIUserAbortError,
+} from "@anthropic-ai/sdk";
+import {
+  asShape,
+  messageOf,
+  networkFailureReason,
+  retryAfterMsFromHeaders,
+  TransientModelFailure,
+} from "@harness/protocol";
+import type { ModelFailureReason } from "@harness/protocol";
 
 /** Documented Anthropic error types mapped to retry reasons. */
 const TYPE_REASONS: Record<string, ModelFailureReason> = {
@@ -29,19 +32,47 @@ const STATUS_REASONS: Record<number, ModelFailureReason> = {
   529: "overloaded",
 };
 
-/**
- * Classifies one transport failure into a `TransientModelFailure`, or returns
- * `undefined` when the failure is permanent (or the call was cancelled), in
- * which case the caller rethrows the original error unchanged.
- */
+/** Normalize the native SDK error once; gateway subclasses own their quota policy. */
 export function classifyTransientFailure(
   error: unknown,
   signal?: AbortSignal,
 ): TransientModelFailure | undefined {
-  return classify(error, {
-    typeReasons: TYPE_REASONS,
-    statusReasons: STATUS_REASONS,
-    retryAfterMsOf: retryAfterMsFromHeaders,
-    signal,
+  if (
+    signal?.aborted ||
+    error instanceof APIUserAbortError ||
+    (error instanceof DOMException && error.name === "AbortError") ||
+    error instanceof TransientModelFailure
+  )
+    return undefined;
+  const shape = asShape(error);
+  const bodyType = asShape(asShape(shape.error).error).type;
+  if (shape.type === "billing_error" || bodyType === "billing_error") return undefined;
+  let reason: ModelFailureReason | undefined;
+  if (
+    error instanceof APIConnectionTimeoutError ||
+    (error instanceof DOMException && error.name === "TimeoutError")
+  ) {
+    reason = "timeout";
+  } else {
+    reason = networkFailureReason(error);
+    if (!reason && error instanceof APIConnectionError) reason = "connection";
+  }
+  if (!reason) {
+    const body = asShape(shape.error);
+    for (const type of [shape.type, asShape(body.error).type]) {
+      if (typeof type === "string" && Object.hasOwn(TYPE_REASONS, type)) {
+        reason = TYPE_REASONS[type];
+        break;
+      }
+    }
+  }
+  if (!reason && typeof shape.status === "number") reason = STATUS_REASONS[shape.status];
+  if (!reason) return undefined;
+  const message = messageOf(error);
+  const retryAfterMs = retryAfterMsFromHeaders(error);
+  return new TransientModelFailure(reason, {
+    cause: error,
+    ...(message === undefined ? {} : { message }),
+    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
   });
 }

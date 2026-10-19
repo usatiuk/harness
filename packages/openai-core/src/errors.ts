@@ -1,12 +1,12 @@
-import { classifyTransientFailure as classify, retryAfterMsFromHeaders } from "@harness/protocol";
-import type { ModelFailureReason, TransientModelFailure } from "@harness/protocol";
-
-/**
- * Transient/permanent classification for OpenAI-API-shaped transport failures,
- * performed at the adapter boundary where response headers are still available.
- * Everything this classifier does not recognize is permanent and rethrown
- * unchanged by the caller. Aborts and cancellation are never transient.
- */
+import { APIError, APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } from "openai";
+import {
+  asShape,
+  messageOf,
+  networkFailureReason,
+  retryAfterMsFromHeaders,
+  TransientModelFailure,
+} from "@harness/protocol";
+import type { ModelFailureReason } from "@harness/protocol";
 
 /**
  * Documented billing/quota codes that never restore by retrying
@@ -27,7 +27,7 @@ const PERMANENT_QUOTA_CODES = new Set([
  * than lists get maintained (e.g. `billing_hard_limit_reached`), so the whole
  * `billing_` family and terminated access classify permanent by construction.
  */
-export function isPermanentQuotaCode(code: string): boolean {
+function isPermanentQuotaCode(code: string): boolean {
   return (
     PERMANENT_QUOTA_CODES.has(code) || code.startsWith("billing_") || code === "access_terminated"
   );
@@ -45,19 +45,66 @@ const STATUS_REASONS: Record<number, ModelFailureReason> = {
   529: "overloaded",
 };
 
-/**
- * Classifies one transport failure into a `TransientModelFailure`, or returns
- * `undefined` when the failure is permanent (or the call was cancelled), in
- * which case the caller rethrows the original error unchanged.
- */
+/** OpenAI SDKs lift code/type; compatible gateways can retain the raw envelope. */
+export function isPermanentQuotaFailure(error: unknown): boolean {
+  const shape = asShape(error);
+  const body = asShape(shape.error);
+  const nested = asShape(body.error);
+  return [shape.code, shape.type, body.code, body.type, nested.code, nested.type].some(
+    (code) => typeof code === "string" && isPermanentQuotaCode(code),
+  );
+}
+
+/** Statusless APIError failures thrown by the SDK's SSE decoder. */
+const SSE_REASONS: Record<string, ModelFailureReason> = {
+  rate_limit_error: "rate_limit",
+  rate_limit_exceeded: "rate_limit",
+  server_error: "server",
+  service_unavailable_error: "server",
+  server_is_overloaded: "server",
+};
+
+/** Normalize once while SDK identity, machine codes and response headers survive. */
 export function classifyTransientFailure(
   error: unknown,
   signal?: AbortSignal,
 ): TransientModelFailure | undefined {
-  return classify(error, {
-    statusReasons: STATUS_REASONS,
-    isPermanentQuotaCode,
-    retryAfterMsOf: retryAfterMsFromHeaders,
-    signal,
+  if (
+    signal?.aborted ||
+    error instanceof APIUserAbortError ||
+    (error instanceof DOMException && error.name === "AbortError") ||
+    error instanceof TransientModelFailure ||
+    isPermanentQuotaFailure(error)
+  )
+    return undefined;
+
+  const shape = asShape(error);
+  let reason: ModelFailureReason | undefined;
+  if (
+    error instanceof APIConnectionTimeoutError ||
+    (error instanceof DOMException && error.name === "TimeoutError")
+  ) {
+    reason = "timeout";
+  } else {
+    reason = networkFailureReason(error);
+    if (!reason && error instanceof APIConnectionError) reason = "connection";
+  }
+  if (!reason && typeof shape.status === "number") reason = STATUS_REASONS[shape.status];
+  if (!reason && error instanceof APIError && shape.status === undefined) {
+    const body = asShape(shape.error);
+    for (const code of [shape.type, shape.code, body.type, body.code]) {
+      if (typeof code === "string" && Object.hasOwn(SSE_REASONS, code)) {
+        reason = SSE_REASONS[code];
+        break;
+      }
+    }
+  }
+  if (!reason) return undefined;
+  const message = messageOf(error);
+  const retryAfterMs = retryAfterMsFromHeaders(error);
+  return new TransientModelFailure(reason, {
+    cause: error,
+    ...(message === undefined ? {} : { message }),
+    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
   });
 }

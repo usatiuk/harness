@@ -18,11 +18,8 @@ import {
   toolPermissionSchema as effect,
   humanApprovalTimeoutSchema,
 } from "@harness/approval/client";
-/** Model retry policy bounds; shared by the server boundary and the settings UI. */
-export const modelRetriesSettingsSchema = z.strictObject({
-  attempts: z.number().int().min(0).max(10),
-  backoffMs: z.number().int().min(50).max(60_000),
-});
+import { modelRetriesSettingsSchema } from "@harness/model-retry/client";
+export { modelRetriesSettingsSchema } from "@harness/model-retry/client";
 const settings = z.strictObject({
   model: model.nullable(),
   conversationTitleModel: model.nullable(),

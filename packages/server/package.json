@@ -45,7 +45,11 @@
       "default": "./dist/approvals.js"
     }
   },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  },
   "dependencies": {
+    "@harness/model-retry": "*",
     "@harness/activities": "*",
     "@harness/agents": "*",
     "@harness/anthropic-api": "*",

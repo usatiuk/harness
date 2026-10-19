@@ -12,7 +12,7 @@ import { SqliteStore } from "./sqlite-store.ts";
 // The shared contract suite — same one that proves InMemoryStore (in-memory ≡ sqlite).
 storeContract("SqliteStore", () => new SqliteStore(":memory:", counterIdGenerator(), fixedClock()));
 
-// Drops everything the v12–v14 migrations add on top of schema 11 (scoped plugin
+// Drops everything the v12–v15 migrations add on top of schema 11 (scoped plugin
 // state, question inbox, retry accounting); callers drop older additions themselves.
 const downgradeToSchema11 = (db: BetterSqlite3.Database) =>
   db.exec(
@@ -121,6 +121,44 @@ describe("SqliteStore (durable-only)", () => {
         usage: null,
         attempts: 3,
       });
+    } finally {
+      upgraded.close();
+    }
+  });
+
+  it("upgrades schema 14 without losing attempts and accepts zero-provider accounting", async () => {
+    const path = tempDb();
+    const first = new SqliteStore(path);
+    const conversation = await first.createConversation(record());
+    const turn = await first.createTurn(conversation.id);
+    const input = {
+      conversationId: conversation.id,
+      turnId: turn.id,
+      contextBuildId: null,
+      provider: "fake",
+      model: "fake-1",
+      usage: null,
+      cost: null,
+    };
+    const known = await first.recordModelUsage({ ...input, attempts: 3 });
+    const unknown = await first.recordModelUsage(input);
+    first.close();
+    const old = new BetterSqlite3(path);
+    old.exec(`ALTER TABLE model_usage RENAME COLUMN attempts TO saved_attempts;
+      ALTER TABLE model_usage ADD COLUMN attempts INTEGER CHECK(attempts >= 1);
+      UPDATE model_usage SET attempts = saved_attempts;
+      ALTER TABLE model_usage DROP COLUMN saved_attempts;
+      PRAGMA user_version = 14;`);
+    old.close();
+    const upgraded = new SqliteStore(path);
+    try {
+      expect(await upgraded.listModelUsage(conversation.id)).toEqual([known, unknown]);
+      await upgraded.recordModelUsage({ ...input, attempts: 0 });
+      expect((await upgraded.listModelUsage(conversation.id)).at(-1)).toMatchObject({
+        usage: null,
+        attempts: 0,
+      });
+      expect(await upgraded.getConversation(conversation.id)).toEqual(conversation);
     } finally {
       upgraded.close();
     }

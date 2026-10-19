@@ -2,7 +2,7 @@ import { contentBlockSchema, imageContentsSchema } from "./content.ts";
 import { z } from "zod";
 import { outputRefSchema } from "./tools.ts";
 import { defineNotification, defineRequest, jsonValueSchema } from "./rpc.ts";
-import { modelReasoningInfoSchema } from "./model.ts";
+import { modelFailureReasonSchema, modelReasoningInfoSchema } from "./model.ts";
 import { deliverySourceSchema, pendingInputSchema } from "./delivery.ts";
 
 const idSchema = z.string().min(1);
@@ -482,7 +482,7 @@ export const wireConversationEventSchema = z.discriminatedUnion("type", [
     attempt: z.number().int().positive(),
     maxAttempts: z.number().int().positive(),
     delayMs: z.number().int().min(0),
-    reason: z.enum(["rate_limit", "overloaded", "server", "timeout", "connection"]),
+    reason: modelFailureReasonSchema,
   }),
 ]);
 export type WireConversationEvent = z.infer<typeof wireConversationEventSchema>;

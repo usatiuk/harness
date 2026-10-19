@@ -98,8 +98,8 @@ automatically — five attempts by default, with capped exponential backoff and 
 provider's requested wait honored — and are configurable in Settings. Progress
 appears inside Working ("Retrying — attempt 2 of 5 after rate limit, waiting
 12s") for conversation and compaction calls; title naming and auto-approval
-review retries stay quiet. Deterministic failures (invalid requests, exhausted
-billing) surface immediately and are never retried.
+review retries stay quiet. Recognized deterministic failures (invalid requests,
+machine-identifiable exhausted billing) surface immediately without retry.
 The context ring opens reported request accounting. Optional last-turn token
 counts and request throughput share the current-status row above the floating
 composer. A full-height conversation scrollbar supports reading earlier output;

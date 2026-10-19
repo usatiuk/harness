@@ -73,7 +73,10 @@ errors retaining their invocation association; no computation resumes.
   checkpoint eligibility, turn
   ownership, optional request purpose and duration. A durable
   `null` usage distinguishes omitted/unobserved accounting from a real zero-token
-  report, including interrupted and failed provider attempts. Agent request rows
+  report, including interrupted and failed provider attempts. Retrying rows
+  retain the final response's known usage; multiple provider calls
+  make conversation/turn usage and cost lower bounds because prior calls are
+  unaccounted. The known final input checkpoint remains usable. Agent request rows
   are recorded before tool dispatch. Model-backed approval accounting settles
   before terminal publication and activation teardown.
 - **Plugin state** gives plugins durable namespaced metadata without widening
@@ -89,7 +92,12 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-The current SQLite format is version 13. Version 12 receives the additive indexed
+The current SQLite format is version 15. Version 14's retry-count constraint is
+replaced transactionally while preserving known counts and historical nulls;
+zero means no provider call occurred. Version 13 receives a nullable
+`model_usage.attempts` column; historical rows remain unknown. New engine records
+count actual provider calls even when the invocation fails or is cancelled.
+Version 12 receives the additive indexed
 questions table; existing conversation history is preserved.
 Version 11 receives an optional indexed
 plugin-state scope and a latest-turn index. Existing subagent spawn marks are
