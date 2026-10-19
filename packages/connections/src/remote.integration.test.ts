@@ -24,6 +24,7 @@ async function checkBlockedCancellation(
   options: RemoteOptions,
 ): Promise<void> {
   const metadata = JSON.parse(await readFile(join(payload, "remote.json"), "utf8")) as {
+    target: string;
     server: { sha256: string };
   };
   const q = shellQuote;
@@ -91,7 +92,7 @@ async function checkBlockedCancellation(
     expect(
       await runRemote(
         host,
-        `test ! -e ${q(`${runtime.home}/server/dev-linux-x64-glibc-${metadata.server.sha256}`)} && test -z "$(ls -A ${q(`${runtime.home}/staging`)})" && printf clean`,
+        `test ! -e ${q(`${runtime.home}/server/dev-${metadata.target}-${metadata.server.sha256}`)} && test -z "$(ls -A ${q(`${runtime.home}/staging`)})" && printf clean`,
         options,
       ),
     ).toBe("clean");
@@ -180,6 +181,7 @@ for (const kind of ["wsl", "ssh"] as const)
         const metadata = JSON.parse(
           await readFile(join(changedPayload, "remote.json"), "utf8"),
         ) as {
+          target: string;
           server: { size: number; sha256: string };
         };
         metadata.server.sha256 = createHash("sha256").update(archive).digest("hex");
@@ -231,7 +233,7 @@ for (const kind of ["wsl", "ssh"] as const)
         expect(
           await runRemote(
             host,
-            `test ! -e ${shellQuote(`${runtime.home}/server/dev-linux-x64-glibc-${metadata.server.sha256}`)} && test -z "$(ls -A ${shellQuote(`${runtime.home}/staging`)})" && printf clean`,
+            `test ! -e ${shellQuote(`${runtime.home}/server/dev-${metadata.target}-${metadata.server.sha256}`)} && test -z "$(ls -A ${shellQuote(`${runtime.home}/staging`)})" && printf clean`,
             options,
           ),
         ).toBe("clean");

@@ -83,6 +83,7 @@ jobs:
         include:
           - { runner: windows-latest, target: windows-x64 }
           - { runner: ubuntu-22.04, target: linux-x64-glibc }
+          - { runner: ubuntu-22.04-arm, target: linux-arm64-glibc }
           - { runner: macos-15, target: macos-arm64 }
     runs-on: ${{ matrix.runner }}
     steps:
@@ -110,6 +111,15 @@ jobs:
             packages/desktop/src-tauri
       - name: Install dependencies
         run: npm ci
+      - name: Qualify native ARM64 source and bootstrap
+        if: matrix.target == 'linux-arm64-glibc'
+        run: |
+          test "$(uname -m)" = aarch64
+          ldd --version
+          npm run check
+          cargo test --manifest-path native/Cargo.toml --locked
+          node scripts/build-payloads.mjs --remote
+          env -u HARNESS_SERVER_SELECTION npm run test:remote
       - name: Build native payloads and signed desktop updates
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

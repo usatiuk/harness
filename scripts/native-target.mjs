@@ -13,6 +13,11 @@ export function nativeTarget() {
       rust: "x86_64-unknown-linux-gnu",
       library: "libharness_native.so",
     },
+    "linux-arm64": {
+      release: "linux-arm64-glibc",
+      rust: "aarch64-unknown-linux-gnu",
+      library: "libharness_native.so",
+    },
     "darwin-arm64": {
       release: "macos-arm64",
       rust: "aarch64-apple-darwin",

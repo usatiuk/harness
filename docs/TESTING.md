@@ -1902,6 +1902,9 @@ by the boundary actually exercised:
   visible text selection before appending work; an animated/inert disclosure can
   retain a Range while exposing no actual selection. No repeat selection, sleeps,
   widened tolerance or timeout substitute for that prerequisite.
+  Working summaries deliberately do not aggregate individual errors into a
+  Failed outcome; regression cases preserve the existing per-call failure label
+  and original error body while asserting neutral Working/Worked summaries.
 - Link/chrome fixtures exercise actual controls across light/dark and
   CSD/native/fullscreen states, keyboard focus, safe opener failure, unsupported
   URLs and sidebar geometry. Window-material and actual OS URL-opening behavior
@@ -1918,6 +1921,11 @@ by the boundary actually exercised:
   preserves running/history access, and excludes notifications from unattached
   clients/other roots. Browser coverage clears a selected dismissed side branch.
   Prompt assertions do not establish live-model delegation compliance.
+  Activity regressions exercise both actual wait-tool and foreground paths at
+  completion and timeout, arranging collection between waiter release and caller
+  continuation with real promises. Synchronous outcome consumption stays inside
+  existing wait protection; callback-failure cleanup and label ambiguity changes
+  are also covered.
 - Agents/service tests cover isolated global homes, additive root/general/explore/
   custom roles, projectless use, canonical deduplication, symlink/access policy,
   cached absence/edits, reload, actual compaction/rewind, and repeated request
@@ -1951,10 +1959,72 @@ It uses an already cached image with `--pull=never --network=none`, no host moun
 and cleans up only its own labeled container. It checks target startup exports,
 non-root account HOME despite conflicting container HOME, startup failure and
 process-group timeout. Default adapter fixtures are not real container evidence.
+The reconstruction cases include dotted OS environment names and exact multiline/
+equals values, requiring empty stderr and unchanged command exit status; they
+prevent Bash assignment diagnostics from rejecting or printing valid entries.
 Real SSH/WSL, Windows/macOS shell execution and native desktop materials are not
 established by these Linux/Chromium fixtures.
 
-The broader automatic-history reading-anchor defect remains separate: the
-previously baseline-reproduced scenario drifts 12px against its original 1.5px
-assertion. Do not describe a full browser suite as green because focused changed
-behavior passes, and do not weaken that assertion to absorb the known defect.
+The broader automatic-history test previously reported 12px against its 1.5px
+assertion. The [reading follow-up](plans/interface/2026-10-19-transcript-reading-follow-up.md)
+subsequently identifies that exact result as mismatched container/span geometry,
+not demonstrated product movement. Capture text identity and the same semantic
+box atomically before and after loading; do not weaken the 1.5px stability
+contract or add a product offset to satisfy a mismatched test.
+Historical broad-suite results remain historical failures, not a retroactive
+all-green qualification.
+
+The follow-up adds mixed-height multipage, expanded same-key, and production
+Working inner-scroll cases below, at and across the height cap. Continuous
+task-level traces reject missing DOM anchors and assert 1.5px geometry at measured
+row observations, including a final measured result. They do not claim every
+painted frame is sampled: an rAF-posted MessageChannel task can observe a newer
+React commit before ResizeObserver/paint. A captured 945px intermediate sample
+was proven unpainted by raw CDP trace and identical surrounding compositor
+screenshots; it is distinct from the genuine original final-position 945px bug.
+Use the recorded trace under the follow-up plan for that specific qualification,
+not as proof of all native engine/compositor behavior.
+
+Shared sidebar-control regressions compare actual hover/focus surfaces, radius,
+size and hidden-header centers in light/dark × CSD/native/fullscreen CSS modes.
+New conversation remains a router anchor: modified-click verifies a new-page URL,
+while ordinary-click cases verify actual navigation. Tooltip and keyboard focus
+are tested through their native pointer/keyboard modalities rather than forcing
+`:focus-visible`. Capacity coverage runs every metadata case in both themes and
+distinguishes the standard unknown question-circle from known zero/progress.
+Screenshots support those browser findings; they do not qualify actual native
+window-manager positioning.
+
+## Linux ARM64 target qualification
+
+The [ARM64 delivery plan](plans/cross-cutting/2026-10-19-linux-arm64-support.md)
+owns native publication evidence. `packages/connections/src/remote-runtime.test.ts`
+exercises real shell/files/hash/transfer behavior with substituted remote
+architecture, native bootstrap, signature and owner-ID edges. It covers both
+Linux glibc targets, SSH/WSL transport, target-specific warm caches, mismatched
+development payload rejection before upload, unsupported libc, and missing ARM
+release artifacts without x64 fallback. These are not native ARM execution tests.
+
+`packages/release/src/index.test.ts` and native bootstrap metadata tests cover
+the optional signed `linuxArm64Glibc` wire extension, canonical normalization,
+malformed/duplicate rejection, signature tampering and legacy decoder shape.
+Signed metadata must retain its exact bytes; do not run formatters over
+downloaded production manifests. Archived raw probes/manifests use `.txt`
+extensions when stored under the checkout.
+
+Run the existing isolated OpenSSH qualification after building a matching native
+development payload:
+
+```sh
+node scripts/build-payloads.mjs --remote
+env -u HARNESS_SERVER_SELECTION -u HARNESS_DEVELOPMENT_REMOTE_PAYLOAD npm run test:remote
+```
+
+The tool owns a disposable Docker container, loopback SSH port and temporary
+key/config/home; it does not use saved remote hosts or an installed server. The
+default payload follows the Docker image architecture, not the controller's
+architecture. Hosted `ubuntu-22.04-arm` CI and release jobs run the same native
+build/OpenSSH path; actual ARM runtime execution, AppImage generation, updater
+signature checks and the production-signed manifest's acceptance by the shipped
+0.8.1 verifier gate publication. Windows/WSL-specific cases stay separate skips
+on Linux rather than becoming simulated claims.

@@ -140,6 +140,8 @@ textarea.input {
 }
 :root {
   --window-titlebar-height: 32px;
+  --window-content-border-top: 1px;
+  --conversation-header-padding-block: 8px;
   --tauri-plugin-decoration-titlebar-height: 32px;
   --tauri-plugin-decoration-z-index: 31;
 }
@@ -208,6 +210,7 @@ textarea.input {
 :root[data-window-decoration="native"],
 :root:has([data-tauri-decoration-fullscreen]) {
   --window-titlebar-height: 0px;
+  --window-content-border-top: 0px;
 }
 :root[data-window-decoration="native"] .window-titlebar,
 :root:has([data-tauri-decoration-fullscreen]) .window-titlebar {
@@ -222,23 +225,6 @@ textarea.input {
 .sidebar-heading .host-controls {
   flex: 1;
   min-width: 0;
-}
-.sidebar-heading .new-conversation {
-  padding: 5px;
-  flex-shrink: 0;
-}
-.new-conversation {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-  color: var(--ink);
-  font-size: 13px;
-  padding: 7px 8px;
-  border-radius: 7px;
-}
-.new-conversation:hover {
-  background: var(--surface-subtle);
 }
 .conversation-list {
   -webkit-user-select: none;
@@ -346,7 +332,7 @@ textarea.input {
 }
 main {
   background: var(--surface-canvas);
-  border-top: 1px solid var(--line);
+  border-top: var(--window-content-border-top) solid var(--line);
   border-left: 1px solid var(--line);
   border-top-left-radius: 12px;
   min-width: 0;
@@ -356,7 +342,6 @@ main {
 }
 :root[data-window-decoration="native"] main,
 :root:has([data-tauri-decoration-fullscreen]) main {
-  border-top: 0;
   border-top-left-radius: 0;
 }
 .page {
@@ -572,7 +557,7 @@ main {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 8px 18px;
+  padding: var(--conversation-header-padding-block) 18px;
   border-bottom: 1px solid var(--line);
 }
 .conversation-heading {
@@ -1067,12 +1052,6 @@ main {
 }
 .edit-diff .diff-hunk {
   color: var(--muted-ink);
-}
-.stream-indicator {
-  display: inline-block;
-  width: 5px;
-  height: 12px;
-  background: var(--ink);
 }
 .composer-footer {
   display: flex;
@@ -1580,8 +1559,11 @@ main {
   .page {
     padding: 18px 16px;
   }
+  :root {
+    --conversation-header-padding-block: 10px;
+  }
   .conversation-header {
-    padding: 10px 16px;
+    padding: var(--conversation-header-padding-block) 16px;
   }
   .conversation-page {
     --chat-inset: 26px;
@@ -1689,7 +1671,7 @@ main {
 }
 .sidebar-show {
   position: absolute;
-  top: 4px;
+  top: calc(var(--window-content-border-top) + var(--conversation-header-padding-block));
   left: 10px;
   z-index: 5;
 }
@@ -2473,14 +2455,6 @@ button.subagent-row:hover {
 }
 .content-link[href]:hover {
   color: var(--ink);
-}
-.context-ring[data-unknown] {
-  background: none;
-  border: 2px dashed var(--muted-ink);
-}
-.work-failed .work-group-title,
-.work-failed .tool-group > summary {
-  color: var(--danger-ink);
 }
 .app.sidebar-hidden > main {
   border-top-left-radius: 0;

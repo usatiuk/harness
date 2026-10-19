@@ -87,6 +87,35 @@ test("running turns show Working before their first agent output", async ({ page
   await expect(pending).toHaveCount(0);
 });
 
+test("streaming messages stay busy without a terminal cursor square", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  const setMessage = async (text: string, streaming: boolean) => {
+    await page.evaluate(
+      ({ text, streaming }) =>
+        window.composerFixture.setWork([
+          { kind: "assistant", id: "streamed-answer", turnId: "turn", text, streaming },
+        ]),
+      { text, streaming },
+    );
+  };
+  await setMessage("Streaming response", true);
+  const message = page.getByTestId("assistant-message").filter({ hasText: "Streaming response" });
+  await expect(message).toHaveAttribute("aria-busy", "true");
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await expect(page.locator(".stream-indicator")).toHaveCount(0);
+  await expect(message.getByRole("button", { name: "Copy message" })).toHaveCount(0);
+  await setMessage("Streaming response with more content", true);
+  await expect(message).toContainText("with more content");
+  await expect(message).toHaveAttribute("aria-busy", "true");
+  await expect(page.locator(".stream-indicator")).toHaveCount(0);
+  await setMessage("Streaming response with more content", false);
+  await page.evaluate(() => window.composerFixture.completeSteps());
+  await expect(message).toHaveAttribute("aria-busy", "false");
+  await expect(message.getByRole("button", { name: "Copy message" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+});
+
 test("running turns show retry progress while a model call backs off", async ({ page }) => {
   await page.goto(url + "?composer");
   await page.waitForFunction(() => window.composerFixture !== undefined);
@@ -415,6 +444,260 @@ test("a visible child keeps its position when earlier history loads its parent",
     .poll(async () => Math.abs((await child.boundingBox())!.y - anchor.y))
     .toBeLessThanOrEqual(1.5);
 });
+
+async function expectHistoryRowMeasured(page: Page, selector: string) {
+  await expect
+    .poll(() =>
+      page.locator(selector).evaluate((element) => {
+        const row = element.closest<HTMLElement>(".transcript-item")!;
+        return Math.abs(Number(row.dataset.knownSize) - row.getBoundingClientRect().height);
+      }),
+    )
+    .toBeLessThanOrEqual(0.01);
+}
+
+interface ReadingObservation {
+  offset: number | null;
+  measured: boolean;
+}
+interface ReadingTrace {
+  text: string;
+  stop(): ReadingObservation[];
+}
+// Track DOM continuity and geometry once Virtuoso has measured the row. A task
+// posted by rAF can observe a later React commit before its ResizeObserver runs;
+// neither that task nor rAF is a compositor/paint acknowledgement.
+async function beginReadingTrace(page: Page, selector: string) {
+  return page.locator(selector).evaluate((target) => {
+    const element = target.classList.contains("conversation-scroll")
+      ? [...target.querySelectorAll<HTMLElement>(".user-text")].find(
+          (el) => el.getBoundingClientRect().bottom > target.getBoundingClientRect().top,
+        )!
+      : target;
+    const baseline = element.getBoundingClientRect().top;
+    const text = element.textContent;
+    const key = element.closest<HTMLElement>("[data-transcript-key]")!.dataset.transcriptKey;
+    const className = element.getAttribute("class");
+    const samples: ReadingObservation[] = [];
+    let frame: number;
+    const channel = new MessageChannel();
+    const observe = () => {
+      const row = [...document.querySelectorAll<HTMLElement>("[data-transcript-key]")].find(
+        (row) => row.dataset.transcriptKey === key,
+      );
+      const current =
+        row &&
+        [...row.querySelectorAll<HTMLElement>("*")].find(
+          (el) => el.getAttribute("class") === className && el.textContent === text,
+        );
+      samples.push({
+        offset: current ? current.getBoundingClientRect().top - baseline : null,
+        measured: Boolean(
+          row && Number(row.dataset.knownSize) === row.getBoundingClientRect().height,
+        ),
+      });
+    };
+    const sample = () => {
+      observe();
+      frame = requestAnimationFrame(() => channel.port2.postMessage(null));
+    };
+    channel.port1.onmessage = sample;
+    frame = requestAnimationFrame(() => channel.port2.postMessage(null));
+    (window as unknown as { readingTrace: ReadingTrace }).readingTrace = {
+      text,
+      stop() {
+        cancelAnimationFrame(frame);
+        channel.port1.close();
+        channel.port2.close();
+        observe();
+        return samples;
+      },
+    };
+    return baseline;
+  });
+}
+async function expectReadingMeasurements(page: Page) {
+  // Include the final measured state after the semantic result is visible.
+  const samples = await page.evaluate(
+    () =>
+      new Promise<ReadingObservation[]>((resolve) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() =>
+            resolve((window as unknown as { readingTrace: ReadingTrace }).readingTrace.stop()),
+          ),
+        ),
+      ),
+  );
+  expect(samples.length).toBeGreaterThan(0);
+  expect(samples.map(({ offset }) => offset)).not.toContain(null);
+  const measured = samples.filter(({ measured }) => measured);
+  expect(measured.length).toBeGreaterThan(0);
+  expect(samples.at(-1)!.measured).toBe(true);
+  expect(Math.max(...measured.map(({ offset }) => Math.abs(offset!)))).toBeLessThanOrEqual(1.5);
+}
+
+test("large variable-height history pages preserve visible content through measurement", async ({
+  page,
+}) => {
+  await page.locator(".conversation-scroll").evaluate((element) => {
+    element.scrollTop = 400;
+  });
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  for (let pageIndex = 0; pageIndex < 3; pageIndex++) {
+    const text = await page.locator(".conversation-scroll").evaluate((element) => {
+      const visible = [...element.querySelectorAll(".user-text")].find(
+        (el) => el.getBoundingClientRect().top >= element.getBoundingClientRect().top,
+      )!;
+      visible.setAttribute("data-reading-anchor", "");
+      return visible.textContent;
+    });
+    const before = await beginReadingTrace(page, "[data-reading-anchor]");
+    await page.evaluate(() => window.canvasFixture.prependVariableHistory());
+    const anchor = page.getByText(text, { exact: true });
+    await expect
+      .poll(async () => Math.abs((await anchor.boundingBox())!.y - before))
+      .toBeLessThanOrEqual(1.5);
+    await page.evaluate(() => window.canvasFixture.grow());
+    await expect
+      .poll(async () => Math.abs((await anchor.boundingBox())!.y - before))
+      .toBeLessThanOrEqual(1.5);
+    await expectReadingMeasurements(page);
+    await page
+      .locator("[data-reading-anchor]")
+      .evaluateAll((elements) =>
+        elements.forEach((el) => el.removeAttribute("data-reading-anchor")),
+      );
+  }
+  await page.getByRole("button", { name: "Jump to latest" }).click();
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await page.evaluate(() => window.canvasFixture.grow());
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+});
+
+test("extending an expanded historical group preserves the visible child", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(url + "?group-history");
+  await expect.poll(() => page.evaluate(() => window.canvasFixture.ready)).toBe(true);
+  const scroller = page.locator(".conversation-scroll");
+  await expect(
+    page.getByText("History 79: representative discussion", { exact: true }),
+  ).toBeVisible();
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  const first = page.getByText("Child 0", { exact: true });
+  await expect(first).toBeVisible();
+  await first.click();
+  await expect(first.locator("..")).toHaveAttribute("open", "");
+  await expect(first.locator("..").locator(".collapse-grid")).toHaveAttribute("data-state", "open");
+  await expectHistoryRowMeasured(page, ".cell.tool[open]");
+  await scroller.evaluate((element) => {
+    element.scrollTop += 120;
+  });
+  await first.evaluate((element) => element.setAttribute("data-reading-anchor", ""));
+  const before = await beginReadingTrace(page, "[data-reading-anchor]");
+  await page.evaluate(() => window.canvasFixture.extendGroup());
+  await expect
+    .poll(async () => Math.abs((await first.boundingBox())!.y - before))
+    .toBeLessThanOrEqual(1.5);
+  await expectReadingMeasurements(page);
+});
+
+test("an expanded production Working group keeps its inner reading position through a historical merge", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showWorkGroups(60));
+  const scroller = page.locator(".conversation-scroll");
+  await expect(
+    page.locator(".user-text").filter({ hasText: /^Following message 59$/ }),
+  ).toBeVisible();
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  const group = page.locator(".tool-group-container").first();
+  await expect(group.locator(".tool-group > summary")).toBeVisible();
+  await group.locator(".tool-group > summary").click();
+  await expectHistoryRowMeasured(page, ".tool-group[open]");
+  const step = group.getByTestId("tool-call").first();
+  await expect(step).toBeVisible();
+  await step.locator("summary").click();
+  await expect(step).toHaveAttribute("open", "");
+  await step.evaluate((element) => element.setAttribute("data-reading-step", ""));
+  await expectHistoryRowMeasured(page, "[data-reading-step]");
+  await group.evaluate((element) => {
+    element.scrollTop = 120;
+  });
+  await step.evaluate((element) => element.setAttribute("data-reading-anchor", ""));
+  const before = await beginReadingTrace(page, "[data-reading-anchor]");
+  await page.evaluate(() => window.composerFixture.appendWork(35, true));
+  await expect(group.locator(".tool-group > summary")).toContainText("39 tool calls");
+  await expect
+    .poll(async () =>
+      Math.abs((await page.locator("[data-reading-anchor]").boundingBox())!.y - before),
+    )
+    .toBeLessThanOrEqual(1.5);
+  await expectReadingMeasurements(page);
+});
+
+for (const count of [1, 35]) {
+  test(`a production Working group preserves its child when history grows ${count === 1 ? "below" : "across"} the inner scroll cap`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(url + "?composer");
+    await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+    await page.evaluate(() => window.composerFixture.showWorkGroups(60));
+    const scroller = page.locator(".conversation-scroll");
+    await expect(
+      page.locator(".user-text").filter({ hasText: /^Following message 59$/ }),
+    ).toBeVisible();
+    await scroller.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    const group = page.locator(".tool-group-container").first();
+    await expect(group.locator(".tool-group > summary")).toBeVisible();
+    await group.locator(".tool-group > summary").click();
+    const step = group.getByTestId("tool-call").first();
+    await expect(step).toBeVisible();
+    await expect(step).not.toHaveAttribute("open", "");
+    await expectHistoryRowMeasured(page, ".tool-group[open]");
+    expect(
+      await group.evaluate((element) => ({
+        client: element.clientHeight,
+        scroll: element.scrollHeight,
+        top: element.scrollTop,
+      })),
+    ).toEqual({ client: 108, scroll: 108, top: 0 });
+    await step.evaluate((element) => element.setAttribute("data-reading-anchor", ""));
+    const before = await beginReadingTrace(page, "[data-reading-anchor]");
+    await page.evaluate((count) => window.composerFixture.appendWork(count, true), count);
+    await expect(group.locator(".tool-group > summary")).toContainText(`${count + 4} tool calls`);
+    await expectHistoryRowMeasured(page, "[data-reading-anchor]");
+    const inner = await group.evaluate((element) => ({
+      client: element.clientHeight,
+      scroll: element.scrollHeight,
+      top: element.scrollTop,
+    }));
+    if (count === 1) {
+      expect(inner.scroll).toBe(inner.client);
+      expect(inner.top).toBe(0);
+    } else {
+      expect(inner.client).toBe(360);
+      expect(inner.scroll).toBeGreaterThan(inner.client);
+      expect(inner.top).toBeGreaterThan(0);
+    }
+    expect(
+      Math.abs((await page.locator("[data-reading-anchor]").boundingBox())!.y - before),
+    ).toBeLessThanOrEqual(1.5);
+    expect(await scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expectReadingMeasurements(page);
+  });
+}
 
 test("production model picker distinguishes same-label IDs and exposes advertised presets", async ({
   page,
@@ -2270,9 +2553,13 @@ test("earlier history loads automatically without overlap and preserves the read
   await expect(page.locator(".earlier-history").getByRole("status")).toContainText(
     "Loading earlier messages",
   );
-  const anchor = scroller.locator(".user-text").filter({ hasText: "Current history" }).first();
-  const text = (await anchor.textContent())!;
-  const before = (await anchor.boundingBox())!.y;
+  // Capture one stable bubble, not a changing first rendered index or its padded span.
+  const { text, before } = await scroller.evaluate((element) => {
+    const anchor = [...element.querySelectorAll<HTMLElement>(".user-text")].find(
+      (row) => row.getBoundingClientRect().bottom > element.getBoundingClientRect().top,
+    )!;
+    return { text: anchor.textContent, before: anchor.getBoundingClientRect().top };
+  });
   await scroller.evaluate((element) => {
     element.dispatchEvent(new Event("scroll"));
   });
@@ -2281,9 +2568,65 @@ test("earlier history loads automatically without overlap and preserves the read
   await expect(page.locator(".earlier-history")).toHaveCount(0);
   await expect
     .poll(async () =>
-      Math.abs((await page.getByText(text, { exact: true }).boundingBox())!.y - before),
+      Math.abs(
+        (await page
+          .locator(".user-text")
+          .filter({ hasText: new RegExp(`^${text}$`) })
+          .boundingBox())!.y - before,
+      ),
     )
     .toBeLessThanOrEqual(1.5);
+});
+
+test("automatic older-history pages keep the visible bubble stable through measured updates", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedLongHistory());
+  await expect(
+    page.locator(".user-text").filter({ hasText: /^Current history 59$/ }),
+  ).toBeVisible();
+  const scroller = page.locator(".conversation-scroll");
+  for (let index = 0; index < 3; index++) {
+    await scroller.evaluate((element) => {
+      element.scrollTop = 1000;
+    });
+    await expect(page.locator(".transcript-history")).not.toBeInViewport();
+    await scroller.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect
+      .poll(() => page.evaluate(() => window.composerFixture.historyCalls))
+      .toBe(index + 1);
+    await expect(page.locator(".earlier-history [role=status]")).toBeVisible();
+    // The fetch can start before Virtuoso has committed the upward-scroll range.
+    // Establish the content the reader actually approached, then sample that range.
+    const firstBubble = page.locator(".user-text").filter({
+      hasText: index === 0 ? /^Current history 0$/ : new RegExp(`^Page ${4 - index} message 1\\n`),
+    });
+    await expect(firstBubble).toBeInViewport();
+    await firstBubble.evaluate((element) => element.setAttribute("data-reading-anchor", ""));
+    await expectHistoryRowMeasured(page, "[data-reading-anchor]");
+    const before = await beginReadingTrace(page, "[data-reading-anchor]");
+    const text = await page.evaluate(
+      () => (window as unknown as { readingTrace: ReadingTrace }).readingTrace.text,
+    );
+    await page.evaluate(() => window.composerFixture.releaseHistory());
+    await expect(page.locator(".earlier-history [role=status]")).toHaveCount(0);
+    const anchor = page
+      .locator(".user-text")
+      .filter({ has: page.getByText(text, { exact: true }) });
+    await expect
+      .poll(async () => Math.abs((await anchor.boundingBox())!.y - before))
+      .toBeLessThanOrEqual(1.5);
+    await expectReadingMeasurements(page);
+    await page
+      .locator("[data-reading-anchor]")
+      .evaluateAll((elements) =>
+        elements.forEach((el) => el.removeAttribute("data-reading-anchor")),
+      );
+  }
 });
 
 test("failed automatic history loading waits for an explicit retry", async ({ page }) => {
@@ -2360,9 +2703,7 @@ test("eval boundaries keep child tools flat with right chevrons and failure-only
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showEval());
   const group = page.locator(".tool-group-container");
-  await expect(group.locator(".work-group-title")).toHaveText(
-    "Worked for 12 s · Failed · 3 tool calls",
-  );
+  await expect(group.locator(".work-group-title")).toHaveText("Worked for 12 s · 3 tool calls");
   await expect(group.locator(".tool-group")).toHaveCount(0);
   const calls = group.getByTestId("tool-call");
   await expect(calls).toHaveCount(4);
@@ -3361,6 +3702,12 @@ test("sidebar groups all folders, pages five chats, and keeps hidden projects in
   await expect(recents.getByRole("link")).toHaveCount(20);
   await expect(page.locator(".sidebar-project")).toHaveCount(3);
   await expect(project.getByRole("link")).toHaveCount(5);
+  // Pagination needs a stable target: opening can move the button between pointerdown and up.
+  await project
+    .locator(":scope > .collapse-grid")
+    .evaluate((element) =>
+      Promise.all(element.getAnimations().map((animation) => animation.finished)),
+    );
   await page.screenshot({ path: test.info().outputPath("sidebar-folders.png") });
   await project.getByRole("button", { name: "Show more", exact: true }).click();
   await expect(project.getByRole("link")).toHaveCount(10);
@@ -4252,7 +4599,7 @@ test("collapsed Working retains only deliberate open/focus exceptions through ap
   await expect(preview.getByTestId("tool-call")).toHaveCount(5);
 });
 
-test("context-only work has one Working owner and terminal errors and duration stay in its summary", async ({
+test("context-only work has one Working owner and errors do not classify the group as failed", async ({
   page,
 }) => {
   await page.goto(url + "?composer");
@@ -4285,48 +4632,83 @@ test("context-only work has one Working owner and terminal errors and duration s
     ]),
   );
   await page.evaluate(() => window.composerFixture.completeSteps());
-  await expect(page.locator(".tool-group > summary")).toContainText("Failed");
+  await expect(page.locator(".tool-group > summary")).not.toContainText("Failed");
+  await expect(page.locator(".work-scroll-frame")).not.toHaveClass(/work-failed/);
   await expect(page.locator(".tool-group > summary")).toContainText("Worked for 1 s");
   await expect(page.getByText(/Worked for/)).toHaveCount(1);
   await page.locator(".tool-group > summary").click();
   await expect(page.locator(".work-items [role=alert]")).toHaveText("Original failure");
 });
 
-for (const [name, limits, used, expected] of [
-  ["input", { maxInputTokens: 1000 }, 100, "10% of input limit"],
-  ["context", { contextWindow: 2000 }, 100, "5% of shared context window"],
-  ["both", { maxInputTokens: 1000, contextWindow: 2000 }, 100, "10% of input limit"],
-  ["output-only", { maxOutputTokens: 500 }, 100, "unknown"],
-  ["unknown", {}, 100, "unknown"],
-  ["zero", { maxInputTokens: 1000 }, 0, "0% of input limit"],
-  ["missing usage", { maxInputTokens: 1000 }, undefined, "unknown"],
-] as const) {
-  test(`agent checkpoint capacity uses ${name} metadata independently of selected model`, async ({
-    page,
-  }) => {
-    await page.goto(url + "?composer");
-    await page.waitForFunction(() => window.composerFixture !== undefined);
-    await page.evaluate(({ limits, used }) => window.composerFixture.setCapacity(limits, used), {
-      limits,
-      used,
+for (const theme of ["light", "dark"] as const) {
+  for (const [name, limits, used, expected] of [
+    ["input", { maxInputTokens: 1000 }, 100, "10% of input limit"],
+    ["context", { contextWindow: 2000 }, 100, "5% of shared context window"],
+    ["both", { maxInputTokens: 1000, contextWindow: 2000 }, 100, "10% of input limit"],
+    ["output-only", { maxOutputTokens: 500 }, 100, "unknown"],
+    ["unknown", {}, 100, "unknown"],
+    ["zero", { maxInputTokens: 1000 }, 0, "0% of input limit"],
+    ["missing usage", { maxInputTokens: 1000 }, undefined, "unknown"],
+  ] as const) {
+    test(`${theme} agent checkpoint capacity uses ${name} metadata independently of selected model`, async ({
+      page,
+    }) => {
+      await page.goto(url + "?composer");
+      await page.waitForFunction(() => window.composerFixture !== undefined);
+      await page.evaluate(({ limits, used }) => window.composerFixture.setCapacity(limits, used), {
+        limits,
+        used,
+      });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const trigger = page.getByRole("button", { name: `Context usage: ${expected}`, exact: true });
+      await expect(trigger).toBeVisible();
+      if (expected === "unknown") {
+        await expect(trigger.locator(".context-ring")).toHaveCount(0);
+        const indicator = trigger.locator("svg");
+        await expect(indicator).toBeVisible();
+        await expect(indicator).toHaveAttribute("aria-hidden", "true");
+        await expect(indicator).toHaveCSS("mask-image", "none");
+        await expect(indicator).toHaveCSS("border-width", "0px");
+        await expect(indicator).toHaveCSS("animation-name", "none");
+        await expect(indicator).toHaveCSS("width", "18px");
+        await expect(indicator).toHaveCSS("height", "18px");
+        await expect(indicator.locator("circle")).toHaveCount(1);
+      } else {
+        await expect(trigger.locator(".context-ring")).toHaveCSS("width", "18px");
+        await expect(trigger.locator(".context-ring")).toHaveCSS("height", "18px");
+        await expect(trigger.locator(".context-ring")).toHaveCSS(
+          "background-image",
+          /conic-gradient/,
+        );
+        expect(
+          await trigger
+            .locator(".context-ring")
+            .evaluate((element) =>
+              getComputedStyle(element).getPropertyValue("--context-progress").trim(),
+            ),
+        ).toBe(`${expected.split("%")[0]}%`);
+      }
+      await trigger.screenshot({ path: test.info().outputPath(`capacity-${theme}-${name}.png`) });
+      await trigger.click();
+      const facts = page.locator(".context-facts");
+      await expect(
+        facts.locator("dt", { hasText: "Input utilization" }).locator("+ dd"),
+      ).toHaveText(expected === "unknown" ? "Unavailable" : expected);
+      await expect(facts.locator("dt", { hasText: "Last agent input" }).locator("+ dd")).toHaveText(
+        used === undefined ? "Unavailable" : `${used}`,
+      );
+      await expect(facts.locator("dt", { hasText: "Input limit" }).locator("+ dd")).toHaveText(
+        "maxInputTokens" in limits ? "1,000" : "Unavailable",
+      );
+      await expect(
+        facts.locator("dt", { hasText: "Shared context window" }).locator("+ dd"),
+      ).toHaveText("contextWindow" in limits ? "2,000" : "Unavailable");
+      if (name === "unknown")
+        await page.screenshot({ path: test.info().outputPath(`unknown-context-${theme}.png`) });
     });
-    const trigger = page.getByRole("button", { name: `Context usage: ${expected}`, exact: true });
-    await expect(trigger).toBeVisible();
-    if (expected === "unknown")
-      await expect(trigger.locator(".context-ring")).toHaveAttribute("data-unknown", "");
-    else await expect(trigger.locator(".context-ring")).not.toHaveAttribute("data-unknown");
-    await trigger.click();
-    const facts = page.locator(".context-facts");
-    await expect(facts.locator("dt", { hasText: "Last agent input" }).locator("+ dd")).toHaveText(
-      used === undefined ? "Unavailable" : `${used}`,
-    );
-    await expect(facts.locator("dt", { hasText: "Input limit" }).locator("+ dd")).toHaveText(
-      "maxInputTokens" in limits ? "1,000" : "Unavailable",
-    );
-    await expect(
-      facts.locator("dt", { hasText: "Shared context window" }).locator("+ dd"),
-    ).toHaveText("contextWindow" in limits ? "2,000" : "Unavailable");
-  });
+  }
 }
 
 for (const theme of ["light", "dark"] as const) {
@@ -4416,6 +4798,50 @@ for (const theme of ["light", "dark"] as const) {
         }));
       expect(await geometry(left)).toEqual(await geometry(right));
       expect(await geometry(right)).toEqual({ width: 26, height: 26 });
+      const create = page.getByRole("link", { name: "New conversation", exact: true });
+      const surface = (control: ReturnType<Page["getByRole"]>) =>
+        control.evaluate(async (element) => {
+          await Promise.all(element.getAnimations().map((animation) => animation.finished));
+          const style = getComputedStyle(element);
+          return {
+            background: style.backgroundColor,
+            radius: style.borderRadius,
+            outline: style.outline,
+            outlineOffset: style.outlineOffset,
+          };
+        });
+      await left.hover();
+      const hideHover = await surface(left);
+      await create.hover();
+      const createHover = await surface(create);
+      expect(await geometry(create)).toEqual(await geometry(left));
+      await expect(page.getByRole("tooltip")).toHaveText("New conversation");
+      await page.screenshot({
+        path: test.info().outputPath(`sidebar-hover-${theme}-${chrome}.png`),
+      });
+      await expect(create).toHaveAttribute("href", "/new");
+      await expect(create.locator("button, a")).toHaveCount(0);
+      const popupPromise = page.context().waitForEvent("page");
+      await create.click({ modifiers: ["ControlOrMeta"] });
+      const popup = await popupPromise;
+      await popup.waitForURL(url + "/new");
+      await popup.close();
+      await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+      await page.mouse.move(600, 400);
+      await page.keyboard.press("Tab");
+      await left.focus();
+      await expect(left).toHaveCSS("outline-style", "solid");
+      const hideFocus = await surface(left);
+      await create.focus();
+      await expect(create).toHaveCSS("outline-style", "solid");
+      const createFocus = await surface(create);
+      await test.info().attach("sidebar-control-surfaces", {
+        body: JSON.stringify({ hideHover, createHover, hideFocus, createFocus }),
+        contentType: "application/json",
+      });
+      expect(hideHover.background).toMatch(/(?:rgba\(.+, 0\.08\)|color\(srgb .+ \/ 0\.08\))/);
+      expect(createHover).toEqual(hideHover);
+      expect(createFocus).toEqual(hideFocus);
       const host = page.getByRole("button", { name: "Switch host: Fixture", exact: true });
       await host.hover();
       await expect(host).toHaveCSS(
@@ -4440,9 +4866,27 @@ for (const theme of ["light", "dark"] as const) {
       const show = page.getByRole("button", { name: "Show sidebar", exact: true });
       await expect(show).toHaveAttribute("aria-expanded", "false");
       expect(await geometry(show)).toEqual(await geometry(right));
+      const centerY = (control: ReturnType<Page["getByRole"]>) =>
+        control.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.y + rect.height / 2;
+        });
+      const showCenter = await centerY(show);
+      const headerControlCenter = await centerY(right);
+      const headerCenter = await centerY(page.locator(".conversation-header").first());
+      await test.info().attach("hidden-sidebar-geometry", {
+        body: JSON.stringify({ showCenter, headerControlCenter, headerCenter }),
+        contentType: "application/json",
+      });
+      expect(Math.abs(showCenter - headerControlCenter)).toBeLessThanOrEqual(1);
+      expect(Math.abs(showCenter - headerCenter)).toBeLessThanOrEqual(1);
+      await show.hover();
+      expect(await surface(show)).toEqual(hideHover);
+      await page.mouse.move(600, 400);
       await page.keyboard.press("Tab");
       await show.focus();
       await expect(show).toHaveCSS("outline-style", "solid");
+      expect(await surface(show)).toEqual(hideFocus);
       await right.click();
       await expect(
         page.getByRole("button", { name: "Hide right sidebar", exact: true }),

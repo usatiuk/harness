@@ -15,6 +15,7 @@ import {
   releaseManifestSchema,
   versionSchema,
   compareVersions,
+  type LinuxTarget,
 } from "@harness/release";
 import { preparedServerSchema } from "./local-runtime.ts";
 import { serverSelectionSchema } from "./selection.ts";
@@ -243,7 +244,6 @@ export async function discoverWsl(signal?: AbortSignal): Promise<string[]> {
 }
 
 const q = shellQuote;
-const TARGET = "linux-x64-glibc";
 const preparedTransferSchema = preparedServerSchema.extend({
   home: z.string().startsWith("/").optional(),
 });
@@ -277,19 +277,28 @@ export async function prepareRemoteRuntime(
   const [userHome, machine, libc] = (
     await runRemote(
       host,
-      `set -eu; command -v sha256sum >/dev/null; printf '%s\n' "$HOME"; uname -sm; getconf GNU_LIBC_VERSION`,
+      `set -eu; printf '%s\n' "$HOME"; uname -sm; getconf GNU_LIBC_VERSION 2>/dev/null || printf 'unsupported-libc\n'`,
       options,
     )
   ).split("\n");
-  if (!userHome?.startsWith("/") || machine !== "Linux x86_64" || !libc?.startsWith("glibc "))
-    throw new Error("Remote servers currently support Linux x64 with glibc");
+  const target: LinuxTarget | undefined =
+    machine === "Linux x86_64"
+      ? "linux-x64-glibc"
+      : machine === "Linux aarch64" || machine === "Linux arm64"
+        ? "linux-arm64-glibc"
+        : undefined;
+  if (!target || !libc?.startsWith("glibc "))
+    throw new Error(
+      `Unsupported remote platform (${machine ?? "unknown"}; ${libc ?? "unknown libc"}); remote servers require Linux x64 or ARM64 with glibc (musl is not supported)`,
+    );
+  if (!userHome?.startsWith("/")) throw new Error("Remote account HOME must be an absolute path");
   const home = z
     .string()
     .startsWith("/")
     .parse(
       await runRemote(
         host,
-        `set -eu; umask 077; ${privateDirectory(`${userHome}/.harness`)} readlink -f ${q(`${userHome}/.harness`)}`,
+        `set -eu; command -v sha256sum >/dev/null || { echo 'Remote runtime preparation requires sha256sum' >&2; exit 1; }; umask 077; ${privateDirectory(`${userHome}/.harness`)} readlink -f ${q(`${userHome}/.harness`)}`,
         options,
       ),
     );
@@ -304,9 +313,9 @@ export async function prepareRemoteRuntime(
         ),
       ),
     );
-  const suffix = `-${TARGET}`;
+  const suffix = `-${target}`;
   let releaseVersion: string | undefined;
-  if (selected && !selected.directory.startsWith(`dev-${TARGET}-`)) {
+  if (selected && !selected.directory.startsWith(`dev-${target}-`)) {
     if (!selected.directory.endsWith(suffix))
       throw new Error("Selected server is not for the remote platform");
     releaseVersion = versionSchema.parse(selected.directory.slice(0, -suffix.length));
@@ -326,7 +335,7 @@ export async function prepareRemoteRuntime(
   let server: { size: number; sha256: string } | undefined;
   if (releaseVersion) {
     const url = `https://github.com/${RELEASE_REPOSITORY}/releases/download/v${releaseVersion}/release.json`;
-    const installed = `${home}/server/${releaseVersion}-${TARGET}`;
+    const installed = `${home}/server/${releaseVersion}-${target}`;
     // Preserve original signed bytes when reading through the display-oriented command helper.
     const saved = await runRemote(
       host,
@@ -348,11 +357,11 @@ export async function prepareRemoteRuntime(
     );
     if (release.productVersion !== releaseVersion)
       throw new Error("Release differs from the selected server version");
-    const target = release.targets[TARGET];
-    if (!target || target.launcher.format !== "file")
-      throw new Error("Release has no Linux bootstrap executable");
-    buildId = target.server.sha256;
-    bootstrap = { ...target.launcher };
+    const artifacts = release.targets[target];
+    if (!artifacts || artifacts.launcher.format !== "file")
+      throw new Error(`Release has no bootstrap executable for ${target}`);
+    buildId = artifacts.server.sha256;
+    bootstrap = { ...artifacts.launcher };
   } else {
     sourceDirectory =
       options.env?.["HARNESS_DEVELOPMENT_REMOTE_PAYLOAD"] ??
@@ -361,13 +370,17 @@ export async function prepareRemoteRuntime(
     const source = developmentRemoteSchema.parse(
       JSON.parse(await readFile(join(sourceDirectory, "remote.json"), "utf8")),
     );
+    if (source.target !== target)
+      throw new Error(
+        `Development remote payload targets ${source.target}, but the remote platform is ${target}; build the payload on a matching Linux host with npm run prepare:remote and select it with HARNESS_DEVELOPMENT_REMOTE_PAYLOAD`,
+      );
     if (source.nodeVersion !== NODE_PIN.version)
       throw new Error("Remote source payload requires a different pinned Node runtime");
     server = source.server;
     buildId = source.server.sha256;
     bootstrap = { ...source.bootstrap, path: join(sourceDirectory, "harness-bootstrap") };
   }
-  const directory = releaseVersion ? `${releaseVersion}-${TARGET}` : `dev-${TARGET}-${buildId}`;
+  const directory = releaseVersion ? `${releaseVersion}-${target}` : `dev-${target}-${buildId}`;
   const installed = `${home}/server/${directory}`;
   const consume = (value: unknown, transferred: boolean): PreparedRuntime => {
     const prepared = preparedTransferSchema.parse(value);

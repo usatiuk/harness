@@ -15,6 +15,8 @@ declare global {
       ready: boolean;
       grow(): void;
       prepend(): void;
+      prependVariableHistory(): void;
+      extendGroup(): void;
       setRunning(value: boolean): void;
       setSupport(value: boolean): void;
       start(): void;
@@ -24,7 +26,7 @@ declare global {
   }
 }
 
-const user = (index: number): Cell => ({
+const user = (index: number): Extract<Cell, { kind: "user" }> => ({
   kind: "user",
   id: `user${index}`,
   turnId: "turn",
@@ -49,7 +51,7 @@ let cells: Cell[] = [
     streaming: true,
   },
 ];
-if (window.location.search === "?children")
+if (["?children", "?group-history"].includes(window.location.search))
   cells = [
     user(-100),
     ...Array.from({ length: 24 }, (_, index): Cell => ({
@@ -59,6 +61,7 @@ if (window.location.search === "?children")
     })),
     ...Array.from({ length: 80 }, (_, index) => user(index)),
   ];
+if (window.location.search === "?group-history") cells = cells.slice(1);
 if (window.location.search === "?empty") cells = [];
 const transcript = new DesktopTranscript();
 transcript.update(cells);
@@ -84,6 +87,40 @@ window.canvasFixture = {
   prepend() {
     const parent: Cell = { kind: "tool", callId: "parent", name: "eval", args: {}, startedAt: 0 };
     cells = [parent, ...Array.from({ length: 25 }, (_, index) => user(index - 25)), ...cells];
+    changed();
+  },
+  prependVariableHistory() {
+    const page = cells.length;
+    cells = [
+      ...Array.from({ length: 180 }, (_, index): Cell =>
+        index % 7 === 0
+          ? {
+              kind: "tool",
+              args: {},
+              startedAt: 0,
+              callId: `historical-${page}-${index}`,
+              name: `Historical tool ${page}-${index}`,
+            }
+          : {
+              ...user(-page - index),
+              text:
+                `Page ${page} row ${index}\n` +
+                "Variable historical paragraph.\n".repeat(index % 11),
+            },
+      ),
+      ...cells,
+    ];
+    changed();
+  },
+  extendGroup() {
+    cells = [
+      ...Array.from({ length: 35 }, (_, index): Cell => ({
+        ...child,
+        callId: `older-child-${cells.length}-${index}`,
+        name: `Older child ${index}`,
+      })),
+      ...cells,
+    ];
     changed();
   },
   setRunning(value) {
@@ -137,21 +174,21 @@ function renderRow(row: TranscriptRow): ReturnType<typeof h> {
       )
     : renderCell(row);
 }
-function renderCell({ cell }: { cell: Cell }): ReturnType<typeof h> {
+function renderCell({ key, cell }: { key: string; cell: Cell }): ReturnType<typeof h> {
   if (cell.kind === "user")
     return h(
       "article",
-      { className: "cell user" },
+      { key, className: "cell user" },
       h("div", { className: "user-text" }, cell.text),
     );
   if (cell.kind === "tool")
     return h(
       Disclosure,
-      { className: "cell tool", title: cell.name },
+      { key, className: "cell tool", title: cell.name },
       h("pre", null, "Representative tool output\n".repeat(45)),
     );
   if (cell.kind === "assistant")
-    return h("article", { className: "cell assistant" }, h(Markdown, null, cell.text));
+    return h("article", { key, className: "cell assistant" }, h(Markdown, null, cell.text));
   throw new Error("Unexpected fixture cell");
 }
 function Fixture() {

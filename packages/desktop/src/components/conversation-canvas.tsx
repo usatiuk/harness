@@ -1,12 +1,13 @@
 import {
   Component,
+  createRef,
   useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
   type RefObject,
 } from "react";
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { Virtuoso, type ContextProp, type ItemProps, type VirtuosoHandle } from "react-virtuoso";
 import { Ellipsis } from "lucide-react";
 import { IconButton } from "../ui.tsx";
 import type { TranscriptRow } from "../transcript.ts";
@@ -15,6 +16,8 @@ interface CanvasContext {
   history: ReactNode;
   clearance: number;
   pendingWork?: ReactNode;
+  scrollParent: HTMLElement;
+  dock: RefObject<HTMLDivElement | null>;
 }
 function HistoryHeader({ context }: { context?: CanvasContext }) {
   if (!context) throw new Error("Conversation transcript context is missing");
@@ -29,92 +32,123 @@ function ComposerClearance({ context }: { context?: CanvasContext }) {
     </>
   );
 }
-const components = { Header: HistoryHeader, Footer: ComposerClearance };
 
 interface AnchorProps {
   rows: TranscriptRow[];
-  scrollParent: HTMLElement;
-  dock: RefObject<HTMLDivElement | null>;
-  scroller: RefObject<VirtuosoHandle | null>;
-  children: ReactNode;
+  children: (firstItemIndex: number) => ReactNode;
 }
-type Anchor = { index: number; offset: number };
-
-/** Capture the reader's latest position before a history prepend changes DOM. */
-class HistoryAnchor extends Component<AnchorProps> {
-  override getSnapshotBeforeUpdate(previous: AnchorProps): Anchor | null {
-    if (!previous.rows.length || previous.rows[0]?.key === this.props.rows[0]?.key) return null;
-    const parent = this.props.scrollParent;
+interface AnchorState {
+  rows: TranscriptRow[];
+  firstItemIndex: number;
+}
+type Anchor = {
+  element: HTMLElement;
+  boundaries: { parent: HTMLElement; offset: number }[];
+};
+function restoreAnchor(anchor: Anchor): void {
+  if (!anchor.element.isConnected) return;
+  // The inner group consumes only its available scroll range; the page absorbs
+  // the remainder when the group grows below or across its height cap.
+  for (const { parent, offset } of anchor.boundaries) {
     const viewport = parent.getBoundingClientRect();
     const scale = viewport.height / parent.offsetHeight;
-    const top = viewport.top;
-    const bottom = Math.min(
-      viewport.bottom,
-      this.props.dock.current?.getBoundingClientRect().top ?? viewport.bottom,
-    );
-    const indices = new Map(this.props.rows.map((row, index) => [row.key, index]));
-    const elements = [...parent.querySelectorAll<HTMLElement>("[data-transcript-key]")];
-    const visible = elements.filter((element) => {
+    parent.scrollTop +=
+      (anchor.element.getBoundingClientRect().top - viewport.top) / scale - offset;
+  }
+}
+
+/** Keep Virtuoso's measured row identities aligned when history is prepended. */
+class HistoryAnchor extends Component<AnchorProps, AnchorState> {
+  // Virtuoso needs positive index headroom when the total older history is unknown.
+  override state: AnchorState = { rows: this.props.rows, firstItemIndex: 1_000_000 };
+
+  static getDerivedStateFromProps(props: AnchorProps, state: AnchorState): AnchorState | null {
+    if (props.rows === state.rows) return null;
+    const previousFirst = state.rows[0];
+    const prepended = previousFirst
+      ? props.rows.findIndex((row) => row.key === previousFirst.key)
+      : 0;
+    return {
+      rows: props.rows,
+      firstItemIndex: state.firstItemIndex - Math.max(0, prepended),
+    };
+  }
+
+  override render() {
+    return this.props.children(this.state.firstItemIndex);
+  }
+}
+
+type RowAnchorProps = ItemProps<TranscriptRow> & ContextProp<CanvasContext>;
+
+/** Observe the row commit, not the parent data update preceding Virtuoso's render. */
+class HistoryRowAnchor extends Component<RowAnchorProps> {
+  private readonly element = createRef<HTMLDivElement>();
+  private pendingAnchor: Anchor | null = null;
+  override getSnapshotBeforeUpdate(previous: RowAnchorProps): Anchor | null {
+    const first = previous.item;
+    const next = this.props.item;
+    if (first.kind !== "steps" || next.kind !== "steps" || first.steps[0].key === next.steps[0].key)
+      return null;
+    const viewport = this.props.context.scrollParent.getBoundingClientRect();
+    const dockTop = this.props.context.dock.current?.getBoundingClientRect().top ?? viewport.bottom;
+    for (const element of this.element.current!.querySelectorAll<HTMLElement>(
+      ".work-items > *, .cell.tool",
+    )) {
+      if (element.closest("[inert]")) continue;
+      const parent =
+        element.closest<HTMLElement>(".tool-group-container") ?? this.props.context.scrollParent;
+      const clip = parent.getBoundingClientRect();
       const rect = element.getBoundingClientRect();
-      return rect.bottom > top && rect.top < bottom;
-    });
-    const element = visible.find((row) => indices.has(row.dataset.transcriptKey!));
-    if (element)
-      return {
-        index: indices.get(element.dataset.transcriptKey!)!,
-        offset: (element.getBoundingClientRect().top - viewport.top) / scale,
-      };
-    // Prepending history can merge tool groups or load a formerly missing parent.
-    // Find the surviving representation of the first visible call.
-    const first = visible[0];
-    const previousRow = previous.rows.find((row) => row.key === first?.dataset.transcriptKey);
-    if (first && previousRow?.kind === "steps") {
-      const firstStep = previousRow.steps[0];
-      const index = this.props.rows.findIndex(
-        (row) =>
-          row.kind === "steps" &&
-          row.steps.some(
-            (step) =>
-              step.key === firstStep.key ||
-              (step.cell.kind === "tool" &&
-                firstStep.cell.kind === "tool" &&
-                step.cell.turnId === firstStep.cell.turnId &&
-                step.cell.callId === firstStep.cell.parentCallId),
-          ),
-      );
-      if (index >= 0)
-        return { index, offset: (first.getBoundingClientRect().top - viewport.top) / scale };
+      const top = Math.max(viewport.top, clip.top);
+      const bottom = Math.min(viewport.bottom, dockTop, clip.bottom);
+      if (rect.height > 0 && rect.bottom > top && rect.top < bottom) {
+        const parents =
+          parent === this.props.context.scrollParent
+            ? [parent]
+            : [parent, this.props.context.scrollParent];
+        return {
+          element,
+          boundaries: parents.map((parent) => {
+            const clip = parent.getBoundingClientRect();
+            const scale = clip.height / parent.offsetHeight;
+            return { parent, offset: (rect.top - clip.top) / scale };
+          }),
+        };
+      }
     }
-    const nearest = elements
-      .filter((row) => indices.has(row.dataset.transcriptKey!))
-      .sort(
-        (left, right) =>
-          Math.abs(left.getBoundingClientRect().top - top) -
-          Math.abs(right.getBoundingClientRect().top - top),
-      )[0];
-    if (nearest)
-      return {
-        index: indices.get(nearest.dataset.transcriptKey!)!,
-        offset: (nearest.getBoundingClientRect().top - viewport.top) / scale,
-      };
     return null;
   }
+
   override componentDidUpdate(
-    _previous: AnchorProps,
+    _previous: RowAnchorProps,
     _state: unknown,
     anchor: Anchor | null,
   ): void {
-    if (anchor)
-      this.props.scroller.current?.scrollToIndex({
-        index: anchor.index,
-        align: "start",
-        offset: -anchor.offset,
-      });
+    if (anchor) this.pendingAnchor = anchor;
+    // Restore only once Virtuoso has committed this item's measured size. A
+    // premature page scroll can unmount the row before its measurement arrives.
+    if (
+      this.pendingAnchor &&
+      this.props["data-known-size"] === this.element.current!.getBoundingClientRect().height
+    ) {
+      restoreAnchor(this.pendingAnchor);
+      this.pendingAnchor = null;
+    }
   }
+
   override render() {
-    return this.props.children;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Virtuoso context must not reach the DOM.
+    const { item, context: _context, ...props } = this.props;
+    return (
+      <div {...props} className="transcript-item" data-transcript-key={item.key} ref={this.element}>
+        {props.children}
+      </div>
+    );
   }
 }
+
+const components = { Header: HistoryHeader, Footer: ComposerClearance, Item: HistoryRowAnchor };
 
 export function ConversationCanvas({
   rows,
@@ -139,7 +173,6 @@ export function ConversationCanvas({
   const [clearance, setClearance] = useState(0);
   const [gutter, setGutter] = useState(0);
   const [atBottom, setAtBottom] = useState(true);
-  const followExpansion = useRef(false);
 
   useLayoutEffect(() => {
     const element = dockRef.current;
@@ -167,51 +200,40 @@ export function ConversationCanvas({
   return (
     <div className="conversation-page">
       <div className="conversation-header-wrap">{header}</div>
-      <div className="conversation-scroll" ref={setScrollParent}>
+      <div
+        className="conversation-scroll"
+        ref={setScrollParent}
+        onClickCapture={(event) => {
+          const summary = event.target instanceof Element ? event.target.closest("summary") : null;
+          if (
+            summary &&
+            scrollParent &&
+            scrollParent.scrollHeight - scrollParent.clientHeight - scrollParent.scrollTop <= 4 &&
+            !summary.parentElement!.hasAttribute("open")
+          )
+            scroller.current?.autoscrollToBottom();
+        }}
+      >
         <div className="transcript" data-testid="transcript">
           {scrollParent && (
-            <HistoryAnchor
-              rows={rows}
-              scrollParent={scrollParent}
-              dock={dockRef}
-              scroller={scroller}
-            >
-              <Virtuoso
-                ref={scroller}
-                customScrollParent={scrollParent}
-                data={rows}
-                context={{ history, clearance, pendingWork }}
-                itemSize={(element) => element.getBoundingClientRect().height}
-                computeItemKey={(_index, row) => row.key}
-                initialTopMostItemIndex={{ index: "LAST", align: "end" }}
-                followOutput="auto"
-                atBottomStateChange={setAtBottom}
-                totalListHeightChanged={() => {
-                  if (followExpansion.current) {
-                    followExpansion.current = false;
-                    requestAnimationFrame(() =>
-                      scroller.current?.scrollToIndex({ index: "LAST", align: "end" }),
-                    );
-                  }
-                }}
-                components={components}
-                itemContent={(_index, row) => (
-                  <div
-                    className="transcript-item"
-                    data-transcript-key={row.key}
-                    onClickCapture={(event) => {
-                      // Follow once the virtualizer measures the expanded body.
-                      const summary =
-                        event.target instanceof Element ? event.target.closest("summary") : null;
-                      if (summary)
-                        followExpansion.current =
-                          atBottom && !summary.parentElement!.hasAttribute("open");
-                    }}
-                  >
-                    {renderRow(row)}
-                  </div>
-                )}
-              />
+            <HistoryAnchor rows={rows}>
+              {(firstItemIndex) => (
+                <Virtuoso
+                  firstItemIndex={firstItemIndex}
+                  skipAnimationFrameInResizeObserver
+                  ref={scroller}
+                  customScrollParent={scrollParent}
+                  data={rows}
+                  context={{ history, clearance, pendingWork, scrollParent, dock: dockRef }}
+                  itemSize={(element) => element.getBoundingClientRect().height}
+                  computeItemKey={(_index, row) => row.key}
+                  initialTopMostItemIndex={{ index: "LAST", align: "end" }}
+                  followOutput="auto"
+                  atBottomStateChange={setAtBottom}
+                  components={components}
+                  itemContent={(_index, row) => renderRow(row)}
+                />
+              )}
             </HistoryAnchor>
           )}
         </div>

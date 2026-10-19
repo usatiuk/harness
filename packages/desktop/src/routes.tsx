@@ -1299,21 +1299,9 @@ export function createDesktopRouter(
     ) : (
       `Worked for ${duration} s`
     );
-    const failed = row.steps.some(
-      ({ cell }) =>
-        cell.kind === "error" ||
-        (cell.kind === "tool" && cell.status === "error") ||
-        (cell.kind === "shell" && cell.exitCode !== undefined && cell.exitCode !== 0),
-    );
     const title = (
       <span>
         {label}
-        {failed && (
-          <>
-            {" "}
-            · <span role="alert">Failed</span>
-          </>
-        )}
         {calls ? ` · ${calls} tool ${calls === 1 ? "call" : "calls"}` : ""}
       </span>
     );
@@ -1345,7 +1333,7 @@ export function createDesktopRouter(
     const showTail =
       (open && asLatest) || (latest && !open) || tail.some((step) => retained.has(step.key));
     return (
-      <div className={`cell work-scroll-frame${failed ? " work-failed" : ""}`}>
+      <div className="cell work-scroll-frame">
         <div className="tool-group-container scroll-shadows" ref={scrollShadows}>
           {hasHead || open || (!latest && recent.length > 0) ? (
             <Disclosure
@@ -1561,13 +1549,13 @@ export function createDesktopRouter(
         <article
           className={`cell assistant ${intermediate ? "assistant-intermediate" : ""}`}
           data-testid="assistant-message"
+          aria-busy={cell.streaming}
         >
           <div className="message-content">
             <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
               {cell.text}
             </Markdown>
           </div>
-          {cell.streaming && <span className="stream-indicator" aria-label="Streaming" />}
           {!cell.streaming && (
             <div className="message-actions">
               <CopyMessage text={cell.text} />

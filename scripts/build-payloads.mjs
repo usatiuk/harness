@@ -196,8 +196,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   );
   const output = join(root, "release/output", identity.target);
   const remote = process.argv.includes("--remote");
-  if (remote && (identity.target !== "linux-x64-glibc" || identity.mode !== "development"))
-    throw new Error("Prepare remote source payloads on Linux x64 in development mode");
+  if (
+    remote &&
+    (!["linux-x64-glibc", "linux-arm64-glibc"].includes(identity.target) ||
+      identity.mode !== "development")
+  )
+    throw new Error(
+      "Prepare remote source payloads on Linux x64 or ARM64 glibc in development mode",
+    );
   for (const component of identity.mode === "release" ? ["server", "cli"] : ["server"])
     await buildPayload(component, join(output, component), identity);
   if (remote) {

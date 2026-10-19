@@ -19,6 +19,7 @@ import {
   Select as SelectPrimitive,
 } from "radix-ui";
 import { Check, ChevronRight, ChevronDown, LoaderCircle, X, type LucideIcon } from "lucide-react";
+import { Link } from "react-router";
 import { Presence } from "@radix-ui/react-presence";
 
 /** Observe the viewport and its rows so disclosure/content resizing updates the cues too. */
@@ -67,6 +68,52 @@ export function Icon({
   return <Component aria-hidden="true" className={`icon ${className}`} />;
 }
 
+function controlClassName(
+  variant: ButtonProps["variant"],
+  size: ButtonProps["size"],
+  className: string,
+) {
+  return `control control-${variant} control-${size} ${variant === "tinted" || variant === "danger" ? "control-tinted" : ""} ${className}`;
+}
+
+function IconControl({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content className="tooltip" sideOffset={6}>
+          {label}
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
+/** Router navigation with the same icon presentation as IconButton, not button semantics. */
+export function IconLink({
+  label,
+  icon,
+  size = "md",
+  className = "",
+  ...props
+}: Omit<ComponentProps<typeof Link>, "children"> & {
+  label: string;
+  icon: LucideIcon;
+  size?: ButtonProps["size"];
+}) {
+  return (
+    <IconControl label={label}>
+      <Link
+        {...props}
+        aria-label={label}
+        className={controlClassName("ghost", size, `icon-control ${className}`)}
+      >
+        <Icon component={icon} />
+      </Link>
+    </IconControl>
+  );
+}
+
 /** Native form/submitter semantics; decoration never changes the operation. */
 export function Button({
   variant = "neutral",
@@ -88,7 +135,7 @@ export function Button({
       type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
-      className={`control control-${variant} control-${size} ${variant === "tinted" || variant === "danger" ? "control-tinted" : ""} ${className}`}
+      className={controlClassName(variant, size, className)}
       style={tint ? ({ ...style, "--button-tint": tint } as CSSProperties) : style}
     >
       {loading && <Icon component={LoaderCircle} className="loading-icon" />}
@@ -115,23 +162,16 @@ export function IconButton({
   loading?: boolean;
 }) {
   return (
-    <Tooltip.Root>
-      <Tooltip.Trigger asChild>
-        <Button
-          variant="ghost"
-          {...props}
-          className={`icon-control ${props.className ?? ""}`}
-          aria-label={label}
-        >
-          <Icon component={icon} />
-        </Button>
-      </Tooltip.Trigger>
-      <Tooltip.Portal>
-        <Tooltip.Content className="tooltip" sideOffset={6}>
-          {label}
-        </Tooltip.Content>
-      </Tooltip.Portal>
-    </Tooltip.Root>
+    <IconControl label={label}>
+      <Button
+        variant="ghost"
+        {...props}
+        className={`icon-control ${props.className ?? ""}`}
+        aria-label={label}
+      >
+        <Icon component={icon} />
+      </Button>
+    </IconControl>
   );
 }
 export function Input({ className = "", ...props }: ComponentProps<"input">) {

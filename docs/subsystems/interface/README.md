@@ -268,6 +268,18 @@ renames requires manual restoration. Hosted signed CLI update execution passes
 on Windows x64, Linux x64 and both macOS architectures for v0.1.3. New release
 builds target Windows x64, Linux x64 glibc and Apple Silicon macOS; Intel macOS
 release builds are discontinued.
+The [Linux ARM64 delivery](../../plans/cross-cutting/2026-10-19-linux-arm64-support.md)
+extends that pipeline with native `linux-arm64-glibc` server/CLI/bootstrap and
+desktop AppImage artifacts plus `linux-aarch64` updater metadata. Native ARM CI
+and production-signature/old-client checks gate publication; earlier x64 and
+macOS evidence above is not ARM qualification.
+
+The signed manifest retains its existing URL and format version. Older clients
+reject unknown keys in `targets`, so the compatible wire manifest carries ARM64
+in optional root `linuxArm64Glibc`; new TS/Rust decoders normalize it into the
+single canonical target map. Duplicate or malformed ARM descriptors reject.
+Verification and cache writes retain the original signed bytes, never
+reconstructed normalized JSON.
 The keep-running preference defaults false; stop-on-exit releases Local only when
 another client is not attached. Local background execution after desktop exit is
 an explicit remembered preference. Remote observers detach without stopping their owner.
@@ -542,6 +554,8 @@ shell output. Only actual user and assistant messages/commentary break groups.
 Pending approvals/questions and composer/status controls are separate actionable
 UI, not transcript cells. Failure remains visible in a group's summary; terminal
 duration markers contribute to that summary instead of adding a duplicate row.
+Streaming assistant articles expose busy state without appending a terminal-style
+cursor rectangle below their Markdown; existing running/Stop controls remain.
 Ordinary earlier groups collapse to a single summary row regardless of size;
 deliberately opened/focused steps remain inspectable across supersession.
 Only the latest group keeps a five-entry peek,
@@ -621,6 +635,11 @@ visible group. Loading earlier calls into a group can reset its disclosure to
 closed; expansion state is not persisted. Clickable summary rows tint on hover
 and keyboard focus.
 
+Working summaries report activity, duration and tool count, not an aggregated
+failure outcome. Individual tool/shell errors can be normal execution results;
+they do not add a Failed badge, alert or red group styling. Existing per-call
+error results and actual conversation errors retain their own presentation.
+
 Earlier history loads automatically near the top of the transcript through the
 existing bounded history action. A persistent intersection observer loads one page
 per approach; an upward wheel event or the discreet keyboard-accessible marker
@@ -684,6 +703,11 @@ states; Tailwind v4 supplies layout utilities. Navigation stays flat and compact
 Buttons use neutral faces and shallow neutral/accented bases; a generic tinted
 recipe derives face, border, base and states from one color. Destructive buttons
 reuse it with an independent danger tint. Lucide supplies icons.
+Sidebar navigation uses `IconLink` for real router anchors and `IconButton` for
+actions, sharing the control recipe and tooltip rather than duplicating hover
+surfaces. Native form/disabled/loading semantics remain with `Button`. Hidden
+sidebar controls use the same header-padding/content-border geometry in CSD,
+native and fullscreen modes, including the narrow layout.
 
 Model/preset and sandbox chips reveal complete forms in popovers. Router fetchers
 remain mounted above those portals. Destructive confirmations capture the
@@ -708,9 +732,19 @@ composer, keeping its top corners soft and its footer covered. A measured footer
 last transcript content clear of that dock; measured items contain their margins.
 The virtualizer opens at the latest edge, follows while at bottom, and pauses when
 the reader scrolls away. Three dots return to latest only during a running turn;
-their visibility does not change dock/fade geometry. Earlier-history prepend
-preserves a surviving visible row and offset, with the newly available tool parent
-as a fallback when grouping absorbs that row. Desktop-local row identities are
+their visibility does not change dock/fade geometry. Earlier-history prepend uses
+Virtuoso's logical `firstItemIndex` to keep measured row identities aligned rather
+than jumping to a new index against old sizes. Same-key work-group prefix growth
+captures a surviving visible child through Virtuoso's typed `components.Item`
+boundary and reconciles when that item's measured-size prop matches its height.
+There is no shared pending-anchor handoff or aggregate-height acknowledgement.
+An inner Working scroller absorbs its
+available displacement first; the page absorbs any remaining displacement below
+or across the group's height cap. Details expansion decides bottom-follow from
+actual scroll geometry rather than a delayed presentation notification, then
+arms Virtuoso's native `autoscrollToBottom` instead of scheduling its own
+post-measurement jump.
+Desktop-local row identities are
 projected at presentation publication, preserving streaming blocks through durable
 commit; the server and shared reducer continue to own canonical transcript facts.
 Each attachment owns its live reducer state, cached immutable React snapshot and
@@ -816,7 +850,9 @@ checkpoint and its exact model, not the current selection or a naming/reviewer
 call. A known max-input limit is the denominator (labeled Input limit); otherwise
 an advertised shared context window is used and labeled accordingly. The
 inspector shows both limits when known. Missing usage/capacity is unavailable,
-and unknown is visually distinct from zero usage. Output-only limits do not
+and unknown uses a standard question-circle affordance rather than a dashed
+masked ring. It remains distinct from zero usage and does not invent a
+percentage. Output-only limits do not
 establish input capacity; neither input-plus-output nor compaction's reserved
 threshold is substituted for a window. Last-turn
 totals include all model attempts owned by that turn, excluding separate
@@ -873,6 +909,15 @@ conversation evidence establishes the previous flow; current WSL and visible
 desktop qualification are tracked separately. Local retains
 browser and device-code sign-in; WSL/SSH use device codes without callback
 forwarding. See the [release delivery evidence](../../plans/cross-cutting/2026-10-10-release-installation-updates.md).
+
+Remote preparation now detects Linux x64 or ARM64 GNU libc before selecting a
+runtime/cache/artifact. SSH and WSL share this target-selection path; musl and
+unsupported architectures reject explicitly. A development `remote.json` must
+match the detected target even when a candidate cache already exists. Build it
+on the corresponding native Linux host; there is no relabeling or implicit
+cross-compilation. Current isolated x64 OpenSSH cold/warm/owner/cancellation
+checks pass; actual ARM hosted execution and live WSL qualification are recorded
+separately in the ARM64 delivery plan.
 
 ## Verification
 

@@ -60,6 +60,23 @@ try {
     join(directory, "config"),
     `Host harness-fixture harness-password harness-unknown\n HostName 127.0.0.1\n Port ${port}\n User harness\n IdentityFile "${sshPath(join(directory, "identity"))}"\n IdentitiesOnly yes\nHost harness-fixture harness-password\n UserKnownHostsFile "${sshPath(join(directory, "known_hosts"))}"\n StrictHostKeyChecking yes\nHost harness-password\n PubkeyAuthentication no\n PreferredAuthentications password\nHost harness-unknown\n UserKnownHostsFile "${sshPath(join(directory, "unknown_hosts"))}"\n StrictHostKeyChecking ask\n`,
   );
+  // Docker may run on a different architecture from the controlling client.
+  const architecture = (
+    await exec("docker", [
+      "image",
+      "inspect",
+      "--format",
+      "{{.Architecture}}",
+      "harness-ssh-qualification",
+    ])
+  ).stdout.trim();
+  const target =
+    architecture === "amd64"
+      ? "linux-x64-glibc"
+      : architecture === "arm64"
+        ? "linux-arm64-glibc"
+        : undefined;
+  if (!target) throw new Error(`Unsupported SSH fixture architecture: ${architecture}`);
   const child = spawn(
     process.execPath,
     [
@@ -79,8 +96,7 @@ try {
         HARNESS_REMOTE_SSH_CONFIG: join(directory, "config"),
         HARNESS_REMOTE_FIXTURE_HOME: fixtureHome,
         HARNESS_DEVELOPMENT_REMOTE_PAYLOAD:
-          process.env.HARNESS_DEVELOPMENT_REMOTE_PAYLOAD ??
-          resolve("release/output/linux-x64-glibc"),
+          process.env.HARNESS_DEVELOPMENT_REMOTE_PAYLOAD ?? resolve("release/output", target),
         NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preload).href}`,
       },
     },

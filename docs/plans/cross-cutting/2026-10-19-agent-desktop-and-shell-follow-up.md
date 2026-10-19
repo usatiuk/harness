@@ -33,9 +33,11 @@ matches delivered behavior, and qualification limits are explicit.
 - Define message rows positively as `user | assistant`; every other transcript
   cell is work. Keep chronological boundaries/provenance. Approval/question forms,
   connection warnings, and composer controls are not transcript cells.
-- Reuse existing cell renderers. Preserve error announcements/details and expose
-  failure in collapsed group summaries. Integrate terminal duration markers into
-  the summary instead of duplicating a nested duration line.
+- Reuse existing cell renderers and preserve individual error announcements/details.
+  Integrate terminal duration markers into the summary instead of duplicating a
+  nested duration line. The initially added group-level failure aggregation is
+  removed in the subsequent reading follow-up at the user's explicit request:
+  failed tool calls are normal and do not make the Working group itself failed.
 - Collapsed latest work mounts the last five nonempty entries plus explicitly
   open/focused entries, with a stable keyed owner. Retention is proportional to
   deliberate interaction, not all intervening or future rows. Existing outer
@@ -384,11 +386,19 @@ blocker. No extra role framework, alias store, disclosure registry, persistent
 terminal or engine capacity policy was added. Source documentation and plugin
 contract/schema are synchronized.
 
-The known baseline automatic-history anchor defect is not repaired or hidden;
-the full browser sweep is not claimed green. Native window material/OS opening,
+The earlier full browser sweep is not claimed green; see the subsequent
+geometry correction below rather than treating 12px as proven product movement.
+Native window material/OS opening,
 real SSH/WSL, Windows/macOS shell execution and live-model delegation compliance
 remain unqualified. This delivery uses real Linux Bash/zsh, Bubblewrap and owned
 cached-image Docker evidence, not mocked platform claims. Restart the executing
 owner to refresh shell exports and reload a conversation for changed initial
 global/project instructions. No user credentials, running installed server,
 remote branch or release was changed.
+
+Subsequent investigation: the [transcript reading follow-up](../interface/2026-10-19-transcript-reading-follow-up.md)
+finds that the exact 12px automatic-history assertion compared a padded container
+with its inner span, not the same box across time. The earlier failed broad-run
+result stands, but it was not proof of that amount of product movement. This
+corrects the earlier defect characterization without dismissing the user's
+separate report of disruptive larger jumps, which the follow-up investigates.

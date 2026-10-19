@@ -5,6 +5,11 @@ executable_suffix=""
 if [[ $target == windows-x64 ]]; then
   executable_suffix=.exe
 fi
+host_target=$(node --input-type=module -e 'import { nativeTarget } from "./scripts/native-target.mjs"; console.log(nativeTarget().release)')
+if [[ $target != "$host_target" ]]; then
+  echo "Release target $target does not match build host $host_target" >&2
+  exit 1
+fi
 payload_directory="release/output/$target"
 asset_directory="release/staging/$target"
 mkdir -p "$asset_directory"
@@ -27,7 +32,7 @@ case "$target" in
     bundle=nsis
     installer_extension=.exe
     ;;
-  linux-x64-glibc)
+  linux-x64-glibc|linux-arm64-glibc)
     bundle=appimage
     installer_extension=.AppImage
     ;;

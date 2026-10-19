@@ -17,7 +17,7 @@ it("executes the captured Node and complete SQLite payload without another cache
       ? "windows-x64"
       : process.platform === "darwin"
         ? `macos-${process.arch === "arm64" ? "arm64" : "x64"}`
-        : "linux-x64-glibc";
+        : `linux-${process.arch === "arm64" ? "arm64" : "x64"}-glibc`;
   const payload = join(home, "server", `0.1.0-${target}`);
   // Native preparation captures an executable in place. Relocating a Homebrew
   // binary breaks its relative libnode linkage and is not this consumer's contract.

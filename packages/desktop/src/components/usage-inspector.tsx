@@ -1,3 +1,4 @@
+import { CircleHelp } from "lucide-react";
 import { inputCapacity } from "@harness/client-features";
 import type { CSSProperties } from "react";
 import type { ModelInfo } from "@harness/protocol";
@@ -17,11 +18,15 @@ export function ContextUsage({ state, models }: { state: State; models: ModelInf
           className="context-control"
           aria-label={`Context usage: ${percent === undefined ? "unknown" : `${percent}% of ${basis}`}`}
         >
-          <span
-            className="context-ring"
-            data-unknown={percent === undefined ? "" : undefined}
-            style={{ "--context-progress": `${Math.min(percent ?? 0, 100)}%` } as CSSProperties}
-          />
+          {percent === undefined ? (
+            <CircleHelp size={18} aria-hidden="true" />
+          ) : (
+            <span
+              className="context-ring"
+              aria-hidden="true"
+              style={{ "--context-progress": `${Math.min(percent, 100)}%` } as CSSProperties}
+            />
+          )}
         </Button>
       }
     >

@@ -7,7 +7,14 @@ import nodePin from "../../../release/node.json" with { type: "json" };
 export const PRODUCT_VERSION = product.version;
 export const RELEASE_REPOSITORY = "usatiuk/harness";
 export const NODE_PIN = nodePin;
-export const targetSchema = z.enum(["windows-x64", "linux-x64-glibc", "macos-arm64", "macos-x64"]);
+export const linuxTargetSchema = z.enum(["linux-x64-glibc", "linux-arm64-glibc"]);
+export type LinuxTarget = z.infer<typeof linuxTargetSchema>;
+export const targetSchema = z.enum([
+  "windows-x64",
+  ...linuxTargetSchema.options,
+  "macos-arm64",
+  "macos-x64",
+]);
 export type ReleaseTarget = z.infer<typeof targetSchema>;
 export const versionSchema = z
   .string()
@@ -45,21 +52,32 @@ export const artifactSchema = z.strictObject({
   entry: pathSchema,
 });
 export type ReleaseArtifact = z.infer<typeof artifactSchema>;
-export const releaseManifestSchema = z.object({
-  formatVersion: z.literal(1),
-  productVersion: versionSchema,
-  targets: z
-    .partialRecord(
-      targetSchema,
-      z.object({
-        node: z.strictObject({ version: versionSchema, artifact: artifactSchema }),
-        server: artifactSchema,
-        cli: artifactSchema,
-        launcher: artifactSchema,
-      }),
-    )
-    .refine((value) => Object.keys(value).length > 0, "At least one release target required"),
+const releaseTargetSchema = z.object({
+  node: z.strictObject({ version: versionSchema, artifact: artifactSchema }),
+  server: artifactSchema,
+  cli: artifactSchema,
+  launcher: artifactSchema,
 });
+export const releaseManifestSchema = z
+  .object({
+    formatVersion: z.literal(1),
+    productVersion: versionSchema,
+    targets: z.partialRecord(targetSchema, releaseTargetSchema),
+    // Older verifiers reject unknown target keys but ignore unknown root fields.
+    // Keep the signed wire extension separate; consumers use one canonical map.
+    linuxArm64Glibc: releaseTargetSchema.optional(),
+  })
+  .refine(
+    (value) => !(value.linuxArm64Glibc && value.targets["linux-arm64-glibc"]),
+    "Duplicate Linux ARM64 release target",
+  )
+  .transform(({ linuxArm64Glibc, ...manifest }) => ({
+    ...manifest,
+    targets: linuxArm64Glibc
+      ? { ...manifest.targets, "linux-arm64-glibc": linuxArm64Glibc }
+      : manifest.targets,
+  }))
+  .refine((value) => Object.keys(value.targets).length > 0, "At least one release target required");
 export type ReleaseManifest = z.infer<typeof releaseManifestSchema>;
 const transferredFileSchema = z.strictObject({
   size: z
@@ -72,7 +90,7 @@ const transferredFileSchema = z.strictObject({
 /** Explicit source artifact made on the remote platform, never a host Node choice. */
 export const developmentRemoteSchema = z.strictObject({
   formatVersion: z.literal(1),
-  target: z.literal("linux-x64-glibc"),
+  target: linuxTargetSchema,
   productVersion: versionSchema,
   nodeVersion: versionSchema,
   server: transferredFileSchema,

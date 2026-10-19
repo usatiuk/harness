@@ -76,6 +76,7 @@ declare global {
       showWorkGroups(followingMessages?: number): void;
       splitWorkGroup(): void;
       seedHistory(): void;
+      seedLongHistory(): void;
       seedCollapsedHistory(): void;
       historyCalls: number;
       failHistory: boolean;
@@ -240,6 +241,7 @@ const domain = {
 // Native cases qualify real RPC and server semantics separately.
 let releaseHistory: (() => void) | undefined;
 let collapsedPages = 0;
+let longPages = 0;
 let releasePeek: (() => void) | undefined;
 const session = {
   deliver: (...args: Parameters<typeof domain.deliver>) => domain.deliver(...args),
@@ -249,26 +251,54 @@ const session = {
       releaseHistory = resolve;
     });
     if (window.composerFixture.failHistory) throw new Error("History unavailable");
-    view.cursor = collapsedPages > 1 ? `page-${collapsedPages - 1}` : null;
+    view.cursor =
+      longPages > 1
+        ? `long-page-${longPages - 1}`
+        : collapsedPages > 1
+          ? `page-${collapsedPages - 1}`
+          : null;
     const earlier =
-      collapsedPages > 0
-        ? [
-            {
-              kind: "reasoning" as const,
-              id: `earlier-thought-${collapsedPages--}`,
+      longPages > 0
+        ? Array.from({ length: 180 }, (_, index): Cell =>
+            index % 7 === 0
+              ? {
+                  kind: "tool",
+                  callId: `page-${longPages}-${index}`,
+                  name: "read_file",
+                  args: { path: `page-${longPages}-${index}.txt` },
+                  startedAt: 0,
+                  status: "ok",
+                  output: "Earlier output",
+                }
+              : {
+                  kind: "user",
+                  id: `page-${longPages}-${index}`,
+                  turnId: "old",
+                  createdAt: index,
+                  text:
+                    `Page ${longPages} message ${index}\n` +
+                    "Variable history paragraph.\n".repeat(index % 11),
+                },
+          )
+        : collapsedPages > 0
+          ? [
+              {
+                kind: "reasoning" as const,
+                id: `earlier-thought-${collapsedPages--}`,
+                turnId: "old",
+                text: "Earlier reasoning",
+                streaming: false,
+                startedAt: 0,
+              },
+            ]
+          : Array.from({ length: 20 }, (_, index) => ({
+              kind: "user" as const,
+              id: `earlier-${index}`,
               turnId: "old",
-              text: "Earlier reasoning",
-              streaming: false,
-              startedAt: 0,
-            },
-          ]
-        : Array.from({ length: 20 }, (_, index) => ({
-            kind: "user" as const,
-            id: `earlier-${index}`,
-            turnId: "old",
-            text: `Earlier history ${index}`,
-            createdAt: index,
-          }));
+              text: `Earlier history ${index}`,
+              createdAt: index,
+            }));
+    if (longPages > 0) longPages--;
     view.state = {
       ...view.state,
       cells: [...earlier, ...view.state.cells],
@@ -1110,6 +1140,10 @@ window.composerFixture = {
   releaseHistory() {
     releaseHistory?.();
     releaseHistory = undefined;
+  },
+  seedLongHistory() {
+    window.composerFixture.seedHistory();
+    longPages = 3;
   },
   seedHistory() {
     view.cursor = "older-page";

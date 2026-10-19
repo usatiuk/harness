@@ -8,6 +8,15 @@ in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 
 ## Working, controls, and family navigation follow-up
 
+The [transcript reading follow-up](../../plans/interface/2026-10-19-transcript-reading-follow-up.md)
+implements the reported history/Working jumps and removes the streaming square
+through native Virtuoso prepend, typed item measurement and resize-follow
+boundaries. All reading/shared-control/unknown-context regressions pass integrated
+checks: 2,106 tests (46 skips) and 169/169 Chromium cases. Publication joins the
+user-authorized Linux ARM64 minor release.
+The plan preserves actual geometry/compositor evidence rather than treating
+every intermediate DOM observation as a visible jump.
+
 The [cross-cutting follow-up](../../plans/cross-cutting/2026-10-19-agent-desktop-and-shell-follow-up.md)
 is complete. It delivers the requested non-message Working grouping,
 opened-preview retention, links/CSD control consistency, input-limit-aware

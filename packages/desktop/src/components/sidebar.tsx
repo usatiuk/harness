@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { NavLink, Link, useLocation } from "react-router";
+import { NavLink, useLocation } from "react-router";
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -12,7 +12,7 @@ import {
 import { z } from "zod";
 import { conversationProjectRoot, type Conversation } from "@harness/protocol";
 import type { DesktopSession, SidebarPage } from "../session.ts";
-import { Button, CollapsibleDetails, IconButton, useScrollShadows } from "../ui.tsx";
+import { Button, CollapsibleDetails, IconButton, IconLink, useScrollShadows } from "../ui.tsx";
 
 const layoutSchema = z.object({ width: z.number().min(160).max(400), visible: z.boolean() });
 const groupsSchema = z.object({ hidden: z.array(z.string()), collapsed: z.array(z.string()) });
@@ -189,14 +189,13 @@ export function SidebarLayout({
       <aside className="sidebar" hidden={!layout.visible}>
         <div className="sidebar-heading">
           {controls}
-          <Link
+          <IconLink
             to="/new"
-            className="new-conversation"
-            aria-label="New conversation"
-            title="New conversation"
-          >
-            <Plus size={15} aria-hidden="true" />
-          </Link>
+            label="New conversation"
+            icon={Plus}
+            size="sm"
+            className="chrome-control"
+          />
           <IconButton
             label="Hide sidebar"
             aria-expanded={true}

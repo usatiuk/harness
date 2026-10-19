@@ -17,6 +17,7 @@ import type {
 } from "@harness/protocol";
 import { SubagentActivity } from "./activity.ts";
 import { textOf } from "@harness/protocol";
+import { SubagentSendTool } from "./messages.ts";
 import {
   SubagentRegistry,
   SubagentTool,
@@ -27,6 +28,12 @@ import {
 
 const id = (s: string): ConversationId => s as ConversationId;
 const MODEL: ModelConfig = { provider: "fake", model: "fake-1" };
+
+it("does not require human-intelligible subagent communication", () => {
+  expect(new SubagentSendTool(() => fakeRunner()).description).toContain(
+    "Subagent communication doesn't need to be human intelligible.",
+  );
+});
 
 /** A minimal record view for the fake's `getConversation` (only `workspaceRoot` is read). */
 const record = (cid: ConversationId, overrides: ConversationOverrides): Conversation => ({

@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, ubuntu-22.04-arm, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -24,3 +24,10 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: node packages/desktop/tools/native.mjs cargo test --manifest-path native/Cargo.toml --locked
+      - name: Qualify native ARM64 remote runtime
+        if: matrix.os == 'ubuntu-22.04-arm'
+        run: |
+          test "$(uname -m)" = aarch64
+          ldd --version
+          node scripts/build-payloads.mjs --remote
+          env -u HARNESS_SERVER_SELECTION npm run test:remote

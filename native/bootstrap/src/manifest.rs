@@ -97,11 +97,51 @@ pub struct ReleaseTarget {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", try_from = "ReleaseManifestWire")]
 pub struct ReleaseManifest {
     pub format_version: u32,
     pub product_version: String,
     pub targets: BTreeMap<String, ReleaseTarget>,
+}
+
+// Pre-ARM64 verifiers reject unknown keys in targets and ignore unknown root fields.
+// Normalize the signed extension at the decode boundary, retaining canonical targets
+// everywhere else. Cache writes preserve the original signed bytes, never this struct.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReleaseManifestWire {
+    format_version: u32,
+    product_version: String,
+    targets: BTreeMap<String, ReleaseTarget>,
+    #[serde(default, deserialize_with = "present_arm64_target")]
+    linux_arm64_glibc: Option<ReleaseTarget>,
+}
+
+fn present_arm64_target<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<ReleaseTarget>, D::Error> {
+    ReleaseTarget::deserialize(deserializer).map(Some)
+}
+
+impl TryFrom<ReleaseManifestWire> for ReleaseManifest {
+    type Error = anyhow::Error;
+
+    fn try_from(mut wire: ReleaseManifestWire) -> Result<Self> {
+        if let Some(arm64) = wire.linux_arm64_glibc {
+            if wire
+                .targets
+                .insert("linux-arm64-glibc".into(), arm64)
+                .is_some()
+            {
+                bail!("Duplicate Linux ARM64 release target");
+            }
+        }
+        Ok(Self {
+            format_version: wire.format_version,
+            product_version: wire.product_version,
+            targets: wire.targets,
+        })
+    }
 }
 
 impl ReleaseManifest {
@@ -114,8 +154,14 @@ impl ReleaseManifest {
             bail!("Release has no supported targets");
         }
         for (target, value) in &self.targets {
-            if !["windows-x64", "linux-x64-glibc", "macos-arm64", "macos-x64"]
-                .contains(&target.as_str())
+            if ![
+                "windows-x64",
+                "linux-x64-glibc",
+                "linux-arm64-glibc",
+                "macos-arm64",
+                "macos-x64",
+            ]
+            .contains(&target.as_str())
             {
                 bail!("Unsupported or incomplete release target");
             }
@@ -159,7 +205,8 @@ impl NodePin {
 pub fn host_target() -> Result<&'static str> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("windows", "x86_64") => Ok("windows-x64"),
-        ("linux", "x86_64") if !cfg!(target_env = "musl") => Ok("linux-x64-glibc"),
+        ("linux", "x86_64") if cfg!(target_env = "gnu") => Ok("linux-x64-glibc"),
+        ("linux", "aarch64") if cfg!(target_env = "gnu") => Ok("linux-arm64-glibc"),
         ("macos", "aarch64") => Ok("macos-arm64"),
         ("macos", "x86_64") => Ok("macos-x64"),
         _ => bail!("Unsupported Harness runtime target"),

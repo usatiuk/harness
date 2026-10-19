@@ -1,13 +1,31 @@
 # Harness plan
 
+The [Linux ARM64 delivery](docs/plans/cross-cutting/2026-10-19-linux-arm64-support.md)
+adds native ARM64 glibc CLI/server/desktop artifacts, target-correct remote
+preparation, and compatible signed metadata for existing clients. The user
+authorized a minor release after implementation, native ARM qualification and
+independent review; publication is pending. It also includes their literal
+agent-to-agent communication guidance.
+
+The [transcript reading follow-up](docs/plans/interface/2026-10-19-transcript-reading-follow-up.md)
+corrects disruptive history/Working reading jumps and removes the terminal-style
+streaming square. The implementation uses Virtuoso's native prepend, item-size
+and resize-follow boundaries rather than shared timing coordination. Fresh
+full-change reviews also correct activity-result lifetime and container
+environment reconstruction bugs. Final integrated checks pass 2,106 tests (46
+skips) and 169/169 Chromium cases after all shared-control hover, hidden-sidebar
+alignment and unknown-context visual fixes. Publication joins the ARM64 minor release.
+The plan distinguishes genuine final-position defects from
+mismatched geometry and an unpainted intermediate DOM observation.
+
 The [agent, desktop, and shell follow-up](docs/plans/cross-cutting/2026-10-19-agent-desktop-and-shell-follow-up.md)
 is complete: Working grouping/reading state, desktop links and CSD controls,
 subagent delegation/identity/navigation, global `$HARNESS_HOME/AGENTS.md`,
 shell startup/environment ownership, and input-limit-aware context indicators.
 Full checks pass 2,079 tests (45 skips); focused Chromium, real Bash/zsh,
 Bubblewrap and cached-image Docker regressions pass. Independent reviews and
-shell re-review are resolved. The plan records the unchanged baseline history
-anchor defect and live-model/remote/native-platform qualification limits.
+shell re-review are resolved. The plan records historical browser failures and
+their later geometry correction, plus live-model/remote/native-platform limits.
 
 The [Codex built-in catalog restoration](docs/plans/models/2026-10-18-codex-builtin-catalog.md)
 removes runtime discovery introduced by the model/tool refactor, which erased the
