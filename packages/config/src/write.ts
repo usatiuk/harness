@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, rename, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, rm, lstat, chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { ModelConfig } from "@harness/protocol";
@@ -35,11 +35,13 @@ function mutateFile(path: string, mutate: () => Promise<void>): Promise<void> {
   return result;
 }
 
-async function replaceFile(path: string, text: string): Promise<void> {
+async function replaceFile(path: string, text: string, mode?: number): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, text, { flag: "wx" });
+    await writeFile(temporary, text, { flag: "wx", ...(mode === undefined ? {} : { mode }) });
+    // Retain an existing guidance mode even when the process umask is more restrictive.
+    if (mode !== undefined) await chmod(temporary, mode);
     await rename(temporary, path);
   } finally {
     await rm(temporary, { force: true });
@@ -154,4 +156,71 @@ async function readSettings(path: string): Promise<Record<string, unknown>> {
 export async function readGlobalSettings(home: string): Promise<SettingsDoc> {
   const raw = await readSettings(globalPath(home));
   return parseSettingsDoc(raw, globalPath(home));
+}
+
+/** Expected host filesystem failures safe to present through the application API. */
+export class GlobalInstructionsError extends Error {}
+
+function instructionsFailure(path: string, error: unknown): never {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (
+    code &&
+    [
+      "EACCES",
+      "EPERM",
+      "EROFS",
+      "ENOSPC",
+      "EDQUOT",
+      "ENOTDIR",
+      "EISDIR",
+      "ELOOP",
+      "ENOENT",
+      "ENAMETOOLONG",
+      "EMFILE",
+      "ENFILE",
+      "EIO",
+    ].includes(code)
+  )
+    throw new GlobalInstructionsError(`Cannot access global instructions (${code}): ${path}`, {
+      cause: error,
+    });
+  throw error;
+}
+
+/** Fixed host-owned resource; never accepts a client-selected filename. */
+async function guidanceFile(home: string) {
+  const path = join(home, "AGENTS.md");
+  try {
+    const info = await lstat(path);
+    if (!info.isFile())
+      throw new GlobalInstructionsError(`Global instructions must be a regular file: ${path}`);
+    return { path, mode: info.mode & 0o7777 };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { path, mode: null };
+    throw error;
+  }
+}
+
+/** Missing and empty guidance are distinct; content is returned without normalization. */
+export async function readGlobalInstructions(
+  home: string,
+): Promise<{ path: string; content: string | null }> {
+  try {
+    const { path, mode } = await guidanceFile(home);
+    return { path, content: mode === null ? null : await readFile(path, "utf8") };
+  } catch (error) {
+    return instructionsFailure(join(home, "AGENTS.md"), error);
+  }
+}
+
+/** Atomically replaces exact guidance text, preserving existing permissions; new files are private. */
+export async function updateGlobalInstructions(home: string, content: string): Promise<void> {
+  try {
+    await mutateFile(join(home, "AGENTS.md"), async () => {
+      const { path, mode } = await guidanceFile(home);
+      await replaceFile(path, content, mode ?? 0o600);
+    });
+  } catch (error) {
+    instructionsFailure(join(home, "AGENTS.md"), error);
+  }
 }

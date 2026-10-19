@@ -77,7 +77,7 @@ export class DesktopHosts {
     return result;
   }
   async edit(
-    command: Extract<ConnectionCommand, { type: "host.save" | "host.remove" | "preferences" }>,
+    command: Extract<ConnectionCommand, { type: "host.save" | "host.remove" }>,
   ): Promise<void> {
     await this.updateConfig(command);
   }

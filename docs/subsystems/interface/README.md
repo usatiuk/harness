@@ -66,7 +66,8 @@ Cancellation before owner selection leaves the detached candidate independent.
 
 The controlling machine's `client.json` registry is separate from server settings.
 It initially contains only Local and stores structured WSL/SSH routes, selected
-host and desktop keep-running preference. Browser-safe contracts live in
+host. Keep-running is global configuration on the execution host, not client
+connection metadata. Browser-safe contracts live in
 `@harness/connections`; Node adapters atomically replace the registry under a
 cross-process filesystem lock. The registry stays beside the controlling machine's
 existing settings. Both clients offer host editors and lifecycle controls. SSH
@@ -282,14 +283,32 @@ verification and cache writes retain the exact original signed bytes.
 The 0.9.0 signing-key rotation intentionally breaks automatic upgrades from old
 trust roots; those installations require manual installation. No legacy ARM root
 extension, normalization, dual trust or signature bypass is retained.
-The keep-running preference defaults false; stop-on-exit releases Local only when
-another client is not attached. Local background execution after desktop exit is
-an explicit remembered preference. Remote observers detach without stopping their owner.
+Desktop exit conditionally releases all observed execution owners (Local, SSH
+and WSL), including nonselected or already-disconnected hosts. The execution
+host's global-only `desktop.keepServerRunning` defaults false and is read at
+release time, not mirrored in client/native state. Settings → Application reads
+and changes the selected host's value through existing settings RPC. The known
+legacy client-local preference is accepted then stripped, never copied into a
+remote config. Explicit Stop/Restart is independent of keep-running.
+
+The server shares one conditional-release decision between public/management
+controls. Explicit release relinquishes that socket; concurrent disposable exit
+controls do not count each other as remaining consumers. A live/newly arriving
+client still prevents stop. Ordinary socket closure never arms a deferred stop.
+Host switching, manual Disconnect, TUI detach and network loss retain detach-only
+semantics. False-default desktop exit may interrupt work when no other client
+owns it; this is not a new idle timer or idle-only shutdown policy.
 
 Logical desktop RPC closure shares one awaited physical bridge close with manager
 teardown. Protocol, writer and acknowledgement failures release that observer;
 discarded frames receive no credit. Native shutdown includes already-draining
-bridges and waits for their shared completion before conditional Local release.
+bridges and waits for their shared completion before independent conditional
+owner releases. Existing native exit obligations retain only target/expected
+identity and coalesce aliases by authenticated server ID. Desktop-only bridge
+reporting captures that identity from the same connection; normal CLI bridge
+stderr stays unchanged. Remote exit controls use cached attach-only bootstrap:
+no provisioning/startup or successor-owner stop. Failures remain bounded and
+observable, not converted into missing-owner success.
 Local discovery/authentication/readiness and contention waits are cancellable.
 A bridge observes EOF before readiness while holding early RPC input within the
 transport bound; cancellation closes the observer and leaves launched owners
@@ -829,6 +848,21 @@ accessibility, with positioning left to their layouts.
 OS facilities own material
 focus, transparency, contrast and power adaptations; pastel accents are independent.
 
+Composer autosizing uses `react-textarea-autosize` consistently on every engine,
+with the existing 52px CSS floor and `clamp(52px, 30vh, 320px)` cap before internal
+scrolling. The library owns measurement; a width-only observer invalidates its
+measurement after sidebar/container changes. There is no native-support branch
+or second height algorithm. Vite retains workspace development exports and
+standard module/browser conditions rather than forcing ESM import resolution
+inside CommonJS dependencies.
+
+Accepted send/Stop actions do not revalidate unrelated settings/provider state;
+subscriptions already own transcript and touched-conversation updates. A local
+submission-admission ref covers repeated events before React renders pending
+state, released by the existing submit promise. Fetchers still own acknowledgement,
+errors and draft reconciliation; there is no optimistic transcript insertion or
+automatic resend.
+
 Enter sends and Shift+Enter inserts a newline by default;
 settings can swap them. Steer is the default while working; Ctrl/Cmd+Enter queues.
 The retired delivery preference is ignored. One primary button shows Send while
@@ -1083,6 +1117,19 @@ the batch and are reported to the agent as skipped, not answered. Dismissal appl
 to the entire request and remains separate. Closing a panel leaves
 the request open. Requests are conversation-owned; after server restart, opening
 a child conversation restores questions owned by that child.
+
+### Host guidance editor
+
+Settings → Instructions edits the selected execution host's fixed
+`$HARNESS_HOME/AGENTS.md` through `app.instructions.get/update`. Guidance is not
+included in routine settings reads and is never duplicated in JSON instructions.
+The server supplies the path; clients cannot request arbitrary file paths. The
+editor loads on demand and explicitly saves exact text, retaining dirty edits
+through tab changes, unrelated revalidation and failures. Missing and empty files
+remain distinct. Existing nonregular/symlink targets reject, errors are visible,
+and atomic replacement preserves the existing mode (new files use 0600).
+Existing runtime snapshots remain stable: changes apply to new or reloaded
+conversations, not automatically to the next prompt in an already-loaded runtime.
 
 ### Desktop image content
 

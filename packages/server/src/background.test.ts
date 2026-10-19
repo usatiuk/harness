@@ -446,7 +446,12 @@ await import(${JSON.stringify(pathToFileURL(entry).href)});`,
     const log = await open(join(home, ".running-server", "startup.log"), "a", 0o600);
     try {
       independentOwner = spawn(launch.executable, launch.args, {
-        env: { ...process.env, ...ownerEnvironment, HARNESS_HOME: home },
+        env: {
+          ...process.env,
+          ...ownerEnvironment,
+          HARNESS_HOME: home,
+          HARNESS_SERVER_SELECTION: undefined,
+        },
         stdio: ["ignore", log.fd, log.fd],
         windowsHide: true,
       });
@@ -664,7 +669,12 @@ it("preserves a pending conversation after its last observers and bridge parent 
   const { phase, failure } = backgroundPhases(home);
   phase("launch-bridge-owner");
   const bridge = spawn(process.execPath, [...args, "--bridge"], {
-    env: { ...process.env, ...ownerEnvironment, HARNESS_HOME: home },
+    env: {
+      ...process.env,
+      ...ownerEnvironment,
+      HARNESS_HOME: home,
+      HARNESS_SERVER_SELECTION: undefined,
+    },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });

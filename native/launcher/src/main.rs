@@ -120,7 +120,7 @@ fn run() -> Result<i32> {
             if mode.is_some_and(|mode| {
                 !matches!(
                     mode,
-                    "--bridge" | "--attach-only" | "--background" | "--stdio"
+                    "--bridge" | "--desktop-bridge" | "--attach-only" | "--background" | "--stdio"
                 )
             }) {
                 bail!("Invalid server mode");

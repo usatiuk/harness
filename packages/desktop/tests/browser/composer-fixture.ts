@@ -90,6 +90,15 @@ declare global {
       holdPeek: boolean;
       releasePeek(): void;
       settingsWrites: unknown[];
+      instructionsText: string | null;
+      instructionWrites: { host: string; content: string }[];
+      instructionsReads: number;
+      failInstructionsRead: boolean;
+      failInstructionsSave: boolean;
+      selectSettingsHost(host: string): void;
+      settingsReads: number;
+      holdSettings: boolean;
+      releaseSettings(): void;
       creations: Array<Parameters<DesktopSession["client"]["create"]>[0]>;
       setDefaultModel(model: string): void;
       setTitle(title: string): void;
@@ -121,6 +130,7 @@ const settings: AppSettings = {
   cwd: "D:\\example",
   platform: "win32",
   settings: {
+    keepServerRunning: false,
     model: { provider: "fixture", model: "test", preset: null },
     sandbox: "none",
     toolMode: "hybrid",
@@ -173,10 +183,14 @@ const changed = () => {
 const calls: Delivery[] = [];
 const feedbackCalls: unknown[] = [];
 const settingsWrites: unknown[] = [];
+const settingsWaiters: Array<() => void> = [];
 const creations: Array<Parameters<DesktopSession["client"]["create"]>[0]> = [];
 const providerCreates: unknown[] = [];
 const providerWrites: { provider: string; patch: Record<string, boolean> }[] = [];
 let sidebarScope = "composer-fixture";
+const instructionFiles = new Map<string, string>();
+const instructionWrites: { host: string; content: string }[] = [];
+const hostPreferences = new Map<string, boolean>();
 let worktreeBranch = "harness/one";
 let recentWorktrees: Array<{ path: string; branch: string; head: string; locked: boolean }> = [];
 const subagentPages = new Map<string, SubagentPage>();
@@ -539,9 +553,27 @@ const session = {
         if (definition.method === "plugin.mcp.settings.get")
           return { config: {}, active: [], restartRequired: false, credentialBackend: null };
         if (definition.method === "plugin.mcp.tools.list") return [];
+        if (definition.method === "app.instructions.get") {
+          window.composerFixture.instructionsReads++;
+          if (window.composerFixture.failInstructionsRead)
+            throw new Error("Instructions read denied (EACCES)");
+          return {
+            path: `${settings.home}/AGENTS.md`,
+            content: instructionFiles.get(sidebarScope) ?? null,
+          };
+        }
+        if (definition.method === "app.instructions.update") {
+          if (window.composerFixture.failInstructionsSave)
+            throw new Error("Instructions save denied (EACCES)");
+          const { content } = params as { content: string };
+          instructionWrites.push({ host: sidebarScope, content });
+          instructionFiles.set(sidebarScope, content);
+          return null;
+        }
         if (definition.method === "app.settings.update") {
           settingsWrites.push(params);
           Object.assign(settings.settings, params);
+          hostPreferences.set(sidebarScope, settings.settings.keepServerRunning);
           return null;
         }
         if (definition.method === "app.providers.create") {
@@ -665,7 +697,12 @@ const session = {
   subscribeConnection: (listener: () => void) => session.subscribe(listener),
   connectionSnapshot: () => session.disconnected,
   storageKey: (key: string) => `${sidebarScope}:${key}`,
-  readSettings: () => Promise.resolve(settings),
+  async readSettings() {
+    window.composerFixture.settingsReads++;
+    if (window.composerFixture.holdSettings)
+      await new Promise<void>((resolve) => settingsWaiters.push(resolve));
+    return settings;
+  },
   load: (requested: string) => {
     if (session.views.has(requested as ConversationId))
       return Promise.resolve(session.views.get(requested as ConversationId)!);
@@ -1599,6 +1636,29 @@ window.composerFixture = {
     changed();
   },
   settingsWrites,
+  instructionWrites,
+  instructionsReads: 0,
+  failInstructionsRead: false,
+  failInstructionsSave: false,
+  get instructionsText() {
+    return instructionFiles.get(sidebarScope) ?? null;
+  },
+  set instructionsText(content: string | null) {
+    if (content === null) instructionFiles.delete(sidebarScope);
+    else instructionFiles.set(sidebarScope, content);
+  },
+  selectSettingsHost(host) {
+    sidebarScope = host;
+    settings.home = `/fixture/${host}/.harness`;
+    settings.settings.keepServerRunning = hostPreferences.get(host) ?? false;
+    window.composerFixture.recreateRouter();
+  },
+  settingsReads: 0,
+  holdSettings: false,
+  releaseSettings() {
+    window.composerFixture.holdSettings = false;
+    for (const resolve of settingsWaiters.splice(0)) resolve();
+  },
   creations,
   setDefaultModel(model) {
     settings.settings.model = { provider: "fixture", model, preset: null };
@@ -1670,6 +1730,7 @@ window.composerFixture = {
     changed();
   },
   disconnect() {
+    session.client.peer.ready = false;
     session.disconnected = "Disconnected fixture";
     changed();
   },

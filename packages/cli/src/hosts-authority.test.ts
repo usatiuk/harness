@@ -90,7 +90,7 @@ it("reconciles external route changes, pending connects and removal while preser
     ...config,
     hosts: [config.hosts[0]!, { ...remote, label: "Renamed" }],
   };
-  await hosts.edit({ type: "preferences", keepServerRunning: true });
+  await hosts.edit({ type: "host.save", host: remote });
   await hosts.connect("remote");
   expect(hosts.selected!.harness).toBe(previous);
   expect(hosts.selected!.presentation.drafts.get("conversation")).toBe("private draft");
@@ -103,7 +103,7 @@ it("reconciles external route changes, pending connects and removal while preser
   const rejected = expect(pending).rejects.toThrow();
   await ready;
   config = { ...config, hosts: [config.hosts[0]!, { ...remote, destination: "second" }] };
-  await hosts.edit({ type: "preferences", keepServerRunning: true });
+  await hosts.edit({ type: "host.save", host: remote });
   await rejected;
   expect(hosts.views.get("remote")!.harness).toBeUndefined();
   expect(hosts.views.get("remote")!.presentation.drafts.size).toBe(0);
@@ -112,7 +112,7 @@ it("reconciles external route changes, pending connects and removal while preser
   expect(edge.connect.mock.lastCall?.[0]).toMatchObject({ destination: "second" });
   const second = hosts.views.get("remote")!.harness!;
   config = defaultClientConfig();
-  await hosts.edit({ type: "preferences", keepServerRunning: true });
+  await hosts.edit({ type: "host.save", host: remote });
   expect(second.client.peer.ready).toBe(false);
   expect(hosts.views.has("remote")).toBe(false);
   await hosts.close();

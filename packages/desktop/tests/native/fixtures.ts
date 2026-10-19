@@ -2,14 +2,11 @@ import { createServer, type ServerResponse } from "node:http";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { SqliteStore } from "@harness/store-sqlite";
-import { defaultClientConfig } from "@harness/connections";
+import { updateGlobalSettings } from "@harness/config";
 
 /** Background-work scenarios opt in explicitly; fresh installations stop Local on exit. */
 export async function keepLocalServerRunning(home: string): Promise<void> {
-  await writeFile(
-    join(home, "client.json"),
-    JSON.stringify({ ...defaultClientConfig(), desktop: { keepServerRunning: true } }),
-  );
+  await updateGlobalSettings(home, (doc) => ({ ...doc, desktop: { keepServerRunning: true } }));
 }
 
 export async function seedHistory(home: string, workspace: string) {

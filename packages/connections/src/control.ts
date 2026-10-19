@@ -18,7 +18,12 @@ export async function stopConnection(
   const closed = new Promise<void>((resolve) => {
     markClosed = resolve;
   });
-  const observer = connection.onClose(markClosed);
+  const observer = connection.onClose(() => {
+    markClosed();
+    // Transport closure is queued after accepted responses. Reject an unfinished
+    // handshake instead of leaving its raw JSON-RPC request pending until timeout.
+    connection.dispose();
+  });
   let timer!: ReturnType<typeof setTimeout>;
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(

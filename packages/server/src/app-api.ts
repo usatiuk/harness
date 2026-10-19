@@ -2,6 +2,9 @@ import { worktreeDirectory, worktreesConfigSchema } from "@harness/worktrees";
 import {
   deepMerge,
   readGlobalSettings,
+  readGlobalInstructions,
+  GlobalInstructionsError,
+  updateGlobalInstructions,
   setAuthStore,
   updateGlobalModel,
   updateGlobalPluginConfig,
@@ -40,6 +43,8 @@ import {
   appAuthLogoutRequest,
   appAuthUrlNotification,
   appSettingsRequest,
+  appInstructionsRequest,
+  appInstructionsUpdateRequest,
   appProvidersRequest,
   type ProviderStatus,
   appSettingsUpdateRequest,
@@ -217,6 +222,22 @@ export function registerAppApi(
       }),
     ),
   );
+  const instructionsError = (error: unknown): never => {
+    if (error instanceof GlobalInstructionsError) throw new ResponseError(-32000, error.message);
+    throw error;
+  };
+  session.onRequest(appInstructionsRequest, () =>
+    track(readGlobalInstructions(home).catch(instructionsError)),
+  );
+  session.onRequest(appInstructionsUpdateRequest, ({ content }) =>
+    track(
+      serializeSettings(async () => {
+        lifetime.signal.throwIfAborted();
+        await updateGlobalInstructions(home, content).catch(instructionsError);
+        return null;
+      }),
+    ),
+  );
   session.onRequest(appSettingsRequest, async () => {
     const doc = await readGlobalSettings(home);
     const providers = await listProviders();
@@ -252,6 +273,7 @@ export function registerAppApi(
         ).backend,
         toolMode: doc.tools?.mode ?? "hybrid",
         showToolNames: doc.tools?.showNames ?? true,
+        keepServerRunning: doc.desktop?.keepServerRunning ?? false,
         subagents: { maxDepth: subagents.maxDepth, maxChildren: subagents.maxChildren },
         compactionThresholdTokens: doc.compaction?.thresholdTokens ?? null,
         worktreeDirectory:
@@ -271,6 +293,11 @@ export function registerAppApi(
             ...(settings.model.preset === null ? {} : { preset: settings.model.preset }),
           });
         }
+        if (settings.keepServerRunning !== undefined)
+          await updateGlobalSettings(home, (doc) => ({
+            ...doc,
+            desktop: { ...doc.desktop, keepServerRunning: settings.keepServerRunning },
+          }));
         const changedPlugins: string[] = [];
         if (settings.approval) {
           await updateGlobalPluginConfig(home, "approval", settings.approval);

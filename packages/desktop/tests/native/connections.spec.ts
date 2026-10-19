@@ -9,7 +9,7 @@ import { canonicalHome, readDiscovery, discoverySchema } from "@harness/connecti
 import { stopServer, runRemote, shellQuote } from "@harness/connections/node";
 import { clientConfigSchema, type Host } from "@harness/connections";
 import { NativeApplication } from "./application.ts";
-import { expandWorkGroup, manageConnections, switchHost } from "./controls.ts";
+import { expandWorkGroup, manageConnections, switchHost, settingsSection } from "./controls.ts";
 
 test.skip(process.platform !== "win32", "Native CDP requires Windows WebView2");
 test("packaged Local starts outside the checkout and reuses its standalone cache", async ({}, info) => {
@@ -28,11 +28,12 @@ test("packaged Local starts outside the checkout and reuses its standalone cache
       directory,
     );
     await expect(app.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await manageConnections(app.page);
+    await app.page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(app.page, "Application");
     await expect(
-      app.page.getByLabel("Keep the local server running after desktop exit"),
+      app.page.getByLabel("Keep this server running after desktop exit"),
     ).not.toBeChecked();
-    await app.page.getByRole("button", { name: "Done", exact: true }).click();
+    await app.page.goBack();
     const first = await readDiscovery(home);
     if (!first) throw new Error("Missing standalone owner discovery");
     expect(app.errors).toEqual([]);
@@ -76,15 +77,21 @@ test("host switcher starts with Local and connection editing survives a disconne
     await expect(
       page.getByRole("button", { name: "Switch host: Local", exact: true }),
     ).toBeVisible();
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(page, "Application");
+    const keepRunning = page.getByLabel("Keep this server running after desktop exit");
+    await keepRunning.click();
+    await page.getByRole("button", { name: "Save server settings", exact: true }).click();
+    await expect
+      .poll(async (): Promise<unknown> =>
+        JSON.parse(await readFile(join(home, "settings.json"), "utf8")),
+      )
+      .toMatchObject({ desktop: { keepServerRunning: true } });
+    await expect(keepRunning).toBeChecked();
+    await expect(keepRunning).toBeEnabled();
+    await page.goBack();
     await manageConnections(page);
     const dialog = page.getByRole("dialog", { name: "Connections" });
-    await dialog.getByLabel("Keep the local server running after desktop exit").click();
-    await expect(
-      dialog.getByLabel("Keep the local server running after desktop exit"),
-    ).toBeChecked();
-    await expect(
-      dialog.getByLabel("Keep the local server running after desktop exit"),
-    ).toBeEnabled();
     await dialog.getByRole("button", { name: "Add SSH" }).click();
     await dialog.getByLabel("Name", { exact: true }).fill("Workstation");
     await dialog.getByLabel("SSH destination").fill("user@workstation");
@@ -142,15 +149,15 @@ test("stop-on-exit keeps another client alive and stops only the last local owne
       home,
     );
     await expect(second.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await manageConnections(first.page);
-    const dialog = first.page.getByRole("dialog", { name: "Connections" });
+    await first.page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(first.page, "Application");
     await expect(
-      dialog.getByLabel("Keep the local server running after desktop exit"),
+      first.page.getByLabel("Keep this server running after desktop exit"),
     ).not.toBeChecked();
     await expect(
-      dialog.getByLabel("Keep the local server running after desktop exit"),
+      first.page.getByLabel("Keep this server running after desktop exit"),
     ).toBeEnabled();
-    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    await first.page.goBack();
     await first.close();
     expect(await NativeApplication.processExists(identity.pid)).toBe(true);
     expect((await readDiscovery(home))?.instanceId).toBe(identity.instanceId);
@@ -177,13 +184,13 @@ test("stop-on-exit closes a native bridge before its RPC initialization", async 
   const app = await NativeApplication.launch(profile, info.outputPath("application"), home);
   try {
     await expect(app.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await manageConnections(app.page);
+    await app.page.getByRole("link", { name: "Settings", exact: true }).click();
+    await settingsSection(app.page, "Application");
     await expect(
-      app.page.getByLabel("Keep the local server running after desktop exit"),
+      app.page.getByLabel("Keep this server running after desktop exit"),
     ).not.toBeChecked();
-    await expect(
-      app.page.getByLabel("Keep the local server running after desktop exit"),
-    ).toBeEnabled();
+    await expect(app.page.getByLabel("Keep this server running after desktop exit")).toBeEnabled();
+    await app.page.goBack();
     await app.page.evaluate(async () => {
       const api = (
         window as unknown as {
@@ -329,7 +336,11 @@ test("a real WSL conversation keeps its approval across host switching and deskt
     user: null,
   };
   const q = shellQuote;
-  const settings = JSON.stringify({ version: 1, model: { provider: "demo", model: "demo-1" } });
+  const settings = JSON.stringify({
+    version: 1,
+    model: { provider: "demo", model: "demo-1" },
+    desktop: { keepServerRunning: true },
+  });
   await runRemote(
     host,
     `umask 077; mkdir -p ${q(remoteHome)} ${q(`${remoteRoot}/project`)}; printf '%s' ${q(settings)} > ${q(`${remoteHome}/settings.json`)}`,

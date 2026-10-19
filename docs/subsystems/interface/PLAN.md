@@ -6,6 +6,17 @@ Keep dependable local TUI and desktop clients over one reusable service/event
 boundary. Improve diagnosis and daily operation. Desktop v1 delivery is tracked
 in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 
+## Composer and host-local settings
+
+The active [correction plan](../../plans/interface/2026-10-19-desktop-host-settings-and-composer.md)
+covers send revalidation/duplicate admission, maintained-library sizing across
+shipped engines, host-owned desktop-exit preference (default false), and a fixed
+host-guidance file editor. Subagent correctness/architecture/simplicity review
+is complete and implementation is integrated. Full local checks pass 2,134 tests
+(46 skips); 184 Chromium cases and isolated production Composer GTK probes pass.
+The plan tracks final validation and the authorized patch release. Existing
+services and lifecycle boundaries remain authoritative.
+
 ## Working, controls, and family navigation follow-up
 
 The [transcript reading follow-up](../../plans/interface/2026-10-19-transcript-reading-follow-up.md)

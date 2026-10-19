@@ -2,15 +2,7 @@ import { useRef, useState, useSyncExternalStore, type FormEvent, type RefObject 
 import { hostSchema, type Host } from "@harness/connections";
 import { connectionCommand } from "./transport.ts";
 import { DesktopHosts } from "./hosts.ts";
-import {
-  Button,
-  Dialog,
-  Input,
-  Checkbox,
-  PopoverControl,
-  Confirmation,
-  Disclosure,
-} from "./ui.tsx";
+import { Button, Dialog, Input, PopoverControl, Confirmation, Disclosure } from "./ui.tsx";
 import { ChevronDown, Monitor } from "lucide-react";
 
 const message = (error: unknown): string =>
@@ -330,18 +322,6 @@ export function ConnectionEditor({
             </p>
           )}
           <div className="connections-footer">
-            <label className="background-preference">
-              <Checkbox
-                checked={hosts.config?.desktop.keepServerRunning ?? false}
-                disabled={busy}
-                onChange={(event) =>
-                  act(() =>
-                    hosts.edit({ type: "preferences", keepServerRunning: event.target.checked }),
-                  )
-                }
-              />
-              Keep the local server running after desktop exit
-            </label>
             <Dialog.Close>
               <Button ref={done} type="button">
                 Done

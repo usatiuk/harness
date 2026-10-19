@@ -62,7 +62,7 @@ try {
               )
             ).launch;
       await runLocalBridge(defaultHome(), launch, (identity) => {
-        process.stderr.write(JSON.stringify({ type: "localOwner", identity }) + "\n");
+        process.stderr.write(JSON.stringify({ type: "serverOwner", identity }) + "\n");
       });
     } else {
       await runRemoteBridge(value.host, value.runtime);
@@ -85,17 +85,24 @@ try {
     }
   } else if (process.argv.includes("--attach-only")) await runLocalBridge(defaultHome());
   else if (process.argv.includes("--background")) await runBackgroundServer();
-  else if (process.argv.includes("--bridge"))
-    await runLocalBridge(defaultHome(), {
-      executable: process.execPath,
-      args: [...process.execArgv, process.argv[1]!, "--background"],
-      ...(process.env["HARNESS_SERVER_SELECTION"] === undefined
-        ? {}
-        : {
-            selection: serverCacheEntrySchema.parse(process.env["HARNESS_SERVER_SELECTION"]),
-          }),
-      retainUse: () => new CacheUse(defaultHome()),
-    });
+  else if (process.argv.includes("--bridge") || process.argv.includes("--desktop-bridge"))
+    await runLocalBridge(
+      defaultHome(),
+      {
+        executable: process.execPath,
+        args: [...process.execArgv, process.argv[1]!, "--background"],
+        ...(process.env["HARNESS_SERVER_SELECTION"] === undefined
+          ? {}
+          : {
+              selection: serverCacheEntrySchema.parse(process.env["HARNESS_SERVER_SELECTION"]),
+            }),
+        retainUse: () => new CacheUse(defaultHome()),
+      },
+      process.argv.includes("--desktop-bridge")
+        ? (identity) =>
+            process.stderr.write(JSON.stringify({ type: "serverOwner", identity }) + "\n")
+        : undefined,
+    );
   else await runStdioServer();
 } catch (error) {
   console.error(error);

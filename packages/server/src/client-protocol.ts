@@ -39,6 +39,7 @@ const settings = z.strictObject({
     z.enum(["hybrid", "code-only"]),
   ),
   showToolNames: z.boolean(),
+  keepServerRunning: z.boolean(),
   subagents: subagentLimitsSchema,
   compactionThresholdTokens: compactionThresholdSchema.nullable(),
   worktreeDirectory: z.string().trim().min(1).nullable(),
@@ -92,6 +93,18 @@ export const appSettingsRequest = defineRequest({
     providers: z.array(providerStatusSchema),
   }),
 });
+export const appInstructionsRequest = defineRequest({
+  direction: "client-to-server",
+  method: "app.instructions.get",
+  params: z.strictObject({}),
+  result: z.strictObject({ path: z.string(), content: z.string().nullable() }),
+});
+export const appInstructionsUpdateRequest = defineRequest({
+  direction: "client-to-server",
+  method: "app.instructions.update",
+  params: z.strictObject({ content: z.string() }),
+  result: z.null(),
+});
 export const appSettingsUpdateRequest = defineRequest({
   direction: "client-to-server",
   method: "app.settings.update",
@@ -113,6 +126,9 @@ export const appSettingsUpdateRequest = defineRequest({
       ? {}
       : { compactionThresholdTokens: patch.compactionThresholdTokens }),
     ...(patch.modelRetries === undefined ? {} : { modelRetries: patch.modelRetries }),
+    ...(patch.keepServerRunning === undefined
+      ? {}
+      : { keepServerRunning: patch.keepServerRunning }),
   })),
   result: z.null(),
 });

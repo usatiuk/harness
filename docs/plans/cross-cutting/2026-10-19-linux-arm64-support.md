@@ -1,6 +1,6 @@
 # Linux ARM64 support and minor release
 
-Date: 2026-10-19. Status: Active; source implemented, publication pending.
+Date: 2026-10-19. Status: Complete — published as 0.9.0.
 Related delivery: [transcript reading follow-up](../interface/2026-10-19-transcript-reading-follow-up.md).
 
 ## Goal and authorized scope
@@ -58,9 +58,9 @@ continuation. No old-key fallback or verification bypass is permitted.
       regressions at the existing public remote preparation boundary.
 - [x] Extend source/release workflow, native payload, launcher, desktop AppImage
       and metadata paths. Native ARM source CI executes real build/OpenSSH checks.
-- [ ] Requalify final new-key/open-map/Windows-fixture source on all three hosted
+- [x] Requalify final new-key/open-map/Windows-fixture source on all three hosted
       source CI platforms. The initial run's Windows failures were test fixtures.
-- [ ] Build actual native ARM release artifacts, AppImage and updater signatures
+- [x] Build actual native ARM release artifacts, AppImage and updater signatures
       with the existing release workflow. Source CI alone does not prove these.
 
 ### M3 — Integration and publication
@@ -72,12 +72,12 @@ continuation. No old-key fallback or verification bypass is permitted.
 - [x] Finish native format/tests (**14 unique tests**), production frontend build
       and schema generation with no drift (`act_4b74ad0b`).
 - [x] Finish independent final documentation/evidence review (no material findings).
-- [ ] Commit/push frozen cleanup and record fresh hosted results.
-- [ ] After fresh source CI succeeds, dispatch `release.yml` with `bump=minor`.
-- [ ] Require all four native release builds and validate draft's actual signed
+- [x] Commit/push frozen cleanup and record fresh hosted results.
+- [x] After fresh source CI succeeds, dispatch `release.yml` with `bump=minor`.
+- [x] Require all four native release builds and validate release's actual signed
       manifest with new-key positive/tamper/old-key-negative checks. Check ordinary
       four-target map, `linux-aarch64` updater and all expected assets.
-- [ ] Publish through `gh`, verify public metadata/assets, synchronize the generated
+- [x] Publish through `gh`, verify public metadata/assets, synchronize the generated
       version commit and record exact release/run/commit evidence. Finish clean.
 
 ## Evidence and limitations
@@ -119,3 +119,19 @@ continuation. No old-key fallback or verification bypass is permitted.
 - Unchanged upstream Rust `glib` 0.18.5 medium advisory is recorded in
   [deferred work](../../DEFERRED.md); no unrelated GTK migration or callsite audit
   is claimed. Installed services and user hosts remain untouched.
+
+## Publication completion
+
+Cleanup `bb6119e` passes fresh source CI `39325864649` on Windows x64, Linux x64
+and native ARM64. Minor release workflow `39326864976` succeeds on Windows x64,
+Linux x64, native Linux ARM64 and macOS ARM64, including real ARM OpenSSH and all
+signed desktop artifacts. Workflow-generated version/tag source is `70a0958`.
+The user explicitly requested immediate publication after draft completion;
+`v0.9.0` was published latest with **24 assets** at **2026-10-19 21:39:27Z**.
+Public metadata was then downloaded and verified (`act_dcbde67e`): new root
+accepts exact original manifest bytes; cryptographic tampering and the actual old
+verifier reject; ordinary four-target map, exact pinned Nodes/artifact URLs and
+four updater target URLs match, including `linux-aarch64`. The workflow itself
+verified every desktop detached signature before draft creation. Local main was
+fast-forwarded to the generated version commit. Later desktop follow-up work is
+tracked separately; no old-key fallback or private recovery artifact is retained.

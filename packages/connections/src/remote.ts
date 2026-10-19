@@ -456,10 +456,13 @@ export async function prepareRemoteRuntime(
     () => runRemote(host, `rm -rf ${q(stage)}`, cleanup).then(() => undefined),
   );
 }
-function bridgeCommand(runtime: PreparedRuntime, allowStart: boolean): string {
+function bridgeCommand(
+  runtime: PreparedRuntime,
+  mode: "--bridge" | "--desktop-bridge" | "--attach-only",
+): string {
   const directory = posix.basename(runtime.directory);
   const command = `--run-cached-server ${q(directory)}`;
-  return `exec env HARNESS_HOME=${q(runtime.home)} ${q(`${runtime.directory}/harness-bootstrap`)} ${command} ${allowStart ? "--bridge" : "--attach-only"}`;
+  return `exec env HARNESS_HOME=${q(runtime.home)} ${q(`${runtime.directory}/harness-bootstrap`)} ${command} ${mode}`;
 }
 export interface RemoteConnection {
   connection: RpcConnection;
@@ -472,7 +475,12 @@ export async function connectRemote(
   options: RemoteOptions = {},
   allowStart = true,
 ): Promise<RemoteConnection> {
-  const child = remoteProcess(host, bridgeCommand(runtime, allowStart), options, 0);
+  const child = remoteProcess(
+    host,
+    bridgeCommand(runtime, allowStart ? "--bridge" : "--attach-only"),
+    options,
+    0,
+  );
   let diagnostic = "";
   child.stderr.on("data", (chunk: Buffer) => {
     diagnostic = (diagnostic + chunk.toString()).slice(-8192);
@@ -522,7 +530,7 @@ export async function runRemoteBridge(
   runtime: PreparedRuntime,
   options: RemoteOptions = {},
 ): Promise<void> {
-  const child = remoteProcess(host, bridgeCommand(runtime, true), options, 0);
+  const child = remoteProcess(host, bridgeCommand(runtime, "--desktop-bridge"), options, 0);
   child.stdout.pipe(process.stdout);
   child.stderr.pipe(process.stderr);
   const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));

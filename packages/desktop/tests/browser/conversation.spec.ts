@@ -1077,6 +1077,193 @@ test("conversation header exposes inline rename on hover and preserves cancellat
   await expect(input).toBeHidden();
 });
 
+for (const viewport of [
+  { width: 720, height: 520 },
+  { width: 1280, height: 900 },
+  { width: 1400, height: 1400 },
+]) {
+  test(`composer grows, scrolls at its CSS cap and shrinks at ${viewport.height}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await page.goto(url + "?composer");
+    const message = page.getByRole("textbox", { name: "Message", exact: true });
+    const height = () => message.evaluate((element) => element.getBoundingClientRect().height);
+    await expect.poll(height).toBe(52);
+    await message.fill("A multiline draft\n".repeat(4));
+    await expect.poll(height).toBeGreaterThan(52);
+    await message.fill("A capped draft\n".repeat(80));
+    await expect.poll(height).toBe(Math.min(320, viewport.height * 0.3));
+    expect(await message.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(
+      true,
+    );
+    await message.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    expect(await message.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await message.fill("Short draft");
+    await expect.poll(height).toBe(52);
+  });
+}
+
+test("composer restores multiline drafts and shrinks after acknowledged send", async ({ page }) => {
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  const draft = "Restored draft line\n".repeat(6);
+  await message.fill(draft);
+  await expect.poll(() => message.evaluate((element) => element.clientHeight)).toBeGreaterThan(52);
+  await page.reload();
+  await expect(message).toHaveValue(draft);
+  await expect.poll(() => message.evaluate((element) => element.clientHeight)).toBeGreaterThan(52);
+  await message.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(1);
+  await page.evaluate(() => window.composerFixture.settle());
+  await expect(message).toHaveValue("");
+  await expect.poll(() => message.evaluate((element) => element.clientHeight)).toBe(52);
+});
+
+test("composer rewraps after sidebar-only resizing without changing its draft", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  const draft = "Wrapped words ".repeat(15);
+  await message.fill(draft);
+  const before = await message.boundingBox();
+  await page.getByRole("button", { name: "Show right sidebar", exact: true }).click();
+  await expect
+    .poll(() => message.evaluate((element) => element.clientWidth))
+    .toBeLessThan(before!.width - 100);
+  await expect
+    .poll(() => message.evaluate((element) => element.clientHeight))
+    .toBeGreaterThan(before!.height);
+  await expect(message).toHaveValue(draft);
+  await page.getByRole("button", { name: "Hide right sidebar", exact: true }).click();
+  await expect.poll(() => message.evaluate((element) => element.clientHeight)).toBe(before!.height);
+});
+
+test("composer remeasures wrapping on viewport resize and edited typography", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  const draft = "Wrapping content ".repeat(25);
+  await message.fill(draft);
+  const before = await message.evaluate((element) => element.clientHeight);
+  await page.setViewportSize({ width: 720, height: 1000 });
+  await expect
+    .poll(() => message.evaluate((element) => element.clientHeight))
+    .toBeGreaterThan(before);
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await expect.poll(() => message.evaluate((element) => element.clientHeight)).toBe(before);
+  await message.evaluate((element) => {
+    element.style.fontSize = "20px";
+  });
+  await message.fill(draft + " typography");
+  await expect
+    .poll(() => message.evaluate((element) => element.clientHeight))
+    .toBeGreaterThan(before);
+  await message.evaluate((element) => {
+    element.style.removeProperty("font-size");
+  });
+  await message.fill(draft);
+  await expect.poll(() => message.evaluate((element) => element.clientHeight)).toBe(before);
+});
+
+test("accepted send finishes without waiting for unrelated settings reads", async ({ page }) => {
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  await message.fill("Accepted input");
+  const reads = await page.evaluate(() => {
+    window.composerFixture.holdSettings = true;
+    return window.composerFixture.settingsReads;
+  });
+  await message.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(1);
+  await page.evaluate(() => window.composerFixture.settle());
+  // The action has acknowledged delivery and cleared its captured persisted draft.
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("composer-fixture:draft:fixture")))
+    .toBeNull();
+  await expect(message).toHaveValue("");
+  await expect(page.locator(".composer-primary")).toHaveText("Stop");
+  expect(await page.evaluate(() => window.composerFixture.settingsReads)).toBe(reads);
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(2);
+  await page.evaluate(() => window.composerFixture.settleStop());
+  await expect(page.locator(".composer-primary")).toHaveText("Send");
+  expect(await page.evaluate(() => window.composerFixture.settingsReads)).toBe(reads);
+});
+
+test("settings mutations still wait for root settings revalidation", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  const reads = await page.evaluate(() => {
+    window.composerFixture.holdSettings = true;
+    return window.composerFixture.settingsReads;
+  });
+  await page.getByRole("checkbox", { name: "Show deferred tool names" }).uncheck();
+  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.length))
+    .toBe(1);
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsReads))
+    .toBe(reads + 1);
+  await page.evaluate(() => window.composerFixture.releaseSettings());
+  await expect(page.getByText(/Settings saved\. New or reloaded conversations/)).toBeVisible();
+});
+
+test("same-turn repeated composer submission delivers only once", async ({ page }) => {
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  await message.fill("One logical input");
+  await message.evaluate((element) => {
+    for (let index = 0; index < 2; index++)
+      element.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.calls))
+    .toEqual([{ text: "One logical input", intent: "steer" }]);
+  await expect(page.locator(".composer-primary")).toHaveText("Sending…");
+  await page.evaluate(() => window.composerFixture.settle());
+  await expect(message).toHaveValue("");
+  await message.fill("Next intentional input");
+  await message.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(2);
+  await page.evaluate(() => window.composerFixture.settle());
+  await expect(message).toHaveValue("");
+});
+
+test("unknown delivery retains text and images without automatically retrying", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  await attachFixtureImage(page, "paste");
+  await message.fill("Check this delivery before sending again");
+  await message.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(1);
+  await page.evaluate(() => {
+    window.composerFixture.disconnect();
+    window.composerFixture.settle(true);
+  });
+  await expect(page.locator(".composer-wrap").getByRole("alert")).toContainText(
+    "Delivery outcome is unknown",
+  );
+  await expect(message).toHaveValue("Check this delivery before sending again");
+  await expect(page.locator(".composer .image-preview")).toHaveCount(1);
+  await expect(page.locator(".composer-primary")).toHaveText("Steer");
+  await expect(page.locator(".composer-primary")).toBeDisabled();
+  expect(await page.evaluate(() => window.composerFixture.calls.length)).toBe(1);
+  expect(await page.evaluate(() => localStorage.getItem("composer-fixture:draft:fixture"))).toBe(
+    "Check this delivery before sending again",
+  );
+});
+
 test("production composer retains new drafts and permits Stop during delivery acknowledgement", async ({
   page,
 }) => {
@@ -1089,6 +1276,9 @@ test("production composer retains new drafts and permits Stop during delivery ac
   await message.press("Enter");
   expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([]);
   await message.fill("First steering input");
+  await page.evaluate(() => {
+    window.composerFixture.holdSettings = true;
+  });
   await primary.click();
   await expect(primary).toHaveText("Sending…");
   await expect(primary).toBeDisabled();
@@ -4467,6 +4657,9 @@ test("pending image reads stay observable after leaving and reopening the chat",
 test("accepted image delivery preserves attachments added while sending", async ({ page }) => {
   await page.goto(url + "?composer");
   await attachFixtureImage(page, "paste");
+  await page.evaluate(() => {
+    window.composerFixture.holdSettings = true;
+  });
   await page.getByRole("button", { name: "Steer", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(1);
   await page.getByRole("textbox", { name: "Message", exact: true }).evaluate((element, data) => {
@@ -4975,4 +5168,165 @@ test("empty nonmessage text does not displace the five nonempty Working preview 
   await expect(page.getByLabel("Recent work")).toContainText("Meaningful work 0");
   await expect(page.getByLabel("Recent work")).toContainText("Meaningful work 4");
   await expect(page.locator(".tool-group")).toHaveCount(0);
+});
+
+test("host settings default off and persist on the selected host without loading guidance", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Application", exact: true }).click();
+  const keep = page.getByRole("checkbox", {
+    name: "Keep this server running after desktop exit",
+    exact: true,
+  });
+  await expect(keep).not.toBeChecked();
+  expect(await page.evaluate(() => window.composerFixture.instructionsReads)).toBe(0);
+  await keep.check();
+  await page.getByRole("button", { name: "Save server settings", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Server settings saved.");
+  await expect(keep).toBeChecked();
+  expect(await page.evaluate(() => window.composerFixture.settingsWrites.at(-1))).toEqual({
+    keepServerRunning: true,
+  });
+  expect(await page.evaluate(() => window.composerFixture.instructionsReads)).toBe(0);
+  await page.evaluate(() => window.composerFixture.recreateRouter());
+  await page.getByRole("tab", { name: "Application", exact: true }).click();
+  await expect(keep).toBeChecked();
+});
+
+test("host instructions create missing files, preserve exact untouched CRLF, and save empty text", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Instructions", exact: true }).click();
+  const editor = page.getByRole("textbox", { name: "AGENTS.md", exact: true });
+  await expect(editor).toHaveValue("");
+  const panelWidth = await page
+    .getByRole("tabpanel", { name: "Instructions", exact: true })
+    .evaluate((element) => element.clientWidth);
+  expect((await editor.boundingBox())!.width).toBeGreaterThan(panelWidth * 0.9);
+  await expect(page.getByText("No file yet. Save to create it.", { exact: true })).toBeVisible();
+  const content = "  λ guidance\n\ntrailing newline\n";
+  await editor.fill(content);
+  await page.getByRole("button", { name: "Save instructions", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Instructions saved.");
+  expect(await page.evaluate(() => window.composerFixture.instructionsText)).toBe(content);
+  await expect(page.getByText("No file yet. Save to create it.", { exact: true })).toBeHidden();
+  const exact = "  untouched λ\r\n\r\n";
+  await page.evaluate((text) => {
+    window.composerFixture.instructionsText = text;
+    window.composerFixture.recreateRouter();
+  }, exact);
+  await page.getByRole("tab", { name: "Instructions", exact: true }).click();
+  await expect(editor).toHaveValue(exact.replaceAll("\r\n", "\n"));
+  await page.getByRole("button", { name: "Save instructions", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Instructions saved.");
+  expect(await page.evaluate(() => window.composerFixture.instructionWrites.at(-1)?.content)).toBe(
+    exact,
+  );
+  await editor.fill("");
+  await page.getByRole("button", { name: "Save instructions", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Instructions saved.");
+  await expect.poll(() => page.evaluate(() => window.composerFixture.instructionsText)).toBe("");
+});
+
+test("host instructions preserve dirty edits through settings revalidation and failed saves", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.instructionsText = "Original guidance";
+  });
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Instructions", exact: true }).click();
+  const editor = page.getByRole("textbox", { name: "AGENTS.md", exact: true });
+  await expect(editor).toHaveValue("Original guidance");
+  await editor.fill("Keep my unsaved edit");
+  await page.getByRole("tab", { name: "Application", exact: true }).click();
+  await page
+    .getByRole("checkbox", { name: "Keep this server running after desktop exit", exact: true })
+    .check();
+  await page.getByRole("button", { name: "Save server settings", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Server settings saved.");
+  await page.getByRole("tab", { name: "Instructions", exact: true }).click();
+  await expect(editor).toHaveValue("Keep my unsaved edit");
+  await page.evaluate(() => {
+    window.composerFixture.failInstructionsSave = true;
+  });
+  await page.getByRole("button", { name: "Save instructions", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Instructions save denied");
+  await expect(editor).toHaveValue("Keep my unsaved edit");
+  expect(await page.evaluate(() => window.composerFixture.instructionsText)).toBe(
+    "Original guidance",
+  );
+  await page.evaluate(() => {
+    window.composerFixture.failInstructionsSave = false;
+  });
+  await page.getByRole("button", { name: "Save instructions", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Instructions saved.");
+  expect(await page.evaluate(() => window.composerFixture.instructionsText)).toBe(
+    "Keep my unsaved edit",
+  );
+});
+
+test("host instructions expose read errors locally and allow an explicit retry", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.failInstructionsRead = true;
+  });
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Instructions", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Instructions read denied");
+  await expect(page.getByRole("tab", { name: "Application", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.composerFixture.failInstructionsRead = false;
+  });
+  await page.getByRole("button", { name: "Retry loading instructions", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "AGENTS.md", exact: true })).toHaveValue("");
+});
+
+test("host instructions and keep-running follow selected execution host rather than a saved client preference", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.evaluate(() => window.composerFixture.selectSettingsHost("first"));
+  await page.getByRole("tab", { name: "Instructions", exact: true }).click();
+  const editor = page.getByRole("textbox", { name: "AGENTS.md", exact: true });
+  await expect(editor).toHaveValue("");
+  await editor.fill("First host only");
+  await page.getByRole("button", { name: "Save instructions", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Instructions saved.");
+  await page.getByRole("tab", { name: "Application", exact: true }).click();
+  const keep = page.getByRole("checkbox", {
+    name: "Keep this server running after desktop exit",
+    exact: true,
+  });
+  await keep.check();
+  await page.getByRole("button", { name: "Save server settings", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Server settings saved.");
+  await page.evaluate(() => window.composerFixture.selectSettingsHost("second"));
+  await page.getByRole("tab", { name: "Application", exact: true }).click();
+  await expect(keep).not.toBeChecked();
+  await page.getByRole("tab", { name: "Instructions", exact: true }).click();
+  await expect(editor).toHaveValue("");
+  await editor.fill("Second host only");
+  await page.getByRole("button", { name: "Save instructions", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Instructions saved.");
+  await page.evaluate(() => window.composerFixture.selectSettingsHost("first"));
+  await page.getByRole("tab", { name: "Instructions", exact: true }).click();
+  await expect(editor).toHaveValue("First host only");
+  await expect(page.getByText("/fixture/first/.harness/AGENTS.md", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Application", exact: true }).click();
+  await expect(keep).toBeChecked();
+  expect(await page.evaluate(() => window.composerFixture.instructionWrites)).toEqual([
+    { host: "first", content: "First host only" },
+    { host: "second", content: "Second host only" },
+  ]);
 });

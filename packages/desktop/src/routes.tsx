@@ -1,3 +1,9 @@
+import { ActionFeedback, type ActionResult } from "./components/action-feedback.tsx";
+import {
+  InstructionsSettings,
+  type InstructionsReadResult,
+} from "./components/instructions-settings.tsx";
+import TextareaAutosize from "react-textarea-autosize";
 import { ImagePreviews } from "./components/image-previews.tsx";
 import { RetryStatusLine } from "./components/retry-status.tsx";
 import {
@@ -71,6 +77,8 @@ import {
 import {
   appAuthLogoutRequest,
   appSettingsUpdateRequest,
+  appInstructionsRequest,
+  appInstructionsUpdateRequest,
   appProviderConfigUpdateRequest,
   appProviderCreateRequest,
   modelRetriesSettingsSchema,
@@ -84,7 +92,6 @@ import {
   Input,
   Select,
   SelectItem,
-  Textarea,
   IconButton,
   PopoverControl,
   Confirmation,
@@ -118,8 +125,6 @@ import {
   X,
 } from "lucide-react";
 
-type ActionResult =
-  { ok: true; message?: string; restartRequired?: boolean } | { ok: false; message: string };
 const composerFields = [
   "turn",
   "pendingInput",
@@ -367,6 +372,19 @@ export function createDesktopRouter(
             message: "Provider settings saved. Restart the server to apply the change.",
           };
         }
+        case "server-settings":
+          await session.client.peer.request(appSettingsUpdateRequest, {
+            keepServerRunning: data.get("keepServerRunning") === "on",
+          });
+          return { ok: true, message: "Server settings saved." };
+        case "instructions":
+          await session.client.peer.request(appInstructionsUpdateRequest, {
+            content: field(data, "content"),
+          });
+          return {
+            ok: true,
+            message: "Instructions saved. Applies to new or reloaded conversations.",
+          };
         case "settings": {
           const compactionInput = field(data, "compactionThresholdTokens");
           const compactionThresholdTokens =
@@ -454,13 +472,6 @@ export function createDesktopRouter(
     }
   }
 
-  function ActionFeedback({ data }: { data: ActionResult | undefined }) {
-    return data && "message" in data ? (
-      <p role={data.ok ? "status" : "alert"} className={data.ok ? "muted" : "error"}>
-        {data.message}
-      </p>
-    ) : null;
-  }
   function RestartButton() {
     const returnFocus = useRef<HTMLDivElement>(null);
     const [busy, setBusy] = useState(false);
@@ -1748,7 +1759,17 @@ export function createDesktopRouter(
       }, [id]);
       const imagePicker = useRef<HTMLInputElement>(null);
       const textarea = useRef<HTMLTextAreaElement>(null);
+      const [, setComposerWidth] = useState(0);
+      useEffect(() => {
+        // Autosize handles window resize, but sidebars can change only this width.
+        const observer = new ResizeObserver(([entry]) => {
+          if (entry) setComposerWidth(entry.contentRect.width);
+        });
+        observer.observe(textarea.current!);
+        return () => observer.disconnect();
+      }, []);
       const handled = useRef<ActionResult | undefined>(undefined);
+      const submitting = useRef(false);
       const running = view.state.turn.status === "running";
       const preferences = useComposerPreferences();
       const defaultDelivery = running ? "steer" : "send";
@@ -1771,14 +1792,18 @@ export function createDesktopRouter(
         }
       }, [send.state, send.data, id]);
       const submit = (delivery: "send" | "queue" | "steer") => {
-        if (disabled) return;
+        if (disabled || submitting.current) return;
         const data = new FormData();
         data.set("intent", "send");
         data.set("conversationId", id);
         data.set("text", text);
         data.set("delivery", delivery);
         data.set("images", JSON.stringify(images));
-        void send.submit(data, { method: "post", action: "/actions" });
+        // React can batch repeated input events before the fetcher renders busy.
+        submitting.current = true;
+        void send.submit(data, { method: "post", action: "/actions" }).finally(() => {
+          submitting.current = false;
+        });
       };
       const interrupt = () => {
         if (!running || stop.state !== "idle" || session.disconnected) return;
@@ -1866,7 +1891,8 @@ export function createDesktopRouter(
               <Input type="hidden" name="intent" value="send" />
               <Input type="hidden" name="conversationId" value={id} />
               <Input type="hidden" name="delivery" value={defaultDelivery} />
-              <Textarea
+              <TextareaAutosize
+                className="input"
                 ref={textarea}
                 name="text"
                 aria-label="Message"
@@ -2507,10 +2533,12 @@ export function createDesktopRouter(
     useLive();
     const { settings } = useRouteLoaderData<RootData>("app")!;
     const save = useFetcher<ActionResult>();
+    const hostSave = useFetcher<ActionResult>();
     const [search, setSearch] = useSearchParams();
     const sections = [
       "Appearance",
       "Composer",
+      "Instructions",
       "Defaults",
       "Providers",
       "Feedback",
@@ -2561,6 +2589,13 @@ export function createDesktopRouter(
               <p className="muted">Keyboard shortcuts and optional turn statistics.</p>
             </div>
             <ComposerSettings />
+          </Tabs.Content>
+          <Tabs.Content value="instructions" forceMount className="settings-panel">
+            <InstructionsSettings
+              key={session.storageKey("instructions")}
+              active={section === "instructions"}
+              disconnected={Boolean(session.disconnected)}
+            />
           </Tabs.Content>
           <Tabs.Content value="defaults" forceMount className="settings-panel">
             <div className="section-heading">
@@ -2825,6 +2860,33 @@ export function createDesktopRouter(
               <h2>Application</h2>
               <p className="muted">Server lifecycle and local storage.</p>
             </div>
+            <hostSave.Form
+              key={String(settings.settings.keepServerRunning)}
+              method="post"
+              action="/actions"
+              className="form-grid form-single-column"
+            >
+              <Input type="hidden" name="intent" value="server-settings" />
+              <label className="check-label">
+                <Checkbox
+                  name="keepServerRunning"
+                  defaultChecked={settings.settings.keepServerRunning}
+                  disabled={hostSave.state !== "idle" || Boolean(session.disconnected)}
+                />
+                Keep this server running after desktop exit
+              </label>
+              <p className="muted">
+                Saved on {connections.label}. When off, exit stops this server unless another client
+                is connected.
+              </p>
+              <Button
+                type="submit"
+                disabled={hostSave.state !== "idle" || Boolean(session.disconnected)}
+              >
+                {hostSave.state === "idle" ? "Save server settings" : "Saving…"}
+              </Button>
+              <ActionFeedback data={hostSave.data} />
+            </hostSave.Form>
             <DesktopUpdates />
             <div className="storage-location">
               <h3>Harness home</h3>
@@ -2988,6 +3050,16 @@ export function createDesktopRouter(
         id: "app",
         path: "/",
         Component: Layout,
+        shouldRevalidate: ({ formAction, formData, defaultShouldRevalidate }) => {
+          const intent = formData?.get("intent");
+          // These actions do not change the settings/provider snapshot.
+          if (
+            formAction === "/actions" &&
+            (intent === "send" || intent === "stop" || intent === "instructions")
+          )
+            return false;
+          return defaultShouldRevalidate;
+        },
         loader: async (): Promise<RootData> => {
           const [settings] = await Promise.all([
             session.readSettings(),
@@ -3041,6 +3113,19 @@ export function createDesktopRouter(
             ErrorBoundary: RouteError,
           },
           { path: "settings", Component: Settings },
+          {
+            path: "instructions",
+            loader: async (): Promise<InstructionsReadResult> => {
+              try {
+                return {
+                  ok: true,
+                  document: await session.client.peer.request(appInstructionsRequest, {}),
+                };
+              } catch (error) {
+                return { ok: false, message: errorMessage(error) };
+              }
+            },
+          },
           { path: "actions", action },
         ],
       },

@@ -47,7 +47,7 @@ export const clientConfigSchema = z
     version: z.literal(1),
     hosts: z.array(hostSchema).min(1).max(100),
     selectedHostId: z.string().min(1),
-    desktop: z.strictObject({ keepServerRunning: z.boolean() }),
+    desktop: z.strictObject({ keepServerRunning: z.boolean() }).optional(),
   })
   .superRefine((config, ctx) => {
     if (config.hosts.filter((host) => host.kind === "local").length !== 1)
@@ -56,13 +56,13 @@ export const clientConfigSchema = z
       ctx.addIssue({ code: "custom", message: "Host IDs must be unique" });
     if (!config.hosts.some((host) => host.id === config.selectedHostId))
       ctx.addIssue({ code: "custom", message: "Selected host does not exist" });
-  });
+  })
+  .transform(({ version, hosts, selectedHostId }) => ({ version, hosts, selectedHostId }));
 export type ClientConfig = z.infer<typeof clientConfigSchema>;
 export const defaultClientConfig = (): ClientConfig => ({
   version: 1,
   hosts: [{ ...LOCAL_HOST }],
   selectedHostId: "local",
-  desktop: { keepServerRunning: false },
 });
 
 export const serverIdentitySchema = z.strictObject({
@@ -89,6 +89,7 @@ export const managementStopRequest = defineRequest({
   params: z.strictObject({ instanceId: z.uuid(), ifIdle: z.boolean().default(false) }),
   result: z.strictObject({ accepted: z.boolean() }),
 });
+/** Relinquishes this disposable control socket, even when another observer prevents stop. */
 export const managementReleaseRequest = defineRequest({
   direction: "client-to-server",
   method: "management.release",
@@ -107,7 +108,7 @@ export const serverStopRequest = defineRequest({
   params: z.strictObject({}),
   result: z.strictObject({ accepted: z.literal(true) }),
 });
-/** Exit stops an otherwise unobserved local owner without interrupting another client. */
+/** Relinquishes observation irrevocably; the caller must not continue using this connection. */
 export const serverReleaseRequest = defineRequest({
   direction: "client-to-server",
   method: "server.release",
@@ -133,9 +134,12 @@ export const connectionCommandSchema = z.union([
   z.strictObject({ type: z.literal("host.save"), host: hostSchema }),
   z.strictObject({ type: z.literal("host.remove"), id: z.string() }),
   z.strictObject({ type: z.literal("host.select"), id: z.string() }),
-  z.strictObject({ type: z.literal("preferences"), keepServerRunning: z.boolean() }),
   z.strictObject({ type: z.literal("wsl.list") }),
-  z.strictObject({ type: z.literal("desktop.exit"), identity: serverIdentitySchema }),
+  z.strictObject({
+    type: z.literal("desktop.exit"),
+    target: hostConnectionTargetSchema,
+    identity: serverIdentitySchema,
+  }),
   z.strictObject({ type: z.literal("runtime.prepare"), host: remoteHostSchema }),
   z.strictObject({
     type: z.literal("server.stop"),
@@ -154,7 +158,7 @@ export type ConnectionCommand = z.infer<typeof connectionCommandSchema>;
 export type ClientConfigCommand = Extract<
   ConnectionCommand,
   {
-    type: "config.read" | "host.save" | "host.remove" | "host.select" | "preferences";
+    type: "config.read" | "host.save" | "host.remove" | "host.select";
   }
 >;
 const commandResults = {
@@ -162,7 +166,6 @@ const commandResults = {
   "host.save": clientConfigSchema,
   "host.remove": clientConfigSchema,
   "host.select": clientConfigSchema,
-  preferences: clientConfigSchema,
   "wsl.list": z.array(z.string()),
   "runtime.prepare": preparedRuntimeSchema,
   "server.stop": z.null(),

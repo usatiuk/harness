@@ -35,15 +35,19 @@ export async function runConnectionCommand(
       return removeHost(command.id);
     case "host.select":
       return updateClientConfig((config) => ({ ...config, selectedHostId: command.id }));
-    case "preferences":
-      return updateClientConfig((config) => ({
-        ...config,
-        desktop: { keepServerRunning: command.keepServerRunning },
-      }));
     case "wsl.list":
       return discoverWsl(options.signal);
     case "desktop.exit": {
-      if ((await readClientConfig()).desktop.keepServerRunning) return null;
+      if (command.target.runtime !== null) {
+        await stopRemoteServer(
+          command.target.host,
+          command.target.runtime,
+          command.identity,
+          options,
+          true,
+        );
+        return null;
+      }
       const current = await readDiscovery(command.identity.home);
       if (
         !current ||
@@ -77,10 +81,11 @@ export async function stopRemoteServer(
   runtime: PreparedRuntime,
   expected: z.infer<typeof serverIdentitySchema>,
   options: RemoteOptions = {},
+  ifAlone = false,
 ): Promise<void> {
   const transport = await connectRemote(host, runtime, options, false);
   try {
-    await stopConnection(transport.connection, expected);
+    await stopConnection(transport.connection, expected, ifAlone);
   } finally {
     await transport.close();
   }

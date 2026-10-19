@@ -240,10 +240,6 @@ function CommandCenter({
     { label: "Provider sign-in / sign-out", value: "auth" },
     { label: "Selected host defaults", value: "settings" },
     { label: "MCP servers / permissions / credentials", value: "mcp" },
-    {
-      label: `Desktop exit: ${hosts.config?.desktop.keepServerRunning ? "keep Local running" : "stop Local when alone"}`,
-      value: "preference",
-    },
     { label: "Return to conversation", value: "done" },
     { label: "Quit TUI (keep servers running)", value: "quit" },
   ];
@@ -262,13 +258,6 @@ function CommandCenter({
     if (value === "done") onDone();
     else if (value === "quit") exit();
     else if (value === "ssh") add("ssh");
-    else if (value === "preference")
-      act(() =>
-        hosts.edit({
-          type: "preferences",
-          keepServerRunning: !hosts.config!.desktop.keepServerRunning,
-        }),
-      );
     else if (value === "wsl")
       act(async () => {
         setDistributions(await discoverWsl());

@@ -277,10 +277,37 @@ for (const kind of ["wsl", "ssh"] as const)
         expect(next.buildId).toBe(changed.buildId);
         expect(next.instanceId).not.toBe(identity.instanceId);
         expect(next.serverId).toBe(identity.serverId);
-        const ended = new Promise<void>((resolve) => restarted.connection.onClose(() => resolve()));
-        await updated.peer.request(serverStopRequest, {});
-        await ended;
+        const keepRunning = async (value: boolean) => {
+          const script = `const fs=require('node:fs');const path=${JSON.stringify(`${next.home}/settings.json`)};const doc=fs.existsSync(path)?JSON.parse(fs.readFileSync(path,'utf8')):{version:1};doc.desktop={keepServerRunning:${value}};fs.writeFileSync(path,JSON.stringify(doc));`;
+          await runRemote(host, `${shellQuote(changed.node)} -e ${shellQuote(script)}`, options);
+        };
+        await keepRunning(true);
+        updated.closeConnection();
         await restarted.close();
+        await stopRemoteServer(host, changed, next, options, true);
+        const retained = await connectRemote(host, changed, options, false);
+        const observer = new HarnessClient({
+          connection: retained.connection,
+          client: { name: "remote-exit-policy", version: "1" },
+        });
+        clients.push(observer);
+        await observer.start();
+        expect(await observer.peer.request(serverInfoRequest, {})).toEqual(next);
+        await keepRunning(false);
+        // An ordinary observer still protects the owner from an exit control.
+        await stopRemoteServer(host, changed, next, options, true);
+        expect(await observer.peer.request(serverInfoRequest, {})).toEqual(next);
+        observer.closeConnection();
+        await retained.close();
+        await stopRemoteServer(host, changed, next, options, true);
+        const discoveryPath = shellQuote(`${runtime.home}/.running-server/discovery.json`);
+        expect(await runRemote(host, `test ! -f ${discoveryPath} && printf stopped`, options)).toBe(
+          "stopped",
+        );
+        await expect(stopRemoteServer(host, changed, next, options, true)).rejects.toThrow();
+        expect(await runRemote(host, `test ! -f ${discoveryPath} && printf absent`, options)).toBe(
+          "absent",
+        );
       } finally {
         for (const client of clients) client.closeConnection();
         if (runtime) {

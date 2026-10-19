@@ -27,9 +27,9 @@ with a newer published version, including its native launcher.
 New releases target Windows x64, Linux x64/ARM64 glibc and Apple Silicon macOS.
 Intel macOS release builds are discontinued.
 
-**0.9.0 upgrade notice:** The release-signing key is being rotated. Install 0.9.0
-manually from GitHub Releases once published; older installations cannot
-authenticate its automatic update. Do not disable signature verification.
+**0.9.0 upgrade notice:** The release-signing key was rotated. Install 0.9.0 or
+later manually from GitHub Releases if upgrading from an older trust root; those
+installations cannot authenticate the automatic update. Do not disable signature verification.
 Subsequent updates use the new signing key.
 
 Prior attempts (reference only, not tracked here) live under `old/`.
@@ -70,8 +70,10 @@ Put personal rules in `$HARNESS_HOME/AGENTS.md` (normally
 subagents, including conversations without a workspace, before applicable project
 `AGENTS.md` files. It supplements role prompts rather than replacing them.
 SSH/WSL servers use their own Harness home; client files are not uploaded.
-Instruction files are snapshotted for the loaded runtime; reload the conversation
-to pick up edits. Symlinked instruction files are not followed.
+Edit the selected host’s file in Settings → Instructions, or with a text editor.
+Saving writes that file, not a second instructions setting. Instruction files are
+snapshotted for the loaded runtime; new or reloaded conversations pick up edits.
+Symlinked instruction files are not followed.
 
 ## Client/server modes
 
@@ -159,9 +161,14 @@ work. Installed clients prepare the newer of their required server release and t
 saved selection on connect. They reuse newer owners and never downgrade. An older
 idle server is replaced automatically; active turns or background work leave it
 running and show a warning to finish/stop the work and reconnect. No separate server
-update action is needed. Desktop exit defaults to stopping Local when no other client uses it;
-enable the remembered keep-running preference for Local background work.
-Remote stop/restart is explicit. Provider credential changes require an
+update action is needed. Desktop exit defaults to stopping each connected host’s
+server when no other client uses it. To opt in to background work, select that
+host and save “Keep this server running after desktop exit” in Settings →
+Application. This is host-local `desktop.keepServerRunning` in that server’s
+`$HARNESS_HOME/settings.json`, shared by all its clients, not a saved-connection
+preference. The old client-local preference is retired; opt in separately on
+each host. Host switching, Disconnect and TUI exit still detach without stopping
+work. Explicit Stop/Restart remains available. Provider credential changes require an
 explicit server restart. There is no tray or login autostart.
 The exclusive database lock protects the server in its normal `~/.harness`
 directory. Connections do not select alternative homes or profiles.

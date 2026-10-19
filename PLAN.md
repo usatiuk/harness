@@ -1,13 +1,21 @@
 # Harness plan
 
+The active [desktop composer and host-local settings corrections](docs/plans/interface/2026-10-19-desktop-host-settings-and-composer.md)
+plan covers accepted-send completion/duplicate admission, library-based composer
+sizing, host-owned keep-running (default false), and a selected-host AGENTS.md
+editor. Implementation reuses existing router/settings/lifetime boundaries.
+Integrated checks pass 2,134 tests (46 skips), with 184 Chromium cases and actual
+production Composer qualification on WebKitGTK 2.50.4 and 2.52.6. Real isolated
+Docker/OpenSSH covers host policy and missing-owner no-start. Independent reviews
+approve the source; final delivery/release checks remain in the plan.
+
 The [Linux ARM64 delivery](docs/plans/cross-cutting/2026-10-19-linux-arm64-support.md)
-adds native ARM64 glibc CLI/server/desktop artifacts, target-correct remote
-preparation, and an extensible signed target inventory. The user authorized a
-minor release and signing-key rotation: older installations require a manual
-0.9.0 installation, with no verification bypass or old-key fallback. Native ARM
-source CI passes; corrected Windows fixtures and the final trust-root changes
-await fresh hosted CI. Publication and actual ARM release artifacts remain
-pending. It also includes their literal agent-to-agent communication guidance.
+shipped native ARM64 glibc CLI/server/desktop artifacts, target-correct remote
+preparation and an extensible signed target inventory in **0.9.0** (source
+`70a0958`, release run `39326864976`). All four release builds and 24 public assets
+are verified. The signing-key rotation requires manual installation when upgrading
+from pre-0.9.0 trust roots, with no signature bypass or old-key fallback. It also
+includes the literal agent-to-agent communication guidance.
 
 The [transcript reading follow-up](docs/plans/interface/2026-10-19-transcript-reading-follow-up.md)
 corrects disruptive history/Working reading jumps and removes the terminal-style

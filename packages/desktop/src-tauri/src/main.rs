@@ -49,7 +49,7 @@ struct Bridge {
     servers: Mutex<HashMap<u64, Server>>,
     commands: Mutex<HashMap<u64, ConnectionCommand>>,
     next_id: AtomicU64,
-    exit_owner: Mutex<Option<serde_json::Value>>,
+    exit_owners: Mutex<HashMap<String, serde_json::Value>>,
     helper_runtime: Mutex<Option<Arc<runtime::ServerRuntime>>>,
     shutdown: Mutex<Option<Result<(), String>>>,
     stopping: AtomicBool,
@@ -64,7 +64,7 @@ impl Bridge {
         if let Some(result) = completed.as_ref() {
             return result.clone();
         }
-        let failures: Vec<_> = [self.close_all().await, release_local_owner(self).await]
+        let failures: Vec<_> = [self.close_all().await, release_owners(self).await]
             .into_iter()
             .filter_map(Result::err)
             .collect();
@@ -75,6 +75,22 @@ impl Bridge {
         };
         *completed = Some(result.clone());
         result
+    }
+
+    async fn remember_owner(
+        &self,
+        target: &serde_json::Value,
+        identity: &serde_json::Value,
+    ) -> Result<(), String> {
+        let server_id = identity["serverId"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or("Owner diagnostic has no server identity")?;
+        self.exit_owners.lock().await.insert(
+            server_id.into(),
+            serde_json::json!({"type":"desktop.exit", "target":target, "identity":identity}),
+        );
+        Ok(())
     }
 
     async fn begin_operation(
@@ -110,7 +126,7 @@ impl Bridge {
             (already_exited, server.done.clone())
         };
         // Keep closing bridges visible to app shutdown. Every caller waits for
-        // the same completion before conditional release of the Local owner.
+        // the same completion before conditional release of remembered execution owners.
         let result = done
             .wait_for(|result| result.is_some())
             .await
@@ -157,6 +173,41 @@ impl Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn remembered_owners_share_identity_not_alias_and_survive_disconnect() {
+        let bridge = Arc::new(Bridge::default());
+        let local = serde_json::json!({"host":{"kind":"local","id":"local"},"runtime":null});
+        let remote =
+            serde_json::json!({"host":{"kind":"ssh","id":"alias"},"runtime":{"home":"/host"}});
+        bridge
+            .remember_owner(
+                &local,
+                &serde_json::json!({"serverId":"one","instanceId":"old"}),
+            )
+            .await
+            .unwrap();
+        bridge
+            .remember_owner(
+                &remote,
+                &serde_json::json!({"serverId":"one","instanceId":"new"}),
+            )
+            .await
+            .unwrap();
+        bridge
+            .remember_owner(
+                &local,
+                &serde_json::json!({"serverId":"two","instanceId":"other"}),
+            )
+            .await
+            .unwrap();
+        bridge.close_all().await.unwrap();
+        let owners = bridge.exit_owners.lock().await;
+        assert_eq!(owners.len(), 2);
+        assert_eq!(owners["one"]["identity"]["instanceId"], "new");
+        assert_eq!(owners["one"]["target"], remote);
+        assert_eq!(owners["two"]["target"], local);
+    }
 
     #[tokio::test]
     async fn shutdown_cancels_and_awaits_preparation_and_rejects_new_admission() {
@@ -270,7 +321,8 @@ async fn read_frames(
 
 async fn read_diagnostics(
     error: tokio::process::ChildStderr,
-    local_owner: Option<Arc<Bridge>>,
+    bridge: Arc<Bridge>,
+    target: serde_json::Value,
 ) -> Result<String, String> {
     let mut reader = BufReader::new(error);
     let mut tail = Vec::new();
@@ -287,12 +339,10 @@ async fn read_diagnostics(
         if count > MAX_FRAME {
             return Err("Server diagnostic line exceeds limit".into());
         }
-        if let Some(bridge) = &local_owner {
-            if let Ok(event) = serde_json::from_slice::<serde_json::Value>(&line) {
-                if event["type"] == "localOwner" {
-                    *bridge.exit_owner.lock().await = Some(event["identity"].clone());
-                    continue;
-                }
+        if let Ok(event) = serde_json::from_slice::<serde_json::Value>(&line) {
+            if event["type"] == "serverOwner" {
+                bridge.remember_owner(&target, &event["identity"]).await?;
+                continue;
             }
         }
         tail.extend_from_slice(&line);
@@ -464,10 +514,11 @@ async fn connect_server(
     if bridge.stopping.load(Ordering::Acquire) || *canceled.borrow() {
         return Err("Desktop is shutting down".into());
     }
+    let target = serde_json::json!({"host": host, "runtime": runtime});
     let mut command = prepared.command();
     command
         .arg("--host-bridge")
-        .arg(serde_json::json!({"host": host, "runtime": runtime}).to_string())
+        .arg(target.to_string())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -489,10 +540,11 @@ async fn connect_server(
     let (cancel, canceled) = watch::channel(false);
     let owner_cancel = cancel.clone();
     let reader_credit = credit.clone();
-    let local_owner = (host["kind"] == "local").then(|| bridge.clone());
+    let diagnostic_owner = bridge.clone();
     tauri::async_runtime::spawn(async move {
         let _prepared = prepared;
-        let diagnostics = tauri::async_runtime::spawn(read_diagnostics(error, local_owner));
+        let diagnostics =
+            tauri::async_runtime::spawn(read_diagnostics(error, diagnostic_owner, target));
         let stream_channel = channel.clone();
         let mut stream = tauri::async_runtime::spawn(async move {
             read_frames(output, &stream_channel, id, reader_credit, canceled).await
@@ -603,23 +655,35 @@ async fn server_ack(bridge: tauri::State<'_, Arc<Bridge>>, id: u64) -> Result<()
 async fn server_disconnect(bridge: tauri::State<'_, Arc<Bridge>>, id: u64) -> Result<(), String> {
     bridge.close(id).await
 }
-async fn release_local_owner(bridge: &Bridge) -> Result<(), String> {
-    let Some(identity) = bridge.exit_owner.lock().await.clone() else {
+async fn release_owners(bridge: &Bridge) -> Result<(), String> {
+    // Successful connections retain their exit obligation after manual disconnect.
+    // Every physical bridge has drained before independent controls can release owners.
+    let owners: Vec<_> = bridge.exit_owners.lock().await.values().cloned().collect();
+    if owners.is_empty() {
         return Ok(());
-    };
+    }
     let prepared = bridge
         .helper_runtime
         .lock()
         .await
         .clone()
-        .ok_or("Local owner has no prepared control helper")?;
-    let mut process = prepared.command();
-    process
-        .arg("--connection-command")
-        .arg(serde_json::json!({"type":"desktop.exit", "identity":identity}).to_string());
-    let (_cancel, canceled) = watch::channel(false);
-    command::execute(process, canceled, |_| Ok(()), Some(Duration::from_secs(25))).await?;
-    Ok(())
+        .ok_or("Execution owners have no prepared control helper")?;
+    let mut failures = Vec::new();
+    for owner in owners {
+        let mut process = prepared.command();
+        process.arg("--connection-command").arg(owner.to_string());
+        let (_cancel, canceled) = watch::channel(false);
+        if let Err(error) =
+            command::execute(process, canceled, |_| Ok(()), Some(Duration::from_secs(25))).await
+        {
+            failures.push(error);
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
 }
 #[tauri::command]
 async fn desktop_update(

@@ -1118,7 +1118,6 @@ main {
   min-height: 52px;
   max-height: clamp(52px, 30vh, 320px);
   resize: none;
-  field-sizing: content;
   background: transparent;
   line-height: 1.6;
 }
@@ -1285,6 +1284,9 @@ main {
 .storage-location {
   margin-bottom: 28px;
   overflow-wrap: anywhere;
+}
+.settings-page .form-grid.form-single-column {
+  grid-template-columns: minmax(0, 1fr);
 }
 .settings-page .form-grid > .control {
   grid-column: 1 / -1;

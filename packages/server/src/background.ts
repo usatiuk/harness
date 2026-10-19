@@ -3,7 +3,7 @@ import type { Socket } from "node:net";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { defaultHome } from "@harness/config";
+import { defaultHome, readGlobalSettings } from "@harness/config";
 import { HARNESS_PROTOCOL_VERSION } from "@harness/protocol";
 import { BUILD_IDENTITY } from "@harness/release";
 import { ResponseError, ErrorCodes } from "vscode-jsonrpc";
@@ -35,7 +35,7 @@ export async function runBackgroundServer(): Promise<void> {
   process.env["HARNESS_HOME"] = home;
   let composition: ServerComposition | undefined;
   const startup = new AbortController();
-  const sockets = new Map<Socket, NdjsonTransport | null>();
+  const sockets = new Map<Socket, { transport: NdjsonTransport | null; relinquished: boolean }>();
   let stopping = false;
   let listenerFailure: Error | undefined;
   let stop!: () => void;
@@ -96,7 +96,8 @@ export async function runBackgroundServer(): Promise<void> {
           socket.destroy();
           return;
         }
-        sockets.set(socket, null);
+        const state = { transport: null as NdjsonTransport | null, relinquished: false };
+        sockets.set(socket, state);
         socket.once("close", () => sockets.delete(socket));
         // Authentication failures are classified external failures, before any RPC admission.
         void authenticateSocket(socket).then(
@@ -114,7 +115,19 @@ export async function runBackgroundServer(): Promise<void> {
               socket.write(identityFrame);
               const transport = createNdjsonTransport(socket, socket);
               const session = owner.connect(transport.connection);
-              sockets.set(socket, transport);
+              state.transport = transport;
+              const release = async () => {
+                const keepRunning =
+                  (await readGlobalSettings(home)).desktop?.keepServerRunning ?? false;
+                // Release explicitly surrenders this connection, including when other
+                // consumers defer stop. Concurrent disposable controls are not observers.
+                state.relinquished = true;
+                if (keepRunning || [...sockets.values()].some((peer) => !peer.relinquished))
+                  return { stopping: false };
+                stopping = true;
+                setImmediate(stop);
+                return { stopping: true };
+              };
               // This small management surface is independent of application
               // initialization, including an incompatible application handshake.
               const inspect = managementInspectRequest;
@@ -146,10 +159,7 @@ export async function runBackgroundServer(): Promise<void> {
                     ErrorCodes.InvalidParams,
                     "Server instance changed; reconnect before releasing it",
                   );
-                if (sockets.size !== 1) return { stopping: false };
-                stopping = true;
-                setImmediate(stop);
-                return { stopping: true };
+                return release();
               });
               session.onRequest(serverInfoRequest, () => identity);
               session.onRequest(serverStopRequest, () => {
@@ -157,12 +167,7 @@ export async function runBackgroundServer(): Promise<void> {
                 setImmediate(stop);
                 return { accepted: true as const };
               });
-              session.onRequest(serverReleaseRequest, () => {
-                if (sockets.size !== 1) return { stopping: false };
-                stopping = true;
-                setImmediate(stop);
-                return { stopping: true };
-              });
+              session.onRequest(serverReleaseRequest, release);
             } catch (error) {
               socket.destroy();
               fail(
@@ -206,7 +211,7 @@ export async function runBackgroundServer(): Promise<void> {
         // Destroying the socket first can discard the Stop acknowledgement.
         const drainage = AbortSignal.timeout(20_000);
         await Promise.all(
-          [...sockets].map(async ([socket, connection]) => {
+          [...sockets].map(async ([socket, { transport: connection }]) => {
             if (connection === null) {
               socket.destroy();
               return;

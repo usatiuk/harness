@@ -2039,3 +2039,55 @@ server home capture before shell initialization. Tests use `realpath` for Window
 account aliases and set `USERPROFILE` as well as `HOME` on Windows, asserting
 `os.homedir()` before and after the simulated startup change. Local Linux success
 does not establish Windows behavior; fresh hosted Windows CI remains required.
+
+## Composer and host-local settings (October 19)
+
+The [delivery plan](plans/interface/2026-10-19-desktop-host-settings-and-composer.md)
+tracks the four scoped corrections and patch publication. Production-router
+browser regressions hold settings reads independently of accepted delivery,
+exercise two Enter events in one turn, preserve edited text/images and unknown
+outcomes, retain independent Stop, and prove genuine settings mutations still
+revalidate. Autosizing assertions measure growth/shrink, viewport CSS caps,
+internal scroll and sidebar-only wrapping, rather than footer clearance alone.
+
+Settings cases exercise lazy fixed-resource guidance loading, missing/empty
+files, exact untouched CRLF save, dirty/error preservation, explicit retry and
+selected-host isolation, plus the loaded host keep-running default and save.
+The guidance editor uses the full settings measure rather than half of a
+multi-field grid. Isolated real RPC/config tests verify global-only policy,
+multiple observers/homes/reconnects, atomic failures, existing permission modes,
+new-file 0600, nonregular/symlink rejection and operation drainage. API-driven
+service tests establish old/new/reloaded runtime instruction snapshots.
+
+Real background sockets verify overlapping explicit releases, a newly admitted
+client during the settings read, persisted policy changes without restart,
+surviving observers, failed/stale controls, public/management parity and explicit
+Stop independence. Ordinary close never triggers a later shutdown. Raw control
+EOF tests use real NDJSON queueing: in-process immediate-close ordering does not
+model management transport response drainage.
+
+The existing Docker/OpenSSH suite now also checks keep=true, live-observer
+protection, keep=false last-client release and attach-only missing-owner failure
+without replacement startup. It uses only an owned disposable container and
+loopback SSH with temporary key/config/home; no saved hosts. The source bridge
+reporting/stale-instance regression separately substitutes only SSH execution;
+it is not claimed as real SSH proof.
+
+Full integrated source checks pass **2,134 / 46 skips** and Chromium **184/184**.
+Native headless tests cover retained/coalesced owner obligations and physical
+bridge drainage; Windows/real-WSL GUI specifications are updated but were not
+executed locally. Earlier remote-survival GUI fixtures now explicitly opt in to
+keep-running, because the default applies to remote desktop exit too. Source
+Rust checks and remote controls do not claim complete AppImage or Windows GUI
+qualification.
+
+An ephemeral GTK/Xvfb probe runs the actual production-built Composer using both
+system WebKitGTK **2.52.6** and the authenticated 0.9.0 AppImage's WebKit/JSC
+**2.50.4**. Both grow 52→176px, cap at 300px in a 1000px window, rewrap 66→88px on
+sidebar opening, shrink to 52px and clear after accepted send. The old engine
+reports native field-sizing unsupported and its original CSS-only textarea stays
+52px. The bundle probe preloads host GLib to interoperate with host PyGObject and
+uses bundled WebKit subprocesses; it qualifies that engine with the real source
+Composer, **not the complete installed AppImage**. All profiles/displays are
+isolated and no installed Harness instance is launched. Raw evidence is under
+`.harness/composer-20261019/`; temporary fixture servers were stopped after use.

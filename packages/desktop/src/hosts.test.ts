@@ -90,7 +90,7 @@ it("adopts external route edits and removals before reusing a saved connection",
     ...config,
     hosts: [config.hosts[0]!, { ...remote, label: "Renamed" }],
   };
-  await hosts.edit({ type: "preferences", keepServerRunning: true });
+  await hosts.edit({ type: "host.save", host: remote });
   await hosts.connect("remote");
   expect(hosts.selected!.session).toBe(previous);
   config = { ...config, hosts: [config.hosts[0]!, { ...remote, destination: "second" }] };
@@ -100,7 +100,7 @@ it("adopts external route edits and removals before reusing a saved connection",
   expect(native.connect.mock.lastCall?.[0]).toMatchObject({ host: { destination: "second" } });
   const second = hosts.selected!.session!;
   config = defaultClientConfig();
-  await hosts.edit({ type: "preferences", keepServerRunning: true });
+  await hosts.edit({ type: "host.save", host: remote });
   expect(second.client.peer.ready).toBe(false);
   expect(hosts.views.has("remote")).toBe(false);
   await hosts.disconnect("local");

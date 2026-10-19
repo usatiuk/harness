@@ -118,7 +118,7 @@ export class TuiHosts {
     if (selectedId) await this.updateConfig({ type: "host.select", id: selectedId });
   }
   async edit(
-    command: Extract<ConnectionCommand, { type: "host.save" | "host.remove" | "preferences" }>,
+    command: Extract<ConnectionCommand, { type: "host.save" | "host.remove" }>,
   ): Promise<void> {
     await this.updateConfig(command);
   }

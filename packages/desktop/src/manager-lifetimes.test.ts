@@ -102,7 +102,7 @@ async function fixture(kind: "desktop" | "tui") {
 it.each(["desktop", "tui"] as const)(
   "%s cancels connect/upload while registry adoption is pending",
   async (kind) => {
-    const { hosts, command } = await fixture(kind);
+    const { hosts, command, remote } = await fixture(kind);
     for (const operation of ["connect", "refresh"] as const) {
       let entered!: () => void, release!: () => void;
       const started = new Promise<void>((resolve) => {
@@ -112,13 +112,13 @@ it.each(["desktop", "tui"] as const)(
         release = resolve;
       });
       edge.command.mockImplementation(async (value: ConnectionCommand) => {
-        if (value.type === "preferences") {
+        if (value.type === "host.save") {
           entered();
           await gate;
         }
         return command(value);
       });
-      const editing = hosts.edit({ type: "preferences", keepServerRunning: true });
+      const editing = hosts.edit({ type: "host.save", host: remote });
       await started;
       const pending = operation === "connect" ? hosts.connect("remote") : hosts.refresh("remote");
       const rejected = expect(pending).rejects.toThrow();
@@ -158,7 +158,7 @@ it.each(["desktop", "tui"] as const)(
     const stopping = hosts.stop("remote");
     await started;
     replace({ ...remote, destination: "second" });
-    await hosts.edit({ type: "preferences", keepServerRunning: true });
+    await hosts.edit({ type: "host.save", host: remote });
     await hosts.connect("remote");
     const client =
       hosts instanceof DesktopHosts
