@@ -305,3 +305,18 @@ both engines (`act_13c431e4`), without starting Harness itself.
 - [ ] Publish via `gh` with notes explaining host-local false default/retired
       client preference and guidance snapshot semantics. Verify latest/public
       assets, synchronize generated version commit and record run/commit evidence.
+
+### Hosted delivery progress
+
+Source `6128244` passes Linux x64/native ARM source CI `39335374558`; Windows
+exposes a new fixture error before any release-policy assertion: direct `mkdir`
+can create an elevated runner directory owned by Administrators, so the existing
+OS-user guard correctly rejects it (exit77). The fixture now uses the existing
+`canonicalHome` initializer, which creates the private Windows ACL before
+canonicalization. No production ownership guard, policy or assertion is weakened.
+
+The user requested immediate release dispatch while source CI runs. Standard
+patch workflow `39335781340` owns version/tag commit `1047499` (`v0.9.1`). Its
+production sources remain identical to the validated implementation; the later
+Windows correction changes only test setup/docs, not shipped code. Fresh source
+CI with the fixture correction must pass before final delivery is declared done.

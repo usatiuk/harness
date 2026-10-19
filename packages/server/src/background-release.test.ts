@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { HarnessClient } from "@harness/client";
 import { updateGlobalSettings } from "@harness/config";
 import { attachLocalServer } from "@harness/connections/node";
-import { readDiscovery } from "@harness/connections/local";
+import { canonicalHome, readDiscovery } from "@harness/connections/local";
 import {
   managementInspectRequest,
   managementReleaseRequest,
@@ -34,8 +34,7 @@ afterEach(() => {
 });
 
 async function fixture() {
-  const home = join(tmpdir(), `harness-release-${randomUUID()}`);
-  await mkdir(home, { mode: 0o700 });
+  const home = await canonicalHome(join(tmpdir(), `harness-release-${randomUUID()}`));
   vi.stubEnv("HARNESS_HOME", home);
   vi.stubEnv("HARNESS_SERVER_SELECTION", undefined);
   if (process.platform !== "win32") {
