@@ -38,43 +38,43 @@
         "root": "harness",
         "entry": "harness"
       }
-    }
-  },
-  "linuxArm64Glibc": {
-    "node": {
-      "version": "24.21.0",
-      "artifact": {
-        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.gz",
-        "size": 57824078,
-        "sha256": "724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5",
+    },
+    "linux-arm64-glibc": {
+      "node": {
+        "version": "24.21.0",
+        "artifact": {
+          "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.gz",
+          "size": 57824078,
+          "sha256": "724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5",
+          "format": "tarGz",
+          "root": "node-v24.21.0-linux-arm64",
+          "entry": "bin/node"
+        }
+      },
+      "server": {
+        "url": "https://example.invalid/linux-arm64-glibc.tar.gz",
+        "size": 123,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "format": "tarGz",
-        "root": "node-v24.21.0-linux-arm64",
-        "entry": "bin/node"
+        "root": "server",
+        "entry": "server.mjs"
+      },
+      "cli": {
+        "url": "https://example.invalid/linux-arm64-glibc.tar.gz",
+        "size": 123,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "format": "tarGz",
+        "root": "cli",
+        "entry": "cli.mjs"
+      },
+      "launcher": {
+        "url": "https://example.invalid/linux-arm64-glibc.tar.gz",
+        "size": 123,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "format": "file",
+        "root": "harness",
+        "entry": "harness"
       }
-    },
-    "server": {
-      "url": "https://example.invalid/linux-arm64-glibc.tar.gz",
-      "size": 123,
-      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "format": "tarGz",
-      "root": "server",
-      "entry": "server.mjs"
-    },
-    "cli": {
-      "url": "https://example.invalid/linux-arm64-glibc.tar.gz",
-      "size": 123,
-      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "format": "tarGz",
-      "root": "cli",
-      "entry": "cli.mjs"
-    },
-    "launcher": {
-      "url": "https://example.invalid/linux-arm64-glibc.tar.gz",
-      "size": 123,
-      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "format": "file",
-      "root": "harness",
-      "entry": "harness"
     }
   }
 }

@@ -79,12 +79,7 @@ const manifest = releaseManifestSchema.parse({
   productVersion: PRODUCT_VERSION,
   targets,
 });
-// Preserve the original signed-manifest URL for installed pre-ARM64 verifiers.
-// Their target allowlist rejects ARM64 inside targets, but ignores this root field.
-const { "linux-arm64-glibc": linuxArm64Glibc, ...legacyTargets } = manifest.targets;
-const wireManifest = { ...manifest, targets: legacyTargets, linuxArm64Glibc };
-releaseManifestSchema.parse(wireManifest);
-await writeFile(join(directory, "release.json"), JSON.stringify(wireManifest, null, 2));
+await writeFile(join(directory, "release.json"), JSON.stringify(manifest, null, 2));
 await writeFile(
   join(directory, "latest.json"),
   JSON.stringify({ version: PRODUCT_VERSION, platforms: updates }, null, 2),

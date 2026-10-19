@@ -1,5 +1,4 @@
 import { expect, it } from "vitest";
-import { z } from "zod";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -71,21 +70,7 @@ it("assembles download metadata and Tauri updates from the shipped native artifa
     );
     const raw: unknown = JSON.parse(await readFile(join(directory, "release.json"), "utf8"));
     const release = releaseManifestSchema.parse(raw);
-    const wire = z
-      .object({
-        targets: z.partialRecord(
-          z.enum(["windows-x64", "linux-x64-glibc", "macos-arm64", "macos-x64"]),
-          z.unknown(),
-        ),
-        linuxArm64Glibc: z.unknown(),
-      })
-      .parse(raw);
-    expect(Object.keys(wire.targets).sort()).toEqual([
-      "linux-x64-glibc",
-      "macos-arm64",
-      "windows-x64",
-    ]);
-    expect(wire.linuxArm64Glibc).toEqual(release.targets["linux-arm64-glibc"]);
+    expect(raw).toEqual(release);
     expect(Object.keys(release.targets).sort()).toEqual(targets.map(([target]) => target).sort());
     const updates: unknown = JSON.parse(await readFile(join(directory, "latest.json"), "utf8"));
     const platforms: Record<string, { url: string; signature: string }> = {};
@@ -163,54 +148,61 @@ it("maps native Linux hosts to their own Rust and release artifacts", async () =
   }
 });
 
-it("normalizes the signed ARM64 extension while preserving legacy decoder compatibility", async () => {
+it("reads the normal ARM64 target map without a special wire format", async () => {
   const wire: unknown = JSON.parse(
     await readFile(
       new URL("../../../native/bootstrap/tests/fixtures/arm64-release.json", import.meta.url),
       "utf8",
     ),
   );
-  const canonical = releaseManifestSchema.parse(wire);
-  expect(canonical.targets["linux-arm64-glibc"]?.node).toEqual({
+  const manifest = releaseManifestSchema.parse(wire);
+  expect(manifest).toEqual(wire);
+  expect(manifest.targets["linux-arm64-glibc"]?.node).toEqual({
     version: NODE_PIN.version,
     artifact: NODE_PIN.targets["linux-arm64-glibc"],
   });
-  expect(releaseManifestSchema.parse(canonical)).toEqual(canonical);
-  // The 0.8.1 decoder used a closed target enum, with a non-strict root object.
-  const oldSchema = z.object({
-    formatVersion: z.literal(1),
-    productVersion: versionSchema,
-    targets: z
-      .partialRecord(
-        z.enum(["windows-x64", "linux-x64-glibc", "macos-arm64", "macos-x64"]),
-        z.object({
-          node: z.strictObject({ version: versionSchema, artifact: artifactSchema }),
-          server: artifactSchema,
-          cli: artifactSchema,
-          launcher: artifactSchema,
-        }),
-      )
-      .refine((value) => Object.keys(value).length > 0),
-  });
-  expect(oldSchema.safeParse(wire).success).toBe(true);
-  expect(oldSchema.safeParse(canonical).success).toBe(false);
+});
+
+it("accepts foreign platform names without widening supported runtime targets", () => {
+  const entry = {
+    node: { version: NODE_PIN.version, artifact },
+    server: artifact,
+    cli: artifact,
+    launcher: artifact,
+  };
+  const manifest = {
+    formatVersion: 1,
+    productVersion: PRODUCT_VERSION,
+    targets: { "linux-x64-glibc": entry, "futureos-riscv128": entry },
+  };
+  expect(releaseManifestSchema.parse(manifest)).toEqual(manifest);
+  expect(releaseManifestSchema.safeParse({ ...manifest, targets: {} }).success).toBe(false);
+  expect(targetSchema.safeParse("futureos-riscv128").success).toBe(false);
+  expect(linuxTargetSchema.safeParse("futureos-riscv128").success).toBe(false);
   expect(
-    releaseManifestSchema.safeParse({
-      ...canonical,
-      linuxArm64Glibc: canonical.targets["linux-arm64-glibc"],
+    developmentRemoteSchema.safeParse({
+      formatVersion: 1,
+      target: "futureos-riscv128",
+      productVersion: PRODUCT_VERSION,
+      nodeVersion: NODE_PIN.version,
+      server: { size: 1, sha256: "a".repeat(64) },
+      bootstrap: { size: 1, sha256: "b".repeat(64) },
     }).success,
   ).toBe(false);
-  const legacy = oldSchema.parse(wire);
-  for (const linuxArm64Glibc of [
+  for (const bad of [
     null,
     {},
-    { ...canonical.targets["linux-arm64-glibc"], node: { version: "bad" } },
-  ])
-    expect(releaseManifestSchema.safeParse({ ...legacy, linuxArm64Glibc }).success).toBe(false);
-  expect(
-    releaseManifestSchema.safeParse({
-      ...legacy,
-      targets: { "linux-arm64-musl": canonical.targets["linux-arm64-glibc"] },
-    }).success,
-  ).toBe(false);
+    { ...entry, node: { ...entry.node, version: "bad" } },
+    { ...entry, server: { ...artifact, sha256: "invalid" } },
+    { ...entry, cli: { ...artifact, url: "http://example.invalid/cli" } },
+    { ...entry, launcher: { ...artifact, entry: "../escape" } },
+    { ...entry, server: { ...artifact, format: "futureArchive" } },
+  ]) {
+    expect(
+      releaseManifestSchema.safeParse({
+        ...manifest,
+        targets: { ...manifest.targets, "futureos-riscv128": bad },
+      }).success,
+    ).toBe(false);
+  }
 });

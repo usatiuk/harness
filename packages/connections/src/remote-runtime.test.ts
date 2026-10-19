@@ -231,8 +231,8 @@ console.log(JSON.stringify({node:path.join(home,'runtime',target,'node'),payload
       const manifest = {
         formatVersion: 1,
         productVersion: "99.0.0",
-        ...(includeArm ? { linuxArm64Glibc: entry } : {}),
         targets: {
+          ...(includeArm ? { "linux-arm64-glibc": entry } : {}),
           "linux-x64-glibc": {
             ...entry,
             launcher: { ...entry.launcher, url: "https://example.com/wrong-x64-bootstrap" },

@@ -62,21 +62,8 @@ export const releaseManifestSchema = z
   .object({
     formatVersion: z.literal(1),
     productVersion: versionSchema,
-    targets: z.partialRecord(targetSchema, releaseTargetSchema),
-    // Older verifiers reject unknown target keys but ignore unknown root fields.
-    // Keep the signed wire extension separate; consumers use one canonical map.
-    linuxArm64Glibc: releaseTargetSchema.optional(),
+    targets: z.record(z.string(), releaseTargetSchema),
   })
-  .refine(
-    (value) => !(value.linuxArm64Glibc && value.targets["linux-arm64-glibc"]),
-    "Duplicate Linux ARM64 release target",
-  )
-  .transform(({ linuxArm64Glibc, ...manifest }) => ({
-    ...manifest,
-    targets: linuxArm64Glibc
-      ? { ...manifest.targets, "linux-arm64-glibc": linuxArm64Glibc }
-      : manifest.targets,
-  }))
   .refine((value) => Object.keys(value.targets).length > 0, "At least one release target required");
 export type ReleaseManifest = z.infer<typeof releaseManifestSchema>;
 const transferredFileSchema = z.strictObject({

@@ -13,7 +13,10 @@ implements the reported history/Working jumps and removes the streaming square
 through native Virtuoso prepend, typed item measurement and resize-follow
 boundaries. All reading/shared-control/unknown-context regressions pass integrated
 checks: 2,106 tests (46 skips) and 169/169 Chromium cases. Publication joins the
-user-authorized Linux ARM64 minor release.
+user-authorized Linux ARM64 minor release. The final manifest uses an open target
+inventory with strict artifact/host validation; signing-key rotation requires
+manual installation for older clients. Final source checks pass 2,107 tests (46
+skips); fresh hosted CI and actual release artifacts remain publication gates.
 The plan preserves actual geometry/compositor evidence rather than treating
 every intermediate DOM observation as a visible jump.
 

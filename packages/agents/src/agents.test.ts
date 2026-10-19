@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -85,7 +85,7 @@ describe("agentsPlugin", () => {
     const text = textOf(await source.instructions(sourceContext(serviceOf)));
     expect(text.indexOf("personal global guidance")).toBeLessThan(text.indexOf("project guidance"));
     expect(text).toContain("Scope: all conversations on this Harness server.");
-    expect(text).toContain(`Scope: ${cwd} and its descendants.`);
+    expect(text).toContain(`Scope: ${await realpath(cwd)} and its descendants.`);
   });
 
   it("loads global guidance for projectless conversations and snapshots absence and edits", async () => {

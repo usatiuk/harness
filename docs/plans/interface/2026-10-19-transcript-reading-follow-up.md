@@ -68,7 +68,7 @@ separate from the transcript causes, not a general expansion of shell/activity w
 - [x] Run focused production-route regressions and `npm run check`; synchronize
       interface/testing/product documents and record actual limits. Do not claim a
       full browser suite is green unless a completed run establishes it.
-- [ ] Commit coherent validated slices locally under existing user authorization;
+- [x] Commit coherent validated slices locally under existing user authorization;
       do not restart the user's installed server.
 - [ ] Under the user's subsequent explicit authorization, push validated commits,
       dispatch the existing minor release workflow through `gh`, verify its
@@ -290,7 +290,9 @@ separate from the transcript causes, not a general expansion of shell/activity w
   with no protocol drift (`act_abdf8b31`). Exact-source correctness and evidence
   review approve the final shared-control, unknown-context and literal subagent
   guidance changes. Publication still requires hosted ARM qualification and
-  signed-manifest legacy compatibility under the minor-release plan.
+  production-signature verification under the minor-release plan. The user later
+  accepted signing-key rotation and a manual upgrade; old-key rejection is now
+  intentional rather than a compatibility failure.
 - The user explicitly rejects the added Working-group failure classification:
   some failed tool calls are normal. The aggregation predicate, Failed suffix/
   alert, red class and CSS are deleted rather than hidden or made configurable.
@@ -299,8 +301,13 @@ separate from the transcript causes, not a general expansion of shell/activity w
   group classification while preserving individual error detail and duration.
   Both focused public cases pass (**2/2**, `act_a7f4cc39`) and fresh complete
   `npm run check` passes **2,106 / 46 skips** (`act_e298a60e`). Independent exact
-  deletion review approves the removal. The full browser rerun is still pending;
-  the preceding 169/169 snapshot is not relabeled as this new run.
+  deletion review approves the removal. The new full browser run passes
+  **169/169**, retries disabled (`act_9dbd7ef0`), rather than relabeling the
+  preceding snapshot. The removal and complete implementation are committed
+  in `2d8a04f`, pushed to main. Source CI `39321165700` passes Linux x64 and
+  native ARM64 (including real OpenSSH), but exposes two Windows fixture errors.
+  Canonical-path and Windows-home fixture corrections await fresh hosted CI.
+  See the ARM64 plan for the subsequent open target inventory and key rotation.
 
 ### Library boundary references
 

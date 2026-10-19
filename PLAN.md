@@ -2,10 +2,12 @@
 
 The [Linux ARM64 delivery](docs/plans/cross-cutting/2026-10-19-linux-arm64-support.md)
 adds native ARM64 glibc CLI/server/desktop artifacts, target-correct remote
-preparation, and compatible signed metadata for existing clients. The user
-authorized a minor release after implementation, native ARM qualification and
-independent review; publication is pending. It also includes their literal
-agent-to-agent communication guidance.
+preparation, and an extensible signed target inventory. The user authorized a
+minor release and signing-key rotation: older installations require a manual
+0.9.0 installation, with no verification bypass or old-key fallback. Native ARM
+source CI passes; corrected Windows fixtures and the final trust-root changes
+await fresh hosted CI. Publication and actual ARM release artifacts remain
+pending. It also includes their literal agent-to-agent communication guidance.
 
 The [transcript reading follow-up](docs/plans/interface/2026-10-19-transcript-reading-follow-up.md)
 corrects disruptive history/Working reading jumps and removes the terminal-style

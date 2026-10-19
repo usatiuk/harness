@@ -2006,8 +2006,12 @@ development payload rejection before upload, unsupported libc, and missing ARM
 release artifacts without x64 fallback. These are not native ARM execution tests.
 
 `packages/release/src/index.test.ts` and native bootstrap metadata tests cover
-the optional signed `linuxArm64Glibc` wire extension, canonical normalization,
-malformed/duplicate rejection, signature tampering and legacy decoder shape.
+the normal open `targets` inventory, validation of every descriptor (including
+future platform names), empty/malformed rejection and signature tampering. Host
+and development target enums stay strict. Production key-rotation proof checks
+new-key acceptance, message tamper rejection, old published verifier rejection
+of the new key, and new verifier rejection of the old key. The authentic old
+manifest must still pass the actual old verifier as a positive control.
 Signed metadata must retain its exact bytes; do not run formatters over
 downloaded production manifests. Archived raw probes/manifests use `.txt`
 extensions when stored under the checkout.
@@ -2025,6 +2029,13 @@ key/config/home; it does not use saved remote hosts or an installed server. The
 default payload follows the Docker image architecture, not the controller's
 architecture. Hosted `ubuntu-22.04-arm` CI and release jobs run the same native
 build/OpenSSH path; actual ARM runtime execution, AppImage generation, updater
-signature checks and the production-signed manifest's acceptance by the shipped
-0.8.1 verifier gate publication. Windows/WSL-specific cases stay separate skips
+signature checks and the production-signed manifest's acceptance by the new
+verifier gate publication. The shipped 0.8.1 verifier must reject that new trust
+root: the user explicitly accepted a manual update for signing-key rotation. Windows/WSL-specific cases stay separate skips
 on Linux rather than becoming simulated claims.
+
+Windows source qualification also covers canonical `AGENTS.md` scope paths and
+server home capture before shell initialization. Tests use `realpath` for Windows
+account aliases and set `USERPROFILE` as well as `HOME` on Windows, asserting
+`os.homedir()` before and after the simulated startup change. Local Linux success
+does not establish Windows behavior; fresh hosted Windows CI remains required.

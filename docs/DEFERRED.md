@@ -5,6 +5,20 @@ current change. Keep entries concrete: state the limitation, consequence, reason
 for deferral, and the condition that should reopen it. Package-local follow-up may
 instead live in the owning execution plan or an issue.
 
+## Upstream Rust glib iterator advisory in the Linux desktop stack
+
+GitHub reports [GHSA-wrw7-89jp-8q8g](https://github.com/advisories/GHSA-wrw7-89jp-8q8g)
+(medium) for unsound `Iterator`/`DoubleEndedIterator` implementations on
+`glib::VariantStrIter`. The desktop Cargo lock retains `glib` 0.18.5, exactly as
+in published 0.8.1; the advisory lists 0.20.0 as fixed. This is the Rust GTK
+dependency, not the GNU libc target distinction.
+
+Consequence: Linux desktop releases retain the upstream advisory; this entry
+does not claim a Harness exploit or prove absence of risk. The ARM64/desktop
+follow-up does not change that dependency. Reopen with a compatible Tauri/GTK
+dependency-stack upgrade and native desktop qualification, rather than forcing
+an incompatible transitive major version into this scoped release.
+
 ## macOS check failures outside the validated Ubuntu evidence
 
 `npm run check -- --maxWorkers=2` fails 31 tests across 14 files on macOS

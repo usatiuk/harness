@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
 import { initializeUserShellEnvironment } from "@harness/execution";
@@ -21,7 +21,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), "harness-owner-environment-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "harness-owner-environment-")));
   roots.push(root);
   const home = join(root, ".harness");
   await mkdir(home, { mode: 0o700 });
@@ -79,10 +79,14 @@ it("keeps the original resolved home when startup changes HOME without an explic
     join(other, ".harness", "settings.json"),
     JSON.stringify({ version: 1, instructions: "WRONG SETTINGS" }),
   );
-  vi.stubEnv("HARNESS_HOME", undefined);
   vi.stubEnv("HOME", root);
+  // Node's native home comes from USERPROFILE on Windows, not HOME.
+  if (process.platform === "win32") vi.stubEnv("USERPROFILE", root);
+  expect(homedir()).toBe(root);
+  vi.stubEnv("HARNESS_HOME", undefined);
   vi.mocked(initializeUserShellEnvironment).mockImplementationOnce(async () => {
     process.env["HOME"] = other;
+    if (process.platform === "win32") process.env["USERPROFILE"] = other;
   });
   const pair = createInProcessMessageConnectionPair();
   const harness = await buildServerHarness(pair.right);
@@ -91,6 +95,7 @@ it("keeps the original resolved home when startup changes HOME without an explic
     client: { name: "home-test", version: "1" },
   });
   try {
+    expect(homedir()).toBe(other);
     await client.start();
     const settings = await client.peer.request(appSettingsRequest, {});
     expect(settings.home).toBe(home);

@@ -270,16 +270,18 @@ builds target Windows x64, Linux x64 glibc and Apple Silicon macOS; Intel macOS
 release builds are discontinued.
 The [Linux ARM64 delivery](../../plans/cross-cutting/2026-10-19-linux-arm64-support.md)
 extends that pipeline with native `linux-arm64-glibc` server/CLI/bootstrap and
-desktop AppImage artifacts plus `linux-aarch64` updater metadata. Native ARM CI
-and production-signature/old-client checks gate publication; earlier x64 and
-macOS evidence above is not ARM qualification.
+desktop AppImage artifacts plus `linux-aarch64` updater metadata. Native ARM
+source CI passes; actual ARM release artifacts and production-signature checks
+still gate publication. Earlier x64/macOS evidence is not ARM qualification.
 
-The signed manifest retains its existing URL and format version. Older clients
-reject unknown keys in `targets`, so the compatible wire manifest carries ARM64
-in optional root `linuxArm64Glibc`; new TS/Rust decoders normalize it into the
-single canonical target map. Duplicate or malformed ARM descriptors reject.
-Verification and cache writes retain the original signed bytes, never
-reconstructed normalized JSON.
+The signed manifest retains its URL and format version and uses one normal
+`targets` map. Its inventory accepts additional platform names while validating
+every artifact descriptor; actual host/build/development target support stays
+explicit and strict. Empty manifests and malformed descriptors reject. Signature
+verification and cache writes retain the exact original signed bytes.
+The 0.9.0 signing-key rotation intentionally breaks automatic upgrades from old
+trust roots; those installations require manual installation. No legacy ARM root
+extension, normalization, dual trust or signature bypass is retained.
 The keep-running preference defaults false; stop-on-exit releases Local only when
 another client is not attached. Local background execution after desktop exit is
 an explicit remembered preference. Remote observers detach without stopping their owner.
