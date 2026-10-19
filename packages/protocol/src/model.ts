@@ -266,6 +266,61 @@ export class ModelInvocationFailure extends Error {
   }
 }
 
+/** Why a model call failed transiently. Everything an adapter does not classify
+ * into one of these reasons is permanent and must never be retried. */
+export const modelFailureReasonSchema = z.enum([
+  "rate_limit",
+  "overloaded",
+  "server",
+  "timeout",
+  "connection",
+]);
+export type ModelFailureReason = z.infer<typeof modelFailureReasonSchema>;
+
+/** A provider failure the bounded retry middleware may re-issue. Thrown by
+ * adapters at their transport boundary, where response headers are available.
+ * Extends `ModelInvocationFailure` on purpose: an exhausted transient failure is
+ * still a provider stream failure, so callers that degrade on
+ * `ModelInvocationFailure` (e.g. silent title naming) keep their behavior. */
+export class TransientModelFailure extends ModelInvocationFailure {
+  readonly reason: ModelFailureReason;
+  /** Provider-requested minimum wait before re-issue, when the provider stated one. */
+  readonly retryAfterMs: number | undefined;
+  constructor(
+    reason: ModelFailureReason,
+    options?: ErrorOptions & { retryAfterMs?: number; message?: string },
+  ) {
+    super(options?.message ?? `transient model failure: ${reason}`, options);
+    this.name = "TransientModelFailure";
+    this.reason = reason;
+    this.retryAfterMs = options?.retryAfterMs;
+  }
+}
+
+/** Normalizes a `Retry-After` header (delta-seconds or HTTP-date) to a
+ * non-negative millisecond wait. Garbage yields `undefined` so callers fall back
+ * to their own backoff instead of guessing a wait. */
+export function parseRetryAfterMs(
+  value: string | null | undefined,
+  now = Date.now(),
+): number | undefined {
+  if (value == null) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  // Numeric delta-seconds (spec: non-negative); negatives are garbage, not dates.
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return seconds >= 0 ? Math.round(seconds * 1000) : undefined;
+  }
+  // HTTP-date only; all three RFC 7231 date shapes start with a day name.
+  // Everything else is garbage even when V8's lenient Date.parse would accept
+  // it (e.g. "-3" parses as a year).
+  if (!/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/i.test(trimmed)) return undefined;
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return undefined;
+  return Math.max(0, at - now);
+}
+
 /**
  * A narrow caller for one model-backed operation (review, summarization, titles, …).
  * It consumes one stream; the caller decides whether finalized outputs should continue.
@@ -344,6 +399,17 @@ export interface ModelMiddlewareContext {
    * `background` argument into `backgroundable` tools).
    */
   toolMeta(name: string): Record<string, unknown> | undefined;
+  /**
+   * Reports one scheduled retry so the host can surface attempt progress per its
+   * audience rules. `attempt` is the upcoming 1-based attempt (2 for the first
+   * retry). Called before the backoff wait.
+   */
+  reportRetry(info: {
+    attempt: number;
+    maxAttempts: number;
+    delayMs: number;
+    reason: ModelFailureReason;
+  }): void;
 }
 
 /**

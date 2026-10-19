@@ -9,6 +9,7 @@ import {
   worktreesConfigSchema,
 } from "@harness/worktrees";
 import { conversationTitlesPlugin } from "@harness/conversation-titles";
+import { modelRetryPlugin } from "@harness/model-retry";
 import { McpRuntime, MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp";
 import { registerMcpApi } from "./mcp.ts";
 import { join } from "node:path";
@@ -146,7 +147,12 @@ export async function buildServerComposition(
       );
     });
     const worktreesDefinition = new WorktreesDefinition();
-    const plugins: PluginEntry[] = [...providerPlugins, built.plugin, conversationTitlesPlugin];
+    const plugins: PluginEntry[] = [
+      ...providerPlugins,
+      built.plugin,
+      conversationTitlesPlugin,
+      modelRetryPlugin,
+    ];
     plugins.push(
       createQuestionsPlugin({
         askQuestions: (id, callId, input) => service.askQuestions(id, callId, input),

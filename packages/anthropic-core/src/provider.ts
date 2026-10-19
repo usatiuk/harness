@@ -4,6 +4,7 @@ import type {
   PresetInfo,
   ModelCapabilities,
   ModelCallContext,
+  TransientModelFailure,
   ModelConfig,
   ModelInfo,
   ModelPricing,
@@ -17,6 +18,7 @@ import {
   modelMetadataSchema,
 } from "@harness/protocol";
 import type { AnthropicCredentials } from "./credentials.ts";
+import { classifyTransientFailure } from "./errors.ts";
 import { buildMessages, type AnthropicRequestConfig } from "./request.ts";
 import { toModelEvents } from "./stream.ts";
 
@@ -130,6 +132,14 @@ export abstract class AnthropicMessagesTransport {
     this.#requestHeaders = opts.requestHeaders;
   }
   protected abstract buildConfig(request: ModelRequest): AnthropicRequestConfig;
+  /** Connections may specialize raw failure policy without a second normalization pass. */
+  protected classifyFailure(
+    error: unknown,
+    signal: AbortSignal,
+  ): TransientModelFailure | undefined {
+    return classifyTransientFailure(error, signal);
+  }
+
   async *stream(
     request: ModelRequest,
     signal: AbortSignal,
@@ -149,7 +159,7 @@ export abstract class AnthropicMessagesTransport {
       if (e.status === 400 && /context window|prompt is too long|too many tokens/i.test(message)) {
         throw new ContextWindowExceededError(message, { cause: error });
       }
-      throw error;
+      throw this.classifyFailure(error, signal) ?? error;
     }
   }
 }

@@ -20,6 +20,27 @@ Native installer/update interaction is not requalified.
 latest with 19 assets; hosted Linux/Windows CI, all three native builds, and public
 signed-metadata verification pass. Release evidence is recorded in the delivery plan.
 
+The [model retry middleware plan](docs/plans/models/2026-10-18-model-retry-middleware.md)
+adds adapter-owned transient/permanent failure classification and one bounded,
+configurable retry (`plugins["model-retry"]`, default five attempts) over the
+shared model-middleware chain for every model call — agent steps, compaction,
+title naming, auto-approval review, and subagents alike. Retries re-issue only
+before the first output with capped exponential full-jitter backoff and
+provider `Retry-After` floors; scheduled retries surface in the desktop/TUI
+Working presentation for conversation and compaction calls and stay silent for
+titles and auto-approval review. Its productization follow-up replaces generic
+SDK-name reflection with adapter-local identity, gives OpenCode one raw-error
+policy boundary, and keeps host accounting independent of provider completion.
+Regressions cover bundled timeouts, pre-output SSE errors, exhaustion and
+tool-only recovery. A further autonomous review preserves Codex HTTP failure
+metadata, marks unobserved earlier-attempt spend as partial, and removes unused
+client-owned usage aggregation. After integration with current `main`, full checks
+pass 2,002 tests (41 gated skips), both focused Chromium cases pass, and the
+independent integration review reports no material blockers. The three feature
+review lenses are resolved. Schema 15
+preserves historical attempts while allowing accurate zero-provider accounting.
+Validation evidence and remaining live/native limits are in the delivery plan.
+
 The [desktop right sidebar](docs/plans/interface/2026-10-18-right-sidebar.md)
 adds Changes/Subagents tabs, continuous responsive Git diffs via `@pierre/diffs` CodeView,
 compact file-tree jumps with line counts, five
@@ -657,8 +678,9 @@ invocations remain opt-in qualification.
 
 1. [x] Replace obsolete monolithic design documents with this product plan and
        current subsystem documentation.
-2. [ ] Add minimal provider error normalization and bounded transient model
-       retry middleware.
+2. [x] Add minimal provider error normalization and bounded transient model
+       retry middleware (delivered in
+       [the model retry middleware plan](docs/plans/models/2026-10-18-model-retry-middleware.md)).
 3. [x] Deliver [MCP tools and settings](docs/plans/cross-cutting/2026-10-10-mcp-tools-and-settings.md):
        stdio/hosted HTTP tools, env/header/OAuth configuration, scoped credentials,
        plugin-owned permissions, and desktop/TUI settings. Keep the configurable

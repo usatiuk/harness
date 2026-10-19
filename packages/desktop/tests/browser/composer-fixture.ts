@@ -59,6 +59,8 @@ declare global {
       switchSidebarScope(scope: string): void;
       showEval(): void;
       showLivePreview(reasoningOnly?: boolean, withHistory?: boolean): void;
+      showModelRetry(attempt?: number): void;
+      clearModelRetry(): void;
       showBlankReasoning(withTool?: boolean): void;
       showLongToolRun(): void;
       showPreviewTools(): void;
@@ -116,6 +118,7 @@ const settings: AppSettings = {
     subagents: { maxDepth: 2, maxChildren: 3 },
     compactionThresholdTokens: null,
     worktreeDirectory: null,
+    modelRetries: { attempts: 5, backoffMs: 1000 },
     approval: { inWorkspace: "ask", outOfWorkspace: "ask", humanApprovalTimeoutSeconds: 60 },
     autoApproval: { enabled: false, model: null, timeoutSeconds: 30 },
     conversationTitleModel: null,
@@ -1186,6 +1189,23 @@ window.composerFixture = {
       });
     view.state = { ...view.state, cells };
     view.transcript.update(cells, "turn");
+    changed();
+  },
+  showModelRetry(attempt = 2) {
+    view.state = {
+      ...view.state,
+      modelRetry: {
+        purpose: "agent",
+        attempt,
+        maxAttempts: 5,
+        delayMs: 1200,
+        reason: "rate_limit",
+      },
+    };
+    changed();
+  },
+  clearModelRetry() {
+    view.state = { ...view.state, modelRetry: undefined };
     changed();
   },
   showLivePreview(reasoningOnly = false, withHistory = false) {

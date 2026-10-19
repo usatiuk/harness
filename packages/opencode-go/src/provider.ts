@@ -3,6 +3,7 @@ import { mergeModelMetadata } from "@harness/protocol";
 import type {
   ModelCapabilities,
   ModelCallContext,
+  TransientModelFailure,
   ModelConfig,
   ModelInfo,
   ModelProvider,
@@ -22,6 +23,7 @@ import {
 } from "@harness/anthropic-core";
 import { ROSTER, familyOf, listModels, maxOutputOf, modelSpec, presetFor } from "./roster.ts";
 import { fetchCatalog, parseCatalog, type GoModelSpec } from "./catalog.ts";
+import { classifyTransientFailure } from "./errors.ts";
 import { PRODUCT_USER_AGENT } from "@harness/release";
 import { sessionIdHeaders } from "@harness/protocol";
 
@@ -51,6 +53,13 @@ class GoChatProvider extends OpenAIChatTransport {
   ) {
     super({ credentials, provider, requestHeaders });
   }
+  protected override classifyFailure(
+    error: unknown,
+    signal: AbortSignal,
+  ): TransientModelFailure | undefined {
+    return classifyTransientFailure(error, signal);
+  }
+
   protected override buildParams(request: ModelRequest) {
     const params = super.buildParams(request);
     const effort = effortFor(request, this.models());
@@ -80,6 +89,13 @@ class GoResponsesProvider extends OpenAIResponsesTransport {
     });
   }
 
+  protected override classifyFailure(
+    error: unknown,
+    signal: AbortSignal,
+  ): TransientModelFailure | undefined {
+    return classifyTransientFailure(error, signal);
+  }
+
   protected override buildParams(request: ModelRequest) {
     const effort = effortFor(request, this.models());
     const reasoning = { summary: "auto", ...(effort ? { effort } : {}) } as Parameters<
@@ -97,6 +113,13 @@ class GoMessagesProvider extends AnthropicMessagesTransport {
     readonly models: () => readonly GoModelSpec[],
   ) {
     super({ provider, credentials, requestHeaders });
+  }
+
+  protected override classifyFailure(
+    error: unknown,
+    signal: AbortSignal,
+  ): TransientModelFailure | undefined {
+    return classifyTransientFailure(error, signal);
   }
 
   protected override buildConfig(request: ModelRequest): AnthropicRequestConfig {

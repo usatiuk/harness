@@ -490,6 +490,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
         model: "fake-2", // differs from the conversation's config: the row snapshots the model
         usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
         cost: null,
+        attempts: 2,
       });
       const unknown = await store.recordModelUsage({
         conversationId: conv.id,
@@ -500,7 +501,18 @@ export function storeContract(name: string, makeStore: () => Store): void {
         usage: null,
         cost: null,
       });
-      expect(await store.listModelUsage(conv.id)).toEqual([first, second, unknown]);
+      const noProvider = await store.recordModelUsage({
+        conversationId: conv.id,
+        turnId: turn.id,
+        contextBuildId: build.id,
+        provider: "fake",
+        model: "preflight-rejected",
+        usage: null,
+        cost: null,
+        attempts: 0,
+      });
+      expect(noProvider.attempts).toBe(0);
+      expect(await store.listModelUsage(conv.id)).toEqual([first, second, unknown, noProvider]);
       expect(await store.listModelUsage("missing" as ConversationId)).toEqual([]);
       expect(await store.summarizeModelUsage(conv.id)).toEqual({
         usage: {
@@ -515,6 +527,47 @@ export function storeContract(name: string, makeStore: () => Store): void {
         lastInputTokens: 10,
       });
     });
+
+    it.each([undefined, 0, 1, 2])(
+      "retains known usage but marks additional unobserved provider attempts partial (%s)",
+      async (attempts) => {
+        const store = makeStore();
+        const conversation = await store.createConversation(sampleRecord());
+        const turn = await store.createTurn(conversation.id);
+        const usage = { inputTokens: 100, outputTokens: 10, cachedReadTokens: 0 };
+        const row = await store.recordModelUsage({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          contextBuildId: null,
+          provider: "fake",
+          model: "fake-1",
+          purpose: "agent",
+          requestDurationMs: 1000,
+          usage,
+          cost: 0.01,
+          ...(attempts === undefined ? {} : { attempts }),
+        });
+        await store.updateTurn(turn.id, "completed");
+        const partial = attempts === 2;
+        expect(await store.listModelUsage(conversation.id)).toEqual([row]);
+        expect(await store.summarizeModelUsage(conversation.id)).toMatchObject({
+          usage,
+          cost: 0.01,
+          incomplete: partial,
+          costIncomplete: partial,
+          lastInputTokens: 100,
+          agentContext: { usage },
+          lastTurn: {
+            usage,
+            cost: 0.01,
+            incomplete: partial,
+            costIncomplete: partial,
+            agentOutputTokens: partial ? null : 10,
+            agentDurationMs: partial ? null : 1000,
+          },
+        });
+      },
+    );
 
     it("keeps cumulative billing totals without exposing them as context occupancy", async () => {
       const store = makeStore();

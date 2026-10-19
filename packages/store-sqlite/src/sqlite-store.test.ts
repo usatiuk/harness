@@ -12,9 +12,11 @@ import { SqliteStore } from "./sqlite-store.ts";
 // The shared contract suite — same one that proves InMemoryStore (in-memory ≡ sqlite).
 storeContract("SqliteStore", () => new SqliteStore(":memory:", counterIdGenerator(), fixedClock()));
 
-const removeScopedState = (db: BetterSqlite3.Database) =>
+// Drops everything the v12–v15 migrations add on top of schema 11 (scoped plugin
+// state, question inbox, retry accounting); callers drop older additions themselves.
+const downgradeToSchema11 = (db: BetterSqlite3.Database) =>
   db.exec(
-    "DROP TABLE questions; DROP INDEX plugin_state_scope; ALTER TABLE plugin_state DROP COLUMN scope; DROP INDEX turns_latest;",
+    "DROP TABLE questions; DROP INDEX plugin_state_scope; ALTER TABLE plugin_state DROP COLUMN scope; DROP INDEX turns_latest; ALTER TABLE model_usage DROP COLUMN attempts;",
   );
 
 const record = () =>
@@ -58,7 +60,9 @@ describe("SqliteStore (durable-only)", () => {
     });
     first.close();
     const old = new BetterSqlite3(path);
-    old.exec("DROP TABLE questions; PRAGMA user_version = 12");
+    old.exec(
+      "DROP TABLE questions; ALTER TABLE model_usage DROP COLUMN attempts; PRAGMA user_version = 12",
+    );
     old.close();
     const upgraded = new SqliteStore(path);
     try {
@@ -74,6 +78,87 @@ describe("SqliteStore (durable-only)", () => {
         questions: [{ id: "q", prompt: "Question?", options: null, selection: "single" }],
       });
       expect(await upgraded.listPendingQuestions(conversation.id)).toHaveLength(1);
+    } finally {
+      upgraded.close();
+    }
+  });
+
+  it("upgrades schema 13 additively while preserving usage accounting", async () => {
+    const path = tempDb();
+    const first = new SqliteStore(path);
+    const conversation = await first.createConversation(record());
+    const turn = await first.createTurn(conversation.id);
+    const recorded = await first.recordModelUsage({
+      conversationId: conversation.id,
+      turnId: turn.id,
+      contextBuildId: null,
+      provider: "fake",
+      model: "fake-1",
+      usage: { inputTokens: 1, outputTokens: 2, cachedReadTokens: 0 },
+      cost: null,
+    });
+    first.close();
+    const old = new BetterSqlite3(path);
+    old.exec("ALTER TABLE model_usage DROP COLUMN attempts; PRAGMA user_version = 13");
+    old.close();
+    const upgraded = new SqliteStore(path);
+    try {
+      const legacy = await upgraded.listModelUsage(conversation.id);
+      expect(legacy).toEqual([recorded]);
+      // Rows predating retry accounting stay "attempts unknown", never 0 or a guess.
+      expect(legacy[0]).not.toHaveProperty("attempts");
+      await upgraded.recordModelUsage({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        contextBuildId: null,
+        provider: "fake",
+        model: "fake-1",
+        usage: null,
+        cost: null,
+        attempts: 3,
+      });
+      expect((await upgraded.listModelUsage(conversation.id)).at(-1)).toMatchObject({
+        usage: null,
+        attempts: 3,
+      });
+    } finally {
+      upgraded.close();
+    }
+  });
+
+  it("upgrades schema 14 without losing attempts and accepts zero-provider accounting", async () => {
+    const path = tempDb();
+    const first = new SqliteStore(path);
+    const conversation = await first.createConversation(record());
+    const turn = await first.createTurn(conversation.id);
+    const input = {
+      conversationId: conversation.id,
+      turnId: turn.id,
+      contextBuildId: null,
+      provider: "fake",
+      model: "fake-1",
+      usage: null,
+      cost: null,
+    };
+    const known = await first.recordModelUsage({ ...input, attempts: 3 });
+    const unknown = await first.recordModelUsage(input);
+    first.close();
+    const old = new BetterSqlite3(path);
+    old.exec(`ALTER TABLE model_usage RENAME COLUMN attempts TO saved_attempts;
+      ALTER TABLE model_usage ADD COLUMN attempts INTEGER CHECK(attempts >= 1);
+      UPDATE model_usage SET attempts = saved_attempts;
+      ALTER TABLE model_usage DROP COLUMN saved_attempts;
+      PRAGMA user_version = 14;`);
+    old.close();
+    const upgraded = new SqliteStore(path);
+    try {
+      expect(await upgraded.listModelUsage(conversation.id)).toEqual([known, unknown]);
+      await upgraded.recordModelUsage({ ...input, attempts: 0 });
+      expect((await upgraded.listModelUsage(conversation.id)).at(-1)).toMatchObject({
+        usage: null,
+        attempts: 0,
+      });
+      expect(await upgraded.getConversation(conversation.id)).toEqual(conversation);
     } finally {
       upgraded.close();
     }
@@ -164,7 +249,7 @@ describe("SqliteStore (durable-only)", () => {
     });
     first.close();
     const db = new BetterSqlite3(path);
-    removeScopedState(db);
+    downgradeToSchema11(db);
     db.exec(
       "DROP INDEX conversations_project_recent; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees; PRAGMA user_version = 8",
     );
@@ -197,7 +282,7 @@ describe("SqliteStore (durable-only)", () => {
     });
     before.close();
     const old = new BetterSqlite3(path);
-    removeScopedState(old);
+    downgradeToSchema11(old);
     old.pragma("user_version = 11");
     old.close();
     const upgraded = new SqliteStore(path);
@@ -235,7 +320,7 @@ describe("SqliteStore (durable-only)", () => {
     });
     first.close();
     const old = new BetterSqlite3(path);
-    removeScopedState(old);
+    downgradeToSchema11(old);
     old.exec("DROP INDEX conversations_project_recent; PRAGMA user_version = 10");
     old.close();
     const upgraded = new SqliteStore(path);
@@ -300,7 +385,7 @@ describe("SqliteStore (durable-only)", () => {
     await before.updateConversationTitle(conversation.id, "Existing title", null);
     before.close();
     const previous = new BetterSqlite3(path);
-    removeScopedState(previous);
+    downgradeToSchema11(previous);
     previous.exec(
       "DROP INDEX conversations_project_recent; DROP INDEX conversations_recent; DROP INDEX conversations_workspace_recent; ALTER TABLE conversations DROP COLUMN last_used_at; ALTER TABLE conversations DROP COLUMN fork_origin; ALTER TABLE conversations DROP COLUMN original_workspace_root; DROP TABLE managed_worktrees;",
     );
@@ -431,7 +516,7 @@ describe("SqliteStore (durable-only)", () => {
       await before.updateTurn(turn.id, "completed");
       before.close();
       const previous = new BetterSqlite3(path);
-      removeScopedState(previous);
+      downgradeToSchema11(previous);
       previous.exec(
         version === 3
           ? "DROP INDEX model_usage_agent; DROP INDEX model_usage_turn; DROP INDEX turns_terminal; ALTER TABLE model_usage DROP COLUMN purpose; ALTER TABLE model_usage DROP COLUMN request_duration_ms; ALTER TABLE model_usage DROP COLUMN provider_usage; ALTER TABLE model_usage DROP COLUMN cost_incomplete; ALTER TABLE model_usage DROP COLUMN input_tokens_are_context;"

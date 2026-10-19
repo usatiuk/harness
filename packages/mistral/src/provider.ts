@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { PRODUCT_USER_AGENT } from "@harness/release";
+import { classifyTransientFailure } from "@harness/openai-core";
 import type { Stream } from "openai/core/streaming";
 import {
   mergeModelMetadata,
@@ -164,7 +165,7 @@ export class MistralProvider implements ModelProvider {
           /context (window|length)|too many tokens/i.test(error.message))
       )
         throw new ContextWindowExceededError("Mistral context window exceeded", { cause: error });
-      throw error;
+      throw classifyTransientFailure(error, signal) ?? error;
     }
   }
 }

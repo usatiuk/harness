@@ -1,4 +1,5 @@
 import { ImagePreviews } from "./components/image-previews.tsx";
+import { RetryStatusLine } from "./components/retry-status.tsx";
 import {
   readImageFiles,
   readImagePaths,
@@ -72,6 +73,7 @@ import {
   appSettingsUpdateRequest,
   appProviderConfigUpdateRequest,
   appProviderCreateRequest,
+  modelRetriesSettingsSchema,
   type AppSettings,
 } from "@harness/server/client-protocol";
 import type { TranscriptRow, TranscriptStep } from "./transcript.ts";
@@ -371,6 +373,10 @@ export function createDesktopRouter(
             compactionInput === ""
               ? null
               : compactionThresholdSchema.parse(Number(compactionInput));
+          const modelRetries = modelRetriesSettingsSchema.parse({
+            attempts: Number(field(data, "modelRetriesAttempts")),
+            backoffMs: Number(field(data, "modelRetriesBackoffMs")),
+          });
           const [provider, model] = field(data, "model").split("\u0000");
           const inWorkspace = field(data, "inWorkspace");
           const outOfWorkspace = field(data, "outOfWorkspace");
@@ -431,6 +437,7 @@ export function createDesktopRouter(
               maxChildren: Number(field(data, "subagentMaxChildren")),
             },
             compactionThresholdTokens,
+            modelRetries,
             worktreeDirectory: field(data, "worktreeDirectory").trim() || null,
           });
           return {
@@ -2184,14 +2191,18 @@ export function createDesktopRouter(
         running={view.state.turn.status === "running"}
         pendingWork={
           view.state.turn.status === "running" &&
-          !view.state.cells.some(
-            (cell) =>
-              cell.kind !== "user" && "turnId" in cell && cell.turnId === view.state.turn.id,
-          ) && (
-            <div className="cell" role="status">
-              <div className="work-group-title">Working</div>
-            </div>
-          )
+          (view.state.modelRetry ? (
+            <RetryStatusLine retry={view.state.modelRetry} />
+          ) : (
+            !view.state.cells.some(
+              (cell) =>
+                cell.kind !== "user" && "turnId" in cell && cell.turnId === view.state.turn.id,
+            ) && (
+              <div className="cell" role="status">
+                <div className="work-group-title">Working</div>
+              </div>
+            )
+          ))
         }
         header={
           side ? null : (
@@ -2550,6 +2561,40 @@ export function createDesktopRouter(
                 <small className="muted">
                   Blank uses known model input/output limits. Restart the server to apply changes to
                   already-loaded conversations.
+                </small>
+              </label>
+              <label>
+                Model call retries
+                <Select
+                  name="modelRetriesAttempts"
+                  defaultValue={String(settings.settings.modelRetries.attempts)}
+                >
+                  {[0, 3, 5, 10, settings.settings.modelRetries.attempts]
+                    .filter((value, index, all) => all.indexOf(value) === index)
+                    .map((value) => (
+                      <SelectItem key={value} value={String(value)}>
+                        {value === 0 ? "Off" : value === 1 ? "1 attempt" : `${value} attempts`}
+                      </SelectItem>
+                    ))}
+                </Select>
+                <small className="muted">
+                  Total model invocations per call, including the first (Off or 1 disables retries).
+                  Retries cover transient failures (rate limits, overload, network) in every model
+                  call.
+                </small>
+              </label>
+              <label>
+                Retry backoff base (ms)
+                <Input
+                  name="modelRetriesBackoffMs"
+                  type="number"
+                  min={50}
+                  max={60000}
+                  step={1}
+                  defaultValue={settings.settings.modelRetries.backoffMs}
+                />
+                <small className="muted">
+                  Doubles per attempt with jitter; a provider Retry-After is honored up to 60s.
                 </small>
               </label>
               <label>

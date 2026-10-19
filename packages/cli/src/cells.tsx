@@ -2,7 +2,7 @@ import { createContext, useContext, type ReactElement } from "react";
 import { Box, Text } from "ink";
 import { Spinner } from "@inkjs/ui";
 import { assertNever, selectionId, type ToolStatus } from "@harness/protocol";
-import type { Cell } from "./transcript-reducer.ts";
+import { retryStatusLabel, type Cell, type RetryStatus } from "./transcript-reducer.ts";
 import { Markdown } from "./markdown.tsx";
 import {
   editPresentation,
@@ -163,7 +163,14 @@ export function ExplorationView({ stage }: { stage: ExplorationStage }): ReactEl
   );
 }
 
-export function WorkFooterView({ duration }: { duration?: number }): ReactElement {
+export function WorkFooterView({
+  duration,
+  retry,
+}: {
+  duration?: number;
+  retry?: RetryStatus | undefined;
+}): ReactElement {
+  if (retry) return <Spinner label={`${retryStatusLabel(retry)}…`} />;
   return duration === undefined ? (
     <Spinner label="Working…" />
   ) : (

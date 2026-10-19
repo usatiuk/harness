@@ -12,6 +12,7 @@ import {
 import { approvalConfigSchema } from "@harness/approval";
 import { conversationTitlesConfigSchema } from "@harness/conversation-titles";
 import { autoApprovalConfigSchema } from "@harness/auto-approval";
+import { modelRetryConfigSchema } from "@harness/model-retry";
 import { subagentsConfigSchema } from "@harness/subagents";
 import { sandboxConfigSchema, type SandboxBackend } from "@harness/sandbox";
 import {
@@ -227,6 +228,7 @@ export function registerAppApi(
     const autoApproval = autoApprovalConfigSchema.parse(doc.plugins?.["auto-approval"] ?? {});
     const subagents = subagentsConfigSchema.parse(doc.plugins?.["subagents"] ?? {});
     const titles = conversationTitlesConfigSchema.parse(doc.plugins?.["conversation-titles"] ?? {});
+    const retryConfig = modelRetryConfigSchema.parse(doc.plugins?.["model-retry"] ?? {});
     return {
       home: defaultHome(),
       cwd: process.cwd(),
@@ -258,6 +260,7 @@ export function registerAppApi(
         compactionThresholdTokens: doc.compaction?.thresholdTokens ?? null,
         worktreeDirectory:
           worktreesConfigSchema.parse(doc.plugins?.["worktrees"] ?? {}).directory ?? null,
+        modelRetries: { attempts: retryConfig.attempts, backoffMs: retryConfig.backoffMs },
       },
     };
   });
@@ -324,6 +327,12 @@ export function registerAppApi(
         if (settings.subagents) {
           await updateGlobalPluginConfig(defaultHome(), "subagents", settings.subagents);
           changedPlugins.push("subagents");
+        }
+        if (settings.modelRetries) {
+          await updateGlobalPluginConfig(defaultHome(), "model-retry", settings.modelRetries, {
+            replace: true,
+          });
+          changedPlugins.push("model-retry");
         }
         if (settings.sandbox)
           await updateGlobalPluginConfig(defaultHome(), "sandbox", { backend: settings.sandbox });

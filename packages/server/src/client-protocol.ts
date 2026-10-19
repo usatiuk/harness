@@ -18,6 +18,8 @@ import {
   toolPermissionSchema as effect,
   humanApprovalTimeoutSchema,
 } from "@harness/approval/client";
+import { modelRetriesSettingsSchema } from "@harness/model-retry/client";
+export { modelRetriesSettingsSchema } from "@harness/model-retry/client";
 const settings = z.strictObject({
   model: model.nullable(),
   conversationTitleModel: model.nullable(),
@@ -40,6 +42,7 @@ const settings = z.strictObject({
   subagents: subagentLimitsSchema,
   compactionThresholdTokens: compactionThresholdSchema.nullable(),
   worktreeDirectory: z.string().trim().min(1).nullable(),
+  modelRetries: modelRetriesSettingsSchema,
 });
 const providerSettingSchema = z.strictObject({
   key: z.string().min(1),
@@ -109,6 +112,7 @@ export const appSettingsUpdateRequest = defineRequest({
     ...(patch.compactionThresholdTokens === undefined
       ? {}
       : { compactionThresholdTokens: patch.compactionThresholdTokens }),
+    ...(patch.modelRetries === undefined ? {} : { modelRetries: patch.modelRetries }),
   })),
   result: z.null(),
 });

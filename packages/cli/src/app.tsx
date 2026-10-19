@@ -21,7 +21,6 @@ import {
   type Conversation,
   type HarnessEvent,
   type Item,
-  type ModelUsage,
   type ModelUsageSummary,
   type Usage,
 } from "@harness/protocol";
@@ -60,8 +59,8 @@ export interface AppProps {
   providerLabels?: Readonly<Record<string, string>>;
   conversation: Conversation;
   initialItems: Item[];
-  /** Stored usage rows seeding the footer totals on resume. */
-  initialUsage: ModelUsage[] | ModelUsageSummary;
+  /** Authoritative server summary seeding the footer totals on resume. */
+  initialUsage: ModelUsageSummary;
   cwd: string;
   /** Where this process was launched; a note flags it when it differs from `cwd`. */
   launchCwd: string;
@@ -511,7 +510,7 @@ export function App({
           {live.map(renderEntry)}
           {busy ? (
             <Box marginTop={1}>
-              <WorkFooterView />
+              <WorkFooterView retry={state.modelRetry} />
             </Box>
           ) : null}
           {entries.length > 0 || busy ? <Box height={1} /> : null}

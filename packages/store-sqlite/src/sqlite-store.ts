@@ -653,6 +653,7 @@ export class SqliteStore implements Store {
           input.providerUsage === undefined ? null : JSON.stringify(input.providerUsage),
         cost_incomplete: input.costIncomplete ? 1 : 0,
         input_tokens_are_context: input.inputTokensAreContext === false ? 0 : 1,
+        attempts: input.attempts ?? null,
         created_at: record.createdAt,
       })
       .execute();
@@ -680,9 +681,10 @@ export class SqliteStore implements Store {
           cost: number | null;
           cost_incomplete: number;
           input_tokens_are_context: number;
+          attempts: number | null;
         }
       >(
-        `SELECT usage, cost, cost_incomplete, input_tokens_are_context FROM model_usage
+        `SELECT usage, cost, cost_incomplete, input_tokens_are_context, attempts FROM model_usage
          WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC`,
       )
       .iterate(conversationId);
@@ -692,8 +694,10 @@ export class SqliteStore implements Store {
     let costIncomplete = false;
     let lastInputTokens: number | undefined;
     for (const row of rows) {
+      const unobservedAttempts = (row.attempts ?? 0) > 1;
       cost += row.cost ?? 0;
-      costIncomplete ||= row.cost === null || row.cost_incomplete === 1;
+      costIncomplete ||= unobservedAttempts || row.cost === null || row.cost_incomplete === 1;
+      incomplete ||= unobservedAttempts;
       const parsed = usageSchema.nullable().parse(JSON.parse(row.usage)) as Usage | null;
       if (parsed === null) {
         incomplete = true;
@@ -924,6 +928,7 @@ function rowToModelUsage(row: Database["model_usage"]): ModelUsage {
       : { providerUsage: jsonValueSchema.parse(JSON.parse(row.provider_usage)) }),
     ...(row.cost_incomplete ? { costIncomplete: true } : {}),
     ...(row.input_tokens_are_context === 0 ? { inputTokensAreContext: false } : {}),
+    ...(row.attempts === null ? {} : { attempts: row.attempts }),
     createdAt: row.created_at,
   };
 }

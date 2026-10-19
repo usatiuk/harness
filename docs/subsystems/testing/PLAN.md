@@ -15,13 +15,20 @@ macOS qualification remains open; the plan records exact evidence and limits.
 
 ## Milestone 1: model reliability evidence
 
-- [ ] Define table-driven retryable/non-retryable provider failures at adapter
+Delivered alongside the
+[model retry middleware delivery plan](../../plans/models/2026-10-18-model-retry-middleware.md):
+table-driven adapter classification fixtures, middleware bounds/cancellation
+tests, engine call-site tests (agent and compaction purposes, usage `attempts`),
+and an end-to-end service test for wire visibility.
+
+- [x] Define table-driven retryable/non-retryable provider failures at adapter
       boundaries.
-- [ ] Prove retry occurs only before the first yielded event and is bounded.
-- [ ] Prove cancellation interrupts both an active attempt and backoff.
-- [ ] Prove agent, compaction, subagent, and auto-approval calls share the model
-      middleware behavior.
-- [ ] Prove failed attempts do not create completed usage rows or duplicate
+- [x] Prove retry occurs only before the first yielded event and is bounded.
+- [x] Prove cancellation interrupts both an active attempt and backoff.
+- [x] Prove agent and compaction calls traverse the model middleware with
+      identical retry semantics; subagent and auto-approval calls share the
+      same `#streamModel` seam by construction (no separate engine test).
+- [x] Prove failed attempts do not create completed usage rows or duplicate
       canonical model output.
 
 ## Milestone 2: execution/security evidence

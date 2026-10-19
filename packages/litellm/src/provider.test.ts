@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TransientModelFailure } from "@harness/protocol";
 import type {
   ConversationId,
   Item,
@@ -1142,5 +1143,64 @@ describe("tool-input metadata", () => {
       preferredEditTool: "replace",
       customToolInput: { supported: true, grammars: ["lark"] },
     });
+  });
+});
+
+describe("gateway failure classification", () => {
+  it.each([
+    [
+      "openai-completions",
+      { error: { type: "rate_limit_error", code: "litellm_rate_limit", message: "slow down" } },
+    ],
+    [
+      "openai-responses",
+      { error: { type: "rate_limit_error", code: "litellm_rate_limit", message: "slow down" } },
+    ],
+    [
+      "anthropic-messages",
+      { type: "error", error: { type: "rate_limit_error", message: "slow down" } },
+    ],
+  ] as const)(
+    "classifies a LiteLLM rate-limit body as transient through %s",
+    async (transport, body) => {
+      // A zero retry-after keeps the SDK's own retries from sleeping between attempts.
+      const gateway = await httpGateway((_req, res) => {
+        res.writeHead(429, { "content-type": "application/json", "retry-after": "0" });
+        res.end(JSON.stringify(body));
+      });
+      gateways.push(gateway);
+      const provider = new LiteLLMProvider(
+        "work",
+        liteLLMConfigSchema.parse({
+          baseUrl: gateway.url,
+          defaultTransport: transport,
+          models: { coding: {} },
+        }),
+        "key",
+      );
+      await expect(collect(provider, request())).rejects.toMatchObject({
+        name: "TransientModelFailure",
+        reason: "rate_limit",
+        retryAfterMs: 0,
+      });
+    },
+  );
+
+  it("keeps a permanent gateway error permanent", async () => {
+    const gateway = await httpGateway((_req, res) =>
+      json(res, { error: { type: "invalid_request_error", message: "model not found" } }, 400),
+    );
+    gateways.push(gateway);
+    const provider = new LiteLLMProvider(
+      "work",
+      liteLLMConfigSchema.parse({ baseUrl: gateway.url, models: { coding: {} } }),
+      "key",
+    );
+    const error = await collect(provider, request()).then(
+      () => undefined,
+      (failure: unknown) => failure,
+    );
+    expect(error).not.toBeInstanceOf(TransientModelFailure);
+    expect(error).toMatchObject({ status: 400 });
   });
 });

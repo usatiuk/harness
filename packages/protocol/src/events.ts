@@ -1,6 +1,7 @@
 import type { PendingInput } from "./delivery.ts";
 import type { ConversationId, TurnId } from "./ids.ts";
 import type { Item } from "./items.ts";
+import type { ModelFailureReason } from "./model.ts";
 import type { ModelUsageSummary } from "./usage.ts";
 import type { ConversationConfig } from "./conversation.ts";
 import type { TurnStatus } from "./conversation.ts";
@@ -33,6 +34,16 @@ export type KernelEvent = ConversationEvent &
     // every inbox mutation; `pending: []` means it drained.
     | { type: "inbox"; pending: PendingInput[] }
     | { type: "usage.changed"; summary: ModelUsageSummary }
+    // A transient model failure scheduled a retry. Emitted per re-issue attempt;
+    // hosts forward it per audience rules (conversation/compaction visible).
+    | {
+        type: "model.retry";
+        purpose: string;
+        attempt: number;
+        maxAttempts: number;
+        delayMs: number;
+        reason: ModelFailureReason;
+      }
   );
 
 /**
@@ -60,6 +71,7 @@ const KERNEL_EVENT_TYPES = new Set<KernelEvent["type"]>([
   "workspace.changed",
   "inbox",
   "usage.changed",
+  "model.retry",
 ]);
 
 /**

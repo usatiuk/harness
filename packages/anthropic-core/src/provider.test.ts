@@ -64,7 +64,7 @@ describe("AnthropicProvider context overflow normalization", () => {
     ).rejects.toBeInstanceOf(ContextWindowExceededError);
   });
 
-  it("preserves unrelated provider failures", async () => {
+  it("classifies unrelated 5xx provider failures as transient without normalizing them", async () => {
     const error = Object.assign(new Error("context service unavailable"), { status: 500 });
     const provider = new AnthropicProvider({
       credentials: {
@@ -75,7 +75,7 @@ describe("AnthropicProvider context overflow normalization", () => {
 
     await expect(
       consume(provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)),
-    ).rejects.toBe(error);
+    ).rejects.toMatchObject({ name: "TransientModelFailure", cause: error });
   });
 });
 

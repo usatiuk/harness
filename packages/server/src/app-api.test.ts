@@ -367,6 +367,47 @@ it("saves creation defaults without changing unrelated global settings", async (
   }
 });
 
+it("round-trips model retry settings through the app API and global plugin config", async () => {
+  const home = await mkdtemp(join(tmpdir(), "harness-model-retries-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  vi.stubEnv("OPENAI_API_KEY", "");
+  vi.stubEnv("ANTHROPIC_API_KEY", "");
+  vi.stubEnv("OPENCODE_API_KEY", "");
+  const pair = createInProcessMessageConnectionPair();
+  const harness = await buildServerHarness(pair.right);
+  const client = new HarnessClient({
+    connection: pair.left,
+    client: { name: "model-retries-test", version: "1" },
+  });
+  try {
+    await client.start();
+    const before = await client.peer.request(appSettingsRequest, {});
+    expect(before.settings.modelRetries).toEqual({ attempts: 5, backoffMs: 1000 });
+    await client.peer.request(appSettingsUpdateRequest, {
+      modelRetries: { attempts: 3, backoffMs: 250 },
+    });
+    expect((await client.peer.request(appSettingsRequest, {})).settings.modelRetries).toEqual({
+      attempts: 3,
+      backoffMs: 250,
+    });
+    expect((await readGlobalSettings(home)).plugins?.["model-retry"]).toEqual({
+      attempts: 3,
+      backoffMs: 250,
+    });
+    await expect(
+      client.peer.request(appSettingsUpdateRequest, {
+        modelRetries: { attempts: 99, backoffMs: 250 },
+      }),
+    ).rejects.toThrow();
+  } finally {
+    client.closeConnection();
+    await harness.close();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 it("logs the failed RPC method and error class without exception content", async () => {
   const home = await mkdtemp(join(tmpdir(), "harness-diagnostic-"));
   vi.stubEnv("HARNESS_HOME", home);

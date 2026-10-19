@@ -453,8 +453,10 @@ export class InMemoryStore implements Store {
     for (const row of this.#modelUsage) {
       if (row.conversationId !== conversationId) continue;
       if (row.purpose === "agent") agent = row;
+      const unobservedAttempts = (row.attempts ?? 0) > 1;
       cost += row.cost ?? 0;
-      costIncomplete ||= row.cost === null || row.costIncomplete === true;
+      costIncomplete ||= unobservedAttempts || row.cost === null || row.costIncomplete === true;
+      incomplete ||= unobservedAttempts;
       if (row.usage === null) {
         incomplete = true;
       } else {

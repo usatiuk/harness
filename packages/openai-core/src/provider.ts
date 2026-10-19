@@ -11,9 +11,11 @@ import type {
   ModelStreamEvent,
   ModelCapabilities,
   ModelCallContext,
+  TransientModelFailure,
 } from "@harness/protocol";
 import { ContextWindowExceededError } from "@harness/protocol";
 import type { OpenAICredentials } from "./credentials.ts";
+import { classifyTransientFailure } from "./errors.ts";
 import { buildResponseParams } from "./request.ts";
 import { buildChatParams } from "./request.ts";
 import { toModelEvents, toChatEvents } from "./stream.ts";
@@ -205,6 +207,14 @@ export abstract class OpenAIResponsesTransport {
   protected abstract buildParams(
     request: ModelRequest,
   ): OpenAI.Responses.ResponseCreateParamsStreaming;
+  /** Connections may specialize raw failure policy without a second normalization pass. */
+  protected classifyFailure(
+    error: unknown,
+    signal: AbortSignal,
+  ): TransientModelFailure | undefined {
+    return classifyTransientFailure(error, signal);
+  }
+
   async *stream(
     request: ModelRequest,
     signal: AbortSignal,
@@ -230,7 +240,7 @@ export abstract class OpenAIResponsesTransport {
       ) {
         throw new ContextWindowExceededError(message, { cause: error });
       }
-      throw error;
+      throw this.classifyFailure(error, signal) ?? error;
     }
   }
 }
@@ -377,6 +387,14 @@ export class OpenAIChatTransport {
     return buildChatParams(request);
   }
 
+  /** Connections may specialize raw failure policy without a second normalization pass. */
+  protected classifyFailure(
+    error: unknown,
+    signal: AbortSignal,
+  ): TransientModelFailure | undefined {
+    return classifyTransientFailure(error, signal);
+  }
+
   async *stream(
     request: ModelRequest,
     signal: AbortSignal,
@@ -402,7 +420,7 @@ export class OpenAIChatTransport {
       ) {
         throw new ContextWindowExceededError(message, { cause: error });
       }
-      throw error;
+      throw this.classifyFailure(error, signal) ?? error;
     }
   }
 }

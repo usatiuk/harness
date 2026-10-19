@@ -202,6 +202,10 @@ describe("images across the public conversation boundary", () => {
         ).toContain("does not support image input"),
       );
       unsubscribe();
+      expect((await store.listModelUsage(id)).at(-1)).toMatchObject({
+        attempts: 0,
+        usage: null,
+      });
       expect(
         (await store.listActiveItems(id)).find(
           (item) => item.type === "message" && item.role === "user",

@@ -2,7 +2,7 @@ import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { Box, Static, Text, render } from "ink";
 import { Terminal } from "@xterm/headless";
-import type { Conversation, HarnessEvent, Item } from "@harness/protocol";
+import { zeroUsage, type Conversation, type HarnessEvent, type Item } from "@harness/protocol";
 import type { HarnessService } from "@harness/service";
 import { App, LiveViewport } from "./app.tsx";
 import { Markdown } from "./markdown.tsx";
@@ -257,7 +257,7 @@ describe("terminal scrollback", () => {
         plugins={testPlugins()}
         conversation={conversation}
         initialItems={[]}
-        initialUsage={[]}
+        initialUsage={{ usage: zeroUsage(), incomplete: false, cost: 0 }}
         cwd="/tmp"
         launchCwd="/tmp"
         onResume={() => {}}
@@ -316,7 +316,7 @@ describe("terminal scrollback", () => {
         plugins={testPlugins()}
         conversation={conversation}
         initialItems={[]}
-        initialUsage={[]}
+        initialUsage={{ usage: zeroUsage(), incomplete: false, cost: 0 }}
         cwd="/tmp"
         launchCwd="/tmp"
         onResume={() => {}}
@@ -378,7 +378,7 @@ describe("terminal scrollback", () => {
         plugins={testPlugins()}
         conversation={conversation}
         initialItems={[]}
-        initialUsage={[]}
+        initialUsage={{ usage: zeroUsage(), incomplete: false, cost: 0 }}
         cwd="/tmp"
         launchCwd="/tmp"
         onResume={() => {}}
@@ -423,7 +423,7 @@ describe("terminal scrollback", () => {
         plugins={testPlugins()}
         conversation={conversation}
         initialItems={[]}
-        initialUsage={[]}
+        initialUsage={{ usage: zeroUsage(), incomplete: false, cost: 0 }}
         cwd="/tmp"
         launchCwd="/tmp"
         onResume={() => {}}

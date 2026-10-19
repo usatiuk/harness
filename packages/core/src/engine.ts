@@ -8,6 +8,7 @@ import {
   ContextWindowExceededError,
   ContentInputError,
   ModelInvocationFailure,
+  TransientModelFailure,
   conversationOf,
   costOf,
   errorResult,
@@ -1275,6 +1276,8 @@ export class Engine {
       // --- Consume phase: assistant content, in emission order. ---
       const requestStarted = performance.now();
       let requestDurationMs: number | undefined;
+      let invocation:
+        { stream: AsyncIterable<ModelStreamEvent>; readonly attempts: number } | undefined;
       const recordUsage = async (): Promise<void> => {
         const usage = completed?.usage ?? null;
         await this.store.recordModelUsage({
@@ -1287,6 +1290,7 @@ export class Engine {
           requestDurationMs: requestDurationMs ?? performance.now() - requestStarted,
           usage,
           cost: pricing && usage ? costOf(usage, pricing) : null,
+          attempts: invocation?.attempts ?? 0,
           ...(completed?.inputTokensAreContext === false ? { inputTokensAreContext: false } : {}),
           ...(completed?.providerUsage !== undefined
             ? { providerUsage: completed.providerUsage }
@@ -1296,15 +1300,16 @@ export class Engine {
         await this.#publishUsage(conversation.id);
       };
       try {
-        const stream = this.#streamModel(
+        invocation = this.#streamModel(
           conversation.id,
+          "agent",
           request,
           signal,
           provider,
           toolSet,
           evidenceByEvent,
         );
-        for await (const event of stream) {
+        for await (const event of invocation.stream) {
           evidenceId = evidenceByEvent.get(event);
           if (completed)
             throw new Error("provider emitted an event after completed", {
@@ -1983,12 +1988,13 @@ export class Engine {
   /** The single middleware-to-provider stream boundary for every model-backed operation. */
   #streamModel(
     conversationId: ConversationId,
+    purpose: string,
     request: ModelRequest,
     signal: AbortSignal,
     provider: ModelProvider,
     toolSet?: ToolSet,
     evidenceByEvent?: WeakMap<ModelStreamEvent, string>,
-  ): AsyncIterable<ModelStreamEvent> {
+  ): { stream: AsyncIterable<ModelStreamEvent>; readonly attempts: number } {
     const store = this.store;
     const context: ModelCallContext = { conversationId };
     const captureScope = new AsyncLocalStorage<((body: JsonValue) => Promise<void>) | undefined>();
@@ -1998,13 +2004,25 @@ export class Engine {
         if (!capture) throw new Error("Native request capture has no invocation scope");
         await capture(body);
       };
-    return runModelChain(
+    // Host accounting belongs to the logical invocation, not any selected output event.
+    let providerAttempts = 0;
+    const stream = runModelChain(
       this.host.modelMiddleware,
       request,
       {
         conversationId,
         signal,
         toolMeta: (name) => toolSet?.metaOf(name),
+        reportRetry: ({ attempt, maxAttempts, delayMs, reason }) =>
+          this.#emitKernel({
+            type: "model.retry",
+            conversationId,
+            purpose,
+            attempt,
+            maxAttempts,
+            delayMs,
+            reason,
+          }),
       },
       async function* (nextRequest) {
         assertImageInput(
@@ -2036,20 +2054,24 @@ export class Engine {
           };
         }
         try {
+          providerAttempts++;
           const iterator = provider.stream(nextRequest, signal, context)[Symbol.asyncIterator]();
           try {
             for (;;) {
               const result = await captureScope.run(capture, () => iterator.next());
               if (result.done) break;
-              if (attemptId) evidenceByEvent!.set(result.value, attemptId);
-              yield result.value;
+              const event = result.value;
+              if (attemptId) evidenceByEvent!.set(event, attemptId);
+              yield event;
             }
           } finally {
             if (iterator.return) await captureScope.run(capture, () => iterator.return!());
           }
         } catch (error) {
-          // Preserve context-limit recovery; classify other provider failures at their boundary.
-          if (error instanceof ContextWindowExceededError) throw error;
+          // Preserve context-limit recovery and transient retry classification (the retry
+          // middleware sees these directly); wrap every other provider failure.
+          if (error instanceof ContextWindowExceededError || error instanceof TransientModelFailure)
+            throw error;
           throw new ModelInvocationFailure(
             error instanceof Error ? "model provider failed" : String(error),
             { cause: error },
@@ -2057,6 +2079,12 @@ export class Engine {
         }
       },
     );
+    return {
+      stream,
+      get attempts() {
+        return providerAttempts;
+      },
+    };
   }
 
   /** Builds a one-provider-call model capability scoped to this turn. */
@@ -2109,6 +2137,8 @@ export class Engine {
       const requestStarted = performance.now();
       let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
       let requestDurationMs: number | undefined;
+      let invocation:
+        { stream: AsyncIterable<ModelStreamEvent>; readonly attempts: number } | undefined;
       const pricing = this.#pricingFor(modelConfig);
       const recordUsage = async (): Promise<void> => {
         const usage = completed?.usage ?? null;
@@ -2122,6 +2152,7 @@ export class Engine {
           requestDurationMs: requestDurationMs ?? performance.now() - requestStarted,
           usage,
           cost: pricing && usage ? costOf(usage, pricing) : null,
+          attempts: invocation?.attempts ?? 0,
           ...(completed?.inputTokensAreContext === false ? { inputTokensAreContext: false } : {}),
           ...(completed?.providerUsage !== undefined
             ? { providerUsage: completed.providerUsage }
@@ -2131,14 +2162,15 @@ export class Engine {
         await this.#publishUsage(conversation.id);
       };
       try {
-        const stream = this.#streamModel(
+        invocation = this.#streamModel(
           conversation.id,
+          options.purpose ?? "plugin",
           request,
           signal,
           provider,
           modelMiddlewareTools,
         );
-        for await (const event of stream) {
+        for await (const event of invocation.stream) {
           if (completed)
             throw new Error("provider emitted an event after completed", {
               cause: completed.error,

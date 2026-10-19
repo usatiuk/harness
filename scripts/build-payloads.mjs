@@ -20,6 +20,16 @@ const external = [
   "@devcontainers/cli",
   "quickjs-emscripten",
 ];
+export const payloadBundleOptions = {
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node24",
+  conditions: ["development"],
+  // GenAI 2.28's unexported Interactions errors derive their public `name`
+  // from constructor.name. Preserve it even when bundling resolves collisions.
+  keepNames: true,
+};
 const run = (command, args, env = {}) =>
   execFileSync(command, args, {
     cwd: root,
@@ -115,13 +125,9 @@ export async function buildPayload(component, output, identity) {
     const dependencies = [...external, ...extras];
     const filename = `${component}.mjs`;
     await build({
+      ...payloadBundleOptions,
       entryPoints: [join(root, `packages/${component}/src/bin.ts`)],
       outfile: join(stage, filename),
-      bundle: true,
-      platform: "node",
-      format: "esm",
-      target: "node24",
-      conditions: ["development"],
       external: [...dependencies, "@harness/native"],
       define: { __HARNESS_BUILD__: JSON.stringify(identity) },
       banner: {

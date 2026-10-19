@@ -555,14 +555,50 @@ rewrite the config and sign in again.
 
 ## Errors and observability
 
-Adapters normalize confirmed context overflow into `ContextWindowExceededError`.
-Other failures preserve their SDK error and cause chain; the CLI renders nested
-causes without dumping stacks or request bodies. Context builds record exactly
-what each logical call saw, and usage events/rows record provider, model, tokens,
-and optional cost.
+Adapters normalize confirmed context overflow into `ContextWindowExceededError`
+and classify demonstrated transient transport failures into
+`TransientModelFailure` (reason `rate_limit`, `overloaded`, `server`, `timeout`,
+`connection`, with an optional provider-requested `retryAfterMs` normalized from
+`Retry-After`/`retry-after-ms` headers or Gemini `RetryInfo` details). Anything
+an adapter does not classify is permanent by construction, including documented
+billing/quota errors. Other failures preserve their SDK error and cause chain;
+the CLI renders nested causes without dumping stacks or request bodies. Context
+builds record exactly what each logical call saw, and usage events/rows record
+provider, model, tokens, and optional cost.
 
-There is not yet a normalized transient-provider error or automatic model retry
-middleware. Deterministic request/configuration failures must never be retried.
+SDK error identity belongs to the adapter: OpenAI/Anthropic use their exported
+error classes, not constructor-name reflection. Known quota codes take
+precedence over retryable status or streamed error types. OpenCode's transport
+subclasses classify the original error once under gateway policy, rather than
+reclassifying an inner transport's normalized failure. A small set of neutral
+helpers parses wait headers and known Node transport cause codes; arbitrary
+`fetch failed`/network message text is not evidence of transience.
+Codex's readable `detail` projection returns an HTTP error response with status,
+headers and structured quota fields intact; HTTP rejection must not be thrown
+from fetch and mistaken by the SDK for a connection failure.
+An SDK connection-error class is retry evidence even when its underlying cause
+is unrecognized; the adapter does not guess from the cause's prose. Configured
+custom endpoints reject non-HTTP(S) schemes before constructing an SDK client.
+
+Pinned Gemini Interactions hides its connection-error classes and discards the
+timeout cause. Its adapter uses exact SDK error names under the explicit
+`keepNames` payload build contract, covered by a bundled SDK regression.
+This is an SDK-specific constraint, not a universal error classifier.
+
+The `model-retry` plugin (`packages/model-retry`) owns one bounded retry over the
+model-middleware chain for every model call: up to `attempts` total provider
+invocations (default 5; 0/1 disables) with exponential full-jitter backoff from
+`backoffMs` (default 1000 ms), capped at 60 s. A provider-requested wait is a
+floor; when it exceeds the cap the failure surfaces immediately instead of
+parking the turn. Retries re-issue only before the first yielded event,
+cancellation ends backoff promptly, and provider-SDK built-in retries stay
+disabled so attempts do not multiply. Each scheduled retry publishes a transient
+`model.retry` event carrying the invocation purpose; the wire forwards it only
+for agent and compaction calls — title naming and auto-approval review retries
+are silent, and auto-approval exhaustion reports as its deny result.
+The shared client reducer clears progress on text/reasoning deltas, finalized
+model output (including tool-only output), compaction output, or turn
+settlement. Unrelated tool results and plugin context do not clear it.
 
 ## Accepted invariants
 
@@ -571,8 +607,16 @@ middleware. Deterministic request/configuration failures must never be retried.
 - Harness canonical items always render without provider payloads; payloads add
   fidelity but never replace canonical content.
 - Model-call middleware applies consistently to agentic and non-agentic calls.
-- Every provider attempt records accounting and its context build; unobserved
-  usage stays unknown, including failed/interrupted attempts.
+- Usage rows record each logical model invocation and its provider attempt count
+  (`attempts`, absent on older records). The engine owns this counter separately
+  from provider events: exhaustion and cancellation retain known attempts; a
+  middleware short-circuit without a provider call records zero. Unobserved token
+  usage — including failed/interrupted attempts — stays unknown.
+- When an invocation made multiple provider calls, aggregate usage and cost are
+  lower bounds even after successful recovery: earlier calls have unobserved
+  spend. Keep the successful completion's usage as its context checkpoint;
+  incomplete totals do not make that known checkpoint unknown. Agent throughput
+  is unavailable when its earlier-attempt accounting is missing.
 - Missing provider accounting is durable `null`; it is never presented or priced
   as zero usage.
 - Hard catalog capacity and advisory request output caps remain distinct.

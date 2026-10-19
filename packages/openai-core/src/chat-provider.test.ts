@@ -73,7 +73,7 @@ describe("OpenAIChatTransport", () => {
     ).rejects.toBeInstanceOf(ContextWindowExceededError);
   });
 
-  it("does not normalize a non-400 failure merely because its message mentions context", async () => {
+  it("does not normalize a 5xx failure merely because its message mentions context", async () => {
     const error = Object.assign(new Error("context service unavailable"), { status: 500 });
     const provider = new OpenAIChatTransport({
       provider: "opencode-go",
@@ -87,6 +87,6 @@ describe("OpenAIChatTransport", () => {
 
     await expect(
       consume(provider.stream(REQUEST, new AbortController().signal, CALL_CONTEXT)),
-    ).rejects.toBe(error);
+    ).rejects.toMatchObject({ name: "TransientModelFailure", cause: error });
   });
 });

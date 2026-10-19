@@ -59,6 +59,13 @@ import {
 
 const HISTORY_READ_BATCH = 200;
 
+/** The one audience table for `model.retry`: retry progress reaches the user
+ * only for conversation-driving calls (agent steps, model compaction). Title
+ * naming is silent; auto-approval review exhaustion reports as its deny result. */
+function retryPurposeIsUserVisible(purpose: string): boolean {
+  return purpose === "agent" || purpose === "compaction";
+}
+
 export interface HarnessRpcSessionOptions {
   readonly connection: RpcConnection;
   readonly host: HarnessRpcHost;
@@ -623,6 +630,16 @@ export class HarnessRpcSession {
         return {
           type: "usage.changed",
           summary: projectUsageSummary(event.summary),
+        };
+      case "model.retry":
+        if (!retryPurposeIsUserVisible(event.purpose)) return undefined;
+        return {
+          type: "model.retry",
+          purpose: event.purpose,
+          attempt: event.attempt,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          reason: event.reason,
         };
       case "request.created":
       case "request.resolved":
