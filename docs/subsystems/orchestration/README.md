@@ -98,6 +98,12 @@ abandoned explicit wait cannot discard background completion. Cancelling a
 foreground call still kills its activity; cancelling an explicit background wait
 leaves the activity conversation-owned.
 
+Waits consume their outcome synchronously before releasing the manager's existing
+wait protection. This includes result formatting and timeout-to-background notice
+registration: neither may depend on a handle after it becomes collectible.
+Readable-label ambiguity is resolved while that handle is still owned; no extra
+retention policy or independent lifetime registry is needed.
+
 ## Subagents
 
 The subagents plugin contributes `subagent({agent, name, slug, task})`,

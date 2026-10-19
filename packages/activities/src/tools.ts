@@ -37,16 +37,22 @@ export class ActivityWaitTool implements Tool<z.infer<typeof waitArgs>> {
     if ("error" in resolved) return errorResult(resolved.error);
     id = resolved.id;
     const seconds = timeout_seconds ?? DEFAULT_WAIT_S;
-    const outcome = await mgr.wait(id, seconds * 1000, ctx.signal);
-    if (outcome === "running") {
-      return okResult(
-        `activity ${mgr.reference(id)} still running after ${seconds}s; wait again or activity_peek it.`,
-      );
-    }
-    return {
-      forModel: noticeContent(id, outcome, mgr.get(id), mgr.reference(id)),
-      status: outcome.status,
-    };
+    return mgr.wait(
+      id,
+      seconds * 1000,
+      (outcome, activity): ToolResult => {
+        const reference = mgr.reference(id);
+        if (outcome === "running")
+          return okResult(
+            `activity ${reference} still running after ${seconds}s; wait again or activity_peek it.`,
+          );
+        return {
+          forModel: noticeContent(id, outcome, activity, reference),
+          status: outcome.status,
+        };
+      },
+      ctx.signal,
+    );
   }
 }
 

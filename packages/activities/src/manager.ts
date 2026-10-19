@@ -111,15 +111,19 @@ export class ActivityManager {
     return "requested";
   }
 
-  /** Bounded wait over `activity.done`; marks the result surfaced on settle. */
-  async wait(
+  /**
+   * Bounded wait; consume synchronously while the handle is protected, including
+   * timeout-to-background notice registration. Never retain protection over an async consumer.
+   */
+  async wait<T>(
     id: string,
     timeoutMs: number,
+    consume: (outcome: ActivityResult | "running", activity: Activity) => T,
     signal?: AbortSignal,
-  ): Promise<ActivityResult | "running"> {
+  ): Promise<T> {
     signal?.throwIfAborted();
     const activity = this.#byId.get(id);
-    if (!activity) return "running";
+    if (!activity) throw new Error(`Cannot wait for unknown activity: ${id}`);
     let timer: ReturnType<typeof setTimeout>;
     const timeout = new Promise<"running">((res) => {
       timer = setTimeout(() => res("running"), timeoutMs);
@@ -144,7 +148,7 @@ export class ActivityManager {
         this.#surfaced.add(id);
         this.#notices.delete(id);
       }
-      return outcome;
+      return consume(outcome, activity);
     } finally {
       clearTimeout(timer!);
       if (onAbort) signal!.removeEventListener("abort", onAbort);

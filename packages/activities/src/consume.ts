@@ -26,20 +26,27 @@ export async function consume(
   if (ctx.signal.aborted) activity.kill();
   else ctx.signal.addEventListener("abort", onAbort, { once: true });
   try {
-    const outcome = await mgr.wait(activity.id, FOREGROUND_MS, ctx.signal);
-    if (outcome === "running") return backgroundNotice(mgr, activity, ctx, false);
-    const reference = mgr.reference(activity.id);
-    return {
-      forModel: noticeContent(activity.id, outcome, activity, reference),
-      status: outcome.status,
-      structured: {
-        activityId: activity.id,
-        ...(reference !== activity.id ? { activityRef: reference } : {}),
-        state: "completed",
-        status: outcome.status,
-        content: noticeContent(activity.id, outcome, activity, reference),
+    return await mgr.wait(
+      activity.id,
+      FOREGROUND_MS,
+      (outcome): ToolResult => {
+        if (outcome === "running") return backgroundNotice(mgr, activity, ctx, false);
+        const reference = mgr.reference(activity.id);
+        const content = noticeContent(activity.id, outcome, activity, reference);
+        return {
+          forModel: content,
+          status: outcome.status,
+          structured: {
+            activityId: activity.id,
+            ...(reference !== activity.id ? { activityRef: reference } : {}),
+            state: "completed",
+            status: outcome.status,
+            content,
+          },
+        };
       },
-    };
+      ctx.signal,
+    );
   } finally {
     ctx.signal.removeEventListener("abort", onAbort);
   }

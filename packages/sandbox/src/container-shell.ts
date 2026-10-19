@@ -79,7 +79,8 @@ export function encodeContainerEnvironment(env: NodeJS.ProcessEnv): Buffer {
 }
 
 export const CONTAINER_COMMAND = [
-  'while IFS= read -r -d "" entry; do export "$entry" || exit $?; done',
-  "unset BASH_ENV ENV",
-  'exec /bin/bash --norc -c "$1"',
+  "entries=()",
+  'while IFS= read -r -d "" entry; do entries+=("$entry"); done',
+  // OS environment names need not be Bash identifiers; never interpret entries as shell source.
+  'exec /usr/bin/env -i -- "${entries[@]}" /bin/bash --norc -c "$1"',
 ].join("\n");

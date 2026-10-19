@@ -145,6 +145,40 @@ describe.skipIf(!image)("container startup exports (live Docker, owned no-networ
     expect(await target("cat /home/shell-target/profile-count")).toBe("run\n");
   });
 
+  it("reconstructs dotted OS names and multiline values without leaking secrets", async () => {
+    const expected = {
+      "target.secret": "private-dotted-value\nsecond=line=exact",
+      TARGET_VALUE: "ordinary\nvalue=exact",
+    };
+    const env = { ...(await containerShellEnvironment(handle)), ...expected };
+    const result = await capture(
+      "docker",
+      [
+        "exec",
+        "-i",
+        "-u",
+        handle.remoteUser,
+        id,
+        "/usr/bin/env",
+        "-i",
+        "/bin/bash",
+        "--norc",
+        "-c",
+        CONTAINER_COMMAND,
+        "harness-command",
+        "/usr/bin/env -0",
+      ],
+      { input: encodeContainerEnvironment(env) },
+    );
+    expect(result.stderr).not.toContain(env["target.secret"]);
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    const entries = result.stdout.toString().split("\0");
+    for (const [key, value] of Object.entries(expected)) {
+      expect(entries).toContain(`${key}=${value}`);
+    }
+  });
+
   it("reports target startup failure without silently reinitializing the existing owner", async () => {
     await target("printf 'exit 7\\n' > /root/.bash_profile");
     expect((await containerShellEnvironment(handle))["TARGET_VALUE"]).toBe(

@@ -54,6 +54,36 @@ async function target(shell: string) {
 describe.skipIf(process.platform !== "linux")(
   "container shell target adapter (not live Docker)",
   () => {
+    it.each([0, 23])(
+      "reconstructs OS environment names and exact values without diagnostics (exit %s)",
+      async (exitCode) => {
+        const env = {
+          "target.secret": "private-dotted-value\nsecond=line=exact",
+          TARGET_VALUE: "ordinary\nvalue=exact",
+        };
+        const result = await capture(
+          "/usr/bin/env",
+          [
+            "-i",
+            "/bin/bash",
+            "--norc",
+            "-c",
+            CONTAINER_COMMAND,
+            "harness-command",
+            `/usr/bin/env -0; exit ${exitCode}`,
+          ],
+          { input: encodeContainerEnvironment(env) },
+        );
+        expect(result.stderr).not.toContain(env["target.secret"]);
+        expect(result.stderr).toBe("");
+        expect(result.exitCode).toBe(exitCode);
+        const entries = result.stdout.toString().split("\0");
+        for (const [key, value] of Object.entries(env)) {
+          expect(entries).toContain(`${key}=${value}`);
+        }
+      },
+    );
+
     it.each(["/bin/bash", "/bin/zsh"].filter(existsSync))(
       "captures %s target exports only once per physical handle, then executes fresh Bash",
       async (shell) => {

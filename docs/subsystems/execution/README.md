@@ -98,6 +98,9 @@ container handle; handle recreation refreshes them. Its probe requires the
 container's existing Bash/sh, `env`, GNU `timeout`, and `getent` account lookup to
 establish the actual remote user's home even when inherited container `HOME`
 names a different user. No host profile or environment is injected into the container.
+Command environments travel over NUL-delimited stdin and are reconstructed with
+the container's `env`, not shell assignments: valid OS names such as dotted keys
+and multiline values remain data, and assignment diagnostics cannot expose them.
 
 ### None (unconfined host)
 
