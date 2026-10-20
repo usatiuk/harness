@@ -320,3 +320,31 @@ patch workflow `39335781340` owns version/tag commit `1047499` (`v0.9.1`). Its
 production sources remain identical to the validated implementation; the later
 Windows correction changes only test setup/docs, not shipped code. Fresh source
 CI with the fixture correction must pass before final delivery is declared done.
+
+Fresh source CI `39336670070` passes all three platforms. Release `39335781340`
+passes Windows, Linux x64 and macOS builds but fails native ARM64 qualification:
+the unchanged real SIGKILL recovery test reports `read ECONNRESET`. A disappearing
+listener can reset rather than refuse a connection; existing startup recovery
+classified only refused/missing listeners. The production correction adds only
+`ECONNRESET` to that existing classification, without new retry machinery,
+timeouts, PID waits or changes to the crash test.
+
+Deterministic socket-edge regressions fail both existing-discovery and readiness
+recovery before the fix, while attach-only still passes (`act_6f3786d7`). After
+the fix, all 34 focused connection/control/background tests pass
+(`act_ae1e210a`), including the unchanged real crash, cancellation, authentication,
+candidate retirement and non-contention failure cases. The full check passes
+**2,137 / 46 skips**, including type/lint/format (`act_e8092957`). Browser/UI
+sources are unchanged since the recorded 184/184 run.
+
+The failed `v0.9.1` tag remains untouched and unpublished. Because this recovery
+correction changes shipped code, delivery proceeds through the standard next
+patch **0.9.2**, not a rewritten tag or custom release-resume mechanism. Final
+three-lens independent review covers correctness/security boundaries,
+architecture/simplicity, and test evidence/portability before dispatch.
+
+Final correction review: `host-api-review`, `full-simplicity-review` and
+`reset-evidence-review` independently approve with no blockers. The evidence
+reviewer inspected the failing baseline and passing focused/full logs; reviewers
+explicitly preserve the native Windows/ARM release-qualification gate. No
+catch-boundary refactor or additional recovery abstraction was warranted.

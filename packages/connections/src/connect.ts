@@ -69,7 +69,7 @@ export async function attachLocalServer(
 }
 
 const unavailable = (error: unknown): boolean =>
-  ["ECONNREFUSED", "ENOENT"].includes((error as NodeJS.ErrnoException).code ?? "");
+  ["ECONNREFUSED", "ENOENT", "ECONNRESET"].includes((error as NodeJS.ErrnoException).code ?? "");
 
 /** SQLite arbitrates ownership; only its classified contention exit permits another attempt. */
 export async function ensureLocalServer(

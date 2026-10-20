@@ -687,7 +687,14 @@ by separate client processes.
 
 `connections/src/connect.test.ts` launches real failing child processes to verify
 current-attempt startup diagnostics, exclusion of stale log output, silent failures
-and the 8 KiB bound. Desktop host tests use real RPC peers with a stalled initialize
+and the 8 KiB bound. A controlled socket-edge `ECONNRESET` verifies recovery during
+both existing-discovery attachment and startup readiness, with real authenticated
+owners and same-owner reuse; attach-only still propagates the reset without
+starting a replacement. Both recovery cases fail before the classification fix.
+The unchanged real SIGKILL crash scenario remains complementary process coverage.
+The final correction passes 34 focused tests and the full check (2,137 passed /
+46 skipped); this local run is not native Windows qualification.
+Desktop host tests use real RPC peers with a stalled initialize
 request to verify that reconnect rejects with the retained startup diagnostic
 instead of RPC disposal text. Rebuilt native desktop display remains unqualified.
 The 2026-10-16 correction passes 21 focused tests and all 14 real server lifecycle
