@@ -1,3 +1,4 @@
+import { TranscriptDisclosure } from "./components/transcript-disclosure.tsx";
 import { ActionFeedback, type ActionResult } from "./components/action-feedback.tsx";
 import {
   InstructionsSettings,
@@ -56,6 +57,7 @@ import {
   useRouteLoaderData,
   useRevalidator,
   useSearchParams,
+  useLocation,
   useParams,
   type ActionFunctionArgs,
 } from "react-router";
@@ -662,11 +664,16 @@ export function createDesktopRouter(
   function NewConversation() {
     const { settings } = useRouteLoaderData<RootData>("app")!;
     const [search] = useSearchParams();
+    const location = useLocation();
+    const projectDirectory = search.get("cwd");
     const [cwd, setCwd] = useState(
-      search.get("cwd") ??
+      projectDirectory ??
         localStorage.getItem(session.storageKey("last-directory")) ??
         settings.cwd,
     );
+    useEffect(() => {
+      if (projectDirectory !== null) setCwd(projectDirectory);
+    }, [projectDirectory, location.key]);
     const navigation = useNavigation();
     const defaultModel = settings.settings.model ?? session.domain.defaultModel();
     const [selection, setSelection] = useState(modelKey(defaultModel.provider, defaultModel.model));
@@ -1065,11 +1072,10 @@ export function createDesktopRouter(
   }) {
     const ToolIcon = toolIcon(cell.name);
     return (
-      <Disclosure
+      <TranscriptDisclosure
         className={`cell tool ${boundary ? `eval-${boundary}` : ""} ${cell.status === "error" && boundary !== "begin" ? "failed" : ""}`}
         data-testid="tool-call"
         unmountOnExit
-        name="conversation-step"
         title={
           <>
             <ToolIcon size={13} aria-hidden="true" className="tool-icon muted" />
@@ -1085,7 +1091,7 @@ export function createDesktopRouter(
         }
       >
         <ToolBody cell={cell} boundary={boundary} />
-      </Disclosure>
+      </TranscriptDisclosure>
     );
   });
 
@@ -1503,16 +1509,15 @@ export function createDesktopRouter(
       `Thought for ${duration} s`
     );
     return (
-      <Disclosure
+      <TranscriptDisclosure
         className="cell reasoning"
         unmountOnExit
-        name="conversation-step"
         title={<ReasoningSummary label={label} text={cell.text} />}
       >
         <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
           {cell.text}
         </Markdown>
-      </Disclosure>
+      </TranscriptDisclosure>
     );
   });
 
@@ -1529,19 +1534,19 @@ export function createDesktopRouter(
     if (cell.kind === "reasoning") return <Reasoning cell={cell} />;
     if (cell.kind === "plugin_message")
       return (
-        <Disclosure name="conversation-step" title={<>Message from {cell.pluginId}</>}>
+        <TranscriptDisclosure title={<>Message from {cell.pluginId}</>}>
           <pre>{cell.text}</pre>
           {cell.images && <ImagePreviews images={cell.images} />}
-        </Disclosure>
+        </TranscriptDisclosure>
       );
     if (cell.kind === "compaction" || cell.kind === "context")
       return (
-        <Disclosure
+        <TranscriptDisclosure
           className="cell"
           title={<>{cell.kind === "compaction" ? "Compacted context" : "Context"}</>}
         >
           <pre>{cell.text}</pre>
-        </Disclosure>
+        </TranscriptDisclosure>
       );
     if (cell.kind === "worked")
       return <div className="cell muted">Worked for {Math.round(cell.duration / 1000)}s</div>;
@@ -1583,9 +1588,9 @@ export function createDesktopRouter(
       );
     if (cell.kind === "shell")
       return (
-        <Disclosure className="cell" title={<>{cell.command}</>}>
+        <TranscriptDisclosure className="cell" title={<>{cell.command}</>}>
           <pre>{cell.text}</pre>
-        </Disclosure>
+        </TranscriptDisclosure>
       );
     return <div className="cell muted">{cell.text}</div>;
   });

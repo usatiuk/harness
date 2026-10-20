@@ -87,6 +87,13 @@ function ProjectGroup({
         <summary title={root}>
           <Folder size={15} aria-hidden="true" />
           <span className="project-label">{label}</span>
+          <IconLink
+            to={`/new?cwd=${encodeURIComponent(root)}`}
+            label={`New conversation in ${label}`}
+            icon={Plus}
+            size="sm"
+            onClick={(event) => event.stopPropagation()}
+          />
           <IconButton
             label={`Hide project ${label}`}
             icon={X}

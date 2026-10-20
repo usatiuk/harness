@@ -3864,7 +3864,7 @@ test("sidebar grid collapse animates height and opacity, then unmounts", async (
   await content.evaluate((element) =>
     element.getAnimations().forEach((animation) => animation.finish()),
   );
-  await expect(recents.getByRole("link")).toHaveCount(5);
+  await expect(recents.locator(".project-conversations").getByRole("link")).toHaveCount(5);
 });
 
 test("reduced motion collapses sidebar content without animation", async ({ page }) => {
@@ -3878,7 +3878,62 @@ test("reduced motion collapses sidebar content without animation", async ({ page
   await recents.locator(":scope > summary").click();
   await expect(content).toHaveCount(0);
   await recents.locator(":scope > summary").press("Space");
-  await expect(recents.getByRole("link")).toHaveCount(5);
+  await expect(recents.locator(".project-conversations").getByRole("link")).toHaveCount(5);
+});
+
+test("project new conversation shortcuts preserve disclosure and choose the clicked root", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  const first = page.locator('.sidebar-project:has(> summary[title="/work/a/repo"])');
+  const second = page.locator('.sidebar-project:has(> summary[title="/work/b/repo"])');
+  const firstShortcut = first.getByRole("link", {
+    name: "New conversation in /work/a/repo",
+    exact: true,
+  });
+  const secondShortcut = second.getByRole("link", {
+    name: "New conversation in /work/b/repo",
+    exact: true,
+  });
+  await expect(firstShortcut).toHaveAttribute(
+    "href",
+    `/new?cwd=${encodeURIComponent("/work/a/repo")}`,
+  );
+  await expect(
+    first.locator(':scope > summary a + button[aria-label="Hide project /work/a/repo"]'),
+  ).toHaveCount(1);
+  await first.locator(":scope > summary").hover();
+  await firstShortcut.click();
+  const folder = page.getByRole("textbox", { name: "Project folder", exact: true });
+  await expect(folder).toHaveValue("/work/a/repo");
+  await expect(first).toHaveAttribute("open");
+  await expect(page.locator(".sidebar-project")).toHaveCount(3);
+
+  await second.locator(":scope > summary").click();
+  await expect(second).not.toHaveAttribute("open");
+  await secondShortcut.focus();
+  await secondShortcut.press("Enter");
+  await expect(folder).toHaveValue("/work/b/repo");
+  await expect(second).not.toHaveAttribute("open");
+  await expect(first).toHaveAttribute("open");
+  await expect(page.locator(".sidebar-project")).toHaveCount(3);
+
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  await folder.fill("/unrelated/edited-folder");
+  await first.locator(":scope > summary").hover();
+  await firstShortcut.click();
+  await expect(folder).toHaveValue("/work/a/repo");
+  await expect(first).toHaveAttribute("open");
+  await expect(second).not.toHaveAttribute("open");
+  await folder.fill("/unrelated/edited-again");
+  await firstShortcut.click();
+  await expect(folder).toHaveValue("/work/a/repo");
+  await page.getByRole("button", { name: "Create conversation", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.creations.at(-1)?.cwd))
+    .toBe("/work/a/repo");
 });
 
 test("sidebar groups all folders, pages five chats, and keeps hidden projects in Recents", async ({
@@ -3891,7 +3946,7 @@ test("sidebar groups all folders, pages five chats, and keeps hidden projects in
   const project = page.locator('.sidebar-project:has(> summary[title="/work/a/repo"])');
   await expect(recents.getByRole("link")).toHaveCount(20);
   await expect(page.locator(".sidebar-project")).toHaveCount(3);
-  await expect(project.getByRole("link")).toHaveCount(5);
+  await expect(project.locator(".project-conversations").getByRole("link")).toHaveCount(5);
   // Pagination needs a stable target: opening can move the button between pointerdown and up.
   await project
     .locator(":scope > .collapse-grid")
@@ -3900,7 +3955,7 @@ test("sidebar groups all folders, pages five chats, and keeps hidden projects in
     );
   await page.screenshot({ path: test.info().outputPath("sidebar-folders.png") });
   await project.getByRole("button", { name: "Show more", exact: true }).click();
-  await expect(project.getByRole("link")).toHaveCount(10);
+  await expect(project.locator(".project-conversations").getByRole("link")).toHaveCount(10);
   await project.locator(":scope > summary").click();
   await expect(project).not.toHaveAttribute("open");
   await project.locator(":scope > summary").hover();
@@ -3978,7 +4033,7 @@ test("quiet sidebar keeps long project rows aligned and fully inside the resized
   await page.evaluate(() => window.composerFixture.seedSidebar(true));
   const recent = page.locator(".sidebar-recents");
   const project = page.locator('.sidebar-project:has(> summary[title="/work/a/repo"])');
-  await expect(project.getByRole("link")).toHaveCount(5);
+  await expect(project.locator(".project-conversations").getByRole("link")).toHaveCount(5);
   await page.getByRole("separator", { name: "Resize sidebar" }).focus();
   await page.keyboard.press("Home");
   const bounds = await page.locator(".conversation-list").evaluate((nav) => {
@@ -4005,7 +4060,7 @@ test("quiet sidebar keeps long project rows aligned and fully inside the resized
   expect(bounds.overflow).toBe(false);
   expect(bounds.moreHeight).toBeLessThanOrEqual(26);
   expect(bounds.moreShadow).toBe("none");
-  await project.getByRole("link").first().click();
+  await project.locator(".project-conversations").getByRole("link").first().click();
   await expect(project.locator("a.active")).toHaveCount(1);
   await recent.locator(":scope > summary").click();
   await expect(recent).not.toHaveAttribute("open");
@@ -4227,14 +4282,14 @@ test("worktree conversations share their original sidebar project and navigation
   await page.evaluate(() => window.composerFixture.seedWorktreeSidebar());
   const project = page.locator('.sidebar-project:has(> summary[title="/work/a/repo"])');
   await expect(page.locator(".sidebar-project")).toHaveCount(3);
-  await expect(project.getByRole("link")).toHaveCount(5);
+  await expect(project.locator(".project-conversations").getByRole("link")).toHaveCount(5);
   await expect(project.getByLabel("Worktree", { exact: true })).toHaveCount(5);
   await project.locator(":scope > summary").hover();
   await project.getByRole("button", { name: "Hide project /work/a/repo", exact: true }).click();
   await expect(project).toHaveCount(0);
   await page.locator(".sidebar-recents").getByText("Chat 0-0", { exact: true }).click();
   await expect(project).toHaveCount(1);
-  await expect(project.getByRole("link")).toHaveCount(5);
+  await expect(project.locator(".project-conversations").getByRole("link")).toHaveCount(5);
 });
 
 test("worktree manager requires explicit destructive confirmation", async ({ page }) => {
@@ -5330,3 +5385,193 @@ test("host instructions and keep-running follow selected execution host rather t
     { host: "second", content: "Second host only" },
   ]);
 });
+
+test("all transcript disclosure kinds are mutually exclusive without closing Working", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.evaluate(() =>
+    window.composerFixture.setWork([
+      { kind: "context", id: "context", text: "Loaded project instructions" },
+      { kind: "compaction", id: "compaction", text: "Earlier conversation summary" },
+      {
+        kind: "shell",
+        id: "shell",
+        command: "echo disclosure",
+        text: "Shell output",
+        streaming: false,
+      },
+      {
+        kind: "tool",
+        callId: "tool",
+        name: "read_file",
+        args: { path: "file.ts" },
+        startedAt: 0,
+        status: "ok",
+        output: "File contents",
+      },
+      {
+        kind: "reasoning",
+        id: "thought",
+        turnId: "turn",
+        text: "Inspect the transcript",
+        streaming: false,
+        startedAt: 0,
+      },
+      {
+        kind: "plugin_message",
+        id: "plugin",
+        turnId: "turn",
+        pluginId: "fixture",
+        text: "Plugin details",
+      },
+    ]),
+  );
+  const working = page.locator(".tool-group");
+  await working.locator(":scope > summary").click();
+  const rows = [
+    page
+      .locator("summary")
+      .filter({ hasText: /^Context$/ })
+      .locator(".."),
+    page
+      .locator("summary")
+      .filter({ hasText: /^Compacted context$/ })
+      .locator(".."),
+    page
+      .locator("summary")
+      .filter({ hasText: /^echo disclosure$/ })
+      .locator(".."),
+    page.getByTestId("tool-call"),
+    page.locator(".reasoning"),
+    page
+      .locator("summary")
+      .filter({ hasText: /^Message from fixture$/ })
+      .locator(".."),
+  ];
+  // Start with the previously unnamed kinds, then cover every kind closing every
+  // other kind. Exercise native mouse, Enter and Space activation, not DOM toggles.
+  for (let first = 0; first < rows.length; first++) {
+    for (let second = 0; second < rows.length; second++) {
+      if (first === second) continue;
+      await rows[first]!.locator(":scope > summary").click();
+      await expect(rows[first]!).toHaveAttribute("open");
+      await rows[second]!.locator(":scope > summary").press(second % 2 ? "Enter" : "Space");
+      await expect(rows[second]!).toHaveAttribute("open");
+      await expect(rows[first]!).not.toHaveAttribute("open");
+      await expect(working).toHaveAttribute("open");
+      // Leave a closed starting point for the next pair.
+      await rows[second]!.locator(":scope > summary").press("Enter");
+      await expect(rows[second]!).not.toHaveAttribute("open");
+    }
+  }
+});
+
+for (const mode of ["custom", "native", "fullscreen"] as const)
+  test(`document viewport contains wheel overscroll in ${mode} chrome`, async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 600 });
+    await page.goto(url + "?composer");
+    await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+    await page.evaluate((mode) => {
+      document.documentElement.dataset.windowDecoration = mode === "native" ? "native" : "custom";
+      document.body.toggleAttribute("data-tauri-decoration-fullscreen", mode === "fullscreen");
+      window.composerFixture.seedSidebar();
+    }, mode);
+    const viewport = () =>
+      page.evaluate(() => {
+        const bounds = (selector: string) => {
+          const { x, y, width, height } = document.querySelector(selector)!.getBoundingClientRect();
+          return { x, y, width, height };
+        };
+        return {
+          offsets: [
+            scrollX,
+            scrollY,
+            document.documentElement.scrollLeft,
+            document.documentElement.scrollTop,
+            document.body.scrollLeft,
+            document.body.scrollTop,
+          ],
+          shell: bounds(".window-shell"),
+          sidebar: bounds(".sidebar"),
+        };
+      });
+    // Check the viewport policy explicitly; Chromium wheel geometry alone
+    // cannot qualify native rubber-banding on a physical touchpad/WebView.
+    expect(
+      await page.evaluate(() =>
+        [document.documentElement, document.body, document.getElementById("root")!].map(
+          (element) => {
+            const style = getComputedStyle(element);
+            return [
+              style.overflowX,
+              style.overflowY,
+              style.overscrollBehaviorX,
+              style.overscrollBehaviorY,
+            ];
+          },
+        ),
+      ),
+    ).toEqual(Array(3).fill(["hidden", "hidden", "none", "none"]));
+    const before = await viewport();
+    const sidebar = page.locator(".conversation-list");
+    await expect
+      .poll(() => sidebar.evaluate((element) => element.scrollHeight > element.clientHeight))
+      .toBe(true);
+    await sidebar.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await sidebar.hover();
+    await page.mouse.wheel(0, 200);
+    await expect.poll(() => sidebar.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    for (const end of [false, true]) {
+      await sidebar.evaluate((element, end) => {
+        element.scrollTop = end ? element.scrollHeight : 0;
+      }, end);
+      await page.mouse.wheel(end ? 1000 : -1000, end ? 10000 : -10000);
+    }
+    if (mode === "custom") {
+      await page.locator(".window-titlebar").hover();
+      await page.mouse.wheel(-1000, -10000);
+      await page.mouse.wheel(1000, 10000);
+    }
+    await page.evaluate(() =>
+      window.composerFixture.setWork([
+        {
+          kind: "assistant",
+          id: "scrollable-response",
+          turnId: "scrollable-turn",
+          streaming: false,
+          text: "Scrollable conversation paragraph.\n\n".repeat(100),
+        },
+      ]),
+    );
+    const transcript = page.locator(".conversation-scroll");
+    await expect
+      .poll(() => transcript.evaluate((element) => element.scrollHeight > element.clientHeight))
+      .toBe(true);
+    await transcript.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const bottom = await transcript.evaluate((element) => element.scrollTop);
+    await transcript.hover();
+    await page.mouse.wheel(0, -200);
+    await expect
+      .poll(() => transcript.evaluate((element) => element.scrollTop))
+      .toBeLessThan(bottom);
+    await expect.poll(viewport).toEqual(before);
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+    const settings = page.locator("main");
+    await expect
+      .poll(() => settings.evaluate((element) => element.scrollHeight > element.clientHeight))
+      .toBe(true);
+    await settings.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await settings.hover();
+    await page.mouse.wheel(0, 200);
+    await expect.poll(() => settings.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expect.poll(viewport).toEqual(before);
+  });

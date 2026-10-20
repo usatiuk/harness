@@ -1,5 +1,13 @@
 # Harness plan
 
+The implemented [provider tool and desktop interaction corrections](docs/plans/interface/2026-10-20-provider-tools-and-desktop-corrections.md)
+cover object-shaped worktree tool input for Anthropic/default LiteLLM, a fixed
+document viewport with local scrolling, unified exclusive transcript details,
+and a project new-conversation shortcut. Independent review and local validation
+pass: 2,153 tests (46 skips), 189 Chromium cases, and viewport CSS-policy probes
+on WebKitGTK 2.50.4 / 2.52.6. Changes are not released; live provider acceptance
+and physical native touchpad inertia are not inferred from these checks.
+
 The completed [desktop composer and host-local settings corrections](docs/plans/interface/2026-10-19-desktop-host-settings-and-composer.md)
 plan covers accepted-send completion/duplicate admission, library-based composer
 sizing, host-owned keep-running (default false), and a selected-host AGENTS.md

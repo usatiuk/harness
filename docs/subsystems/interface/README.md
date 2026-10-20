@@ -472,6 +472,10 @@ pointer dragging and keyboard arrows/Home/End; a show button remains available
 while hidden. Section collapse and project hiding/collapse use the existing
 host/server preference namespace. Hiding affects only the group, leaving its chats
 in Recents. Opening or creating a chat there unhides it without changing collapse.
+Each project heading has a new-conversation (+) shortcut immediately before Hide
+project. It opens the existing creation form with that project's folder, without
+toggling or hiding the group. Selecting another project while the creation form
+is already mounted updates the folder without resetting its other choices.
 There are no project records, lifecycle settings or filesystem discovery.
 Section labels use small muted uppercase text with right-side Lucide chevrons;
 Show more is a compact ghost action. Navigation text is non-selectable. Project chats align with Recents and long
@@ -631,7 +635,12 @@ compact reasoning previews collapse whitespace while expanded reasoning preserve
 the original Markdown paragraphs.
 
 Native named details allow one open outer Work disclosure and one open inner
-conversation disclosure at a time. Only the outer Work container scrolls, capped
+conversation disclosure at a time. `TranscriptDisclosure` owns the inner group
+name by construction for tools, thoughts, plugin messages, context, compaction
+and shell output; callers cannot opt out via a name prop. Existing inner
+exclusivity remains document-global, including side transcripts. Outer Work and
+Activities retain separate groups so opening a child does not close its ancestor.
+Only the outer Work container scrolls, capped
 at 40vh, with a stable scrollbar gutter so expansion cannot shift row widths;
 arguments, outputs and reasoning do not introduce nested scrolling.
 Open tool/thought headers stick to the top of that scroll area with a one-pixel
@@ -829,6 +838,9 @@ lights use the same semantic opacity through a main-thread AppKit call. Ordinary
 popovers do not dim the frame. Library fullscreen state removes reserved header
 space. The restored Lucide Terminal mark also generates desktop app-icon formats
 through `npm run icons --workspace @harness/desktop`.
+The document (`html`, `body`, `#root`) is non-scrolling and suppresses viewport
+overscroll. Existing conversation, sidebar, settings and other local scrollports
+retain their own scrolling; no global wheel/touch cancellation is installed.
 The content stays explicitly in the expanding second grid row, including when
 Linux native decorations or fullscreen hide the custom header. This preserves
 full-height views and keeps Settings at the bottom of the sidebar.

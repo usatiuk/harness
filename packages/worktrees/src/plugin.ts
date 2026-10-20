@@ -56,7 +56,26 @@ export class WorktreesDefinition implements PluginDefinition {
           essential: true,
           description:
             "Only when the user asks: switch this conversation to a new/existing Git worktree or back to its original checkout. With kind new, optional branch selects the new Git branch name; otherwise a readable name is generated. No files or history are copied. The switch is applied AFTER this entire tool batch, including parallel eval calls; all remaining calls in this batch still use the old directory. Stop background activities/subagents first.",
-          input: { kind: "function", schema: selection },
+          input: {
+            kind: "function",
+            // Providers require an object at the schema root; retain the RPC union as
+            // the runtime authority for variant-specific required and forbidden fields.
+            schema: z
+              .strictObject({
+                kind: z.enum(["original", "new", "existing"]),
+                branch: z
+                  .string()
+                  .min(1)
+                  .optional()
+                  .describe("Optional branch name for kind new only."),
+                path: z
+                  .string()
+                  .min(1)
+                  .optional()
+                  .describe("Required worktree path for kind existing only."),
+              })
+              .pipe(selection),
+          },
           execute: async (args: WorkspaceSelection, ctx: ToolContext) => {
             ctx.signal.throwIfAborted();
             await this.#runner().selectWorkspace(ctx.conversationId, args, true, ctx.signal);

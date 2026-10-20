@@ -248,6 +248,23 @@ remeasurement can lose focus or reset the disclosure; that virtualization
 limitation remains open.
 Browser fixture output does not establish native WebView or live-provider behavior.
 
+The 2026-10-20 transcript regression opens all 30 ordered pairs across context,
+compaction, shell, tool, reasoning and plugin disclosures with click/Enter/Space,
+requiring exclusive inner expansion while outer Working remains open. The project
+(+) case covers expanded/collapsed groups, keyboard activation, existing `/new`
+query navigation and the submitted creation directory. Scroll-boundary cases
+check explicit root overflow/overscroll policy, fixed document/chrome geometry
+under boundary/diagonal wheel input, and continued local transcript/sidebar/
+settings scrolling in custom/native/fullscreen CSS modes. Missing root policy
+fails the baseline. These Chromium cases do not qualify physical touchpad inertia
+or OS/WebView rubber-banding in an installed native app.
+An isolated synthetic-HTML engine probe additionally checks the exact source root
+CSS rule on WebKitGTK 2.52.6 and extracted AppImage engine 2.50.4: hidden/none
+policy, zero root offsets and local scrollTop180 pass. Bundled WebKit/JSC uses
+host GLib for probe compatibility; this is not a production-app gesture test.
+Final integrated validation passes 2,153 tests (46 skips) and all 189 Chromium
+cases after the repeated-same-project shortcut regression/correction.
+
 ## Auto-approval inspection
 
 The [auto-approval delivery](plans/execution/2026-10-11-auto-approval-revamp.md)
@@ -1421,6 +1438,14 @@ colors in both themes. Native Windows selection and the user's enterprise GitLab
 instance still need real-platform/instance qualification.
 
 ### Managed worktrees and workspace-owned Docker
+
+`worktrees/src/plugin.test.ts` verifies valid tool selections, unchanged deferred
+execution and strict rejection of cross-variant/missing/unknown fields.
+`server/src/worktree-tool-schema.test.ts` captures the actual assembled worktree
+tool and sends it through the Anthropic connector and default LiteLLM serializers
+with intercepted synthetic HTTP, asserting the flat object parameters on the
+wire. Both fail against the original root-union tool schema. This proves request
+construction, not live Anthropic/Gemini/LiteLLM acceptance.
 
 `service/src/workspace-switch.test.ts` covers complete-batch switching (including
 real QuickJS parallel calls), refreshed instructions/execution, overlapping config

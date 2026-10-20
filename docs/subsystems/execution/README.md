@@ -56,6 +56,13 @@ All tools execute through `ExecutionContext`; provider adapters only render sche
 and calls. Commands remain backgroundable activities. No changes to sandbox or
 approval policy accompany the editing-interface cleanup.
 
+Model-facing function parameters must fit the provider's object-schema contract.
+`worktree_switch` advertises a flat strict object (`kind`, optional `branch` /
+`path`) piped through the existing workspace-selection validator. The validator
+still enforces variant-specific required/forbidden fields before execution;
+the RPC discriminated union and valid call shapes are unchanged. This is a
+tool-local parser pipeline, not lossy generic schema flattening in an adapter.
+
 ## Backends
 
 ### Shell startup and exported environment

@@ -6,6 +6,15 @@ Keep dependable local TUI and desktop clients over one reusable service/event
 boundary. Improve diagnosis and daily operation. Desktop v1 delivery is tracked
 in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 
+## Provider tools and desktop interactions
+
+The implemented [provider tool and desktop interaction corrections](../../plans/interface/2026-10-20-provider-tools-and-desktop-corrections.md)
+add a non-scrolling document boundary, one shared inner transcript-disclosure
+role, and project-local new-conversation shortcuts. Full checks pass 2,153 tests
+(46 skips), with 189 Chromium cases and two GTK engine CSS-policy probes.
+Independent review is resolved. These local changes are not part of the
+published patch below; physical native touchpad qualification remains a limit.
+
 ## Composer and host-local settings
 
 The completed [correction plan](../../plans/interface/2026-10-19-desktop-host-settings-and-composer.md)
