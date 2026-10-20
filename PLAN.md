@@ -1,13 +1,16 @@
 # Harness plan
 
-The active [desktop composer and host-local settings corrections](docs/plans/interface/2026-10-19-desktop-host-settings-and-composer.md)
+The completed [desktop composer and host-local settings corrections](docs/plans/interface/2026-10-19-desktop-host-settings-and-composer.md)
 plan covers accepted-send completion/duplicate admission, library-based composer
 sizing, host-owned keep-running (default false), and a selected-host AGENTS.md
 editor. Implementation reuses existing router/settings/lifetime boundaries.
-Integrated checks pass 2,134 tests (46 skips), with 184 Chromium cases and actual
+Integrated checks pass 2,137 tests (46 skips), with 184 Chromium cases and actual
 production Composer qualification on WebKitGTK 2.50.4 and 2.52.6. Real isolated
 Docker/OpenSSH covers host policy and missing-owner no-start. Independent reviews
-approve the source; final delivery/release checks remain in the plan.
+approve the source. **0.9.2** is published as latest with 24 assets: fresh Windows,
+Linux x64 and ARM64 CI, all four native release builds and actual public signed
+metadata verification pass. Delivery also corrects reset recovery for a
+disappearing local owner; attach-only remains no-start.
 
 The [Linux ARM64 delivery](docs/plans/cross-cutting/2026-10-19-linux-arm64-support.md)
 shipped native ARM64 glibc CLI/server/desktop artifacts, target-correct remote

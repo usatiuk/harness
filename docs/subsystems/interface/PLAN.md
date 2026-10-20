@@ -8,14 +8,15 @@ in [its concrete plan](../../plans/interface/2026-10-03-desktop-v1.md).
 
 ## Composer and host-local settings
 
-The active [correction plan](../../plans/interface/2026-10-19-desktop-host-settings-and-composer.md)
+The completed [correction plan](../../plans/interface/2026-10-19-desktop-host-settings-and-composer.md)
 covers send revalidation/duplicate admission, maintained-library sizing across
 shipped engines, host-owned desktop-exit preference (default false), and a fixed
 host-guidance file editor. Subagent correctness/architecture/simplicity review
-is complete and implementation is integrated. Full local checks pass 2,134 tests
+is complete and implementation is integrated. Full local checks pass 2,137 tests
 (46 skips); 184 Chromium cases and isolated production Composer GTK probes pass.
-The plan tracks final validation and the authorized patch release. Existing
-services and lifecycle boundaries remain authoritative.
+Patch **0.9.2** is published as latest with 24 assets, passing fresh three-platform
+source CI, all four native builds and public signed-metadata verification.
+Existing services and lifecycle boundaries remain authoritative.
 
 ## Working, controls, and family navigation follow-up
 

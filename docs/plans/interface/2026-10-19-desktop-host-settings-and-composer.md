@@ -1,6 +1,6 @@
 # Desktop composer and host-local settings corrections
 
-Date: 2026-10-19. Status: Active — implementation and independent reviews complete; patch delivery pending.
+Date: 2026-10-19. Status: Complete — reviewed, validated and published in 0.9.2 on 2026-10-20.
 
 ## Requested outcomes
 
@@ -297,12 +297,12 @@ both engines (`act_13c431e4`), without starting Harness itself.
 
 ### M6 — Authorized patch delivery (depends on M5)
 
-- [ ] Commit coherent validated increments, push and require fresh source CI on
+- [x] Commit coherent validated increments, push and require fresh source CI on
       Windows x64, Linux x64 and native ARM64.
-- [ ] Dispatch existing `release.yml` with `bump=patch`; let workflow bump/tag.
-- [ ] Require successful four-platform native builds and draft assembly/signature
+- [x] Dispatch existing `release.yml` with `bump=patch`; let workflow bump/tag.
+- [x] Require successful four-platform native builds and draft assembly/signature
       verification. Validate actual signed public metadata and expected24assets.
-- [ ] Publish via `gh` with notes explaining host-local false default/retired
+- [x] Publish via `gh` with notes explaining host-local false default/retired
       client preference and guidance snapshot semantics. Verify latest/public
       assets, synchronize generated version commit and record run/commit evidence.
 
@@ -365,3 +365,31 @@ Unix-only selection. Full local revalidation again passes **2,137 / 46 skips**
 (`act_1cedd9a7`). Release `39382326003` now succeeds, including signed desktop
 artifact verification and draft assembly. The draft remains unpublished while
 fresh source CI qualifies the corrected fixture.
+
+### Completed publication — 2026-10-20
+
+- [0.9.2](https://github.com/usatiuk/harness/releases/tag/v0.9.2) published as
+  latest at **07:05:59 UTC**, confirmed non-draft/non-prerelease with **24 assets**.
+- Recovery source `615d5c5`, workflow version/tag `9ff5432`, test-only fixture
+  simplification `46748ee`. The latter changes no shipped production source.
+  Unpublished `v0.9.1` is preserved unchanged.
+- Fresh [source CI 39383715659](https://github.com/usatiuk/harness/actions/runs/39383715659)
+  passes Windows x64, Linux x64 and native ARM64, including native Rust tests
+  and ARM real-SSH qualification (`act_6dda5483`).
+- [Release 39382326003](https://github.com/usatiuk/harness/actions/runs/39382326003)
+  passes all four builds, native ARM64 source/SSH qualification, detached
+  artifact-signature verification and draft assembly (`act_1e4fff14`).
+- Downloaded actual signed metadata passes production `verifyRelease` /
+  `verifyArtifactSignature`, exact-byte verification and tamper rejection.
+  Manifest inventory/version/Node pin and four updater entries including
+  `linux-aarch64` match 0.9.2. Unauthenticated public downloads after publication
+  match the verified draft and pass the production verifier again.
+- Notes explain false-default host-local policy, retired client preference,
+  detach-only exclusions, exact host AGENTS.md and new/reloaded-runtime semantics.
+  Existing pre-0.9.0 manual-install trust limitation remains explicit.
+- Workflow-generated version commit was fast-forwarded locally. No installed
+  app/server was restarted or altered; no saved remote host was touched.
+
+Local artifacts are under `.harness/composer-20261019/release-092/`; release/CI
+watch logs remain adjacent. Native GUI/installed updater qualification limits
+recorded above remain limits, not failures hidden by source CI or packaging.
