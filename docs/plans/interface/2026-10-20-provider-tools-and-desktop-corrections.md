@@ -1,6 +1,6 @@
 # Provider tool schema and desktop interaction corrections
 
-Date: 2026-10-20. Status: Implemented, reviewed and locally validated; authorized patch delivery in progress.
+Date: 2026-10-20. Status: Complete — reviewed, validated and published in 0.9.3; unrelated native diagnostic remains open.
 
 ## Requested outcomes
 
@@ -54,7 +54,7 @@ workflow-owned bump to 0.9.3, with actual hosted qualification before publicatio
 - [x] M5 (depends on M1–M4): Run full local check and affected/full browser tests,
       independent correctness, simplicity and evidence reviews; resolve findings
       and synchronize architecture/testing/status docs with actual evidence.
-- [ ] M6 (depends on M5): Commit/push reviewed changes, require fresh Windows,
+- [x] M6 (depends on M5): Commit/push reviewed changes, require fresh Windows,
       Linux x64 and ARM64 source CI, and dispatch normal `release.yml bump=patch`.
       Require four successful native builds and signed draft assembly, verify
       actual metadata/inventory, publish latest and check public downloads.
@@ -112,3 +112,54 @@ directories. Live Anthropic/Gemini/LiteLLM acceptance, installed native touchpad
 inertia and cross-platform native GUI behavior are not claimed by intercepted
 serialization, Chromium or the engine-only CSS probe. Running app/server changes,
 saved-host edits and real user worktree switches remain outside delivery scope.
+
+## Hosted delivery progress
+
+Source `5b723a1` is pushed; standard release `39477862932` generated version/tag
+commit `e75ef8f` / `v0.9.3`. All four platform builds, native ARM64 source/SSH
+qualification, signature verification and draft assembly succeed. Downloaded
+actual draft metadata passes production signature/exact-byte verification and
+tamper rejection, with four target/updater entries and 24 assets.
+
+Source CI `39477863987` passes TypeScript/full checks on all three platforms and
+native tests/remote qualification on Linux x64/ARM64. Its first Windows native
+step fails the unchanged mapped-image CLI replacement test: the first replacement
+returns sharing violation32 at `native/launcher/src/update.rs:140`. Native updater
+code, native invocation and CI workflow are unchanged by this patch. The child
+readiness sentinel and successful exit assertion pass; this does not demonstrate
+a spawn/readiness race. The error lacks the precise failing filesystem operation.
+
+`windows-image-failure` independently inspects the raw failure and existing
+requirements. There is no evidence justifying retries, waits or weaker assertions
+in production or tests. One unchanged Windows-job rerun with runner debug logging
+is a reproducibility experiment, not a fix. Publication remains blocked pending
+its result; a green rerun would establish non-reproduction, not explain or erase
+the original failure. The cause stays open. Raw logs:
+`.harness/desktop-20261020/windows-093-failure.txt` and adjacent CI/release watch
+files.
+
+### Completed publication
+
+- **0.9.3** is published as latest at **2026-10-20 19:11:02 UTC**, confirmed
+  non-draft/non-prerelease with **24 public assets**.
+- Source commit `5b723a1`; workflow-owned version/tag commit `e75ef8f`, already
+  fast-forwarded locally. All four native builds and signed draft assembly pass
+  in release `39477862932` (`act_96ab08a3`).
+- Source CI `39477863987` attempt2 succeeds. Exact unchanged Windows mapped-image
+  test and other native cases pass in job `118825952927` (`act_3c091703`, filtered
+  native results saved alongside the original failure). Initial attempt1 and
+  raw error remain recorded above. This is not a product/test repair: underlying
+  cause remains open in `docs/DEFERRED.md`, without retries, waits, extra skips or
+  assertion changes.
+- Actual signed manifest verifies through the production native binding,
+  including exact bytes and tamper rejection. Version, four-target inventory,
+  Node pin, hashes/sizes, four updater entries including `linux-aarch64` and asset
+  count match 0.9.3. Workflow verifies all detached updater artifact signatures.
+  Unauthenticated public metadata downloads match the verified draft and pass
+  the production verifier again after publication.
+- Notes summarize all four requested corrections, prior trust migration and
+  qualification limits. Public release metadata is under
+  `.harness/desktop-20261020/release-093/`.
+- Installed app/server, saved remote hosts and user worktrees remain untouched.
+  Final documentation commit records delivery and the unresolved native finding;
+  no additional production change or release machinery was needed.

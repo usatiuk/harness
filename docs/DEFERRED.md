@@ -5,6 +5,26 @@ current change. Keep entries concrete: state the limitation, consequence, reason
 for deferral, and the condition that should reopen it. Package-local follow-up may
 instead live in the owning execution plan or an issue.
 
+## Unresolved Windows CLI mapped-image sharing violation
+
+During 0.9.3 source CI `39477863987`, the unchanged
+`replacement_protects_a_running_previous_image_until_it_exits` native test fails
+its first replacement with Windows error32 at `native/launcher/src/update.rs:140`.
+The child has printed/flushed its application-readiness sentinel; the saved
+error does not identify the failing filesystem operation. Native updater source
+and invocation are unchanged by this tool/desktop patch and prior CI passes.
+One unchanged debug rerun passes the exact test (Windows job `118825952927`).
+That establishes non-reproduction, not a root cause or fix.
+
+Consequence: the mapped-image CLI update path has an unexplained sharing-violation
+observation; do not assume it is test-only or add retry/wait workarounds. Raw
+failure and passing evidence are retained under `.harness/desktop-20261020/`;
+the [delivery plan](plans/interface/2026-10-20-provider-tools-and-desktop-corrections.md)
+records both outcomes. This unrelated native diagnostic remains open rather than
+expanding the scoped TS/CSS patch without evidence. Reopen on the next Windows
+CLI-update qualification or any recurrence, capturing operation/path/error context
+or a Windows filesystem trace before changing replacement semantics or assertions.
+
 ## Upstream Rust glib iterator advisory in the Linux desktop stack
 
 GitHub reports [GHSA-wrw7-89jp-8q8g](https://github.com/advisories/GHSA-wrw7-89jp-8q8g)

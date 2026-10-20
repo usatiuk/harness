@@ -439,6 +439,11 @@ replace while its old image runs, refuse to delete that image, then replace agai
 after physical exit. The ignored `held_image` test is a subprocess fixture invoked
 by that regression. These checks remain headless and do not establish the combined
 signed-download/update command against public release artifacts.
+During 0.9.3 qualification, this unchanged mapped-image test fails once with
+Windows sharing violation32 at its first replacement, then passes unchanged in
+one debug rerun of source CI `39477863987`. The operation/root cause is unknown;
+both outcomes are recorded in the delivery plan and `DEFERRED.md`. A green rerun
+does not establish a repair or prove an external/test-only cause.
 The current CLI update increment passes `npm run check -- --maxWorkers=2`
 (1,218 tests, 36 skipped), eleven Windows and ten Ubuntu native cases, and fresh
 source remote qualification: two WSL cases and three isolated SSH cases pass.

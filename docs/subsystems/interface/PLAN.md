@@ -12,8 +12,10 @@ The implemented [provider tool and desktop interaction corrections](../../plans/
 add a non-scrolling document boundary, one shared inner transcript-disclosure
 role, and project-local new-conversation shortcuts. Full checks pass 2,153 tests
 (46 skips), with 189 Chromium cases and two GTK engine CSS-policy probes.
-Independent review is resolved. These local changes are not part of the
-published patch below; physical native touchpad qualification remains a limit.
+Independent review is resolved. These changes ship in **0.9.3**, with all four
+native builds and 24 public assets verified. The plan preserves the initial
+Windows native sharing-violation finding and passing diagnostic rerun; physical
+native touchpad qualification remains a limit.
 
 ## Composer and host-local settings
 
