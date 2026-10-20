@@ -348,3 +348,20 @@ Final correction review: `host-api-review`, `full-simplicity-review` and
 reviewer inspected the failing baseline and passing focused/full logs; reviewers
 explicitly preserve the native Windows/ARM release-qualification gate. No
 catch-boundary refactor or additional recovery abstraction was warranted.
+
+Release `39382326003` generated `9ff5432` / `v0.9.2`; all four platform builds
+and native ARM64 source/real-SSH qualification pass. Source CI `39382326844`
+passes both Linux targets, but Windows rejects the new reset tests' unnecessary
+`auth.store=file` setting before reaching assertions. The fixture correction
+removes credential configuration entirely: unset backend uses the existing
+in-memory read store, so these credential-free owner tests need no platform
+branch or access to the user's DPAPI store. This is test-only; the shipped
+production tree remains the `v0.9.2` tree. Publication still requires fresh
+passing Windows/source CI and verified signed metadata.
+
+`full-simplicity-review` approves the fixture simplification after tracing the
+unset-backend read path; the earlier portability review missed the explicit
+Unix-only selection. Full local revalidation again passes **2,137 / 46 skips**
+(`act_1cedd9a7`). Release `39382326003` now succeeds, including signed desktop
+artifact verification and draft assembly. The draft remains unpublished while
+fresh source CI qualifies the corrected fixture.

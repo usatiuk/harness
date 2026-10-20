@@ -97,10 +97,6 @@ function ownerLaunch() {
 
 for (const phase of ["existing discovery", "startup readiness"] as const)
   it(`recovers a connection reset during ${phase} using the existing startup path`, async () => {
-    await writeFile(
-      join(home, "settings.json"),
-      JSON.stringify({ version: 1, auth: { store: "file" } }),
-    );
     const first =
       phase === "existing discovery" ? await ensureLocalServer(home, ownerLaunch()) : undefined;
     if (first) peers.push(first);
@@ -114,10 +110,6 @@ for (const phase of ["existing discovery", "startup readiness"] as const)
   }, 30000);
 
 it("attach-only surfaces a reset without launching or replacing the owner", async () => {
-  await writeFile(
-    join(home, "settings.json"),
-    JSON.stringify({ version: 1, auth: { store: "file" } }),
-  );
   const first = await ensureLocalServer(home, ownerLaunch());
   peers.push(first);
   edge.failure = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
