@@ -1,5 +1,6 @@
 FROM debian:13-slim
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-server ca-certificates util-linux \
+# Node 26's official glibc binaries link libatomic.so.1 dynamically; stock slim images lack it.
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server ca-certificates util-linux libatomic1 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --shell /bin/bash harness \
     && echo 'harness:qualification-fixture' | chpasswd \
