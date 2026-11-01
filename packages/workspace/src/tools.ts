@@ -15,6 +15,8 @@ import {
   contextWithExecution,
   executionOf,
   registerExecutionTool,
+  resolveScope,
+  scopedPattern,
   splitCustomEscalation,
   type ExecutionContext,
   type ShellKind,
@@ -311,20 +313,6 @@ const globArgs = z.strictObject({
   path: z.string().optional(),
 });
 
-/**
- * Builds the effective glob string from `pattern` + optional `path`. `list` matches against
- * workspace-relative paths with no `./` prefix (minimatch, which treats a leading `./` as literal and
- * matches nothing), so both inputs are normalized to that convention: strip a leading `./` and any
- * trailing `/`, and treat ""/"."/undefined `path` as the whole workspace. A bare directory scope
- * becomes `dir/pattern`. This is the documented "." contract made robust — `"./src"`, `"src/"`, and
- * `""` all behave like `"src"` / whole-workspace instead of silently matching nothing.
- */
-export function scopedPattern(pattern: string, path?: string): string {
-  const clean = (s: string): string => s.replace(/^\.\/+/, "").replace(/\/+$/, "");
-  const dir = path === undefined ? "" : clean(path);
-  const pat = pattern.replace(/^\.\/+/, "");
-  return dir === "" || dir === "." ? pat : `${dir}/${pat}`;
-}
 export class GlobTool implements Tool<z.infer<typeof globArgs>> {
   readonly outputSchema = {
     type: "object",
@@ -333,14 +321,18 @@ export class GlobTool implements Tool<z.infer<typeof globArgs>> {
   };
   readonly name = "glob";
   readonly description =
-    "List files matching a glob `pattern`. Optional `path` scopes the search to a " +
-    'subdirectory (use "." for the whole workspace).';
+    "List files matching a glob `pattern`. Optional `path` scopes the search to a directory in the " +
+    'workspace ("." or omitted: the whole workspace); an absolute path inside the workspace is ' +
+    "accepted, one outside fails with an error.";
   readonly input: ToolInput<z.infer<typeof globArgs>> = { kind: "function", schema: globArgs };
   async execute(
     { pattern, path }: z.infer<typeof globArgs>,
     ctx: ToolContext,
   ): Promise<ToolResult> {
-    const matches = await executionOf(ctx).list(scopedPattern(pattern, path));
+    const exec = executionOf(ctx);
+    const scope = resolveScope(exec.workspaceRoot, path ?? "");
+    if (!scope.ok) return errorResult(`glob: ${scope.error}`);
+    const matches = await exec.list(scopedPattern(pattern, scope.dir));
     return {
       ...okResult(matches.length ? matches.join("\n") : "no matches"),
       structured: { paths: matches },

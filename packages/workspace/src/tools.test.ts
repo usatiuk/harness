@@ -11,6 +11,7 @@ import {
 } from "@harness/protocol";
 import {
   LocalExecutionContext,
+  scopedPattern,
   type ExecutionContext,
   type Relationship,
 } from "@harness/execution";
@@ -23,7 +24,6 @@ import {
   ReadFileTool,
   WriteTool,
   executionApplyPatchTool,
-  scopedPattern,
 } from "./tools.ts";
 import { parseEnvelope } from "./apply-patch-parse.ts";
 import { workspacePlugin } from "./index.ts";
@@ -278,6 +278,65 @@ describe("workspace tools", () => {
         "src/a.ts",
       );
     }
+  });
+
+  it("glob accepts an absolute path inside the workspace as a scope", async () => {
+    const ctx = await workspace();
+    const root = (ctx.service("execution") as LocalExecutionContext).workspaceRoot!;
+    await new WriteTool().execute({ path: "src/a.ts", content: "" }, ctx);
+    await new WriteTool().execute({ path: "other/b.ts", content: "" }, ctx);
+
+    expect(
+      text(await new GlobTool().execute({ pattern: "**/*.ts", path: join(root, "src") }, ctx)),
+    ).toBe("src/a.ts");
+  });
+
+  it("glob errors on a scope outside the workspace instead of silently matching nothing", async () => {
+    const ctx = await workspace();
+    const root = (ctx.service("execution") as LocalExecutionContext).workspaceRoot!;
+    await new WriteTool().execute({ path: "a.ts", content: "" }, ctx);
+
+    const outside = await new GlobTool().execute(
+      { pattern: "**/*.ts", path: join(root, "..") },
+      ctx,
+    );
+    expect(outside.status).toBe("error");
+    expect(text(outside)).toMatch(/outside the workspace/);
+    const escape = await new GlobTool().execute({ pattern: "**/*.ts", path: "../x" }, ctx);
+    expect(escape.status).toBe("error");
+    expect(text(escape)).toMatch(/outside the workspace/);
+  });
+
+  it.each(["foo[1]", "foo{1,2}", "!scope", "#scope", "@(scope)"])(
+    "glob treats scope %s as a literal directory",
+    async (dir) => {
+      const ctx = await workspace();
+      const root = (ctx.service("execution") as LocalExecutionContext).workspaceRoot!;
+      await new WriteTool().execute({ path: `${dir}/nested/a.ts`, content: "" }, ctx);
+      await new WriteTool().execute({ path: "foo1/nested/b.ts", content: "" }, ctx);
+      for (const path of [dir, join(root, dir)]) {
+        const result = await new GlobTool().execute({ pattern: "**/*.ts", path }, ctx);
+        expect(result.status).toBe("ok");
+        expect(result.structured).toEqual({ paths: [`${dir}/nested/a.ts`] });
+      }
+    },
+  );
+
+  it("glob keeps an empty in-workspace search successful", async () => {
+    const ctx = await workspace();
+    await new WriteTool().execute({ path: "src/a.ts", content: "" }, ctx);
+    const result = await new GlobTool().execute({ pattern: "**/*.json", path: "src" }, ctx);
+    expect(result.status).toBe("ok");
+    expect(text(result)).toBe("no matches");
+    expect(result.structured).toEqual({ paths: [] });
+  });
+
+  it.skipIf(process.platform === "win32")("glob preserves literal POSIX backslashes", async () => {
+    const ctx = await workspace();
+    await new WriteTool().execute({ path: "src\\sub/a.ts", content: "" }, ctx);
+    const result = await new GlobTool().execute({ pattern: "**/*.ts", path: "src\\sub" }, ctx);
+    expect(result.status).toBe("ok");
+    expect(result.structured).toEqual({ paths: ["src\\sub/a.ts"] });
   });
 
   it("runs a quick command as an activity, surfacing exit status inline", async () => {

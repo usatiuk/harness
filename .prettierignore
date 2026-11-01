@@ -13,6 +13,7 @@ package-lock.json
 DESIGN.md
 LICENSE
 release/output
+.harness
 .harness-dev
 .native-dev
 release/staging

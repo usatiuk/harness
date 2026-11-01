@@ -1,5 +1,16 @@
 # Harness plan
 
+The [consistent tool-path follow-up](docs/plans/execution/2026-11-01-consistent-tool-paths.md)
+makes glob directory scopes workspace-root-relative, accepts absolute in-workspace
+paths and returns explicit errors for outside scopes. Scope names are literal,
+including glob metacharacters, using the existing shared matcher dependency.
+File-tool approval and sandbox behavior remain unchanged. Three independent review
+lenses resolve; after a clean Node 26 dependency install, the full suite passes
+2,120 tests (91 skips) with two workers and source-test launch environment.
+Typecheck, lint and source formatting pass. Generated `.harness` runtime outputs
+are excluded from source formatting; uncapped test-process timeouts remain
+recorded, not claimed fixed. Details are in the delivery plan.
+
 The implemented [provider tool and desktop interaction corrections](docs/plans/interface/2026-10-20-provider-tools-and-desktop-corrections.md)
 cover object-shaped worktree tool input for Anthropic/default LiteLLM, a fixed
 document viewport with local scrolling, unified exclusive transcript details,

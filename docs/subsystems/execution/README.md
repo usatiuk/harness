@@ -16,7 +16,12 @@ owned execution tools are intentionally unsupported in the current composition.
 
 `ExecutionContext` is a plugin-tier IO contract for:
 
-- Workspace-relative reads, metadata, writes, removal, and glob listing.
+- Reads, metadata, writes, removal, and glob listing, with every tool `path` resolved against
+  the workspace root: relative paths join to the root, absolute paths inside the workspace are
+  accepted, and `glob` errors on scopes outside it (file tools leave out-of-workspace paths to
+  approval classification). A glob scope is a literal directory, not part of the caller's
+  glob pattern; shared matching escapes its metacharacters. Scope containment is lexical,
+  not a new symlink-isolation guarantee.
 - Streaming process spawn in the workspace.
 - Large-output storage under the active substrate.
 - Relationship classification as in-workspace, out-of-workspace, or unknown.

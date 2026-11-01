@@ -40,6 +40,23 @@ npm run test:wsl                 # headless Windows WSL + rendered TUI qualifica
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## Glob path scopes
+
+`packages/workspace/src/tools.test.ts` exercises `GlobTool` with a real local
+execution context: absolute in-workspace scopes, outside/traversal errors,
+literal metacharacter directory names, nested traversal and successful empty
+results. `packages/execution/src/glob.test.ts` covers scope resolution and shared
+matching/pruning. The literal-backslash filesystem case is POSIX-only; Windows
+treats backslashes as separators. This change does not qualify Docker/SSH/WSL
+execution or strengthen filesystem isolation claims. Validation and environment
+diagnostics are recorded in the
+[delivery plan](plans/execution/2026-11-01-consistent-tool-paths.md).
+Prettier excludes generated `.harness` runtime outputs, as it does `.harness-dev`.
+When invoked from a managed Harness server, run source tests without inherited
+`HARNESS_SERVER_SELECTION` / `HARNESS_PREPARED_SERVER` launch identity. The final
+Windows suite passes with `--maxWorkers=2`; default-parallelism lifecycle/Git
+timeouts remain a separate qualification limit, not a product fix.
+
 ## Desktop right sidebar
 
 `packages/worktrees/src/changes.test.ts` uses real Git repositories to exercise
