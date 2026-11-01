@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { captureText } from "./docker-cli.ts";
 
-const IMAGE = "node:24.21.0-alpine";
+const IMAGE = "node:26.13.0-alpine";
 
 /** Runs inside the guardian, independently of the server and its Docker CLI process. */
 export const GUARDIAN_SOURCE = String.raw`

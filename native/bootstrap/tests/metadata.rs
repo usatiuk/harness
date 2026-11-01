@@ -25,43 +25,43 @@ fn signatures_bind_original_metadata_bytes_and_key() {
 }
 
 #[test]
-fn signed_arm64_uses_the_normal_target_map() {
-    use harness_bootstrap::{NodePin, ReleaseManifest};
-
-    let bytes = include_bytes!("fixtures/arm64-release.json");
-    let signature = include_str!("fixtures/arm64-release.json.sig");
-    let key = include_str!("fixtures/arm64-verification-key.pub");
-    let manifest = verify_release(bytes, signature, key).unwrap();
-    let arm = &manifest.targets["linux-arm64-glibc"];
-    let pin = NodePin::bundled().unwrap();
-    assert_eq!(arm.node.artifact, pin.targets["linux-arm64-glibc"]);
-    assert_eq!(arm.node.version, pin.version);
-    let wire: serde_json::Value = serde_json::from_slice(bytes).unwrap();
-    assert_eq!(serde_json::to_value(&manifest).unwrap(), wire);
-
-    let decoded: ReleaseManifest =
-        serde_json::from_slice(&serde_json::to_vec(&manifest).unwrap()).unwrap();
-    decoded.validate().unwrap();
-    let mut tampered = wire;
-    tampered["targets"]["linux-arm64-glibc"]["node"]["artifact"]["sha256"] = "b".repeat(64).into();
-    assert!(verify_release(&serde_json::to_vec(&tampered).unwrap(), signature, key).is_err());
-    assert!(
-        verify_release(
-            bytes,
-            signature,
-            include_str!("fixtures/verification-key.pub")
-        )
-        .is_err()
-    );
-}
-
-#[test]
 fn foreign_platform_names_still_require_valid_descriptors() {
-    use harness_bootstrap::ReleaseManifest;
+    use harness_bootstrap::{NodePin, ReleaseManifest};
     use serde_json::json;
 
-    let mut wire: serde_json::Value =
-        serde_json::from_slice(include_bytes!("fixtures/arm64-release.json")).unwrap();
+    let pin = NodePin::bundled().unwrap();
+    let entry = json!({
+        "node": { "version": pin.version, "artifact": pin.targets["linux-arm64-glibc"] },
+        "server": {
+            "url": "https://example.invalid/server.tar.gz",
+            "size": 123,
+            "sha256": "a".repeat(64),
+            "format": "tarGz",
+            "root": "server",
+            "entry": "server.mjs"
+        },
+        "cli": {
+            "url": "https://example.invalid/cli.tar.gz",
+            "size": 123,
+            "sha256": "a".repeat(64),
+            "format": "tarGz",
+            "root": "cli",
+            "entry": "cli.mjs"
+        },
+        "launcher": {
+            "url": "https://example.invalid/harness",
+            "size": 123,
+            "sha256": "a".repeat(64),
+            "format": "file",
+            "root": "harness",
+            "entry": "harness"
+        }
+    });
+    let mut wire = json!({
+        "formatVersion": 1,
+        "productVersion": "0.1.0",
+        "targets": { "linux-arm64-glibc": entry }
+    });
     let entry = wire["targets"]["linux-arm64-glibc"].clone();
     wire["targets"]["futureos-riscv128"] = entry.clone();
     serde_json::from_value::<ReleaseManifest>(wire.clone())

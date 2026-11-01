@@ -166,7 +166,7 @@ used Docker, so deleting a local-only worktree does not require a Docker daemon.
 `harness sandbox shell/stop` uses the same shared local server; the CLI owns only
 the terminal attachment.
 
-Before provisioning, a stop-only guardian container (`node:24.21.0-alpine`)
+Before provisioning, a stop-only guardian container (`node:26.13.0-alpine`)
 subscribes to Docker start events through the selected daemon socket and verifies
 its daemon identity. Server stdin EOF triggers a stop sweep and continued stopping
 of later owned starts, covering an in-flight devcontainer CLI after server SIGKILL.

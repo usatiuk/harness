@@ -222,7 +222,8 @@ atomic publication. Warm bridges open cached code and do not begin late download
 when their observer leaves. Source remote deployment always uses downloaded Node,
 without a target-installed Node alternative. Ordinary local source development
 uses Node/npm directly and installs no payload or runtime. Source and release
-builds currently pin Node 24.21.0 through `.nvmrc` and `release/node.json`.
+builds pin the payload Node runtime exactly in `release/node.json` (currently
+26.13.0); `.nvmrc` tracks the rolling Node 26 major for development.
 
 One shared cache-use lock covers each running consumer. Preparation callers
 acquire it before launching helpers; helpers return captured paths and exit.

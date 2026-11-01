@@ -148,13 +148,21 @@ it("maps native Linux hosts to their own Rust and release artifacts", async () =
   }
 });
 
-it("reads the normal ARM64 target map without a special wire format", async () => {
-  const wire: unknown = JSON.parse(
-    await readFile(
-      new URL("../../../native/bootstrap/tests/fixtures/arm64-release.json", import.meta.url),
-      "utf8",
-    ),
-  );
+it("reads the normal ARM64 target map without a special wire format", () => {
+  const entry = (target: "linux-x64-glibc" | "linux-arm64-glibc") => ({
+    node: { version: NODE_PIN.version, artifact: NODE_PIN.targets[target] },
+    server: artifact,
+    cli: artifact,
+    launcher: artifact,
+  });
+  const wire = {
+    formatVersion: 1,
+    productVersion: PRODUCT_VERSION,
+    targets: {
+      "linux-x64-glibc": entry("linux-x64-glibc"),
+      "linux-arm64-glibc": entry("linux-arm64-glibc"),
+    },
+  };
   const manifest = releaseManifestSchema.parse(wire);
   expect(manifest).toEqual(wire);
   expect(manifest.targets["linux-arm64-glibc"]?.node).toEqual({

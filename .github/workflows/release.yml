@@ -91,9 +91,13 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.commit }}
           persist-credentials: false
+      - name: Read the pinned payload Node version
+        id: node-pin
+        run: echo "version=$(node -p 'require("./release/node.json").version')" >> "$GITHUB_OUTPUT"
+      # Payload builds require the exact pinned runtime, not the rolling .nvmrc major.
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version: ${{ steps.node-pin.outputs.version }}
           cache: npm
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'

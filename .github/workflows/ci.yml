@@ -24,6 +24,15 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: node packages/desktop/tools/native.mjs cargo test --manifest-path native/Cargo.toml --locked
+      - name: Read the pinned payload Node version
+        if: matrix.os == 'ubuntu-22.04-arm'
+        id: node-pin
+        run: echo "version=$(node -p 'require("./release/node.json").version')" >> "$GITHUB_OUTPUT"
+      # .nvmrc tracks the rolling major; payload builds require the exact pinned runtime.
+      - uses: actions/setup-node@v4
+        if: matrix.os == 'ubuntu-22.04-arm'
+        with:
+          node-version: ${{ steps.node-pin.outputs.version }}
       - name: Qualify native ARM64 remote runtime
         if: matrix.os == 'ubuntu-22.04-arm'
         run: |

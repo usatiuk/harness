@@ -147,7 +147,7 @@ it("persists worktree settings, selection, configuration origin, fork metadata a
       ))
         vi.stubEnv(key, value);
       const recipe = join(repository, ".harness", "devcontainer.json");
-      await writeFile(recipe, JSON.stringify({ image: "node:24.21.0-alpine", remoteUser: "root" }));
+      await writeFile(recipe, JSON.stringify({ image: "node:26.13.0-alpine", remoteUser: "root" }));
       await writeFile(
         join(repository, ".harness", "settings.local.json"),
         JSON.stringify({

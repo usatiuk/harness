@@ -39,7 +39,7 @@ it.runIf(process.env.HARNESS_DOCKER_INTEGRATION === "1")(
         "-d",
         "--label",
         `harness.server=${scope}`,
-        "node:24.21.0-alpine",
+        "node:26.13.0-alpine",
         "sleep",
         "600",
       );
@@ -114,7 +114,7 @@ it.runIf(process.env.HARNESS_DOCKER_INTEGRATION === "1")(
     await mkdir(join(root, ".devcontainer"), { recursive: true });
     await writeFile(
       join(root, ".devcontainer", "devcontainer.json"),
-      JSON.stringify({ image: "node:24.21.0-alpine", remoteUser: "root" }),
+      JSON.stringify({ image: "node:26.13.0-alpine", remoteUser: "root" }),
     );
     const owner = { emit: () => {} };
     const environment = await runtime.environments.acquire(
@@ -173,7 +173,7 @@ it.runIf(process.env.HARNESS_DOCKER_INTEGRATION === "1")(
         "-d",
         "--label",
         `com.docker.compose.project=${prefix}sidecar`,
-        "node:24.21.0-alpine",
+        "node:26.13.0-alpine",
         "sleep",
         "600",
       );

@@ -24,7 +24,7 @@ export const payloadBundleOptions = {
   bundle: true,
   platform: "node",
   format: "esm",
-  target: "node24",
+  target: "node26",
   conditions: ["development"],
   // GenAI 2.28's unexported Interactions errors derive their public `name`
   // from constructor.name. Preserve it even when bundling resolves collisions.
@@ -110,7 +110,7 @@ export async function buildIdentity(mode = "development") {
 export async function buildPayload(component, output, identity) {
   if (!["server", "cli"].includes(component)) throw new Error("Unknown payload component");
   if (process.versions.node !== pin.version)
-    throw new Error(`Payload builds require Node ${pin.version} (see .nvmrc)`);
+    throw new Error(`Payload builds require Node ${pin.version} (see release/node.json)`);
   output = resolve(output);
   const base = join(root, "release/output");
   if (!output.startsWith(`${base}${sep}`) && output !== join(root, "packages/desktop/resources"))
