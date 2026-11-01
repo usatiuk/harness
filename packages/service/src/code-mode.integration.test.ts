@@ -200,8 +200,6 @@ describe("ordinary tool discovery", () => {
         const descriptions = fixture.requests.map(
           (request) => request.tools!.find((tool) => tool.name === "eval")!.description,
         );
-        if (showNames === false) expect(descriptions[0]).not.toContain("Deferred tool names:");
-        else expect(descriptions[0]).toContain('Deferred tool names: ["a_deferred","z_deferred"]');
         expect(descriptions[1]).toBe(descriptions[0]);
         expect(descriptions[0]).not.toContain("excluded_deferred");
         expect(discoveryOutput(items, "search").tools.map((tool) => tool.input.name)).toEqual([

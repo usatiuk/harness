@@ -100,6 +100,7 @@ export function discoveryTools(
     {
       name: SEARCH_NAME,
       description:
+        "Discovery does not register new direct functions. Invoke discovered tools through eval: await tools.call(name, args). " +
         'Find tool definitions by keywords in names and descriptions. Each query requires all its words (AND); queries are alternatives (OR). Example: {"queries":["gitlab issues","gitlab merge requests"]}. Use short keywords, not sentences. Returns up to 12 new definitions, including descriptions and input/output schemas. Already declared or discovered tools are omitted until compaction. more means some matches were omitted: repeat for remaining fitting definitions, or narrow the query for oversized matches. Deferred tools are callable through eval, not directly. Use tool_describe to inspect or refresh a known tool.',
       input: {
         kind: "function",
@@ -153,6 +154,7 @@ export function discoveryTools(
     {
       name: DESCRIBE_NAME,
       description:
+        "Discovery does not register new direct functions. Invoke deferred tools through eval: await tools.call(name, args). " +
         "Inspect the current complete definition of a scoped tool: description, input schema or raw-text grammar, and output schema when available. This explicit lookup can refresh an already known definition. Deferred tools are callable through eval, not directly.",
       input: { kind: "function", schema: z.strictObject({ name: z.string().min(1).max(512) }) },
       exposure: { direct: true, code: false },

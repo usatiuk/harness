@@ -5,6 +5,9 @@ import { isDiscoveryTool } from "./tool-discovery.ts";
 
 export const EVALUATOR_NAME = "eval";
 const DESCRIPTION = `Run an async JavaScript function body in a fresh, isolated environment.
+To invoke a discovered tool: const result = await tools.call("exact_tool_name", args); return result;
+Tool names are strings passed to tools.call, not JavaScript globals or direct function calls.
+This is a function body, not a REPL: use return or emit to expose results.
 Use await and return a JSON value. Discover tool definitions using the ordinary tool_search and
 tool_describe tools before writing code; tools.call is the only guest tool API.
 await tools.call(name, args) invokes a normal governed Harness tool. For custom tools pass a string.
@@ -41,7 +44,7 @@ export function evaluatorTool(
         ? `\nThe following tools are already described for use inside eval only. Invoke them with await tools.call(name, args), not as direct calls. For example: await tools.call(${JSON.stringify(upfront[0]!.input.name)}, args).\n${JSON.stringify(upfront)}`
         : "") +
       (names.length
-        ? `\nDeferred tool names: ${JSON.stringify(names)}. Use tool_describe to inspect arguments before calling them with tools.call.`
+        ? `\nDeferred tools (invoke only through tools.call inside eval, never as direct function calls): ${JSON.stringify(names)}. Use tool_describe to inspect arguments before calling them with tools.call.`
         : ""),
     input: {
       kind: "custom",
