@@ -1,5 +1,15 @@
 # Harness plan
 
+Mistral API reasoning metadata now covers GLM 5.3 Flash and DeepSeek V4.1 Flash
+1017, includes Small 4's documented ID, and updates Large 4 to `low`/`medium`/`high`.
+Third-party levels follow model-author/hosting-provider documentation rather than
+live Mistral qualification. Table-copy assertions are removed; generic effort
+delivery and validation coverage remains. Root testing guidance prohibits
+tautological data/prompt snapshot tests.
+Validation on Windows/Node 26: `npm run check` passes typecheck, lint, formatting,
+and 2,119 tests (91 skipped), with two workers and inherited managed-server launch
+variables cleared for source tests. No live Mistral calls were made.
+
 The [consistent tool-path follow-up](docs/plans/execution/2026-11-01-consistent-tool-paths.md)
 makes glob directory scopes workspace-root-relative, accepts absolute in-workspace
 paths and returns explicit errors for outside scopes. Scope names are literal,

@@ -410,11 +410,16 @@ to `completion_args.reasoning_effort`; legacy `off` maps to native `none`.
 No client enum drops new advertised controls or collapses distinct efforts.
 Advertised reasoning capability remains visible even without an effort list;
 a boolean alone does not invent presets. The public API's `/models` schema does
-not list efforts, so reasoning-enabled rows matching the documented Mistral Small,
-Medium 3.5 and Large 4 IDs/aliases expose `none`/`high`; GLM 5.3 exposes
-`low`/`high`/`max`. These options come from
+not list efforts, so reasoning-enabled rows matching documented Mistral Small 4
+and Medium 3.5 IDs/aliases expose `none`/`high`; Large 4 exposes
+`low`/`medium`/`high`; GLM 5.3 and GLM 5.3 Flash expose `low`/`high`/`max`;
+DeepSeek V4.1 Flash 1017 exposes `none`/`low`/`high`/`max`. These options come from
 [Mistral's reasoning documentation](https://docs.mistral.ai/studio/conversations/reasoning),
-not a generic inference from the capability flag. Unknown API models retain the
+[GLM's model card](https://huggingface.co/zai-org/GLM-5.3-Flash), and
+[Cloudflare's DeepSeek hosting documentation](https://developers.cloudflare.com/workers-ai/models/deepseek-v4.1-flash-1017),
+not a generic inference from the capability flag. Third-party effort levels assume
+the same model supports the same controls across providers; live Mistral acceptance
+is not qualified by these sources. Unknown API models retain the
 flag without invented choices. Aliases retain the row's controls.
 The canonical content boundary supports inline PNG/JPEG/GIF/WebP images.
 Adapter capability declarations describe supported input serialization; the selected

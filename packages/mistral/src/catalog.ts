@@ -71,11 +71,18 @@ const vibeEntry = z.object({
 
 // /models reports a reasoning flag, not effort choices. These options are
 // documented at https://docs.mistral.ai/studio/conversations/reasoning.
+// Third-party levels follow their author/hosting-provider documentation:
+// https://huggingface.co/zai-org/GLM-5.3-Flash
+// https://developers.cloudflare.com/workers-ai/models/deepseek-v4.1-flash-1017
 const API_REASONING_LEVELS = new Map<string, readonly string[]>([
   ["mistral-small-latest", ["none", "high"]],
+  ["mistral-small-2603", ["none", "high"]],
   ["mistral-medium-3-5", ["none", "high"]],
-  ["mistral-large-4-0", ["none", "high"]],
+  ["mistral-large-4", ["low", "medium", "high"]],
+  ["mistral-large-4-0", ["low", "medium", "high"]],
   ["zai-glm-5-3", ["low", "high", "max"]],
+  ["zai-glm-5-3-flash", ["low", "high", "max"]],
+  ["deepseek-v4-1-flash-1017", ["none", "low", "high", "max"]],
 ]);
 
 export interface CatalogEntry {

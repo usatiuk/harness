@@ -686,9 +686,11 @@ A reported source-desktop creation failure exposed an invalid `preset: null`
 inside generic overrides. The desktop-to-service in-memory RPC regression first
 reproduced Default/no-preset creation failures, then passed after omission; it also
 verifies explicit presets and clearing an inherited default in persisted records.
-Mistral API reasoning regressions use the real SDK with synthetic local HTTP/SSE
-to verify documented model-specific options, aliases, omitted defaults and exact
-effort delivery. Neither regression executes a live vendor or the user's app.
+Mistral reasoning coverage uses the real SDK with synthetic local HTTP/SSE to
+verify configured/advertised effort delivery, omitted defaults and invalid
+selections. The November 2026 catalog update removes the duplicated static
+model/effort-table assertions; these are not vendor qualification. No regression
+executes a live vendor or the user's app.
 Final pinned-Node CI for this correction passes on Windows (1,247 tests, 47
 skipped) and Ubuntu (1,256 tests, 38 skipped), including the headless Rust checks
 in run `38126203710`. The local Node 24 full check retains two unchanged MCP OAuth

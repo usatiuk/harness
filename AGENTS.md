@@ -115,6 +115,13 @@ found and do not manufacture churn to meet the cadence.
 
 ## Testing discipline
 
+- Do not add tautological tests that merely duplicate implementation-owned data:
+  exact prompt strings, static model/effort tables, labels, or configuration
+  literals. Remove such assertions when touching the affected tests. Test behavior
+  and independently specified contracts instead; do not make routine data or
+  wording changes require updating a second copy in tests. Exact assertions remain
+  appropriate where the bytes themselves are an external protocol requirement.
+
 - When a test fails or observed behavior contradicts an expectation, establish
   the root cause before applying a fix. Preserve evidence and distinguish product
   defects from incorrect tests or assumptions. Do not weaken assertions, increase
