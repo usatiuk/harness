@@ -235,6 +235,7 @@ export class FeedbackRuntime {
               cwd: conversation.workspaceRoot,
               timeout: 3000,
               maxBuffer: 2 * 1024 * 1024,
+              windowsHide: true,
             };
             const [revision, status, patch] = await Promise.all([
               execute("git", ["rev-parse", "HEAD"], options),

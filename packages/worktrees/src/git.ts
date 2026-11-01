@@ -19,6 +19,8 @@ export async function git(cwd: string, args: string[], signal?: AbortSignal): Pr
   const result = await execute("git", ["--literal-pathspecs", "-C", cwd, ...args], {
     encoding: "utf8",
     maxBuffer: 4 * 1024 * 1024,
+    // The desktop-launched server has no console; a visible Git child would flash one.
+    windowsHide: true,
     ...(signal ? { signal } : {}),
     // A branch-exists failure is the one Git diagnostic creation may retry.
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" },
