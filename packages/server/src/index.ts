@@ -175,11 +175,13 @@ export async function buildServerComposition(
       { id: "compaction", policies: () => ({ compaction: modelCompaction }) },
     );
     const resolvedFallback: ModelConfig = fallbackModel ?? { provider: "demo", model: "demo-1" };
+    const feedback = new FeedbackRuntime(home, store, pluginCredentials);
     // Lowest cascade layer: every conversation has a model even on resume with no settings, and
     // resolution never fails "no model configured".
     const service = new HarnessService({
       home,
       codeEvaluator: new QuickJsEvaluator(),
+      captureModelEvidence: () => feedback.captureEnabled(),
       store,
       worktrees,
       removeWorkspaceEnvironment: (path) => sandbox.environments.removeWorkspace(path),
@@ -197,7 +199,6 @@ export async function buildServerComposition(
     // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
     subagents.bindRunner(service);
     worktreesDefinition.bind(service);
-    const feedback = new FeedbackRuntime(home, store, pluginCredentials);
     await feedback.start();
     const host = new HarnessRpcHost(service);
     startedHost = host;

@@ -6,10 +6,11 @@ import {
   feedbackVoteRequest,
   feedbackConfigureRequest,
   feedbackRetryRequest,
+  feedbackClearRequest,
 } from "@harness/feedback/client";
 import type { DesktopSession } from "../session.ts";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
-import { Button, Checkbox, Input, IconButton, PopoverControl } from "../ui.tsx";
+import { Button, Checkbox, Confirmation, Input, IconButton, PopoverControl } from "../ui.tsx";
 
 type Status = Awaited<ReturnType<typeof readStatus>>;
 function readStatus(session: DesktopSession) {
@@ -41,7 +42,11 @@ export function FeedbackControls({
   const [busy, setBusy] = useState(false);
   const [identity] = useState(() => crypto.randomUUID());
   useEffect(() => {
-    void readCached(session).then(setStatus, () => setStatus(undefined));
+    const refresh = () => {
+      void readCached(session).then(setStatus, () => setStatus(undefined));
+    };
+    refresh();
+    return session.subscribe(refresh);
   }, [session]);
   if (!itemId || !conversationId || !status?.enabled || !status.configured) return null;
   return (
@@ -119,9 +124,11 @@ export function FeedbackSettings({ session }: { session: DesktopSession }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const refresh = async () => {
     reads.delete(session);
     setStatus(await readCached(session));
+    session.changed();
   };
   useEffect(() => {
     reads.delete(session);
@@ -175,6 +182,9 @@ export function FeedbackSettings({ session }: { session: DesktopSession }) {
               <Checkbox name="enabled" defaultChecked={status.enabled} disabled={busy} />
               Show feedback buttons in conversations
             </label>
+            <small className="muted">
+              Also controls collection of local execution data for feedback.
+            </small>
             <label>
               MAI address
               <Input
@@ -222,6 +232,26 @@ export function FeedbackSettings({ session }: { session: DesktopSession }) {
           <p className="muted">
             A vote saves a feedback case. Teachers and training start separately in MAI.
           </p>
+          <p className="muted">
+            Estimated feedback storage: {status.storageBytes.toLocaleString()} bytes
+          </p>
+          <Button
+            variant="danger"
+            disabled={busy || Boolean(session.disconnected)}
+            onClick={() => setConfirmClear(true)}
+          >
+            Delete all feedback data
+          </Button>
+          <Confirmation
+            open={confirmClear}
+            onOpenChange={setConfirmClear}
+            title="Delete all feedback data?"
+            description="Deletes local captured feedback data and unsent votes. Conversations are preserved. Cases already sent to MAI are unaffected."
+            confirmLabel="Delete all feedback data"
+            onConfirm={() =>
+              void update(() => session.client.peer.request(feedbackClearRequest, {}))
+            }
+          />
         </>
       ) : (
         !error && <p className="muted">Loading feedback settings…</p>

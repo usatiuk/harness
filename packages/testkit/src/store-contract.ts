@@ -710,6 +710,52 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect(await store.getPluginState("q", conv.id, "k")).toBeUndefined();
     });
 
+    it("estimates and deletes one plugin's serialized state across conversations", async () => {
+      const store = makeStore();
+      const first = await store.createConversation(sampleRecord());
+      const second = await store.createConversation(sampleRecord());
+      const turn = await store.createTurn(first.id);
+      const item = await store.appendItem(message(first.id, turn.id, "keep history"));
+      const initial = { text: "café 😀" };
+      const updated = { text: "日本語", entries: [1, 2, 3] };
+      const another = ["é", null, true];
+      const otherPlugin = { text: "preserved" };
+      const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+
+      expect(await store.getPluginStateSize("p")).toBe(0);
+      await store.putPluginState("p", first.id, "k", initial, "scope");
+      await store.putPluginState("p", second.id, "k", another, "scope");
+      await store.putPluginState("p-other", first.id, "k", otherPlugin, "scope");
+      expect(await store.getPluginStateSize("p")).toBe(bytes(initial) + bytes(another));
+      await store.putPluginState("p", first.id, "k", updated);
+      expect(await store.getPluginStateSize("p")).toBe(bytes(updated) + bytes(another));
+
+      await store.deletePluginState("p");
+      expect(await store.getPluginStateSize("p")).toBe(0);
+      expect(await store.getPluginState("p", first.id, "k")).toBeUndefined();
+      expect(await store.getPluginState("p", second.id, "k")).toBeUndefined();
+      expect(
+        await store.listConversationPage(10, undefined, {
+          includedState: { plugin: "p", key: "k", scope: "scope" },
+        }),
+      ).toEqual([]);
+      expect(await store.getPluginState("p-other", first.id, "k")).toEqual(otherPlugin);
+      expect(await store.getPluginStateSize("p-other")).toBe(bytes(otherPlugin));
+      expect(await store.getConversation(first.id)).toBeDefined();
+      expect(await store.getConversation(second.id)).toBeDefined();
+      expect(await store.listActiveItems(first.id)).toEqual([item]);
+      await store.deletePluginState("p");
+      expect(await store.getPluginStateSize("p")).toBe(0);
+
+      // A fresh unscoped value must not inherit the deleted scope.
+      await store.putPluginState("p", first.id, "k", null);
+      expect(
+        await store.listConversationPage(10, undefined, {
+          includedState: { plugin: "p", key: "k", scope: "scope" },
+        }),
+      ).toEqual([]);
+    });
+
     it("stores blobs and reads byte ranges", async () => {
       const store = makeStore();
       const ref = await store.putBlob(new TextEncoder().encode("hello world"));

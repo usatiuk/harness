@@ -4074,6 +4074,7 @@ it("binds buffered middleware output to its producing request rather than the la
     ]),
     testConfigResolver(),
     unusedCodeEvaluator,
+    async () => true,
   );
   const conversation = await store.createConversation(newConversationInput(CONFIG));
   await engine.deliver(conversation.id, userInput("go"));
@@ -4131,6 +4132,7 @@ it("isolates native capture for concurrent attempts sharing the same request obj
     ]),
     testConfigResolver(),
     unusedCodeEvaluator,
+    async () => true,
   );
   const conversation = await store.createConversation(newConversationInput(CONFIG));
   await engine.deliver(conversation.id, userInput("go"));

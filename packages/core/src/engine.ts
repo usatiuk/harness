@@ -146,6 +146,7 @@ export class Engine {
      *  of `@harness/config`. */
     private readonly resolveConfig: ConfigResolver,
     private readonly codeEvaluator: CodeEvaluator,
+    private readonly captureModelEvidence?: () => Promise<boolean>,
   ) {
     this.#observers = host.observers.map((observer) => ({ observer }));
   }
@@ -1263,7 +1264,9 @@ export class Engine {
       };
 
       let evidenceId: string | undefined;
-      const evidenceByEvent = new WeakMap<ModelStreamEvent, string>();
+      const evidenceByEvent = (await this.captureModelEvidence?.())
+        ? new WeakMap<ModelStreamEvent, string>()
+        : undefined;
       const calls: ToolCall[] = [];
       let completed: Extract<ModelStreamEvent, { type: "completed" }> | undefined;
       let sawOutput = false;
@@ -1310,7 +1313,7 @@ export class Engine {
           evidenceByEvent,
         );
         for await (const event of invocation.stream) {
-          evidenceId = evidenceByEvent.get(event);
+          evidenceId = evidenceByEvent?.get(event);
           if (completed)
             throw new Error("provider emitted an event after completed", {
               cause: completed.error,

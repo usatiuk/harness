@@ -786,3 +786,8 @@ existing context-build and middleware identity behavior. See the
 [architecture](docs/subsystems/feedback/README.md). MAI owns human review and
 separately submitted cloud training; this integration never trains or promotes
 on a vote. Live provider checks and native feedback UI qualification remain open.
+
+The existing feedback checkbox now also controls optional model-call evidence
+collection. Feedback settings show estimated local storage and confirmed deletion
+of all local feedback data, preserving conversations and operational context builds.
+See the [scoped delivery](docs/plans/interface/2026-11-01-feedback-storage-controls.md).

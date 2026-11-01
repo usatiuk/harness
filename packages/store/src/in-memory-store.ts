@@ -529,6 +529,24 @@ export class InMemoryStore implements Store {
     return this.#pluginState.get(pluginStateKey(plugin, conversationId, key));
   }
 
+  async getPluginStateSize(plugin: string): Promise<number> {
+    const prefix = `${plugin} `;
+    let bytes = 0;
+    for (const [key, value] of this.#pluginState) {
+      if (key.startsWith(prefix)) bytes += Buffer.byteLength(JSON.stringify(value), "utf8");
+    }
+    return bytes;
+  }
+
+  async deletePluginState(plugin: string): Promise<void> {
+    const prefix = `${plugin} `;
+    for (const key of this.#pluginState.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      this.#pluginState.delete(key);
+      this.#pluginScopes.delete(key);
+    }
+  }
+
   async putBlob(bytes: Uint8Array): Promise<OutputRef> {
     const id = `blob-${++this.#counter}`;
     this.#blobs.set(id, bytes.slice());

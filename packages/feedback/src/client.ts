@@ -31,6 +31,7 @@ export const feedbackStatusRequest = defineRequest({
     endpoint: z.string(),
     pending: z.number().int(),
     failed: z.number().int(),
+    storageBytes: z.number().int().nonnegative(),
   }),
 });
 export const feedbackConfigureRequest = defineRequest({
@@ -58,6 +59,13 @@ export const feedbackVoteRequest = defineRequest({
 export const feedbackRetryRequest = defineRequest({
   direction: "client-to-server",
   method: "plugin.feedback.retry",
+  params: z.strictObject({}),
+  result: z.null(),
+});
+
+export const feedbackClearRequest = defineRequest({
+  direction: "client-to-server",
+  method: "plugin.feedback.clear",
   params: z.strictObject({}),
   result: z.null(),
 });

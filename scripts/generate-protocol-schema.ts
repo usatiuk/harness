@@ -10,6 +10,7 @@ import {
   feedbackVoteRequest,
   feedbackRetryRequest,
   feedbackDecisionsRequest,
+  feedbackClearRequest,
 } from "@harness/feedback/client";
 import {
   worktreeRepositoryRequest,
@@ -94,6 +95,7 @@ const messages: readonly RpcMessage[] = [
   feedbackVoteRequest,
   feedbackRetryRequest,
   feedbackDecisionsRequest,
+  feedbackClearRequest,
   worktreeOptionsRequest,
   changesListRequest,
   changesDiffRequest,

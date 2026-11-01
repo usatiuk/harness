@@ -28,6 +28,8 @@ declare global {
     composerFixture: {
       calls: Delivery[];
       feedbackCalls: unknown[];
+      feedbackClears: number;
+      failFeedbackClear: boolean;
       questionResponses: unknown[];
       failQuestionResponse: boolean;
       showQuestions(owner?: string): void;
@@ -182,6 +184,14 @@ const changed = () => {
 };
 const calls: Delivery[] = [];
 const feedbackCalls: unknown[] = [];
+let feedbackStatus = {
+  enabled: true,
+  configured: true,
+  endpoint: "http://127.0.0.1:7331",
+  pending: 2,
+  failed: 1,
+  storageBytes: 4096,
+};
 const settingsWrites: unknown[] = [];
 const settingsWaiters: Array<() => void> = [];
 const creations: Array<Parameters<DesktopSession["client"]["create"]>[0]> = [];
@@ -534,14 +544,22 @@ const session = {
     peer: {
       ready: true,
       request: async (definition: { method: string }, params: unknown) => {
-        if (definition.method === "plugin.feedback.status")
-          return {
-            enabled: true,
-            configured: true,
-            endpoint: "http://127.0.0.1:7331",
-            pending: 0,
-            failed: 0,
+        if (definition.method === "plugin.feedback.status") return { ...feedbackStatus };
+        if (definition.method === "plugin.feedback.configure") {
+          const config = params as { enabled: boolean; endpoint: string };
+          feedbackStatus = {
+            ...feedbackStatus,
+            enabled: config.enabled,
+            endpoint: config.endpoint,
           };
+          return null;
+        }
+        if (definition.method === "plugin.feedback.clear") {
+          window.composerFixture.feedbackClears++;
+          if (window.composerFixture.failFeedbackClear) throw new Error("Feedback clear failed");
+          feedbackStatus = { ...feedbackStatus, pending: 0, failed: 0, storageBytes: 0 };
+          return null;
+        }
         if (definition.method === "plugin.feedback.vote") {
           feedbackCalls.push(params);
           return {
@@ -1129,6 +1147,8 @@ window.composerFixture = {
   },
   calls,
   feedbackCalls,
+  feedbackClears: 0,
+  failFeedbackClear: false,
   questionResponses: [],
   failQuestionResponse: false,
   showQuestions(owner = id) {

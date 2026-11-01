@@ -4405,6 +4405,79 @@ test("activities label their full subagent chain and keep Stop compact beside Ru
   expect(box.height).toBe(22);
 });
 
+test("feedback settings confirm local deletion and refresh storage without changing collection", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Feedback", exact: true }).click();
+  const collection = page.getByRole("checkbox", {
+    name: "Show feedback buttons in conversations",
+    exact: true,
+  });
+  await expect(collection).toBeChecked();
+  await expect(
+    page.getByText("Also controls collection of local execution data for feedback."),
+  ).toBeVisible();
+  await expect(page.getByText("Estimated feedback storage: 4,096 bytes")).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "2 queued" })).toContainText(
+    "1 delivery failures",
+  );
+  const remove = page.getByRole("button", { name: "Delete all feedback data", exact: true });
+  await remove.click();
+  const confirmation = page.getByRole("alertdialog", { name: "Delete all feedback data?" });
+  await expect(confirmation).toContainText("local captured feedback data and unsent votes");
+  await expect(confirmation).toContainText("Conversations are preserved");
+  await expect(confirmation).toContainText("Cases already sent to MAI are unaffected");
+  expect(await page.evaluate(() => window.composerFixture.feedbackClears)).toBe(0);
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(await page.evaluate(() => window.composerFixture.feedbackClears)).toBe(0);
+  await expect(remove).toBeFocused();
+  await remove.click();
+  await confirmation.getByRole("button", { name: "Delete all feedback data", exact: true }).click();
+  await expect(page.getByText("Estimated feedback storage: 0 bytes")).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "0 queued" })).toContainText(
+    "0 delivery failures",
+  );
+  expect(await page.evaluate(() => window.composerFixture.feedbackClears)).toBe(1);
+  await expect(collection).toBeChecked();
+});
+
+test("feedback settings preserve storage and show an error when deletion fails", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Feedback", exact: true }).click();
+  await page.evaluate(() => {
+    window.composerFixture.failFeedbackClear = true;
+  });
+  await page.getByRole("button", { name: "Delete all feedback data", exact: true }).click();
+  await page
+    .getByRole("alertdialog", { name: "Delete all feedback data?" })
+    .getByRole("button", { name: "Delete all feedback data", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("Could not update feedback settings");
+  await expect(page.getByText("Estimated feedback storage: 4,096 bytes")).toBeVisible();
+});
+
+test("feedback settings save collection choice and hide conversation buttons", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await page.waitForFunction(() => window.composerFixture !== undefined);
+  await page.evaluate(() => window.composerFixture.showMarkdown());
+  await page.getByTestId("assistant-message").hover();
+  await expect(page.getByRole("button", { name: "Thumbs up", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Feedback", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Show feedback buttons in conversations" }).uncheck();
+  await page.getByRole("button", { name: "Save feedback settings", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Token available" })).toContainText(
+    "Saved.",
+  );
+  await page.goBack();
+  await expect(page.getByRole("button", { name: "Thumbs up", exact: true })).toHaveCount(0);
+});
+
 test("settings saves configurable subagent depth and active child limits", async ({ page }) => {
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "Settings", exact: true }).click();

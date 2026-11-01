@@ -1,5 +1,13 @@
 # Testing
 
+Feedback storage controls are covered by the shared store contract (UTF-8 byte
+estimates and namespace-only deletion), engine capture toggling, and real
+server/RPC/SQLite tests that preserve history, usage, credentials, provider
+payloads and context builds. Focused desktop browser tests cover collection
+settings and deletion confirmation, cancellation, success and failure. Active
+writers may save feedback after deletion; coordination is intentionally outside
+this feature. See the [delivery plan](plans/interface/2026-11-01-feedback-storage-controls.md).
+
 The [sandbox context and presentation follow-up](plans/cross-cutting/2026-10-18-sandbox-context-and-message-presentation.md)
 adds real Bubblewrap checks for process-shared private `/tmp`, hidden host
 temporary files and fresh `/run`. Active-prompt tests capture a real service/model

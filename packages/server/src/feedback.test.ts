@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
@@ -17,6 +17,7 @@ import {
   feedbackVoteRequest,
   feedbackRetryRequest,
   feedbackDecisionsRequest,
+  feedbackClearRequest,
 } from "@harness/feedback/client";
 import { MemorySecretStore } from "@harness/secrets";
 import * as credentials from "./credential-store.ts";
@@ -74,7 +75,16 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
   });
   try {
     await client.start();
-    expect((await client.peer.request(feedbackStatusRequest, {})).enabled).toBe(false);
+    expect(await client.peer.request(feedbackStatusRequest, {})).toMatchObject({
+      enabled: false,
+      storageBytes: 0,
+    });
+    const captureConversation = await harness.service.createConversation({
+      overrides: { model: { provider: "demo", model: "demo-1" }, tools: { allow: [] } },
+    });
+    await harness.service.send(captureConversation.id, "No capture");
+    await harness.service.whenIdle(captureConversation.id);
+    expect(await harness.store.getPluginStateSize("model-evidence")).toBe(0);
     await client.peer.request(feedbackConfigureRequest, {
       enabled: true,
       endpoint: `http://127.0.0.1:${address.port}`,
@@ -82,6 +92,9 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
     });
     const status = await client.peer.request(feedbackStatusRequest, {});
     expect(status.configured).toBe(true);
+    await harness.service.send(captureConversation.id, "Capture this call");
+    await harness.service.whenIdle(captureConversation.id);
+    expect(await harness.store.getPluginStateSize("model-evidence")).toBeGreaterThan(0);
     expect(chooseStore).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(status)).not.toContain("fixture-controller-token");
     const { readGlobalSettings } = await import("@harness/config");
@@ -307,6 +320,9 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
         itemId: selected.id,
       }),
     ).rejects.toThrow();
+    online = false;
+    await client.attach(conversation.id);
+    await client.peer.request(feedbackVoteRequest, { ...params, id: randomUUID() });
     await client.peer.request(feedbackConfigureRequest, {
       enabled: false,
       token: null,
@@ -315,6 +331,46 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
     await expect(
       client.peer.request(feedbackVoteRequest, { ...params, id: randomUUID() }),
     ).rejects.toThrow();
+    const evidenceBytes = await harness.store.getPluginStateSize("model-evidence");
+    await harness.service.send(captureConversation.id, "No more capture");
+    await harness.service.whenIdle(captureConversation.id);
+    expect(await harness.store.getPluginStateSize("model-evidence")).toBe(evidenceBytes);
+    let fileBytes = 0;
+    for (const entry of await readdir(join(home, "feedback"), {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (entry.isFile()) fileBytes += (await stat(join(entry.parentPath, entry.name))).size;
+    }
+    expect(fileBytes).toBeGreaterThan(0);
+    expect(await client.peer.request(feedbackStatusRequest, {})).toMatchObject({
+      enabled: false,
+      pending: 1,
+      storageBytes: evidenceBytes + fileBytes,
+    });
+    const items = await harness.store.listActiveItems(conversation.id);
+    const usage = await harness.store.listModelUsage(captureConversation.id);
+    await harness.store.putPluginState("other", conversation.id, "keep", { value: "untouched" });
+    await client.peer.request(feedbackClearRequest, {});
+    expect(await client.peer.request(feedbackStatusRequest, {})).toMatchObject({
+      storageBytes: 0,
+      pending: 0,
+      failed: 0,
+      configured: true,
+      enabled: false,
+    });
+    expect(await readdir(join(home, "feedback"))).toEqual(["delivered"]);
+    expect(await readdir(join(home, "feedback", "delivered"))).toEqual([]);
+    expect(await harness.store.listActiveItems(conversation.id)).toEqual(items);
+    expect(await harness.store.listModelUsage(captureConversation.id)).toEqual(usage);
+    for (const row of usage)
+      if (row.contextBuildId)
+        expect(await harness.store.getContextBuild(row.contextBuildId)).toBeDefined();
+    expect(await harness.store.getProviderPayloads([firstReasoning.id])).toHaveLength(1);
+    expect(await harness.store.getPluginState("other", conversation.id, "keep")).toEqual({
+      value: "untouched",
+    });
+    await client.peer.request(feedbackClearRequest, {});
   } finally {
     client.closeConnection();
     await harness.close();

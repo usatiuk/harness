@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile, rename, rm } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -14,6 +14,7 @@ import {
   feedbackVoteRequest,
   feedbackRetryRequest,
   feedbackDecisionsRequest,
+  feedbackClearRequest,
 } from "./client.ts";
 
 import {
@@ -74,6 +75,15 @@ export class FeedbackRuntime {
       (await readGlobalSettings(this.home)).plugins?.["feedback"] ?? {},
     );
   }
+  async captureEnabled(): Promise<boolean> {
+    return (await this.config()).enabled;
+  }
+  private async files(): Promise<string[]> {
+    const entries = await readdir(this.directory, { recursive: true, withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => join(entry.parentPath, entry.name));
+  }
   private async paths() {
     return (await readdir(this.directory)).filter((name) => /^[a-f\d-]{36}\.json$/u.test(name));
   }
@@ -111,6 +121,8 @@ export class FeedbackRuntime {
     const config = await this.config();
     let pending = 0,
       failed = 0;
+    let storageBytes = await this.store.getPluginStateSize("model-evidence");
+    for (const path of await this.files()) storageBytes += (await stat(path)).size;
     for (const path of await this.paths()) {
       const entry = JSON.parse(await readFile(join(this.directory, path), "utf8")) as Pending;
       if (entry.status === "queued") {
@@ -123,6 +135,7 @@ export class FeedbackRuntime {
       configured: Boolean(await this.secrets.get(feedbackTokenKey(config.endpoint))),
       pending,
       failed,
+      storageBytes,
     };
   }
   retry(): Promise<void> {
@@ -172,6 +185,11 @@ export class FeedbackRuntime {
     });
     session.onRequest(feedbackRetryRequest, async () => {
       await this.retry();
+      return null;
+    });
+    session.onRequest(feedbackClearRequest, async () => {
+      await this.store.deletePluginState("model-evidence");
+      for (const path of await this.files()) await rm(path, { force: true });
       return null;
     });
     session.onRequest(feedbackDecisionsRequest, (params) =>

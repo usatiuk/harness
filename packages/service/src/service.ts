@@ -57,6 +57,8 @@ export interface HarnessServiceOptions {
    */
   defaults?: SettingsDoc;
   codeEvaluator: CodeEvaluator;
+  /** Whether new agent calls should retain optional request evidence. */
+  captureModelEvidence?: () => Promise<boolean>;
   worktrees?: WorktreeOperations;
   removeWorkspaceEnvironment?: (path: string) => Promise<void>;
 }
@@ -135,6 +137,7 @@ export class HarnessService implements ConversationRunner {
       new PluginHost(plugins),
       this.#resolveConfig,
       options.codeEvaluator,
+      options.captureModelEvidence,
     );
   }
 

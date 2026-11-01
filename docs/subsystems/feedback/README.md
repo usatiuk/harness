@@ -18,6 +18,19 @@ on completed assistant messages when enabled and a stored token is available.
 Tool and reasoning details also have vote controls. Selecting a thumb opens an
 optional comment popover.
 
+The checkbox also controls collection: disabled agent calls retain no optional
+effective/native request evidence or output links. The server checks current
+global settings for each new agent call, including calls in open conversations.
+Ordinary context builds used for compaction sizing remain independent.
+
+The same section shows estimated feedback storage: serialized `model-evidence`
+values plus local feedback files. **Delete all feedback data** requires confirmation
+and removes those records, pending cases and delivery receipts. Conversations,
+usage, credentials, provider continuation data and operational context builds stay.
+Cases already delivered to MAI are unaffected. SQLite can reuse deleted space;
+the estimate is not a promise that its file shrinks. Deletion does not coordinate
+with active calls or delivery, which may save feedback again afterward.
+
 Earlier development configuration used `plugins.feedback.tokenEnv`. Remove that
 obsolete property once from `settings.json`, then paste the token in Feedback
 settings. The dev home used for this implementation has already been updated.
@@ -68,7 +81,7 @@ native inputs or decision entries are explicitly omitted. It performs no tool or
 provider calls and can supplement an already collected case without direct database
 access. Historical items without capture remain unavailable.
 
-Typed RPCs: `plugin.feedback.status`, `.configure`, `.vote`, `.decisions`, and `.retry`. Schemas
+Typed RPCs: `plugin.feedback.status`, `.configure`, `.vote`, `.decisions`, `.retry`, and `.clear`. Schemas
 are included in the generated client protocol. The standalone MAI web app owns
 clarifications, review, export, cloud training and manual keep/reject records.
 Candidate models use existing provider configuration and an explicit `trained`

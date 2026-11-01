@@ -163,6 +163,10 @@ export interface Store {
     scope?: string,
   ): Promise<void>;
   getPluginState(plugin: string, conversationId: ConversationId, key: string): Promise<unknown>;
+  /** Sum of serialized JSON value bytes (UTF-8), not database or filesystem allocation. */
+  getPluginStateSize(plugin: string): Promise<number>;
+  /** Delete this plugin's state across all conversations, leaving conversation history intact. */
+  deletePluginState(plugin: string): Promise<void>;
 
   putBlob(bytes: Uint8Array): Promise<OutputRef>;
   getBlob(ref: OutputRef, range?: ByteRange): Promise<Uint8Array>;

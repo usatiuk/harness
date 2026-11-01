@@ -820,6 +820,19 @@ export class SqliteStore implements Store {
     return row ? (JSON.parse(row.value) as unknown) : undefined;
   }
 
+  async getPluginStateSize(plugin: string): Promise<number> {
+    const row = await this.#k
+      .selectFrom("plugin_state")
+      .select(sql<number>`coalesce(sum(length(cast(value as blob))), 0)`.as("bytes"))
+      .where("plugin", "=", plugin)
+      .executeTakeFirstOrThrow();
+    return row.bytes;
+  }
+
+  async deletePluginState(plugin: string): Promise<void> {
+    await this.#k.deleteFrom("plugin_state").where("plugin", "=", plugin).execute();
+  }
+
   async putBlob(bytes: Uint8Array): Promise<OutputRef> {
     const id = randomUUID();
     await this.#k
