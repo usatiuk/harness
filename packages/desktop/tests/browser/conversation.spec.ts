@@ -5111,6 +5111,8 @@ for (const theme of ["light", "dark"] as const) {
       );
       const left = page.getByRole("button", { name: "Hide sidebar", exact: true });
       const right = page.getByRole("button", { name: "Show right sidebar", exact: true });
+      await expect(page.locator(".conversation-list")).toHaveCSS("padding-right", "3px");
+      await expect(page.locator("main")).toHaveCSS("border-left-width", "1px");
       await expect(left).toHaveAttribute("aria-expanded", "true");
       const geometry = async (button: ReturnType<Page["getByRole"]>) =>
         button.evaluate((element) => ({
@@ -5184,6 +5186,7 @@ for (const theme of ["light", "dark"] as const) {
       );
       await left.click();
       await expect(page.locator("main")).toHaveCSS("border-top-left-radius", "0px");
+      await expect(page.locator("main")).toHaveCSS("border-left-width", "0px");
       const show = page.getByRole("button", { name: "Show sidebar", exact: true });
       await expect(show).toHaveAttribute("aria-expanded", "false");
       expect(await geometry(show)).toEqual(await geometry(right));

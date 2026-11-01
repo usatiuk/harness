@@ -239,7 +239,7 @@ textarea.input {
   display: grid;
   align-content: start;
   grid-template-columns: minmax(0, 1fr);
-  padding: 3px 20px 3px 3px;
+  padding: 3px;
   margin: -3px -8px -3px -3px;
   gap: 2px;
 }
@@ -2461,6 +2461,7 @@ button.subagent-row:hover {
   color: var(--ink);
 }
 .app.sidebar-hidden > main {
+  border-left: 0;
   border-top-left-radius: 0;
 }
 /* Chrome overlays retain the host material instead of painting opaque faces. */
