@@ -424,17 +424,18 @@ and restart the server to change the ceiling.
 The `sandbox` plugin selects one execution backend per loaded conversation:
 
 - `none` runs workspace tools directly on the host without a sandbox.
-- `native` (Linux only) runs commands in Bubblewrap. The host filesystem is readable, temporary
-  and runtime directories are private, workspace writes and network access are independently
-  configurable, and built-in file writes enforce the same workspace boundary.
+- `native` runs shell and file tools with MXC on supported Linux, WSL, macOS, and Windows hosts.
+  Host files are read-only outside the writable workspace, shared temp directory, and linked Git
+  metadata. Workspace writes and outbound network access are independently configurable.
 - `docker` runs execution-backed tools in the workspace's dev container.
 
-When no backend is configured, the server selects `native` on Linux if Bubblewrap
-is usable; otherwise it selects `none`. Explicit choices take precedence. Saved
+When no backend is configured, the server selects `native` on hosts with MXC
+process sandbox support. Linux also checks the default network policy. Other
+hosts default to `none`. Explicit choices take precedence. Saved
 `local` values are accepted as the old name for `none`; new settings/API values
-use `none`, and reading old settings does not rewrite them. Native shell `/tmp`
-is private and shared for the server process; `/run` is fresh per command.
-The agent prompt describes the active sandbox and its actual tool workspace.
+use `none`, and reading old settings does not rewrite them. `TMPDIR`, `TMP`, and
+`TEMP` point to the same writable directory for commands on that server. See the
+[native sandbox prerequisites](docs/subsystems/execution/README.md#native-sandbox-prerequisites).
 
 The global setting (also configurable with `/sandbox`) is:
 
@@ -455,9 +456,8 @@ The global setting (also configurable with `/sandbox`) is:
 Sandbox configuration changes are saved globally and in the current conversation override, then
 Harness reloads that conversation so backend, workspace-write, and network changes apply
 immediately. A running foreground turn must finish or be interrupted first; live background work is
-confirmed and stopped by the reload. Selecting `native` then fails normally if `bwrap` is missing or
-cannot create namespaces; it never silently falls back to host execution. `/reload` performs the
-same clean reactivation without changing settings.
+confirmed and stopped by the reload. An unavailable native sandbox reports its
+setup or launch error. `/reload` performs the same clean reactivation without changing settings.
 
 The headless service supports independent concurrent conversations; the TUI
 continues to show one conversation. Model/preset choices are pinned at creation,
@@ -488,7 +488,7 @@ request and apply after the current tool batch. See the
 [execution architecture](docs/subsystems/execution/README.md#worktrees-and-workspace-switching)
 for lifecycle and recovery details.
 
-Routine Native calls run inside Bubblewrap without approval. Harness-executed function tools can
+Routine native calls run inside MXC without approval. Harness-executed function tools can
 opt into explicit host escape with `executionFunctionTool`; their schema then exposes
 `sandbox_permissions: "require_escalated"` plus a required `justification`. The existing approval
 middleware classifies that call as outside the workspace before execution. After approval, only
@@ -610,12 +610,10 @@ rewind restores the selected branch's loaded set, while compaction drops older n
 later file access reloads current instructions. V1 does not parse shell commands, watch files for
 changes, or discover container-only instruction trees.
 
-Native v1 treats Harness's own `.harness` output persistence as trusted internal IO, so large or
-background command output may update `.harness` even when `workspaceWrite` is disabled. Built-in
-write/remove operations reject paths that resolve outside the workspace, but that check and the
-host operation are not atomic against a concurrent process replacing a path with a symlink. A
-future version should execute these mutations inside the Bubblewrap boundary; v1 does not claim
-protection against that race.
+Harness's own `.harness` output persistence is trusted internal IO. Large or
+background command output may update `.harness` even when `workspaceWrite` is
+disabled. MXC enforces the native filesystem policy during built-in file writes
+and removals.
 
 ### Layout
 

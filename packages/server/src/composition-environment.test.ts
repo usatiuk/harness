@@ -13,6 +13,13 @@ vi.mock("@harness/execution", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@harness/execution")>()),
   initializeUserShellEnvironment: vi.fn(async () => {}),
 }));
+vi.mock("@microsoft/mxc-sdk/v1", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@microsoft/mxc-sdk/v1")>()),
+  getPlatformSupport: () => ({
+    availableMethods: process.env["OWNER_ENV_READY"] === "yes" ? ["bubblewrap"] : [],
+  }),
+  run: async () => ({ exitCode: 0, timedOut: false }),
+}));
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -37,13 +44,9 @@ it.skipIf(process.platform !== "linux")(
     const { root } = await fixture();
     const bin = join(root, "bin");
     await mkdir(bin);
-    // Substitute only the OS availability probe; no native execution is claimed here.
-    await writeFile(join(bin, "bwrap"), '#!/bin/sh\n[ "$OWNER_ENV_READY" = yes ]\n', {
-      mode: 0o700,
-    });
     vi.stubEnv("PATH", "");
     vi.stubEnv("OWNER_ENV_READY", "no");
-    expect(nativeSandboxAvailable()).toBe(false);
+    expect(await nativeSandboxAvailable()).toBe(false);
     vi.mocked(initializeUserShellEnvironment).mockImplementationOnce(async () => {
       process.env["PATH"] = bin;
       process.env["OWNER_ENV_READY"] = "yes";

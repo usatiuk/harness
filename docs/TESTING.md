@@ -2024,9 +2024,12 @@ by the boundary actually exercised:
   releases SQLite ownership. Background lifecycle fixtures use an isolated account
   home rather than the developer's startup files.
 
-Real Bubblewrap cases run when the capability probe succeeds. On a host where
-`/tmp` is intentionally hidden from confined commands, use a temporary directory
-under the writable checkout for `TMPDIR`; do not change confinement assertions.
+Run `HARNESS_NATIVE_INTEGRATION=1 npx vitest run packages/sandbox/src/native.integration.test.ts`
+on an MXC-capable host to exercise shell startup, shared scratch, binary file
+operations, host loopback isolation, and cancellation. The loopback case needs
+the native outbound-network prerequisites and uses a local fixture. In
+PowerShell, set `$env:HARNESS_NATIVE_INTEGRATION = '1'`
+before running Vitest. See the [native prerequisites](subsystems/execution/README.md#native-sandbox-prerequisites).
 The focused real-container suite is opt-in:
 
 ```sh

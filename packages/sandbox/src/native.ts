@@ -1,246 +1,387 @@
-import { linkedGitDirectories } from "@harness/worktrees";
-import { spawn as nodeSpawn, spawnSync } from "node:child_process";
-import { realpath } from "node:fs/promises";
-import { mkdtempSync, realpathSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdtempSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { buffer, text } from "node:stream/consumers";
+import { finished } from "node:stream/promises";
+import {
+  getAvailableBackends,
+  getPlatformSupport,
+  MxcError,
+  run,
+  spawn,
+  type ContainerRequest,
+  type MxcProcess,
+} from "@microsoft/mxc-sdk/v1";
+import { linkedGitDirectories } from "@harness/worktrees";
 import type { ByteRange, ToolCall } from "@harness/protocol";
 import {
   executionEscalationOf,
   LocalExecutionContext,
-  LocalOutputStore,
-  streamProcess,
-  selectUserShell,
+  powerShellCommandArgs,
+  quoteShell,
   shellCommandArgs,
-  type UserShellEnvironment,
   type ExecutionContext,
-  type OutputStore,
+  type ProcessExit,
   type Relationship,
   type SpawnedProcess,
+  type UserShellEnvironment,
 } from "@harness/execution";
 import type { NativeSandboxConfig } from "./config.ts";
+import type { FileOperation } from "./native-file-worker.ts";
 
-// Shared by commands in this server process. A restart gets a fresh directory;
-// old directories are left to the operating system's temporary-file cleanup.
-let temporaryDirectory: string | undefined;
-const commandTemporaryDirectory = (): string =>
-  (temporaryDirectory ??= mkdtempSync(join(tmpdir(), "harness-native-tmp-")));
+const windows = process.platform === "win32";
+const platformBackend = {
+  win32: "processcontainer",
+  darwin: "seatbelt",
+  linux: "bubblewrap",
+} as const;
+const source = import.meta.url.endsWith(".ts");
+const fileWorker = fileURLToPath(
+  new URL(source ? "./native-file-worker.ts" : "./native-file-worker.mjs", import.meta.url),
+);
 
-function bubblewrapProbe(network: boolean) {
-  return spawnSync(
-    "bwrap",
-    [
-      "--die-with-parent",
-      "--unshare-all",
-      ...(network ? ["--share-net"] : []),
-      "--ro-bind",
-      "/",
-      "/",
-      "true",
-    ],
-    { encoding: "utf8" },
-  );
+export type NativeSandboxHost = { available: true } | { available: false; reason: string };
+
+let scratch: string | undefined;
+function temporaryDirectory(): string {
+  return (scratch ??= realpathSync(mkdtempSync(join(tmpdir(), "harness-native-"))));
 }
 
-/** Server-side default selection; explicit native activation still validates and fails. */
-export function nativeSandboxAvailable(): boolean {
-  if (process.platform !== "linux") return false;
-  const probe = bubblewrapProbe(true);
-  return !probe.error && probe.status === 0;
+export function detectNativeSandboxHost(): NativeSandboxHost {
+  const backend = platformBackend[process.platform as keyof typeof platformBackend];
+  if (backend === undefined)
+    return { available: false, reason: "requires Linux, macOS or Windows with MXC support" };
+  const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
+  if (major < 24) return { available: false, reason: "MXC requires Node.js 24 or later" };
+  if (windows && !(major === 24 ? minor >= 21 : major === 26 ? minor >= 8 : major > 26))
+    return {
+      available: false,
+      reason: "MXC on Windows requires Node.js 24.21+ on the 24.x line or Node.js 26.8 or later",
+    };
+  // Discover ProcessContainer in-process. The full probe gathers diagnostics for other backends.
+  if (windows && getAvailableBackends().some((entry) => entry.backend === backend))
+    return { available: true };
+  const support = getPlatformSupport();
+  if (support.availableMethods.includes(backend)) return { available: true };
+  return {
+    available: false,
+    reason:
+      support.unavailableReasons?.[backend] ||
+      support.reason ||
+      "MXC process isolation is unavailable",
+  };
 }
 
-function denied(operation: string, path: string): Error {
-  return Object.assign(new Error(`${operation} denied by native sandbox: ${path}`), {
-    code: "EACCES",
+function networkPolicy(enabled: boolean): NonNullable<ContainerRequest["network"]> {
+  return {
+    egress: { default: enabled ? "allow" : "deny" },
+    ingress: { default: "deny", hostLoopback: "deny" },
+  };
+}
+
+/** Check the extra Linux egress requirements before selecting the server default. */
+export async function nativeSandboxAvailable(host = detectNativeSandboxHost()): Promise<boolean> {
+  if (!host.available) return false;
+  if (process.platform !== "linux") return true;
+  try {
+    const probe = await run({
+      command: "true",
+      network: networkPolicy(true),
+      timeoutMs: 5000,
+    });
+    return probe.exitCode === 0 && !probe.timedOut;
+  } catch (error) {
+    if (error instanceof MxcError && ["backend_error", "backend_unavailable"].includes(error.code))
+      return false;
+    throw error;
+  }
+}
+
+function readonlyHostPaths(): string[] {
+  if (windows)
+    return Array.from("ABCDEFGHIJKLMNOPQRSTUVWXYZ", (drive) => drive + ":\\").filter(existsSync);
+  if (process.platform !== "linux") return ["/"];
+  // Binding / itself would cover MXC's synthetic /dev, /proc and /tmp.
+  return readdirSync("/", { withFileTypes: true }).flatMap((entry) => {
+    if (
+      (!entry.isDirectory() && !entry.isFile()) ||
+      ["dev", "proc", "run", "tmp"].includes(entry.name)
+    )
+      return [];
+    const path = "/" + entry.name;
+    try {
+      accessSync(path, constants.R_OK);
+      return [path];
+    } catch (error) {
+      if (["EACCES", "EPERM", "ENOENT"].includes((error as NodeJS.ErrnoException).code ?? ""))
+        return [];
+      throw error;
+    }
   });
 }
 
-/**
- * Keep `/run` and `/tmp` private without breaking a host `/etc/resolv.conf` symlink into either
- * tree. Only the resolved config file is exposed; runtime sockets and the rest of the tree remain
- * hidden. With network isolation enabled the resolver is intentionally left unavailable.
- */
-function resolverMountArgs(): string[] {
-  let target: string;
-  try {
-    target = realpathSync("/etc/resolv.conf");
-  } catch {
-    return [];
-  }
-  const privateRoot = ["/run", "/tmp"].find((root) => within(root, target));
-  if (!privateRoot || target === privateRoot) return [];
-
-  const dirs: string[] = [];
-  for (let dir = dirname(target); dir !== privateRoot; dir = dirname(dir)) {
-    dirs.push(dir);
-  }
-  dirs.reverse();
-  return [...dirs.flatMap((dir) => ["--dir", dir]), "--ro-bind", target, target];
+function commandLine(executable: string, args: string[]): string {
+  const quote = windows
+    ? (arg: string) =>
+        '"' +
+        arg.replace(
+          /(\\*)("|$)/g,
+          (_, slashes: string, end: string) => slashes + slashes + (end ? '\\"' : ""),
+        ) +
+        '"'
+    : quoteShell;
+  return [executable, ...args].map(quote).join(" ");
 }
 
-/**
- * Linux host execution constrained with Bubblewrap. Reads use the host implementation directly
- * because the configured boundary intentionally permits host-wide reads; writes enforce the same
- * workspace rule in-process that the Bubblewrap mount table enforces for commands.
- */
+function launchError(error: unknown, network: boolean): Error {
+  if (!(error instanceof MxcError))
+    return error instanceof Error ? error : new Error(String(error));
+  const guidance =
+    error.remediation ||
+    (process.platform === "linux"
+      ? network
+        ? "Check Bubblewrap, user namespaces, slirp4netns and the iptables tools on the server host. Native networking can also be disabled in settings."
+        : "Check Bubblewrap and user namespaces on the server host."
+      : "");
+  return new Error(["MXC native sandbox: " + error.message, guidance].filter(Boolean).join(" "), {
+    cause: error,
+  });
+}
+
 export class NativeExecutionContext implements ExecutionContext {
   readonly workspaceRoot: string | null;
-  readonly commandShell: UserShellEnvironment;
-  get shellKind() {
-    return this.commandShell.kind;
-  }
   readonly unconfined: LocalExecutionContext;
   readonly #managedTools = new Set<string>();
+  readonly #active = new Set<{ kill(): void; result: Promise<unknown> }>();
+  #disposed = false;
   #gitDirectory: string | undefined;
+  #readonlyPaths: string[] | undefined;
 
   constructor(
     workspaceRoot: string | null,
     readonly config: NativeSandboxConfig,
     commandShell?: UserShellEnvironment,
   ) {
-    if (process.platform !== "linux") {
-      throw new Error(`native sandbox is unsupported on ${process.platform}`);
-    }
     this.workspaceRoot = workspaceRoot ? realpathSync(resolve(workspaceRoot)) : null;
     if (
+      process.platform === "linux" &&
       this.workspaceRoot &&
-      (within(this.workspaceRoot, "/tmp") || within(this.workspaceRoot, "/run"))
+      ["/", "/dev", "/proc", "/run", "/tmp"].includes(this.workspaceRoot)
     ) {
       throw new Error(
-        `native sandbox workspace cannot contain its private /tmp or /run mount: ${this.workspaceRoot}`,
+        `Native sandbox workspace cannot contain a private system mount: ${this.workspaceRoot}`,
       );
     }
-    const probe = bubblewrapProbe(config.network);
-    if (probe.error || probe.status !== 0) {
-      throw new Error(
-        `native sandbox requires usable bubblewrap (bwrap): ${
-          probe.error?.message ?? probe.stderr.trim()
-        }`,
-      );
-    }
-    this.commandShell = commandShell ?? selectUserShell();
-    this.unconfined = new LocalExecutionContext(this.workspaceRoot, this.commandShell);
+    this.unconfined = new LocalExecutionContext(this.workspaceRoot, commandShell);
+  }
+
+  get shellKind() {
+    return this.unconfined.shellKind;
   }
 
   async prepare(): Promise<void> {
-    this.#gitDirectory = this.workspaceRoot
-      ? (await linkedGitDirectories(this.workspaceRoot))?.common
-      : undefined;
+    await this.unconfined.prepare();
+    if (this.workspaceRoot && this.config.workspaceWrite)
+      this.#gitDirectory = (await linkedGitDirectories(this.workspaceRoot))?.common;
+  }
+
+  async dispose(): Promise<void> {
+    this.#disposed = true;
+    for (const command of this.#active) command.kill();
+    await Promise.allSettled([...this.#active].map((command) => command.result));
   }
 
   sandboxInstructions(): string {
     return [
-      "Sandbox backend: native Linux (Bubblewrap).",
+      "Sandbox backend: native (MXC).",
       this.workspaceRoot
-        ? `Workspace: ${this.workspaceRoot} (${this.config.workspaceWrite ? "writable" : "read-only"}).`
+        ? "Workspace: " +
+          this.workspaceRoot +
+          (this.config.workspaceWrite ? " (writable)." : " (read-only).")
         : "No workspace is selected; workspace writes are disabled.",
-      `Command network access: ${this.config.network ? "enabled" : "disabled"}.`,
-      "Host files outside writable mounts are read-only. Native file tools access host paths; shell commands use the sandbox mounts.",
-      ...(this.#gitDirectory && this.config.workspaceWrite
-        ? [`Shell commands may also write linked Git metadata at ${this.#gitDirectory}.`]
+      "External IP network access: " +
+        (this.config.network ? "enabled for outbound connections." : "disabled."),
+      "Host files outside writable paths are read-only.",
+      ...(this.#gitDirectory
+        ? ["Linked Git metadata is writable at " + this.#gitDirectory + "."]
         : []),
-      "Shell /tmp is private and writable, shared across commands and workspaces in this Harness server process. Server restart selects a fresh directory. Shell /run is fresh for each command; host /tmp and /run are hidden from commands.",
+      "Use TMPDIR, TMP or TEMP for writable temporary files shared across commands and workspaces in this server. A server restart selects a fresh directory.",
       "Host escape requires approval; use the tool's documented escalation mechanism for an individual call.",
     ].join("\n");
   }
 
-  read(path: string, range?: ByteRange): Promise<Uint8Array> {
-    return this.unconfined.read(path, range);
+  #request(command: string): ContainerRequest {
+    const env = this.unconfined.commandShell?.env ?? process.env;
+    const tmp = temporaryDirectory();
+    const writable = [tmp];
+    if (this.workspaceRoot && this.config.workspaceWrite) writable.push(this.workspaceRoot);
+    if (this.#gitDirectory) writable.push(this.#gitDirectory);
+    const readonlyPaths = new Set((this.#readonlyPaths ??= readonlyHostPaths()));
+    if (this.workspaceRoot && !this.config.workspaceWrite) readonlyPaths.add(this.workspaceRoot);
+    for (const path of writable) readonlyPaths.delete(path);
+    return {
+      containment: { type: "process" },
+      command,
+      workingDirectory: this.workspaceRoot ?? tmp,
+      environment: { ...env, TMPDIR: tmp, TMP: tmp, TEMP: tmp },
+      filesystem: {
+        readonlyPaths: [...readonlyPaths],
+        readwritePaths: [...new Set(writable)],
+      },
+      network: networkPolicy(this.config.network),
+      // PowerShell and Node need Win32k to initialize on Windows.
+      ...(windows ? { ui: { disable: false } } : {}),
+    };
   }
 
-  stat(path: string): Promise<{ isDirectory: boolean } | undefined> {
-    return this.unconfined.stat(path);
-  }
-
-  async write(path: string, bytes: Uint8Array): Promise<void> {
-    await this.#assertWritable("write", path, true);
-    await this.unconfined.write(path, bytes);
-  }
-
-  async remove(path: string): Promise<void> {
-    await this.#assertWritable("remove", path, false);
-    await this.unconfined.remove(path);
-  }
-
-  list(pattern: string): Promise<string[]> {
-    return this.unconfined.list(pattern);
+  #launch<T>(command: string, consume: (child: MxcProcess) => Promise<T>) {
+    if (this.#disposed) throw new Error("Native sandbox has been disposed");
+    let child: MxcProcess | undefined;
+    let pid: number | undefined;
+    let cancelled = false;
+    let killFailure: unknown;
+    const terminate = () => {
+      try {
+        child?.kill();
+      } catch (error) {
+        killFailure = error;
+        try {
+          child?.dispose();
+        } catch (cleanup) {
+          killFailure = new AggregateError([error, cleanup], "Could not stop MXC command");
+        }
+      }
+    };
+    const result = (async () => {
+      try {
+        child = await spawn(this.#request(command));
+        pid = child.id || undefined;
+        if (cancelled) terminate();
+        return await consume(child);
+      } catch (error) {
+        if (child && killFailure === undefined) {
+          try {
+            child.kill();
+            await child.wait();
+          } catch (cleanup) {
+            if (cleanup !== error)
+              throw new AggregateError([error, cleanup], "Could not stop MXC process", {
+                cause: cleanup,
+              });
+          }
+        }
+        throw error;
+      } finally {
+        const launched = child;
+        child = undefined;
+        launched?.dispose();
+      }
+    })().catch((error: unknown) => {
+      throw launchError(killFailure ?? error, this.config.network);
+    });
+    const handle = {
+      get pid() {
+        return pid;
+      },
+      result,
+      kill: () => {
+        if (cancelled) return;
+        cancelled = true;
+        terminate();
+      },
+    };
+    this.#active.add(handle);
+    const done = () => this.#active.delete(handle);
+    void result.then(done, done);
+    return handle;
   }
 
   spawn(command: string): SpawnedProcess {
-    const cwd = this.workspaceRoot ?? process.cwd();
-    const args = [
-      "--die-with-parent",
-      "--unshare-all",
-      ...(this.config.network ? ["--share-net"] : []),
-      "--ro-bind",
-      "/",
-      "/",
-      "--dev",
-      "/dev",
-      "--proc",
-      "/proc",
-      "--bind",
-      commandTemporaryDirectory(),
-      "/tmp",
-      "--tmpfs",
-      "/run",
-      ...(this.config.network ? resolverMountArgs() : []),
-      "--setenv",
-      "TMPDIR",
-      "/tmp",
-      "--setenv",
-      "TMP",
-      "/tmp",
-      "--setenv",
-      "TEMP",
-      "/tmp",
-    ];
-    if (this.workspaceRoot) {
-      args.push(
-        this.config.workspaceWrite ? "--bind" : "--ro-bind",
-        this.workspaceRoot,
-        this.workspaceRoot,
-      );
-    }
-    if (this.#gitDirectory && this.config.workspaceWrite)
-      args.push("--bind", this.#gitDirectory, this.#gitDirectory);
-    // The process already inherits Harness's environment. Avoid a login shell: host profile
-    // scripts can attempt IPC through services intentionally absent from the private /run (for
-    // example Ubuntu im-config invokes systemd-cat and leaks journald errors into command output).
-    args.push(
-      "--chdir",
-      cwd,
-      "--",
-      this.commandShell.executable,
-      ...shellCommandArgs(this.shellKind, command),
-    );
-
-    const child = nodeSpawn("bwrap", args, { cwd, detached: true, env: this.commandShell.env });
-    let killed = false;
-    let settled = false;
-    child.once("exit", () => (settled = true));
-    child.once("error", () => (settled = true));
-    const kill = (): void => {
-      if (killed || settled || child.pid === undefined) return;
-      killed = true;
-      try {
-        process.kill(-child.pid, "SIGTERM");
-      } catch {
-        return;
-      }
-      setTimeout(() => {
-        try {
-          if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
-        } catch {
-          // already gone
-        }
-      }, 5000).unref();
+    const shell = this.unconfined.commandShell;
+    const line = shell
+      ? commandLine(shell.executable, shellCommandArgs(shell.kind, command))
+      : commandLine(
+          join(process.env["SystemRoot"]!, "System32/WindowsPowerShell/v1.0/powershell.exe"),
+          powerShellCommandArgs("$env:TMP = $env:TEMP = $env:TMPDIR\n" + command),
+        );
+    const listeners: ((chunk: string) => void)[] = [];
+    const handle = this.#launch(line, async (child): Promise<ProcessExit> => {
+      const drains = [child.standardOutput, child.standardError].flatMap((stream) => {
+        if (!stream) return [];
+        stream.setEncoding("utf8").on("data", (chunk: string) => {
+          for (const listener of listeners) listener(chunk);
+        });
+        return [finished(stream, { cleanup: true })];
+      });
+      const [result] = await Promise.all([child.wait(), ...drains]);
+      return { code: result.exitCode, signal: null };
+    });
+    return {
+      get pid() {
+        return handle.pid;
+      },
+      exit: handle.result.catch((error: Error) => ({ code: null, signal: null, error })),
+      onData: (listener) => listeners.push(listener),
+      kill: handle.kill,
     };
-    return streamProcess(child, kill);
   }
 
-  outputStore(conversationId: string): OutputStore {
-    return new LocalOutputStore(this.workspaceRoot, conversationId);
+  #file(operation: FileOperation, bytes?: Uint8Array): Promise<Buffer> {
+    const args = source
+      ? ["--conditions=development", "--import", import.meta.resolve("tsx"), fileWorker]
+      : [fileWorker];
+    return this.#launch(commandLine(process.execPath, args), async (child) => {
+      const input = child.standardInput;
+      const output = child.standardOutput;
+      const errors = child.standardError;
+      if (!input || !output || !errors) throw new Error("MXC file tool requires standard pipes");
+      input.write(JSON.stringify({ workspace: this.workspaceRoot !== null, operation }) + "\n");
+      input.end(bytes);
+      const [result, data, stderr] = await Promise.all([
+        child.wait(),
+        buffer(output),
+        text(errors),
+      ]);
+      if (result.exitCode !== 0) {
+        let failure: { message?: string; code?: string };
+        try {
+          failure = JSON.parse(stderr) as typeof failure;
+        } catch {
+          failure = { message: stderr.trim() };
+        }
+        throw Object.assign(
+          new Error(failure.message || `MXC file tool exited with code ${result.exitCode}`),
+          { code: failure.code },
+        );
+      }
+      return data;
+    }).result;
+  }
+
+  read(path: string, range?: ByteRange): Promise<Uint8Array> {
+    return this.#file({ kind: "read", path, range });
+  }
+
+  async stat(path: string): Promise<{ isDirectory: boolean } | undefined> {
+    const data = await this.#file({ kind: "stat", path });
+    return (JSON.parse(data.toString()) as { isDirectory: boolean } | null) ?? undefined;
+  }
+
+  async write(path: string, bytes: Uint8Array): Promise<void> {
+    await this.#file({ kind: "write", path }, bytes);
+  }
+
+  async remove(path: string): Promise<void> {
+    await this.#file({ kind: "remove", path });
+  }
+
+  async list(pattern: string): Promise<string[]> {
+    return JSON.parse((await this.#file({ kind: "list", pattern })).toString()) as string[];
+  }
+
+  outputStore(conversationId: string) {
+    return this.unconfined.outputStore(conversationId);
   }
 
   registerManagedTool(name: string): void {
@@ -251,31 +392,4 @@ export class NativeExecutionContext implements ExecutionContext {
     if (!this.#managedTools.has(call.name)) return "unknown";
     return executionEscalationOf(call.args) ? "out-of-workspace" : "in-workspace";
   }
-
-  async #assertWritable(operation: string, path: string, followsTarget: boolean): Promise<void> {
-    const root = this.workspaceRoot;
-    if (!root || !this.config.workspaceWrite) throw denied(operation, path);
-    const absolute = resolve(root, path);
-    if (!within(root, absolute)) throw denied(operation, path);
-
-    // A write follows an existing final symlink; a remove only unlinks it. For a missing target,
-    // resolve the nearest existing ancestor so a symlinked parent cannot escape the workspace.
-    let candidate = followsTarget ? absolute : dirname(absolute);
-    for (;;) {
-      try {
-        if (!within(root, await realpath(candidate))) throw denied(operation, path);
-        return;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        const parent = dirname(candidate);
-        if (parent === candidate) throw denied(operation, path);
-        candidate = parent;
-      }
-    }
-  }
-}
-
-function within(root: string, path: string): boolean {
-  const rel = relative(root, path);
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }

@@ -83,19 +83,6 @@ Reopen with configuration-discovery work: keep the natural user home separate
 from the configured home and regression-test temporary/alternate profiles.
 This existing settings issue is outside the evaluator change.
 
-## Native sandbox filesystem race
-
-Harness currently validates built-in filesystem mutation paths before performing
-the host operation. That validation and operation are not atomic if another
-process replaces a validated path with a symlink. Moving those mutations fully
-inside the Bubblewrap boundary would close the race. Native v1 explicitly does
-not claim protection against it; see the execution-backend section of
-`README.md`.
-
-Reopen when native mutation containment becomes the active execution milestone
-or before making stronger sandbox-isolation claims. The owning roadmap is
-`docs/subsystems/execution/PLAN.md`.
-
 ## Durable live-work recovery
 
 Model streams, approvals, processes, activities, and subagent runtime handles are

@@ -64,9 +64,9 @@ describe("active sandbox instructions", () => {
       );
       expect(text).toContain(`Workspace: ${root} (read-only)`);
       expect(text).toContain("network access: disabled");
-      expect(text).toContain("outside writable mounts are read-only");
+      expect(text).toContain("outside writable paths are read-only");
       expect(text).toContain("shared across commands and workspaces");
-      expect(text).toContain("Server restart selects a fresh directory");
+      expect(text).toContain("A server restart selects a fresh directory");
       expect(text).toContain("documented escalation mechanism");
       expect(text).not.toContain("sandbox_permissions");
     },

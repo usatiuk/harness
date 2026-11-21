@@ -95,12 +95,12 @@ export async function buildServerComposition(
   });
   const subagents = new SubagentsDefinition();
   let closeForDockerFailure: (() => Promise<void>) | undefined;
-  let startedSandbox: ReturnType<typeof createSandboxRuntime> | undefined;
+  let startedSandbox: Awaited<ReturnType<typeof createSandboxRuntime>> | undefined;
   let mcp: McpRuntime | undefined;
   let startedHost: HarnessRpcHost | undefined;
   try {
     await initializeUserShellEnvironment({ signal });
-    const sandbox = createSandboxRuntime(home, () => {
+    const sandbox = await createSandboxRuntime(home, () => {
       if (!closeForDockerFailure)
         throw new Error("Docker guardian failed before server composition was ready");
       console.error(JSON.stringify({ event: "server.failure", subsystem: "docker-guardian" }));

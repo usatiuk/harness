@@ -16,6 +16,9 @@ Use a dated descriptive filename such as
 
 Current exploration:
 
+- [MXC native sandbox](2026-11-21-mxc-native-sandbox.md): SDK responsibilities,
+  compatibility limits, and reuse boundaries for the native sandbox migration.
+
 - [JVM model-call libraries](2026-11-14-jvm-model-call-libraries.md): Java,
   Kotlin, and Scala options for streaming one model call with caller-owned tools.
 

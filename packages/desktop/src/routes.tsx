@@ -655,7 +655,7 @@ export function createDesktopRouter(
         <SelectItem value="none">None</SelectItem>
         {session.settings?.platform === "linux" && <SelectItem value="native">Native</SelectItem>}
         {session.settings?.platform !== "linux" && selected === "native" && (
-          <SelectItem value="native">Native (Linux only)</SelectItem>
+          <SelectItem value="native">Native</SelectItem>
         )}
         <SelectItem value="docker">Docker / devcontainer</SelectItem>
       </>

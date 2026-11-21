@@ -1,9 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ConfigReader, Conversation } from "@harness/protocol";
 import { selectUserShell, LocalExecutionContext } from "@harness/execution";
-import { sandboxPlugin } from "./plugin.ts";
+import { createSandboxRuntime, sandboxPlugin } from "./plugin.ts";
 import { sandboxConfigSchema } from "./config.ts";
 import { DockerExecutionContext } from "./docker.ts";
+import { NativeExecutionContext } from "./native.ts";
+
+const probe = vi.hoisted(() => vi.fn());
+vi.mock("@microsoft/mxc-sdk/v1", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@microsoft/mxc-sdk/v1")>()),
+  getAvailableBackends: () => {
+    probe();
+    return [{ backend: "processcontainer" }];
+  },
+  getPlatformSupport: () => {
+    probe();
+    return { availableMethods: ["bubblewrap", "seatbelt"] };
+  },
+  run: async () => ({ exitCode: 0, timedOut: false }),
+}));
 
 const readerStub: ConfigReader = { get: <C>() => Promise.resolve({} as C) };
 
@@ -65,5 +80,23 @@ describe("sandboxPlugin execution provider", () => {
     await provider.dispose!(execution);
 
     expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("probes native capability once per server across conversation activations", async () => {
+    probe.mockClear();
+    const runtime = await createSandboxRuntime(process.cwd());
+    try {
+      expect(runtime.defaultBackend).toBe("native");
+      const provider = runtime.plugin.create(readerStub).services!()[0]!;
+      const conversation = { ...conv({ backend: "native" }), workspaceRoot: null };
+      const first = provider.for(conversation) as NativeExecutionContext;
+      const second = provider.for(conversation) as NativeExecutionContext;
+      await first.prepare();
+      await second.prepare();
+      await first.prepare();
+      expect(probe).toHaveBeenCalledOnce();
+    } finally {
+      await runtime.close();
+    }
   });
 });

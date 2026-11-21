@@ -81,7 +81,7 @@ it
     const home = join(directory, "home");
     const store = new InMemoryStore();
     const worktrees = new WorktreeManager(store, async () => join(directory, "worktrees"));
-    let runtime = createSandboxRuntime(home);
+    let runtime = await createSandboxRuntime(home);
     let service = new HarnessService({
       codeEvaluator: unusedCodeEvaluator,
       home,
@@ -134,7 +134,7 @@ it
       await runtime.close();
       expect((await runtime.environments.inventory(20)).every((row) => !row.running)).toBe(true);
 
-      runtime = createSandboxRuntime(home);
+      runtime = await createSandboxRuntime(home);
       service = new HarnessService({
         codeEvaluator: unusedCodeEvaluator,
         home,
@@ -179,7 +179,7 @@ it
   240_000,
 );
 
-it.runIf(process.platform === "linux" && process.env.HARNESS_NATIVE_INTEGRATION === "1")(
+it.runIf(process.env.HARNESS_NATIVE_INTEGRATION === "1")(
   "allows Git commits in linked worktrees through native confinement",
   async () => {
     const { directory, repository } = await fixture();
@@ -194,9 +194,14 @@ it.runIf(process.platform === "linux" && process.env.HARNESS_NATIVE_INTEGRATION 
       });
       await execution.prepare();
       await execution.write("file", new TextEncoder().encode("native change"));
+      const stage =
+        process.platform === "win32"
+          ? "git add file; if ($LASTEXITCODE) { exit $LASTEXITCODE }; "
+          : "git add file && ";
       await command(
         execution,
-        "git add file && git -c user.name='Harness Test' -c user.email=test@example.invalid commit -m 'Native change'",
+        stage +
+          "git -c user.name='Harness Test' -c user.email=test@example.invalid commit -m 'Native change'",
       );
       expect(await command(execution, "git status --porcelain")).toBe("");
       expect(await readFile(join(repository, "file"), "utf8")).toBe("original");

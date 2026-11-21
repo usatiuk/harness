@@ -21,7 +21,8 @@
     "@harness/protocol": "*",
     "@harness/execution": "*",
     "zod": "^4.4.3",
-    "@harness/worktrees": "*"
+    "@harness/worktrees": "*",
+    "@microsoft/mxc-sdk": "1.1.0"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

@@ -674,7 +674,7 @@ As of 2026-10-10, Harness provides:
   model's trained file-tool dialect.
 - Hybrid and code-only tool modes over one scoped catalog, ordinary
   discovery, governed recorded nested calls, and a bounded QuickJS worker.
-- Local, Linux Bubblewrap, and dev-container execution; bounded output files;
+- Local, native, and dev-container execution; bounded output files;
   human approval and optional model-backed auto-approval.
 - Hierarchical `AGENTS.md` instructions, model-backed/manual compaction,
   background activities, and configurable recursive subagents.
@@ -768,8 +768,9 @@ invocations remain opt-in qualification.
        human timeout in approval settings. Fixture/RPC/client qualification and
        macOS release compilation pass; full-check and platform limits are recorded
        in the delivery plan.
-4. [ ] Close the native filesystem mutation race before strengthening sandbox
-       isolation claims.
+4. [x] [Migrate native sandboxing to MXC](docs/plans/execution/2026-11-21-mxc-native-sandbox.md)
+       across Linux, macOS, and Windows, including native file operations.
+       Local qualification passed on Windows and WSL.
 5. [ ] Reassess product ergonomics and diagnostic export in the shipped clients.
 6. [x] Establish the transport-agnostic client/server boundary before adding a
        second UI client.

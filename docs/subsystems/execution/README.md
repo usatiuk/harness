@@ -5,7 +5,7 @@
 Harness owns every shipped file and command tool. Model providers declare the
 preferred editing operation; `@harness/workspace` supplies the corresponding
 Harness-executed tools over one `ExecutionContext`. The configured sandbox plugin
-selects unconfined host, Linux Bubblewrap, or dev-container execution for each loaded
+selects unconfined host, native MXC, or dev-container execution for each loaded
 conversation.
 
 Human approval, optional model-backed auto-approval, output preservation, and
@@ -33,8 +33,8 @@ Activation explicitly prepares it; workspace, approval, agents, output and
 activities resolve the same cached instance. Clients use the public RPC boundary.
 
 The sandbox plugin contributes model instructions from that active instance.
-Native instructions report workspace write/network settings and the shell's
-temporary mounts, and refer to tool documentation for approved host escape.
+Native instructions report workspace write/network settings and shared scratch,
+and refer to tool documentation for approved host escape.
 Docker reports the mapped container cwd and probes workspace writability as its
 remote user; probe failures surface instead of becoming a permission claim.
 Docker temporary-file lifetime follows its container/mount configuration and
@@ -98,8 +98,8 @@ cleanup deadline; an escaped process cannot hold startup ownership by retaining
 a descriptor. This does not claim termination of processes that deliberately
 escape that group.
 zsh's system `zshenv` remains an OS startup rule. Tool names/descriptions advertise
-the actual command language. Native commands do not replay login scripts inside
-the private `/run` namespace.
+the actual command language. Native commands use the captured exports without
+replaying startup scripts inside the sandbox.
 
 Harness identity/selection variables and packaged AppImage loader sanitation are
 preserved. New clients never import their environment into an existing owner;
@@ -121,8 +121,8 @@ does not expose a separate host-escape context.
 
 Configuration and RPC use `none`, `native` or `docker`. Saved configuration accepts
 the former `local` spelling as an input alias for `none`, without rewriting files.
-Server composition probes usable Linux Bubblewrap once to choose an unspecified
-backend's default; unsupported hosts use `none`. The same server-owned value
+Server composition selects the default using MXC discovery. Linux also runs a
+short launch with the default network policy. Unsupported hosts use `none`. The same server-owned value
 feeds settings RPC and conversation defaults. Explicit choices remain authoritative,
 and explicit native activation still validates availability and fails normally.
 Clients do not probe their own host. Sandbox plugin contract 2 and Harness protocol
@@ -130,21 +130,31 @@ Clients do not probe their own host. Sandbox plugin contract 2 and Harness proto
 
 ### Native
 
-Linux-only Bubblewrap execution. Host files are readable, temporary/runtime
-directories are private, and workspace writes/network are independently
-configurable. Routine confined calls need no approval. Managed tools may request
-an explicit host escape; after approval only that invocation receives the local
-unconfined context.
+MXC chooses Bubblewrap, Seatbelt, or Windows ProcessContainer on the execution
+host. Shell commands and file operations share one policy in the native
+`ExecutionContext` and launch a fresh process for each call. The file entry
+point reuses the Node file operations and passes arguments and bytes over
+standard input. The OS applies the filesystem policy to the operation itself.
+Routine confined calls need no approval. After approval, an explicit host escape
+receives the local unconfined context for that invocation.
 
-Shell commands share a private `/tmp` directory across workspaces in the server
-process. A lazy temporary host directory is bind-mounted at `/tmp`, hiding host
-temporary files; `/run` remains fresh per-command tmpfs. Server restart selects a
-new directory, and OS temporary-file cleanup owns old directories. Native file
-tools still resolve host paths; this temporary mount applies to shell commands.
+Host files are read-only outside configured workspace writes, linked Git metadata,
+and shared scratch. The server sets `TMPDIR`, `TMP`, and `TEMP` to its scratch
+directory. A restart creates a fresh directory. Networking defaults to outbound
+access, with inbound connections and host loopback blocked. Set `native.network`
+to `false` to block outbound IP traffic. Filesystem permissions govern access to
+local Unix sockets.
 
-Native v1 validates built-in mutation paths before performing host IO. The check
-and operation are not atomic against another process replacing a path with a
-symlink. This limitation is documented and blocks stronger isolation claims.
+#### Native sandbox prerequisites
+
+Check prerequisites on the server host. Bundled servers include Node and MXC.
+Source runs need Node 24 or later for the native backend.
+
+| Execution host | Requirements                                                                                                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Linux and WSL  | Bubblewrap and usable unprivileged user namespaces. Outbound mode also needs `slirp4netns`, `iptables` and `ip6tables` with their restore tools, and the helpers listed in [MXC's Linux requirements](https://github.com/microsoft/mxc/blob/v1.1.0/docs/backends/bwrap/bubblewrap-backend.md#prerequisites). |
+| macOS          | macOS 15 or later with [Seatbelt support](https://github.com/microsoft/mxc/blob/v1.1.0/docs/backends/seatbelt/seatbelt-backend.md).                                                                                                                                                                          |
+| Windows        | Windows 11 with [MXC ProcessContainer support](https://github.com/microsoft/mxc/blob/v1.1.0/docs/backends/process-container/os-version-support.md). Source runs need Node 24.21+ on the 24.x line or Node 26.8+.                                                                                             |
 
 ### Docker
 

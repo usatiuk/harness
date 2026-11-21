@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -98,8 +98,10 @@ describe("workspace tools", () => {
     const ctx = await workspace();
     const w = await new WriteTool().execute({ path: "a.txt", content: "hi" }, ctx);
     expect(w.status).toBe("ok");
+    const read = vi.spyOn(ctx.service("execution") as ExecutionContext, "read");
     const r = await new ReadFileTool().execute({ path: "a.txt" }, ctx);
     expect(text(r)).toBe("hi");
+    expect(read).toHaveBeenCalledOnce();
   });
 
   it("reads an image as image content regardless of its filename", async () => {
@@ -108,10 +110,12 @@ describe("workspace tools", () => {
     const data =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=";
     await execution.write("screenshot.bin", Buffer.from(data, "base64"));
+    const read = vi.spyOn(execution, "read");
     expect(await new ReadFileTool().execute({ path: "screenshot.bin" }, ctx)).toEqual({
       status: "ok",
       forModel: [{ type: "image", mediaType: "image/png", data }],
     });
+    expect(read).toHaveBeenCalledOnce();
     expect(
       await new ReadFileTool().execute({ path: "screenshot.bin", offset: 0 }, ctx),
     ).toMatchObject({ status: "error" });
@@ -120,7 +124,9 @@ describe("workspace tools", () => {
   it("rejects an image whose format changes between the probe and full read", async () => {
     const ctx = await workspace();
     const execution = ctx.service("execution") as ExecutionContext;
-    await execution.write("changing.bin", Buffer.from("89504e470d0a1a0a", "hex"));
+    const bytes = Buffer.alloc(MAX_IMAGE_BYTES);
+    Buffer.from("89504e470d0a1a0a", "hex").copy(bytes);
+    await execution.write("changing.bin", bytes);
     const read = execution.read.bind(execution);
     let changed = false;
     execution.read = async (path, options) => {

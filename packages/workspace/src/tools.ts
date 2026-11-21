@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { applyDiff } from "@openai/agents-core/utils";
 import {
+  detectImageMediaType,
   errorResult,
+  MAX_IMAGE_BYTES,
   okResult,
   type Tool,
   type ToolContext,
@@ -23,7 +25,6 @@ import {
 } from "@harness/execution";
 import { activitiesOf } from "@harness/activities";
 import { createProcessActivity } from "./process-activity.ts";
-import { readImage } from "./read-image.ts";
 import {
   APPLY_PATCH_LARK,
   ESCALATABLE_APPLY_PATCH_LARK,
@@ -50,6 +51,7 @@ export function uniqueReplace(current: string, oldStr: string, newStr: string): 
 }
 
 const DEFAULT_READ_LINES = 2000;
+const FILE_PREFIX_BYTES = 64 * 1024;
 const readArgs = z.strictObject({
   path: z.string(),
   offset: z.number().int().nonnegative().optional(),
@@ -78,9 +80,26 @@ export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
     ctx: ToolContext,
   ): Promise<ToolResult> {
     const exec = executionOf(ctx);
-    const image = await readImage(exec, path, offset !== undefined || limit !== undefined);
-    if (image) return image;
-    const lines = decoder.decode(await exec.read(path)).split("\n");
+    // Classify the contents and read small files in one backend call.
+    const prefix = await exec.read(path, { offset: 0, length: FILE_PREFIX_BYTES });
+    const needsMore = prefix.length === FILE_PREFIX_BYTES;
+    const mediaType = detectImageMediaType(prefix);
+    if (mediaType) {
+      if (offset !== undefined || limit !== undefined)
+        return errorResult("Images do not support line ranges; read the whole image.");
+      const bytes = needsMore
+        ? await exec.read(path, { offset: 0, length: MAX_IMAGE_BYTES + 1 })
+        : prefix;
+      if (bytes.length > MAX_IMAGE_BYTES)
+        return errorResult(`Image exceeds the ${MAX_IMAGE_BYTES}-byte limit.`);
+      if (detectImageMediaType(bytes) !== mediaType)
+        return errorResult("Image file is invalid or changed while reading.");
+      return {
+        status: "ok",
+        forModel: [{ type: "image", mediaType, data: Buffer.from(bytes).toString("base64") }],
+      };
+    }
+    const lines = decoder.decode(needsMore ? await exec.read(path) : prefix).split("\n");
     const start = offset ?? 0;
     const count = limit ?? DEFAULT_READ_LINES;
     const end = Math.min(start + count, lines.length);

@@ -1,102 +1,201 @@
-import { discoverUserShellEnvironment } from "@harness/execution";
+import { discoverUserShellEnvironment, quoteShell } from "@harness/execution";
+import { once } from "node:events";
 import { existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { NativeExecutionContext } from "./native.ts";
 
-const probe = spawnSync(
-  "bwrap",
-  ["--die-with-parent", "--unshare-all", "--share-net", "--ro-bind", "/", "/", "true"],
-  { encoding: "utf8" },
-);
-const bwrapOk = process.platform === "linux" && probe.status === 0;
+const windows = process.platform === "win32";
+const quote = (path: string) =>
+  windows ? "'" + path.replaceAll("'", "''") + "'" : quoteShell(path);
 
-describe.skipIf(!bwrapOk)("NativeExecutionContext (real Bubblewrap)", () => {
-  let root = "";
-  let outside = "";
+async function command(context: NativeExecutionContext, script: string): Promise<string> {
+  let output = "";
+  const handle = context.spawn(script);
+  handle.onData((chunk) => (output += chunk));
+  const result = await handle.exit;
+  if (result.error) throw result.error;
+  expect(result.code, output).toBe(0);
+  return output.trim();
+}
 
-  beforeAll(async () => {
-    root = await mkdtemp(join(tmpdir(), "harness-native-real-"));
-    outside = await mkdtemp(join(tmpdir(), "harness-native-outside-"));
-  });
+describe.runIf(process.env.HARNESS_NATIVE_INTEGRATION === "1")(
+  "NativeExecutionContext (real MXC)",
+  () => {
+    let fixture = "";
+    let root = "";
+    let outside = "";
+    let writable: NativeExecutionContext;
+    let readonly: NativeExecutionContext;
+    let scratch = "";
 
-  afterAll(async () => {
-    await Promise.all([
-      rm(root, { recursive: true, force: true }),
-      rm(outside, { recursive: true, force: true }),
-    ]);
-  });
+    beforeAll(async () => {
+      fixture = await realpath(await mkdtemp(join(process.cwd(), ".harness-mxc-test-")));
+      root = join(fixture, "workspace");
+      outside = join(fixture, "outside.txt");
+      await mkdir(root);
+      await writeFile(outside, "outside");
+      writable = new NativeExecutionContext(root, { workspaceWrite: true, network: false });
+      readonly = new NativeExecutionContext(root, { workspaceWrite: false, network: false });
+      await Promise.all([writable.prepare(), readonly.prepare()]);
+    }, 15_000);
 
-  for (const shell of ["/bin/bash", "/bin/zsh"].filter(existsSync)) {
-    it(`imports ${shell} owner startup exports without executing rc again inside confinement`, async () => {
-      const home = await mkdtemp(join(root, "shell-"));
-      const rc =
-        'echo invocation >> "$HOME/rc-count"\nexport NATIVE_STARTUP_EXPORT=available\nalias startup_alias="echo no"\nstartup_function() { echo no; }\n';
-      await writeFile(join(home, shell.endsWith("zsh") ? ".zshrc" : ".bashrc"), rc);
-      if (shell.endsWith("bash"))
-        await writeFile(join(home, ".bash_profile"), 'source "$HOME/.bashrc"\n');
-      const environment = await discoverUserShellEnvironment({
-        env: { HOME: home, SHELL: shell, PATH: "/usr/bin:/bin" },
-      });
-      const context = new NativeExecutionContext(
-        root,
-        { workspaceWrite: true, network: false },
-        environment,
+    afterAll(async () => {
+      await Promise.all([writable?.dispose(), readonly?.dispose()]);
+      if (fixture) await rm(fixture, { recursive: true, force: true });
+    }, 15_000);
+
+    it("confines the shell and file operations with the same workspace policy", async () => {
+      const bytes = Buffer.alloc(256 * 1024 + 1, 255);
+      await writable.write("sample.bin", bytes);
+      expect(await readonly.list("*.bin")).toEqual(["sample.bin"]);
+      expect(await readonly.read("sample.bin")).toEqual(bytes);
+      expect(await readonly.read("sample.bin", { offset: 1, length: 3 })).toEqual(
+        bytes.subarray(1, 4),
       );
-      expect(context.shellKind).toBe(environment.kind);
-      const result = await context.spawn(
-        'test "$NATIVE_STARTUP_EXPORT" = available && ! type startup_alias >/dev/null 2>&1 && ! type startup_function >/dev/null 2>&1',
-      ).exit;
-      expect(result.code).toBe(0);
-      expect(await readFile(join(home, "rc-count"), "utf8")).toBe("invocation\n");
+      expect(await readonly.stat("missing")).toBeUndefined();
+      expect(Buffer.from(await readonly.read(outside)).toString()).toBe("outside");
+      expect(
+        await command(
+          readonly,
+          windows ? "Get-Content " + quote(outside) : "cat " + quote(outside),
+        ),
+      ).toBe("outside");
+      await expect(writable.write(outside, bytes)).rejects.toThrow();
+      await expect(readonly.write("sample.bin", bytes)).rejects.toThrow();
+      const overwrite = windows
+        ? "$ErrorActionPreference = 'Stop'; Set-Content -LiteralPath 'sample.bin' -Value 'forbidden'"
+        : "printf forbidden > sample.bin";
+      const rejected = await readonly.spawn(overwrite).exit;
+      expect(rejected.error).toBeUndefined();
+      expect(rejected.code).not.toBe(0);
+      expect(await readFile(join(root, "sample.bin"))).toEqual(bytes);
+      const escape = join(root, "escape");
+      await symlink(fixture, escape, windows ? "junction" : "dir");
+      await expect(writable.write("escape/outside.txt", bytes)).rejects.toThrow();
+      expect(await readFile(outside, "utf8")).toBe("outside");
+      await writable.remove("sample.bin");
+      expect(await readonly.stat("sample.bin")).toBeUndefined();
+    }, 15_000);
+
+    it("shares scratch between shell commands and file tools in a read-only workspace", async () => {
+      scratch = await command(
+        readonly,
+        windows ? "Write-Output $env:TEMP" : 'printf "%s" "$TMPDIR"',
+      );
+      const path = join(scratch, "shared.txt");
+      await readonly.write(path, Buffer.from("file tool says æ"));
+      expect(
+        await command(
+          readonly,
+          windows ? "Get-Content -Encoding UTF8 " + quote(path) : "cat " + quote(path),
+        ),
+      ).toBe("file tool says æ");
+      await command(
+        readonly,
+        windows
+          ? 'Set-Content (Join-Path $env:TMP "shared.txt") "shell says hi"'
+          : 'printf "shell says hi" > "$TMP/shared.txt"',
+      );
+      expect(
+        Buffer.from(await readonly.read(path))
+          .toString()
+          .trim(),
+      ).toBe("shell says hi");
+      await readonly.remove(path);
     });
-  }
 
-  it("writes the rebound workspace but cannot write a sibling host path", async () => {
-    const ctx = new NativeExecutionContext(root, { workspaceWrite: true, network: true });
-    const proc = ctx.spawn(`printf inside > inside.txt; printf outside > '${outside}/escaped.txt'`);
-    const result = await proc.exit;
-    expect(result.code).not.toBe(0);
-    expect(await readFile(join(root, "inside.txt"), "utf8")).toBe("inside");
-    await expect(stat(join(outside, "escaped.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-  });
+    it("blocks host loopback even when outbound networking is enabled", async () => {
+      const context = new NativeExecutionContext(root, { workspaceWrite: false, network: true });
+      const listener = createServer((_request, response) => response.end("host response"));
+      try {
+        listener.listen(0, "127.0.0.1");
+        await once(listener, "listening");
+        const address = listener.address();
+        if (!address || typeof address === "string") throw new Error("Missing test port");
+        const url = `http://127.0.0.1:${address.port}`;
+        expect(await (await fetch(url)).text()).toBe("host response");
 
-  it("enforces a read-only workspace mount", async () => {
-    const ctx = new NativeExecutionContext(root, { workspaceWrite: false, network: true });
-    const result = await ctx.spawn("printf nope > readonly.txt").exit;
-    expect(result.code).not.toBe(0);
-    await expect(stat(join(root, "readonly.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-  });
+        const probe = join(root, "loopback-probe.mjs");
+        await writeFile(
+          probe,
+          `import { createConnection } from "node:net";
+          const socket = createConnection({ host: "127.0.0.1", port: Number(process.argv[2]) });
+          const blocked = () => {
+            process.stdout.write("connection blocked");
+            socket.destroy();
+          };
+          socket.once("error", blocked);
+          socket.setTimeout(2000, blocked);
+          socket.once("connect", () => {
+            process.stdout.write("host reached");
+            socket.destroy();
+          });`,
+        );
+        const attempt = `${windows ? "& " : ""}${quote(process.execPath)} ${quote(probe)} ${address.port}`;
+        for (const sandbox of [context, readonly]) {
+          expect(await command(sandbox, attempt)).toBe("connection blocked");
+        }
+      } finally {
+        await context.dispose();
+        await new Promise<void>((resolve) => listener.close(() => resolve()));
+      }
+    }, 15_000);
 
-  it("keeps resolver configuration readable when network is enabled", async () => {
-    const ctx = new NativeExecutionContext(root, { workspaceWrite: true, network: true });
-    const result = await ctx.spawn("test -r /etc/resolv.conf").exit;
-    expect(result.code).toBe(0);
-  });
+    it("cancels during launch", async () => {
+      const handle = writable.spawn(windows ? "Start-Sleep -Seconds 60" : "sleep 60");
+      handle.kill();
+      const result = await handle.exit;
+      expect(result.error).toBeUndefined();
+      expect(result.code).not.toBeNull();
+      expect(result.code).not.toBe(0);
+    });
 
-  it("shares private command /tmp across contexts while hiding host /tmp and refreshing /run", async () => {
-    const hidden = await mkdtemp("/tmp/harness-native-hidden-");
-    const marker = `harness-${randomUUID()}`;
-    try {
-      await writeFile(join(hidden, "host.txt"), "host temporary file");
-      const first = new NativeExecutionContext(root, { workspaceWrite: true, network: true });
-      expect(
-        (await first.spawn(`printf kept > /tmp/${marker} && touch /run/${marker}`).exit).code,
-      ).toBe(0);
-      const second = new NativeExecutionContext(outside, { workspaceWrite: false, network: true });
-      expect(
-        (
-          await second.spawn(
-            `test "$(cat /tmp/${marker})" = kept && test ! -e /run/${marker} && test ! -e '${hidden}/host.txt' && rm /tmp/${marker}`,
-          ).exit
-        ).code,
-      ).toBe(0);
-    } finally {
-      await rm(hidden, { recursive: true, force: true });
+    it("cancels a running shell when the execution context closes", async () => {
+      const context = new NativeExecutionContext(root, { workspaceWrite: true, network: false });
+      const process = context.spawn(
+        windows ? 'Write-Output "ready"; Start-Sleep -Seconds 60' : "echo ready; sleep 60",
+      );
+      await Promise.race([
+        new Promise<void>((resolve) => process.onData(() => resolve())),
+        process.exit.then(({ error }) => {
+          throw error ?? new Error("Shell exited before emitting readiness");
+        }),
+      ]);
+      await context.dispose();
+      const result = await process.exit;
+      expect(result.error).toBeUndefined();
+      expect(result.code).not.toBe(0);
+    });
+
+    for (const shell of ["/bin/bash", "/bin/zsh"].filter(existsSync)) {
+      it("reuses " + shell + " startup exports without sourcing startup again", async () => {
+        const home = await mkdtemp(join(root, "shell-"));
+        const rc =
+          'echo invocation >> "$HOME/rc-count"\nexport NATIVE_STARTUP_EXPORT=available\nalias startup_alias="echo no"\n';
+        await writeFile(join(home, shell.endsWith("zsh") ? ".zshrc" : ".bashrc"), rc);
+        if (shell.endsWith("bash"))
+          await writeFile(join(home, ".bash_profile"), 'source "$HOME/.bashrc"\n');
+        const environment = await discoverUserShellEnvironment({
+          env: { HOME: home, SHELL: shell, PATH: "/usr/bin:/bin" },
+        });
+        const context = new NativeExecutionContext(
+          root,
+          { workspaceWrite: true, network: false },
+          environment,
+        );
+        await context.prepare();
+        expect(
+          await command(
+            context,
+            'printf "%s" "$NATIVE_STARTUP_EXPORT"; ! type startup_alias >/dev/null 2>&1',
+          ),
+        ).toBe("available");
+        expect(await readFile(join(home, "rc-count"), "utf8")).toBe("invocation\n");
+        await context.dispose();
+      });
     }
-  });
-});
+  },
+);

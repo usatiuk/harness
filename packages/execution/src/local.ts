@@ -13,7 +13,12 @@ import type {
   ShellKind,
 } from "./context.ts";
 import { streamProcess } from "./spawn.ts";
-import { selectUserShell, shellCommandArgs, type UserShellEnvironment } from "./shell.ts";
+import {
+  powerShellCommandArgs,
+  selectUserShell,
+  shellCommandArgs,
+  type UserShellEnvironment,
+} from "./shell.ts";
 import { killWindowsProcessTree } from "./windows-process.ts";
 
 /** The call's target path: the `path` arg if present and a string, else undefined. */
@@ -119,25 +124,8 @@ export class LocalExecutionContext implements ExecutionContext {
   spawn(command: string): SpawnedProcess {
     const cwd = this.workspaceRoot ?? process.cwd();
     const windows = process.platform === "win32";
-    const powershellCommand = [
-      "$utf8 = [System.Text.UTF8Encoding]::new($false)",
-      "[Console]::InputEncoding = $utf8",
-      "[Console]::OutputEncoding = $utf8",
-      "$OutputEncoding = $utf8",
-      "$global:LASTEXITCODE = $null",
-      command,
-      "$harnessSuccess = $?",
-      "if (-not $harnessSuccess) {",
-      "  if ($LASTEXITCODE) { exit $LASTEXITCODE }",
-      "  exit 1",
-      "}",
-    ].join("\n");
     const child = windows
-      ? nodeSpawn(
-          "powershell.exe",
-          ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", powershellCommand],
-          { cwd, windowsHide: true },
-        )
+      ? nodeSpawn("powershell.exe", powerShellCommandArgs(command), { cwd, windowsHide: true })
       : nodeSpawn(
           this.commandShell!.executable,
           shellCommandArgs(this.commandShell!.kind, command),

@@ -37,7 +37,7 @@ it("uses the server's supported sandbox default and preserves explicit legacy ch
   vi.stubEnv("HARNESS_HOME", home);
   for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
     vi.stubEnv(key, "");
-  const expected = nativeSandboxAvailable() ? "native" : "none";
+  const expected = (await nativeSandboxAvailable()) ? "native" : "none";
   const pair = createInProcessMessageConnectionPair();
   const harness = await buildServerHarness(pair.right);
   const client = new HarnessClient({

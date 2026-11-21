@@ -72,6 +72,7 @@ it("upgrades on reconnect only when idle and never downgrades a newer owner", as
         "@napi-rs/keyring",
         "@primno/dpapi",
         "@devcontainers/cli",
+        "@microsoft/mxc-sdk",
         "quickjs-emscripten",
       ],
       define: {

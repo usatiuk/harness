@@ -106,7 +106,7 @@ it.runIf(process.env.HARNESS_DOCKER_INTEGRATION === "1")(
     const { createSandboxRuntime } = await import("./plugin.ts");
     const { dockerSandboxConfigSchema } = await import("./config.ts");
     let failure: Error | undefined;
-    const runtime = createSandboxRuntime(join(directory, "home"), (error) => {
+    const runtime = await createSandboxRuntime(join(directory, "home"), (error) => {
       failure = error;
     });
     const run = async (...args: string[]) => (await execute("docker", args)).stdout.trim();

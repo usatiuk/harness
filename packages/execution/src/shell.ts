@@ -53,6 +53,23 @@ export function shellCommandArgs(kind: UserShellEnvironment["kind"], command: st
   return kind === "zsh" ? ["-f", "-c", command] : ["--norc", "-c", command];
 }
 
+export function powerShellCommandArgs(command: string): string[] {
+  const script = [
+    "$utf8 = [System.Text.UTF8Encoding]::new($false)",
+    "[Console]::InputEncoding = $utf8",
+    "[Console]::OutputEncoding = $utf8",
+    "$OutputEncoding = $utf8",
+    "$global:LASTEXITCODE = $null",
+    command,
+    "$harnessSuccess = $?",
+    "if (-not $harnessSuccess) {",
+    "  if ($LASTEXITCODE) { exit $LASTEXITCODE }",
+    "  exit 1",
+    "}",
+  ].join("\n");
+  return ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script];
+}
+
 export function quoteShell(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }

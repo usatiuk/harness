@@ -121,13 +121,18 @@ export async function buildPayload(component, output, identity) {
   await mkdir(stage);
   try {
     const target = nativeTarget();
-    const extras = component === "cli" ? ["ink", "react"] : [];
+    const extras = component === "cli" ? ["ink", "react"] : ["@microsoft/mxc-sdk"];
     const dependencies = [...external, ...extras];
-    const filename = `${component}.mjs`;
     await build({
       ...payloadBundleOptions,
-      entryPoints: [join(root, `packages/${component}/src/bin.ts`)],
-      outfile: join(stage, filename),
+      entryPoints: {
+        [component]: join(root, `packages/${component}/src/bin.ts`),
+        ...(component === "server"
+          ? { "native-file-worker": join(root, "packages/sandbox/src/native-file-worker.ts") }
+          : {}),
+      },
+      outdir: stage,
+      outExtension: { ".js": ".mjs" },
       external: [...dependencies, "@harness/native"],
       define: { __HARNESS_BUILD__: JSON.stringify(identity) },
       banner: {

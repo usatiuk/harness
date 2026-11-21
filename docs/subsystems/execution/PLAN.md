@@ -13,25 +13,13 @@ delivers supported Bash/zsh selection and target-owned startup environment,
 preserving native confinement and shared-owner lifetime without login/interactive
 startup on each command. Real Bash/zsh, Bubblewrap and cached-image Docker
 regressions pass; remote/other-platform qualification limits are recorded there.
-This does not close the mutation race below.
 
-## Milestone 1: native mutation containment
+## Milestone 1: native sandbox migration
 
-- [ ] Move built-in write, edit, patch, and remove operations fully inside the
-      Bubblewrap boundary.
-- [ ] Ensure path resolution and mutation occur within one confined namespace so
-      host symlink replacement cannot race the operation.
-- [ ] Preserve workspace-write and approved-host-escape semantics without adding
-      a second file-tool implementation.
-- [ ] Add adversarial symlink/replacement integration coverage on supported Linux
-      hosts.
-
-### Acceptance
-
-- Native mutation security no longer depends on a host-side check followed by a
-  separate host operation.
-- README isolation claims and `docs/DEFERRED.md` are updated from demonstrated
-  behavior.
+The [MXC migration plan](../../plans/execution/2026-11-21-mxc-native-sandbox.md)
+replaces the handwritten Linux launcher with one native backend across Linux,
+macOS, and Windows. It owns delivery of the structured-file containment fix
+and removal of the superseded host-side mutation check.
 
 ## Deliberately deferred
 

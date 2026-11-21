@@ -7,18 +7,27 @@ import { DockerExecutionContext } from "./docker.ts";
 import { dockerInventory, controlDockerWorkspace } from "./docker-inventory.ts";
 import { DockerGuardian } from "./docker-guardian.ts";
 import { DockerEnvironmentPool } from "./docker-environment.ts";
-import { NativeExecutionContext, nativeSandboxAvailable } from "./native.ts";
+import {
+  detectNativeSandboxHost,
+  NativeExecutionContext,
+  nativeSandboxAvailable,
+  type NativeSandboxHost,
+} from "./native.ts";
 
 /**
- * Owns the host-wide `"execution"` service key and chooses Local, native Bubblewrap, or Docker from
+ * Owns the host-wide `"execution"` service key and chooses Local, native MXC, or Docker from
  * the conversation's resolved configuration. The service remains fixed within one activation.
  */
-function definition(environments: DockerEnvironmentPool): PluginDefinition {
+function definition(
+  environments: DockerEnvironmentPool,
+  nativeHost?: NativeSandboxHost,
+): PluginDefinition {
   return {
     id: "sandbox",
     configSchema: sandboxConfigSchema,
     inheritConfig: true,
     create() {
+      let host = nativeHost;
       return {
         id: "sandbox",
         contextSources: () => [
@@ -44,8 +53,12 @@ function definition(environments: DockerEnvironmentPool): PluginDefinition {
               switch (config.backend) {
                 case "none":
                   return new LocalExecutionContext(conversation.workspaceRoot);
-                case "native":
+                case "native": {
+                  const support = (host ??= detectNativeSandboxHost());
+                  if (!support.available)
+                    throw new Error("MXC native sandbox unavailable: " + support.reason);
                   return new NativeExecutionContext(conversation.workspaceRoot, config.native);
+                }
                 case "docker":
                   return new DockerExecutionContext(
                     conversation.workspaceRoot,
@@ -55,7 +68,9 @@ function definition(environments: DockerEnvironmentPool): PluginDefinition {
               }
             },
             dispose: (service) =>
-              service instanceof DockerExecutionContext ? service.dispose() : undefined,
+              service instanceof NativeExecutionContext || service instanceof DockerExecutionContext
+                ? service.dispose()
+                : undefined,
           },
         ],
       };
@@ -64,8 +79,11 @@ function definition(environments: DockerEnvironmentPool): PluginDefinition {
 }
 
 /** Server-owned physical environments; conversation services own only execution views. */
-export function createSandboxRuntime(home: string, onFailure?: (error: Error) => void) {
-  const defaultBackend: SandboxBackend = nativeSandboxAvailable() ? "native" : "none";
+export async function createSandboxRuntime(home: string, onFailure?: (error: Error) => void) {
+  const nativeHost = detectNativeSandboxHost();
+  const defaultBackend: SandboxBackend = (await nativeSandboxAvailable(nativeHost))
+    ? "native"
+    : "none";
   const guardian = new DockerGuardian(home, onFailure);
   const metadataRoot = join(home, "docker");
   const environments = new DockerEnvironmentPool(
@@ -77,7 +95,7 @@ export function createSandboxRuntime(home: string, onFailure?: (error: Error) =>
     metadataRoot,
   );
   return {
-    plugin: definition(environments),
+    plugin: definition(environments, nativeHost),
     defaultBackend,
     environments,
     async close() {
