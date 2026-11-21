@@ -16,6 +16,16 @@ Use a dated descriptive filename such as
 
 Current exploration:
 
+- [JVM model-call libraries](2026-11-14-jvm-model-call-libraries.md): Java,
+  Kotlin, and Scala options for streaming one model call with caller-owned tools.
+
+- [Pi Durable](2026-11-12-pi-durable.md): tool interruption, task scheduling,
+  storage contracts, extension APIs, and the p2 web and terminal host.
+
+- [Embeddable harness](2026-11-11-embeddable-harness.md): architecture options
+  for sharing Harness across coding and web products, with a companion source
+  survey covering Planner and the cloned reference implementations.
+
 - [Desktop streaming work](2026-10-17-desktop-streaming-performance.md): global
   token notifications, projection/render costs, immutable snapshot requirements,
   and measured capped-publication/row-reuse improvements.
