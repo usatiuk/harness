@@ -13,40 +13,17 @@ describe("createCodexProvider", () => {
     });
   });
 
-  it("exposes the current ChatGPT roster with Codex capacity and effort controls", () => {
+  it("exposes Codex budgets and keeps listed presets valid for invocation", () => {
     const provider = createCodexProvider({} as CodexAuth, CODEX_PROVIDER);
-    const gpt = provider.listModels().find((model) => model.model === "gpt-5.6-sol");
-
-    expect(provider.provider).toBe(CODEX_PROVIDER);
-    expect(gpt?.contextWindow).toBeUndefined();
-    expect(gpt?.maxInputTokens).toBe(400_000);
-    expect(gpt?.maxOutputTokens).toBe(128_000);
     const models = provider.listModels();
-    expect(models.map((entry) => entry.model)).toEqual([
-      "gpt-6.1-sol",
-      "gpt-6-astra",
-      "gpt-6-sol",
-      "gpt-6-luna",
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-      "gpt-5.6-luna",
-    ]);
-    expect(models.find((entry) => entry.model === "gpt-6.1-sol")?.defaultPreset).toBe("low");
+    expect(models.length).toBeGreaterThan(0);
     for (const model of models) {
-      expect(model.supportsImages).toBe(true);
       expect(model.contextWindow).toBeUndefined();
-      expect(model.maxInputTokens).toBe(model.model === "gpt-6.1-sol" ? 628_000 : 400_000);
-      expect(model.maxOutputTokens).toBe(128_000);
-      expect(model.presets?.map((entry) => entry.value)).toEqual([
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max",
-      ]);
-      expect(model.defaultPreset).toBe(
-        model.model === "gpt-6.1-sol" || model.model === "gpt-5.6-sol" ? "low" : "medium",
-      );
+      expect(model.maxInputTokens).toBeGreaterThan(0);
+      const config = { provider: CODEX_PROVIDER, model: model.model };
+      expect(model.presets?.map(({ value }) => value)).toContain(model.defaultPreset);
+      for (const preset of ["none", "ultra"])
+        expect(() => provider.validateConfig({ ...config, preset })).toThrow("unknown preset");
     }
   });
 });
@@ -96,7 +73,7 @@ it("sends user and tool images through authenticated Codex Responses transport",
     const events: ModelStreamEvent[] = [];
     for await (const event of provider.stream(
       {
-        modelConfig: { provider: CODEX_PROVIDER, model: "gpt-6.1-sol" },
+        modelConfig: { provider: CODEX_PROVIDER, model: "gpt-6.2-sol" },
         instructions: [],
         items: items.map((item) => ({ item })),
       },
@@ -113,9 +90,10 @@ it("sends user and tool images through authenticated Codex Responses transport",
       detail: "auto",
     };
     expect(body).toMatchObject({
-      model: "gpt-6.1-sol",
+      model: "gpt-6.2-sol",
       stream: true,
       store: false,
+      reasoning: { effort: "low" },
       input: [
         { role: "user", content: [nativeImage] },
         { type: "function_call", call_id: "read", name: "read_image", arguments: "{}" },

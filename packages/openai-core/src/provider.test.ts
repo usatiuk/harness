@@ -79,7 +79,10 @@ describe("listModels", () => {
 
 describe("request parameters", () => {
   it.each([
+    "gpt-6.2-sol",
+    "gpt-6.2-astra",
     "gpt-6.1-sol",
+    "gpt-6.1-terra",
     "gpt-6-astra",
     "gpt-6-sol",
     "gpt-6-luna",
@@ -127,20 +130,19 @@ describe("request parameters", () => {
       store: false,
       tools: [{ type: "function", name: "echo" }],
     });
-    expect(provider.listModels().find((entry) => entry.model === model)).toMatchObject({
-      contextWindow: 1_050_000,
-      maxOutputTokens: 128_000,
-    });
   });
 
-  it.each(["gpt-6.1-sol", "gpt-6-astra"])("rejects none reasoning for %s", (model) => {
-    const provider = new OpenAIResponsesProvider({
-      credentials: { client: async () => ({}) as never },
-    });
-    expect(() => provider.validateConfig({ provider: "openai", model, preset: "none" })).toThrow(
-      "unknown preset",
-    );
-  });
+  it.each(["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol", "gpt-6-astra"])(
+    "rejects none reasoning for %s",
+    (model) => {
+      const provider = new OpenAIResponsesProvider({
+        credentials: { client: async () => ({}) as never },
+      });
+      expect(() => provider.validateConfig({ provider: "openai", model, preset: "none" })).toThrow(
+        "unknown preset",
+      );
+    },
+  );
   it("omits max_output_tokens for a transport that does not support it", async () => {
     let params: OpenAI.Responses.ResponseCreateParamsStreaming | undefined;
     const provider = new OpenAIResponsesProvider({

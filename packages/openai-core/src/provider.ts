@@ -50,7 +50,6 @@ export interface OpenAIModelSpec extends OpenAIModelLimits {
 const preset = (value: OpenAI.ReasoningEffort & string): PresetInfo => ({ value });
 
 // Default medium preserves prior behavior (a fixed medium effort). See openai `ReasoningEffort`.
-// Verified against official model pages and pricing on 2026-10-03.
 const modernPresets = ["none", "low", "medium", "high", "xhigh", "max"] as const;
 const gpt6Presets = ["low", "medium", "high", "xhigh", "max"] as const;
 const previousPresets = ["none", "low", "medium", "high", "xhigh"] as const;
@@ -84,7 +83,10 @@ function modernModel(
   };
 }
 export const OPENAI_MODELS: readonly OpenAIModelSpec[] = [
+  modernModel("gpt-6.2-sol", 2, 10, 0.1, false),
+  modernModel("gpt-6.2-astra", 8, 40, 0.4, false),
   modernModel("gpt-6.1-sol", 2, 10, 0.1, false),
+  modernModel("gpt-6.1-terra", 1, 5, 0.05),
   modernModel("gpt-6-astra", 10, 50, 1, false),
   modernModel("gpt-6-sol", 2, 10, 0.2),
   modernModel("gpt-6-luna", 0.1, 0.5, 0.01),

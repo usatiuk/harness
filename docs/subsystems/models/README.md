@@ -216,32 +216,25 @@ supplies API-key credentials. `@harness/openai-codex` supplies OAuth
 refresh/session persistence, the Codex endpoint and headers, backend error
 surfacing, per-model limit differences, and unsupported-request-field handling.
 
-The 2026-10-03 catalog refresh covers GPT-6.1 Sol, GPT-6 Astra/Sol/Luna and
-GPT-5.6 Sol/Terra/Luna in both OpenAI API and Codex. The API additionally exposes
+The November 21 catalog refresh adds GPT-6.2 Sol/Astra and GPT-6.1 Terra to the
+existing GPT-6 and GPT-5.6 entries in both OpenAI API and Codex. The API additionally exposes
 GPT-5.5, GPT-5.4/Mini, GPT-5.2, GPT-5.3-Codex and GPT-5.1. Retired
 GPT-5.1-Codex is no longer offered. API capacities, reasoning efforts, and rate
 cards follow the [official model catalog](https://developers.openai.com/api/docs/models/all)
-and individual model pages. API effort defaults remain `medium`; Astra and
-6.1 Sol reject `none`, and GPT-5.6/6 expose `max`.
+and individual model pages. API effort defaults remain `medium`. Both GPT-6.2
+models, GPT-6.1 Sol and GPT-6 Astra reject `none`. GPT-6.1 Terra accepts `none`.
 
-The October 18 built-in Codex roster contains GPT-6.1 Sol, GPT-6 Astra/Sol/Luna
-and GPT-5.6 Sol/Terra/Luna. It excludes GPT-5.5 after its announced October 14
-retirement and the backend's hidden internal models. A read-only authenticated
-catalog diagnostic confirmed the seven public models, image inputs, patch
-recommendations and reasoning controls. Backend metadata reports working windows of 272,000 tokens for most models and
-500,000 for GPT-6.1 Sol, with a 95% effective-window hint. Harness treats these as
-already-output-reserved operational budgets, **an explicit assumption rather than
-verified backend capacity**. The configured input ceilings are 400,000 for other
-Codex models and 628,000 for Sol 6.1, with a 128,000 output reserve and no claimed
-combined context window. The shared compaction policy therefore triggers around
-264,000 and 487,440 input tokens; it does not reproduce Codex's separate 5% margin.
-Public API model windows remain unchanged. The catalog advertises `low` through `max`
-efforts on GPT-5.6/6; Sol 6.1 and Sol 5.6 default
-to `low`, the others to `medium`. These differ from public API controls/capacity.
-`ultra` is Codex orchestration and is not a Harness provider preset. Account and
-workspace access still determine whether a listed model can be invoked; the
-catalog diagnostic does not establish paid inference or billing. New sign-ins default to 6.1 Sol;
-existing saved selections remain unchanged.
+The [Codex CLI 0.171.0 catalog](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/models-manager/models.json)
+lists image input and patch support on these entries. GPT-6.2 Sol and GPT-6.1
+Sol/Terra advertise a default working window of 500,000 tokens. The other listed
+GPT-6 and GPT-5.6 models use 272,000. Harness keeps the existing budget convention
+of adding a 128,000 output reserve to those figures, yielding ceilings of
+628,000 and 400,000 without claiming a verified combined window. Codex offers
+`low` through `max` in Harness. GPT-6.2 Sol/Astra, GPT-6.1 Sol/Terra, GPT-6 Astra,
+and GPT-5.6 Sol default to `low`. The other entries default to `medium`. `ultra`
+is Codex orchestration. The roster excludes retired GPT-5.5 and hidden internal
+models. Availability depends on account and workspace access. Harness continues
+to default new sign-ins to GPT-6.1 Sol.
 
 GPT-5.6/6 cache writes are reported separately at the existing usage boundary,
 keyed by the 1,800-second TTL. Rate cards include the write premium and whole-request

@@ -9,8 +9,10 @@ import { codexCredentials } from "./credentials.ts";
 
 export const CODEX_PROVIDER = "openai-codex";
 
-// Public Codex roster, image/patch support and efforts verified 2026-10-18; capacity assumptions below.
+// Public GPT-6/5.6 metadata from the Codex CLI 0.171.0 built-in catalog.
 // Ultra is Codex orchestration, not an effort supported by a Harness model invocation.
+const extendedWindow = new Set(["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6.1-terra"]);
+const lowDefault = new Set([...extendedWindow, "gpt-6.2-astra", "gpt-6-astra", "gpt-5.6-sol"]);
 const CODEX_MODELS = OPENAI_MODELS.filter(
   (model) => model.model.startsWith("gpt-6") || model.model.startsWith("gpt-5.6"),
 ).map((model): OpenAIModelSpec => ({
@@ -20,11 +22,11 @@ const CODEX_MODELS = OPENAI_MODELS.filter(
   ...(model.supportsImages !== undefined ? { supportsImages: model.supportsImages } : {}),
   // Operational ceilings inferred from Codex's working budgets plus the output reserve.
   // These are assumptions, not verified backend limits; combined context remains unknown.
-  maxInputTokens: model.model === "gpt-6.1-sol" ? 628_000 : 400_000,
+  maxInputTokens: extendedWindow.has(model.model) ? 628_000 : 400_000,
   ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
   ...(model.pricing === undefined ? {} : { pricing: model.pricing }),
   presets: model.presets.filter((entry) => entry.value !== "none"),
-  defaultPreset: model.model === "gpt-6.1-sol" || model.model === "gpt-5.6-sol" ? "low" : "medium",
+  defaultPreset: lowDefault.has(model.model) ? "low" : "medium",
 }));
 
 /** A subscription connection with Codex-specific capacity and request policy. */
