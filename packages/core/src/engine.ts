@@ -147,6 +147,7 @@ export class Engine {
     private readonly resolveConfig: ConfigResolver,
     private readonly codeEvaluator: CodeEvaluator,
     private readonly captureModelEvidence?: () => Promise<boolean>,
+    private readonly outputTokenCeiling = 128_000,
   ) {
     this.#observers = host.observers.map((observer) => ({ observer }));
   }
@@ -1260,6 +1261,9 @@ export class Engine {
         items: build.items,
         tools: build.tools,
         modelConfig: conversation.config.model,
+        ...(capacity.requestOutputLimit === undefined
+          ? {}
+          : { maxOutputTokens: capacity.requestOutputLimit }),
         ...(build.providerOptions !== undefined ? { providerOptions: build.providerOptions } : {}),
       };
 
@@ -2229,9 +2233,20 @@ export class Engine {
   async #contextCapacity(
     conversation: Conversation,
     build: NewContextBuild,
-  ): Promise<{ shouldCompact: boolean; compactionOutputLimit?: number }> {
+  ): Promise<{
+    shouldCompact: boolean;
+    requestOutputLimit: number | undefined;
+    compactionOutputLimit: number | undefined;
+  }> {
     const info = findModel(this.host.providers.listModels(), conversation.config.model);
-    const output = info?.maxOutputTokens;
+    const advertisedOutput = info?.maxOutputTokens;
+    const requestOutputLimit =
+      advertisedOutput !== undefined &&
+      advertisedOutput > this.outputTokenCeiling &&
+      this.host.providers.get(conversation.config.model.provider).supportsMaxOutputTokens !== false
+        ? this.outputTokenCeiling
+        : undefined;
+    const output = requestOutputLimit ?? advertisedOutput;
     const contextInput =
       info?.contextWindow !== undefined && output !== undefined
         ? info.contextWindow - output
@@ -2251,7 +2266,11 @@ export class Engine {
       automatic ?? Infinity,
     );
     if (!Number.isFinite(threshold) && (info?.contextWindow === undefined || output === undefined))
-      return { shouldCompact: false };
+      return {
+        shouldCompact: false,
+        requestOutputLimit,
+        compactionOutputLimit: requestOutputLimit,
+      };
 
     let estimate: number | undefined;
     const usage = await this.store.listModelUsage(conversation.id);
@@ -2289,14 +2308,11 @@ export class Engine {
     estimate ??= estimateContextTokens(build);
     return {
       shouldCompact: estimate >= threshold,
-      ...(output === undefined || info?.contextWindow === undefined
-        ? {}
-        : {
-            compactionOutputLimit: Math.max(
-              0,
-              Math.min(output, info.contextWindow - estimate - headroom),
-            ),
-          }),
+      requestOutputLimit,
+      compactionOutputLimit:
+        output !== undefined && info?.contextWindow !== undefined
+          ? Math.max(0, Math.min(output, info.contextWindow - estimate - headroom))
+          : requestOutputLimit,
     };
   }
 

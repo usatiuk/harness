@@ -90,7 +90,11 @@ export class CustomOpenAIProvider extends OpenAIResponsesTransport {
       "max_output_tokens",
       this.#models.get(request.modelConfig.model)?.presets?.[request.modelConfig.preset ?? ""],
     );
-    if (request.maxOutputTokens !== undefined) params.max_output_tokens = request.maxOutputTokens;
+    if (request.maxOutputTokens !== undefined)
+      params.max_output_tokens = Math.min(
+        request.maxOutputTokens,
+        params.max_output_tokens ?? Infinity,
+      );
     return params;
   }
 }

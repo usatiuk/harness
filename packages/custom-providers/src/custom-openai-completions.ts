@@ -54,7 +54,15 @@ export class CustomOpenAICompletionsProvider extends OpenAIChatTransport {
       "max_tokens",
       this.#models.get(request.modelConfig.model)?.presets?.[request.modelConfig.preset ?? ""],
     );
-    if (request.maxOutputTokens !== undefined) params.max_tokens = request.maxOutputTokens;
+    if (request.maxOutputTokens !== undefined) {
+      const cap = Math.min(request.maxOutputTokens, params.max_tokens ?? Infinity);
+      if (typeof params.max_completion_tokens === "number") {
+        params.max_completion_tokens = Math.min(cap, params.max_completion_tokens);
+        delete params.max_tokens;
+      } else {
+        params.max_tokens = cap;
+      }
+    }
     return params;
   }
 }

@@ -61,7 +61,7 @@ export class CustomAnthropicProvider extends AnthropicMessagesTransport {
     validateScopedConfig(this.provider, this.#models, config);
   }
 
-  /** Model capacity supplies the default; an invocation cap takes precedence over presets. */
+  /** Model capacity supplies the default; an invocation can lower the preset's cap. */
   protected override buildConfig(request: ModelRequest) {
     const config: AnthropicRequestConfig = {
       maxTokens:
@@ -71,7 +71,8 @@ export class CustomAnthropicProvider extends AnthropicMessagesTransport {
       config,
       this.#models.get(request.modelConfig.model)?.presets?.[request.modelConfig.preset ?? ""],
     );
-    if (request.maxOutputTokens !== undefined) config.maxTokens = request.maxOutputTokens;
+    if (request.maxOutputTokens !== undefined)
+      config.maxTokens = Math.min(config.maxTokens, request.maxOutputTokens);
     return config;
   }
 }

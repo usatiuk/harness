@@ -182,6 +182,9 @@ export async function buildServerComposition(
       home,
       codeEvaluator: new QuickJsEvaluator(),
       captureModelEvidence: () => feedback.captureEnabled(),
+      ...(settings.outputTokenCeiling === undefined
+        ? {}
+        : { outputTokenCeiling: settings.outputTokenCeiling }),
       store,
       worktrees,
       removeWorkspaceEnvironment: (path) => sandbox.environments.removeWorkspace(path),

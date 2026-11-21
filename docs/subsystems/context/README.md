@@ -128,20 +128,22 @@ Display-only search hints are omitted from model and deterministic summaries.
 
 Global `compaction.thresholdTokens` accepts a positive integer input-token count;
 unset means automatic. The usable input limit is the smaller known bound from
-`maxInputTokens` and `contextWindow - maxOutputTokens`. Either bound alone is
+`maxInputTokens` and `contextWindow - outputBudget`. Either bound alone is
 sufficient; separate input/output limits do not imply a combined context window.
-With an input limit and output maximum, the automatic threshold is
-`max(0, inputLimit - maxOutputTokens - ceil(0.02 * inputLimit))`, reserving the
+The output budget is the advertised output maximum, reduced by the global
+`outputTokenCeiling` (128,000 by default) when the transport supports request caps.
+With an input limit and an output budget, the automatic threshold is
+`max(0, inputLimit - outputBudget - ceil(0.02 * inputLimit))`, reserving the
 answer's capacity in the next input plus a fixed 2% estimation cushion. A zero
 allowance triggers as early as possible rather than silently disabling compaction.
 An explicit threshold can trigger earlier and remains usable with any missing
 capacity metadata. Without either an explicit threshold or enough metadata for
 automatic calculation, proactive compaction is unavailable.
 
-Compaction's existing output allowance remains capped by known combined-window
-capacity and the hard output maximum, using the same 2% cushion. Without both
-combined-window and output metadata it remains unspecified. Normal agent request
-caps, model defaults, manual/overflow paths and the strategy interface are unchanged.
+When the ceiling reduces the advertised maximum, the engine also sends it on
+agent and compaction requests. A known combined window can further reduce the
+compaction allowance, using the same 2% cushion. Providers can apply a smaller
+request default or preset.
 
 Desktop Settings and TUI selected-host defaults expose the same nullable scalar
 through `app.settings`. Clearing it removes the global setting. It cannot be set
@@ -153,8 +155,7 @@ Capacity uses the latest compatible single-prompt usage checkpoint plus a local
 estimate for appended items. Stable instructions, tools and provider options must
 match. Cumulative hosted-search billing input cannot serve as a checkpoint; the
 existing request estimate applies when no eligible checkpoint exists.
-The provider/model catalog's hard output maximum is
-reserved. A reduced per-request compaction limit is advisory where the provider
+A reduced per-request compaction limit is advisory where the provider
 transport cannot enforce it. The fixed 2% input cushion helps avoid waiting until the model
 has no room left to summarize; local estimates and unusually large tool results
 can still require the existing overflow recovery.

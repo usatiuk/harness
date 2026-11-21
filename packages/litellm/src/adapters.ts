@@ -25,15 +25,11 @@ function generation(profile: ModelProfile, request: ModelRequest): Generation {
   return { ...profile, ...(preset ? profile.presets?.[preset] : {}) };
 }
 
-function outputCap(
-  profile: ModelProfile,
-  controls: Generation,
-  request: ModelRequest,
-): number | undefined {
-  const cap = request.maxOutputTokens ?? controls.requestMaxOutputTokens;
-  return cap === undefined
-    ? undefined
-    : Math.min(cap, profile.maxOutputTokens ?? cap, profile.contextWindow ?? cap);
+function outputCap(profile: ModelProfile, request: ModelRequest, defaultCap = Infinity): number {
+  const cap = Math.min(request.maxOutputTokens ?? Infinity, defaultCap);
+  return Number.isFinite(cap)
+    ? Math.min(cap, profile.maxOutputTokens ?? Infinity, profile.contextWindow ?? Infinity)
+    : cap;
 }
 
 class GatewayResponses extends OpenAIResponsesTransport {
@@ -70,8 +66,8 @@ class GatewayResponses extends OpenAIResponsesTransport {
     );
     if (controls.temperature !== undefined) params.temperature = controls.temperature;
     if (controls.topP !== undefined) params.top_p = controls.topP;
-    const cap = outputCap(this.profile, controls, request);
-    if (cap !== undefined) params.max_output_tokens = cap;
+    const cap = outputCap(this.profile, request, controls.requestMaxOutputTokens);
+    if (Number.isFinite(cap)) params.max_output_tokens = cap;
     return params;
   }
 }
@@ -91,8 +87,8 @@ class GatewayChat extends OpenAIChatTransport {
       (params as unknown as Record<string, unknown>).reasoning_effort = controls.reasoningEffort;
     if (controls.temperature !== undefined) params.temperature = controls.temperature;
     if (controls.topP !== undefined) params.top_p = controls.topP;
-    const cap = outputCap(this.profile, controls, request);
-    if (cap !== undefined) params.max_tokens = cap;
+    const cap = outputCap(this.profile, request, controls.requestMaxOutputTokens);
+    if (Number.isFinite(cap)) params.max_tokens = cap;
     return params;
   }
 }
@@ -107,9 +103,7 @@ class GatewayMessages extends AnthropicMessagesTransport {
   }
   protected override buildConfig(request: ModelRequest): AnthropicRequestConfig {
     const controls = generation(this.profile, request);
-    const maxTokens =
-      outputCap(this.profile, controls, request) ??
-      Math.min(8192, this.profile.maxOutputTokens ?? 8192, this.profile.contextWindow ?? 8192);
+    const maxTokens = outputCap(this.profile, request, controls.requestMaxOutputTokens ?? 8192);
     const config: AnthropicRequestConfig = { maxTokens };
     if (controls.temperature !== undefined) config.temperature = controls.temperature;
     if (controls.topP !== undefined) config.topP = controls.topP;

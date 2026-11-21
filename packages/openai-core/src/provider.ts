@@ -250,7 +250,7 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
   readonly #reasoning: OpenAI.Reasoning;
   readonly #models: readonly OpenAIModelSpec[];
   readonly #modelOverrides: Record<string, OpenAIModelConfig>;
-  readonly #supportsMaxOutputTokens: boolean;
+  readonly supportsMaxOutputTokens: boolean;
 
   constructor(opts: OpenAIProviderOptions) {
     super({
@@ -266,7 +266,7 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
         preferredEditTool: "patch",
       }));
     this.#modelOverrides = opts.modelOverrides ?? {};
-    this.#supportsMaxOutputTokens = opts.supportsMaxOutputTokens ?? true;
+    this.supportsMaxOutputTokens = opts.supportsMaxOutputTokens ?? true;
     this.providerOptions = Object.freeze({ webSearch: opts.webSearch ?? false });
   }
 
@@ -353,7 +353,7 @@ export class OpenAIResponsesProvider extends OpenAIResponsesTransport implements
       })),
     );
     const params = buildResponseParams(request, reasoning, this.provider, true);
-    if (!this.#supportsMaxOutputTokens) delete params.max_output_tokens;
+    if (!this.supportsMaxOutputTokens) delete params.max_output_tokens;
     return params;
   }
 }

@@ -1822,6 +1822,34 @@ const compactions = (items: Item[]) =>
   items.filter((i): i is Extract<Item, { type: "compaction" }> => i.type === "compaction");
 
 describe("Engine — compaction", () => {
+  it.each([
+    { maxOutputTokens: 1_048_576, requestLimit: 128_000 },
+    { maxOutputTokens: 65_536, requestLimit: undefined },
+    { maxOutputTokens: undefined, requestLimit: undefined },
+  ])(
+    "keeps short turns below the compaction trigger with output capacity $maxOutputTokens",
+    async ({ maxOutputTokens, requestLimit }) => {
+      const provider = new RecordingProvider([textStep("hello"), textStep("summary")], {
+        maxInputTokens: 1_048_576,
+        ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+      });
+      const { engine, store } = setup([], {
+        providers: () => [provider],
+        policies: () => ({ compaction: modelCompaction }),
+      });
+      const conv = await store.createConversation(newConversationInput(CONFIG));
+      await engine.deliver(conv.id, userInput("hi"));
+      await engine.whenIdle(conv.id);
+
+      expect(compactions(await store.listOwnedItems(conv.id))).toHaveLength(0);
+      expect(provider.requests).toHaveLength(1);
+      expect(provider.requests[0]?.maxOutputTokens).toBe(requestLimit);
+
+      expect(await engine.compact(conv.id)).toBe("compacted");
+      expect(provider.requests[1]?.maxOutputTokens).toBe(requestLimit);
+    },
+  );
+
   it.each([{}, { contextWindow: 10000 }, { maxInputTokens: 8000 }, { maxOutputTokens: 1000 }])(
     "does not invent an automatic threshold from incomplete capacity %j",
     async (limits) => {

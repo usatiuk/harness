@@ -368,6 +368,8 @@ export interface ModelCallContext {
 
 export interface ModelProvider {
   readonly provider: string;
+  /** False when this transport cannot send a per-request output cap. */
+  readonly supportsMaxOutputTokens?: boolean;
   /** Immutable provider-owned request defaults, copied into each request and its trace. */
   readonly providerOptions?: JsonValue;
   capabilities(model: string): ModelCapabilities;

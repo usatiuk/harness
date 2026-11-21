@@ -531,19 +531,29 @@ describe("CustomOpenAICompletionsProvider", () => {
     expect(params).not.toHaveProperty("max_output_tokens");
   });
 
-  it("keeps an invocation output cap more specific than the chat preset", () => {
+  it.each([
+    { preset: { maxTokens: 8192 }, field: "max_tokens", limit: 1000 },
+    {
+      preset: { extraBody: { max_completion_tokens: 512 } },
+      field: "max_completion_tokens",
+      limit: 512,
+    },
+  ])("limits the chat request using $field", ({ preset, field, limit }) => {
     const provider = new CustomOpenAICompletionsProvider({
       id: "ovms",
       endpoint: "http://localhost:8000/v1",
       apiKey: "test-key",
-      models: { m: { presets: { long: { maxTokens: 8192 } } } },
+      models: { m: { presets: { long: preset } } },
     });
     const params = (provider as unknown as OpenAIExposed).buildParams({
       ...REQUEST,
       maxOutputTokens: 1000,
       modelConfig: { provider: "ovms", model: "m", preset: "long" },
     });
-    expect(params.max_tokens).toBe(1000);
+    expect(params).toHaveProperty(field, limit);
+    expect(params).not.toHaveProperty(
+      field === "max_tokens" ? "max_completion_tokens" : "max_tokens",
+    );
   });
 
   it("rejects an unknown preset for the chosen model", () => {

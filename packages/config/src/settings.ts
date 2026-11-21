@@ -50,6 +50,7 @@ export const settingsDocSchema = z.strictObject({
   ...projectDocSchema.shape,
   tools: toolsSchema.extend({ showNames: z.boolean().optional() }).optional(),
   compaction: z.strictObject({ thresholdTokens: compactionThresholdSchema }).optional(),
+  outputTokenCeiling: z.number().int().positive().optional(),
   auth: authSchema.optional(),
   desktop: z.strictObject({ keepServerRunning: z.boolean().optional() }).optional(),
   providers: z

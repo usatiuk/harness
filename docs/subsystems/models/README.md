@@ -54,12 +54,11 @@ Configuration merging applies this replacement rule recursively to top-level,
 profile, and plugin-owned model selections.
 
 `ModelInfo.contextWindow` and `ModelInfo.maxOutputTokens` describe the hard
-capacity of one provider/model pair. The engine reserves the hard output maximum
-when estimating whether the next input fits. `ModelRequest.maxOutputTokens` is a
-separate advisory per-invocation cap: adapters send it when their transport
-supports one. The Codex transport currently rejects `max_output_tokens`, so its
-adapter omits the request field while retaining hard model limits for capacity
-math.
+capacity of one provider/model pair. The engine bounds its output reservation
+by the global `outputTokenCeiling` when the transport can send an output cap.
+`ModelRequest.maxOutputTokens` is the separate per-invocation cap. An adapter
+can lower it to honor a smaller configured request default. Codex rejects
+`max_output_tokens`, so it retains the advertised output maximum for capacity math.
 
 `maxInputTokens` preserves an independently advertised hard input limit without
 claiming a combined context window. `reasoning` carries explicit support,

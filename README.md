@@ -413,6 +413,12 @@ The pickers show available limits and reasoning support. Unknown or conflicting
 metadata stays unknown; LiteLLM's legacy `max_tokens` does not establish a context
 window. Informational reasoning support does not invent generation presets.
 
+Harness uses a 128,000-token output ceiling for agent calls and compaction when
+the model advertises a higher maximum and the transport supports request caps.
+Models with smaller limits or unknown output capacity keep their request defaults.
+Set `outputTokenCeiling` to another positive integer in global `settings.json`
+and restart the server to change the ceiling.
+
 ### Execution backends
 
 The `sandbox` plugin selects one execution backend per loaded conversation:

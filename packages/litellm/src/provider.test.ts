@@ -688,7 +688,7 @@ describe("LiteLLM SDK transport fidelity", () => {
         gateway.requests[1]!.body[
           transport === "openai-responses" ? "max_output_tokens" : "max_tokens"
         ],
-      ).toBe(32000);
+      ).toBe(transport === "anthropic-messages" ? 8192 : 32000);
     },
   );
 
@@ -886,7 +886,7 @@ describe("LiteLLM SDK transport fidelity", () => {
         ...request(),
         modelConfig: { provider: "work", model: "coding", preset: "precise" },
       };
-      const first = await collect(provider, base);
+      const first = await collect(provider, { ...base, maxOutputTokens: 128_000 });
       expect(first.find((event) => event.type === "tool_call")).toMatchObject({
         callId: "call-1",
         name: "echo",

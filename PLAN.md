@@ -1,5 +1,10 @@
 # Harness plan
 
+Agent requests and [compaction](docs/subsystems/context/README.md#compaction-model)
+share a global 128,000-token output ceiling when the transport can send it.
+This prevents zero-threshold compaction on LiteLLM aliases that advertise the
+entire Gemini 4 window as both their input and output maximum.
+
 Mistral API reasoning metadata now covers GLM 5.3 Flash and DeepSeek V4.1 Flash
 1017, includes Small 4's documented ID, and updates Large 4 to `low`/`medium`/`high`.
 Third-party levels follow model-author/hosting-provider documentation rather than
