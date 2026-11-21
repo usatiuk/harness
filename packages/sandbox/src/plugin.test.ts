@@ -7,11 +7,12 @@ import { DockerExecutionContext } from "./docker.ts";
 import { NativeExecutionContext } from "./native.ts";
 
 const probe = vi.hoisted(() => vi.fn());
+const windowsBackends = vi.hoisted(() => vi.fn(() => [{ backend: "processcontainer" }]));
 vi.mock("@microsoft/mxc-sdk/v1", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@microsoft/mxc-sdk/v1")>()),
   getAvailableBackends: () => {
     probe();
-    return [{ backend: "processcontainer" }];
+    return windowsBackends();
   },
   getPlatformSupport: () => {
     probe();
@@ -99,4 +100,20 @@ describe("sandboxPlugin execution provider", () => {
       await runtime.close();
     }
   });
+
+  it.runIf(process.platform === "win32")(
+    "starts without an external probe when ProcessContainer is unavailable",
+    async () => {
+      probe.mockClear();
+      windowsBackends.mockReturnValueOnce([]);
+      const runtime = await createSandboxRuntime(process.cwd());
+      try {
+        expect(runtime.defaultBackend).toBe("none");
+        expect(runtime.backends).not.toContain("native");
+        expect(probe).toHaveBeenCalledOnce();
+      } finally {
+        await runtime.close();
+      }
+    },
+  );
 });

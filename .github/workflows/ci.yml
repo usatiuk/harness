@@ -21,8 +21,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+      - name: Report runner environment
+        run: |
+          node -p 'JSON.stringify({ node: process.version, platform: process.platform, arch: process.arch, parallelism: require("node:os").availableParallelism(), memoryMiB: Math.round(require("node:os").totalmem() / 1048576) })'
+          npm --version
+          rustc --version
       - run: npm ci
-      - run: npm run check
+      - name: Run repository checks
+        run: npm run check -- --reporter=default --reporter=github-actions --reporter=json --outputFile.json=vitest-report.json
       - run: node packages/desktop/tools/native.mjs cargo test --manifest-path native/Cargo.toml --locked
       - name: Read the pinned payload Node version
         if: matrix.os == 'ubuntu-22.04-arm'
@@ -40,3 +46,11 @@ jobs:
           ldd --version
           node scripts/build-payloads.mjs --remote
           env -u HARNESS_SERVER_SELECTION npm run test:remote
+      - name: Upload test report for failed jobs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vitest-report-${{ matrix.os }}
+          path: vitest-report.json
+          if-no-files-found: ignore
+          retention-days: 7

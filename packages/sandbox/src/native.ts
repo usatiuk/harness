@@ -59,9 +59,11 @@ export function detectNativeSandboxHost(): NativeSandboxHost {
       available: false,
       reason: "MXC on Windows requires Node.js 24.21+ on the 24.x line or Node.js 26.8 or later",
     };
-  // Discover ProcessContainer in-process. The full probe gathers diagnostics for other backends.
-  if (windows && getAvailableBackends().some((entry) => entry.backend === backend))
-    return { available: true };
+  // Harness only uses ProcessContainer on Windows. The full probe also starts a CLI process.
+  if (windows)
+    return getAvailableBackends().some((entry) => entry.backend === backend)
+      ? { available: true }
+      : { available: false, reason: "MXC ProcessContainer is unavailable on this Windows host" };
   const support = getPlatformSupport();
   if (support.availableMethods.includes(backend)) return { available: true };
   return {

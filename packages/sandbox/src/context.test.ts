@@ -9,6 +9,11 @@ import { InMemoryStore } from "@harness/store";
 import { FakeProvider, textStep, unusedCodeEvaluator } from "@harness/testkit";
 
 const state = vi.hoisted(() => ({ root: "", exitCode: 0, exec: [] as string[] }));
+vi.mock("@microsoft/mxc-sdk/v1", async (original) => ({
+  ...(await original<typeof import("@microsoft/mxc-sdk/v1")>()),
+  getAvailableBackends: () => [{ backend: "processcontainer" }],
+  getPlatformSupport: () => ({ availableMethods: ["bubblewrap", "seatbelt"] }),
+}));
 vi.mock("node:child_process", async (original) => ({
   ...(await original<typeof import("node:child_process")>()),
   spawnSync: () => ({ status: 0, stderr: "", stdout: "" }),
@@ -116,43 +121,40 @@ describe("active sandbox instructions", () => {
     }
   });
 
-  it.skipIf(process.platform !== "linux")(
-    "includes active sandbox context in the actual model request",
-    async () => {
-      const root = await workspace();
-      const fake = new FakeProvider([textStep("done")]);
-      const stream = fake.stream.bind(fake);
-      const requests: ModelRequest[] = [];
-      const provider: ModelProvider = Object.assign(fake, {
-        stream(request: ModelRequest) {
-          requests.push(request);
-          return stream();
+  it("includes active sandbox context in the actual model request", async () => {
+    const root = await workspace();
+    const fake = new FakeProvider([textStep("done")]);
+    const stream = fake.stream.bind(fake);
+    const requests: ModelRequest[] = [];
+    const provider: ModelProvider = Object.assign(fake, {
+      stream(request: ModelRequest) {
+        requests.push(request);
+        return stream();
+      },
+    });
+    const service = new HarnessService({
+      codeEvaluator: unusedCodeEvaluator,
+      store: new InMemoryStore(),
+      home: join(root, "home"),
+      plugins: [sandboxPlugin, { id: "fake", providers: () => [provider] }],
+    });
+    const conversation = await service.createConversation({
+      cwd: root,
+      overrides: {
+        model: { provider: "fake", model: "fake" },
+        plugins: {
+          sandbox: { backend: "native", native: { workspaceWrite: true, network: true } },
         },
-      });
-      const service = new HarnessService({
-        codeEvaluator: unusedCodeEvaluator,
-        store: new InMemoryStore(),
-        home: join(root, "home"),
-        plugins: [sandboxPlugin, { id: "fake", providers: () => [provider] }],
-      });
-      const conversation = await service.createConversation({
-        cwd: root,
-        overrides: {
-          model: { provider: "fake", model: "fake" },
-          plugins: {
-            sandbox: { backend: "native", native: { workspaceWrite: true, network: true } },
-          },
-        },
-      });
-      try {
-        await service.send(conversation.id, "go");
-        await service.whenIdle(conversation.id);
-        expect(requests).toHaveLength(1);
-        expect(textOf(requests[0]!.instructions)).toContain(`Workspace: ${root} (writable)`);
-        expect(textOf(requests[0]!.instructions)).toContain("network access: enabled");
-      } finally {
-        await service.deactivateSession(conversation.id, { force: true });
-      }
-    },
-  );
+      },
+    });
+    try {
+      await service.send(conversation.id, "go");
+      await service.whenIdle(conversation.id);
+      expect(requests).toHaveLength(1);
+      expect(textOf(requests[0]!.instructions)).toContain(`Workspace: ${root} (writable)`);
+      expect(textOf(requests[0]!.instructions)).toContain("network access: enabled");
+    } finally {
+      await service.deactivateSession(conversation.id, { force: true });
+    }
+  });
 });

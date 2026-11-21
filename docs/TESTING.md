@@ -48,6 +48,11 @@ npm run test:wsl                 # headless Windows WSL + rendered TUI qualifica
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+CI logs the runner platform, architecture, available parallelism, memory, and
+toolchain versions. Failed jobs retain the Vitest JSON report for seven days
+when the test runner completed. The report records individual test durations
+and failures alongside the ordinary Actions log.
+
 ## Home protection and startup
 
 `native/bootstrap/tests/home.rs` exercises native directory creation and checks
