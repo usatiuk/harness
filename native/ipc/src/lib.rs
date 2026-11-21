@@ -42,6 +42,14 @@ pub fn verify_artifact_signature(
     .map_err(|error| Error::from_reason(format!("{error:#}")))
 }
 
+/// Applies the same OS-user boundary the Rust bootstrap uses, without spawning a
+/// helper process. Node callers must not shell out for this.
+#[napi(js_name = "protectDirectory")]
+pub fn protect_directory(path: String, private: bool) -> Result<()> {
+    harness_bootstrap::protect_directory(std::path::Path::new(&path), private)
+        .map_err(|error| Error::from_reason(format!("{error:#}")))
+}
+
 #[cfg(windows)]
 mod windows_pipe;
 

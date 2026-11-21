@@ -1,8 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, realpath, chmod, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { protectDirectory as protectNativeDirectory } from "@harness/native";
 import { createConnection, type Socket } from "node:net";
 import { once } from "node:events";
 import { DpapiSecretStore, FileSecretStore } from "@harness/secrets";
@@ -18,7 +17,6 @@ export const discoverySchema = serverIdentitySchema.extend({
 export type ServerDiscovery = z.infer<typeof discoverySchema>;
 export const sameHome = (left: string, right: string): boolean =>
   process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
-const exec = promisify(execFile);
 
 export async function canonicalHome(home: string): Promise<string> {
   const absolute = resolve(home);
@@ -39,47 +37,7 @@ export async function privateRuntimeDirectory(home: string): Promise<string> {
 
 async function protectDirectory(directory: string, setPrivate: boolean): Promise<void> {
   if (process.platform === "win32") {
-    // Use .NET directly: inherited PowerShell 7 module paths can break the
-    // Windows PowerShell security cmdlets in a Node-launched subprocess.
-    const script = `$ErrorActionPreference = 'Stop'; $path = '${directory.replaceAll("'", "''")}';
-$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User;
-$private = [System.Security.AccessControl.DirectorySecurity]::new();
-$private.SetOwner($user);
-$private.SetAccessRuleProtection($true, $false);
-$private.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($user, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'));
-# This overload applies the ACL at creation, including simultaneous first starts.
-[void][System.IO.Directory]::CreateDirectory($path, $private);
-$acl = [System.IO.Directory]::GetAccessControl($path);
-if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $user.Value) { exit 77 };
-if (${setPrivate ? "$true" : "$false"}) {
-[System.IO.Directory]::SetAccessControl($path, $private);
-} else {
-$trusted = @($user.Value, 'S-1-5-18', 'S-1-5-32-544');
-$mutation = [System.Security.AccessControl.FileSystemRights]::Write -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor [System.Security.AccessControl.FileSystemRights]::TakeOwnership;
-foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
-  if ($rule.AccessControlType -eq 'Allow' -and ($rule.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly) -eq 0 -and $trusted -notcontains $rule.IdentityReference.Value -and ($rule.FileSystemRights -band $mutation) -ne 0) { exit 78 }
-}
-}`;
-    try {
-      await exec(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-EncodedCommand",
-          Buffer.from(script, "utf16le").toString("base64"),
-        ],
-        { windowsHide: true },
-      );
-    } catch (error) {
-      const code = (error as { code?: unknown }).code;
-      if (code === 77) throw new Error("Harness directory has another owner", { cause: error });
-      if (code === 78)
-        throw new Error("Harness home is writable by other users; choose a user-private home", {
-          cause: error,
-        });
-      throw error;
-    }
+    protectNativeDirectory(directory, setPrivate);
   } else {
     const info = await stat(directory);
     if (info.uid !== process.getuid?.())

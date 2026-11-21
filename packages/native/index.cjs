@@ -11,6 +11,7 @@ if (
   typeof binding.LifecycleLock !== "function" ||
   typeof binding.verifyRelease !== "function" ||
   typeof binding.verifyArtifactSignature !== "function" ||
+  typeof binding.protectDirectory !== "function" ||
   (process.platform === "win32" && typeof binding.PipeListener !== "function")
 )
   throw new Error("Harness native binding is incomplete for this platform");
@@ -28,5 +29,6 @@ exports.CacheUse = binding.CacheUse;
 exports.LifecycleLock = binding.LifecycleLock;
 exports.verifyRelease = binding.verifyRelease;
 exports.verifyArtifactSignature = binding.verifyArtifactSignature;
+exports.protectDirectory = binding.protectDirectory;
 exports.PipeListener = binding.PipeListener;
 exports.adoptPipe = adoptPipe;

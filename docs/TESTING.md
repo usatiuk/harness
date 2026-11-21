@@ -48,6 +48,21 @@ npm run test:wsl                 # headless Windows WSL + rendered TUI qualifica
 npm run desktop:build            # release executable and NSIS installer
 ```
 
+## Home protection and startup
+
+`native/bootstrap/tests/home.rs` exercises native directory creation and checks
+with an empty `PATH`. The background-server unsafe-home test changes permissions
+after a successful check and verifies that startup rejects the home before
+creating its database. Rebuild the native addon with `npm run native:build`
+before running the Windows server tests.
+
+Measure the headless stages with a disposable Harness home. Time the desktop
+`--prepare-runtime` helper to its JSON result with stdin held open, and time
+the background server separately to publication of `discovery.json`. Warm the
+same runtime cache before samples. The helper and server measurements exclude
+window creation and WebView rendering. See the
+[Windows delivery plan](plans/cross-cutting/2026-11-07-native-home-protection.md).
+
 ## Glob path scopes
 
 `packages/workspace/src/tools.test.ts` exercises `GlobTool` with a real local

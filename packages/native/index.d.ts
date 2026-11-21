@@ -14,6 +14,8 @@ export const LifecycleLock: new (home: string) => NativeLifecycleLock;
 export function verifyRelease(bytes: Buffer, signature: string): string;
 /** Verifies exact updater bytes with the same compiled project key. */
 export function verifyArtifactSignature(bytes: Buffer, signature: string): void;
+/** Creates or verifies a directory at the current OS-user boundary. */
+export function protectDirectory(path: string, privateDirectory: boolean): void;
 export interface NativePipeListener {
   /** null classifies a peer that left before admission. */
   accept(): Promise<number | null>;

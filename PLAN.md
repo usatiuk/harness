@@ -1,5 +1,9 @@
 # Harness plan
 
+[Native Windows home protection](docs/plans/cross-cutting/2026-11-07-native-home-protection.md)
+removes PowerShell from the bootstrap and server directory checks. Headless
+Windows measurements show faster warm native preparation and server discovery.
+
 Agent requests and [compaction](docs/subsystems/context/README.md#compaction-model)
 share a global 128,000-token output ceiling when the transport can send it.
 This prevents zero-threshold compaction on LiteLLM aliases that advertise the

@@ -333,9 +333,11 @@ recognized by object identity and is never a wire method. Peer closure remains
 terminal even when an initialization handler or response finishes afterward.
 Only classified SQLite startup contention permits bounded staggered starts;
 broken packages and inaccessible or unsafe existing homes fail visibly. New
-Windows homes use an ACL applied atomically at creation; existing homes are
-validated without rewriting their ACLs. POSIX homes must be user-owned and not
-writable by other users. After acquiring SQLite ownership, the new owner removes
+Windows homes use an ACL applied atomically at creation. The bootstrap and Node
+server share the native Win32 check for existing homes. POSIX verifies ownership
+and rejects group- or world-writable homes with in-process filesystem calls.
+Each check validates the current directory and leaves existing home ACLs intact.
+After acquiring SQLite ownership, the new owner removes
 any stale discovery name before publishing its atomic replacement. This permits
 Windows recovery while ordinary readers still hold the old file open; clients
 never remove discovery. Discovery is removed before releasing SQLite ownership.
