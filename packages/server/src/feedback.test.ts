@@ -23,6 +23,7 @@ import { MemorySecretStore } from "@harness/secrets";
 import * as credentials from "./credential-store.ts";
 import { buildServerHarness } from "./index.ts";
 
+// The Windows runner can spend most of the default test budget writing and reading the 32 MiB boundary case.
 it("collects a rich vote case through RPC, queues offline delivery, and retries the same identity", async () => {
   const home = await mkdtemp(join(tmpdir(), "feedback-rpc-"));
   vi.stubEnv("HARNESS_HOME", home);
@@ -379,4 +380,4 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
     vi.unstubAllEnvs();
     await rm(home, { recursive: true, force: true });
   }
-});
+}, 10_000);
