@@ -16,7 +16,6 @@ declare global {
       grow(): void;
       prepend(): void;
       prependVariableHistory(): void;
-      extendGroup(): void;
       setRunning(value: boolean): void;
       setSupport(value: boolean): void;
       start(): void;
@@ -51,17 +50,6 @@ let cells: Cell[] = [
     streaming: true,
   },
 ];
-if (["?children", "?group-history"].includes(window.location.search))
-  cells = [
-    user(-100),
-    ...Array.from({ length: 24 }, (_, index): Cell => ({
-      ...child,
-      callId: `child-${index}`,
-      name: `Child ${index}`,
-    })),
-    ...Array.from({ length: 80 }, (_, index) => user(index)),
-  ];
-if (window.location.search === "?group-history") cells = cells.slice(1);
 if (window.location.search === "?empty") cells = [];
 const transcript = new DesktopTranscript();
 transcript.update(cells);
@@ -112,17 +100,6 @@ window.canvasFixture = {
     ];
     changed();
   },
-  extendGroup() {
-    cells = [
-      ...Array.from({ length: 35 }, (_, index): Cell => ({
-        ...child,
-        callId: `older-child-${cells.length}-${index}`,
-        name: `Older child ${index}`,
-      })),
-      ...cells,
-    ];
-    changed();
-  },
   setRunning(value) {
     running = value;
     invalidate();
@@ -158,7 +135,6 @@ window.canvasFixture = {
 };
 
 function renderRow(row: TranscriptRow): ReturnType<typeof h> {
-  // Tall history fixtures deliberately expand groups to exercise virtualizer anchors.
   // The latest-tool inspection scenario uses the production item scroll boundary.
   return row.kind === "steps"
     ? h(

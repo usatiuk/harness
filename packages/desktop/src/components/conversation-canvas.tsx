@@ -1,13 +1,11 @@
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
-  Component,
-  createRef,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
-import { Virtuoso, type ContextProp, type ItemProps, type VirtuosoHandle } from "react-virtuoso";
+  Virtuoso,
+  type ContextProp,
+  type ItemProps,
+  type ListProps,
+  type VirtuosoHandle,
+} from "react-virtuoso";
 import { Ellipsis } from "lucide-react";
 import { IconButton } from "../ui.tsx";
 import type { TranscriptRow } from "../transcript.ts";
@@ -16,8 +14,6 @@ interface CanvasContext {
   history: ReactNode;
   clearance: number;
   pendingWork?: ReactNode;
-  scrollParent: HTMLElement;
-  dock: RefObject<HTMLDivElement | null>;
 }
 function HistoryHeader({ context }: { context?: CanvasContext }) {
   if (!context) throw new Error("Conversation transcript context is missing");
@@ -33,107 +29,29 @@ function ComposerClearance({ context }: { context?: CanvasContext }) {
   );
 }
 
-interface AnchorProps {
-  rows: TranscriptRow[];
-  children: (firstItemIndex: number) => ReactNode;
+function TranscriptList({ children, ref, style }: ListProps) {
+  return (
+    <div ref={ref} style={style} className="transcript" data-testid="transcript">
+      {children}
+    </div>
+  );
 }
-interface AnchorState {
-  rows: TranscriptRow[];
-  firstItemIndex: number;
+
+function TranscriptItem({
+  item,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Virtuoso context must not reach the DOM.
+  context: _context,
+  ...props
+}: ItemProps<TranscriptRow> & ContextProp<CanvasContext>) {
+  return <div {...props} className="transcript-item" data-transcript-key={item.key} />;
 }
-type Anchor = {
-  element: HTMLElement;
-  parent: HTMLElement;
-  offset: number;
+
+const components = {
+  Header: HistoryHeader,
+  Footer: ComposerClearance,
+  List: TranscriptList,
+  Item: TranscriptItem,
 };
-function restoreAnchor({ element, parent, offset }: Anchor): void {
-  if (!element.isConnected) return;
-  const viewport = parent.getBoundingClientRect();
-  const scale = viewport.height / parent.offsetHeight;
-  parent.scrollTop += (element.getBoundingClientRect().top - viewport.top) / scale - offset;
-}
-
-/** Keep Virtuoso's measured row identities aligned when history is prepended. */
-class HistoryAnchor extends Component<AnchorProps, AnchorState> {
-  // Virtuoso needs positive index headroom when the total older history is unknown.
-  override state: AnchorState = { rows: this.props.rows, firstItemIndex: 1_000_000 };
-
-  static getDerivedStateFromProps(props: AnchorProps, state: AnchorState): AnchorState | null {
-    if (props.rows === state.rows) return null;
-    const previousFirst = state.rows[0];
-    const prepended = previousFirst
-      ? props.rows.findIndex((row) => row.key === previousFirst.key)
-      : 0;
-    return {
-      rows: props.rows,
-      firstItemIndex: state.firstItemIndex - Math.max(0, prepended),
-    };
-  }
-
-  override render() {
-    return this.props.children(this.state.firstItemIndex);
-  }
-}
-
-type RowAnchorProps = ItemProps<TranscriptRow> & ContextProp<CanvasContext>;
-
-/** Observe the row commit, not the parent data update preceding Virtuoso's render. */
-class HistoryRowAnchor extends Component<RowAnchorProps> {
-  private readonly element = createRef<HTMLDivElement>();
-  private pendingAnchor: Anchor | null = null;
-  override getSnapshotBeforeUpdate(previous: RowAnchorProps): Anchor | null {
-    const first = previous.item;
-    const next = this.props.item;
-    if (first.kind !== "steps" || next.kind !== "steps" || first.steps[0].key === next.steps[0].key)
-      return null;
-    const parent = this.props.context.scrollParent;
-    const viewport = parent.getBoundingClientRect();
-    const dockTop = this.props.context.dock.current?.getBoundingClientRect().top ?? viewport.bottom;
-    for (const element of this.element.current!.querySelectorAll<HTMLElement>(
-      ".work-items > *, .cell.tool",
-    )) {
-      if (element.closest("[inert]")) continue;
-      const rect = element.getBoundingClientRect();
-      if (rect.height > 0 && rect.bottom > viewport.top && rect.top < dockTop) {
-        return {
-          element,
-          parent,
-          offset: (rect.top - viewport.top) / (viewport.height / parent.offsetHeight),
-        };
-      }
-    }
-    return null;
-  }
-
-  override componentDidUpdate(
-    _previous: RowAnchorProps,
-    _state: unknown,
-    anchor: Anchor | null,
-  ): void {
-    if (anchor) this.pendingAnchor = anchor;
-    // Restore only once Virtuoso has committed this item's measured size. A
-    // premature page scroll can unmount the row before its measurement arrives.
-    if (
-      this.pendingAnchor &&
-      this.props["data-known-size"] === this.element.current!.getBoundingClientRect().height
-    ) {
-      restoreAnchor(this.pendingAnchor);
-      this.pendingAnchor = null;
-    }
-  }
-
-  override render() {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Virtuoso context must not reach the DOM.
-    const { item, context: _context, ...props } = this.props;
-    return (
-      <div {...props} className="transcript-item" data-transcript-key={item.key} ref={this.element}>
-        {props.children}
-      </div>
-    );
-  }
-}
-
-const components = { Header: HistoryHeader, Footer: ComposerClearance, Item: HistoryRowAnchor };
 
 export function ConversationCanvas({
   rows,
@@ -156,25 +74,23 @@ export function ConversationCanvas({
 }) {
   const scroller = useRef<VirtuosoHandle>(null);
   const dockRef = useRef<HTMLDivElement>(null);
-  const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
+  const [scrollParent, setScrollParent] = useState<HTMLElement | Window | null>(null);
   const [clearance, setClearance] = useState(0);
   const [gutter, setGutter] = useState(0);
   const [atBottom, setAtBottom] = useState(true);
+  const firstKey = rows[0]?.key;
+  // Virtuoso needs positive index headroom for older history.
+  const [start, setStart] = useState({ key: firstKey, index: 1_000_000 });
+  if (start.key !== firstKey) {
+    const prepended = rows.findIndex((row) => row.key === start.key);
+    setStart({ key: firstKey, index: start.index - Math.max(0, prepended) });
+  }
 
   useLayoutEffect(() => {
     const element = dockRef.current;
-    if (!element || !scrollParent) return;
-    let measuredHeight = -1;
+    if (!element || !(scrollParent instanceof HTMLElement)) return;
     const measure = () => {
-      const nextHeight = element.offsetHeight + 12;
-      if (nextHeight !== measuredHeight) {
-        // Arm the virtualizer before its footer grows. Follow only if the reader
-        // is currently at the bottom; support/draft growth must not pull them away.
-        if (scrollParent.scrollHeight - scrollParent.clientHeight - scrollParent.scrollTop <= 4)
-          scroller.current?.autoscrollToBottom();
-        measuredHeight = nextHeight;
-        setClearance(nextHeight);
-      }
+      setClearance(element.offsetHeight + 12);
       setGutter(scrollParent.offsetWidth - scrollParent.clientWidth);
     };
     measure();
@@ -187,47 +103,22 @@ export function ConversationCanvas({
   return (
     <div className="conversation-page">
       <div className="conversation-header-wrap">{header}</div>
-      <div
+      <Virtuoso
         className="conversation-scroll"
-        ref={setScrollParent}
-        onClickCapture={(event) => {
-          const summary = event.target instanceof Element ? event.target.closest("summary") : null;
-          const workToggle =
-            event.target instanceof Element
-              ? event.target.closest('.tool-group[aria-expanded="false"]')
-              : null;
-          if (
-            (workToggle || (summary && !summary.parentElement!.hasAttribute("open"))) &&
-            scrollParent &&
-            scrollParent.scrollHeight - scrollParent.clientHeight - scrollParent.scrollTop <= 4
-          )
-            scroller.current?.autoscrollToBottom();
-        }}
-      >
-        <div className="transcript" data-testid="transcript">
-          {scrollParent && (
-            <HistoryAnchor rows={rows}>
-              {(firstItemIndex) => (
-                <Virtuoso
-                  firstItemIndex={firstItemIndex}
-                  skipAnimationFrameInResizeObserver
-                  ref={scroller}
-                  customScrollParent={scrollParent}
-                  data={rows}
-                  context={{ history, clearance, pendingWork, scrollParent, dock: dockRef }}
-                  itemSize={(element) => element.getBoundingClientRect().height}
-                  computeItemKey={(_index, row) => row.key}
-                  initialTopMostItemIndex={{ index: "LAST", align: "end" }}
-                  followOutput="auto"
-                  atBottomStateChange={setAtBottom}
-                  components={components}
-                  itemContent={(_index, row) => renderRow(row)}
-                />
-              )}
-            </HistoryAnchor>
-          )}
-        </div>
-      </div>
+        scrollerRef={setScrollParent}
+        firstItemIndex={start.index}
+        ref={scroller}
+        data={rows}
+        context={{ history, clearance, pendingWork }}
+        computeItemKey={(_index, row) => row.key}
+        initialTopMostItemIndex={{ index: "LAST", align: "end" }}
+        followOutput="auto"
+        skipAnimationFrameInResizeObserver
+        atBottomThreshold={12}
+        atBottomStateChange={setAtBottom}
+        components={components}
+        itemContent={(_index, row) => renderRow(row)}
+      />
       <div className="conversation-dock-layout" style={{ marginRight: gutter }}>
         <div className="conversation-dock-overlays">
           {running && !atBottom && rows.length > 0 && (

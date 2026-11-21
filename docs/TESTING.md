@@ -53,6 +53,18 @@ toolchain versions. Failed jobs retain the Vitest JSON report for seven days
 when the test runner completed. The report records individual test durations
 and failures alongside the ordinary Actions log.
 
+## Transcript resizing
+
+The Working slide regression measures a single shared CSS grid during open and
+close. Rolling-preview tests check that an open or focused row and the rows after
+it stay visible and that the open row keeps its DOM and selection.
+
+An Edge fixture with a completed 240-paragraph message at the start of older
+history reproduced a jump to the beginning of the message when it first entered
+the viewport. [Virtuoso PR #1544](https://github.com/petyosi/react-virtuoso/pull/1544)
+kept the viewport near the end of that message in the same comparison. Harness
+uses the published Virtuoso release.
+
 ## Home protection and startup
 
 `native/bootstrap/tests/home.rs` exercises native directory creation and checks

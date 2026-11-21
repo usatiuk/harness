@@ -513,6 +513,37 @@ export function Confirmation({
     </AlertDialog.Root>
   );
 }
+export function CollapseGrid({
+  open,
+  children,
+  unmountOnExit = false,
+  scrollShadows = false,
+}: {
+  open: boolean;
+  children: ReactNode;
+  unmountOnExit?: boolean;
+  scrollShadows?: boolean;
+}) {
+  return (
+    <Presence present={open || !unmountOnExit}>
+      <div
+        className="collapse-grid"
+        data-state={open ? "open" : "closed"}
+        data-lazy={unmountOnExit || undefined}
+        inert={!open}
+      >
+        {scrollShadows ? (
+          <ScrollArea className="collapse-body" observe={open}>
+            {children}
+          </ScrollArea>
+        ) : (
+          <div className="collapse-body">{children}</div>
+        )}
+      </div>
+    </Presence>
+  );
+}
+
 export function CollapsibleDetails({
   summary,
   children,
@@ -540,22 +571,9 @@ export function CollapsibleDetails({
       }}
     >
       {summary}
-      <Presence present={open || !unmountOnExit}>
-        <div
-          className="collapse-grid"
-          data-state={open ? "open" : "closed"}
-          data-lazy={unmountOnExit || undefined}
-          inert={!open}
-        >
-          {scrollShadows ? (
-            <ScrollArea className="collapse-body" observe={open}>
-              {children}
-            </ScrollArea>
-          ) : (
-            <div className="collapse-body">{children}</div>
-          )}
-        </div>
-      </Presence>
+      <CollapseGrid open={open} unmountOnExit={unmountOnExit} scrollShadows={scrollShadows}>
+        {children}
+      </CollapseGrid>
     </details>
   );
 }

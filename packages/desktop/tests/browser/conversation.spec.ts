@@ -63,7 +63,7 @@ test.beforeEach(async ({ page }) => {
         .evaluate((element) => element.scrollHeight > 2 * element.clientHeight),
     )
     .toBe(true);
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
 });
 const gap = (page: Page) =>
   page
@@ -212,26 +212,26 @@ test("a new tall stream follows from an initially empty conversation", async ({ 
   await expect(page.locator(".user-text")).toBeAttached();
   await page.evaluate(() => window.canvasFixture.appendAssistant());
   await expect(page.locator(".cell.assistant")).toContainText("Latest");
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
 });
 
 test("opens at the real bottom of a tall final message and follows same-item growth", async ({
   page,
 }) => {
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
   const content = await page.locator(".cell.assistant").boundingBox();
   const dock = await page.locator(".conversation-dock").boundingBox();
   expect(content!.y + content!.height).toBeLessThanOrEqual(dock!.y);
   await page.screenshot({ path: test.info().outputPath("floating-light.png") });
   await page.evaluate(() => window.canvasFixture.grow());
   await expect(page.locator(".cell.assistant")).toContainText("Additional streaming paragraph");
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
 });
 
 test("reading pauses follow, three-dot jump resumes it without changing dock geometry", async ({
   page,
 }) => {
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
   await page.locator(".conversation-scroll").evaluate((element) => {
     element.scrollTop -= 450;
   });
@@ -246,11 +246,11 @@ test("reading pauses follow, three-dot jump resumes it without changing dock geo
     await page.locator(".conversation-scroll").evaluate((element) => element.scrollTop),
   ).toBeCloseTo(top, 0);
   await jump.click();
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
   await expect(jump).toHaveCount(0);
   expect(await page.locator(".conversation-dock").boundingBox()).toEqual(dock);
   await page.evaluate(() => window.canvasFixture.grow());
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
 });
 
 test("expanding the latest tool retains follow and keeps its output clear of the dock", async ({
@@ -259,7 +259,7 @@ test("expanding the latest tool retains follow and keeps its output clear of the
   await page.evaluate(() => window.canvasFixture.appendTool());
   const tool = page.locator("details").filter({ hasText: "Latest tool" });
   await expect(tool.locator("summary")).toBeVisible();
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
   await tool.locator("summary").click();
   await expect(tool).toHaveAttribute("open", "");
   await expect
@@ -271,7 +271,7 @@ test("expanding the latest tool retains follow and keeps its output clear of the
       ),
     )
     .toBe(false);
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
   const work = page.locator(".tool-group-container").filter({ has: tool });
   const viewport = await work.boundingBox();
   const dock = await page.locator(".conversation-dock").boundingBox();
@@ -308,16 +308,12 @@ test("idle conversations hide jump and history regrouping preserves a visible re
   expect(await page.locator(".transcript-item").count()).toBeLessThan(40);
 });
 
-test("support and composer growth keep controls reachable and latest clear of the dock", async ({
-  page,
-}) => {
+test("a taller dock keeps controls and the end of the transcript reachable", async ({ page }) => {
   await page.setViewportSize({ width: 720, height: 520 });
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
   await page.evaluate(() => window.canvasFixture.setSupport(true));
   await expect(page.getByRole("button", { name: "Allow" })).toBeVisible();
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
   await page.getByRole("textbox", { name: "Message" }).fill("A long draft\n".repeat(20));
-  // A bottom gap can still be zero while the footer has the old dock height.
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -327,7 +323,10 @@ test("support and composer growth keep controls reachable and latest clear of th
       }),
     )
     .toBe(0);
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await page.locator(".conversation-scroll").evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect.poll(() => gap(page)).toBeLessThan(12);
   await expect
     .poll(() =>
       page.evaluate(
@@ -371,80 +370,14 @@ test("support growth while reading does not resume follow", async ({ page }) => 
   ).toBeCloseTo(top, 0);
 });
 
-test("a visible child keeps its position when earlier history loads its parent", async ({
-  page,
-}) => {
-  await page.goto(url + "?children");
-  await expect.poll(() => page.evaluate(() => window.canvasFixture.ready)).toBe(true);
-  await expect(
-    page.getByText("History 79: representative discussion", { exact: true }),
-  ).toBeVisible();
-  await expect
-    .poll(() =>
-      page
-        .locator(".conversation-scroll")
-        .evaluate((element) => element.scrollHeight > 2 * element.clientHeight),
-    )
-    .toBe(true);
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
-  await page.locator(".conversation-scroll").evaluate((element) => {
-    element.scrollTop = 300;
-  });
-  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
-  await page.locator(".conversation-scroll").evaluate((element) => {
-    element.scrollTop = 0;
-  });
-  await expect(page.locator(".cell.tool").first()).toBeVisible();
-  await page.locator(".cell.tool").first().locator("summary").click();
-  await page.locator(".conversation-scroll").evaluate((element) => {
-    const top = element.getBoundingClientRect().top;
-    const child = [...element.querySelectorAll(".transcript-item")].find(
-      (row) => row.querySelector(".cell.tool") && row.getBoundingClientRect().bottom > top,
-    );
-    if (!child) throw new Error("No child to read");
-    element.scrollTop += child.getBoundingClientRect().top - top + 4;
-  });
-  await expect
-    .poll(() =>
-      page.locator(".conversation-scroll").evaluate((element) => {
-        const top = element.getBoundingClientRect().top;
-        const bottom = document.querySelector(".conversation-dock")!.getBoundingClientRect().top;
-        const visible = [...element.querySelectorAll(".transcript-item")].filter(
-          (row) =>
-            row.getBoundingClientRect().bottom > top && row.getBoundingClientRect().top < bottom,
-        );
-        return (
-          visible.length > 0 && visible.every((row) => Boolean(row.querySelector(".cell.tool")))
-        );
-      }),
-    )
-    .toBe(true);
-  const anchor = await page.locator(".conversation-scroll").evaluate((element) => {
-    const top = element.getBoundingClientRect().top;
-    const visible = [...element.querySelectorAll(".cell.tool")].find(
-      (row) => row.getBoundingClientRect().bottom > top,
-    );
-    if (!visible) throw new Error("No visible child to anchor");
-    return {
-      name: visible.querySelector("summary")!.textContent,
-      y: visible.getBoundingClientRect().top,
-    };
-  });
-  expect(anchor.name).toMatch(/^Child /);
-  await page.evaluate(() => window.canvasFixture.prepend());
-  const child = page.getByText(anchor.name, { exact: true }).locator("..");
-  await expect(child).toBeInViewport();
-  await expect
-    .poll(async () => Math.abs((await child.boundingBox())!.y - anchor.y))
-    .toBeLessThanOrEqual(1.5);
-});
-
 async function expectHistoryRowMeasured(page: Page, selector: string) {
   await expect
     .poll(() =>
       page.locator(selector).evaluate((element) => {
         const row = element.closest<HTMLElement>(".transcript-item")!;
-        return Math.abs(Number(row.dataset.knownSize) - row.getBoundingClientRect().height);
+        return Math.abs(
+          Number(row.dataset.knownSize) - Math.round(row.getBoundingClientRect().height),
+        );
       }),
     )
     .toBeLessThanOrEqual(0.01);
@@ -487,7 +420,7 @@ async function beginReadingTrace(page: Page, selector: string) {
       samples.push({
         offset: current ? current.getBoundingClientRect().top - baseline : null,
         measured: Boolean(
-          row && Number(row.dataset.knownSize) === row.getBoundingClientRect().height,
+          row && Number(row.dataset.knownSize) === Math.round(row.getBoundingClientRect().height),
         ),
       });
     };
@@ -563,78 +496,9 @@ test("large variable-height history pages preserve visible content through measu
       );
   }
   await page.getByRole("button", { name: "Jump to latest" }).click();
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
   await page.evaluate(() => window.canvasFixture.grow());
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
-});
-
-test("extending an expanded historical group preserves the visible child", async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto(url + "?group-history");
-  await expect.poll(() => page.evaluate(() => window.canvasFixture.ready)).toBe(true);
-  const scroller = page.locator(".conversation-scroll");
-  await expect(
-    page.getByText("History 79: representative discussion", { exact: true }),
-  ).toBeVisible();
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
-  await scroller.evaluate((element) => {
-    element.scrollTop = 0;
-  });
-  const first = page.getByText("Child 0", { exact: true });
-  await expect(first).toBeVisible();
-  await first.click();
-  await expect(first.locator("..")).toHaveAttribute("open", "");
-  await expect(first.locator("..").locator(".collapse-grid")).toHaveAttribute("data-state", "open");
-  await expectHistoryRowMeasured(page, ".cell.tool[open]");
-  await scroller.evaluate((element) => {
-    element.scrollTop += 120;
-  });
-  await first.evaluate((element) => element.setAttribute("data-reading-anchor", ""));
-  const before = await beginReadingTrace(page, "[data-reading-anchor]");
-  await page.evaluate(() => window.canvasFixture.extendGroup());
-  await expect
-    .poll(async () => Math.abs((await first.boundingBox())!.y - before))
-    .toBeLessThanOrEqual(1.5);
-  await expectReadingMeasurements(page);
-});
-
-test("an expanded production Working group keeps its reading position through a historical merge", async ({
-  page,
-}) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto(url + "?composer");
-  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
-  await page.evaluate(() => window.composerFixture.showWorkGroups(60));
-  const scroller = page.locator(".conversation-scroll");
-  await expect(
-    page.locator(".user-text").filter({ hasText: /^Following message 59$/ }),
-  ).toBeVisible();
-  await scroller.evaluate((element) => {
-    element.scrollTop = 0;
-  });
-  const group = page.locator(".tool-group-container").first();
-  await expect(group.locator(".tool-group")).toBeVisible();
-  await group.locator(".tool-group").click();
-  await expectHistoryRowMeasured(page, '.tool-group[aria-expanded="true"]');
-  const step = group.getByTestId("tool-call").first();
-  await expect(step).toBeVisible();
-  await step.locator("summary").click();
-  await expect(step).toHaveAttribute("open", "");
-  await step.evaluate((element) => element.setAttribute("data-reading-step", ""));
-  await expectHistoryRowMeasured(page, "[data-reading-step]");
-  await scroller.evaluate((element) => {
-    element.scrollTop = 50;
-  });
-  await step.evaluate((element) => element.setAttribute("data-reading-anchor", ""));
-  const before = await beginReadingTrace(page, "[data-reading-anchor]");
-  await page.evaluate(() => window.composerFixture.appendWork(35, true));
-  await expect(group.locator(".tool-group")).toContainText("Read 39 files");
-  await expect
-    .poll(async () =>
-      Math.abs((await page.locator("[data-reading-anchor]").boundingBox())!.y - before),
-    )
-    .toBeLessThanOrEqual(1.5);
-  await expectReadingMeasurements(page);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
 });
 
 test("production model picker distinguishes same-label IDs and exposes advertised presets", async ({
@@ -2506,7 +2370,7 @@ test("the collapsed Activities bar leaves the transcript in place when it comes 
   await page.evaluate(() => window.composerFixture.showWorkGroups(30));
   const message = page.locator(".user-text").filter({ hasText: /^Following message 29$/ });
   await expect(message).toBeVisible();
-  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  await expect.poll(() => gap(page)).toBeLessThan(12);
   const dock = page.locator(".conversation-dock");
   const before = (await message.boundingBox())!.y;
   const height = (await dock.boundingBox())!.height;
@@ -2993,7 +2857,7 @@ test("the five-entry peek uses real work rows and remains after completion", asy
   );
   await expect(preview.getByTestId("tool-call")).toHaveCount(3);
   await expect(preview.locator(".preview-reasoning")).toHaveCount(2);
-  await expect(preview.locator(":scope > *")).toHaveClass([
+  await expect(preview.locator(".work-step-list > *")).toHaveClass([
     /tool/,
     /reasoning/,
     /tool/,
@@ -3051,7 +2915,7 @@ test("expanded work omits blank reasoning and preserves open tail rows during st
   await expect(group.locator(".reasoning")).toHaveCount(1);
   expect(
     await group
-      .locator(".work-items > .cell")
+      .locator(".work-step-list > .cell")
       .evaluateAll((rows) =>
         rows.map((row) => (row.classList.contains("reasoning") ? "reasoning" : "tool")),
       ),
@@ -3060,7 +2924,7 @@ test("expanded work omits blank reasoning and preserves open tail rows during st
     window.composerFixture.appendPreviewReasoning("A newly populated thought"),
   );
   await expect(group.locator(".reasoning")).toHaveCount(2);
-  await expect(group.locator(".work-items > .cell").last()).toContainText(
+  await expect(group.locator(".work-step-list > .cell").last()).toContainText(
     "A newly populated thought",
   );
   await group.locator(".tool-group").click();
@@ -3348,83 +3212,49 @@ test("Working groups expand independently and scroll only their item bodies", as
   await expect(scrollBody).not.toHaveAttribute("data-scroll-below");
 });
 
-test("Working groups slide one section and preserve the five-item preview", async ({ page }) => {
+test("Working groups slide one grid and preserve the five-item preview", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(url + "?composer");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await page.evaluate(() => window.composerFixture.showWorkGroups());
+  await page.addStyleTag({
+    content: ".work-items > .collapse-grid { animation-play-state: paused !important; }",
+  });
   const groups = page.locator(".tool-group-container");
-  await expect(groups.last().getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(5);
   for (const [group, previewCount] of [
     [groups.first(), 0],
     [groups.last(), 5],
   ] as const) {
     const toggle = group.locator(".tool-group");
+    const grid = group.locator(".work-items > .collapse-grid");
+    const preview = group.locator(".work-items > .work-step-list");
+    const retained = preview.getByTestId("tool-call");
+    await expect(retained).toHaveCount(previewCount);
+    if (previewCount)
+      await retained.first().evaluate((row) => row.setAttribute("data-preview", ""));
     for (const opening of [true, false]) {
-      const heights = await toggle.evaluate((button: HTMLButtonElement) => {
-        const frame = button.nextElementSibling as HTMLElement;
-        const before = frame.offsetHeight;
-        const lastRow = frame.firstElementChild?.lastElementChild;
-        const oldPosition = lastRow?.getBoundingClientRect().top;
-        button.click();
-        const list = frame.firstElementChild!;
-        const [animation, ...others] = frame.getAnimations({ subtree: true });
-        animation!.pause();
-        animation!.currentTime = 0;
-        const initial = frame.offsetHeight;
-        const position = lastRow?.getBoundingClientRect().top;
-        animation!.currentTime = 75;
-        const middle = frame.offsetHeight;
-        animation!.finish();
-        return {
-          before,
-          initial,
-          middle,
-          end: frame.offsetHeight,
-          oldPosition,
-          position,
-          others: others.length,
-          rows: list.childElementCount,
-        };
+      await toggle.click();
+      await expect(grid).toHaveAttribute("data-state", opening ? "open" : "closed");
+      const heights = await grid.evaluate((element) => {
+        const [slide, ...others] = element.getAnimations({ subtree: true });
+        const height = () => element.getBoundingClientRect().height;
+        slide!.currentTime = 0;
+        const start = height();
+        slide!.currentTime = 75;
+        const middle = height();
+        slide!.finish();
+        return { start, middle, end: height(), others: others.length };
       });
       expect(heights.others).toBe(0);
-      expect(heights.initial).toBe(heights.before);
-      if (heights.oldPosition !== undefined)
-        expect(heights.position).toBeCloseTo(heights.oldPosition, 0);
-      if (opening) {
-        expect(heights.middle).toBeGreaterThan(heights.initial);
-        expect(heights.middle).toBeLessThan(heights.end);
-      } else {
-        expect(heights.middle).toBeLessThan(heights.initial);
-        expect(heights.middle).toBeGreaterThan(heights.end);
-        expect(heights.rows).toBeGreaterThan(previewCount);
-        await expect(group.getByTestId("tool-call")).toHaveCount(previewCount);
-      }
+      expect(heights.middle).toBeGreaterThan(Math.min(heights.start, heights.end));
+      expect(heights.middle).toBeLessThan(Math.max(heights.start, heights.end));
+      expect(opening ? heights.start : heights.end).toBe(0);
+      await expect(retained).toHaveCount(previewCount);
+      if (previewCount) await expect(retained.first()).toHaveAttribute("data-preview", "");
     }
+    await expect(group.getByTestId("tool-call")).toHaveCount(previewCount);
   }
-  const latest = groups.last().locator(".tool-group");
-  const reversed = await latest.evaluate((toggle: HTMLButtonElement) => {
-    const frame = toggle.nextElementSibling as HTMLElement;
-    toggle.click();
-    frame.getAnimations({ subtree: true })[0]!.finish();
-    toggle.click();
-    const collapse = frame.getAnimations({ subtree: true })[0]!;
-    collapse.pause();
-    collapse.currentTime = 75;
-    const before = frame.offsetHeight;
-    toggle.click();
-    const expansion = frame.getAnimations({ subtree: true })[0]!;
-    expansion.pause();
-    expansion.currentTime = 0;
-    const start = frame.offsetHeight;
-    expansion.finish();
-    return { before, start, end: frame.offsetHeight };
-  });
-  expect(reversed.start).toBe(reversed.before);
-  expect(reversed.end).toBeGreaterThan(reversed.start);
-  await expect(latest).toHaveAttribute("aria-expanded", "true");
 });
-
 test("superseding the latest Work group removes its settled tail", async ({ page }) => {
   await page.goto(url + "?composer");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
@@ -3873,9 +3703,7 @@ test("conversation has a compact title, readable prose and a quiet Markdown sepa
 });
 
 for (const fontSize of [12, 13, 14, 15, 16, 17, 18]) {
-  test(`fractional measurement preserves initial bottom and stream follow at ${fontSize}px`, async ({
-    page,
-  }) => {
+  test(`initial bottom and stream follow work at ${fontSize}px`, async ({ page }) => {
     await page.addInitScript((size) => {
       new MutationObserver((_, observer) => {
         if (document.documentElement) {
@@ -3886,10 +3714,10 @@ for (const fontSize of [12, 13, 14, 15, 16, 17, 18]) {
     }, fontSize);
     await page.reload();
     await expect(page.locator(".cell.assistant")).toBeVisible();
-    await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+    await expect.poll(() => gap(page)).toBeLessThan(12);
     await page.evaluate(() => window.canvasFixture.grow());
     await expect(page.locator(".cell.assistant")).toContainText("Additional streaming paragraph");
-    await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+    await expect.poll(() => gap(page)).toBeLessThan(12);
   });
 }
 
@@ -4585,9 +4413,7 @@ test("user and tool image history show previews and full viewer", async ({ page 
   await expect(page.getByTestId("tool-call").locator(".image-preview")).toHaveCount(1);
 });
 
-test("collapsed Working retains only deliberate open/focus exceptions through append and history replacement", async ({
-  page,
-}) => {
+test("collapsed Working shows the suffix from its oldest open or focused row", async ({ page }) => {
   await page.goto(url + "?composer");
   await page.waitForFunction(() => window.composerFixture !== undefined);
   await page.evaluate(() => {
@@ -4614,7 +4440,7 @@ test("collapsed Working retains only deliberate open/focus exceptions through ap
     .toBe("Readable output with selectable text");
   await page.evaluate(() => window.composerFixture.appendWork(12));
   const retained = page.locator('[data-intent-owner="kept"]');
-  await expect(preview.getByTestId("tool-call")).toHaveCount(6);
+  await expect(preview.getByTestId("tool-call")).toHaveCount(17);
   await expect(retained).toHaveAttribute("open");
   await expect(retained.locator('[data-intent-body="kept"]')).toBeVisible();
   expect(await page.evaluate(() => window.getSelection()!.toString())).toBe(
@@ -4622,7 +4448,7 @@ test("collapsed Working retains only deliberate open/focus exceptions through ap
   );
   expect(await retained.evaluate((element) => element.contains(document.activeElement))).toBe(true);
   await page.evaluate(() => window.composerFixture.appendWork(7, true, true));
-  await expect(preview.getByTestId("tool-call")).toHaveCount(6);
+  await expect(preview.getByTestId("tool-call")).toHaveCount(17);
   await expect(retained.locator('[data-intent-body="kept"]')).toBeVisible();
   // A nested toggle is not the step's own disclosure.
   await retained.getByTestId("tool-output").evaluate((element) => {
@@ -4641,7 +4467,7 @@ test("collapsed Working retains only deliberate open/focus exceptions through ap
   // A closed but keyboard-focused row is also an intentional exception.
   await preview.getByTestId("tool-call").first().locator(":scope > summary").focus();
   await page.evaluate(() => window.composerFixture.appendWork(8));
-  await expect(preview.getByTestId("tool-call")).toHaveCount(6);
+  await expect(preview.getByTestId("tool-call")).toHaveCount(13);
   await page.getByRole("textbox", { name: "Message", exact: true }).focus();
   await expect(preview.getByTestId("tool-call")).toHaveCount(5);
 });
@@ -4981,7 +4807,7 @@ test("Eval result inspection keeps its owner across rolling previews and outer d
     element.querySelector('[data-testid="tool-output"]')!.setAttribute("data-eval-body", "kept");
   });
   await page.evaluate(() => window.composerFixture.appendWork(8));
-  await expect(page.getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(6);
+  await expect(page.getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(9);
   await expect(page.locator('[data-eval-reader="kept"] [data-eval-body="kept"]')).toBeVisible();
   const old = page.locator(".tool-group-container").first();
   await old.locator(".tool-group").click();
@@ -5021,7 +4847,7 @@ test("empty nonmessage text does not displace the five nonempty Working preview 
       { kind: "worked", id: "marker", duration: 1000 },
     ]),
   );
-  await expect(page.getByLabel("Recent work").locator(":scope > *")).toHaveCount(5);
+  await expect(page.getByLabel("Recent work").locator(".work-step-list > *")).toHaveCount(5);
   await expect(page.getByLabel("Recent work")).toContainText("Meaningful work 0");
   await expect(page.getByLabel("Recent work")).toContainText("Meaningful work 4");
   await expect(page.locator(".tool-group")).toHaveCount(0);

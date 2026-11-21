@@ -42,7 +42,6 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { flushSync } from "react-dom";
 import {
   createMemoryRouter,
   Form,
@@ -97,6 +96,7 @@ import {
   IconButton,
   PopoverControl,
   Confirmation,
+  CollapseGrid,
   Disclosure,
   Tabs,
 } from "./ui.tsx";
@@ -1177,12 +1177,10 @@ export function createDesktopRouter(
 
   function WorkItems({
     steps,
-    label,
     onIntent,
   }: {
     steps: TranscriptStep[];
-    label: string;
-    onIntent: ((key: string, retained: boolean) => void) | undefined;
+    onIntent?: (key: string, retained: boolean) => void;
   }) {
     const retain = (
       owner: HTMLElement,
@@ -1204,10 +1202,9 @@ export function createDesktopRouter(
     };
     return (
       <div
-        className="work-items"
-        aria-label={label}
+        className="work-step-list"
         ref={(owner) => {
-          if (!owner) return;
+          if (!owner || !onIntent) return;
           // Native capture observes the step's own toggle, not nested details.
           const toggle = (event: Event) => {
             if (event.target) retain(owner, event.target, true);
@@ -1334,65 +1331,18 @@ export function createDesktopRouter(
       </span>
     );
     const steps = row.steps.filter(hasWorkContent);
-    const preview = latest
-      ? steps.filter((step, index) => index >= steps.length - 5 || retained.has(step.key))
-      : [];
-    const shown = open ? steps : preview;
+    const previewStart =
+      latest && steps.length
+        ? steps.findIndex((step, index) => index >= steps.length - 5 || retained.has(step.key))
+        : steps.length;
     return (
       <div className="cell tool-group-container">
-        {open || steps.length > (latest ? 5 : 0) ? (
+        {open || previewStart > 0 ? (
           <button
             type="button"
             className="tool-group work-group-title"
             aria-expanded={open}
-            onClick={(event) => {
-              const frame = event.currentTarget.nextElementSibling!;
-              const running = frame.firstElementChild?.getAnimations()[0];
-              const next = !open || running?.id === "work-collapse";
-              // A single sliding section works when the preview is the suffix.
-              // An older pinned row keeps its position and can leave gaps in that suffix.
-              const firstPreviewIndex = steps.length - preview.length;
-              if (
-                window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
-                preview.some((step, index) => step !== steps[firstPreviewIndex + index])
-              ) {
-                running?.cancel();
-                setOpen(next);
-                return;
-              }
-              const interrupted = running
-                ? getComputedStyle(frame.firstElementChild).marginBlockStart
-                : undefined;
-              running?.cancel();
-              if (next) flushSync(() => setOpen(true));
-              const list = frame.firstElementChild as HTMLElement;
-              const normal = parseFloat(getComputedStyle(list).marginBlockStart);
-              const firstPreview = list.children[firstPreviewIndex];
-              const hidden = firstPreview
-                ? firstPreview.getBoundingClientRect().top -
-                  list.firstElementChild!.getBoundingClientRect().top
-                : list.offsetHeight + normal;
-              const folded = normal - hidden + "px";
-              const expanded = normal + "px";
-              const motion = list.animate(
-                {
-                  marginBlockStart: [
-                    interrupted ?? (next ? folded : expanded),
-                    next ? expanded : folded,
-                  ],
-                },
-                {
-                  id: next ? "work-expand" : "work-collapse",
-                  duration: 150,
-                  easing: "ease-out",
-                  fill: "forwards",
-                },
-              );
-              motion.onfinish = () => {
-                if (!next) flushSync(() => setOpen(false));
-                motion.cancel();
-              };
-            }}
+            onClick={() => setOpen(!open)}
           >
             <ChevronRight aria-hidden="true" size={14} className="disclosure-chevron" />
             {title}
@@ -1400,13 +1350,17 @@ export function createDesktopRouter(
         ) : (
           <div className="work-group-title">{title}</div>
         )}
-        <div className="work-items-frame">
-          {shown.length > 0 && (
-            <WorkItems
-              steps={shown}
-              label={open ? "Work details" : "Recent work"}
-              onIntent={latest ? retain : undefined}
-            />
+        <div
+          className="work-items"
+          aria-label={
+            open ? "Work details" : previewStart < steps.length ? "Recent work" : undefined
+          }
+        >
+          <CollapseGrid open={open} unmountOnExit>
+            <WorkItems steps={steps.slice(0, previewStart)} />
+          </CollapseGrid>
+          {previewStart < steps.length && (
+            <WorkItems steps={steps.slice(previewStart)} onIntent={retain} />
           )}
         </div>
       </div>

@@ -586,11 +586,11 @@ Streaming assistant articles expose busy state without appending a terminal-styl
 cursor rectangle below their Markdown; existing running/Stop controls remain.
 Earlier groups collapse to a summary when output or a newer group supersedes
 them. Groups start collapsed and collapse when work finishes. Only the latest
-collapsed group shows the last five nonempty entries plus intentionally opened
-or keyboard-focused entries, in chronological order. The same keyed list shows
-all entries when expanded, preserving an open preview row as new entries
-arrive. Empty textual rows are omitted; image-bearing and meaningful tool/shell
-rows remain.
+collapsed group shows the last five nonempty entries. An open or keyboard-focused
+preview row keeps itself and every newer row visible until it closes and loses
+focus. The shared CSS grid disclosure slides in the rows before that preview.
+Preview rows stay mounted as new entries arrive and as the group opens or closes.
+Empty textual rows are omitted; image-bearing and meaningful tool/shell rows remain.
 
 The active summary shows Working for X s from the locally observed group start.
 A running turn shows a plain Working row before its first agent output.
@@ -707,24 +707,19 @@ Settings, providers, connections, startup and route errors consume the
 same controls and tokens. The playground consumes those production recipes while
 its sample conversation/host state remains isolated.
 
-The conversation canvas owns one full-height scroll parent. A floating dock holds
+Virtuoso provides the conversation scroll viewport. A floating dock holds
 bounded approvals and the composer. Activities overlay the dock with a top divider
 and a small fixed transcript clearance. Optional last-turn statistics sit below
 the composer. Keyboard hints live in settings, and no redundant Ready/Working
-status label is shown. A measured footer keeps the last transcript content clear
-of the dock. Measured items contain their margins.
-The virtualizer opens at the latest edge, follows while at bottom, and pauses when
-the reader scrolls away. Three dots return to latest only during a running turn;
+status label is shown. A measured footer lets readers scroll the last message
+clear of the dock after the composer or approval area grows. Measured items
+contain their margins.
+Virtuoso opens at the latest edge, follows output at the bottom, and pauses
+when the reader scrolls away. Three dots return to latest during a running turn;
 their visibility does not change dock geometry. Earlier-history prepend uses
-Virtuoso's logical `firstItemIndex` to keep measured row identities aligned rather
-than jumping to a new index against old sizes. Same-key work-group prefix growth
-captures a surviving visible child through Virtuoso's typed `components.Item`
-boundary and reconciles when that item's measured-size prop matches its height.
-There is no shared pending-anchor handoff or aggregate-height acknowledgement.
-The transcript scroller applies the displacement because the Work list has no
-separate scroll surface. Details expansion decides bottom-follow from actual scroll geometry rather than a delayed presentation notification, then
-arms Virtuoso's native `autoscrollToBottom` instead of scheduling its own
-post-measurement jump.
+stable row keys and Virtuoso's `firstItemIndex`. Work groups use the transcript
+scroll surface. In-place resize anchoring follows Virtuoso's behavior, including
+when a disclosure slides or earlier history joins an existing group.
 Desktop-local row identities are
 projected at presentation publication, preserving streaming blocks through durable
 commit; the server and shared reducer continue to own canonical transcript facts.
@@ -752,13 +747,10 @@ Direct + code (`hybrid`) is the shared server composition default for new
 conversations; explicitly configured choices override it.
 
 Conversation headers sit above the scroll viewport and show a compact single title without a workspace subtitle;
-full folder paths remain available on project and conversation hover. The compact
-composer uses a short fade above the dock, keeping the lower dock covered
-by the canvas background. Markdown
+full folder paths remain available on project and conversation hover. Markdown
 separators use the neutral line token and tight margins. Heading sizes scale with
-conversation text; compact tool/reasoning text keeps its existing sizing. The
-virtualizer uses fractional bounding-rectangle heights rather than default rounded
-measurements, preserving bottom-follow across supported text sizes.
+conversation text; compact tool/reasoning text keeps its existing sizing.
+Virtuoso uses its default rounded row heights and a 12-pixel bottom threshold.
 
 Linux uses WebKit's default rendering policy. The experimental
 `PreferPageRenderingUpdatesNear60FPS` override was removed after isolated samples

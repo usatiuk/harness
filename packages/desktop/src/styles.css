@@ -863,9 +863,8 @@ main {
   font-size: 12px;
   line-height: 1.65;
 }
-.work-items-frame {
-  display: flow-root;
-  overflow: clip;
+.work-items:empty {
+  display: none;
 }
 .work-items p {
   margin-block: 4px;
@@ -873,7 +872,7 @@ main {
 .work-items p + p {
   margin-top: 4px;
 }
-.work-items > .cell {
+.work-step-list > .cell {
   width: 100%;
   margin: 0;
   padding: 0;
