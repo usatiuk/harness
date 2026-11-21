@@ -80,6 +80,12 @@ describe.runIf(process.env.HARNESS_NATIVE_INTEGRATION === "1")(
       expect(await readonly.stat("sample.bin")).toBeUndefined();
     }, 15_000);
 
+    it.runIf(process.platform === "darwin")("allows standard PTY allocation", async () => {
+      expect(
+        await command(readonly, "/usr/bin/script -q /dev/null /usr/bin/printf 'pty ready'"),
+      ).toContain("pty ready");
+    });
+
     it("shares scratch between shell commands and file tools in a read-only workspace", async () => {
       scratch = await command(
         readonly,

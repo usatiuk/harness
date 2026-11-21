@@ -143,7 +143,9 @@ and shared scratch. The server sets `TMPDIR`, `TMP`, and `TEMP` to its scratch
 directory. A restart creates a fresh directory. Networking defaults to outbound
 access, with inbound connections and host loopback blocked. Set `native.network`
 to `false` to block outbound IP traffic. Filesystem permissions govern access to
-local Unix sockets.
+local Unix sockets. On macOS, the native backend leaves standard device access
+to Seatbelt and grants the system DNS and Bonjour socket when outbound
+networking is enabled.
 
 #### Native sandbox prerequisites
 

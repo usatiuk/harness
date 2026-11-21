@@ -101,14 +101,10 @@ export async function nativeSandboxAvailable(host = detectNativeSandboxHost()): 
 function readonlyHostPaths(): string[] {
   if (windows)
     return Array.from("ABCDEFGHIJKLMNOPQRSTUVWXYZ", (drive) => drive + ":\\").filter(existsSync);
-  if (process.platform !== "linux") return ["/"];
-  // Binding / itself would cover MXC's synthetic /dev, /proc and /tmp.
+  // Keep MXC's own device policy. On Linux a root bind also hides private mounts.
+  const privateMounts = process.platform === "linux" ? ["dev", "proc", "run", "tmp"] : ["dev"];
   return readdirSync("/", { withFileTypes: true }).flatMap((entry) => {
-    if (
-      (!entry.isDirectory() && !entry.isFile()) ||
-      ["dev", "proc", "run", "tmp"].includes(entry.name)
-    )
-      return [];
+    if ((!entry.isDirectory() && !entry.isFile()) || privateMounts.includes(entry.name)) return [];
     const path = "/" + entry.name;
     try {
       accessSync(path, constants.R_OK);
@@ -215,10 +211,16 @@ export class NativeExecutionContext implements ExecutionContext {
     const env = this.unconfined.commandShell?.env ?? process.env;
     const tmp = temporaryDirectory();
     const writable = [tmp];
+    // The macOS system resolver connects to this Unix socket for DNS.
+    if (process.platform === "darwin" && this.config.network)
+      writable.push("/var/run/mDNSResponder");
     if (this.workspaceRoot && this.config.workspaceWrite) writable.push(this.workspaceRoot);
     if (this.#gitDirectory) writable.push(this.#gitDirectory);
-    const readonlyPaths = new Set((this.#readonlyPaths ??= readonlyHostPaths()));
-    if (this.workspaceRoot && !this.config.workspaceWrite) readonlyPaths.add(this.workspaceRoot);
+    const readonlyPaths = new Set(
+      writable.includes("/") ? [] : (this.#readonlyPaths ??= readonlyHostPaths()),
+    );
+    if (this.workspaceRoot && this.workspaceRoot !== "/" && !this.config.workspaceWrite)
+      readonlyPaths.add(this.workspaceRoot);
     for (const path of writable) readonlyPaths.delete(path);
     return {
       containment: { type: "process" },

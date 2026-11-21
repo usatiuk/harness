@@ -130,7 +130,19 @@ export async function discoverUserShellEnvironment(
   const capture = `${quoteShell(process.execPath)} --input-type=commonjs -e ${quoteShell(
     `require("node:fs").writeFileSync(1, ${JSON.stringify(SHELL_EXPORT_MARKER)} + Object.entries(process.env).map(([k,v]) => k + "=" + v + "\\0").join(""))`,
   )}`;
-  const child = spawn(selected.executable, ["-ilc", shellExportScript(selected.kind, capture)], {
+  // Apple Bash closes descriptors 3 through 19 at interactive login. Move the
+  // inherited pipe before login; the noninteractive wrapper ignores BASH_ENV.
+  const appleBash = process.platform === "darwin" && selected.kind === "bash";
+  const script = shellExportScript(selected.kind, capture);
+  const args = appleBash
+    ? [
+        "-pc",
+        'exec 20>&3 3>&-; exec "$0" -ilc "$1"',
+        selected.executable,
+        "exec 3>&20 20>&-\n" + script,
+      ]
+    : ["-ilc", script];
+  const child = spawn(selected.executable, args, {
     env: {
       ...selected.env,
       ...(inherited["BASH_ENV"] === undefined ? {} : { BASH_ENV: inherited["BASH_ENV"] }),

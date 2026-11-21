@@ -146,10 +146,21 @@ install on the execution host or how to choose network-off.
 - The reusable native integration suite now verifies host IPv4 loopback
   isolation with networking both enabled and disabled using a reachable test
   listener on the host. It passed in Windows and bundled WSL runs.
-- Native Linux outside WSL and macOS have no live test results for this change.
-  macOS uses the same MXC request through Seatbelt, and MXC 1.1.0 includes the
-  Apple silicon runner and native library. The policy was checked against the
-  [pinned Seatbelt documentation](https://github.com/microsoft/mxc/blob/v1.1.0/docs/backends/seatbelt/seatbelt-backend.md).
+- Apple silicon macOS 27.2.1 with Node 26.13.0 and MXC 1.1.0 passed real
+  Seatbelt tests for Bash and zsh startup, file confinement, linked Git commits,
+  shared scratch, PTYs, loopback denial, and cancellation. File workers now use
+  shared file operations without account lookup. Host read-only grants leave
+  standard devices to Seatbelt. Apple Bash retains the private export pipe
+  through interactive login, including when the profile redirects stdout.
+  With `HARNESS_NATIVE_INTEGRATION=1`, the full `npm run check -- --maxWorkers=2`
+  passed typecheck, lint, formatting, and 2,138 tests, with 83 skipped.
+- The macOS development server bundle selected Native and completed an RPC
+  turn using Apple Bash. The bundled MXC adapter and file worker passed binary
+  I/O, inbound listener denial, and fresh scratch in a second process.
+  The system resolver socket grant enabled DNS and verified HTTPS to the npm
+  registry. With networking off, both name resolution and a connection to the
+  same endpoint using a host-resolved IP were denied.
+- Native Linux outside WSL has no live result for this change.
 
 ### 1. Qualify locally
 

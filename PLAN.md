@@ -770,7 +770,7 @@ invocations remain opt-in qualification.
        in the delivery plan.
 4. [x] [Migrate native sandboxing to MXC](docs/plans/execution/2026-11-21-mxc-native-sandbox.md)
        across Linux, macOS, and Windows, including native file operations.
-       Local qualification passed on Windows and WSL.
+       Local qualification passed on Windows, WSL, and Apple silicon macOS.
 5. [ ] Reassess product ergonomics and diagnostic export in the shipped clients.
 6. [x] Establish the transport-agnostic client/server boundary before adding a
        second UI client.

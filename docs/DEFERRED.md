@@ -39,29 +39,6 @@ follow-up does not change that dependency. Reopen with a compatible Tauri/GTK
 dependency-stack upgrade and native desktop qualification, rather than forcing
 an incompatible transitive major version into this scoped release.
 
-## macOS check failures outside the validated Ubuntu evidence
-
-`npm run check -- --maxWorkers=2` fails 31 tests across 14 files on macOS
-(v0.1.21 tree at `2bdebaa`), identically with and without unrelated local
-changes. A clean-tree comparison on the same machine reproduced the exact same
-failing files: server startup/provider integration, server process and app API,
-sandbox docker-sharing and devcontainer, code-mode QuickJS runaway bounds,
-connections captured-runtime execution, worktrees git, and service
-workspace-switch. Documented passing evidence in `TESTING.md` is Ubuntu with
-Node 24.21.0; the suite is not currently qualified on macOS.
-
-Consequence: full local validation is not green on macOS, so changes there need
-targeted test evidence plus a clean-tree comparison to separate pre-existing
-failures from regressions. Reopen when qualifying the suite on macOS — likely
-candidates to investigate are platform-dependent runtime capture, Docker
-availability, and timing bounds.
-
-The [CI recovery](plans/process/2026-10-16-ci-and-local-test-recovery.md) corrects
-shared fixture path aliases, isolated OAuth project discovery, captured-runtime
-relocation and QuickJS per-microtask scheduler overhead. Local Linux evidence is
-tracked there; the historical macOS failure count requires a fresh native run
-before it can be retired or narrowed.
-
 ## Desktop updates after backend startup failure
 
 Desktop updates currently live in Settings, which is unavailable when initial

@@ -434,9 +434,9 @@ The [Node 24 refresh](plans/cross-cutting/2026-10-11-node24-dependencies.md) pas
 `npm run dev -- --help`, `npm run prepare:remote`, and the desktop frontend build
 also pass. Final `npm audit` reports zero vulnerabilities. These checks do not
 qualify native desktop UI, signed release installation/updates, or live providers.
-The same `npm run check` invocation is not green on macOS; the pre-existing
-failures are tracked in
-[deferred work](DEFERRED.md#macos-check-failures-outside-the-validated-ubuntu-evidence).
+The older v0.1.21 tree failed 31 tests across 14 files on macOS. The current
+macOS result is recorded in the
+[MXC migration qualification](plans/execution/2026-11-21-mxc-native-sandbox.md#qualification-evidence).
 
 The Zod 4.6.5 bump fails the MCP RPC malformed-settings assertion; both cases
 pass against the original dependency lockfile, and retaining Zod 4.4.3 restores
@@ -2026,7 +2026,9 @@ by the boundary actually exercised:
 
 Run `HARNESS_NATIVE_INTEGRATION=1 npx vitest run packages/sandbox/src/native.integration.test.ts`
 on an MXC-capable host to exercise shell startup, shared scratch, binary file
-operations, host loopback isolation, and cancellation. The loopback case needs
+operations, host loopback isolation, cancellation, and PTY allocation on macOS.
+Run the same command with `packages/sandbox/src/worktrees.integration.test.ts`
+to exercise linked Git worktrees. The loopback case needs
 the native outbound-network prerequisites and uses a local fixture. In
 PowerShell, set `$env:HARNESS_NATIVE_INTEGRATION = '1'`
 before running Vitest. See the [native prerequisites](subsystems/execution/README.md#native-sandbox-prerequisites).

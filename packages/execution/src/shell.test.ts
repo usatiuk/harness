@@ -69,6 +69,7 @@ describe.skipIf(process.platform === "win32")("target-user startup exports", () 
           'echo invocation >> "$HOME/rc-invocations"',
           "case $- in *i*) ;; *) return;; esac",
           "echo startup-noise; echo startup-warning >&2",
+          'exec > "$HOME/startup.log"',
           'echo run >> "$HOME/rc-count"',
           'export EXACT_EXPORT="line one\nline two=value"',
           'alias startup_alias="echo should-not-persist"',
@@ -137,7 +138,7 @@ describe.skipIf(process.platform === "win32")("target-user startup exports", () 
         join(home, ".bash_profile"),
         [
           'echo $$ > "$HOME/startup-pid"',
-          `${quoteShell(process.execPath)} -e ${quoteShell("process.stdout.write(Buffer.alloc(1024 * 1024 + 1))")} >&3`,
+          `${quoteShell(process.execPath)} -e ${quoteShell("process.stdout.write(Buffer.alloc(1024 * 1024 + 1))")} >&${process.platform === "darwin" ? 20 : 3}`,
           "wait",
         ].join("\n"),
       );

@@ -1,5 +1,5 @@
 import { buffer } from "node:stream/consumers";
-import { LocalExecutionContext } from "@harness/execution";
+import { LocalFileOperations } from "@harness/execution";
 import type { ByteRange } from "@harness/protocol";
 
 export type FileOperation =
@@ -15,7 +15,7 @@ try {
     operation: FileOperation;
     workspace: boolean;
   };
-  const io = new LocalExecutionContext(workspace ? process.cwd() : null);
+  const io = new LocalFileOperations(workspace ? process.cwd() : null);
   switch (operation.kind) {
     case "read":
       process.stdout.write(await io.read(operation.path, operation.range));

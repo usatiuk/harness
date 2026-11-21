@@ -31,22 +31,9 @@ function callPath(call: ToolCall): string | undefined {
   return undefined;
 }
 
-/**
- * Local IO with NO path enforcement — it can read and write anywhere. In v0 it is
- * the substrate seam and supplies `classify` for approval to gate; a real OS sandbox
- * adds enforcement behind the same interface. Commands run with `cwd = workspaceRoot`.
- */
-export class LocalExecutionContext implements ExecutionContext {
-  readonly shellKind: ShellKind;
-
-  constructor(
-    readonly workspaceRoot: string | null,
-    readonly commandShell: UserShellEnvironment | undefined = process.platform === "win32"
-      ? undefined
-      : selectUserShell(),
-  ) {
-    this.shellKind = commandShell?.kind ?? "powershell";
-  }
+/** Filesystem operations use the calling process's permissions. */
+export class LocalFileOperations {
+  constructor(readonly workspaceRoot: string | null) {}
 
   async prepare(): Promise<void> {
     if (this.workspaceRoot && !(await fsStat(this.workspaceRoot)).isDirectory())
@@ -121,6 +108,25 @@ export class LocalExecutionContext implements ExecutionContext {
     return matchGlob(paths, pattern);
   }
 
+  #resolve(path: string): string {
+    return resolve(this.workspaceRoot ?? process.cwd(), path);
+  }
+}
+
+/** Host execution with no sandbox. Classification supplies the approval boundary. */
+export class LocalExecutionContext extends LocalFileOperations implements ExecutionContext {
+  readonly shellKind: ShellKind;
+
+  constructor(
+    workspaceRoot: string | null,
+    readonly commandShell: UserShellEnvironment | undefined = process.platform === "win32"
+      ? undefined
+      : selectUserShell(),
+  ) {
+    super(workspaceRoot);
+    this.shellKind = commandShell?.kind ?? "powershell";
+  }
+
   spawn(command: string): SpawnedProcess {
     const cwd = this.workspaceRoot ?? process.cwd();
     const windows = process.platform === "win32";
@@ -173,10 +179,6 @@ export class LocalExecutionContext implements ExecutionContext {
     const rel = relative(root, resolve(root, path));
     const inside = rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
     return inside ? "in-workspace" : "out-of-workspace";
-  }
-
-  #resolve(path: string): string {
-    return resolve(this.workspaceRoot ?? process.cwd(), path);
   }
 }
 
