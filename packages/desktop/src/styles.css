@@ -243,8 +243,7 @@ textarea.input {
   margin: -3px -8px -3px -3px;
   gap: 2px;
 }
-.scroll-shadows,
-.work-scroll-frame::after {
+.scroll-shadows {
   --scroll-shadow-color: color-mix(in srgb, var(--ink) 8%, transparent);
   --scroll-shadow-top: transparent;
   --scroll-shadow-bottom: transparent;
@@ -255,12 +254,10 @@ textarea.input {
   background-position: top, bottom;
   background-repeat: no-repeat;
 }
-.scroll-shadows[data-scroll-above],
-.work-scroll-frame:has(> [data-scroll-above])::after {
+.scroll-shadows[data-scroll-above] {
   --scroll-shadow-top: var(--scroll-shadow-color);
 }
-.scroll-shadows[data-scroll-below],
-.work-scroll-frame:has(> [data-scroll-below])::after {
+.scroll-shadows[data-scroll-below] {
   --scroll-shadow-bottom: var(--scroll-shadow-color);
 }
 .conversation-list a,
@@ -793,26 +790,8 @@ main {
   border-radius: 3px;
 }
 .tool-group-container {
-  max-height: 40vh;
-  overflow: auto;
-  scrollbar-gutter: stable;
   padding: 3px var(--chat-inset);
   font-size: 12px;
-}
-.work-scroll-frame {
-  position: relative;
-  padding: 3px var(--chat-inset);
-}
-.work-scroll-frame > .tool-group-container {
-  padding: 0;
-  background-image: none;
-}
-.work-scroll-frame::after {
-  content: "";
-  position: absolute;
-  inset: 3px var(--chat-inset);
-  z-index: 1;
-  pointer-events: none;
 }
 .cell.tool {
   width: 100%;
@@ -820,26 +799,30 @@ main {
   padding: 3px 0;
   font-size: 12px;
 }
-.tool-group > summary {
-  padding: 3px 0;
-}
-.tool-group > .collapse-grid > .collapse-body,
-.work-tail > .collapse-body {
-  min-width: 0;
-  overflow: clip;
-}
-.work-items > .disclosure[open] > summary {
-  position: sticky;
-  /* Overlap the fractional scrollport edge so output cannot bleed above it. */
-  top: -1px;
-  z-index: 1;
-}
-.work-items > .disclosure[open] > summary:not(:hover, :focus-visible) {
-  background: var(--surface-canvas);
+.work-items > .disclosure > .collapse-grid > .collapse-body {
+  max-height: 40vh;
+  overflow: auto;
 }
 .work-group-title {
   padding: 3px 0;
   color: var(--muted-ink);
+}
+.tool-group {
+  -webkit-user-select: none;
+  user-select: none;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.tool-group:hover,
+.tool-group:focus-visible {
+  background: color-mix(in srgb, var(--ink) 4%, var(--surface-canvas));
+}
+.tool-group[aria-expanded="true"] > .disclosure-chevron {
+  transform: rotate(90deg);
 }
 .work-items {
   margin: 2px 0 0 6px;

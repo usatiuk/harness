@@ -43,18 +43,14 @@ interface AnchorState {
 }
 type Anchor = {
   element: HTMLElement;
-  boundaries: { parent: HTMLElement; offset: number }[];
+  parent: HTMLElement;
+  offset: number;
 };
-function restoreAnchor(anchor: Anchor): void {
-  if (!anchor.element.isConnected) return;
-  // The inner group consumes only its available scroll range; the page absorbs
-  // the remainder when the group grows below or across its height cap.
-  for (const { parent, offset } of anchor.boundaries) {
-    const viewport = parent.getBoundingClientRect();
-    const scale = viewport.height / parent.offsetHeight;
-    parent.scrollTop +=
-      (anchor.element.getBoundingClientRect().top - viewport.top) / scale - offset;
-  }
+function restoreAnchor({ element, parent, offset }: Anchor): void {
+  if (!element.isConnected) return;
+  const viewport = parent.getBoundingClientRect();
+  const scale = viewport.height / parent.offsetHeight;
+  parent.scrollTop += (element.getBoundingClientRect().top - viewport.top) / scale - offset;
 }
 
 /** Keep Virtuoso's measured row identities aligned when history is prepended. */
@@ -90,30 +86,19 @@ class HistoryRowAnchor extends Component<RowAnchorProps> {
     const next = this.props.item;
     if (first.kind !== "steps" || next.kind !== "steps" || first.steps[0].key === next.steps[0].key)
       return null;
-    const viewport = this.props.context.scrollParent.getBoundingClientRect();
+    const parent = this.props.context.scrollParent;
+    const viewport = parent.getBoundingClientRect();
     const dockTop = this.props.context.dock.current?.getBoundingClientRect().top ?? viewport.bottom;
     for (const element of this.element.current!.querySelectorAll<HTMLElement>(
       ".work-items > *, .cell.tool",
     )) {
       if (element.closest("[inert]")) continue;
-      const parent =
-        element.closest<HTMLElement>(".tool-group-container") ?? this.props.context.scrollParent;
-      const clip = parent.getBoundingClientRect();
       const rect = element.getBoundingClientRect();
-      const top = Math.max(viewport.top, clip.top);
-      const bottom = Math.min(viewport.bottom, dockTop, clip.bottom);
-      if (rect.height > 0 && rect.bottom > top && rect.top < bottom) {
-        const parents =
-          parent === this.props.context.scrollParent
-            ? [parent]
-            : [parent, this.props.context.scrollParent];
+      if (rect.height > 0 && rect.bottom > viewport.top && rect.top < dockTop) {
         return {
           element,
-          boundaries: parents.map((parent) => {
-            const clip = parent.getBoundingClientRect();
-            const scale = clip.height / parent.offsetHeight;
-            return { parent, offset: (rect.top - clip.top) / scale };
-          }),
+          parent,
+          offset: (rect.top - viewport.top) / (viewport.height / parent.offsetHeight),
         };
       }
     }
@@ -205,11 +190,14 @@ export function ConversationCanvas({
         ref={setScrollParent}
         onClickCapture={(event) => {
           const summary = event.target instanceof Element ? event.target.closest("summary") : null;
+          const workToggle =
+            event.target instanceof Element
+              ? event.target.closest('.tool-group[aria-expanded="false"]')
+              : null;
           if (
-            summary &&
+            (workToggle || (summary && !summary.parentElement!.hasAttribute("open"))) &&
             scrollParent &&
-            scrollParent.scrollHeight - scrollParent.clientHeight - scrollParent.scrollTop <= 4 &&
-            !summary.parentElement!.hasAttribute("open")
+            scrollParent.scrollHeight - scrollParent.clientHeight - scrollParent.scrollTop <= 4
           )
             scroller.current?.autoscrollToBottom();
         }}

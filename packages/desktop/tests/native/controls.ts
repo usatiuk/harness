@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 export async function expandWorkGroup(group: Locator): Promise<void> {
   await expect(group).toBeVisible();
-  const summary = group.locator(".tool-group:not([open]) > summary");
+  const summary = group.locator('.tool-group[aria-expanded="false"]');
   if (await summary.count()) await summary.click();
 }
 

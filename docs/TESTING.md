@@ -223,10 +223,11 @@ in the global compaction threshold plan.
 Live-preview regressions retain recent calls between settled steps and the next
 model response, exclude empty reasoning, interleave new reasoning with calls,
 keep long reasoning bounded, and retain the latest group's peek after terminal
-turn updates. Earlier groups over three entries collapse completely; only the
-latest group uses the five-entry threshold. Outer expansion hides duplicate peek
-content, while individual peek rows expand directly. Transcript timing coverage verifies terminal updates with an
-unchanged cell array and a stable final elapsed label.
+turn updates. Earlier groups collapse completely. Browser checks cover the last
+five visible entries, retention of an opened item as the preview rolls,
+automatic collapse on completion and supersession, and opening multiple groups
+and rows together. Only expanded item bodies scroll at the 40vh cap. Transcript
+timing coverage verifies terminal updates with an unchanged cell array.
 
 Creation defaults are checked through the production browser form and real
 application RPC: model/preset, sandbox and tool mode survive the next form, while
@@ -246,26 +247,19 @@ native keyboard expansion. A 60-second server-clock-skew scenario verifies live
 and completed labels use desktop observation time. Unit cases cover suffix-bearing
 call IDs and preserving a live group’s observed timing when history prepends. Quiet
 active previews are checked with long reasoning exceeding 2,000 characters,
-five-entry tails with mixed reasoning/tool rows, two-line reasoning previews at
-narrow width, tail persistence across expansion, identical reasoning rows in
-tail and expanded details. Character-by-character streaming checks that two lines
-fill before the preview advances exactly one wrapped line, using spaced text and
-emoji. Long unbroken ASCII/emoji cases cover text moving below the label without
-stalling or splitting characters. Other cases cover
-label-only expanded thought summaries, supersede
-folding, no opening animation on virtualized latest-tail restoration or
-superseding an expanded group, fold-at-any-size earlier groups,
-hover/focus highlighting, blank-reasoning chronology, bounded tool widths, and
-reading-anchor preservation on expansion. A DPR 1.25 screenshot comparison
-checks that scrolling output cannot bleed above a sticky header. A separate
-Chromium instance enables native scrollbars and samples row geometry throughout
-expansion to catch horizontal shifts. Streaming growth preserves open row
-details across the tail boundary. Terminal-state peeks remain directly
-inspectable. A representative 100-call run with 1,000-line writes verifies the
-latest collapsed group mounts five tail calls, keeps the hidden 95 unmounted,
-and mounts output and diff DOM only for opened calls. Qualification and
-the baseline-reproduced 12px automatic-history anchor failure are recorded in the
-[Work-group cleanup plan](plans/interface/2026-10-18-desktop-working-group-collapse.md). Vitest covers desktop grouping, nested Eval result ordering, row identity and
+five-entry previews with mixed reasoning/tool rows, two-line reasoning previews
+at narrow width, and preservation of an open row through preview and full-list
+expansion. Character-by-character streaming checks that two lines fill before
+the preview advances exactly one wrapped line, using spaced text and emoji.
+Long unbroken ASCII/emoji cases cover text moving below the label without
+stalling or splitting characters. Other cases cover label-only expanded thought
+summaries, hover/focus highlighting, blank reasoning, bounded tool widths,
+summary counts, and reading-anchor preservation. A representative 100-call run
+with 1,000-line writes verifies the latest collapsed group mounts five calls
+and mounts output and diff DOM only for opened calls. Qualification and the
+baseline-reproduced 12px automatic-history anchor failure are recorded in the
+[Work-group cleanup plan](plans/interface/2026-10-18-desktop-working-group-collapse.md).
+Vitest covers desktop grouping, nested Eval result ordering, row identity and
 subagent commentary delta replacement without changing the final result.
 Automatic-history cases cover prepend anchors, overlapping-request prevention,
 explicit retry after failure, and multipage collapsed history with keyboard

@@ -76,7 +76,7 @@ declare global {
       showLongToolRun(): void;
       showPreviewTools(): void;
       showWorkGroups(followingMessages?: number): void;
-      splitWorkGroup(): void;
+      splitWorkGroup(withNextWork?: boolean): void;
       seedHistory(): void;
       seedLongHistory(): void;
       seedCollapsedHistory(): void;
@@ -1618,7 +1618,7 @@ window.composerFixture = {
     view.transcript.update(cells);
     changed();
   },
-  splitWorkGroup() {
+  splitWorkGroup(withNextWork = true) {
     const cells: Cell[] = [
       ...view.state.cells,
       {
@@ -1628,7 +1628,9 @@ window.composerFixture = {
         text: "Moving on",
         streaming: false,
       },
-      {
+    ];
+    if (withNextWork)
+      cells.push({
         kind: "tool",
         callId: "after-split",
         turnId: "after-split",
@@ -1638,8 +1640,7 @@ window.composerFixture = {
         completedAt: 1,
         status: "ok",
         output: "Next output",
-      },
-    ];
+      });
     view.state = { ...view.state, cells };
     view.transcript.update(cells);
     changed();

@@ -580,51 +580,30 @@ Desktop groups all non-message transcript activity into Work groups: reasoning,
 tools, provider/plugin activity, context, compaction, errors, and local notes or
 shell output. Only actual user and assistant messages/commentary break groups.
 Pending approvals/questions and composer/status controls are separate actionable
-UI, not transcript cells. Failure remains visible in a group's summary; terminal
-duration markers contribute to that summary instead of adding a duplicate row.
+UI, not transcript cells. Terminal duration markers contribute to the group
+summary without adding a duplicate row.
 Streaming assistant articles expose busy state without appending a terminal-style
 cursor rectangle below their Markdown; existing running/Stop controls remain.
-Ordinary earlier groups collapse to a single summary row regardless of size;
-deliberately opened/focused steps remain inspectable across supersession.
-Only the latest group keeps a five-entry peek,
-with an outer disclosure whenever entries are hidden. A latest group with
-nothing hidden shows its rows directly under a plain title. Reasoning
-remains separately collapsed; opening its compact Thought row mounts the full
-smaller muted text. Reasoning rows show Thinking for X s while streaming and Thought for X s
-when locally observed timing is available. The group summary shows Working for X s
-while active, updating once per second from the locally observed group start.
-A running turn shows a plain Working row before its first agent output; the
-first content replaces that waiting indicator without creating history entries.
-Completed live groups show Worked for X s with that local elapsed duration. Historical tool-only
-groups use comparable server timestamps; historical groups containing reasoning
-show Worked without timing. Client and server clocks are never mixed for elapsed
-labels. Each call is counted once. Opening the group shows a flat list of
-compact call rows, with small decorative tool icons at the same left edge as the
-thought chevron and one-line argument previews. Clickable summaries and preview tool rows disable text selection; expanded body
-text remains selectable. Tool chevrons sit on the right;
-only failures show a status prefix after the icon, while awaiting approval remains
-visible. Opening a call retains full arguments, output, diffs and approval facts.
-Eval arguments and results have separate begin/result rows with subtle horizontal
-boundaries. Child calls stay independently visible without opening their parent;
-results follow the last available descendant, including nested Eval calls.
-Desktop rows distinguish messages from nonrecursive, nonempty step groups.
-The latest collapsed group shows a quiet tail of the last five nonempty
-work entries plus explicitly opened or keyboard-focused steps, in chronological
-order, including after completion,
-until a newer group supersedes it; superseding folds the ordinary tail with the
-shared collapse animation while retaining intentional reading exceptions.
-The latest tail appears immediately when a virtualized
-group remounts; restoration does not replay an opening animation. Expanding a
-group adds exactly the hidden entries above the tail without remounting it, so
-only the added rows animate. While expanded, the split stays at the same entry
-as new steps arrive, preserving open tool/thought
-details; closing restores the five-entry tail plus intentional reading exceptions.
-An opened preview step keeps the same keyed DOM owner when it ages out of the
-five; closing and leaving focus releases it. Nested output/diff disclosures do
-not independently register whole-group retention. This is group-local state, not
-a durable disclosure registry or unbounded suffix. Empty textual work rows are
-omitted without dropping image-bearing messages or meaningful tool/shell rows.
-Step rows render identically in the tail and in expanded details. A collapsed
+Earlier groups collapse to a summary when output or a newer group supersedes
+them. Groups start collapsed and collapse when work finishes. Only the latest
+collapsed group shows the last five nonempty entries plus intentionally opened
+or keyboard-focused entries, in chronological order. The same keyed list shows
+all entries when expanded, preserving an open preview row as new entries
+arrive. Empty textual rows are omitted; image-bearing and meaningful tool/shell
+rows remain.
+
+The active summary shows Working for X s from the locally observed group start.
+A running turn shows a plain Working row before its first agent output.
+Completed summaries list successful file reads, edits, and shell calls, for
+example “Read 3 files, edited 3 files, ran 1 command”. Groups without those
+actions use Worked, with elapsed time and tool count when available. Historical
+tool-only timings use comparable server timestamps.
+
+Tool calls and their results use one expandable row. Eval retains separate
+begin/result rows, with child calls shown independently and results following
+the last descendant. Tool rows retain one-line argument previews and full
+arguments, output, diffs, and approval information in the expanded body.
+A collapsed
 reasoning row shows its Thinking/Thought label followed by an inline preview.
 The second line uses the full row width, starting underneath the label. The
 preview fills two lines using the browser's actual wrapping, then advances by a
@@ -637,41 +616,13 @@ indent associate rows with their Work heading. Work paragraphs use 4px spacing;
 compact reasoning previews collapse whitespace while expanded reasoning preserves
 the original Markdown paragraphs.
 
-Native named details allow one open outer Work disclosure and one open inner
-conversation disclosure at a time. `TranscriptDisclosure` owns the inner group
-name by construction for tools, thoughts, plugin messages, context, compaction
-and shell output; callers cannot opt out via a name prop. Existing inner
-exclusivity remains document-global, including side transcripts. Outer Work and
-Activities retain separate groups so opening a child does not close its ancestor.
-Only the outer Work container scrolls, capped
-at 40vh, with a stable scrollbar gutter so expansion cannot shift row widths;
-arguments, outputs and reasoning do not introduce nested scrolling.
-Open tool/thought headers stick to the top of that scroll area with a one-pixel
-overlap to prevent fractional-scale paint gaps, so their collapse controls remain
-reachable. Soft wide oval scroll shadows on Work containers and sidebar navigation indicate
-content above/below and disappear at the corresponding edge. Work shadows use a
-pointer-transparent overlay above the scrolled content so opaque code blocks
-cannot cover them. The shared observer
-updates them on scrolling, viewport resizing and direct-row resizing/replacement,
-including animated disclosure changes. No opaque background covers the native
-sidebar material.
-
-Sidebar and conversation disclosures share a short grid-height/opacity animation,
-with reduced-motion support. Persistent disclosure content stays mounted to
-preserve activity polling lifetimes. Previously lazy call, thought, group and
-project-list bodies opt into Radix Presence, retaining content until the closing
-CSS animation completes. No measured heights or JavaScript animation timers are
-used. Finished-group inspection preserves the reading position; the existing
-virtualizer measurement/follow handling owns transcript alignment. Grouping changes
-presentation only and preserves history anchors when earlier calls merge into a
-visible group. Loading earlier calls into a group can reset its disclosure to
-closed; expansion state is not persisted. Clickable summary rows tint on hover
-and keyboard focus.
-
-Working summaries report activity, duration and tool count, not an aggregated
-failure outcome. Individual tool/shell errors can be normal execution results;
-they do not add a Failed badge, alert or red group styling. Existing per-call
-error results and actual conversation errors retain their own presentation.
+Multiple Work groups and individual rows can stay open. The full list scrolls
+with the conversation. Each expanded item body scrolls at a maximum height of
+40vh, with its clickable summary above the scroll area. Item bodies use the
+shared disclosure animation with reduced-motion support. Collapsed tool and
+thought bodies stay unmounted after the closing animation. Clickable summaries
+tint on hover and keyboard focus. Expansion state is local to the rendered row.
+Individual tool errors retain their own presentation.
 
 Earlier history loads automatically near the top of the transcript through the
 existing bounded history action. A persistent intersection observer loads one page
@@ -771,10 +722,8 @@ than jumping to a new index against old sizes. Same-key work-group prefix growth
 captures a surviving visible child through Virtuoso's typed `components.Item`
 boundary and reconciles when that item's measured-size prop matches its height.
 There is no shared pending-anchor handoff or aggregate-height acknowledgement.
-An inner Working scroller absorbs its
-available displacement first; the page absorbs any remaining displacement below
-or across the group's height cap. Details expansion decides bottom-follow from
-actual scroll geometry rather than a delayed presentation notification, then
+The transcript scroller applies the displacement because the Work list has no
+separate scroll surface. Details expansion decides bottom-follow from actual scroll geometry rather than a delayed presentation notification, then
 arms Virtuoso's native `autoscrollToBottom` instead of scheduling its own
 post-measurement jump.
 Desktop-local row identities are

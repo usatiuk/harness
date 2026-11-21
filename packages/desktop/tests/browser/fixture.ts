@@ -159,7 +159,7 @@ window.canvasFixture = {
 
 function renderRow(row: TranscriptRow): ReturnType<typeof h> {
   // Tall history fixtures deliberately expand groups to exercise virtualizer anchors.
-  // The latest-tool inspection scenario uses the production outer scroll boundary.
+  // The latest-tool inspection scenario uses the production item scroll boundary.
   return row.kind === "steps"
     ? h(
         "div",
@@ -167,7 +167,7 @@ function renderRow(row: TranscriptRow): ReturnType<typeof h> {
           className: row.steps.some(
             ({ cell }) => cell.kind === "tool" && cell.callId === "latest-tool",
           )
-            ? "cell tool-group-container"
+            ? "cell tool-group-container work-items"
             : undefined,
         },
         ...row.steps.map(renderCell),
