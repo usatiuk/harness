@@ -58,6 +58,7 @@ export interface AppApiState {
   signingIn: boolean;
   settingsTail: Promise<void>;
   readonly defaultSandboxBackend: SandboxBackend;
+  readonly sandboxBackends: SandboxBackend[];
   readonly active: {
     kind: AuthStoreKind | null;
     entries: ReadonlyMap<string, ProviderEntry>;
@@ -250,6 +251,7 @@ export function registerAppApi(
       home: home,
       cwd: process.cwd(),
       platform: process.platform as "win32" | "darwin" | "linux",
+      sandboxBackends: state.sandboxBackends,
       providers,
       settings: {
         model: doc.model ? { ...doc.model, preset: doc.model.preset ?? null } : null,

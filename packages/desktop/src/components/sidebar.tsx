@@ -12,7 +12,7 @@ import {
 import { z } from "zod";
 import { conversationProjectRoot, type Conversation } from "@harness/protocol";
 import type { DesktopSession, SidebarPage } from "../session.ts";
-import { Button, CollapsibleDetails, IconButton, IconLink, useScrollShadows } from "../ui.tsx";
+import { Button, CollapsibleDetails, IconButton, IconLink, ScrollArea } from "../ui.tsx";
 
 const layoutSchema = z.object({ width: z.number().min(160).max(400), visible: z.boolean() });
 const groupsSchema = z.object({ hidden: z.array(z.string()), collapsed: z.array(z.string()) });
@@ -135,7 +135,6 @@ export function SidebarLayout({
   children: ReactNode;
 }) {
   const location = useLocation();
-  const scrollShadows = useScrollShadows();
   const storageKey = session.storageKey("sidebar-groups");
   const [layout, setLayout] = useState(readLayout);
   const [groups, setGroups] = useState(() => readGroups(storageKey));
@@ -212,10 +211,11 @@ export function SidebarLayout({
             onClick={() => setLayout((current) => ({ ...current, visible: false }))}
           />
         </div>
-        <nav
+        <ScrollArea
+          as="nav"
           aria-label="Conversations"
-          className="conversation-list scroll-shadows"
-          ref={scrollShadows}
+          className="conversation-list"
+          frameClassName="conversation-list-frame"
         >
           <CollapsibleDetails
             className="sidebar-section sidebar-projects"
@@ -277,7 +277,7 @@ export function SidebarLayout({
               }}
             />
           </CollapsibleDetails>
-        </nav>
+        </ScrollArea>
         <NavLink to="/settings" className="settings-link">
           <Settings size={15} aria-hidden="true" /> Settings
         </NavLink>

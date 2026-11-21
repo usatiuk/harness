@@ -121,12 +121,11 @@ does not expose a separate host-escape context.
 
 Configuration and RPC use `none`, `native` or `docker`. Saved configuration accepts
 the former `local` spelling as an input alias for `none`, without rewriting files.
-Server composition selects the default using MXC discovery. Linux also runs a
-short launch with the default network policy. Unsupported hosts use `none`. The same server-owned value
-feeds settings RPC and conversation defaults. Explicit choices remain authoritative,
-and explicit native activation still validates availability and fails normally.
-Clients do not probe their own host. Sandbox plugin contract 2 and Harness protocol
-18 reflect the renamed public backend value.
+The server uses MXC discovery to decide whether its sandbox picker offers
+Native. On Linux, it also probes the default outbound network policy before
+choosing Native as the default for new conversations. Native can still be
+selected with outbound networking disabled on hosts without the outbound
+helpers. Explicit sandbox choices remain authoritative.
 
 ### Native
 

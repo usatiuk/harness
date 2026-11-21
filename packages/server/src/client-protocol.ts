@@ -89,6 +89,7 @@ export const appSettingsRequest = defineRequest({
     home: z.string(),
     cwd: z.string(),
     platform: z.enum(["win32", "darwin", "linux"]),
+    sandboxBackends: z.array(sandboxBackendSchema),
     settings,
     providers: z.array(providerStatusSchema),
   }),

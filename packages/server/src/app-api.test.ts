@@ -32,12 +32,13 @@ it("normalizes legacy application tool mode while rejecting unsupported values",
 });
 
 it("uses the server's supported sandbox default and preserves explicit legacy choices", async () => {
-  const { nativeSandboxAvailable } = await import("@harness/sandbox");
+  const { detectNativeSandboxHost, nativeSandboxAvailable } = await import("@harness/sandbox");
   const home = await mkdtemp(join(tmpdir(), "harness-sandbox-default-"));
   vi.stubEnv("HARNESS_HOME", home);
   for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
     vi.stubEnv(key, "");
-  const expected = (await nativeSandboxAvailable()) ? "native" : "none";
+  const nativeHost = detectNativeSandboxHost();
+  const expected = (await nativeSandboxAvailable(nativeHost)) ? "native" : "none";
   const pair = createInProcessMessageConnectionPair();
   const harness = await buildServerHarness(pair.right);
   const client = new HarnessClient({
@@ -46,7 +47,9 @@ it("uses the server's supported sandbox default and preserves explicit legacy ch
   });
   try {
     await client.start();
-    expect((await client.peer.request(appSettingsRequest, {})).settings.sandbox).toBe(expected);
+    const initial = await client.peer.request(appSettingsRequest, {});
+    expect(initial.settings.sandbox).toBe(expected);
+    expect(initial.sandboxBackends.includes("native")).toBe(nativeHost.available);
     expect((await client.create({})).config.plugins?.["sandbox"]).toMatchObject({
       backend: expected,
     });
@@ -61,7 +64,9 @@ it("uses the server's supported sandbox default and preserves explicit legacy ch
       plugins: { ...doc.plugins, sandbox: { backend: "local" } },
     }));
     const before = await readFile(join(home, "settings.json"), "utf8");
-    expect((await client.peer.request(appSettingsRequest, {})).settings.sandbox).toBe("none");
+    const saved = await client.peer.request(appSettingsRequest, {});
+    expect(saved.settings.sandbox).toBe("none");
+    expect(saved.sandboxBackends).toEqual(initial.sandboxBackends);
     expect((await client.create({})).config.plugins?.["sandbox"]).toMatchObject({
       backend: "none",
     });
@@ -583,6 +588,7 @@ it("pages recent root chats and every folder through RPC, preserving loaded coun
     signingIn: false,
     settingsTail: Promise.resolve(),
     defaultSandboxBackend: "none",
+    sandboxBackends: ["none", "docker"],
     active: { kind: null, entries: new Map(), statuses: new Map() },
   });
   const desktop = new DesktopSession(pair.left);

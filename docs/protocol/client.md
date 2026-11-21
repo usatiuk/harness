@@ -235,8 +235,9 @@ stacks, credentials, provider bodies, or opaque provider payloads.
 separate from kernel and plugin semantics:
 
 - `app.settings.get` returns global model/preset, approval, auto-approver enabled
-  flag and optional reviewer model/preset, and sandbox defaults,
-  home/cwd/platform, and safe provider authentication metadata.
+  flag and optional reviewer model/preset, the sandbox default, home/cwd/platform,
+  and safe provider authentication metadata. Protocol 21 adds the sandbox backends
+  offered by the execution host.
 - `app.settings.update` persists the exposed defaults through existing validated
   config writers. Approval and auto-review defaults refresh loaded conversations
   without writing conversation overrides; existing model selections remain pinned.

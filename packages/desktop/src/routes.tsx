@@ -42,6 +42,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   createMemoryRouter,
   Form,
@@ -648,15 +649,21 @@ export function createDesktopRouter(
       </div>
     );
   }
-  function SandboxOptions({ selected }: { selected?: string }) {
+  function SandboxOptions({ selected }: { selected: string }) {
+    const labels = { none: "None", native: "Native", docker: "Docker / devcontainer" };
+    const backends = session.settings?.sandboxBackends;
     return (
       <>
-        <SelectItem value="none">None</SelectItem>
-        {session.settings?.platform === "linux" && <SelectItem value="native">Native</SelectItem>}
-        {session.settings?.platform !== "linux" && selected === "native" && (
-          <SelectItem value="native">Native</SelectItem>
+        {backends?.map((backend) => (
+          <SelectItem key={backend} value={backend}>
+            {labels[backend]}
+          </SelectItem>
+        ))}
+        {selected === "native" && backends && !backends.includes("native") && (
+          <SelectItem disabled value="native">
+            Native — unavailable
+          </SelectItem>
         )}
-        <SelectItem value="docker">Docker / devcontainer</SelectItem>
       </>
     );
   }
@@ -683,7 +690,6 @@ export function createDesktopRouter(
     const presets = catalog?.presets ?? [];
     const [backend, setBackend] = useState<string>(settings.settings.sandbox);
     const [toolMode, setToolMode] = useState<string>(settings.settings.toolMode);
-    const backendAvailable = backend !== "native" || settings.platform === "linux";
     const available = session.domain
       .availableModels()
       .some((model) => modelKey(model.provider, model.model) === selection);
@@ -813,7 +819,7 @@ export function createDesktopRouter(
               variant="accent"
               disabled={
                 !available ||
-                !backendAvailable ||
+                !settings.sandboxBackends.some((mode) => mode === backend) ||
                 navigation.state !== "idle" ||
                 Boolean(session.disconnected)
               }
@@ -826,11 +832,6 @@ export function createDesktopRouter(
           <p role="status" className="muted">
             The selected model is unavailable in this server. Restart after connecting its provider,
             or select an available model.
-          </p>
-        )}
-        {!backendAvailable && (
-          <p role="status" className="muted">
-            Native sandbox requires Linux. Select None or Docker to continue.
           </p>
         )}
         {error && (
@@ -1075,6 +1076,7 @@ export function createDesktopRouter(
         className={`cell tool ${boundary ? `eval-${boundary}` : ""} ${cell.status === "error" && boundary !== "begin" ? "failed" : ""}`}
         data-testid="tool-call"
         unmountOnExit
+        scrollShadows
         title={
           <>
             <ToolIcon size={13} aria-hidden="true" className="tool-icon muted" />
@@ -1332,11 +1334,10 @@ export function createDesktopRouter(
       </span>
     );
     const steps = row.steps.filter(hasWorkContent);
-    const shown = open
-      ? steps
-      : latest
-        ? steps.filter((step, index) => index >= steps.length - 5 || retained.has(step.key))
-        : [];
+    const preview = latest
+      ? steps.filter((step, index) => index >= steps.length - 5 || retained.has(step.key))
+      : [];
+    const shown = open ? steps : preview;
     return (
       <div className="cell tool-group-container">
         {open || steps.length > (latest ? 5 : 0) ? (
@@ -1344,7 +1345,54 @@ export function createDesktopRouter(
             type="button"
             className="tool-group work-group-title"
             aria-expanded={open}
-            onClick={() => setOpen((previous) => !previous)}
+            onClick={(event) => {
+              const frame = event.currentTarget.nextElementSibling!;
+              const running = frame.firstElementChild?.getAnimations()[0];
+              const next = !open || running?.id === "work-collapse";
+              // A single sliding section works when the preview is the suffix.
+              // An older pinned row keeps its position and can leave gaps in that suffix.
+              const firstPreviewIndex = steps.length - preview.length;
+              if (
+                window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+                preview.some((step, index) => step !== steps[firstPreviewIndex + index])
+              ) {
+                running?.cancel();
+                setOpen(next);
+                return;
+              }
+              const interrupted = running
+                ? getComputedStyle(frame.firstElementChild).marginBlockStart
+                : undefined;
+              running?.cancel();
+              if (next) flushSync(() => setOpen(true));
+              const list = frame.firstElementChild as HTMLElement;
+              const normal = parseFloat(getComputedStyle(list).marginBlockStart);
+              const firstPreview = list.children[firstPreviewIndex];
+              const hidden = firstPreview
+                ? firstPreview.getBoundingClientRect().top -
+                  list.firstElementChild!.getBoundingClientRect().top
+                : list.offsetHeight + normal;
+              const folded = normal - hidden + "px";
+              const expanded = normal + "px";
+              const motion = list.animate(
+                {
+                  marginBlockStart: [
+                    interrupted ?? (next ? folded : expanded),
+                    next ? expanded : folded,
+                  ],
+                },
+                {
+                  id: next ? "work-expand" : "work-collapse",
+                  duration: 150,
+                  easing: "ease-out",
+                  fill: "forwards",
+                },
+              );
+              motion.onfinish = () => {
+                if (!next) flushSync(() => setOpen(false));
+                motion.cancel();
+              };
+            }}
           >
             <ChevronRight aria-hidden="true" size={14} className="disclosure-chevron" />
             {title}
@@ -1352,13 +1400,15 @@ export function createDesktopRouter(
         ) : (
           <div className="work-group-title">{title}</div>
         )}
-        {shown.length > 0 && (
-          <WorkItems
-            steps={shown}
-            label={open ? "Work details" : "Recent work"}
-            onIntent={latest ? retain : undefined}
-          />
-        )}
+        <div className="work-items-frame">
+          {shown.length > 0 && (
+            <WorkItems
+              steps={shown}
+              label={open ? "Work details" : "Recent work"}
+              onIntent={latest ? retain : undefined}
+            />
+          )}
+        </div>
       </div>
     );
   });
@@ -1484,6 +1534,7 @@ export function createDesktopRouter(
       <Disclosure
         className="cell reasoning"
         unmountOnExit
+        scrollShadows
         title={<ReasoningSummary label={label} text={cell.text} />}
       >
         <Markdown remarkPlugins={[remarkGfm]} components={{ a: TranscriptLink }}>
@@ -1506,7 +1557,7 @@ export function createDesktopRouter(
     if (cell.kind === "reasoning") return <Reasoning cell={cell} />;
     if (cell.kind === "plugin_message")
       return (
-        <Disclosure title={<>Message from {cell.pluginId}</>}>
+        <Disclosure scrollShadows title={<>Message from {cell.pluginId}</>}>
           <pre>{cell.text}</pre>
           {cell.images && <ImagePreviews images={cell.images} />}
         </Disclosure>
@@ -1515,6 +1566,7 @@ export function createDesktopRouter(
       return (
         <Disclosure
           className="cell"
+          scrollShadows
           title={<>{cell.kind === "compaction" ? "Compacted context" : "Context"}</>}
         >
           <pre>{cell.text}</pre>
@@ -1560,7 +1612,7 @@ export function createDesktopRouter(
       );
     if (cell.kind === "shell")
       return (
-        <Disclosure className="cell" title={<>{cell.command}</>}>
+        <Disclosure className="cell" scrollShadows title={<>{cell.command}</>}>
           <pre>{cell.text}</pre>
         </Disclosure>
       );

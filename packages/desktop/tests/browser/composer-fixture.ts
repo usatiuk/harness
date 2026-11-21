@@ -92,6 +92,7 @@ declare global {
       holdPeek: boolean;
       releasePeek(): void;
       settingsWrites: unknown[];
+      setSandboxBackends(backends: AppSettings["sandboxBackends"]): void;
       instructionsText: string | null;
       instructionWrites: { host: string; content: string }[];
       instructionsReads: number;
@@ -131,6 +132,7 @@ const settings: AppSettings = {
   home: "fixture",
   cwd: "D:\\example",
   platform: "win32",
+  sandboxBackends: ["none", "native", "docker"],
   settings: {
     keepServerRunning: false,
     model: { provider: "fixture", model: "test", preset: null },
@@ -1657,6 +1659,9 @@ window.composerFixture = {
     changed();
   },
   settingsWrites,
+  setSandboxBackends(backends) {
+    settings.sandboxBackends = backends;
+  },
   instructionWrites,
   instructionsReads: 0,
   failInstructionsRead: false,

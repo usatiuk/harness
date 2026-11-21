@@ -94,9 +94,13 @@ export async function createSandboxRuntime(home: string, onFailure?: (error: Err
     },
     metadataRoot,
   );
+  const backends: SandboxBackend[] = nativeHost.available
+    ? ["none", "native", "docker"]
+    : ["none", "docker"];
   return {
     plugin: definition(environments, nativeHost),
     defaultBackend,
+    backends,
     environments,
     async close() {
       const errors: unknown[] = [];

@@ -228,10 +228,13 @@ textarea.input {
   flex: 1;
   min-width: 0;
 }
+.conversation-list-frame {
+  flex: 1;
+  margin: -3px -8px -3px -3px;
+}
 .conversation-list {
   -webkit-user-select: none;
   user-select: none;
-  flex: 1;
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
@@ -240,10 +243,20 @@ textarea.input {
   align-content: start;
   grid-template-columns: minmax(0, 1fr);
   padding: 3px;
-  margin: -3px -8px -3px -3px;
   gap: 2px;
 }
-.scroll-shadows {
+.scroll-area {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+.scroll-area::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
   --scroll-shadow-color: color-mix(in srgb, var(--ink) 8%, transparent);
   --scroll-shadow-top: transparent;
   --scroll-shadow-bottom: transparent;
@@ -254,10 +267,10 @@ textarea.input {
   background-position: top, bottom;
   background-repeat: no-repeat;
 }
-.scroll-shadows[data-scroll-above] {
+.scroll-area:has(> [data-scroll-above])::after {
   --scroll-shadow-top: var(--scroll-shadow-color);
 }
-.scroll-shadows[data-scroll-below] {
+.scroll-area:has(> [data-scroll-below])::after {
   --scroll-shadow-bottom: var(--scroll-shadow-color);
 }
 .conversation-list a,
@@ -799,9 +812,24 @@ main {
   padding: 3px 0;
   font-size: 12px;
 }
-.work-items > .disclosure > .collapse-grid > .collapse-body {
+.work-items,
+.work-items .disclosure > .collapse-grid > .scroll-area {
+  margin-inline-start: 6px;
+  padding-inline-start: 10px;
+  border-inline-start: 1px solid var(--line);
+}
+.work-items .disclosure > .collapse-grid > .scroll-area > .collapse-body {
   max-height: 40vh;
   overflow: auto;
+}
+.work-items .disclosure {
+  transition:
+    margin-block 150ms ease-out,
+    padding-block 150ms ease-out;
+}
+.work-items .disclosure[open] {
+  margin-block: 4px;
+  padding-block: 2px;
 }
 .work-group-title {
   padding: 3px 0;
@@ -825,12 +853,14 @@ main {
   transform: rotate(90deg);
 }
 .work-items {
-  margin: 2px 0 0 6px;
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
+  margin-top: 2px;
   color: var(--muted-ink);
   font-size: 12px;
   line-height: 1.65;
+}
+.work-items-frame {
+  display: flow-root;
+  overflow: clip;
 }
 .work-items p {
   margin-block: 4px;
@@ -952,7 +982,8 @@ main {
 }
 @media (prefers-reduced-motion: reduce) {
   .collapse-grid,
-  .collapse-grid[data-lazy][data-state] {
+  .collapse-grid[data-lazy][data-state],
+  .work-items .disclosure {
     transition: none;
     animation: none;
   }
@@ -1540,7 +1571,7 @@ main {
   .sidebar {
     padding: 10px 6px 8px;
   }
-  .conversation-list {
+  .conversation-list-frame {
     margin-right: -4px;
   }
   .page {

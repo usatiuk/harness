@@ -212,6 +212,7 @@ export async function buildServerComposition(
       signingIn: false,
       settingsTail: Promise.resolve(),
       defaultSandboxBackend: sandbox.defaultBackend,
+      sandboxBackends: sandbox.backends,
       active: { kind, entries: registry, statuses: built.statuses },
     };
     const connect = (connection: RpcConnection): HarnessRpcSession => {

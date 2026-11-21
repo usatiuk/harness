@@ -184,7 +184,12 @@ function renderCell({ key, cell }: { key: string; cell: Cell }): ReturnType<type
   if (cell.kind === "tool")
     return h(
       Disclosure,
-      { key, className: "cell tool", title: cell.name },
+      {
+        key,
+        className: "cell tool",
+        title: cell.name,
+        scrollShadows: cell.callId === "latest-tool",
+      },
       h("pre", null, "Representative tool output\n".repeat(45)),
     );
   if (cell.kind === "assistant")

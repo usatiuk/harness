@@ -706,7 +706,7 @@ test("production model picker distinguishes same-label IDs and exposes advertise
     .toEqual({ provider: "fixture", model: "test" });
 });
 
-test("new conversation choices become host defaults for the next creation", async ({ page }) => {
+test("Windows can choose Native and save it for the next conversation", async ({ page }) => {
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "New conversation", exact: true }).click();
   await page.getByRole("button", { name: "Choose model", exact: true }).click();
@@ -729,7 +729,7 @@ test("new conversation choices become host defaults for the next creation", asyn
   await chooseDropdown(
     page,
     page.getByRole("combobox", { name: "Sandbox", exact: true }),
-    "docker",
+    "native",
   );
   await chooseDropdown(
     page,
@@ -742,7 +742,7 @@ test("new conversation choices become host defaults for the next creation", asyn
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
     .toEqual({
       model: { provider: "fixture", model: "test", preset: "high" },
-      sandbox: "docker",
+      sandbox: "native",
       toolMode: "hybrid",
     });
   await page.getByRole("link", { name: "New conversation", exact: true }).click();
@@ -755,12 +755,22 @@ test("new conversation choices become host defaults for the next creation", asyn
   await page.getByRole("button", { name: "Choose execution options" }).click();
   await expect(page.getByRole("combobox", { name: "Sandbox", exact: true })).toHaveAttribute(
     "data-value",
-    "docker",
+    "native",
   );
   await expect(page.getByRole("combobox", { name: "Tool interface", exact: true })).toHaveAttribute(
     "data-value",
     "hybrid",
   );
+  await page.evaluate(() => window.composerFixture.setSandboxBackends(["none", "docker"]));
+  await page.keyboard.press("Escape");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  const create = page.getByRole("button", { name: "Create conversation", exact: true });
+  await expect(create).toBeDisabled();
+  await page.getByRole("button", { name: "Choose execution options" }).click();
+  await expect(sandbox).toContainText("Native — unavailable");
+  await chooseDropdown(page, sandbox, "none");
+  await expect(create).toBeEnabled();
 });
 
 test("fork before a user message opens a new unsent draft and preserves the source draft", async ({
@@ -3245,6 +3255,17 @@ test("Working groups expand independently and scroll only their item bodies", as
   await expect(latest.locator(".tool[open]")).toHaveCount(2);
   expect(await latest.evaluate((group) => getComputedStyle(group).overflowY)).toBe("visible");
   expect(await latest.evaluate((group) => group.clientHeight)).toBeGreaterThan(440);
+  const scrollBody = calls.first().locator(".collapse-body");
+  await expect(scrollBody).toHaveAttribute("data-scroll-below");
+  await expect(scrollBody).not.toHaveAttribute("data-scroll-above");
+  const overlay = scrollBody.locator("..");
+  const painted = await overlay.screenshot();
+  const withoutShadow = await overlay.screenshot({
+    style: ".scroll-area::after { visibility: hidden; }",
+  });
+  expect(painted.equals(withoutShadow)).toBe(false);
+  await scrollBody.evaluate((body) => (body.scrollTop = 1));
+  await expect(scrollBody).toHaveAttribute("data-scroll-above");
   const scrolled = await calls.first().evaluate((item) => {
     const title = item.querySelector("summary")!;
     const body = item.querySelector<HTMLElement>(".collapse-body")!;
@@ -3257,6 +3278,86 @@ test("Working groups expand independently and scroll only their item bodies", as
     };
   });
   expect(scrolled).toEqual({ height: 440, scrolled: 300, titleMoved: 0 });
+  await expect(scrollBody).toHaveAttribute("data-scroll-above");
+  await scrollBody.evaluate((body) => (body.scrollTop = body.scrollHeight));
+  await expect(scrollBody).not.toHaveAttribute("data-scroll-below");
+});
+
+test("Working groups slide one section and preserve the five-item preview", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showWorkGroups());
+  const groups = page.locator(".tool-group-container");
+  await expect(groups.last().getByLabel("Recent work").getByTestId("tool-call")).toHaveCount(5);
+  for (const [group, previewCount] of [
+    [groups.first(), 0],
+    [groups.last(), 5],
+  ] as const) {
+    const toggle = group.locator(".tool-group");
+    for (const opening of [true, false]) {
+      const heights = await toggle.evaluate((button: HTMLButtonElement) => {
+        const frame = button.nextElementSibling as HTMLElement;
+        const before = frame.offsetHeight;
+        const lastRow = frame.firstElementChild?.lastElementChild;
+        const oldPosition = lastRow?.getBoundingClientRect().top;
+        button.click();
+        const list = frame.firstElementChild!;
+        const [animation, ...others] = frame.getAnimations({ subtree: true });
+        animation!.pause();
+        animation!.currentTime = 0;
+        const initial = frame.offsetHeight;
+        const position = lastRow?.getBoundingClientRect().top;
+        animation!.currentTime = 75;
+        const middle = frame.offsetHeight;
+        animation!.finish();
+        return {
+          before,
+          initial,
+          middle,
+          end: frame.offsetHeight,
+          oldPosition,
+          position,
+          others: others.length,
+          rows: list.childElementCount,
+        };
+      });
+      expect(heights.others).toBe(0);
+      expect(heights.initial).toBe(heights.before);
+      if (heights.oldPosition !== undefined)
+        expect(heights.position).toBeCloseTo(heights.oldPosition, 0);
+      if (opening) {
+        expect(heights.middle).toBeGreaterThan(heights.initial);
+        expect(heights.middle).toBeLessThan(heights.end);
+      } else {
+        expect(heights.middle).toBeLessThan(heights.initial);
+        expect(heights.middle).toBeGreaterThan(heights.end);
+        expect(heights.rows).toBeGreaterThan(previewCount);
+        await expect(group.getByTestId("tool-call")).toHaveCount(previewCount);
+      }
+    }
+  }
+  const latest = groups.last().locator(".tool-group");
+  const reversed = await latest.evaluate((toggle: HTMLButtonElement) => {
+    const frame = toggle.nextElementSibling as HTMLElement;
+    toggle.click();
+    frame.getAnimations({ subtree: true })[0]!.finish();
+    toggle.click();
+    const collapse = frame.getAnimations({ subtree: true })[0]!;
+    collapse.pause();
+    collapse.currentTime = 75;
+    const before = frame.offsetHeight;
+    toggle.click();
+    const expansion = frame.getAnimations({ subtree: true })[0]!;
+    expansion.pause();
+    expansion.currentTime = 0;
+    const start = frame.offsetHeight;
+    expansion.finish();
+    return { before, start, end: frame.offsetHeight };
+  });
+  expect(reversed.start).toBe(reversed.before);
+  expect(reversed.end).toBeGreaterThan(reversed.start);
+  await expect(latest).toHaveAttribute("aria-expanded", "true");
 });
 
 test("superseding the latest Work group removes its settled tail", async ({ page }) => {
@@ -3381,9 +3482,11 @@ test("sidebar scroll shadows follow the edges and clear when sections collapse",
   });
   await expect(sidebar).toHaveAttribute("data-scroll-above");
   await expect(sidebar).toHaveAttribute("data-scroll-below");
-  expect(await sidebar.evaluate((element) => getComputedStyle(element).backgroundImage)).toContain(
-    "radial-gradient",
-  );
+  expect(
+    await sidebar.evaluate(
+      (element) => getComputedStyle(element.parentElement!, "::after").backgroundImage,
+    ),
+  ).toContain("radial-gradient");
   await sidebar.evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
