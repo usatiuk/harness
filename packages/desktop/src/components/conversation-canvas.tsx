@@ -141,6 +141,7 @@ export function ConversationCanvas({
   header,
   history,
   dock,
+  activityOverlay,
   renderRow,
   pendingWork,
 }: {
@@ -149,6 +150,7 @@ export function ConversationCanvas({
   header: ReactNode;
   history: ReactNode;
   dock: ReactNode;
+  activityOverlay?: ReactNode;
   renderRow: (row: TranscriptRow) => ReactNode;
   pendingWork?: ReactNode;
 }) {
@@ -226,17 +228,22 @@ export function ConversationCanvas({
           )}
         </div>
       </div>
-      <div className="conversation-dock" style={{ right: gutter }}>
-        {running && !atBottom && rows.length > 0 && (
-          <IconButton
-            label="Jump to latest"
-            icon={Ellipsis}
-            className="jump-latest"
-            onClick={() => scroller.current?.scrollToIndex({ index: "LAST", align: "end" })}
-          />
-        )}
-        <div className="conversation-dock-content" ref={dockRef}>
-          {dock}
+      <div className="conversation-dock-layout" style={{ marginRight: gutter }}>
+        <div className="conversation-dock-overlays">
+          {running && !atBottom && rows.length > 0 && (
+            <IconButton
+              label="Jump to latest"
+              icon={Ellipsis}
+              className="jump-latest"
+              onClick={() => scroller.current?.scrollToIndex({ index: "LAST", align: "end" })}
+            />
+          )}
+          {activityOverlay}
+        </div>
+        <div className="conversation-dock">
+          <div className="conversation-dock-content" ref={dockRef}>
+            {dock}
+          </div>
         </div>
       </div>
     </div>

@@ -708,15 +708,14 @@ same controls and tokens. The playground consumes those production recipes while
 its sample conversation/host state remains isolated.
 
 The conversation canvas owns one full-height scroll parent. A floating dock holds
-bounded approvals/activities and the composer over a short neutral fade. Optional last-turn statistics sit below the composer; disabling them removes
-the footer space. Keyboard hints live in settings, and no redundant Ready/Working
-status label is shown.
-A simple two-stop fade above the dock becomes solid just inside the rounded
-composer, keeping its top corners soft and its footer covered. A measured footer keeps the
-last transcript content clear of that dock; measured items contain their margins.
+bounded approvals and the composer. Activities overlay the dock with a top divider
+and a small fixed transcript clearance. Optional last-turn statistics sit below
+the composer. Keyboard hints live in settings, and no redundant Ready/Working
+status label is shown. A measured footer keeps the last transcript content clear
+of the dock. Measured items contain their margins.
 The virtualizer opens at the latest edge, follows while at bottom, and pauses when
 the reader scrolls away. Three dots return to latest only during a running turn;
-their visibility does not change dock/fade geometry. Earlier-history prepend uses
+their visibility does not change dock geometry. Earlier-history prepend uses
 Virtuoso's logical `firstItemIndex` to keep measured row identities aligned rather
 than jumping to a new index against old sizes. Same-key work-group prefix growth
 captures a surviving visible child through Virtuoso's typed `components.Item`

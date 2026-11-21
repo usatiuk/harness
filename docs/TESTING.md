@@ -898,7 +898,7 @@ controls and styles. The isolated fixture controls history, streaming and suppor
 growth without opening application windows. It checks physical latest-edge
 alignment (including fast output during initial empty-chat alignment), same-item
 growth, expansion of the latest production Disclosure, reading pause, jump
-re-entry without dock/fade movement,
+re-entry without dock movement,
 earlier-history anchors with tool regrouping, bounded rendered items and support
 growth without stealing the reader's position. Anchor tolerance is 1.5 CSS pixels:
 Virtuoso rounds its header measurement to nearest pixel, then rounds the scroll

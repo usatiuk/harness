@@ -512,8 +512,8 @@ main {
 .conversation-page {
   -webkit-user-select: none;
   user-select: none;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template: auto minmax(0, 1fr) / minmax(0, 1fr);
   position: relative;
   height: 100%;
   min-height: 0;
@@ -522,34 +522,36 @@ main {
   --chat-inset: 38px;
 }
 .conversation-scroll {
-  flex: 1;
-  min-height: 0;
+  grid-area: 2 / 1;
   overflow: auto;
   scrollbar-gutter: stable;
 }
 .conversation-header-wrap {
-  flex-shrink: 0;
   z-index: 2;
   background: var(--surface-canvas);
 }
-.conversation-dock {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  max-width: var(--chat-width);
-  max-height: calc(100% - 84px);
-  margin: 0 auto;
+.conversation-dock-layout {
+  grid-area: 2 / 1;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
+  min-height: 0;
   z-index: 3;
   pointer-events: none;
 }
-.conversation-dock::before {
-  content: "";
-  position: absolute;
-  inset: -16px 0 0;
-  background: linear-gradient(to bottom, transparent, var(--surface-canvas) 32px);
-  pointer-events: none;
+.conversation-dock,
+.conversation-dock-overlays {
+  width: 100%;
+  max-width: var(--chat-width);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.conversation-dock {
+  /* Clear room for the collapsed Activities bar and Jump to latest. */
+  max-height: calc(100% - 62px);
+  flex-shrink: 0;
 }
 .conversation-dock-content {
   position: relative;
@@ -558,6 +560,9 @@ main {
   min-height: 0;
   overflow: auto;
   pointer-events: auto;
+}
+.conversation-dock-layout:has(.activities) .conversation-dock-content {
+  background: var(--surface-canvas);
 }
 .conversation-support {
   min-height: 0;
@@ -1070,14 +1075,14 @@ main {
   color: var(--muted-ink);
 }
 .composer-footer {
+  background: var(--surface-canvas);
   display: flex;
   flex-wrap: wrap;
   gap: 2px 12px;
   align-items: center;
   width: 100%;
   justify-content: space-between;
-  margin-top: 4px;
-  padding: 0 14px;
+  padding: 4px 14px 0;
   font-size: 11px;
   line-height: 1.4;
   color: var(--muted-ink);
@@ -1115,7 +1120,8 @@ main {
   width: 100%;
   max-width: var(--chat-width);
   margin: 0 auto;
-  padding: 4px 24px 8px;
+  padding: 4px 24px 0;
+  border-bottom: 8px solid var(--surface-canvas);
 }
 .composer {
   background: var(--surface-panel);
@@ -1179,10 +1185,9 @@ main {
   font-size: 12px;
 }
 .control.jump-latest {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  display: flex;
+  margin: 0 auto 8px;
+  flex-shrink: 0;
   width: 34px;
   min-height: 30px;
   border: 1px solid var(--line);
@@ -1190,11 +1195,20 @@ main {
   background: var(--surface-panel);
   pointer-events: auto;
 }
-.activities {
-  width: 100%;
-  max-width: var(--chat-width);
-  padding: 0 var(--chat-inset);
-  margin: 6px auto;
+.conversation-page:has(.activities-slot) .transcript-clearance {
+  box-sizing: content-box;
+  padding-bottom: 24px;
+}
+.activities-slot:not(:empty) {
+  pointer-events: auto;
+  background: var(--surface-canvas);
+  border-top: 1px solid var(--line);
+  margin-inline: var(--chat-inset);
+  font-size: 12px;
+  line-height: 1.5;
+  padding-block: 2px 3px;
+  max-block-size: min(30vh, 260px);
+  overflow: auto;
 }
 .activity {
   margin: 3px 0;
@@ -1206,10 +1220,13 @@ main {
   min-width: 0;
 }
 .activity-stop.icon-control {
-  width: 22px;
-  height: 22px;
-  min-height: 22px;
+  width: 18px;
+  min-height: 18px;
   padding: 2px;
+}
+.activity-stop .icon {
+  width: 11px;
+  height: 11px;
 }
 .activity-preview {
   flex: 1;
@@ -1603,7 +1620,7 @@ main {
     flex-wrap: wrap;
   }
   .composer-wrap {
-    padding: 4px 12px 8px;
+    padding-inline: 12px;
   }
   .settings-page .form-grid,
   .connections-layout {

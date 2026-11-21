@@ -228,7 +228,7 @@ test("opens at the real bottom of a tall final message and follows same-item gro
   await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
 });
 
-test("reading pauses follow, three-dot jump resumes it without changing dock/fade geometry", async ({
+test("reading pauses follow, three-dot jump resumes it without changing dock geometry", async ({
   page,
 }) => {
   await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
@@ -240,9 +240,6 @@ test("reading pauses follow, three-dot jump resumes it without changing dock/fad
   await page.screenshot({ path: test.info().outputPath("floating-reading.png") });
   const top = await page.locator(".conversation-scroll").evaluate((element) => element.scrollTop);
   const dock = await page.locator(".conversation-dock").boundingBox();
-  const fade = await page
-    .locator(".conversation-dock")
-    .evaluate((element) => getComputedStyle(element, "::before").top);
   await page.evaluate(() => window.canvasFixture.grow());
   await expect(page.locator(".cell.assistant")).toContainText("Additional streaming paragraph");
   expect(
@@ -252,11 +249,6 @@ test("reading pauses follow, three-dot jump resumes it without changing dock/fad
   await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
   await expect(jump).toHaveCount(0);
   expect(await page.locator(".conversation-dock").boundingBox()).toEqual(dock);
-  expect(
-    await page
-      .locator(".conversation-dock")
-      .evaluate((element) => getComputedStyle(element, "::before").top),
-  ).toBe(fade);
   await page.evaluate(() => window.canvasFixture.grow());
   await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
 });
@@ -1543,6 +1535,8 @@ test("turn statistics occupy a footer only while enabled", async ({ page }) => {
   expect((await composer.boundingBox())!.y + (await composer.boundingBox())!.height).toBeLessThan(
     bottomWithoutStats,
   );
+  const input = (await composer.boundingBox())!;
+  expect((await footer.boundingBox())!.y).toBeCloseTo(input.y + input.height, 0);
   await expect(footer.getByLabel("Last turn statistics")).toBeVisible();
   await page.getByRole("button", { name: "Composer settings", exact: true }).click();
   await page.getByRole("checkbox", { name: "Show last-turn statistics" }).uncheck();
@@ -2504,6 +2498,51 @@ test("continuous Changes scrolling loads the next file page", async ({ page }) =
   );
 });
 
+test("the collapsed Activities bar leaves the transcript in place when it comes and goes", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showWorkGroups(30));
+  const message = page.locator(".user-text").filter({ hasText: /^Following message 29$/ });
+  await expect(message).toBeVisible();
+  await expect.poll(() => gap(page)).toBeLessThanOrEqual(4);
+  const dock = page.locator(".conversation-dock");
+  const before = (await message.boundingBox())!.y;
+  const height = (await dock.boundingBox())!.height;
+  const activities = page.locator(".activities");
+  const slot = activities.locator("..");
+  await expect(dock.locator(".conversation-dock-content")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+
+  await page.evaluate(() => window.composerFixture.showMultipleActivities());
+  await expect(activities).toBeVisible();
+  await expect(slot).toHaveCSS("border-top-style", "solid");
+  expect((await dock.boundingBox())!.height).toBe(height);
+  expect((await message.boundingBox())!.y).toBeCloseTo(before, 0);
+  const collapsed = (await slot.boundingBox())!;
+  expect(collapsed.width).toBeLessThan((await page.locator(".composer").boundingBox())!.width);
+  const lastMessage = (await message.boundingBox())!;
+  expect(lastMessage.y + lastMessage.height).toBeLessThanOrEqual(collapsed.y);
+
+  await activities.locator("summary").first().click();
+  await expect
+    .poll(async () => (await slot.boundingBox())!.height)
+    .toBeGreaterThan(collapsed.height);
+  await slot.evaluate((element) =>
+    Promise.allSettled(element.getAnimations({ subtree: true }).map((motion) => motion.finished)),
+  );
+  expect((await dock.boundingBox())!.height).toBe(height);
+  expect((await message.boundingBox())!.y).toBeCloseTo(before, 0);
+
+  await page.evaluate(() => window.composerFixture.finishActivity());
+  await expect(activities).toHaveCount(0);
+  expect((await dock.boundingBox())!.height).toBe(height);
+  expect((await message.boundingBox())!.y).toBeCloseTo(before, 0);
+});
+
 test("activities expand exclusively and have a compact Stop control beside running", async ({
   page,
 }) => {
@@ -2534,8 +2573,8 @@ test("activities expand exclusively and have a compact Stop control beside runni
     .toBe(false);
   const control = await stop.boundingBox();
   const label = await running.boundingBox();
-  expect(control!.width).toBeLessThanOrEqual(26);
-  expect(control!.height).toBeLessThanOrEqual(30);
+  expect(control!.width).toBeLessThanOrEqual(18);
+  expect(control!.height).toBeLessThanOrEqual(18);
   expect(control!.x).toBeGreaterThanOrEqual(label!.x + label!.width);
   expect(Math.abs(control!.y + control!.height / 2 - label!.y - label!.height / 2)).toBeLessThan(2);
   await stop.click();
@@ -2544,6 +2583,32 @@ test("activities expand exclusively and have a compact Stop control beside runni
     .toEqual(["first"]);
   await expect(first).not.toHaveAttribute("open", "");
   await expect(second).toHaveAttribute("open", "");
+});
+
+test("expanded Activities stay below the conversation header in a short window", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 760, height: 500 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  await message.fill("Long draft\n".repeat(60));
+  await page.evaluate(() => {
+    window.composerFixture.showQuestions();
+    window.composerFixture.showMultipleActivities();
+    window.composerFixture.peekOutput = "Activity output\n".repeat(40);
+  });
+  const activities = page.locator(".activities");
+  await activities.locator(":scope > summary").click();
+  const first = activities.locator(".activity").first();
+  await first.locator(":scope > summary").click();
+  await expect(first.locator("pre")).toContainText("Activity output");
+  const header = (await page.locator(".conversation-header").boundingBox())!;
+  expect((await activities.boundingBox())!.y).toBeGreaterThanOrEqual(header.y + header.height);
+  await first.getByRole("button", { name: "Stop activity" }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.activityKills))
+    .toEqual(["first"]);
 });
 
 test("activity refresh stops when the connection closes while the conversation stays visible", async ({
@@ -4050,9 +4115,7 @@ test("feedback icons share Copy’s row and submit the actual conversation route
   ]);
 });
 
-test("activities label their full subagent chain and keep Stop compact beside Running", async ({
-  page,
-}) => {
+test("activities label their full subagent chain", async ({ page }) => {
   await page.goto(url + "?composer");
   await page.waitForFunction(() => window.composerFixture !== undefined);
   await page.evaluate(() => {
@@ -4066,10 +4129,6 @@ test("activities label their full subagent chain and keep Stop compact beside Ru
     "Review authentication",
     "Check tests",
   ]);
-  const stop = activity.getByRole("button", { name: "Stop activity", exact: true });
-  const box = (await stop.boundingBox())!;
-  expect(box.width).toBe(22);
-  expect(box.height).toBe(22);
 });
 
 test("feedback settings confirm local deletion and refresh storage without changing collection", async ({

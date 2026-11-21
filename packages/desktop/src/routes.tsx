@@ -2323,6 +2323,7 @@ export function createDesktopRouter(
         ),
       [latestWorkKey, followedByOutput, lastByTurn, view.state.turn, view.subagent, side],
     );
+    const activities = view.state.activities.filter((activity) => activity.status === undefined);
     return (
       <ConversationCanvas
         key={view.conversation.id}
@@ -2374,6 +2375,29 @@ export function createDesktopRouter(
           />
         }
         renderRow={renderRow}
+        activityOverlay={
+          !side &&
+          !view.subagent && (
+            <div className="activities-slot">
+              {activities.length > 0 && (
+                <Disclosure
+                  className="activities"
+                  title={`Activities (${activities.length} running)`}
+                >
+                  {activities.map((activity) => (
+                    <Activity
+                      key={activity.id}
+                      view={view}
+                      id={activity.id}
+                      title={activity.title}
+                      owner={activity.conversationId}
+                    />
+                  ))}
+                </Disclosure>
+              )}
+            </div>
+          )
+        }
         dock={
           side || view.subagent ? (
             <div className="conversation-support approvals">{questionRequests}</div>
@@ -2391,33 +2415,6 @@ export function createDesktopRouter(
                   >
                     {view.state.sandbox.message}
                   </p>
-                )}
-                {view.state.activities.some((activity) => activity.status === undefined) && (
-                  <Disclosure
-                    className="activities"
-                    title={
-                      <>
-                        Activities (
-                        {
-                          view.state.activities.filter((activity) => activity.status === undefined)
-                            .length
-                        }{" "}
-                        running)
-                      </>
-                    }
-                  >
-                    {view.state.activities
-                      .filter((activity) => activity.status === undefined)
-                      .map((activity) => (
-                        <Activity
-                          key={activity.id}
-                          view={view}
-                          id={activity.id}
-                          title={activity.title}
-                          owner={activity.conversationId}
-                        />
-                      ))}
-                  </Disclosure>
                 )}
                 <div className="approvals">
                   {questionRequests}
