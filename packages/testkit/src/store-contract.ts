@@ -525,6 +525,13 @@ export function storeContract(name: string, makeStore: () => Store): void {
         cost: 0.0123,
         costIncomplete: true,
         lastInputTokens: 10,
+        contextMeasurements: [],
+        cacheRead: {
+          inputTokens: 1200,
+          cachedReadTokens: 1000,
+          reportedRequests: 1,
+          totalRequests: 4,
+        },
       });
     });
 
@@ -550,13 +557,13 @@ export function storeContract(name: string, makeStore: () => Store): void {
         await store.updateTurn(turn.id, "completed");
         const partial = attempts === 2;
         expect(await store.listModelUsage(conversation.id)).toEqual([row]);
-        expect(await store.summarizeModelUsage(conversation.id)).toMatchObject({
+        const summary = await store.summarizeModelUsage(conversation.id);
+        expect(summary).toMatchObject({
           usage,
           cost: 0.01,
           incomplete: partial,
           costIncomplete: partial,
           lastInputTokens: 100,
-          agentContext: { usage },
           lastTurn: {
             usage,
             cost: 0.01,
@@ -566,6 +573,8 @@ export function storeContract(name: string, makeStore: () => Store): void {
             agentDurationMs: partial ? null : 1000,
           },
         });
+        if (attempts === 0) expect(summary.agentContext).toBeUndefined();
+        else expect(summary.agentContext).toMatchObject({ usage });
       },
     );
 
@@ -591,10 +600,71 @@ export function storeContract(name: string, makeStore: () => Store): void {
       const summary = await store.summarizeModelUsage(conversation.id);
       expect(summary.usage.inputTokens).toBe(20_100);
       expect(summary.agentContext?.usage).toBeNull();
+      expect(summary.contextMeasurements).toMatchObject([
+        { provider: base.provider, model: base.model, inputTokens: 100 },
+      ]);
+      expect(summary.agentContext?.lastRequest).toEqual({
+        usage: billing,
+        cachedReadTokens: null,
+        cost: 0,
+        costIncomplete: false,
+      });
       expect(summary.lastInputTokens).toBeUndefined();
       expect((await store.listModelUsage(conversation.id)).at(-1)).toMatchObject({
         usage: billing,
         inputTokensAreContext: false,
+      });
+    });
+
+    it("uses reported cache counts only and preserves measurements by provider and model", async () => {
+      const store = makeStore();
+      const { id: conversationId } = await store.createConversation(sampleRecord());
+      const { id: turnId } = await store.createTurn(conversationId);
+      const request = {
+        conversationId,
+        turnId,
+        contextBuildId: null,
+        provider: "provider-a",
+        model: "model",
+        purpose: "agent",
+        cost: 0,
+        usage: { inputTokens: 100, outputTokens: 2, cachedReadTokens: 0 },
+      };
+      await store.recordModelUsage({
+        ...request,
+        providerUsage: { input_tokens_details: { cached_tokens: 0 } },
+      });
+      expect(
+        (await store.summarizeModelUsage(conversationId)).agentContext?.lastRequest
+          ?.cachedReadTokens,
+      ).toBe(0);
+      await store.recordModelUsage({
+        ...request,
+        provider: "provider-b",
+        usage: { ...request.usage, inputTokens: 200, cachedReadTokens: 90 },
+        attempts: 2,
+      });
+      await store.recordModelUsage({
+        ...request,
+        purpose: "compaction",
+        usage: { ...request.usage, inputTokens: 1000 },
+      });
+      await store.recordModelUsage({ ...request, usage: null, cost: null });
+      await store.recordModelUsage({ ...request, provider: "uninvoked", attempts: 0, usage: null });
+      const summary = await store.summarizeModelUsage(conversationId);
+      expect(summary.agentContext).toMatchObject({
+        provider: request.provider,
+        lastRequest: { usage: null, cachedReadTokens: null, cost: null },
+      });
+      expect(summary.contextMeasurements).toMatchObject([
+        { provider: "provider-a", model: "model", inputTokens: 100 },
+        { provider: "provider-b", model: "model", inputTokens: 200 },
+      ]);
+      expect(summary.cacheRead).toEqual({
+        inputTokens: 300,
+        cachedReadTokens: 90,
+        reportedRequests: 2,
+        totalRequests: 5,
       });
     });
 

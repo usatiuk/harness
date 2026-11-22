@@ -216,10 +216,15 @@ export function App({
     () => state.activities.filter((a) => a.status === undefined).length,
     [state.activities],
   );
-  const capacity = useMemo(
-    () => inputCapacity(state.agentContext, service.availableModels()),
-    [service, state.agentContext],
-  );
+  const capacity = useMemo(() => {
+    const checkpoint = state.agentContext;
+    const model = service
+      .availableModels()
+      .find(
+        (entry) => entry.provider === checkpoint?.provider && entry.model === checkpoint?.model,
+      );
+    return inputCapacity(model, checkpoint?.usage?.inputTokens);
+  }, [service, state.agentContext]);
   const sandboxConfig = sandboxConfigSchema.parse(config.plugins?.["sandbox"] ?? {});
 
   // Stable identities so the memoized ctx (via note) and the composer's menu-open

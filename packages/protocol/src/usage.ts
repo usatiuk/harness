@@ -43,13 +43,125 @@ export interface ModelUsageSummary {
   costIncomplete?: boolean;
   lastInputTokens?: number;
   agentContext?: AgentContextCheckpoint;
+  contextMeasurements?: ContextMeasurement[];
+  cacheRead?: CacheReadCoverage;
   lastTurn?: TurnUsageSummary;
 }
 
 export type AgentContextCheckpoint = Pick<
   ModelUsage,
   "provider" | "model" | "turnId" | "usage" | "createdAt"
->;
+> & {
+  lastRequest?: {
+    usage: Usage | null;
+    cachedReadTokens: number | null;
+    cost: number | null;
+    costIncomplete: boolean;
+  };
+};
+
+export interface ContextMeasurement {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  createdAt: number;
+}
+
+export interface CacheReadCoverage {
+  inputTokens: number;
+  cachedReadTokens: number;
+  reportedRequests: number;
+  totalRequests: number;
+}
+
+function usageObject(value: JsonValue | undefined) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : undefined;
+}
+
+/** Normalization uses zero for both a reported miss and a missing cache count. */
+function reportedCacheReads(row: ModelUsage): number | null {
+  if (!row.usage) return null;
+  const raw = usageObject(row.providerUsage);
+  const explicit = [
+    usageObject(raw?.input_tokens_details)?.cached_tokens,
+    usageObject(raw?.prompt_tokens_details)?.cached_tokens,
+    raw?.cache_read_input_tokens,
+    raw?.total_cached_tokens,
+  ].some((count) => typeof count === "number" && Number.isInteger(count) && count >= 0);
+  return explicit || row.usage.cachedReadTokens > 0 ? row.usage.cachedReadTokens : null;
+}
+
+/** Fold the same persisted request rows for live updates and reattachment. */
+export function summarizeUsageRows(rows: Iterable<ModelUsage>): ModelUsageSummary {
+  let usage = zeroUsage();
+  let cost = 0;
+  let incomplete = false;
+  let costIncomplete = false;
+  let lastInputTokens: number | undefined;
+  let agentContext: AgentContextCheckpoint | undefined;
+  const inputByModel = new Map<string, ContextMeasurement>();
+  const cacheRead: CacheReadCoverage = {
+    inputTokens: 0,
+    cachedReadTokens: 0,
+    reportedRequests: 0,
+    totalRequests: 0,
+  };
+  for (const row of rows) {
+    const attempts = row.attempts ?? 1;
+    const partialCost = attempts > 1 || row.costIncomplete === true;
+    cost += row.cost ?? 0;
+    costIncomplete ||= partialCost || row.cost === null;
+    incomplete ||= attempts > 1 || row.usage === null;
+    if (row.usage) {
+      usage = addUsage(usage, row.usage);
+      lastInputTokens = row.usage.inputTokens;
+    }
+    if (row.inputTokensAreContext === false) lastInputTokens = undefined;
+    if (attempts === 0) continue;
+
+    const cachedReadTokens = reportedCacheReads(row);
+    cacheRead.totalRequests += attempts;
+    if (cachedReadTokens !== null && row.usage) {
+      cacheRead.reportedRequests++;
+      cacheRead.cachedReadTokens += cachedReadTokens;
+      cacheRead.inputTokens += row.usage.inputTokens;
+    }
+    if (row.purpose === "agent") {
+      const contextUsage = row.inputTokensAreContext === false ? null : row.usage;
+      if (contextUsage) {
+        inputByModel.set(JSON.stringify([row.provider, row.model]), {
+          provider: row.provider,
+          model: row.model,
+          inputTokens: contextUsage.inputTokens,
+          createdAt: row.createdAt,
+        });
+      }
+      agentContext = {
+        provider: row.provider,
+        model: row.model,
+        turnId: row.turnId,
+        createdAt: row.createdAt,
+        usage: contextUsage,
+        lastRequest: {
+          usage: row.usage,
+          cachedReadTokens,
+          cost: row.cost,
+          costIncomplete: partialCost,
+        },
+      };
+    }
+  }
+  return {
+    usage,
+    incomplete,
+    cost,
+    costIncomplete,
+    cacheRead,
+    contextMeasurements: [...inputByModel.values()],
+    ...(lastInputTokens === undefined ? {} : { lastInputTokens }),
+    ...(agentContext ? { agentContext } : {}),
+  };
+}
 export interface TurnUsageSummary {
   turnId: TurnId;
   status: Exclude<Turn["status"], "running">;

@@ -103,7 +103,7 @@ export async function* toModelEvents(
       usage: complete || outputReported ? usage : null,
       ...(searched ? { inputTokensAreContext: false } : {}),
       ...(costIncomplete ? { costIncomplete: true } : {}),
-      ...(costIncomplete && providerUsage
+      ...(providerUsage && (costIncomplete || providerUsage.cache_read_input_tokens !== undefined)
         ? { providerUsage: jsonValueSchema.parse(providerUsage) }
         : {}),
       ...(error || !complete

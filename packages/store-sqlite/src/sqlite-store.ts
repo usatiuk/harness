@@ -42,10 +42,9 @@ import type {
   Usage,
 } from "@harness/protocol";
 import {
-  addUsage,
+  summarizeUsageRows,
   itemSchema,
   usageSchema,
-  zeroUsage,
   summarizeTurnUsage,
   jsonValueSchema,
 } from "@harness/protocol";
@@ -674,44 +673,14 @@ export class SqliteStore implements Store {
 
   async summarizeModelUsage(conversationId: ConversationId): Promise<ModelUsageSummary> {
     const rows = this.#db
-      .prepare<
-        [string],
-        {
-          usage: string;
-          cost: number | null;
-          cost_incomplete: number;
-          input_tokens_are_context: number;
-          attempts: number | null;
-        }
-      >(
-        `SELECT usage, cost, cost_incomplete, input_tokens_are_context, attempts FROM model_usage
-         WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC`,
+      .prepare<[string], Database["model_usage"]>(
+        `SELECT * FROM model_usage WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC`,
       )
       .iterate(conversationId);
-    let usage = zeroUsage();
-    let incomplete = false;
-    let cost = 0;
-    let costIncomplete = false;
-    let lastInputTokens: number | undefined;
-    for (const row of rows) {
-      const unobservedAttempts = (row.attempts ?? 0) > 1;
-      cost += row.cost ?? 0;
-      costIncomplete ||= unobservedAttempts || row.cost === null || row.cost_incomplete === 1;
-      incomplete ||= unobservedAttempts;
-      const parsed = usageSchema.nullable().parse(JSON.parse(row.usage)) as Usage | null;
-      if (parsed === null) {
-        incomplete = true;
-      } else {
-        usage = addUsage(usage, parsed);
-        lastInputTokens = parsed.inputTokens;
-      }
-      if (row.input_tokens_are_context === 0) lastInputTokens = undefined;
+    function* usageRows() {
+      for (const row of rows) yield rowToModelUsage(row);
     }
-    const agent = this.#db
-      .prepare<[string], Database["model_usage"]>(
-        `SELECT * FROM model_usage WHERE conversation_id = ? AND purpose = 'agent' ORDER BY created_at DESC, rowid DESC LIMIT 1`,
-      )
-      .get(conversationId);
+    const summary = summarizeUsageRows(usageRows());
     const terminal = this.#db
       .prepare<[string], Database["turns"]>(
         `SELECT * FROM turns WHERE conversation_id = ? AND status <> 'running' ORDER BY created_at DESC, rowid DESC LIMIT 1`,
@@ -724,22 +693,7 @@ export class SqliteStore implements Store {
           .map(rowToModelUsage)
       : [];
     return {
-      usage,
-      incomplete,
-      cost,
-      costIncomplete,
-      ...(lastInputTokens === undefined ? {} : { lastInputTokens }),
-      ...(agent
-        ? {
-            agentContext: {
-              provider: agent.provider,
-              model: agent.model,
-              turnId: agent.turn_id as TurnId,
-              usage: agent.input_tokens_are_context === 0 ? null : rowToModelUsage(agent).usage,
-              createdAt: agent.created_at,
-            },
-          }
-        : {}),
+      ...summary,
       ...(terminal ? { lastTurn: summarizeTurnUsage(rowToTurn(terminal), turnRows) } : {}),
     };
   }

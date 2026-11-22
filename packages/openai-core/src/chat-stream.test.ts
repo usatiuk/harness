@@ -67,6 +67,11 @@ describe("toChatEvents", () => {
     expect(out[0]).toEqual({
       type: "completed",
       usage: { inputTokens: 2000, outputTokens: 50, cachedReadTokens: 1536 },
+      providerUsage: {
+        prompt_tokens: 2000,
+        completion_tokens: 50,
+        prompt_tokens_details: { cached_tokens: 1536 },
+      },
     });
   });
 

@@ -186,6 +186,26 @@ export const wireUsageSummarySchema = z.strictObject({
   cost: z.number().nonnegative(),
   costIncomplete: z.boolean().default(false),
   lastInputTokens: nonnegativeInteger.nullable(),
+  contextMeasurements: z
+    .array(
+      z.strictObject({
+        provider: z.string().min(1),
+        model: z.string().min(1),
+        inputTokens: nonnegativeInteger,
+        createdAt: nonnegativeInteger,
+      }),
+    )
+    .nullable()
+    .default(null),
+  cacheRead: z
+    .strictObject({
+      inputTokens: nonnegativeInteger,
+      cachedReadTokens: nonnegativeInteger,
+      reportedRequests: nonnegativeInteger,
+      totalRequests: nonnegativeInteger,
+    })
+    .nullable()
+    .default(null),
   agentContext: z
     .strictObject({
       provider: z.string().min(1),
@@ -193,6 +213,15 @@ export const wireUsageSummarySchema = z.strictObject({
       turnId: idSchema,
       usage: wireUsageSchema.nullable(),
       createdAt: nonnegativeInteger,
+      lastRequest: z
+        .strictObject({
+          usage: wireUsageSchema.nullable(),
+          cachedReadTokens: nonnegativeInteger.nullable(),
+          cost: z.number().nonnegative().nullable(),
+          costIncomplete: z.boolean(),
+        })
+        .nullable()
+        .default(null),
     })
     .nullable(),
   lastTurn: z

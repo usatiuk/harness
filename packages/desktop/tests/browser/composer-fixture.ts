@@ -63,7 +63,12 @@ declare global {
       mockOpener(fail?: boolean): void;
       openedUrls: unknown[];
       appendWork(count: number, prepend?: boolean, canonical?: boolean): void;
-      setCapacity(limits: Partial<ModelInfo>, used?: number, checkpointModel?: string): void;
+      setCapacity(
+        limits: Partial<ModelInfo>,
+        used?: number,
+        selectedModel?: string,
+        previousInput?: number,
+      ): void;
       worktreeSwitches: unknown[];
       worktreeDeletes: unknown[];
       renameWorktree(branch: string): void;
@@ -1105,22 +1110,39 @@ window.composerFixture = {
       view.state = { ...view.state, cells: view.state.cells.map((cell) => ({ ...cell })) };
     changed();
   },
-  setCapacity(limits, used, checkpointModel = "test") {
-    capacityModels = [{ provider: "fixture", model: "test", ...limits }];
+  setCapacity(limits, used, selectedModel = "test", previousInput) {
+    const inputTokens = used ?? previousInput;
+    const usage =
+      used === undefined ? null : { inputTokens: used, outputTokens: 1, cachedReadTokens: 0 };
+    capacityModels = ["test", "test-latest"].map((model) => ({
+      provider: "fixture",
+      model,
+      ...limits,
+    }));
     view.conversation = {
       ...view.conversation,
-      config: { ...view.conversation.config, model: { provider: "fixture", model: "test-latest" } },
+      config: { ...view.conversation.config, model: { provider: "fixture", model: selectedModel } },
     };
     view.state = {
       ...view.state,
       lastInputTokens: 999999,
+      contextMeasurements:
+        inputTokens === undefined
+          ? []
+          : [{ provider: "fixture", model: "test", inputTokens, createdAt: 0 }],
+      cacheRead: { inputTokens: 100, cachedReadTokens: 20, reportedRequests: 2, totalRequests: 3 },
       agentContext: {
         provider: "fixture",
-        model: checkpointModel,
+        model: "test",
         turnId: "agent-turn" as import("@harness/protocol").TurnId,
         createdAt: 0,
-        usage:
-          used === undefined ? null : { inputTokens: used, outputTokens: 1, cachedReadTokens: 0 },
+        usage,
+        lastRequest: {
+          usage,
+          cachedReadTokens: used === undefined ? null : 0,
+          cost: used === undefined ? null : 0.01,
+          costIncomplete: false,
+        },
       },
     };
     changed();

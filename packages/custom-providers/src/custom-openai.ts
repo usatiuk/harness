@@ -67,17 +67,7 @@ export class CustomOpenAIProvider extends OpenAIResponsesTransport {
    * input message instead of the top-level `instructions` field — for backends that silently drop it.
    */
   protected override buildParams(request: ModelRequest) {
-    const params = buildResponseParams(
-      request,
-      undefined,
-      this.provider,
-      request.items.some(
-        ({ payload }) =>
-          payload?.provider === this.provider &&
-          payload.model === request.modelConfig.model &&
-          payload.type === "reasoning",
-      ),
-    );
+    const params = buildResponseParams(request, undefined, this.provider);
     if (this.#sendInstructionsAsSystem && params.instructions && Array.isArray(params.input)) {
       const system = textOf(request.instructions);
       if (system) {

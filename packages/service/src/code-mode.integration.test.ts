@@ -588,6 +588,32 @@ describe("ordinary tool discovery", () => {
 });
 
 describe("recorded code-mode execution", () => {
+  it("keeps the Chat prompt prefix across ordinary workspace tools and a follow-up turn", async () => {
+    const fixture = await setup([
+      evalStep('return await tools.call("glob", {pattern:"*.txt"});'),
+      toolStep("read", "eval", {
+        code: 'return await tools.call("read_file", {path:"sample.txt"});',
+      }),
+      textStep("Read the sample."),
+      textStep("Done."),
+    ]);
+    await writeFile(join(fixture.root, "sample.txt"), "fixture");
+    const items = await fixture.run();
+    expect(results(items).every((result) => result.status === "ok")).toBe(true);
+    await fixture.svc.deliver(fixture.conversation.id, "one more question", "send");
+    await fixture.svc.whenIdle(fixture.conversation.id);
+    const wire = fixture.requests.map((request) => buildChatParams(request));
+    expect(wire).toHaveLength(4);
+    for (const [index, next] of wire.slice(1).entries()) {
+      const previous = wire[index]!;
+      expect(next.messages.length).toBeGreaterThan(previous.messages.length);
+      expect(JSON.stringify(next.messages.slice(0, previous.messages.length))).toBe(
+        JSON.stringify(previous.messages),
+      );
+      expect(JSON.stringify(next.tools)).toBe(JSON.stringify(previous.tools));
+    }
+  });
+
   it("chains real glob/read tools, selects output, and stages nested instructions after the outer result", async () => {
     const fixture = await setup([
       evalStep(`const {paths} = await tools.call("glob", {pattern:"src/*.txt"});

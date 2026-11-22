@@ -5,8 +5,6 @@ import { ContextWindowExceededError, ModelDiscoveryError } from "@harness/protoc
 import { httpGateway, json, sse } from "../../litellm/src/http-fixture.ts";
 import { MistralProvider } from "./provider.ts";
 import { fetchCatalog, parseCatalog } from "./catalog.ts";
-import { buildMistralRequest } from "./request.ts";
-import { mistralEvents } from "./stream.ts";
 import { configuredModelsSchema, type ConfiguredModel } from "./config.ts";
 
 const gateways: Awaited<ReturnType<typeof httpGateway>>[] = [];
@@ -14,6 +12,8 @@ afterEach(async () => {
   await Promise.all(gateways.splice(0).map((g) => g.close()));
 });
 const signal = new AbortController().signal;
+const fetchUrl = (input: Parameters<typeof fetch>[0]) =>
+  new URL(input instanceof Request ? input.url : input);
 const context = { conversationId: "child" as ConversationId };
 const apiRow = {
   id: "coding",
@@ -47,30 +47,6 @@ const request = (mode: "api" | "vibe" = "vibe"): ModelRequest => ({
     model: "coding",
     ...(mode === "vibe" ? { preset: "high" } : {}),
   },
-});
-const message = (content: unknown, content_index = 0, output_index = 0) => ({
-  type: "message.output.delta",
-  id: "msg-" + output_index,
-  output_index,
-  content_index,
-  content,
-});
-const call = (args: string, output_index = 1, tool_call_id = "abc123XYZ") => ({
-  type: "function.call.delta",
-  id: "call-" + output_index,
-  output_index,
-  tool_call_id,
-  name: "echo",
-  arguments: args,
-});
-const usage = {
-  prompt_tokens: 100,
-  completion_tokens: 20,
-  prompt_tokens_details: { cached_tokens: 80 },
-};
-const done = (reported: unknown = usage) => ({
-  type: "conversation.response.done",
-  usage: reported,
 });
 async function collect(provider: MistralProvider, req = request(), abort = signal) {
   const events: ModelStreamEvent[] = [];
@@ -129,417 +105,139 @@ function continuation(first: ModelStreamEvent[], base: ModelRequest): ModelReque
 }
 async function fixture(
   mode: "api" | "vibe",
-  events: unknown[],
-  status = 200,
-  search = false,
   models: Record<string, ConfiguredModel> = {},
-  rawCatalog: unknown = catalog(mode),
+  data: unknown = catalog(mode),
 ) {
-  const headers: Record<string, unknown>[] = [];
-  const gateway = await httpGateway((req, response, raw) => {
-    headers.push(raw.headers);
-    if (req.method === "GET") return json(response, rawCatalog);
-    expect(req.path).toBe("/v1/conversations");
-    if ((req.body.inputs as Record<string, unknown>[]).some((entry) => "id" in entry))
-      return json(response, { message: "Input entries send by the user can't specify ids" }, 422);
-    if (status !== 200)
-      return json(
-        response,
-        { error: { message: "context length exceeded", code: "context_length_exceeded" } },
-        status,
-      );
-    sse(response, events, true);
+  const gateway = await httpGateway((req, response) => {
+    if (req.method === "GET") return json(response, data);
+    sse(response, [{ type: "response.completed", response: {} }]);
   });
   gateways.push(gateway);
   const provider = new MistralProvider(
     "work",
     mode,
-    "fixture-key",
-    (input, init) => {
-      const url = input instanceof Request ? input.url : input.toString();
-      expect(url.startsWith("https://api.mistral.ai/v1/")).toBe(true);
-      return fetch(url.replace("https://api.mistral.ai", gateway.url), init);
-    },
-    search,
+    "key",
+    (input, init) =>
+      fetch(new URL(fetchUrl(input).pathname + fetchUrl(input).search, gateway.url), init),
     models,
   );
   await provider.refreshModels(signal);
-  return { provider, gateway, headers };
+  return { provider, gateway };
 }
 
-describe("Mistral native delivery", () => {
+describe("Mistral Responses", () => {
   it.each(["api", "vibe"] as const)(
-    "replays assistant-only output without entry IDs on %s",
+    "streams plaintext reasoning and replays it with linked local calls on %s",
     async (mode) => {
-      const { provider, gateway } = await fixture(mode, [message("reply"), done()]);
-      const base = request(mode);
-      const first = await collect(provider, base);
-      const next = { ...continuation(first, base), prompt: "Follow up" };
-      expect((await collect(provider, next)).at(-1)?.type).toBe("completed");
-      expect(gateway.requests.at(-1)?.body.inputs).toEqual([
-        { type: "message.input", role: "user", content: "Use echo" },
-        { type: "message.output", role: "assistant", content: [{ type: "text", text: "reply" }] },
-        { type: "message.input", role: "user", content: "Follow up" },
-      ]);
-      expect(first.find((event) => event.type === "message")).toMatchObject({
-        payload: { payload: [{ id: "msg-0" }] },
-      });
-    },
-  );
-  it("exposes and delivers advertised Vibe reasoning controls without collapsing efforts", async () => {
-    const levels = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "adaptive", "off"];
-    const { provider, gateway } = await fixture(
-      "vibe",
-      [message("reply"), done()],
-      200,
-      false,
-      {},
-      {
-        models: [{ ...vibeRow, parameters: { reasoning: [...levels, "high"] } }],
-      },
-    );
-    expect(provider.listModels().map((model) => model.presets)).toEqual([
-      levels.map((value) => ({ value })),
-      levels.map((value) => ({ value })),
-    ]);
-    expect(await provider.refreshModels(signal)).toMatchObject({
-      status: "ready",
-      diagnostics: [],
-    });
-    for (const preset of levels) {
-      await collect(provider, {
-        ...request(),
-        modelConfig: { provider: "work", model: "coding-latest", preset },
-      });
-      expect(gateway.requests.at(-1)?.body.completion_args).toMatchObject({
-        reasoning_effort: preset === "off" ? "none" : preset,
-      });
-    }
-    await collect(provider, request("api"));
-    expect(gateway.requests.at(-1)?.body.completion_args).not.toHaveProperty("reasoning_effort");
-    await expect(
-      collect(provider, {
-        ...request(),
-        modelConfig: { provider: "work", model: "coding", preset: "unadvertised" },
-      }),
-    ).rejects.toThrow("Unknown preset");
-  });
-  it.each(["api", "vibe"] as const)("generates a configured-only model on %s", async (mode) => {
-    const { provider, gateway } = await fixture(
-      mode,
-      [message("manual reply"), done()],
-      200,
-      false,
-      {
-        manual: { label: "Manual", contextWindow: 262144, maxOutputTokens: 8192 },
-      },
-    );
-    const req = { ...request(mode), modelConfig: { provider: "work", model: "manual" } };
-    expect((await collect(provider, req)).at(-1)?.type).toBe("completed");
-    expect(gateway.requests.find(({ method }) => method === "POST")?.body).toMatchObject({
-      model: "manual",
-      store: false,
-    });
-    expect(provider.listModels().find(({ model }) => model === "manual")).toEqual({
-      provider: "work",
-      model: "manual",
-      label: "Manual",
-      contextWindow: 262144,
-      maxOutputTokens: 8192,
-    });
-    expect(() => provider.validateConfig({ ...req.modelConfig, preset: "high" })).toThrow(
-      "Unknown preset",
-    );
-  });
-  it("streams and replays signed thinking, exact call arguments and stable prefixes over real HTTP/SSE", async () => {
-    const firstBlock = {
-      type: "thinking",
-      thinking: [{ type: "text", text: "Think", annotation: "opaque" }],
-      signature: "sig-1",
-      closed: true,
-      vendor: { value: 1 },
-    };
-    const secondBlock = {
-      type: "thinking",
-      thinking: [{ type: "text", text: "Again" }],
-      signature: "sig-2",
-      closed: true,
-    };
-    const rawArgs = '{ "x" : 1 }';
-    const { provider, gateway, headers } = await fixture("vibe", [
-      message({ ...firstBlock, signature: null, closed: false }),
-      message({ ...firstBlock, thinking: [] }),
-      message("Between", 1),
-      message(secondBlock, 2),
-      call(rawArgs.slice(0, 5)),
-      call(rawArgs.slice(5)),
-      done(),
-    ]);
-    const base = request();
-    base.maxOutputTokens = 1234;
-    const first = await collect(provider, base);
-    expect(first.filter((e) => e.type === "reasoning_delta").map((e) => e.text)).toEqual([
-      "Think",
-      "Again",
-    ]);
-    expect(first.at(-1)).toMatchObject({
-      type: "completed",
-      usage: { inputTokens: 100, outputTokens: 20, cachedReadTokens: 80 },
-    });
-    await collect(provider, continuation(first, base));
-    const [a, b] = gateway.requests.filter((req) => req.method === "POST").map((req) => req.body);
-    expect(a).toMatchObject({
-      model: "coding",
-      instructions: "Stable system",
-      stream: true,
-      store: false,
-      completion_args: { reasoning_effort: "high", temperature: 0.2, max_tokens: 1234 },
-    });
-    expect((b!.inputs as unknown[]).slice(0, (a!.inputs as unknown[]).length)).toEqual(a!.inputs);
-    expect((b!.inputs as unknown[]).slice(1)).toEqual([
-      {
-        type: "message.output",
-        role: "assistant",
-        content: [firstBlock, { type: "text", text: "Between" }, secondBlock],
-      },
-      {
-        type: "function.call",
-        tool_call_id: "abc123XYZ",
+      const reasoning = {
+        type: "reasoning",
+        id: "rs_1",
+        summary: [],
+        content: [{ type: "reasoning_text", text: "Need to call echo." }],
+      };
+      const call = {
+        type: "function_call",
+        id: "fc_1",
+        call_id: "abc123XYZ",
         name: "echo",
-        arguments: rawArgs,
-      },
-      { type: "function.result", tool_call_id: "abc123XYZ", result: "echoed" },
-    ]);
-    expect(b!.tools).toEqual(a!.tools);
-    expect(
-      headers
-        .slice(1)
-        .every(
-          (h) => h["x-affinity"] === "child" && h["user-agent"] === `Harness/${PRODUCT_VERSION}`,
-        ),
-    ).toBe(true);
-    expect(gateway.requests.map((r) => r.key)).toEqual([
-      "fixture-key",
-      "fixture-key",
-      "fixture-key",
-    ]);
-    expect(gateway.requests[0]?.path).toBe("/v1/model-catalog?surface=vibe-code");
-  });
-  it.each(["api", "vibe"] as const)(
-    "keeps %s on Conversations with search enabled or disabled",
-    async (mode) => {
-      for (const search of [false, true]) {
-        const { provider, gateway } = await fixture(
-          mode,
-          [
-            ...(search
-              ? [
-                  {
-                    type: "tool.execution.started",
-                    id: "search",
-                    name: "web_search",
-                    output_index: 0,
-                  },
-                ]
-              : []),
-            message("[Source](https://example.com)"),
-            done(),
-          ],
-          200,
-          search,
-        );
-        const req = { ...request(mode), providerOptions: provider.providerOptions };
-        const events = await collect(provider, req);
-        expect(gateway.requests[1]?.body).toMatchObject({ stream: true, store: false });
-        expect(gateway.requests[1]?.body.tools).toEqual([
-          {
-            type: "function",
-            function: {
-              name: "echo",
-              description: "Echo",
-              parameters: { type: "object", properties: { x: { type: "number" } } },
-            },
-          },
-          ...(search ? [{ type: "web_search" }] : []),
+        arguments: '{"x":42}',
+      };
+      const usage = {
+        input_tokens: 100,
+        output_tokens: 20,
+        total_tokens: 120,
+        ...(mode === "vibe" ? { input_tokens_details: { cached_tokens: 0 } } : {}),
+      };
+      const headers: Record<string, unknown>[] = [];
+      const gateway = await httpGateway((req, response, raw) => {
+        if (req.method === "GET") return json(response, catalog(mode));
+        headers.push(raw.headers);
+        sse(response, [
+          { type: "response.reasoning_text.delta", delta: "Need to call echo." },
+          { type: "response.output_item.done", item: reasoning },
+          { type: "response.output_item.done", item: call },
+          { type: "response.completed", response: { usage } },
         ]);
-        expect(events.find((e) => e.type === "message")).toMatchObject({
-          content: [{ type: "text", text: "[Source](https://example.com)" }],
+      });
+      gateways.push(gateway);
+      const provider = new MistralProvider("work", mode, "fixture-key", (input, init) =>
+        fetch(new URL(fetchUrl(input).pathname + fetchUrl(input).search, gateway.url), init),
+      );
+      await provider.refreshModels(signal);
+      const base = { ...request(mode), providerOptions: { webSearch: true }, maxOutputTokens: 256 };
+      const first = await collect(provider, base);
+      expect(first).toMatchObject([
+        { type: "reasoning_delta", text: "Need to call echo." },
+        { type: "reasoning", content: [{ type: "text", text: "Need to call echo." }] },
+        { type: "tool_call", callId: call.call_id, name: "echo", args: { x: 42 } },
+        { type: "completed", usage: { cachedReadTokens: 0 }, providerUsage: usage },
+      ]);
+      expect(first.at(-1)).toEqual({
+        type: "completed",
+        usage: { inputTokens: 100, outputTokens: 20, cachedReadTokens: 0 },
+        providerUsage: usage,
+      });
+      await collect(provider, continuation(first, base));
+      const posts = gateway.requests.filter(({ method }) => method === "POST");
+      expect(posts.map(({ path }) => path)).toEqual(["/v1/responses", "/v1/responses"]);
+      for (const { body } of posts) {
+        expect(body).toMatchObject({
+          model: "coding",
+          instructions: "Stable system",
+          prompt_cache_key: context.conversationId,
+          temperature: mode === "api" ? 0.3 : 0.2,
+          max_output_tokens: 256,
+          stream: true,
+          store: false,
+          tools: [{ type: "function", name: "echo" }],
         });
-        if (search) {
-          expect(events.find((e) => e.type === "provider_output")).not.toHaveProperty("payload");
-          expect(events.at(-1)).toMatchObject({
-            costIncomplete: true,
-            inputTokensAreContext: false,
-          });
-        }
+        if (mode === "vibe") expect(body.reasoning).toEqual({ effort: "high" });
+      }
+      expect(posts[1]!.body.input).toMatchObject([
+        { role: "user" },
+        reasoning,
+        { type: "function_call", call_id: call.call_id, arguments: call.arguments },
+        { type: "function_call_output", call_id: call.call_id },
+      ]);
+      for (const header of headers) {
+        expect(header["x-affinity"]).toBe(context.conversationId);
+        expect(header["user-agent"]).toBe(`Harness/${PRODUCT_VERSION}`);
       }
     },
   );
-  it("preserves the API catalog, unknown counts and validation of catalog controls", async () => {
-    const { provider, gateway } = await fixture("api", [
-      message("done"),
-      done({ prompt_tokens: 10 }),
-    ]);
-    expect(provider.listModels()).toEqual([
-      {
-        provider: "work",
-        model: "coding",
-        label: "Coding",
-        contextWindow: 262144,
-        supportsImages: true,
+
+  it("normalizes context overflow without trying a second endpoint", async () => {
+    const paths: string[] = [];
+    const provider = new MistralProvider(
+      "work",
+      "api",
+      "key",
+      async (input) => {
+        paths.push(fetchUrl(input).pathname);
+        return Response.json(
+          { error: { message: "context length exceeded", code: "context_length_exceeded" } },
+          { status: 400 },
+        );
       },
-      {
-        provider: "work",
-        model: "coding-latest",
-        label: "Coding",
-        contextWindow: 262144,
-        supportsImages: true,
-      },
-    ]);
-    expect(provider.capabilities("coding")).toEqual({
-      contentTypes: ["text", "image"],
-      toolCalling: true,
-      customToolInput: { supported: false, grammars: [] },
-      preferredEditTool: "replace",
-    });
-    expect((await collect(provider, request("api"))).at(-1)).toMatchObject({
-      type: "completed",
-      usage: null,
-    });
-    expect(gateway.requests[0]?.path).toBe("/v1/models");
-    expect(gateway.requests[1]?.body.completion_args).not.toHaveProperty("reasoning_effort");
-    await expect(collect(provider)).rejects.toThrow("Unknown preset");
-    await expect(
-      collect(provider, { ...request("api"), modelConfig: { provider: "other", model: "coding" } }),
-    ).rejects.toThrow("identity mismatch");
-  });
-  it("assembles interleaved local calls without concatenating their repeated names or IDs", async () => {
-    const { provider } = await fixture("api", [
-      call('{"x":', 1),
-      call('{"x":2}', 2, "another-id"),
-      call("1}", 1),
-      done(),
-    ]);
-    const calls = (await collect(provider, request("api"))).filter((e) => e.type === "tool_call");
-    expect(calls).toMatchObject([
-      { callId: "abc123XYZ", name: "echo", args: { x: 1 } },
-      { callId: "another-id", name: "echo", args: { x: 2 } },
-    ]);
-  });
-  it("retains terminal accounting and readable output on malformed local calls, without dispatch", async () => {
-    const { provider } = await fixture("api", [message("partial"), call("{bad"), done()]);
-    const events = await collect(provider, request("api"));
-    expect(events.filter((e) => e.type === "tool_call")).toEqual([]);
-    expect(events.find((e) => e.type === "message")).not.toHaveProperty("payload");
-    expect(events.at(-1)).toMatchObject({
-      type: "completed",
-      usage: { inputTokens: 100 },
-      error: expect.stringContaining("malformed") as unknown,
-    });
-  });
-  it("rejects invalid accounting and EOF without fabricating successful completion", async () => {
-    const invalid = await fixture("api", [
-      done({ prompt_tokens: 5, completion_tokens: 1, prompt_tokens_details: { cached_tokens: 6 } }),
-    ]);
-    await expect(collect(invalid.provider, request("api"))).rejects.toThrow();
-    const truncated = await fixture("api", [message("partial"), call("{")]);
-    await expect(collect(truncated.provider, request("api"))).rejects.toThrow(
-      "without response completion",
+      { coding: {} },
     );
-  });
-  it("drains partial readable content without signed metadata after a provider error", async () => {
-    const { provider } = await fixture("api", [
-      message({ type: "thinking", thinking: [{ type: "text", text: "partial" }], signature: null }),
-      call("{"),
-      { type: "conversation.response.error", message: "Interrupted", code: 500 },
-    ]);
-    const events = await collect(provider, request("api"));
-    expect(events).toEqual([
-      { type: "reasoning_delta", text: "partial" },
-      { type: "reasoning", content: [{ type: "text", text: "partial" }] },
-      { type: "completed", usage: null, error: "Mistral response error (500): Interrupted" },
-    ]);
-  });
-  it("normalizes native context overflow before output", async () => {
-    const { provider } = await fixture("api", [], 400);
     await expect(collect(provider, request("api"))).rejects.toBeInstanceOf(
       ContextWindowExceededError,
     );
-  });
-  it("drains authoritative completion even if cancellation arrives while final output is yielded", async () => {
-    const controller = new AbortController();
-    const stream = (async function* () {
-      yield message("received");
-      yield done();
-      throw new Error("must stop at terminal event");
-    })();
-    const events: ModelStreamEvent[] = [];
-    for await (const event of mistralEvents(stream, "work", "coding", controller.signal)) {
-      events.push(event);
-      if (event.type === "message") controller.abort();
-    }
-    expect(events.at(-1)).toMatchObject({ type: "completed", usage: { inputTokens: 100 } });
-    expect(events.find((e) => e.type === "message")).toHaveProperty("payload");
-  });
-  it.each(["abort", "return"])("closes the real streaming socket on consumer %s", async (kind) => {
-    let disconnected!: () => void;
-    const drained = new Promise<void>((resolve) => {
-      disconnected = resolve;
-    });
-    const gateway = await httpGateway((req, response) => {
-      if (req.method === "GET") return json(response, catalog("api"));
-      response.on("close", disconnected);
-      response.writeHead(200, { "content-type": "text/event-stream" });
-      response.write(
-        "event: message.output.delta\ndata: " + JSON.stringify(message("started")) + "\n\n",
-      );
-    });
-    gateways.push(gateway);
-    const provider = new MistralProvider("work", "api", "key", (input, init) =>
-      fetch(
-        (input instanceof Request ? input.url : input.toString()).replace(
-          "https://api.mistral.ai",
-          gateway.url,
-        ),
-        init,
-      ),
-    );
-    await provider.refreshModels(signal);
-    const controller = new AbortController();
-    const iterator = provider
-      .stream(request("api"), controller.signal, context)
-      [Symbol.asyncIterator]();
-    expect((await iterator.next()).value).toEqual({ type: "text_delta", text: "started" });
-    if (kind === "abort") {
-      const reason = new Error("cancelled by test");
-      const pending = iterator.next();
-      controller.abort(reason);
-      expect((await pending).value).toEqual({
-        type: "message",
-        content: [{ type: "text", text: "started" }],
-      });
-      await expect(iterator.next()).rejects.toBe(reason);
-    } else await iterator.return?.();
-    await drained;
+    expect(paths).toEqual(["/v1/responses"]);
   });
 });
+
 describe("Mistral catalog boundary", () => {
   it.each(["api", "vibe"] as const)(
     "merges configured metadata per exact ID on %s",
     async (mode) => {
       let raw: unknown = catalog(mode);
-      const provider = new MistralProvider(
-        "work",
-        mode,
-        "key",
-        async () => Response.json(raw),
-        false,
-        {
-          coding: { contextWindow: 524288, maxOutputTokens: 8192 },
-          "coding-latest": { label: "Alias override" },
-          manual: { contextWindow: 10000, maxOutputTokens: 1000 },
-        },
-      );
+      const provider = new MistralProvider("work", mode, "key", async () => Response.json(raw), {
+        coding: { contextWindow: 524288, maxOutputTokens: 8192 },
+        "coding-latest": { label: "Alias override" },
+        manual: { contextWindow: 10000, maxOutputTokens: 1000 },
+      });
       expect(provider.listModels().map(({ model }) => model)).toEqual([
         "coding",
         "coding-latest",
@@ -580,7 +278,6 @@ describe("Mistral catalog boundary", () => {
       "api",
       "key",
       async () => Response.json(catalog("api")),
-      false,
       {
         coding: { maxOutputTokens: 524288 },
       },
@@ -594,7 +291,7 @@ describe("Mistral catalog boundary", () => {
 
   it("bounds the combined catalog and retains configured entries after discovery failure", async () => {
     let response = new Response(null, { status: 503 });
-    const provider = new MistralProvider("work", "api", "key", async () => response, false, {
+    const provider = new MistralProvider("work", "api", "key", async () => response, {
       manual: {},
     });
     await expect(provider.refreshModels(signal)).rejects.toMatchObject({
@@ -740,7 +437,7 @@ describe("Mistral catalog boundary", () => {
   });
 });
 
-it("preserves imported IDs exactly and leaves selected context at its original cache position", () => {
+it("preserves imported IDs exactly and leaves selected context at its original cache position", async () => {
   const base = request("api");
   delete base.prompt;
   base.items = [
@@ -766,14 +463,18 @@ it("preserves imported IDs exactly and leaves selected context at its original c
       ),
     },
   ];
-  const wire = buildMistralRequest(base);
+  const { provider, gateway } = await fixture("api");
+  await collect(provider, base);
+  await collect(provider, base);
+  const wire = gateway.requests.at(-1)!.body;
+  const input = wire.input as unknown[];
   expect(wire.instructions).toBe("Stable system");
-  expect(wire.inputs.at(-1)).toEqual({ type: "message.input", role: "user", content: "changes" });
+  expect(input.at(-1)).toEqual({ role: "developer", content: "changes" });
   const id = "other-provider-id";
 
-  expect(wire.inputs[1]).toMatchObject({ type: "function.call", tool_call_id: id });
-  expect(wire.inputs[2]).toMatchObject({ type: "function.result", tool_call_id: id });
-  expect(buildMistralRequest(base)).toEqual(wire);
+  expect(input[1]).toMatchObject({ type: "function_call", call_id: id });
+  expect(input[2]).toMatchObject({ type: "function_call_output", call_id: id });
+  expect(gateway.requests.at(-2)?.body).toEqual(wire);
 });
 
 it.each(["api", "vibe"] as const)(
@@ -788,9 +489,6 @@ it.each(["api", "vibe"] as const)(
     }));
     const { provider } = await fixture(
       mode,
-      [],
-      200,
-      false,
       {},
       mode === "api" ? { data: rows } : { models: rows },
     );
@@ -819,9 +517,6 @@ it.each(["api", "vibe"] as const)(
     }));
     const { provider } = await fixture(
       mode,
-      [],
-      200,
-      false,
       configuredModelsSchema.parse({
         "remote-0": { supportsImages: false },
         "remote-1": { supportsImages: true },
@@ -844,7 +539,7 @@ it.each(["api", "vibe"] as const)(
 it.each(["api", "vibe"] as const)(
   "uses configured editing metadata after %s discovery",
   async (mode) => {
-    const { provider } = await fixture(mode, [], 200, false, {
+    const { provider } = await fixture(mode, {
       manual: { preferredEditTool: "patch", reasoning: { supported: false }, maxInputTokens: 1234 },
     });
     expect(provider.listModels().find((entry) => entry.model === "manual")).toEqual({
@@ -864,17 +559,11 @@ it.each(["api", "vibe"] as const)(
 it.each(["api", "vibe"] as const)(
   "delivers configured-only reasoning and sampling controls on %s",
   async (mode) => {
-    const { provider, gateway } = await fixture(
-      mode,
-      [message("manual reply"), done()],
-      200,
-      false,
-      {
-        manual: { temperature: 0.4, reasoning: { supported: true, effortLevels: ["off", "high"] } },
-        coding: { temperature: 0.2, reasoning: { supported: true, effortLevels: ["low"] } },
-        "coding-latest": { reasoning: { supported: false } },
-      },
-    );
+    const { provider, gateway } = await fixture(mode, {
+      manual: { temperature: 0.4, reasoning: { supported: true, effortLevels: ["off", "high"] } },
+      coding: { temperature: 0.2, reasoning: { supported: true, effortLevels: ["low"] } },
+      "coding-latest": { reasoning: { supported: false } },
+    });
     expect(provider.listModels().find((entry) => entry.model === "manual")).toMatchObject({
       presets: [{ value: "off" }, { value: "high" }],
     });
@@ -886,9 +575,9 @@ it.each(["api", "vibe"] as const)(
         ...request(mode),
         modelConfig: { provider: "work", model, preset },
       });
-      expect(gateway.requests.at(-1)?.body.completion_args).toMatchObject({
+      expect(gateway.requests.at(-1)?.body).toMatchObject({
         temperature,
-        reasoning_effort,
+        reasoning: { effort: reasoning_effort },
       });
     }
     expect(() =>

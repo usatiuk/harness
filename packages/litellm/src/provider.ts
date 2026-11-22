@@ -8,6 +8,7 @@ import {
   type ModelRequest,
   type ModelStreamEvent,
 } from "@harness/protocol";
+import { replayResponseOutput } from "@harness/openai-core";
 import { apiKeyCredentials as openaiCredentials } from "@harness/openai-api";
 import { apiKeyCredentials as anthropicCredentials } from "@harness/anthropic-api";
 import { gatewayAdapter } from "./adapters.ts";
@@ -75,7 +76,7 @@ export class LiteLLMProvider implements ModelProvider {
   ): AsyncIterable<ModelStreamEvent> {
     this.validateConfig(request.modelConfig);
     const entry = this.#entry(request.modelConfig.model);
-    for (const { payload } of request.items) {
+    for (const { item, payload } of request.items) {
       if (
         !payload ||
         payload.provider !== this.provider ||
@@ -83,15 +84,17 @@ export class LiteLLMProvider implements ModelProvider {
       )
         continue;
       if (
-        (payload.type === "reasoning" && entry.transport !== "openai-responses") ||
+        (item.type === "reasoning" &&
+          entry.transport !== "openai-responses" &&
+          replayResponseOutput(item, payload, this.provider, request.modelConfig.model)) ||
         (payload.type === "thinking" && entry.transport !== "anthropic-messages")
       )
         throw new Error(
           `Saved reasoning for ${this.provider}/${request.modelConfig.model} requires its original transport; configure the model profile before continuing`,
         );
-      if ((payload.type === "reasoning" || payload.type === "thinking") && payload.version !== 1)
-        throw new Error("Saved reasoning payload version is not supported");
       if (payload.type === "thinking") {
+        if (payload.version !== 1)
+          throw new Error("Saved reasoning payload version is not supported");
         const preset = request.modelConfig.preset ?? entry.profile.defaultPreset;
         const thinking =
           (preset ? entry.profile.presets?.[preset]?.thinking : undefined) ??

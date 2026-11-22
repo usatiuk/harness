@@ -1294,7 +1294,16 @@ delays, or a nearby condition that does not prove completion.
   Advertised Vibe effort strings (including native `none` and GLM levels) retain
   their exact request values; only legacy `off` maps to `none`. Unknown advertised
   strings remain selectable, while unadvertised selections fail validation.
-  Reasoning booleans do not manufacture presets. Headless production desktop
+  Reasoning booleans do not manufacture presets. These Conversations-specific
+  results are historical; the adapter now uses Responses only. The current
+  HTTP/SSE tests cover plaintext reasoning replay, local call IDs, stable
+  `prompt_cache_key` and `x-affinity`, and explicit-zero versus absent native
+  cache telemetry. RPC coverage verifies legacy search settings are inert.
+  Synthetic live runs using the updated adapter completed a tool round trip and
+  another text turn on both API and Vibe. Vibe returned a 1,408-token cached read
+  in that sample; the API adapter sample returned zero, although a separate
+  direct Responses probe on the API key observed 1,280 cached tokens. Neither
+  sample establishes hit rates or subscription billing. Headless production desktop
   routes qualify distinct dimmed IDs, hover metadata and creation preset submission
   and reset, clearing the reviewer model, and refreshing a saved default identity
   on loader revalidation. Updated native selectors still require a rebuilt native run.
@@ -2186,3 +2195,7 @@ uses bundled WebKit subprocesses; it qualifies that engine with the real source
 Composer, **not the complete installed AppImage**. All profiles/displays are
 isolated and no installed Harness instance is launched. Raw evidence is under
 `.harness/composer-20261019/`; temporary fixture servers were stopped after use.
+
+The Mistral server integration test reopens a SQLite conversation and inspects the next stateless HTTP request for plaintext, ciphertext, summary-only items and linked tool history. Switching the model omits the old reasoning and keeps tool history. The HTTP endpoint is a local fixture.
+
+Cache-prefix regressions compare serialized Responses input, instructions, tools and the conversation key across a tool call and SQLite reopen. The Chat projection compares messages (including system instructions) and tools across ordinary workspace reads and a follow-up. These checks exercise prompt structure; cache hits depend on the serving backend. Chat adapters that hoist newly discovered instructions into the system message can intentionally invalidate the earlier prefix.

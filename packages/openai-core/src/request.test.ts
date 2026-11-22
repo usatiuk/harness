@@ -28,6 +28,28 @@ const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
 });
 
 describe("buildResponseParams", () => {
+  it("replays native Responses reasoning intact only for the originating provider and model", () => {
+    const native = {
+      type: "reasoning",
+      id: "rs_native",
+      summary: [{ type: "summary_text", text: "summary" }],
+      content: [{ type: "reasoning_text", text: "native reasoning" }],
+      encrypted_content: "opaque-state",
+    };
+    const request = baseRequest([
+      {
+        item: item({ type: "reasoning", content: [{ type: "text", text: "display only" }] }),
+        payload: { ...reasoningPayload("gpt-x"), type: "response_output", payload: native },
+      },
+    ]);
+    expect(buildResponseParams(request, undefined, "openai", false).input).toEqual([native]);
+    expect(buildResponseParams(request, undefined, "other", false).input).toEqual([]);
+    expect(buildResponseParams(request, undefined, "openai").include).toEqual([
+      "reasoning.encrypted_content",
+    ]);
+    expect(buildResponseParams(request, undefined, "other").include).toBeUndefined();
+  });
+
   it("renders historical raw-string calls as text when no custom tool is offered", () => {
     const params = buildResponseParams(
       baseRequest([

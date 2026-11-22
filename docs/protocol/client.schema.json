@@ -1937,6 +1937,64 @@
                 { "type": "null" }
               ]
             },
+            "contextMeasurements": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "provider": { "type": "string", "minLength": 1 },
+                      "model": { "type": "string", "minLength": 1 },
+                      "inputTokens": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "createdAt": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                    },
+                    "required": ["provider", "model", "inputTokens", "createdAt"],
+                    "additionalProperties": false
+                  }
+                },
+                { "type": "null" }
+              ]
+            },
+            "cacheRead": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "cachedReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "reportedRequests": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "totalRequests": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "cachedReadTokens",
+                    "reportedRequests",
+                    "totalRequests"
+                  ],
+                  "additionalProperties": false
+                },
+                { "type": "null" }
+              ]
+            },
             "agentContext": {
               "anyOf": [
                 {
@@ -1991,9 +2049,78 @@
                         { "type": "null" }
                       ]
                     },
-                    "createdAt": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                    "createdAt": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "lastRequest": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "usage": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "inputTokens": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "outputTokens": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "cachedReadTokens": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "cacheWriteTokens": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "propertyNames": { "type": "string" },
+                                          "additionalProperties": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          }
+                                        },
+                                        { "type": "null" }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "inputTokens",
+                                    "outputTokens",
+                                    "cachedReadTokens",
+                                    "cacheWriteTokens"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "cachedReadTokens": {
+                              "anyOf": [
+                                { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "cost": {
+                              "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+                            },
+                            "costIncomplete": { "type": "boolean" }
+                          },
+                          "required": ["usage", "cachedReadTokens", "cost", "costIncomplete"],
+                          "additionalProperties": false
+                        },
+                        { "type": "null" }
+                      ]
+                    }
                   },
-                  "required": ["provider", "model", "turnId", "usage", "createdAt"],
+                  "required": ["provider", "model", "turnId", "usage", "createdAt", "lastRequest"],
                   "additionalProperties": false
                 },
                 { "type": "null" }
@@ -2082,6 +2209,8 @@
             "cost",
             "costIncomplete",
             "lastInputTokens",
+            "contextMeasurements",
+            "cacheRead",
             "agentContext",
             "lastTurn"
           ],
@@ -2475,6 +2604,72 @@
                         { "type": "null" }
                       ]
                     },
+                    "contextMeasurements": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "provider": { "type": "string", "minLength": 1 },
+                              "model": { "type": "string", "minLength": 1 },
+                              "inputTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "createdAt": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": ["provider", "model", "inputTokens", "createdAt"],
+                            "additionalProperties": false
+                          }
+                        },
+                        { "type": "null" }
+                      ]
+                    },
+                    "cacheRead": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "inputTokens": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "cachedReadTokens": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "reportedRequests": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "totalRequests": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "inputTokens",
+                            "cachedReadTokens",
+                            "reportedRequests",
+                            "totalRequests"
+                          ],
+                          "additionalProperties": false
+                        },
+                        { "type": "null" }
+                      ]
+                    },
                     "agentContext": {
                       "anyOf": [
                         {
@@ -2533,9 +2728,97 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 9007199254740991
+                            },
+                            "lastRequest": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "usage": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "inputTokens": {
+                                              "type": "integer",
+                                              "minimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            "outputTokens": {
+                                              "type": "integer",
+                                              "minimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            "cachedReadTokens": {
+                                              "type": "integer",
+                                              "minimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            "cacheWriteTokens": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "object",
+                                                  "propertyNames": { "type": "string" },
+                                                  "additionalProperties": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "maximum": 9007199254740991
+                                                  }
+                                                },
+                                                { "type": "null" }
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "inputTokens",
+                                            "outputTokens",
+                                            "cachedReadTokens",
+                                            "cacheWriteTokens"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "cachedReadTokens": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "cost": {
+                                      "anyOf": [
+                                        { "type": "number", "minimum": 0 },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "costIncomplete": { "type": "boolean" }
+                                  },
+                                  "required": [
+                                    "usage",
+                                    "cachedReadTokens",
+                                    "cost",
+                                    "costIncomplete"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
                             }
                           },
-                          "required": ["provider", "model", "turnId", "usage", "createdAt"],
+                          "required": [
+                            "provider",
+                            "model",
+                            "turnId",
+                            "usage",
+                            "createdAt",
+                            "lastRequest"
+                          ],
                           "additionalProperties": false
                         },
                         { "type": "null" }
@@ -2627,6 +2910,8 @@
                     "cost",
                     "costIncomplete",
                     "lastInputTokens",
+                    "contextMeasurements",
+                    "cacheRead",
                     "agentContext",
                     "lastTurn"
                   ],
@@ -3608,6 +3893,51 @@
             { "type": "null" }
           ]
         },
+        "contextMeasurements": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "provider": { "type": "string", "minLength": 1 },
+                  "model": { "type": "string", "minLength": 1 },
+                  "inputTokens": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "createdAt": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                },
+                "required": ["provider", "model", "inputTokens", "createdAt"],
+                "additionalProperties": false
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "cacheRead": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "inputTokens": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "cachedReadTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reportedRequests": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "totalRequests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              },
+              "required": ["inputTokens", "cachedReadTokens", "reportedRequests", "totalRequests"],
+              "additionalProperties": false
+            },
+            { "type": "null" }
+          ]
+        },
         "agentContext": {
           "anyOf": [
             {
@@ -3662,9 +3992,78 @@
                     { "type": "null" }
                   ]
                 },
-                "createdAt": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                "createdAt": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "lastRequest": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "usage": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "inputTokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "outputTokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "cachedReadTokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "cacheWriteTokens": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "propertyNames": { "type": "string" },
+                                      "additionalProperties": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      }
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "inputTokens",
+                                "outputTokens",
+                                "cachedReadTokens",
+                                "cacheWriteTokens"
+                              ],
+                              "additionalProperties": false
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "cachedReadTokens": {
+                          "anyOf": [
+                            { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                            { "type": "null" }
+                          ]
+                        },
+                        "cost": {
+                          "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+                        },
+                        "costIncomplete": { "type": "boolean" }
+                      },
+                      "required": ["usage", "cachedReadTokens", "cost", "costIncomplete"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                }
               },
-              "required": ["provider", "model", "turnId", "usage", "createdAt"],
+              "required": ["provider", "model", "turnId", "usage", "createdAt", "lastRequest"],
               "additionalProperties": false
             },
             { "type": "null" }
@@ -3749,6 +4148,8 @@
         "cost",
         "costIncomplete",
         "lastInputTokens",
+        "contextMeasurements",
+        "cacheRead",
         "agentContext",
         "lastTurn"
       ],
@@ -4952,6 +5353,72 @@
                         { "type": "null" }
                       ]
                     },
+                    "contextMeasurements": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "provider": { "type": "string", "minLength": 1 },
+                              "model": { "type": "string", "minLength": 1 },
+                              "inputTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "createdAt": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": ["provider", "model", "inputTokens", "createdAt"],
+                            "additionalProperties": false
+                          }
+                        },
+                        { "type": "null" }
+                      ]
+                    },
+                    "cacheRead": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "inputTokens": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "cachedReadTokens": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "reportedRequests": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "totalRequests": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "inputTokens",
+                            "cachedReadTokens",
+                            "reportedRequests",
+                            "totalRequests"
+                          ],
+                          "additionalProperties": false
+                        },
+                        { "type": "null" }
+                      ]
+                    },
                     "agentContext": {
                       "anyOf": [
                         {
@@ -5010,6 +5477,87 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 9007199254740991
+                            },
+                            "lastRequest": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "usage": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "inputTokens": {
+                                              "type": "integer",
+                                              "minimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            "outputTokens": {
+                                              "type": "integer",
+                                              "minimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            "cachedReadTokens": {
+                                              "type": "integer",
+                                              "minimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            "cacheWriteTokens": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "object",
+                                                  "propertyNames": { "type": "string" },
+                                                  "additionalProperties": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "maximum": 9007199254740991
+                                                  }
+                                                },
+                                                { "type": "null" }
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "inputTokens",
+                                            "outputTokens",
+                                            "cachedReadTokens",
+                                            "cacheWriteTokens"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "cachedReadTokens": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "cost": {
+                                      "anyOf": [
+                                        { "type": "number", "minimum": 0 },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "costIncomplete": { "type": "boolean" }
+                                  },
+                                  "required": [
+                                    "usage",
+                                    "cachedReadTokens",
+                                    "cost",
+                                    "costIncomplete"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
                             }
                           },
                           "required": ["provider", "model", "turnId", "usage", "createdAt"],

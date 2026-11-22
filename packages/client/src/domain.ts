@@ -48,13 +48,27 @@ export const decodeUsageSummary = (summary: WireUsageSummary): ModelUsageSummary
   incomplete: summary.incomplete,
   cost: summary.cost,
   costIncomplete: summary.costIncomplete,
+  ...(summary.contextMeasurements ? { contextMeasurements: summary.contextMeasurements } : {}),
+  ...(summary.cacheRead ? { cacheRead: summary.cacheRead } : {}),
   ...(summary.lastInputTokens === null ? {} : { lastInputTokens: summary.lastInputTokens }),
   ...(summary.agentContext
     ? {
         agentContext: {
-          ...summary.agentContext,
+          provider: summary.agentContext.provider,
+          model: summary.agentContext.model,
+          createdAt: summary.agentContext.createdAt,
           turnId: summary.agentContext.turnId as TurnId,
           usage: summary.agentContext.usage ? decodeUsage(summary.agentContext.usage) : null,
+          ...(summary.agentContext.lastRequest
+            ? {
+                lastRequest: {
+                  ...summary.agentContext.lastRequest,
+                  usage: summary.agentContext.lastRequest.usage
+                    ? decodeUsage(summary.agentContext.lastRequest.usage)
+                    : null,
+                },
+              }
+            : {}),
         },
       }
     : {}),

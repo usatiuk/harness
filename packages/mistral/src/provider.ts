@@ -1,19 +1,15 @@
 import OpenAI from "openai";
 import { PRODUCT_USER_AGENT } from "@harness/release";
-import { classifyTransientFailure } from "@harness/openai-core";
-import type { Stream } from "openai/core/streaming";
+import { buildResponseParams, OpenAIResponsesTransport } from "@harness/openai-core";
 import {
   mergeModelMetadata,
-  ContextWindowExceededError,
   ModelDiscoveryError,
   sessionIdHeaders,
-  type ModelCallContext,
   type ModelCapabilities,
   type ModelConfig,
   type ModelInfo,
   type ModelProvider,
   type ModelRequest,
-  type ModelStreamEvent,
 } from "@harness/protocol";
 import {
   fetchCatalog,
@@ -23,18 +19,12 @@ import {
   type CatalogEntry,
   type MistralMode,
 } from "./catalog.ts";
-import { buildMistralRequest } from "./request.ts";
-import { mistralEvents } from "./stream.ts";
 import type { ConfiguredModel } from "./config.ts";
 
-/** Native Mistral semantics; the OpenAI SDK owns only HTTP/SSE delivery. */
-export class MistralProvider implements ModelProvider {
-  readonly provider: string;
-  readonly providerOptions: { readonly webSearch: boolean };
+export class MistralProvider extends OpenAIResponsesTransport implements ModelProvider {
   readonly #mode: MistralMode;
   readonly #apiKey: string;
   readonly #fetch: typeof fetch;
-  readonly #client: OpenAI;
   readonly #models: Readonly<Record<string, ConfiguredModel>>;
   #catalog = new Map<string, CatalogEntry>();
 
@@ -43,23 +33,29 @@ export class MistralProvider implements ModelProvider {
     mode: MistralMode,
     apiKey: string,
     fetcher: typeof fetch = fetch,
-    webSearch = false,
     models: Record<string, ConfiguredModel> = {},
   ) {
-    this.provider = id;
-    this.providerOptions = Object.freeze({ webSearch });
-    this.#mode = mode;
-    this.#apiKey = apiKey;
-    this.#fetch = fetcher;
-    this.#models = structuredClone(models);
-    this.#catalog = this.#mergeModels(new Map());
-    this.#client = new OpenAI({
+    const client = new OpenAI({
       apiKey,
       baseURL: MISTRAL_BASE_URL,
       fetch: fetcher,
       maxRetries: 0,
       defaultHeaders: { "User-Agent": PRODUCT_USER_AGENT },
+      fetchOptions: { redirect: "manual" },
     });
+    super({
+      provider: id,
+      credentials: { client: async () => client },
+      requestHeaders: (context) => ({
+        ...sessionIdHeaders(context, "x-affinity"),
+        Accept: "text/event-stream",
+      }),
+    });
+    this.#mode = mode;
+    this.#apiKey = apiKey;
+    this.#fetch = fetcher;
+    this.#models = structuredClone(models);
+    this.#catalog = this.#mergeModels(new Map());
   }
   listModels(): ModelInfo[] {
     return structuredClone([...this.#catalog.values()].map(({ info }) => info));
@@ -128,44 +124,22 @@ export class MistralProvider implements ModelProvider {
       diagnostics: result.diagnostics,
     };
   }
-  async *stream(
-    request: ModelRequest,
-    signal: AbortSignal,
-    context: ModelCallContext,
-  ): AsyncIterable<ModelStreamEvent> {
+  protected buildParams(request: ModelRequest): OpenAI.Responses.ResponseCreateParamsStreaming {
     this.validateConfig(request.modelConfig);
     const entry = this.#entry(request.modelConfig.model);
-    try {
-      const params = buildMistralRequest(request);
-      const completionArgs = {
-        ...params.completion_args,
-        ...(entry.temperature !== undefined ? { temperature: entry.temperature } : {}),
-        ...(request.modelConfig.preset !== undefined
-          ? {
-              reasoning_effort:
-                request.modelConfig.preset === "off" ? "none" : request.modelConfig.preset,
-            }
-          : {}),
-      };
-      const stream = await this.#client.post<Stream<unknown>>("/conversations", {
-        body: { ...params, completion_args: completionArgs },
-        stream: true,
-        signal,
-        headers: { ...sessionIdHeaders(context, "x-affinity"), Accept: "text/event-stream" },
-        fetchOptions: { redirect: "manual" },
-      });
-      yield* mistralEvents(stream, this.provider, request.modelConfig.model, signal);
-    } catch (error) {
-      if (signal.aborted && (error === signal.reason || error instanceof OpenAI.APIUserAbortError))
-        signal.throwIfAborted();
-      if (
-        error instanceof OpenAI.APIError &&
-        error.status === 400 &&
-        (error.code === "context_length_exceeded" ||
-          /context (window|length)|too many tokens/i.test(error.message))
-      )
-        throw new ContextWindowExceededError("Mistral context window exceeded", { cause: error });
-      throw classifyTransientFailure(error, signal) ?? error;
-    }
+    if (request.tools?.some((tool) => tool.kind !== "function"))
+      throw new Error("Mistral supports function tools only");
+    const responseRequest = { ...request };
+    delete responseRequest.providerOptions;
+    const { preset } = request.modelConfig;
+    const effort = preset === "off" ? "none" : (preset as OpenAI.ReasoningEffort | undefined);
+    const params = buildResponseParams(
+      responseRequest,
+      effort === undefined ? undefined : { effort },
+      this.provider,
+      false,
+    );
+    if (entry.temperature !== undefined) params.temperature = entry.temperature;
+    return params;
   }
 }

@@ -8,24 +8,26 @@ import { configuredModelsSchema } from "./config.ts";
 function providerType(mode: MistralMode) {
   return defineProviderType({
     type: `mistral-${mode}`,
-    configSchema: z.strictObject({
-      apiKey: apiKeySourceSchema.default({ stored: true }),
-      webSearch: z.boolean().default(true).meta({
-        harnessSetting: true,
-        title: "Web search",
-        description: "Allow this provider to search the web when needed. Enabled by default.",
+    configSchema: z.preprocess(
+      (value) => {
+        // Existing settings remain readable; the retired field has no effect.
+        if (!value || typeof value !== "object" || !("webSearch" in value)) return value;
+        const active = { ...value };
+        delete active.webSearch;
+        return active;
+      },
+      z.strictObject({
+        apiKey: apiKeySourceSchema.default({ stored: true }),
+        models: configuredModelsSchema.default({}),
       }),
-      models: configuredModelsSchema.default({}),
-    }),
+    ),
     create(context, config) {
       const auth = instanceApiKeyAuth(context, config.apiKey);
       return {
         auth,
         async buildProvider() {
           const key = await auth.getKey();
-          return key
-            ? new MistralProvider(context.id, mode, key, fetch, config.webSearch, config.models)
-            : null;
+          return key ? new MistralProvider(context.id, mode, key, fetch, config.models) : null;
         },
       };
     },

@@ -140,6 +140,8 @@ export interface State {
   /** The latest request's total prompt size — the context-fill numerator. */
   lastInputTokens?: number;
   agentContext?: ModelUsageSummary["agentContext"];
+  contextMeasurements?: ModelUsageSummary["contextMeasurements"];
+  cacheRead?: ModelUsageSummary["cacheRead"];
   lastTurn?: ModelUsageSummary["lastTurn"];
 }
 
@@ -600,6 +602,8 @@ export function reduce(state: State, event: HarnessEvent, receivedAt: number): S
         cost: event.summary.cost,
         costIncomplete: event.summary.costIncomplete ?? false,
         agentContext: event.summary.agentContext,
+        contextMeasurements: event.summary.contextMeasurements,
+        cacheRead: event.summary.cacheRead,
         lastTurn: event.summary.lastTurn,
         ...(event.summary.incomplete ? { usageIncomplete: true } : {}),
         ...(event.summary.lastInputTokens === undefined
@@ -632,6 +636,8 @@ export function init(items: Item[], usageSeed?: ModelUsageSummary): State {
     cost: usageSeed.cost,
     costIncomplete: usageSeed.costIncomplete ?? false,
     agentContext: usageSeed.agentContext,
+    contextMeasurements: usageSeed.contextMeasurements,
+    cacheRead: usageSeed.cacheRead,
     lastTurn: usageSeed.lastTurn,
     ...(usageSeed.lastInputTokens === undefined
       ? {}

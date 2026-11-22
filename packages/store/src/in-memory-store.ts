@@ -36,7 +36,7 @@ import type {
   TurnId,
   TurnStatus,
 } from "@harness/protocol";
-import { addUsage, zeroUsage, summarizeTurnUsage } from "@harness/protocol";
+import { summarizeUsageRows, summarizeTurnUsage } from "@harness/protocol";
 import { systemClock, uuidIdGenerator } from "./defaults.ts";
 
 const pluginStateKey = (plugin: string, conversationId: ConversationId, key: string): string =>
@@ -444,47 +444,14 @@ export class InMemoryStore implements Store {
   }
 
   async summarizeModelUsage(conversationId: ConversationId): Promise<ModelUsageSummary> {
-    let usage = zeroUsage();
-    let incomplete = false;
-    let cost = 0;
-    let costIncomplete = false;
-    let lastInputTokens: number | undefined;
-    let agent: ModelUsage | undefined;
-    for (const row of this.#modelUsage) {
-      if (row.conversationId !== conversationId) continue;
-      if (row.purpose === "agent") agent = row;
-      const unobservedAttempts = (row.attempts ?? 0) > 1;
-      cost += row.cost ?? 0;
-      costIncomplete ||= unobservedAttempts || row.cost === null || row.costIncomplete === true;
-      incomplete ||= unobservedAttempts;
-      if (row.usage === null) {
-        incomplete = true;
-      } else {
-        usage = addUsage(usage, row.usage);
-        lastInputTokens = row.usage.inputTokens;
-      }
-      if (row.inputTokensAreContext === false) lastInputTokens = undefined;
-    }
+    const summary = summarizeUsageRows(
+      this.#modelUsage.filter((row) => row.conversationId === conversationId),
+    );
     const terminal = [...this.#turns.values()].findLast(
       (turn) => turn.conversationId === conversationId && turn.status !== "running",
     );
     return {
-      usage,
-      incomplete,
-      cost,
-      costIncomplete,
-      ...(lastInputTokens === undefined ? {} : { lastInputTokens }),
-      ...(agent
-        ? {
-            agentContext: {
-              provider: agent.provider,
-              model: agent.model,
-              turnId: agent.turnId,
-              usage: agent.inputTokensAreContext === false ? null : agent.usage,
-              createdAt: agent.createdAt,
-            },
-          }
-        : {}),
+      ...summary,
       ...(terminal
         ? {
             lastTurn: summarizeTurnUsage(

@@ -161,13 +161,14 @@ without native metadata. A hard crash can lose an unfinalized preview. Assistant
 `phase` preserves any reported string, null, or absence and never drives the loop.
 Readable reasoning or summaries are separate items; opaque-only reasoning can
 have empty canonical content. Model selection changes apply at the next turn.
+Responses stores the finalized native assistant message or reasoning item. The transcript prefers nonempty native reasoning text, then the summary. A matching Responses request replays reasoning with native plaintext or ciphertext in its original position. Summary-only items stay visible in history. Legacy encrypted sidecars still decode on read.
 Foreign reasoning is omitted, ordinary assistant text remains, and historical
 raw-string local calls use plain text where the target API requires object inputs.
 
 ## Native web search
 
-The direct `openai-api`, `openai-codex`, `anthropic-api`, `gemini-api` and
-`mistral-api` and `mistral-vibe` connection schemas own `webSearch: boolean` (default true).
+The direct `openai-api`, `openai-codex`, `anthropic-api`, and `gemini-api`
+connection schemas own `webSearch: boolean` (default true).
 Explicit false values remain opt-outs. Application provider status exposes the
 configured choice independently of credential availability. Desktop Settings → Providers
 edits it per connection; an explicit server restart rebuilds running providers.
@@ -195,11 +196,10 @@ preserving intervening readable output. Unanswered searches and unmatched entrie
 in a rewound prefix are excluded from requests. Local calls ending in `tool_use`
 follow the existing local-tool loop without restoring pending server work.
 
-Gemini and Mistral use direct-model stateless calls with `store: false`,
-bounded boot catalog discovery and no automatic retries. Catalogs preserve
-advertised limits; separate input/output limits do not invent a context window.
-Gemini returns finalized outputs; Mistral also streams live previews. Unsupported
-non-text outputs fail explicitly while retaining reported accounting. Models are
+Gemini uses direct-model stateless calls with `store: false`, bounded boot catalog
+discovery and no automatic retries. Separate input/output limits do not invent
+a context window. Gemini returns finalized outputs. Unsupported non-text outputs
+fail explicitly while retaining reported accounting. Models are
 instructed to cite Markdown links; no native
 citation converter or Search Suggestions UI is added. Provider-reported billing
 data stays opaque; additional unpriced search fees mark cost as incomplete.
@@ -349,38 +349,30 @@ between models; unadvertised controls fail validation.
 
 `@harness/mistral` contributes `mistral-api` and `mistral-vibe` types. Both use
 API-key auth with existing instance-scoped secrets and generate through
-streaming `https://api.mistral.ai/v1/conversations` with `store: false`. Native
-`webSearch` is available on both types and never changes the transport. The default instances select
+streaming `https://api.mistral.ai/v1/responses` with `store: false`, without a
+legacy fallback or hosted web search. An old `webSearch` config key is ignored
+on read so existing settings keep working. The default instances select
 `MISTRAL_API_KEY` and `MISTRAL_VIBE_API_KEY` separately; additional named instances
 select secure storage or an explicit environment reference. API discovery reads
 `GET /v1/models`; Vibe reads `GET /v1/model-catalog?surface=vibe-code`. The Vibe
 endpoint is experimental upstream, and selecting its catalog surface does not
 prove subscription eligibility or change generation billing.
 
-The existing OpenAI SDK owns HTTP/SSE delivery and cancellation. Dedicated pure
-Mistral request/stream functions handle structured `thinking` blocks, signatures,
-closed flags and opaque block metadata, raw tool arguments, and native usage.
-Output/content indices assemble native fragments; text and reasoning previews
-finalize in content order. Conversations has no individual entry-completion event:
-only `conversation.response.done` authorizes native replay and local calls.
-Completed message/function entries bind to the final canonical item, and replay
-only when their entire readable group remains selected. Interrupted readable
-content has no incomplete native sidecar. Existing signed Mistral thinking and
-exact tool-argument sidecars remain valid inputs. Matching provider/model/type
-payloads replay with validated versions; foreign reasoning is omitted.
-Request rendering omits output-entry `id` fields, which Conversations rejects
-on input, without mutating the stored native payload or nested content.
-Native and imported call/result IDs remain exact; Conversations accepts string IDs.
-Malformed or unsupported outcomes retain reported accounting but finish
-with an error before any tools dispatch. Missing token counts remain unknown.
+The shared Responses transport and SDK handle HTTP, SSE, cancellation and local
+function tools. Final plaintext reasoning content is retained and replayed for
+the matching connection and model; function results reference their original
+call IDs. Existing records stay unchanged: canonical messages and local tool
+history continue, while obsolete Conversations reasoning sidecars aren't sent
+as Responses input.
 
-Every generation sends `x-affinity: <conversationId>` and the Harness user agent.
+Every generation sends `prompt_cache_key: <conversationId>`,
+`x-affinity: <conversationId>`, and the Harness user agent.
 Children retain independent routing. Instructions, tool schemas and history stay
 in stable order; changing context stays at its canonical position rather than
-being moved to the front of the prompt. Cache routing is a provider header,
-separate from telemetry and prompt data. Reported cached prompt tokens are a
-subset of input tokens. SDK retries are disabled; core/middleware owns logical
-retry semantics.
+being moved to the front of the prompt. Raw usage preserves an explicit zero or
+omission of `input_tokens_details.cached_tokens`. A cache routing key is not a
+hit guarantee. SDK retries are disabled; core/middleware owns logical retry
+semantics.
 
 Discovery uses the existing bounded boot lifecycle: 2 MiB responses, 5,000 rows
 and expanded aliases, atomic snapshots, cancellation, safe status diagnostics,
@@ -398,7 +390,7 @@ its failure; the existing bootstrap reports degraded status and the original
 diagnostic. Credentials are still required. Connection changes need a restart.
 Unadvertised prices and unadvertised/unconfigured capacity remain unknown.
 Vibe's advertised reasoning strings become model-scoped presets and pass unchanged
-to `completion_args.reasoning_effort`; legacy `off` maps to native `none`.
+to `reasoning.effort`; legacy `off` maps to native `none`.
 No client enum drops new advertised controls or collapses distinct efforts.
 Advertised reasoning capability remains visible even without an effort list;
 a boolean alone does not invent presets. The public API's `/models` schema does
@@ -417,11 +409,10 @@ The canonical content boundary supports inline PNG/JPEG/GIF/WebP images.
 Adapter capability declarations describe supported input serialization; the selected
 vendor model must also support vision.
 
-Local SDK/HTTP/SSE fixtures verify transport and fidelity. No real Mistral key
-was available for this delivery; vendor signature acceptance, cache-hit rates,
-subscription billing, Vibe-key Conversations acceptance and GLM native-search
-acceptance remain unqualified. Models and keys use native provider behavior;
-there is no model allowlist or fallback transport.
+Local SDK/HTTP/SSE fixtures verify transport and fidelity. Synthetic live tests
+with separate API and Vibe credentials completed tool calls and stateless
+reasoning replay on both. This does not qualify all catalog models, cache-hit
+rates, or subscription billing.
 
 ## LiteLLM connections and boot discovery
 
@@ -661,15 +652,14 @@ Custom model labels flow through the existing ModelInfo catalog to GUI/TUI selec
 Canonical image blocks carry mediaType and base64 data, stored unchanged inside
 ordinary messages and tool results. Responses and Anthropic support native image
 tool results. Gemini 3 uses native multimodal function responses; older Gemini,
-Chat Completions and Mistral Conversations receive attributed user images after
+Chat Completions receive attributed user images after
 the complete tool-result batch. These projections exist only in adapters and do
 not rewrite history. Custom, Codex, LiteLLM and OpenCode wrappers reuse their
 transport mapping. Opaque provider replay and text-only request shapes remain.
 
 Wire-format evidence: [Responses function calling](https://developers.openai.com/api/docs/guides/function-calling),
 [Anthropic tool results](https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls),
-[Gemini multimodal function responses](https://ai.google.dev/gemini-api/docs/function-calling#multimodal-function-responses),
-and the pinned Mistral SDK's string-only function-result and image-URL input types.
+[Gemini multimodal function responses](https://ai.google.dev/gemini-api/docs/function-calling#multimodal-function-responses).
 Request fixtures validate serialization, not live vendor/model acceptance.
 
 The preliminary context estimate omits base64 and reserves 4,096 tokens per image.

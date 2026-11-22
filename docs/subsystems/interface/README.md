@@ -836,14 +836,14 @@ message inside Working, using its recorded origin, without a user bubble or fork
 action. TUI uses compact origin labels and a pending count; verbose mode reveals
 the message text. Neither client changes delivery order or model-facing content.
 
-Both clients derive input utilization from the latest authoritative agent
-checkpoint and its exact model, not the current selection or a naming/reviewer
-call. A known max-input limit is the denominator (labeled Input limit); otherwise
-an advertised shared context window is used and labeled accordingly. The
-inspector shows both limits when known. Missing usage/capacity is unavailable,
-and unknown uses a standard question-circle affordance rather than a dashed
-masked ring. It remains distinct from zero usage and does not invent a
-percentage. Output-only limits do not
+The desktop ring uses the latest usable agent context measurement recorded for
+the selected provider/model. Requests without a single-prompt input count do not
+erase it, and naming/reviewer usage does not replace it. The TUI uses the latest
+agent checkpoint. A known max-input limit is the denominator (labeled Input
+limit); otherwise an advertised shared context window is used and labeled
+accordingly. The inspector shows both limits when known. The ring stays unfilled
+when usage or capacity is unavailable; it does not invent a percentage.
+Output-only limits do not
 establish input capacity; neither input-plus-output nor compaction's reserved
 threshold is substituted for a window. Last-turn
 totals include all model attempts owned by that turn, excluding separate
@@ -851,6 +851,12 @@ child-conversation turns; throughput uses agent output divided by
 server-measured agent request time, including latency and excluding tool/approval
 waits. Missing accounting/timing is unavailable, and incomplete totals are lower
 bounds. Reattachment restores these facts from the existing usage summary.
+
+The desktop inspector shows actual usage and recorded cost for the latest
+invoked agent request, separately from conversation totals across request roles.
+Cache share in the totals uses only the inputs of requests with known cache-read
+counts and shows reporting coverage. Historic normalized zero counts without
+matching provider telemetry cannot be distinguished from an omitted count.
 
 Only one conversation is visible. There is no IDE, side-by-side view, tray, or
 parallel TUI presentation. External HTTP(S) transcript links open through the

@@ -30,9 +30,10 @@ The [Mistral and session-routing delivery plan](../../plans/models/2026-10-10-mi
 adds API-key Mistral API/Vibe instances and fixes OpenCode Go's required session
 header. A single model-call context supplies each conversation's existing ID;
 provider-owned request headers keep concurrent calls isolated. Local SDK/HTTP
-and RPC regressions passed in that historical delivery. The native-search work
-below consolidates generation onto Conversations while preserving this behavior. Live
-Mistral acceptance/billing/cache qualification lacks credentials.
+and RPC regressions passed in that historical delivery. Both connections now
+generate via Responses only, with the existing affinity header and a stable
+conversation cache key. Synthetic live checks covered stateless tool and
+reasoning continuation on each connection; subscription billing remains unverified.
 
 ## OpenCode Go metadata
 
@@ -72,12 +73,11 @@ Delivered in the
 ## Native search and assistant phases
 
 The [native search and assistant-phase delivery](../../plans/models/2026-10-10-native-search-and-assistant-phases.md)
-implements search on OpenAI API, Codex OAuth, Anthropic, Gemini and Mistral,
+implemented search on OpenAI API, Codex OAuth, Anthropic, Gemini and (at the time) Mistral,
 explicit output finalization, provider-owned settings and phase-preserving history.
 Display hints never enter model input; required finalized Gemini and Anthropic
-native context uses existing opaque metadata. Mistral API/Vibe share one streaming
-Conversations adapter, preserving catalogs, credentials, native controls, signed
-reasoning and affinity. Combined full checks pass 1,154 tests (36 skipped), the
+native context uses existing opaque metadata. Mistral's Responses cutover retired
+the hosted search option. At that delivery, combined full checks passed 1,154 tests (36 skipped), the
 server bundle/syntax checks and three independent reviews. The delivery plan
 records the detailed evidence. Live vendor acceptance
 remains credential-dependent.

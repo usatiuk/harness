@@ -4514,7 +4514,7 @@ test("context-only work has one Working owner and errors do not classify the gro
 });
 
 for (const theme of ["light", "dark"] as const) {
-  for (const [name, limits, used, expected] of [
+  for (const [name, limits, used, expected, selectedModel, previousInput] of [
     ["input", { maxInputTokens: 1000 }, 100, "10% of input limit"],
     ["context", { contextWindow: 2000 }, 100, "5% of shared context window"],
     ["both", { maxInputTokens: 1000, contextWindow: 2000 }, 100, "10% of input limit"],
@@ -4522,33 +4522,36 @@ for (const theme of ["light", "dark"] as const) {
     ["unknown", {}, 100, "unknown"],
     ["zero", { maxInputTokens: 1000 }, 0, "0% of input limit"],
     ["missing usage", { maxInputTokens: 1000 }, undefined, "unknown"],
+    [
+      "previous measurement",
+      { maxInputTokens: 1000 },
+      undefined,
+      "10% of input limit",
+      "test",
+      100,
+    ],
+    ["other model", { maxInputTokens: 1000 }, 100, "unknown", "test-latest"],
   ] as const) {
-    test(`${theme} agent checkpoint capacity uses ${name} metadata independently of selected model`, async ({
-      page,
-    }) => {
+    test(`${theme} context ring and usage with ${name}`, async ({ page }) => {
       await page.goto(url + "?composer");
       await page.waitForFunction(() => window.composerFixture !== undefined);
-      await page.evaluate(({ limits, used }) => window.composerFixture.setCapacity(limits, used), {
-        limits,
-        used,
-      });
+      await page.evaluate(
+        ({ limits, used, selectedModel, previousInput }) =>
+          window.composerFixture.setCapacity(limits, used, selectedModel, previousInput),
+        {
+          limits,
+          used,
+          selectedModel,
+          previousInput,
+        },
+      );
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
       const trigger = page.getByRole("button", { name: `Context usage: ${expected}`, exact: true });
       await expect(trigger).toBeVisible();
-      if (expected === "unknown") {
-        await expect(trigger.locator(".context-ring")).toHaveCount(0);
-        const indicator = trigger.locator("svg");
-        await expect(indicator).toBeVisible();
-        await expect(indicator).toHaveAttribute("aria-hidden", "true");
-        await expect(indicator).toHaveCSS("mask-image", "none");
-        await expect(indicator).toHaveCSS("border-width", "0px");
-        await expect(indicator).toHaveCSS("animation-name", "none");
-        await expect(indicator).toHaveCSS("width", "18px");
-        await expect(indicator).toHaveCSS("height", "18px");
-        await expect(indicator.locator("circle")).toHaveCount(1);
-      } else {
+      await expect(trigger.locator("svg")).toHaveCount(0);
+      {
         await expect(trigger.locator(".context-ring")).toHaveCSS("width", "18px");
         await expect(trigger.locator(".context-ring")).toHaveCSS("height", "18px");
         await expect(trigger.locator(".context-ring")).toHaveCSS(
@@ -4561,7 +4564,7 @@ for (const theme of ["light", "dark"] as const) {
             .evaluate((element) =>
               getComputedStyle(element).getPropertyValue("--context-progress").trim(),
             ),
-        ).toBe(`${expected.split("%")[0]}%`);
+        ).toBe(expected === "unknown" ? "0%" : `${expected.split("%")[0]}%`);
       }
       await trigger.screenshot({ path: test.info().outputPath(`capacity-${theme}-${name}.png`) });
       await trigger.click();
@@ -4569,9 +4572,32 @@ for (const theme of ["light", "dark"] as const) {
       await expect(
         facts.locator("dt", { hasText: "Input utilization" }).locator("+ dd"),
       ).toHaveText(expected === "unknown" ? "Unavailable" : expected);
-      await expect(facts.locator("dt", { hasText: "Last agent input" }).locator("+ dd")).toHaveText(
-        used === undefined ? "Unavailable" : `${used}`,
+      const lastRequest = page.locator('dl[aria-label="Last request"]');
+      await expect(
+        lastRequest
+          .locator("dt")
+          .filter({ hasText: /^Input$/u })
+          .locator("+ dd"),
+      ).toHaveText(used === undefined ? "Unavailable" : `${used}`);
+      await expect(
+        lastRequest.locator("dt", { hasText: "Cached input" }).locator("+ dd"),
+      ).toHaveText(used === undefined ? "Not reported" : used === 0 ? "0" : "0 (0%)");
+      const conversation = page.locator('dl[aria-label="Entire conversation"]');
+      await expect(
+        conversation.locator("dt", { hasText: "Cached input" }).locator("+ dd"),
+      ).toHaveText("20 (20%)");
+      await expect(facts.locator("dt", { hasText: "Input measured" }).locator("+ dd")).toHaveText(
+        name === "other model"
+          ? "Unavailable"
+          : ((used ?? previousInput)?.toString() ?? "Unavailable"),
       );
+      if (name === "previous measurement")
+        await expect(
+          facts.locator("dt", { hasText: "Measured at" }).locator("+ dd"),
+        ).not.toBeEmpty();
+      await expect(
+        conversation.locator("dt", { hasText: "Cache reporting" }).locator("+ dd"),
+      ).toHaveText("2 of 3 requests");
       await expect(facts.locator("dt", { hasText: "Input limit" }).locator("+ dd")).toHaveText(
         "maxInputTokens" in limits ? "1,000" : "Unavailable",
       );

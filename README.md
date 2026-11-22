@@ -354,8 +354,8 @@ Mistral API and Vibe use API-key sign-in through the same settings/auth controls
 The default instances read `MISTRAL_API_KEY` and `MISTRAL_VIBE_API_KEY`
 respectively, with secure storage as a fallback. Additional named instances use
 secure storage unless you select an explicit environment source. Both stream
-through stateless `https://api.mistral.ai/v1/conversations`, with optional native
-web search. API discovery uses
+through stateless `https://api.mistral.ai/v1/responses` with local function tools.
+API discovery uses
 `/v1/models` and Vibe discovery uses `/v1/model-catalog?surface=vibe-code`.
 Discovery runs at server boot. The experimental Vibe catalog surface does not
 establish subscription eligibility or billing behavior. Available context limits

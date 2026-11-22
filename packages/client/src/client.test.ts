@@ -76,6 +76,8 @@ const attachment: AttachResult = {
     cost: 0,
     costIncomplete: false,
     lastInputTokens: null,
+    contextMeasurements: null,
+    cacheRead: null,
     agentContext: null,
     lastTurn: null,
   },

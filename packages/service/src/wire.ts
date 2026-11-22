@@ -41,10 +41,22 @@ export const projectUsageSummary = (summary: ModelUsageSummary): WireUsageSummar
     cost: summary.cost,
     costIncomplete: summary.costIncomplete ?? false,
     lastInputTokens: summary.lastInputTokens ?? null,
+    ...(summary.contextMeasurements ? { contextMeasurements: summary.contextMeasurements } : {}),
+    ...(summary.cacheRead ? { cacheRead: summary.cacheRead } : {}),
     agentContext: summary.agentContext
       ? {
           ...summary.agentContext,
           usage: summary.agentContext.usage ? projectUsage(summary.agentContext.usage) : null,
+          ...(summary.agentContext.lastRequest
+            ? {
+                lastRequest: {
+                  ...summary.agentContext.lastRequest,
+                  usage: summary.agentContext.lastRequest.usage
+                    ? projectUsage(summary.agentContext.lastRequest.usage)
+                    : null,
+                },
+              }
+            : {}),
         }
       : null,
     lastTurn: summary.lastTurn

@@ -543,7 +543,7 @@ describe("toModelEvents", () => {
       { type: "message_stop" },
     );
     const out = await collect(toModelEvents(stream, "anthropic", "m", never));
-    expect(out.at(-1)).toEqual({
+    expect(out.at(-1)).toMatchObject({
       type: "completed",
       usage: {
         inputTokens: 170,
@@ -551,6 +551,20 @@ describe("toModelEvents", () => {
         cachedReadTokens: 50,
         cacheWriteTokens: { 300: 20 },
       },
+    });
+  });
+
+  it("preserves an explicit cache miss on a normal completion", async () => {
+    const stream = emit(
+      start({ input_tokens: 100, output_tokens: 1, cache_read_input_tokens: 0 }),
+      stop(7),
+      { type: "message_stop" },
+    );
+    const out = await collect(toModelEvents(stream, "anthropic", "m", never));
+    expect(out.at(-1)).toMatchObject({
+      type: "completed",
+      usage: { inputTokens: 100, cachedReadTokens: 0 },
+      providerUsage: { cache_read_input_tokens: 0 },
     });
   });
 

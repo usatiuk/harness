@@ -549,6 +549,8 @@ describe("LiteLLM discovery", () => {
   it("replaces successful rosters, retains failed snapshots, and drops stale enrichment", async () => {
     let mode = "rich";
     const gateway = await httpGateway((req, res) => {
+      if (req.path.endsWith("/chat/completions"))
+        return sse(res, [{ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] }]);
       if (req.path.endsWith("/v1/models"))
         return json(
           res,
@@ -592,13 +594,31 @@ describe("LiteLLM discovery", () => {
       payload: { id: "r", encryptedContent: "CIPHER" },
     };
     const reasoning = item({ type: "reasoning", content: [] }, 0);
-    await expect(
+    const replay = (saved: ProviderPayloadDraft) =>
       collect(provider, {
         ...request(),
-        items: [{ item: reasoning, payload: { ...payload, itemId: reasoning.id } }],
-      }),
-    ).rejects.toThrow("requires its original transport");
+        items: [{ item: reasoning, payload: { ...saved, itemId: reasoning.id } }],
+      });
+    const native = { ...payload, type: "response_output" };
+    const summaryOnly = { type: "reasoning", id: "r", summary: [] };
+    for (const saved of [
+      payload,
+      {
+        ...native,
+        payload: { ...summaryOnly, content: [{ type: "reasoning_text", text: "plan" }] },
+      },
+      { ...native, payload: { ...summaryOnly, encrypted_content: "CIPHER" } },
+    ])
+      await expect(replay(saved)).rejects.toThrow("requires its original transport");
+    await expect(replay({ ...native, version: 2, payload: summaryOnly })).rejects.toThrow(
+      "version is not supported",
+    );
     expect(gateway.requests.filter((req) => req.body.model)).toHaveLength(0);
+    // No continuation state to lose: a summary-only item permits the new transport to dispatch.
+    await replay({ ...native, payload: summaryOnly });
+    expect(gateway.requests.filter((req) => req.body.model).map((req) => req.path)).toEqual([
+      "/v1/chat/completions",
+    ]);
     mode = "empty";
     await provider.refreshModels(signal);
     expect(provider.listModels()).toEqual([]);

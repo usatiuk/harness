@@ -7,7 +7,7 @@ import type {
   ProviderPayload,
   ToolSchema,
 } from "@harness/protocol";
-import { readReasoningPayload, readOutputPayload } from "./payload.ts";
+import { replayResponseOutput } from "./payload.ts";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ChatTool = OpenAI.Chat.Completions.ChatCompletionTool;
@@ -71,8 +71,8 @@ function toInputItem(
   switch (item.type) {
     case "message":
       if (item.role === "assistant") {
-        const native = readOutputPayload(payload, provider, model);
-        if (native?.type === "message") return native;
+        const native = replayResponseOutput(item, payload, provider, model);
+        if (native) return native;
       }
       return {
         role: item.role,
@@ -84,20 +84,8 @@ function toInputItem(
       };
     case "provider_output":
       return undefined;
-    case "reasoning": {
-      // Replayable only with our own opaque blob; a mismatched/absent payload is skipped
-      // rather than sent as bare summary text (the API rejects that).
-      const stored = readReasoningPayload(payload, provider, model);
-      if (!stored) return undefined;
-      return {
-        type: "reasoning",
-        id: stored.id,
-        summary: item.content
-          .filter((b) => b.type === "text")
-          .map((b) => ({ type: "summary_text" as const, text: b.text })),
-        encrypted_content: stored.encryptedContent,
-      };
-    }
+    case "reasoning":
+      return replayResponseOutput(item, payload, provider, model);
     case "tool_call":
       if (rawCallIds.has(toolCallKey(item)))
         return { role: "assistant", content: `Tool ${item.name}: ${String(item.args)}` };
@@ -172,7 +160,7 @@ export function buildResponseParams(
   request: ModelRequest,
   reasoning: OpenAI.Reasoning | undefined,
   provider: string,
-  includeEncryptedReasoning: boolean,
+  includeEncryptedReasoning?: boolean,
 ): OpenAI.Responses.ResponseCreateParamsStreaming {
   // Freeform tools round-trip as `custom_tool_call` items. A tool_result carries only its
   // callId, so pre-scan the calls to know which results render as custom output.
@@ -223,13 +211,20 @@ export function buildResponseParams(
   )
     tools.push({ type: "web_search" });
 
+  // Compatible gateways can request ciphertext once their own history demonstrates support.
+  const includeEncrypted =
+    includeEncryptedReasoning ??
+    (reasoning !== undefined ||
+      input.some(
+        (item) => "type" in item && item.type === "reasoning" && !!item.encrypted_content,
+      ));
   return {
     model: request.modelConfig.model,
     instructions: textOf(request.instructions),
     input,
     stream: true,
-    store: false, // stateless: we own the log and round-trip reasoning via encrypted_content
-    ...(includeEncryptedReasoning ? { include: ["reasoning.encrypted_content" as const] } : {}),
+    store: false,
+    ...(includeEncrypted ? { include: ["reasoning.encrypted_content" as const] } : {}),
     ...(reasoning ? { reasoning } : {}),
     ...(request.maxOutputTokens ? { max_output_tokens: request.maxOutputTokens } : {}),
     ...(request.toolChoice ? { tool_choice: request.toolChoice } : {}),

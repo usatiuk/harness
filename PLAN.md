@@ -1,5 +1,9 @@
 # Harness plan
 
+The [context usage and Mistral Responses update](docs/plans/interface/context-usage-and-mistral-responses.md)
+keeps the desktop context ring, distinguishes unreported cache usage from a
+confirmed miss, and replaces the legacy Mistral generation transport. Stateless Responses continuation preserves native plaintext and encrypted reasoning across reopen.
+
 [Native Windows home protection](docs/plans/cross-cutting/2026-11-07-native-home-protection.md)
 removes PowerShell from the bootstrap and server directory checks. Headless
 Windows measurements show faster warm native preparation and server discovery.

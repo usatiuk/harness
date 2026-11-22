@@ -1,6 +1,6 @@
 import { jsonValueSchema, mergeModelMetadata, modelMetadataSchema } from "@harness/protocol";
 import { z } from "zod";
-import type OpenAI from "openai";
+import OpenAI from "openai";
 import type {
   PresetInfo,
   ModelConfig,
@@ -233,6 +233,7 @@ export abstract class OpenAIResponsesTransport {
       });
       yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
     } catch (error) {
+      if (signal.aborted && error instanceof OpenAI.APIUserAbortError) signal.throwIfAborted();
       const e = error as { status?: number; code?: string; message?: string };
       const message = e.message ?? String(error);
       if (

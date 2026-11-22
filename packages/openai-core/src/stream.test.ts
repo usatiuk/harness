@@ -170,9 +170,14 @@ describe("toModelEvents", () => {
         payload: {
           provider: "openai",
           model: "gpt-test",
-          type: "reasoning",
+          type: "response_output",
           version: 1,
-          payload: { id: "rs_1", encryptedContent: "BLOB" },
+          payload: {
+            type: "reasoning",
+            id: "rs_1",
+            summary: [{ type: "summary_text", text: "thought it through" }],
+            encrypted_content: "BLOB",
+          },
         },
       },
       { type: "text_delta", text: "Hello" },
@@ -180,6 +185,7 @@ describe("toModelEvents", () => {
       {
         type: "completed",
         usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0 },
+        providerUsage: { input_tokens: 10, output_tokens: 5 },
       },
     ]);
   });
@@ -199,6 +205,11 @@ describe("toModelEvents", () => {
     expect(out[0]).toEqual({
       type: "completed",
       usage: { inputTokens: 2000, outputTokens: 50, cachedReadTokens: 1536 },
+      providerUsage: {
+        input_tokens: 2000,
+        output_tokens: 50,
+        input_tokens_details: { cached_tokens: 1536 },
+      },
     });
   });
 
@@ -247,6 +258,11 @@ describe("toModelEvents", () => {
       {
         type: "completed",
         usage: { inputTokens: 7, outputTokens: 3, cachedReadTokens: 2 },
+        providerUsage: {
+          input_tokens: 7,
+          output_tokens: 3,
+          input_tokens_details: { cached_tokens: 2 },
+        },
         error: "openai response incomplete: max_output_tokens",
       },
     ]);
@@ -264,16 +280,27 @@ describe("toModelEvents", () => {
     expect(out[0]).toMatchObject({ payload: { provider: "openai-codex", model: "gpt-5.5" } });
   });
 
-  it("omits the payload when reasoning has no encrypted_content", async () => {
+  it("retains a summary-only native item alongside its readable summary", async () => {
     const stream = emit(
       {
         type: "response.output_item.done",
-        item: { type: "reasoning", id: "rs_2", summary: [{ type: "summary_text", text: "s" }] },
+        item: {
+          type: "reasoning",
+          id: "rs_2",
+          content: [{ type: "reasoning_text", text: "" }],
+          summary: [{ type: "summary_text", text: "s" }],
+        },
       },
       { type: "response.completed", response: { usage: { input_tokens: 0, output_tokens: 0 } } },
     );
     const out = await collect(toModelEvents(stream, "openai", "m", never));
-    expect(out[0]).toEqual({ type: "reasoning", content: [{ type: "text", text: "s" }] });
+    expect(out[0]).toMatchObject({
+      type: "reasoning",
+      content: [{ type: "text", text: "s" }],
+      payload: {
+        payload: { type: "reasoning", id: "rs_2", summary: [{ type: "summary_text", text: "s" }] },
+      },
+    });
   });
 
   it("passes malformed tool arguments through as the raw string", async () => {

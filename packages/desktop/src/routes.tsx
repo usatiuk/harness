@@ -131,6 +131,8 @@ const composerFields = [
   "turn",
   "pendingInput",
   "agentContext",
+  "contextMeasurements",
+  "cacheRead",
   "usage",
   "cost",
   "costIncomplete",
@@ -1930,7 +1932,11 @@ export function createDesktopRouter(
                 <ComposerSettings />
               </PopoverControl>
               <div className="composer-send">
-                <ContextUsage state={view.state} models={session.domain.availableModels()} />
+                <ContextUsage
+                  state={view.state}
+                  models={session.domain.availableModels()}
+                  selected={view.conversation.config.model}
+                />
                 <Button
                   variant="accent"
                   size="sm"

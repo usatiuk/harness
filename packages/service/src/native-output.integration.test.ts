@@ -99,6 +99,19 @@ it("keeps previews ephemeral and finalized phases, reasoning and search hints du
     const conversation = await client.createConversation({
       overrides: { instructions: "be helpful", model: { provider: "fake", model: "fake-1" } },
     });
+    const prior = await store.createTurn(conversation.id);
+    await store.recordModelUsage({
+      conversationId: conversation.id,
+      turnId: prior.id,
+      contextBuildId: null,
+      provider: "fake",
+      model: "fake-1",
+      purpose: "agent",
+      usage: { inputTokens: 100, outputTokens: 7, cachedReadTokens: 0 },
+      providerUsage: { input_tokens_details: { cached_tokens: 0 } },
+      cost: 0,
+    });
+    await store.updateTurn(prior.id, "completed");
     await client.prepare(conversation.id);
     const events: HarnessEvent[] = [];
     client.subscribe(conversation.id, (event) => {
@@ -140,12 +153,12 @@ it("keeps previews ephemeral and finalized phases, reasoning and search hints du
     const hints = items.filter((item) => item.type === "provider_output");
     expect(await store.getProviderPayloads(hints.map((item) => item.id))).toEqual([]);
     const rows = await store.listModelUsage(conversation.id);
-    expect(rows[0]).toMatchObject({
+    expect(rows.at(-1)).toMatchObject({
       providerUsage: { searches: 1 },
       costIncomplete: true,
       inputTokensAreContext: false,
     });
-    expect((await store.getContextBuild(rows[0]!.contextBuildId!))?.providerOptions).toEqual({
+    expect((await store.getContextBuild(rows.at(-1)!.contextBuildId!))?.providerOptions).toEqual({
       webSearch: true,
     });
     expect(
@@ -154,8 +167,17 @@ it("keeps previews ephemeral and finalized phases, reasoning and search hints du
           isKernelEvent(event) && event.type === "text_delta" && event.phase === "commentary",
       ),
     ).toBe(true);
-    expect(events.filter((event) => event.type === "usage.changed").at(-1)).toMatchObject({
-      summary: { costIncomplete: true, usage: { inputTokens: 10 }, agentContext: { usage: null } },
+    const latest = events.findLast((event) => event.type === "usage.changed");
+    if (!latest || !("summary" in latest)) throw new Error("Missing usage event");
+    expect(latest.summary).toMatchObject({
+      costIncomplete: true,
+      usage: { inputTokens: 110 },
+      contextMeasurements: [{ provider: "fake", model: "fake-1", inputTokens: 100 }],
+      agentContext: {
+        usage: null,
+        lastRequest: { usage: { inputTokens: 10, outputTokens: 5 }, cachedReadTokens: null },
+      },
+      cacheRead: { inputTokens: 100, cachedReadTokens: 0, reportedRequests: 1, totalRequests: 2 },
     });
     expect(requests).toHaveLength(1);
     await session.shutdown();
@@ -164,14 +186,13 @@ it("keeps previews ephemeral and finalized phases, reasoning and search hints du
     const reopened = new SqliteStore(path);
     try {
       expect(await reopened.listOwnedItems(conversation.id)).toEqual(items);
-      expect((await reopened.listModelUsage(conversation.id))[0]).toMatchObject({
+      expect((await reopened.listModelUsage(conversation.id)).at(-1)).toMatchObject({
         providerUsage: { searches: 1 },
         costIncomplete: true,
         inputTokensAreContext: false,
       });
       const summary = await reopened.summarizeModelUsage(conversation.id);
-      expect(summary.usage.inputTokens).toBe(10);
-      expect(summary.agentContext?.usage).toBeNull();
+      expect(summary).toEqual(latest.summary);
       expect(summary.lastInputTokens).toBeUndefined();
     } finally {
       reopened.close();

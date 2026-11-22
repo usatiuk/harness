@@ -50,20 +50,7 @@ class GatewayResponses extends OpenAIResponsesTransport {
             ...(this.profile.reasoningSummary ? { summary: this.profile.reasoningSummary } : {}),
           } as Parameters<typeof buildResponseParams>[1])
         : undefined;
-    const includeEncryptedReasoning =
-      reasoning !== undefined ||
-      request.items.some(
-        ({ payload }) =>
-          payload?.provider === this.provider &&
-          payload.model === request.modelConfig.model &&
-          payload.type === "reasoning",
-      );
-    const params = buildResponseParams(
-      request,
-      reasoning,
-      this.provider,
-      includeEncryptedReasoning,
-    );
+    const params = buildResponseParams(request, reasoning, this.provider);
     if (controls.temperature !== undefined) params.temperature = controls.temperature;
     if (controls.topP !== undefined) params.top_p = controls.topP;
     const cap = outputCap(this.profile, request, controls.requestMaxOutputTokens);

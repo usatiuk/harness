@@ -566,14 +566,17 @@ test("context and last-turn facts come from persisted model accounting and survi
       await expect(page.getByLabel("Last turn statistics")).toContainText("20 in");
       await expect(page.getByLabel("Last turn statistics")).toContainText("4 out");
       await expect(page.getByLabel("Last turn statistics")).toContainText(/\d+(?:\.\d+)? tok\/s/u);
-      await page.getByRole("button", { name: "Context usage: 1%", exact: true }).click();
+      await page.getByRole("button", { name: /^Context usage: 1% of /u }).click();
       const popup = page.getByRole("dialog", { name: "Context and usage" });
-      await expect(popup.locator("dt", { hasText: "Last agent input" }).locator("+ dd")).toHaveText(
-        "10",
-      );
-      await expect(popup.locator("dt", { hasText: "Context capacity" }).locator("+ dd")).toHaveText(
-        "1,000",
-      );
+      await expect(
+        popup
+          .locator('dl[aria-label="Last request"] dt')
+          .filter({ hasText: /^Input$/u })
+          .locator("+ dd"),
+      ).toHaveText("10");
+      await expect(
+        popup.locator("dt", { hasText: "Shared context window" }).locator("+ dd"),
+      ).toHaveText("1,000");
       await popup.press("Escape");
       if (attempt === 0) {
         await page.screenshot({ path: info.outputPath("chat.png") });

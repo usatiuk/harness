@@ -37,14 +37,7 @@ afterEach(() => {
 
 it("defaults supported connections to native search and preserves explicit opt-outs", async () => {
   const store = new MemorySecretStore();
-  for (const type of [
-    "openai-api",
-    "openai-codex",
-    "anthropic-api",
-    "gemini-api",
-    "mistral-api",
-    "mistral-vibe",
-  ]) {
+  for (const type of ["openai-api", "openai-codex", "anthropic-api", "gemini-api"]) {
     for (const webSearch of [undefined, false, true]) {
       const entry = providerEntries(store, {
         providers: { named: { type, config: webSearch === undefined ? {} : { webSearch } } },
@@ -81,7 +74,7 @@ it("saves search over RPC without replacing connection details or sibling settin
   };
   const mistral = {
     type: "mistral-vibe",
-    config: { models: { custom: { label: "Custom", contextWindow: 4096 } } },
+    config: { webSearch: true, models: { custom: { label: "Custom", contextWindow: 4096 } } },
   };
   await writeFile(
     settingsPath,
@@ -110,10 +103,6 @@ it("saves search over RPC without replacing connection details or sibling settin
         provider: "openai",
         patch: { webSearch: false },
       }),
-      client.peer.request(appProviderConfigUpdateRequest, {
-        provider: "team",
-        patch: { webSearch: false },
-      }),
       updateGlobalModel(home, { provider: "demo", model: "demo-1" }),
     ]);
     const doc = await readGlobalSettings(home);
@@ -121,7 +110,7 @@ it("saves search over RPC without replacing connection details or sibling settin
       model: { provider: "demo", model: "demo-1" },
       providers: {
         work: { ...named, config: { ...named.config, webSearch: false } },
-        team: { ...mistral, config: { ...mistral.config, webSearch: false } },
+        team: mistral,
         openai: {
           type: "openai-api",
           config: { apiKey: { env: "OPENAI_API_KEY", stored: true }, webSearch: false },
@@ -142,9 +131,10 @@ it("saves search over RPC without replacing connection details or sibling settin
     const team = reopened.get("team")!.instance;
     if (team.auth?.kind !== "api-key") throw new Error("Expected Mistral API key auth");
     await team.auth.submit("test-key");
-    expect((await team.buildProvider())?.providerOptions).toEqual({ webSearch: false });
+    expect((await team.buildProvider())?.providerOptions).toBeUndefined();
+    expect(statuses.find(({ id }) => id === "team")?.settings).toEqual([]);
     const before = await readFile(settingsPath, "utf8");
-    for (const provider of ["missing", "opencode-go"])
+    for (const provider of ["missing", "opencode-go", "team"])
       await expect(
         client.peer.request(appProviderConfigUpdateRequest, {
           provider,

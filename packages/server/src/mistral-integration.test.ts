@@ -8,6 +8,10 @@ vi.mock("@harness/execution", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@harness/execution")>()),
   initializeUserShellEnvironment: vi.fn(async () => {}),
 }));
+import { MistralProvider } from "@harness/mistral";
+import { SqliteStore } from "@harness/store-sqlite";
+import { HarnessService } from "@harness/service";
+import { EchoTool, unusedCodeEvaluator } from "@harness/testkit";
 import { MemorySecretStore } from "@harness/secrets";
 import { PRODUCT_VERSION } from "@harness/release";
 import { HarnessClient, createInProcessMessageConnectionPair } from "@harness/client";
@@ -125,13 +129,24 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
       });
     headers.push(raw.headers);
     sse(response, [
-      { type: "message.output.delta", id: "reply", content: "Mistral reply" },
+      { type: "response.output_text.delta", output_index: 0, delta: "Mistral reply" },
       {
-        type: "conversation.response.done",
-        usage: {
-          prompt_tokens: 100,
-          completion_tokens: 4,
-          prompt_tokens_details: { cached_tokens: 80 },
+        type: "response.output_item.done",
+        item: {
+          type: "message",
+          id: "reply",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Mistral reply", annotations: [] }],
+        },
+      },
+      {
+        type: "response.completed",
+        response: {
+          usage: {
+            input_tokens: 100,
+            output_tokens: 4,
+            input_tokens_details: { cached_tokens: 80 },
+          },
         },
       },
     ]);
@@ -271,9 +286,7 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
     unsubscribe();
     expect(headers[0]?.["x-affinity"]).toBe(conversation.id);
     expect(headers[0]?.["user-agent"]).toBe(`Harness/${PRODUCT_VERSION}`);
-    expect(gateway.requests.find(({ method }) => method === "POST")?.path).toBe(
-      "/v1/conversations",
-    );
+    expect(gateway.requests.find(({ method }) => method === "POST")?.path).toBe("/v1/responses");
     const summary = await rpc.usage(conversation.id);
     expect(summary.usage).toMatchObject({
       inputTokens: 200,
@@ -287,6 +300,8 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
     });
     expect(headers).toHaveLength(2);
     for (const header of headers) expect(header["x-affinity"]).toBe(conversation.id);
+    for (const { body } of gateway.requests.filter(({ method }) => method === "POST"))
+      expect(body.prompt_cache_key).toBe(conversation.id);
     expect(gateway.requests.find(({ method }) => method === "POST")?.body.model).toBe(
       "manual-model",
     );
@@ -321,3 +336,121 @@ it("signs in both surfaces over RPC, discovers at restart, generates with affini
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it.each([
+  {
+    label: "plaintext",
+    state: { content: [{ type: "reasoning_text", text: "native text" }] },
+    readable: "native text",
+    replay: true,
+  },
+  {
+    label: "encrypted",
+    state: { encrypted_content: "fixture ciphertext" },
+    readable: "summary",
+    replay: true,
+  },
+  { label: "summary only", state: {}, readable: "summary", replay: false },
+])(
+  "resumes $label reasoning and linked tool history from SQLite",
+  async ({ state, readable, replay }) => {
+    const home = await mkdtemp(join(tmpdir(), "harness-responses-replay-"));
+    const reasoning = {
+      type: "reasoning",
+      id: "r1",
+      summary: [{ type: "summary_text", text: "summary" }],
+      ...state,
+    };
+    const call = { type: "function_call", call_id: "c1", name: "echo", arguments: '{"value":7}' };
+    const answer = {
+      type: "message",
+      id: "m1",
+      role: "assistant",
+      content: [{ type: "output_text", text: "done", annotations: [] }],
+    };
+    let initial = true;
+    const gateway = await httpGateway((_, response) => {
+      const output = initial ? [reasoning, call] : [answer];
+      initial = false;
+      sse(response, [
+        ...output.map((item) => ({ type: "response.output_item.done", item })),
+        { type: "response.completed", response: {} },
+      ]);
+    });
+    function open() {
+      const store = new SqliteStore(join(home, "store.db"));
+      const provider = new MistralProvider(
+        "instance",
+        "api",
+        "fixture-key",
+        (input, init) =>
+          fetch(
+            new URL(new URL(input instanceof Request ? input.url : input).pathname, gateway.url),
+            init,
+          ),
+        { original: {}, other: {} },
+      );
+      const service = new HarnessService({
+        store,
+        home,
+        codeEvaluator: unusedCodeEvaluator,
+        plugins: [{ id: "fixture", providers: () => [provider], tools: () => [new EchoTool()] }],
+        defaults: { model: { provider: "instance", model: "original" } },
+      });
+      return { store, service };
+    }
+    let session = open();
+    try {
+      const { id } = await session.service.createConversation({});
+      await session.service.send(id, "go");
+      await session.service.whenIdle(id);
+      expect(
+        (await session.service.getItems(id)).find((item) => item.type === "reasoning"),
+      ).toMatchObject({ content: [{ type: "text", text: readable }] });
+      await session.service.deactivateSession(id, { force: true });
+      session.store.close();
+      session = open();
+      await session.service.send(id, "continue");
+      await session.service.whenIdle(id);
+      const history = [
+        { role: "user", content: "go" },
+        ...(replay ? [reasoning] : []),
+        call,
+        { type: "function_call_output", call_id: "c1", output: '{"value":7}' },
+        answer,
+        { role: "user", content: "continue" },
+      ];
+      expect(gateway.requests[2]?.body).toMatchObject({
+        store: false,
+        model: "original",
+        input: history,
+      });
+      // Check the serialized prefix consumed by the provider across the tool step and reopen.
+      const requests = gateway.requests.map(({ body }) => body);
+      for (const [earlier, later] of [
+        [requests[0]!, requests[1]!],
+        [requests[1]!, requests[2]!],
+      ] as const) {
+        const prefix = earlier.input as unknown[];
+        const extended = later.input as unknown[];
+        expect(extended.length).toBeGreaterThan(prefix.length);
+        expect(JSON.stringify(extended.slice(0, prefix.length))).toBe(JSON.stringify(prefix));
+        expect(JSON.stringify(later.tools)).toBe(JSON.stringify(earlier.tools));
+        expect(later.instructions).toBe(earlier.instructions);
+        expect(later.prompt_cache_key).toBe(id);
+        expect(earlier.prompt_cache_key).toBe(id);
+      }
+      await session.service.setModel(id, { provider: "instance", model: "other" });
+      await session.service.send(id, "continue after switching");
+      await session.service.whenIdle(id);
+      const switched = gateway.requests[3]?.body.input as { type?: string }[];
+      expect(switched.some((item) => item.type === "reasoning")).toBe(false);
+      expect(switched).toContainEqual(call);
+      await session.service.deactivateSession(id, { force: true });
+    } finally {
+      session.store.close();
+      await gateway.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);

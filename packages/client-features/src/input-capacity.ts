@@ -1,14 +1,7 @@
 import type { ModelInfo } from "@harness/protocol";
-import type { State } from "./transcript-reducer.ts";
 
 /** Presentation only: the engine's reserve-adjusted compaction trigger is separate. */
-export function inputCapacity(checkpoint: State["agentContext"], models: readonly ModelInfo[]) {
-  const model =
-    checkpoint &&
-    models.find(
-      (model) => model.provider === checkpoint.provider && model.model === checkpoint.model,
-    );
-  const used = checkpoint?.usage?.inputTokens;
+export function inputCapacity(model: ModelInfo | undefined, used: number | undefined) {
   const limit = model?.maxInputTokens ?? model?.contextWindow;
   const basis =
     model?.maxInputTokens !== undefined

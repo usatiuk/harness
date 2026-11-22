@@ -1,7 +1,7 @@
 import type OpenAI from "openai";
 import type { ModelStreamEvent, Usage } from "@harness/protocol";
 import { jsonValueSchema } from "@harness/protocol";
-import { encodeReasoningPayload, encodeOutputPayload } from "./payload.ts";
+import { encodeOutputPayload, plaintextReasoning } from "./payload.ts";
 
 type StreamEvent = OpenAI.Responses.ResponseStreamEvent;
 type ChatChunk = OpenAI.Chat.Completions.ChatCompletionChunk;
@@ -55,9 +55,11 @@ function* fromItem(
       ],
     };
   } else if (item.type === "reasoning") {
-    const content = item.summary.map((s) => ({ type: "text" as const, text: s.text }));
-    const payload = encodeReasoningPayload(item, provider, model);
-    yield { type: "reasoning", content, ...(payload ? { payload } : {}) };
+    const content = (plaintextReasoning(item) ?? item.summary).map((s) => ({
+      type: "text" as const,
+      text: s.text,
+    }));
+    yield { type: "reasoning", content, payload: encodeOutputPayload(item, provider, model) };
   } else if (item.type === "function_call") {
     yield {
       type: "tool_call",
@@ -96,11 +98,11 @@ export async function* toModelEvents(
   let searched = false;
   const accounting = (usage: OpenAI.Responses.ResponseUsage | null | undefined) => ({
     usage: responseUsage(usage),
+    ...(usage ? { providerUsage: jsonValueSchema.parse(usage) } : {}),
     ...(searched
       ? {
           costIncomplete: true,
           inputTokensAreContext: false,
-          ...(usage ? { providerUsage: jsonValueSchema.parse(usage) } : {}),
         }
       : {}),
   });
@@ -120,6 +122,7 @@ export async function* toModelEvents(
         };
         break;
       case "response.reasoning_summary_text.delta":
+      case "response.reasoning_text.delta":
         yield { type: "reasoning_delta", text: event.delta };
         break;
       case "response.output_item.done":
@@ -329,6 +332,9 @@ export async function* toChatEvents(
             cachedReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
           }
         : null,
+      ...(usage?.prompt_tokens_details?.cached_tokens !== undefined
+        ? { providerUsage: jsonValueSchema.parse(usage) }
+        : {}),
       ...(terminalError ? { error: terminalError } : {}),
     };
   }
