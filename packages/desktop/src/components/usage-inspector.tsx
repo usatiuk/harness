@@ -1,5 +1,4 @@
 import { inputCapacity } from "@harness/client-features";
-import type { CSSProperties } from "react";
 import type { ModelInfo } from "@harness/protocol";
 import type { State } from "@harness/client-features/transcript-reducer";
 import { Button, PopoverControl } from "../ui.tsx";
@@ -58,11 +57,27 @@ export function ContextUsage({
           className="context-control"
           aria-label={`Context usage: ${percent === undefined ? "unknown" : utilization}`}
         >
-          <span
+          <svg
             className="context-ring"
             aria-hidden="true"
-            style={{ "--context-progress": `${Math.min(percent ?? 0, 100)}%` } as CSSProperties}
-          />
+            width="16"
+            height="16"
+            viewBox="0 0 18 18"
+            fill="none"
+            strokeWidth="3"
+          >
+            <circle cx="9" cy="9" r="7.5" stroke="var(--control-border)" />
+            <circle
+              cx="9"
+              cy="9"
+              r="7.5"
+              stroke="var(--ink)"
+              pathLength="100"
+              strokeDasharray="100"
+              strokeDashoffset={100 - Math.min(percent ?? 0, 100)}
+              transform="rotate(-90 9 9)"
+            />
+          </svg>
         </Button>
       }
     >

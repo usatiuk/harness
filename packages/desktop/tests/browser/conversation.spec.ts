@@ -4550,22 +4550,13 @@ for (const theme of ["light", "dark"] as const) {
       }, theme);
       const trigger = page.getByRole("button", { name: `Context usage: ${expected}`, exact: true });
       await expect(trigger).toBeVisible();
-      await expect(trigger.locator("svg")).toHaveCount(0);
-      {
-        await expect(trigger.locator(".context-ring")).toHaveCSS("width", "18px");
-        await expect(trigger.locator(".context-ring")).toHaveCSS("height", "18px");
-        await expect(trigger.locator(".context-ring")).toHaveCSS(
-          "background-image",
-          /conic-gradient/,
-        );
-        expect(
-          await trigger
-            .locator(".context-ring")
-            .evaluate((element) =>
-              getComputedStyle(element).getPropertyValue("--context-progress").trim(),
-            ),
-        ).toBe(expected === "unknown" ? "0%" : `${expected.split("%")[0]}%`);
-      }
+      const ring = trigger.locator(".context-ring");
+      await expect(ring).toHaveCSS("width", "16px");
+      await expect(ring).toHaveCSS("height", "16px");
+      await expect(ring.locator("[stroke-dashoffset]")).toHaveAttribute(
+        "stroke-dashoffset",
+        String(100 - (parseInt(expected, 10) || 0)),
+      );
       await trigger.screenshot({ path: test.info().outputPath(`capacity-${theme}-${name}.png`) });
       await trigger.click();
       const facts = page.locator(".context-facts");

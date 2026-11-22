@@ -416,14 +416,6 @@
   width: 32px;
   padding: 6px;
 }
-.context-ring {
-  display: block;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: conic-gradient(var(--ink) var(--context-used), var(--control-border) 0);
-  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
-}
 .context-total {
   font-size: 18px;
   font-weight: 500;
