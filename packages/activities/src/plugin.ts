@@ -8,7 +8,7 @@ import type {
 } from "@harness/protocol";
 import { ActivityManager } from "./manager.ts";
 import { backgroundContractResolver, consumeMiddleware } from "./consume.ts";
-import { ActivityKillTool, ActivityListTool, ActivityPeekTool, ActivityWaitTool } from "./tools.ts";
+import { ActivityKillTool, ActivityListTool, ActivityPeekTool } from "./tools.ts";
 
 /** Contributes runtime-owned activity managers, consumption middleware, and `activity_*` tools. */
 class ActivitiesPlugin implements Plugin {
@@ -34,12 +34,7 @@ class ActivitiesPlugin implements Plugin {
   }
 
   tools(): Tool[] {
-    return [
-      new ActivityWaitTool(),
-      new ActivityPeekTool(),
-      new ActivityListTool(),
-      new ActivityKillTool(),
-    ];
+    return [new ActivityPeekTool(), new ActivityListTool(), new ActivityKillTool()];
   }
 }
 

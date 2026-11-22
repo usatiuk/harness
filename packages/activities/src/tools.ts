@@ -7,54 +7,7 @@ import {
   type ToolInput,
   type ToolResult,
 } from "@harness/protocol";
-import { activitiesOf, activityLabel, noticeContent } from "./manager.ts";
-
-const DEFAULT_WAIT_S = 30;
-const MAX_WAIT_S = 300;
-
-const waitArgs = z.strictObject({
-  id: z
-    .string()
-    .describe(
-      "An unambiguous name/readable reference from your own activity_list; use its canonical ID only to disambiguate. References expire when collected or after restart.",
-    ),
-  timeout_seconds: z.number().positive().max(MAX_WAIT_S).optional(),
-});
-export class ActivityWaitTool implements Tool<z.infer<typeof waitArgs>> {
-  readonly essential = true;
-  readonly name = "activity_wait";
-  readonly description =
-    "Wait for an activity result when blocked; use this instead of sleep. " +
-    `Defaults to ${DEFAULT_WAIT_S} seconds; maximum ${MAX_WAIT_S} seconds per call. ` +
-    "A timeout returns 'still running' without stopping the activity.";
-  readonly input: ToolInput<z.infer<typeof waitArgs>> = { kind: "function", schema: waitArgs };
-  async execute(
-    { id, timeout_seconds }: z.infer<typeof waitArgs>,
-    ctx: ToolContext,
-  ): Promise<ToolResult> {
-    const mgr = activitiesOf(ctx);
-    const resolved = mgr.resolve(id);
-    if ("error" in resolved) return errorResult(resolved.error);
-    id = resolved.id;
-    const seconds = timeout_seconds ?? DEFAULT_WAIT_S;
-    return mgr.wait(
-      id,
-      seconds * 1000,
-      (outcome, activity): ToolResult => {
-        const reference = mgr.reference(id);
-        if (outcome === "running")
-          return okResult(
-            `activity ${reference} still running after ${seconds}s; wait again or activity_peek it.`,
-          );
-        return {
-          forModel: noticeContent(id, outcome, activity, reference),
-          status: outcome.status,
-        };
-      },
-      ctx.signal,
-    );
-  }
-}
+import { activitiesOf, activityLabel } from "./manager.ts";
 
 const peekArgs = z.strictObject({
   id: z.string().describe("Caller-owned unambiguous name/reference, or canonical ID fallback."),

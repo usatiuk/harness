@@ -55,7 +55,7 @@ import { registerApprovalServer } from "./approvals.ts";
 export { registerFeatureServer } from "./features.ts";
 export const BUILTIN_APPROVAL_DEFAULTS = {
   ask_questions: "allow",
-  activity_wait: "allow",
+  wait: "allow",
   activity_peek: "allow",
   activity_list: "allow",
   activity_kill: "allow",

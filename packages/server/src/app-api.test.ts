@@ -111,11 +111,11 @@ it("offers all Harness capability tools upfront in both modes", async () => {
         "activity_kill",
         "activity_list",
         "activity_peek",
-        "activity_wait",
         "subagent",
         "worktree_list",
         "worktree_switch",
       ];
+      expect(tools.some((tool) => tool.name === "wait")).toBe(true);
       for (const name of upfront) {
         if (mode === "hybrid") expect(tools.map((tool) => tool.name)).toContain(name);
         else {

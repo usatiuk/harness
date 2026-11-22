@@ -231,7 +231,6 @@ describe("ordinary tool discovery", () => {
       "activity_kill",
       "activity_list",
       "activity_peek",
-      "activity_wait",
       "basic",
       "eval",
       "subagent",
@@ -240,6 +239,7 @@ describe("ordinary tool discovery", () => {
       "subagent_send",
       "tool_describe",
       "tool_search",
+      "wait",
     ]);
     expect(results(items).find((item) => item.callId === "essential-direct")?.status).toBe("ok");
     expect(results(items).find((item) => item.callId === "other-direct")?.status).toBe("error");
@@ -614,6 +614,7 @@ describe("recorded code-mode execution", () => {
       "eval",
       "tool_describe",
       "tool_search",
+      "wait",
     ]);
     expect(JSON.stringify(fixture.requests[1])).not.toContain("hidden intermediate");
     expect(
@@ -997,7 +998,17 @@ describe("recorded code-mode execution", () => {
     await fixture.svc.deactivateSession(fixture.conversation.id, { force: true });
   });
 
-  it("keeps ordinary background activity meaning and waiting available inside code", async () => {
+  it("rejects wait inside eval and validates direct timeouts", async () => {
+    const fixture = await setup([
+      evalStep('return await tools.call("wait", {});'),
+      toolStep("invalid", "wait", { timeout_seconds: 301 }),
+      textStep("done"),
+    ]);
+    const items = await fixture.run();
+    expect(results(items).map((item) => item.status)).toEqual(["error", "error", "error"]);
+  });
+
+  it("wakes a direct batch wait with a single background completion from evaluator work", async () => {
     const shell = process.platform === "win32" ? "powershell" : selectUserShell().kind;
     const waiting = gate(),
       release = gate();
@@ -1017,7 +1028,8 @@ describe("recorded code-mode execution", () => {
     const fixture = await setup(
       [
         evalStep(`const activity = await tools.call(${JSON.stringify(shell)}, {command:"activity fixture", background:true});
-      emit(activity.state); return await tools.call("activity_wait", {id:activity.activityId});`),
+      return activity.state;`),
+        toolStep("waiting", "wait", {}),
         textStep("done"),
       ],
       [],
@@ -1039,9 +1051,8 @@ describe("recorded code-mode execution", () => {
       if (
         isKernelEvent(event) &&
         event.type === "item.appended" &&
-        event.item.type === "tool_call" &&
-        event.item.name === "activity_wait" &&
-        event.item.parentCallId === "outer"
+        event.item.type === "tool_result" &&
+        event.item.callId === "waiting"
       )
         waiting.resolve();
     });
@@ -1051,12 +1062,22 @@ describe("recorded code-mode execution", () => {
     expect(pending.find((item) => item.parentCallId === "outer")?.structured).toMatchObject({
       state: "running",
     });
-    expect(pending.some((item) => item.callId === "outer")).toBe(false);
+    expect(pending.find((item) => item.callId === "outer")?.status).toBe("ok");
     output("activity output");
     release.resolve();
     const items = await running;
-    expect(textOf(results(items).at(-1)!.content)).toContain('"running"');
-    expect(textOf(results(items).at(-1)!.content)).toContain("activity output");
+    expect(
+      items.filter(
+        (item) => item.type === "message" && textOf(item.content).includes("activity output"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      fixture.requests
+        .at(-1)!
+        .items.some(
+          ({ item }) => item.type === "message" && textOf(item.content).includes("activity output"),
+        ),
+    ).toBe(true);
     await fixture.svc.deactivateSession(fixture.conversation.id, { force: true });
   });
 
@@ -1921,13 +1942,11 @@ describe("readable orchestration references through public dispatch", () => {
                 code: `
         await tools.call("activity_list", {});
         await tools.call("activity_peek", {id:"review"});
-        await tools.call("activity_wait", {id:"Review changes"});
         return await tools.call("subagent_dismiss", {to:"review"});`,
               }),
           ...(mode === "hybrid"
             ? [
                 toolStep("peek", "activity_peek", { id: "review" }),
-                toolStep("wait", "activity_wait", { id: "Review changes" }),
                 toolStep("dismiss", "subagent_dismiss", { to: "review" }),
               ]
             : []),
@@ -2007,7 +2026,6 @@ describe("readable orchestration references through public dispatch", () => {
               toolStep("list", "activity_list", {}),
               toolStep("peek", "activity_peek", { id: "work" }),
               toolStep("kill", "activity_kill", { id: "Controlled work" }),
-              toolStep("wait", "activity_wait", { id: "work" }),
               textStep("Finished"),
             ]
           : [
@@ -2016,7 +2034,6 @@ describe("readable orchestration references through public dispatch", () => {
       await tools.call("activity_list", {});
       await tools.call("activity_peek", {id:"work"});
       await tools.call("activity_kill", {id:"Controlled work"});
-      await tools.call("activity_wait", {id:"work"});
       return launched;`),
               textStep("Finished"),
             ],
@@ -2030,8 +2047,10 @@ describe("readable orchestration references through public dispatch", () => {
         results(items).find((result) => result.callId === launch.callId)?.structured,
       ).toMatchObject({ activityId: "canonical-work", activityRef: "work", state: "running" });
       expect(
-        results(items).some((result) =>
-          textOf(result.content).includes("[activity work] Controlled work"),
+        items.some(
+          (item) =>
+            item.type === "message" &&
+            textOf(item.content).includes("[activity work] Controlled work"),
         ),
       ).toBe(true);
       // Runtime reactivation must not recreate handles from the durable transcript/family.

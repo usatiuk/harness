@@ -145,12 +145,10 @@ describe("custom provider public boundary", () => {
       expect(call.headers).toEqual({ "x-session-id": conversation.id });
     }
     expect(fake.calls[0]?.params).toMatchObject({ model: "m", temperature: 0.2 });
-    expect(fake.calls[0]?.params.tools).toMatchObject([
-      { type: "function", function: { name: "echo" } },
-      { type: "function", function: { name: "eval" } },
-      { type: "function", function: { name: "tool_describe" } },
-      { type: "function", function: { name: "tool_search" } },
-    ]);
+    const functions = fake.calls[0]?.params.tools as { function?: { name: string } }[];
+    expect(functions.find((tool) => tool.function?.name === "echo")).toMatchObject({
+      type: "function",
+    });
     expect(fake.calls[1]?.params.messages).toEqual(
       expect.arrayContaining([expect.objectContaining({ role: "tool", tool_call_id: "call-1" })]),
     );

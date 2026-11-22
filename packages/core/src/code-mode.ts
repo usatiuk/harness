@@ -20,7 +20,7 @@ Emitted output survives a later error. Only emitted values and the return value 
 Each tools.call starts an operation. Await sequentially for order or use Promise.all for concurrent
 work. Await all work: outstanding
 calls are cancelled when the body ends. Background activity results mean running, not completed;
-use activity tools to inspect/wait. No filesystem, network, process, imports, timers, or credentials
+inspect with activity_peek or return control to the model to wait for input. No filesystem, network, process, imports, timers, or credentials
 are ambient. Discover tools on demand; unavailable names cannot bypass scope. Computation, memory,
 output, and tool submissions are bounded. No replay, rollback, or persistent variables.`;
 
@@ -71,6 +71,7 @@ export function allowsDirect(tools: ToolSet, name: string, mode: ToolMode): bool
   return (
     tools.exposes(name, "direct") &&
     (name === EVALUATOR_NAME ||
+      name === "wait" ||
       isDiscoveryTool(name) ||
       (mode === "hybrid" && tools.get(name).essential === true))
   );

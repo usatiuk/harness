@@ -10,15 +10,14 @@ type Emit = (event: PluginEvent) => void;
 const MAX_LIVE = 50;
 
 /**
- * Per-conversation tracker. Indexes activities by id and by originating `callId`; a result surfaces
- * at most once across inline-settle, `activity_wait`, and the proactive notice.
+ * Per-conversation tracker. Indexes activities by id and by originating `callId`; a result
+ * is returned inline for foreground work or delivered once on background completion.
  */
 export class ActivityManager {
   readonly #byId = new Map<string, Activity>();
   readonly #byCall = new Map<string, string>(); // callId -> activityId, claimed once
   readonly #settled = new Map<string, ActivityResult>();
-  readonly #surfaced = new Set<string>(); // result already shown once
-  readonly #waiting = new Map<string, number>(); // overlapping foreground/explicit waits
+  readonly #foreground = new Set<string>(); // protects formatting and the timeout-to-background handoff
   readonly #notices = new Map<string, (content: ContentBlock[]) => void>();
   #closed = false;
 
@@ -115,13 +114,13 @@ export class ActivityManager {
    * Bounded wait; consume synchronously while the handle is protected, including
    * timeout-to-background notice registration. Never retain protection over an async consumer.
    */
-  async wait<T>(
+  async consumeForeground<T>(
     id: string,
     timeoutMs: number,
-    consume: (outcome: ActivityResult | "running", activity: Activity) => T,
-    signal?: AbortSignal,
+    consume: (outcome: ActivityResult | "running") => T,
+    signal: AbortSignal,
   ): Promise<T> {
-    signal?.throwIfAborted();
+    signal.throwIfAborted();
     const activity = this.#byId.get(id);
     if (!activity) throw new Error(`Cannot wait for unknown activity: ${id}`);
     let timer: ReturnType<typeof setTimeout>;
@@ -129,43 +128,27 @@ export class ActivityManager {
       timer = setTimeout(() => res("running"), timeoutMs);
       timer.unref();
     });
-    let onAbort: (() => void) | undefined;
-    const cancelled = signal
-      ? new Promise<never>((_resolve, reject) => {
-          onAbort = () => reject(new Error("activity wait aborted", { cause: signal.reason }));
-          signal.addEventListener("abort", onAbort, { once: true });
-        })
-      : undefined;
-    this.#waiting.set(id, (this.#waiting.get(id) ?? 0) + 1);
+    let onAbort!: () => void;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      onAbort = () =>
+        reject(new Error("foreground activity interrupted", { cause: signal.reason }));
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    this.#foreground.add(id);
     try {
-      const outcome = await Promise.race([
-        activity.done,
-        timeout,
-        ...(cancelled ? [cancelled] : []),
-      ]);
-      signal?.throwIfAborted();
-      if (outcome !== "running") {
-        this.#surfaced.add(id);
-        this.#notices.delete(id);
-      }
-      return consume(outcome, activity);
+      const outcome = await Promise.race([activity.done, timeout, cancelled]);
+      signal.throwIfAborted();
+      return consume(outcome);
     } finally {
       clearTimeout(timer!);
-      if (onAbort) signal!.removeEventListener("abort", onAbort);
-      const remaining = this.#waiting.get(id)! - 1;
-      if (remaining === 0) this.#waiting.delete(id);
-      else this.#waiting.set(id, remaining);
-      this.#flushNotice(id);
+      signal.removeEventListener("abort", onAbort);
+      this.#foreground.delete(id);
     }
   }
 
-  /**
-   * Arm a one-shot completion notice. Suppressed if the result was already surfaced inline, or if a
-   * wait is in flight. Keep the callback until a successful wait consumes the result or the last
-   * waiter leaves, so cancellation cannot discard the completion notice.
-   */
+  /** Background completion can precede registration. Deliver once both are available. */
   notifyOnExit(id: string, deliver: (content: ContentBlock[]) => void): void {
-    if (!this.#byId.has(id) || this.#closed || this.#surfaced.has(id)) return;
+    if (!this.#byId.has(id) || this.#closed) return;
     this.#notices.set(id, deliver);
     this.#flushNotice(id);
   }
@@ -188,11 +171,9 @@ export class ActivityManager {
     for (const [id] of this.#byId) {
       if (this.#byId.size < MAX_LIVE) break;
       // Settlement does not release a waiter or its pending completion delivery.
-      if (this.#settled.has(id) && !this.#waiting.has(id) && !this.#notices.has(id)) {
+      if (this.#settled.has(id) && !this.#foreground.has(id) && !this.#notices.has(id)) {
         this.#byId.delete(id);
         this.#settled.delete(id);
-        this.#surfaced.delete(id);
-        this.#notices.delete(id);
         evicted.add(id);
       }
     }
@@ -202,10 +183,8 @@ export class ActivityManager {
   #flushNotice(id: string): void {
     const result = this.#settled.get(id);
     const deliver = this.#notices.get(id);
-    if (!result || !deliver || this.#closed || this.#waiting.has(id) || this.#surfaced.has(id))
-      return;
+    if (!result || !deliver || this.#closed) return;
     this.#notices.delete(id);
-    this.#surfaced.add(id);
     deliver(noticeContent(id, result, this.#byId.get(id), this.reference(id)));
   }
 }

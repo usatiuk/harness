@@ -132,7 +132,7 @@ The shared server defaults `tools.mode` to `hybrid`; explicit settings win.
 Legacy `direct` settings and overrides load as `hybrid`. Hybrid offers essential
 direct-enabled tools and the core `eval` entry point; other tools use discovery
 and eval. The ordinary core `tool_search` and `tool_describe` tools are
-immediately available in both modes. `code-only` runs capabilities through `eval`
+immediately available in both modes. Both also expose the direct `wait({timeout_seconds?})` tool within the conversation allowlist. Each accepted wait acknowledges scheduling. After all calls settle, the engine pauses once for the shortest requested timeout (30 seconds by default, up to 300). An existing or arriving steer resumes the turn, and ordinary delivery injects the message once. Queued follow-ups remain deferred. Interrupt cancels the turn and releases the pause. `code-only` runs capabilities through `eval`
 and rejects guessed ordinary direct calls, including after discovery. Deferred
 tools have code exposure only. The evaluator itself is
 direct-only and cannot recurse. Engine and service composition require an

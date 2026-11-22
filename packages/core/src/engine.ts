@@ -71,6 +71,7 @@ import { discoveryTools, isDiscoveryTool } from "./tool-discovery.ts";
 import { parseToolArgs, customToolText, toToolSchema } from "./tools.ts";
 import { compactedWindow, estimateContextTokens, fallbackCompaction } from "./policies.ts";
 import { Runtime, type Delivery } from "./runtime.ts";
+import { waitTool } from "./wait.ts";
 import { applyDelivery, pendingInput } from "./delivery.ts";
 import { runModelChain, runToolChain } from "./compose.ts";
 import { runRequestChain } from "./compose.ts";
@@ -1236,6 +1237,12 @@ export class Engine {
     // Unbounded: a turn ends on final response, abort, or failure.
     // Stuck-model spend is bounded only by context/compaction/interrupt.
     while (true) {
+      const current = runtime.inCurrentWorkspace(conversation);
+      if (current !== conversation) {
+        conversation = current;
+        toolSet = await this.#resolveTools(conversation, runtime);
+        toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "hybrid");
+      }
       const draft = await this.#assembleContext(conversation, toolSchemas, runtime, toolSet);
       if (provider.providerOptions !== undefined) draft.providerOptions = provider.providerOptions;
       const capacity = await this.#contextCapacity(conversation, draft);
@@ -1458,35 +1465,6 @@ export class Engine {
         runtime.pendingWorkspace = undefined;
         throw new TurnAborted();
       }
-      if (runtime.pendingWorkspace) {
-        const target = runtime.pendingWorkspace;
-        runtime.pendingWorkspace = undefined;
-        let text: string;
-        const oldRoot = conversation.workspaceRoot;
-        try {
-          await this.#replaceWorkspace(runtime, target);
-          text = `Working directory switched from ${oldRoot} to ${target}. No files moved. Earlier relative output paths belong to ${oldRoot}; do not resolve them against the new checkout.`;
-        } catch (error) {
-          text = `Workspace switch failed: ${error instanceof Error ? error.message : String(error)}`;
-        }
-        if (runtime.conversation.workspaceRoot !== oldRoot) {
-          conversation = {
-            ...conversation,
-            workspaceRoot: runtime.conversation.workspaceRoot,
-            originalWorkspaceRoot: runtime.conversation.originalWorkspaceRoot!,
-          };
-          toolSet = await this.#resolveTools(conversation, runtime);
-          toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "hybrid");
-        }
-        const item = await this.store.appendItem({
-          conversationId: conversation.id,
-          turnId,
-          type: "context",
-          key: "workspace-switch",
-          content: [{ type: "text", text }],
-        });
-        this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
-      }
       if (calls.length === 0) {
         return; // final, non-tool response: the turn is done
       }
@@ -1558,17 +1536,23 @@ export class Engine {
     terminalError?: string,
   ): Promise<void> {
     const batchContexts: PendingContext[] = [];
-    for (const call of calls) {
-      await this.#invokeRecorded(
-        call,
-        toolSet,
-        conversation,
-        turnId,
-        signal,
-        runtime,
-        batchContexts,
-        terminalError,
-      );
+    let waitMs: number | undefined;
+    try {
+      for (const call of calls) {
+        await this.#invokeRecorded(
+          call,
+          toolSet,
+          conversation,
+          turnId,
+          signal,
+          runtime,
+          batchContexts,
+          terminalError,
+        );
+      }
+      waitMs = runtime.pendingWaitMs;
+    } finally {
+      runtime.pendingWaitMs = undefined;
     }
     for (const pending of batchContexts) {
       const item = await this.store.appendItem({
@@ -1580,6 +1564,28 @@ export class Engine {
       });
       this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
     }
+    if (terminalError || signal.aborted) return;
+    if (runtime.pendingWorkspace) {
+      const target = runtime.pendingWorkspace;
+      runtime.pendingWorkspace = undefined;
+      let text: string;
+      const oldRoot = conversation.workspaceRoot;
+      try {
+        await this.#replaceWorkspace(runtime, target);
+        text = `Working directory switched from ${oldRoot} to ${target}. No files moved. Earlier relative output paths belong to ${oldRoot}; do not resolve them against the new checkout.`;
+      } catch (error) {
+        text = `Workspace switch failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+      const item = await this.store.appendItem({
+        conversationId: conversation.id,
+        turnId,
+        type: "context",
+        key: "workspace-switch",
+        content: [{ type: "text", text }],
+      });
+      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
+    }
+    if (waitMs !== undefined) await runtime.waitForSteer(waitMs, signal);
   }
 
   /**
@@ -1672,6 +1678,7 @@ export class Engine {
     turnId: TurnId,
     signal: AbortSignal,
   ): Promise<void> {
+    conversation = runtime.inCurrentWorkspace(conversation);
     const steers = runtime.takeSteers();
     if (steers.length > 0) this.#emitInbox(runtime);
     for (const steer of steers) {
@@ -2379,6 +2386,7 @@ export class Engine {
       if (call) calls.push(call);
     }
     await this.#dispatchCalls(calls, toolSet, conversation, turnId, signal, runtime);
+    if (signal.aborted) throw new TurnAborted();
     if (calls.length > 0) {
       await this.#flushSteers(runtime, conversation, turnId, signal);
     }
@@ -2394,7 +2402,7 @@ export class Engine {
       { service: (key) => this.#service(runtime, key) },
       conversation.config.tools?.allow,
     );
-    for (const name of [EVALUATOR_NAME, "tool_search", "tool_describe"])
+    for (const name of [EVALUATOR_NAME, "tool_search", "tool_describe", "wait"])
       if (tools.has(name)) throw new Error(`reserved core tool name: ${name}`);
     const catalog = await this.host.resolveContracts(tools, {
       conversationId: conversation.id,
@@ -2418,6 +2426,8 @@ export class Engine {
               (schema) => catalog.exposes(schema.name, "code") && !initialNames.has(schema.name),
             )
             .map((schema) => schema.name);
+    const allow = conversation.config.tools?.allow;
+    if (!allow || allow.includes("wait")) controls.push(waitTool(runtime));
     controls.push(evaluatorTool(this.codeEvaluator, upfront, names));
     return new ToolSet(
       [...catalog.values(), ...controls],

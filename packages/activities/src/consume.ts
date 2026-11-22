@@ -26,7 +26,7 @@ export async function consume(
   if (ctx.signal.aborted) activity.kill();
   else ctx.signal.addEventListener("abort", onAbort, { once: true });
   try {
-    return await mgr.wait(
+    return await mgr.consumeForeground(
       activity.id,
       FOREGROUND_MS,
       (outcome): ToolResult => {
@@ -68,7 +68,7 @@ function backgroundNotice(
   return {
     ...okResult(
       `${lead} You'll get a one-shot completion notice, ` +
-        `or use activity_wait / activity_peek / activity_kill with id ${JSON.stringify(reference)}.`,
+        `or use activity_peek / activity_kill with id ${JSON.stringify(reference)}.`,
     ),
     structured: {
       activityId: activity.id,
@@ -126,12 +126,12 @@ function withBackground(tool: Extract<ToolSchema, { kind: "function" }>): ToolSc
       description:
         "Run in the background instead of waiting for it to finish. Use for dev servers, " +
         "watchers, or long builds; you'll be notified on completion and can " +
-        "activity_wait / activity_peek / activity_kill it.",
+        "activity_peek / activity_kill it.",
     },
   };
   return {
     ...tool,
-    description: `${tool.description} Background completion automatically wakes this conversation if idle. When blocked on required results, use activity_wait instead of sleep. Do not report the task finished before required results arrive.`,
+    description: `${tool.description} Background completion automatically wakes this conversation if idle. When blocked on required results, use the direct wait tool if available. Do not report the task finished before required results arrive.`,
     parameters: { ...tool.parameters, properties },
   };
 }

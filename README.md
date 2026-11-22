@@ -546,8 +546,7 @@ overrides; `hybrid` is the default. Legacy `direct` settings and conversation
 overrides load as `hybrid`. Desktop creation also offers a Tool interface
 selector. `tool_search` and `tool_describe` are ordinary, immediately available
 tools in both modes. Hybrid directly declares all Harness tools and `eval`;
-deferred tools, including all MCP tools, run through `eval`. Code-only runs all
-capabilities through `eval`, which accepts an async
+deferred tools, including all MCP tools, run through `eval`. Both modes offer a direct `wait` within the tool allowlist. It pauses once after all calls in a batch finish and resumes for steering, background completion, subagent messages, or timeout. Saved tool allowlists (including existing forks) and explicit approval overrides that name `activity_wait` need to name `wait` for the replacement. Code-only runs ordinary capabilities through `eval`, which accepts an async
 JavaScript function body:
 
 ```javascript

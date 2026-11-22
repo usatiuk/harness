@@ -402,7 +402,7 @@ describe("HarnessRpcSession", () => {
     });
     expect(fork.draft).toEqual([{ type: "text", text: "steered draft" }]);
     await client.attach(fork.conversation.id);
-    expect(fork.conversation.config.tools?.allow).toEqual(["gate"]);
+    expect(fork.conversation.config.tools?.allow).toEqual(["gate", "wait"]);
   });
   it("snapshots effective settings and compacts inherited history independently", async () => {
     const { client, service, store } = createHarness(

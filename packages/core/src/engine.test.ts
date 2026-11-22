@@ -184,6 +184,91 @@ function setup(steps: FakeStep[], plugin?: Partial<Plugin>, existingStore?: InMe
   return { store, engine, events };
 }
 
+describe("conversation wait", () => {
+  it("runs siblings first, coalesces wait requests, and leaves queued input for the next turn", async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, engine, events } = setup([
+        [
+          { type: "tool_call", callId: "long", name: "wait", args: { timeout_seconds: 300 } },
+          { type: "tool_call", callId: "short", name: "wait", args: { timeout_seconds: 3 } },
+          { type: "tool_call", callId: "also-long", name: "wait", args: { timeout_seconds: 200 } },
+          ...toolStep("sibling", "echo", { text: "ready" }),
+        ],
+        textStep("after timeout"),
+        textStep("handled follow-up"),
+      ]);
+      const conv = await store.createConversation(newConversationInput(CONFIG));
+      await engine.deliver(conv.id, userInput("go"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(toolResults(await store.listOwnedItems(conv.id)).map((item) => item.status)).toEqual([
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+      ]);
+      await engine.deliver(conv.id, userInput("follow-up"), "queue");
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(userTexts(await store.listOwnedItems(conv.id))).toEqual(["go"]);
+      expect(turnStatuses(events)).toEqual(["running"]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(turnStatuses(events)).toEqual(["running", "completed", "running", "completed"]);
+      expect(userTexts(await store.listOwnedItems(conv.id))).toEqual(["go", "follow-up"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resumes on an existing or arriving steer and releases a parked turn on interrupt", async () => {
+    const notify: Tool = {
+      name: "notify",
+      essential: true,
+      description: "deliver a steer",
+      input: { kind: "function", schema: z.strictObject({}) },
+      execute: async (_, ctx) => {
+        ctx.deliver([{ type: "text", text: "already available" }]);
+        return okResult("sent");
+      },
+    };
+    vi.useFakeTimers();
+    try {
+      const { store, engine, events } = setup(
+        [
+          [
+            { type: "tool_call", callId: "first", name: "wait", args: {} },
+            ...toolStep("notify", "notify", {}),
+          ],
+          toolStep("second", "wait", {}),
+          toolStep("third", "wait", {}),
+        ],
+        { tools: () => [notify] },
+      );
+      const conv = await store.createConversation(newConversationInput(CONFIG));
+      await engine.deliver(conv.id, userInput("go"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(toolResults(await store.listOwnedItems(conv.id)).map((item) => item.callId)).toEqual([
+        "first",
+        "notify",
+        "second",
+      ]);
+      await engine.deliver(conv.id, userInput("arrived"), "steer");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(toolResults(await store.listOwnedItems(conv.id)).at(-1)?.callId).toBe("third");
+      await engine.deliver(conv.id, noContent, "interrupt");
+      await engine.whenIdle(conv.id);
+      expect(turnStatuses(events)).toEqual(["running", "aborted"]);
+      expect(userTexts(await store.listOwnedItems(conv.id))).toEqual([
+        "go",
+        "already available",
+        "arrived",
+      ]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("Engine — turn cycle", () => {
   it("rejects a second completion without executing calls or overwriting first accounting", async () => {
     let executions = 0;

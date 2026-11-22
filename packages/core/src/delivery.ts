@@ -32,14 +32,14 @@ export function applyDelivery(runtime: Runtime, delivery: Delivery): void {
     case "send":
     case "queue":
     case "steer":
-      runtime.inbox.push(delivery);
+      runtime.enqueue(delivery);
       return;
     case "interrupt":
       // Abort the in-flight turn (no-op if idle), then enqueue any content so the
       // next turn drains it with everything else buffered.
       runtime.controller?.abort();
       if (delivery.input.content.length > 0) {
-        runtime.inbox.push({ input: delivery.input, intent: "queue" });
+        runtime.enqueue({ input: delivery.input, intent: "queue" });
       }
       return;
     default:

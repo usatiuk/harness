@@ -55,6 +55,8 @@ export class Runtime {
     string,
     { request: InteractionRequest; resolve(response: unknown): void }
   >();
+  #wakeOnSteer: (() => void) | undefined;
+  pendingWaitMs: number | undefined;
   #idleWaiters: Array<() => void> = [];
 
   constructor(conversation: Conversation) {
@@ -73,6 +75,37 @@ export class Runtime {
    */
   setConversation(conversation: Conversation): void {
     this.#conversation = conversation;
+  }
+
+  /** Keep the turn's configuration snapshot while following a completed workspace switch. */
+  inCurrentWorkspace(snapshot: Conversation): Conversation {
+    if (snapshot.workspaceRoot === this.#conversation.workspaceRoot) return snapshot;
+    return {
+      ...snapshot,
+      workspaceRoot: this.#conversation.workspaceRoot,
+      originalWorkspaceRoot: this.#conversation.originalWorkspaceRoot!,
+    };
+  }
+
+  enqueue(delivery: Delivery): void {
+    this.inbox.push(delivery);
+    if (delivery.intent === "steer") this.#wakeOnSteer?.();
+  }
+
+  /** Leave all input in the inbox for its ordinary delivery boundary. */
+  async waitForSteer(timeoutMs: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted || this.inbox.some(({ intent }) => intent === "steer")) return;
+    await new Promise<void>((resolve) => {
+      const wake = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", wake);
+        this.#wakeOnSteer = undefined;
+        resolve();
+      };
+      const timer = setTimeout(wake, timeoutMs);
+      this.#wakeOnSteer = wake;
+      signal.addEventListener("abort", wake);
+    });
   }
 
   /** Removes and returns the `steer`-tagged entries, preserving inbox order. */

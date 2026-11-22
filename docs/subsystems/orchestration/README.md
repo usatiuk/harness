@@ -62,20 +62,17 @@ contributes:
 - Tool middleware that claims activities minted by backgroundable tools.
 - Contract resolution that injects a uniform `background` argument into eligible
   function schemas.
-- `activity_wait`, `activity_peek`, `activity_list`, and `activity_kill` tools.
+- `activity_peek`, `activity_list`, and `activity_kill` tools.
 - A service used by tools and the TUI activities overlay.
 
 A foreground activity waits for up to ten seconds. If still running it moves to
 the background, preserves output, and returns control to the model. An explicit
 `background: true` returns immediately. On exit, the manager delivers one plugin-
 sourced completion notice using `steer`; the current turn consumes it at the next
-after-tool-result boundary or a new turn starts when idle. Shared background-tool descriptions direct models
-blocked on required results to use `activity_wait` rather than sleep and avoid
-reporting completion prematurely. Persistent servers/watchers use `activity_peek`
-to check readiness; no polling or wakeup mechanism is added.
+after-tool-result boundary or a new turn starts when idle. The core direct `wait` tool pauses the conversation after a tool batch when required results are outstanding. Persistent servers and watchers use `activity_peek` to check readiness.
 
 Activity ids identify work independently of its originating tool call. Output can be inspected while
-running, regex-filtered by line, waited on with a bounded timeout, or killed as a
+running, regex-filtered by line, or killed as a
 complete process tree. Command activities render a 40-line tail by default; `max_lines` (up to 500
 lines / 64 KiB) widens one command's view without changing the default. The manager belongs to one loaded runtime and suppresses
 completion delivery, kills, and awaits live work when that root scope is
@@ -91,18 +88,7 @@ Resolution stays inside the caller's manager and ends on collection/deactivation
 family parent/sibling references cannot access another owner's activities or
 recreate a handle from durable history. No alias registry is persisted.
 
-Concurrent waits share a waiter count. A timeout or cancellation releases only
-that waiter's registration; a successful wait consumes the pending completion
-notice. The manager retains the notice callback while waiters are present, so an
-abandoned explicit wait cannot discard background completion. Cancelling a
-foreground call still kills its activity; cancelling an explicit background wait
-leaves the activity conversation-owned.
-
-Waits consume their outcome synchronously before releasing the manager's existing
-wait protection. This includes result formatting and timeout-to-background notice
-registration: neither may depend on a handle after it becomes collectible.
-Readable-label ambiguity is resolved while that handle is still owned; no extra
-retention policy or independent lifetime registry is needed.
+Foreground cancellation still kills the activity. The foreground consumer retains the handle while formatting a result or registering its background notice, including when completion races collection. Interrupting a conversation wait leaves background work under its existing owner.
 
 ## Subagents
 
@@ -154,8 +140,7 @@ Children also inherit the parent's tool mode unless explicitly overridden. Their
 own allowlist governs declarations, discovery, descriptions, and nested dispatch.
 Activity/subagent enrichment is identical through direct tools and evaluator
 discovery. A backgroundable call returns structured running/completed state and
-an activity id alongside presentation text; code must use `activity_wait` when
-it requires completed work rather than treating submission as completion.
+an activity id alongside presentation text. Evaluator code can return the running state to the model, which can request a direct batch wait for completion.
 
 Children receive a short task/profile/name/slug and direct-parent briefing from
 existing spawn metadata, followed by the assigned task; no parent transcript is
@@ -244,7 +229,7 @@ connection shutdown closes all roots owned by that connection.
 ## Verification
 
 Activities tests cover foreground/background transitions, completion delivery,
-wait/peek/list/kill, output, schema injection, and cancellation. Subagent tests
+peek/list/kill, output, schema injection, and cancellation. Subagent tests
 cover catalogs, inheritance, tool scopes, model overrides, recursion, foreground
 and background execution, parent metadata, completion, interruption, and cascade
 shutdown.

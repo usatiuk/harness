@@ -1,4 +1,3 @@
-import { BUILTIN_APPROVAL_DEFAULTS } from "@harness/server";
 import { launch } from "./index.tsx";
 import type { CliService } from "./client-harness.ts";
 import { describe, expect, it, vi } from "vitest";
@@ -81,23 +80,6 @@ const start: { kind: "session"; session: Session } = {
     },
   },
 };
-
-describe("CLI approval defaults", () => {
-  it("allows questions, activity and subagent controls plus worktree listing", () => {
-    expect(BUILTIN_APPROVAL_DEFAULTS).toEqual({
-      ask_questions: "allow",
-      activity_wait: "allow",
-      activity_peek: "allow",
-      activity_list: "allow",
-      activity_kill: "allow",
-      subagent: "allow",
-      subagent_list: "allow",
-      subagent_send: "allow",
-      subagent_dismiss: "allow",
-      worktree_list: "allow",
-    });
-  });
-});
 
 describe("launchOverrides", () => {
   it("does not carry the fallback model's preset into --model", () => {

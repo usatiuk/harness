@@ -1039,7 +1039,7 @@ CLI OAuth navigation and server ownership cases. The
 [Windows CI follow-up](plans/cross-cutting/2026-10-07-windows-ci-reliability.md)
 tracks causal corrections. Named resource cases assert the actual rejected
 boundary; the former array-fill "memory" workload hit computation instead.
-Activity/evaluator integration controls only spawn and verifies running/waiting
+Activity/evaluator integration controls only spawn and verifies background submission and a direct conversation wait
 before output/exit; actual shell capture and tree termination remain qualified
 separately. Ownership contention, graceful settings restart and crash restart
 retain real cold servers in independent cases. CLI input drains passive effects
@@ -1247,7 +1247,7 @@ delays, or a nearby condition that does not prove completion.
   multiline 32-KiB workspace reads qualify a representative valid workload.
   Compaction/rewind tests bound retained successful and failed child pairs; generic
   request history follows selected branches with explicit pre-compaction access.
-  Activity tests cover overlapping waiters and cancelled waiters retaining notices.
+  Engine tests cover coalesced waits, batch ordering, deferred queues, pending and arriving steers, timeout and interrupt cleanup. Service tests exercise evaluator exclusion and wakeup from background command completion. Activity tests cover foreground collection and one-shot background notices.
   Native callback globals are absent from the guest. Service checks preserve
   caught denial evidence and bounded spilled structured previews. Windows native
   code-only qualification uses bundled Node/server/worker/WASM from a temporary
@@ -2011,7 +2011,7 @@ by the boundary actually exercised:
   preserves running/history access, and excludes notifications from unattached
   clients/other roots. Browser coverage clears a selected dismissed side branch.
   Prompt assertions do not establish live-model delegation compliance.
-  Activity regressions exercise both actual wait-tool and foreground paths at
+  Activity regressions exercise the foreground path at
   completion and timeout, arranging collection between waiter release and caller
   continuation with real promises. Synchronous outcome consumption stays inside
   existing wait protection; callback-failure cleanup and label ambiguity changes

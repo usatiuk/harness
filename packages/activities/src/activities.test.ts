@@ -10,7 +10,6 @@ import type {
 } from "@harness/protocol";
 import {
   ActivityManager,
-  ActivityWaitTool,
   ActivityPeekTool,
   ActivityKillTool,
   ActivityListTool,
@@ -69,123 +68,51 @@ describe("ActivityManager — surface a completion exactly once", () => {
     mgr.track(target.activity, { callId: "target-call", emit: () => {} });
     target.settle({ status: "ok", summary: "completed", view: [] });
     await expect(
-      mgr.wait(target.activity.id, 1000, () => {
-        expect(mgr.get(target.activity.id)).toBe(target.activity);
-        throw new Error("consumer defect");
-      }),
+      mgr.consumeForeground(
+        target.activity.id,
+        1000,
+        () => {
+          expect(mgr.get(target.activity.id)).toBe(target.activity);
+          throw new Error("consumer defect");
+        },
+        new AbortController().signal,
+      ),
     ).rejects.toThrow("consumer defect");
     for (let i = 0; i < 50; i++)
       mgr.track(fakeActivity(`live-${i}`).activity, { callId: `live-${i}`, emit: () => {} });
     expect(mgr.get(target.activity.id)).toBeUndefined();
   });
 
-  it("retains settled entries until pending notices and cancelled waiters release ownership", async () => {
-    for (const wait of [false, true]) {
-      const mgr = new ActivityManager("c" as ConversationId);
-      const controller = new AbortController();
-      const { activity, settle } = fakeActivity("watched");
-      const notices: ContentBlock[][] = [];
-      mgr.track(activity, {
-        callId: "watched-call",
-        emit: (event) => {
-          if (event.type === "activity.exited") {
-            if (wait) controller.abort();
-            mgr.track(fakeActivity("replacement").activity, {
-              callId: "replacement-call",
-              emit: () => {},
-            });
-          }
-        },
-      });
-      for (let i = 0; i < 49; i++)
-        mgr.track(fakeActivity(`live-${i}`).activity, { callId: `call-${i}`, emit: () => {} });
-      mgr.notifyOnExit(activity.id, (content) => notices.push(content));
-      const cancelled = wait
-        ? expect(
-            mgr.wait(activity.id, 1000, (outcome) => outcome, controller.signal),
-          ).rejects.toThrow(/abort/i)
-        : undefined;
-      settle({ status: "ok", summary: "completed", view: [] });
-      if (cancelled) await cancelled;
-      await activity.done;
-      expect(notices).toHaveLength(1);
-      expect(mgr.get(activity.id)).toBe(activity);
-      mgr.track(fakeActivity("after-release").activity, {
-        callId: "after-release-call",
-        emit: () => {},
-      });
-      expect(mgr.get(activity.id)).toBeUndefined();
-    }
-  });
-
-  it("keeps notice suppression while another concurrent waiter remains", async () => {
-    vi.useFakeTimers();
-    try {
-      const mgr = new ActivityManager("c" as ConversationId);
-      const { activity, settle } = fakeActivity("overlap");
-      const notices: ContentBlock[][] = [];
-      mgr.track(activity, { callId: "overlap-call", emit: () => {} });
-      mgr.notifyOnExit(activity.id, (content) => notices.push(content));
-      const short = mgr.wait(activity.id, 10, (outcome) => outcome);
-      const long = mgr.wait(activity.id, 1000, (outcome) => outcome);
-      await vi.advanceTimersByTimeAsync(10);
-      expect(await short).toBe("running");
-      settle({ status: "ok", summary: "completed", view: [] });
-      expect(await long).toMatchObject({ status: "ok" });
-      expect(notices).toHaveLength(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("releases cancelled explicit waits without discarding background completion", async () => {
-    for (const timing of ["before-exit", "at-exit"] as const) {
-      const mgr = new ActivityManager("c" as ConversationId);
-      const controller = new AbortController();
-      const { activity, settle } = fakeActivity(timing);
-      const notices: ContentBlock[][] = [];
-      mgr.track(activity, {
-        callId: timing,
-        emit: (event) => {
-          if (timing === "at-exit" && event.type === "activity.exited") controller.abort();
-        },
-      });
-      mgr.notifyOnExit(activity.id, (content) => notices.push(content));
-      const waiting = new ActivityWaitTool().execute(
-        { id: activity.id },
-        fakeCtx({
-          signal: controller.signal,
-          service: (key) => (key === "activities" ? mgr : undefined),
-        }),
-      );
-      const rejected = expect(waiting).rejects.toThrow(/abort/i);
-      if (timing === "before-exit") {
-        controller.abort();
-        await rejected;
-      }
-      settle({ status: "ok", summary: "completed", view: [] });
-      await rejected;
-      await activity.done;
-      expect(notices).toHaveLength(1);
-      mgr.notifyOnExit(activity.id, (content) => notices.push(content));
-      expect(notices).toHaveLength(1);
-    }
-  });
-
-  it("suppresses the proactive notice when a wait is in flight", async () => {
+  it("retains settled entries until pending notices are delivered", async () => {
     const mgr = new ActivityManager("c" as ConversationId);
-    const { activity, settle } = fakeActivity("a1");
-    mgr.track(activity, { callId: "k1", emit: () => {} });
+    const { activity, settle } = fakeActivity("watched");
     const notices: ContentBlock[][] = [];
-    mgr.notifyOnExit("a1", (c) => notices.push(c));
-    const waiting = mgr.wait("a1", 1000, (outcome) => outcome); // registers #waiting synchronously
-    settle({ status: "ok", summary: "done", view: [] });
-    expect(await waiting).not.toBe("running");
-    await tick();
-    expect(notices).toHaveLength(0); // the wait owned the surfacing
+    mgr.track(activity, {
+      callId: "watched-call",
+      emit: (event) => {
+        if (event.type === "activity.exited") {
+          mgr.track(fakeActivity("replacement").activity, {
+            callId: "replacement-call",
+            emit: () => {},
+          });
+        }
+      },
+    });
+    for (let i = 0; i < 49; i++)
+      mgr.track(fakeActivity(`live-${i}`).activity, { callId: `call-${i}`, emit: () => {} });
+    mgr.notifyOnExit(activity.id, (content) => notices.push(content));
+    settle({ status: "ok", summary: "completed", view: [] });
+    await activity.done;
+    expect(notices).toHaveLength(1);
+    expect(mgr.get(activity.id)).toBe(activity);
+    mgr.track(fakeActivity("after-release").activity, {
+      callId: "after-release-call",
+      emit: () => {},
+    });
+    expect(mgr.get(activity.id)).toBeUndefined();
   });
 
-  it("delivers exactly one proactive notice when never waited", async () => {
+  it("delivers exactly one proactive notice for background completion", async () => {
     const mgr = new ActivityManager("c" as ConversationId);
     const { activity, settle } = fakeActivity("a2");
     mgr.track(activity, { callId: "k2", emit: () => {} });
@@ -417,132 +344,109 @@ describe("backgroundContractResolver", () => {
 });
 
 describe("owner-local readable activity references", () => {
-  it.each(["wait", "foreground"] as const)(
-    "formats a %s timeout safely when completion and collection follow the deadline",
-    async (path) => {
-      vi.useFakeTimers();
-      try {
-        const mgr = new ActivityManager("c" as ConversationId);
-        const notices: ContentBlock[][] = [];
-        const ctx = fakeCtx({ service: () => mgr, deliver: (content) => notices.push(content) });
-        const target = fakeActivity("target-id");
-        mgr.track(target.activity, { callId: "target-call", emit: () => {} });
-        for (let i = 0; i < 49; i++) {
-          const history = fakeActivity(`history-${i}`);
-          mgr.track(history.activity, { callId: history.activity.id, emit: () => {} });
-          history.settle({ status: "ok", summary: "old result", view: [] });
-        }
-        await Promise.resolve();
-        const result =
-          path === "wait"
-            ? new ActivityWaitTool().execute({ id: "target-id", timeout_seconds: 1 }, ctx)
-            : consume(mgr, target.activity, false, ctx);
-        vi.advanceTimersByTime(path === "wait" ? 1000 : 10_000);
-        const collect = Promise.resolve()
-          .then(() =>
-            target.settle({
-              status: "ok",
-              summary: "actual success",
-              view: [{ type: "text", text: "actual output" }],
-            }),
-          )
-          .then(() =>
-            mgr.track(fakeActivity("replacement").activity, {
-              callId: "replacement-call",
-              emit: () => {},
-            }),
-          );
-        const [timedOut] = await Promise.all([result, collect]);
-        expect(timedOut.status).toBe("ok");
-        expect(text(timedOut.forModel)).toContain("still running");
-        expect(mgr.get(target.activity.id)).toBeUndefined();
-        expect(notices).toEqual(
-          path === "foreground"
-            ? [
-                [
-                  { type: "text", text: "[activity target-id] actual success" },
-                  { type: "text", text: "actual output" },
-                ],
-              ]
-            : [],
-        );
-      } finally {
-        vi.useRealTimers();
-      }
-    },
-  );
-
-  it.each(["wait", "foreground"] as const)(
-    "preserves a completed %s result when its handle is collected before delivery",
-    async (path) => {
+  it("formats a foreground timeout safely when completion and collection follow the deadline", async () => {
+    vi.useFakeTimers();
+    try {
       const mgr = new ActivityManager("c" as ConversationId);
-      const ctx = fakeCtx({ service: () => mgr });
+      const notices: ContentBlock[][] = [];
+      const ctx = fakeCtx({ service: () => mgr, deliver: (content) => notices.push(content) });
       const target = fakeActivity("target-id");
-      const activity = { ...target.activity, title: "Review changes", reference: "review" };
-      mgr.track(activity, { callId: "target-call", emit: () => {} });
-      const histories = Array.from({ length: 49 }, (_, i) => fakeActivity(`history-${i}`));
-      for (const history of histories) {
+      mgr.track(target.activity, { callId: "target-call", emit: () => {} });
+      for (let i = 0; i < 49; i++) {
+        const history = fakeActivity(`history-${i}`);
         mgr.track(history.activity, { callId: history.activity.id, emit: () => {} });
         history.settle({ status: "ok", summary: "old result", view: [] });
       }
-      await Promise.all(histories.map(({ activity }) => activity.done));
-      const result =
-        path === "wait"
-          ? new ActivityWaitTool().execute({ id: "review" }, ctx)
-          : consume(mgr, activity, false, ctx);
-      target.settle({
-        status: "ok",
-        summary: "completed successfully",
-        view: [{ type: "text", text: "actual output" }],
+      await Promise.resolve();
+      const result = consume(mgr, target.activity, false, ctx);
+      vi.advanceTimersByTime(10_000);
+      const collect = Promise.resolve()
+        .then(() =>
+          target.settle({
+            status: "ok",
+            summary: "actual success",
+            view: [{ type: "text", text: "actual output" }],
+          }),
+        )
+        .then(() =>
+          mgr.track(fakeActivity("replacement").activity, {
+            callId: "replacement-call",
+            emit: () => {},
+          }),
+        );
+      const [timedOut] = await Promise.all([result, collect]);
+      expect(timedOut.status).toBe("ok");
+      expect(text(timedOut.forModel)).toContain("still running");
+      expect(mgr.get(target.activity.id)).toBeUndefined();
+      expect(notices).toEqual([
+        [
+          { type: "text", text: "[activity target-id] actual success" },
+          { type: "text", text: "actual output" },
+        ],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves a completed foreground result when its handle is collected before delivery", async () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    const ctx = fakeCtx({ service: () => mgr });
+    const target = fakeActivity("target-id");
+    const activity = { ...target.activity, title: "Review changes", reference: "review" };
+    mgr.track(activity, { callId: "target-call", emit: () => {} });
+    const histories = Array.from({ length: 49 }, (_, i) => fakeActivity(`history-${i}`));
+    for (const history of histories) {
+      mgr.track(history.activity, { callId: history.activity.id, emit: () => {} });
+      history.settle({ status: "ok", summary: "old result", view: [] });
+    }
+    await Promise.all(histories.map(({ activity }) => activity.done));
+    const result = consume(mgr, activity, false, ctx);
+    target.settle({
+      status: "ok",
+      summary: "completed successfully",
+      view: [{ type: "text", text: "actual output" }],
+    });
+    const collect = async (): Promise<void> => {
+      // Run after wait releases protection, but before the tool's result reaches its caller.
+      await Promise.resolve();
+      await Promise.resolve();
+      mgr.track(fakeActivity("replacement").activity, {
+        callId: "replacement-call",
+        emit: () => {},
       });
-      const collect = async (): Promise<void> => {
-        // Run after wait releases protection, but before the tool's result reaches its caller.
-        await Promise.resolve();
-        await Promise.resolve();
-        mgr.track(fakeActivity("replacement").activity, {
-          callId: "replacement-call",
-          emit: () => {},
-        });
-        expect(mgr.get(activity.id)).toBeUndefined();
-      };
-      const [completed] = await Promise.all([result, collect()]);
-      expect(completed.status).toBe("ok");
-      expect(text(completed.forModel)).toBe(
-        "[activity review] Review changes completed successfully\nactual output",
-      );
-      if (path === "foreground")
-        expect(completed.structured).toEqual({
-          activityId: "target-id",
-          activityRef: "review",
-          state: "completed",
-          status: "ok",
-          content: completed.forModel,
-        });
-    },
-  );
+      expect(mgr.get(activity.id)).toBeUndefined();
+    };
+    const [completed] = await Promise.all([result, collect()]);
+    expect(completed.status).toBe("ok");
+    expect(text(completed.forModel)).toBe(
+      "[activity review] Review changes completed successfully\nactual output",
+    );
+    expect(completed.structured).toEqual({
+      activityId: "target-id",
+      activityRef: "review",
+      state: "completed",
+      status: "ok",
+      content: completed.forModel,
+    });
+  });
 
-  it.each(["wait", "foreground"] as const)(
-    "uses canonical identity when a %s activity's readable labels become ambiguous while waiting",
-    async (path) => {
-      const mgr = new ActivityManager("c" as ConversationId);
-      const ctx = fakeCtx({ service: () => mgr });
-      const target = fakeActivity("target-id");
-      const activity = { ...target.activity, title: "Review changes", reference: "review" };
-      mgr.track(activity, { callId: "target-call", emit: () => {} });
-      const result =
-        path === "wait"
-          ? new ActivityWaitTool().execute({ id: "review" }, ctx)
-          : consume(mgr, activity, false, ctx);
-      mgr.track(
-        { ...fakeActivity("other-id").activity, title: activity.title, reference: "review" },
-        { callId: "other-call", emit: () => {} },
-      );
-      target.settle({ status: "ok", summary: "completed", view: [] });
-      expect(text((await result).forModel)).toBe("[activity target-id] Review changes completed");
-    },
-  );
+  it("uses canonical identity when a foreground activity's readable labels become ambiguous while waiting", async () => {
+    const mgr = new ActivityManager("c" as ConversationId);
+    const ctx = fakeCtx({ service: () => mgr });
+    const target = fakeActivity("target-id");
+    const activity = { ...target.activity, title: "Review changes", reference: "review" };
+    mgr.track(activity, { callId: "target-call", emit: () => {} });
+    const result = consume(mgr, activity, false, ctx);
+    mgr.track(
+      { ...fakeActivity("other-id").activity, title: activity.title, reference: "review" },
+      { callId: "other-call", emit: () => {} },
+    );
+    target.settle({ status: "ok", summary: "completed", view: [] });
+    expect(text((await result).forModel)).toBe("[activity target-id] Review changes completed");
+  });
 
-  it("covers list/peek/wait/kill, labels foreground/background results and notices, and rejects cross-owner references", async () => {
+  it("covers list/peek/kill, labels foreground/background results and notices, and rejects cross-owner references", async () => {
     const mgr = new ActivityManager("c" as ConversationId);
     const ctx = fakeCtx({ service: () => mgr });
     const { activity: base, settle } = fakeActivity("canonical-id");
@@ -581,9 +485,6 @@ describe("owner-local readable activity references", () => {
     settle({ status: "ok", summary: "finished", view: [] });
     await activity.done;
     expect(text(notices[0]!)).toContain("[activity review] Review changes finished");
-    expect(text((await new ActivityWaitTool().execute({ id: "review" }, ctx)).forModel)).toContain(
-      "[activity review] Review changes",
-    );
     expect((await new ActivityKillTool().execute({ id: "review" }, ctx)).status).toBe("error");
     const completed = await consume(mgr, activity, false, ctx);
     expect(completed.structured).toMatchObject({
@@ -608,7 +509,7 @@ describe("owner-local readable activity references", () => {
     );
     expect(mgr.resolve("review")).toHaveProperty("error");
     expect(mgr.reference("a")).toBe("a");
-    for (const tool of [new ActivityWaitTool(), new ActivityPeekTool(), new ActivityKillTool()])
+    for (const tool of [new ActivityPeekTool(), new ActivityKillTool()])
       expect(text((await tool.execute({ id: "Same" }, ctx)).forModel)).toContain(
         "ambiguous activity",
       );

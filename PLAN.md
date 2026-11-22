@@ -734,8 +734,7 @@ immediately available search/describe tools, existing deferred code exposure, an
 deduplication that resets with compaction.
 The completed architecture cleanup lets JavaScript control child concurrency,
 preserves wrapper contracts, hides guest internals, and moves reviewer selection
-into auto-approval. Concurrent activity waits retain completion notices until
-delivery or consumption, and collection respects those owners. The final cleanup
+into auto-approval. The [conversation wait](docs/plans/cross-cutting/2026-11-22-interruptible-wait.md) now coalesces direct wait requests after each tool batch and resumes on steering or timeout. Activities retain foreground ownership and one-shot background completion. The final cleanup
 passed refreshed full checks, three independent reviews, and all 12 native Windows
 scenarios against the fresh release.
 

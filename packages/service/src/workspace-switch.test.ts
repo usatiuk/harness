@@ -53,6 +53,7 @@ it.each(["hybrid", "code-only"] as const)(
             code: 'return await Promise.all([tools.call("switch_workspace", {}), tools.call("read_old", {})]);',
           })
         : interleavedStep([
+            { callId: "wait", name: "wait", args: {} },
             { callId: "switch", name: "switch_workspace", args: {} },
             { callId: "old", name: "read_file", args: { path: "file" } },
           ]),
@@ -64,6 +65,7 @@ it.each(["hybrid", "code-only"] as const)(
       textStep("done"),
     ]);
     const requests: ModelRequest[] = [];
+    const inputRoots: (string | null)[] = [];
     const stream = provider.stream.bind(provider);
     const worktrees: WorktreeOperations = {
       repository: async (path) => path,
@@ -92,6 +94,15 @@ it.each(["hybrid", "code-only"] as const)(
       plugins: [
         {
           id: "fake",
+          services: () => [
+            {
+              key: "input-roots",
+              for: () => null,
+              onInput: async (_, { conversation }) => {
+                inputRoots.push(conversation.workspaceRoot);
+              },
+            },
+          ],
           providers: () => [
             {
               ...provider,
@@ -143,6 +154,14 @@ it.each(["hybrid", "code-only"] as const)(
       defaults: { model: { provider: "fake", model: "fake-1" }, tools: { mode } },
     });
     service.subscribe((event) => {
+      if (
+        mode === "hybrid" &&
+        isKernelEvent(event) &&
+        event.type === "item.appended" &&
+        event.item.type === "context" &&
+        event.item.key === "workspace-switch"
+      )
+        void service.deliver(event.conversationId, "continue in the new workspace", "steer");
       if (isKernelEvent(event) && event.type === "request.created")
         service.respond(event.conversationId, event.requestId, { decision: "allow" });
     });
@@ -155,6 +174,7 @@ it.each(["hybrid", "code-only"] as const)(
     ).toEqual(
       mode === "hybrid"
         ? [
+            expect.any(String),
             "scheduled",
             expect.stringContaining("first file"),
             expect.stringContaining("second file"),
@@ -165,6 +185,7 @@ it.each(["hybrid", "code-only"] as const)(
             expect.stringContaining("second file"),
           ]),
     );
+    if (mode === "hybrid") expect(inputRoots).toEqual([first, second]);
     expect(textOf(requests[0]!.instructions)).toContain("FIRST GUIDANCE");
     expect(textOf(requests[1]!.instructions)).toContain("SECOND GUIDANCE");
     expect(textOf(requests[1]!.instructions)).not.toContain("FIRST GUIDANCE");
