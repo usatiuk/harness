@@ -15,16 +15,17 @@ import {
   formatError,
   findModel,
   textOf,
+  modelHistoryItem,
   type QuestionInput,
   type QuestionRequest,
   type QuestionResponse,
   type NewItem,
   type ConfigResolver,
+  type ContextBoundary,
   type CodeEvaluator,
   type Conversation,
   type ConversationConfig,
   type ConversationId,
-  type ContentBlock,
   type DeliveryInput,
   type DeliveryIntent,
   type PendingInput,
@@ -87,11 +88,6 @@ function assertImageInput(provider: ModelProvider, model: ModelConfig, hasImages
     throw new ContentInputError(
       `Model ${model.provider}/${model.model} does not support image input; select an image-capable model to use this context`,
     );
-}
-
-interface PendingContext {
-  key: string;
-  content: ContentBlock[];
 }
 
 interface DispatchOutcome {
@@ -436,8 +432,6 @@ export class Engine {
         const build = await this.#assembleContext(
           conversation,
           modelSchemas(toolSet, conversation.config.tools?.mode ?? "hybrid"),
-          runtime,
-          toolSet,
         );
         const folded = await this.#compact(
           "manual",
@@ -859,6 +853,7 @@ export class Engine {
       controller,
       done: Promise.resolve(),
     };
+    const previousRoot = runtime.conversation.workspaceRoot;
     operation.done = Promise.resolve()
       .then(async () => {
         combined.throwIfAborted();
@@ -872,6 +867,14 @@ export class Engine {
       })
       .finally(() => {
         runtime.workspaceSwitch = undefined;
+        const current = runtime.conversation;
+        if (current.workspaceRoot !== previousRoot)
+          this.#emitKernel({
+            type: "workspace.changed",
+            conversationId: current.id,
+            workspaceRoot: current.workspaceRoot!,
+            originalWorkspaceRoot: current.originalWorkspaceRoot!,
+          });
       });
     runtime.workspaceSwitch = operation;
     return operation.done;
@@ -923,12 +926,6 @@ export class Engine {
       }
       runtime.setConversation({ ...record, config: runtime.conversation.config });
       committed = true;
-      this.#emitKernel({
-        type: "workspace.changed",
-        conversationId: previous.id,
-        workspaceRoot,
-        originalWorkspaceRoot: next.originalWorkspaceRoot,
-      });
       const disposed = await Promise.allSettled(
         [...oldServices].map(([key, service]) =>
           Promise.resolve().then(() => this.host.services.get(key)?.dispose?.(service)),
@@ -1118,6 +1115,32 @@ export class Engine {
     });
 
     try {
+      let toolSet: ToolSet;
+      try {
+        const active = compactedWindow(await this.store.listActiveItems(conversation.id));
+        if (!active.length)
+          await this.#appendBatch([
+            this.#baseMessage(conversation, turn.id, conversation.config.instructions),
+          ]);
+        toolSet = await this.#resolveTools(conversation, runtime);
+        const context = await this.#windowContext(
+          conversation,
+          turn.id,
+          runtime,
+          toolSet,
+          active,
+          !active.length,
+        );
+        controller.signal.throwIfAborted();
+        await this.#appendBatch(context);
+      } catch (error) {
+        for (const delivery of batch) {
+          const item = await this.#appendDelivery(conversation, turn.id, delivery);
+          if (item)
+            this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
+        }
+        throw error;
+      }
       for (const delivery of batch) {
         const message = await this.#appendDelivery(conversation, turn.id, delivery);
         if (!message) continue;
@@ -1132,7 +1155,7 @@ export class Engine {
         );
       }
 
-      await this.#runSteps(conversation, turn.id, controller.signal, runtime);
+      await this.#runSteps(conversation, turn.id, controller.signal, runtime, toolSet);
       if (controller.signal.aborted) throw new TurnAborted();
       await this.store.updateTurn(turn.id, "completed");
       await this.#publishUsage(conversation.id);
@@ -1224,12 +1247,9 @@ export class Engine {
     turnId: TurnId,
     signal: AbortSignal,
     runtime: Runtime,
+    toolSet: ToolSet,
   ): Promise<void> {
-    // Model config is fixed for the whole turn, so its tool set and schemas are resolved once
-    // here rather than per step.
     const provider = this.host.providers.get(conversation.config.model.provider);
-    provider.validateConfig(conversation.config.model);
-    let toolSet = await this.#resolveTools(conversation, runtime);
     let toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "hybrid");
     const pricing = this.#pricingFor(conversation.config.model);
     let recoveredOverflow = false;
@@ -1241,9 +1261,20 @@ export class Engine {
       if (current !== conversation) {
         conversation = current;
         toolSet = await this.#resolveTools(conversation, runtime);
+        const active = compactedWindow(await this.store.listActiveItems(conversation.id));
+        const context = await this.#windowContext(
+          conversation,
+          turnId,
+          runtime,
+          toolSet,
+          active,
+          false,
+        );
+        signal.throwIfAborted();
+        await this.#appendBatch(context);
         toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "hybrid");
       }
-      const draft = await this.#assembleContext(conversation, toolSchemas, runtime, toolSet);
+      const draft = await this.#assembleContext(conversation, toolSchemas);
       if (provider.providerOptions !== undefined) draft.providerOptions = provider.providerOptions;
       const capacity = await this.#contextCapacity(conversation, draft);
       if (capacity.shouldCompact && !compactedBeforeAttempt) {
@@ -1264,7 +1295,6 @@ export class Engine {
       }
       const build = await this.store.recordContextBuild(draft);
       const request: ModelRequest = {
-        instructions: build.instructions,
         items: build.items,
         tools: build.tools,
         modelConfig: conversation.config.model,
@@ -1535,7 +1565,7 @@ export class Engine {
     runtime: Runtime,
     terminalError?: string,
   ): Promise<void> {
-    const batchContexts: PendingContext[] = [];
+    const executedCalls: ToolCall[] = [];
     let waitMs: number | undefined;
     try {
       for (const call of calls) {
@@ -1546,7 +1576,7 @@ export class Engine {
           turnId,
           signal,
           runtime,
-          batchContexts,
+          executedCalls,
           terminalError,
         );
       }
@@ -1554,36 +1584,37 @@ export class Engine {
     } finally {
       runtime.pendingWaitMs = undefined;
     }
-    for (const pending of batchContexts) {
-      const item = await this.store.appendItem({
-        conversationId: conversation.id,
-        turnId,
-        type: "context",
-        key: pending.key,
-        content: pending.content,
-      });
-      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
-    }
+    if (executedCalls.length)
+      await this.#appendBatch(
+        await this.#contextItems(
+          runtime,
+          turnId,
+          async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
+          { type: "tools", calls: executedCalls },
+        ),
+      );
     if (terminalError || signal.aborted) return;
     if (runtime.pendingWorkspace) {
       const target = runtime.pendingWorkspace;
       runtime.pendingWorkspace = undefined;
-      let text: string;
-      const oldRoot = conversation.workspaceRoot;
       try {
         await this.#replaceWorkspace(runtime, target);
-        text = `Working directory switched from ${oldRoot} to ${target}. No files moved. Earlier relative output paths belong to ${oldRoot}; do not resolve them against the new checkout.`;
       } catch (error) {
-        text = `Workspace switch failed: ${error instanceof Error ? error.message : String(error)}`;
+        await this.#appendBatch([
+          {
+            conversationId: conversation.id,
+            turnId,
+            type: "context",
+            key: "workspace-switch",
+            content: [
+              {
+                type: "text",
+                text: `Workspace switch failed: ${error instanceof Error ? error.message : String(error)}`,
+              },
+            ],
+          },
+        ]);
       }
-      const item = await this.store.appendItem({
-        conversationId: conversation.id,
-        turnId,
-        type: "context",
-        key: "workspace-switch",
-        content: [{ type: "text", text }],
-      });
-      this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
     }
     if (waitMs !== undefined) await runtime.waitForSteer(waitMs, signal);
   }
@@ -1600,7 +1631,7 @@ export class Engine {
     turnId: TurnId,
     signal: AbortSignal,
     runtime: Runtime,
-    batchContexts: PendingContext[],
+    executedCalls: ToolCall[],
     terminalError?: string,
   ): Promise<ToolResult> {
     if (call.parentCallId) {
@@ -1612,7 +1643,7 @@ export class Engine {
       });
       this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
     }
-    const callContexts: PendingContext[] = [];
+    const completedCalls: ToolCall[] = [];
     const mode = conversation.config.tools?.mode ?? "hybrid";
     const available = call.parentCallId
       ? toolSet.exposes(call.name, "code")
@@ -1637,7 +1668,7 @@ export class Engine {
               turnId,
               signal,
               runtime,
-              callContexts,
+              completedCalls,
             );
     const { result } = outcome;
     const structured =
@@ -1663,11 +1694,7 @@ export class Engine {
       ...(result.full ? { full: result.full } : {}),
     });
     this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
-    if (outcome.completed) {
-      for (const pending of callContexts) {
-        if (!batchContexts.some(({ key }) => key === pending.key)) batchContexts.push(pending);
-      }
-    }
+    if (outcome.completed) executedCalls.push(...completedCalls);
     return result;
   }
 
@@ -1701,7 +1728,7 @@ export class Engine {
     turnId: TurnId,
     signal: AbortSignal,
     runtime: Runtime,
-    pendingContexts: PendingContext[],
+    invokedCalls: ToolCall[],
   ): Promise<DispatchOutcome> {
     const controller = new AbortController();
     const callSignal = AbortSignal.any([signal, controller.signal]);
@@ -1731,7 +1758,7 @@ export class Engine {
       callSignal,
       runtime,
       annotations,
-      pendingContexts,
+      invokedCalls,
       children,
       modelInvocations,
     ).then((result) => ({ result: finalize(result), completed: true }));
@@ -1765,7 +1792,7 @@ export class Engine {
     signal: AbortSignal,
     runtime: Runtime,
     resultAnnotations: Record<string, unknown>,
-    pendingContexts: PendingContext[],
+    invokedCalls: ToolCall[],
     children: Promise<ToolResult>[],
     modelInvocations: Promise<ModelInvocationResult>[],
   ): Promise<ToolResult> {
@@ -1773,16 +1800,6 @@ export class Engine {
       const text = customToolText(toolSet.get(call.name), call.args);
       if (text !== undefined && typeof call.args !== "string") call = { ...call, args: text };
     }
-    type ParsedCall = ReturnType<typeof parseToolArgs> | undefined;
-    const parsedCalls = new Map<ToolCall, ParsedCall>();
-    const parseCall = (candidate: ToolCall): ParsedCall => {
-      if (parsedCalls.has(candidate)) return parsedCalls.get(candidate);
-      const parsed = toolSet.has(candidate.name)
-        ? parseToolArgs(toolSet.get(candidate.name), candidate.args)
-        : undefined;
-      parsedCalls.set(candidate, parsed);
-      return parsed;
-    };
     const ctx: ToolMiddlewareContext = {
       conversationId: conversation.id,
       callId: call.callId,
@@ -1813,7 +1830,7 @@ export class Engine {
                   turnId,
                   signal,
                   runtime,
-                  pendingContexts,
+                  invokedCalls,
                 );
                 children.push(child);
                 return child;
@@ -1821,7 +1838,6 @@ export class Engine {
             },
           }
         : {}),
-      acceptsToolCall: (candidate) => parseCall(candidate)?.ok === true,
       setResultAnnotation: (key, value) => {
         resultAnnotations[key] = value;
       },
@@ -1855,19 +1871,14 @@ export class Engine {
       putBlob: (bytes) => this.store.putBlob(bytes),
       request: (request, options) =>
         this.#request(request, conversation, turnId, signal, runtime, modelInvocations, options),
-      active: async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
-      appendContext: async (key, content) => {
-        if (signal.aborted) throw new Error("interrupted: turn aborted");
-        if (pendingContexts.some((pending) => pending.key === key)) return;
-        pendingContexts.push({ key, content });
-      },
     };
     const execute: ToolHandler = (c) => {
       signal.throwIfAborted();
-      const parsed = parseCall(c);
-      if (!parsed) return Promise.resolve(errorResult(`unknown tool: ${c.name}`));
+      if (!toolSet.has(c.name)) return Promise.resolve(errorResult("unknown tool: " + c.name));
       const tool = toolSet.get(c.name);
+      const parsed = parseToolArgs(tool, c.args);
       if (!parsed.ok) return Promise.resolve(parsed.result);
+      invokedCalls.push(c);
       return tool.execute(parsed.data, ctx);
     };
     try {
@@ -1908,16 +1919,6 @@ export class Engine {
         const items = await this.store.listActiveItems(conversation.id);
         return options?.includeCompacted ? items : compactedWindow(items);
       },
-      instructions: async () => [
-        { type: "text", text: conversation.config.instructions },
-        ...(
-          await Promise.all(
-            this.host.contextSources.map((source) =>
-              source.instructions({ service: (key) => this.#service(runtime, key), toolNames: [] }),
-            ),
-          )
-        ).flat(),
-      ],
       readBlob: (
         ref: import("@harness/protocol").OutputRef,
         range: import("@harness/protocol").ByteRange,
@@ -2042,11 +2043,9 @@ export class Engine {
         assertImageInput(
           provider,
           nextRequest.modelConfig,
-          nextRequest.instructions.some((block) => block.type === "image") ||
-            nextRequest.items.some(
-              ({ item }) =>
-                "content" in item && item.content.some((block) => block.type === "image"),
-            ),
+          nextRequest.items.some(
+            ({ item }) => "content" in item && item.content.some((block) => block.type === "image"),
+          ),
         );
         let attemptId: string | undefined;
         let capture: ((body: JsonValue) => Promise<void>) | undefined;
@@ -2116,35 +2115,30 @@ export class Engine {
       provider.validateConfig(modelConfig);
       const signal = options.signal ? AbortSignal.any([turnSignal, options.signal]) : turnSignal;
       const request: ModelRequest = {
-        instructions: draft.instructions,
-        items: draft.items.filter(({ item }) => item.type !== "provider_output"),
+        items: draft.items,
         modelConfig,
         ...(draft.tools ? { tools: draft.tools } : {}),
-        ...(draft.prompt ? { prompt: draft.prompt } : {}),
+
         ...(draft.toolChoice ? { toolChoice: draft.toolChoice } : {}),
         ...(draft.maxOutputTokens !== undefined ? { maxOutputTokens: draft.maxOutputTokens } : {}),
         ...(provider.providerOptions !== undefined
           ? { providerOptions: provider.providerOptions }
           : {}),
       };
-      const build =
-        options.persistContext === false
-          ? undefined
-          : await this.store.recordContextBuild({
-              conversationId: conversation.id,
-              purpose: options.purpose ?? "plugin",
-              instructions: request.instructions,
-              tools: request.tools ?? [],
-              items: request.items,
-              ...(request.prompt ? { prompt: request.prompt } : {}),
-              ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
-              ...(request.maxOutputTokens !== undefined
-                ? { maxOutputTokens: request.maxOutputTokens }
-                : {}),
-              ...(request.providerOptions !== undefined
-                ? { providerOptions: request.providerOptions }
-                : {}),
-            });
+      const build = await this.store.recordContextBuild({
+        conversationId: conversation.id,
+        purpose: options.purpose ?? "plugin",
+        tools: request.tools ?? [],
+        items: request.items,
+
+        ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
+        ...(request.maxOutputTokens !== undefined
+          ? { maxOutputTokens: request.maxOutputTokens }
+          : {}),
+        ...(request.providerOptions !== undefined
+          ? { providerOptions: request.providerOptions }
+          : {}),
+      });
       if (signal.aborted) throw new ModelInvocationFailure("model invocation aborted");
       const outputItems: ModelOutputItem[] = [];
       const preview = new ModelPreview();
@@ -2159,7 +2153,7 @@ export class Engine {
         await this.store.recordModelUsage({
           conversationId: conversation.id,
           turnId,
-          contextBuildId: build?.id ?? null,
+          contextBuildId: build.id,
           provider: modelConfig.provider,
           model: modelConfig.model,
           purpose: options.purpose ?? "plugin",
@@ -2297,7 +2291,6 @@ export class Engine {
         (entry, index) => entry.item.id === build.items[index]?.item.id,
       );
       const sameStableInput =
-        JSON.stringify(prior.instructions) === JSON.stringify(build.instructions) &&
         JSON.stringify(prior.tools) === JSON.stringify(build.tools) &&
         JSON.stringify(prior.providerOptions) === JSON.stringify(build.providerOptions);
       if (!samePrefix || !sameStableInput) continue;
@@ -2306,7 +2299,6 @@ export class Engine {
         estimateContextTokens({
           conversationId: build.conversationId,
           purpose: "estimate",
-          instructions: [],
           tools: [],
           items: build.items.slice(prior.items.length),
         });
@@ -2368,13 +2360,32 @@ export class Engine {
 
     if (signal.aborted) throw new TurnAborted();
 
-    const fold = await this.store.appendItem({
-      conversationId: conversation.id,
-      turnId,
-      type: "compaction",
-      content: result.content,
-    });
-    this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item: fold });
+    const config = await this.resolveConfig(conversation);
+    const opening = [
+      this.#baseMessage(conversation, turnId, config.instructions),
+      ...(await this.#windowContext(conversation, turnId, runtime, toolSet, [], true)),
+    ];
+    const carry: NewItem[] = [];
+    const ctx = {
+      active: async () => compactedWindow(await this.store.listActiveItems(conversation.id)),
+      service: (key: string) => this.#service(runtime, key),
+    };
+    for (const plugin of this.host.plugins) {
+      for (const data of (await plugin.onCompact?.(ctx)) ?? [])
+        carry.push({
+          conversationId: conversation.id,
+          turnId,
+          type: "plugin_data",
+          plugin: plugin.id,
+          data,
+        });
+    }
+    if (signal.aborted) throw new TurnAborted();
+    await this.#appendBatch([
+      ...opening,
+      { conversationId: conversation.id, turnId, type: "compaction", content: result.content },
+      ...carry,
+    ]);
 
     // Reasoning generated only to produce a summary is not task continuation. Keep
     // structured output only when the compactor actually asked to continue with a tool.
@@ -2396,6 +2407,7 @@ export class Engine {
 
   async #resolveTools(conversation: Conversation, runtime: Runtime): Promise<ToolSet> {
     const provider = this.host.providers.get(conversation.config.model.provider);
+    provider.validateConfig(conversation.config.model);
     const caps = provider.capabilities(conversation.config.model.model);
     const tools = this.host.toolsFor(
       caps,
@@ -2443,70 +2455,136 @@ export class Engine {
     return findModel(this.host.providers.listModels(), model)?.pricing;
   }
 
+  async #appendBatch(inputs: NewItem[]): Promise<void> {
+    for (const item of await this.store.appendItems(inputs))
+      this.#emitKernel({ type: "item.appended", conversationId: item.conversationId, item });
+  }
+
+  async #contextItems(
+    runtime: Runtime,
+    turnId: TurnId,
+    active: () => Promise<Item[]>,
+    boundary: ContextBoundary,
+  ): Promise<NewItem[]> {
+    const conversationId = runtime.conversation.id;
+    const ctx = { active, service: (key: string) => this.#service(runtime, key) };
+    const items: NewItem[] = [];
+    for (const plugin of this.host.plugins) {
+      for (const item of (await plugin.contextItems?.(ctx, boundary)) ?? []) {
+        items.push(
+          item.type === "plugin_data"
+            ? { ...item, conversationId, turnId, plugin: plugin.id }
+            : { ...item, conversationId, turnId },
+        );
+      }
+    }
+    return items;
+  }
+
+  #baseMessage(conversation: Conversation, turnId: TurnId, instructions: string): NewItem {
+    return {
+      conversationId: conversation.id,
+      turnId,
+      type: "message",
+      role: "system",
+      content: [
+        { type: "text", text: instructions },
+        {
+          type: "text",
+          text: "Cite sources using Markdown links. Apply the latest AGENTS.md notice for each source and scope, including removals.",
+        },
+      ],
+    };
+  }
+
+  async #windowContext(
+    conversation: Conversation,
+    turnId: TurnId,
+    runtime: Runtime,
+    scopedTools: ToolSet,
+    active: Item[],
+    opening: boolean,
+  ): Promise<NewItem[]> {
+    const key = "workspace:" + (conversation.workspaceRoot ?? "");
+    const previous = active.findLast(
+      (item) => item.type === "context" && item.key.startsWith("workspace:"),
+    );
+    const needsWorkspace =
+      (conversation.workspaceRoot !== null ||
+        this.host.plugins.some((plugin) => plugin.windowInstructions)) &&
+      (previous?.type !== "context" || previous.key !== key);
+    const items: NewItem[] = [];
+    if (needsWorkspace) {
+      const mode = conversation.config.tools?.mode ?? "hybrid";
+      const sourceContext = {
+        service: (key: string) => this.#service(runtime, key),
+        toolNames: scopedTools
+          .schemas()
+          .filter(
+            (schema) =>
+              allowsDirect(scopedTools, schema.name, mode) ||
+              scopedTools.exposes(schema.name, "code"),
+          )
+          .map((schema) => schema.name),
+      };
+      const sourceInstructions = (
+        await Promise.all(
+          this.host.plugins.flatMap((plugin) =>
+            plugin.windowInstructions ? [plugin.windowInstructions(sourceContext)] : [],
+          ),
+        )
+      ).flat();
+
+      const previousRoot =
+        previous?.type === "context" ? previous.key.slice("workspace:".length) : "";
+      const location = conversation.workspaceRoot
+        ? `Current working directory: ${conversation.workspaceRoot}.`
+        : "No workspace directory is active.";
+      items.push({
+        conversationId: conversation.id,
+        turnId,
+        type: "context",
+        key,
+        content: [
+          {
+            type: "text",
+            text:
+              location +
+              (previousRoot
+                ? " Files and saved outputs from the previous directory remain at " +
+                  previousRoot +
+                  "."
+                : "") +
+              (conversation.originalWorkspaceRoot
+                ? " Original checkout: " + conversation.originalWorkspaceRoot
+                : ""),
+          },
+          ...sourceInstructions,
+        ],
+      });
+    }
+    const type = opening ? "window" : needsWorkspace ? "workspace" : "turn";
+    return [...items, ...(await this.#contextItems(runtime, turnId, async () => active, { type }))];
+  }
   async #assembleContext(
     conversation: Conversation,
     tools: ToolSchema[],
-    runtime: Runtime,
-    scopedTools: ToolSet,
   ): Promise<NewContextBuild> {
     // Use the active chain (not the raw log): after a rewind, abandoned-branch items
     // must stay out of context. Read `head` from the store, never off the cached
     // `Runtime.conversation` snapshot.
     const items = compactedWindow(await this.store.listActiveItems(conversation.id))
-      .filter(
-        (item) =>
-          item.type !== "provider_output" &&
-          !((item.type === "tool_call" || item.type === "tool_result") && item.parentCallId),
-      )
-      .map((item) => {
-        if (item.type !== "tool_result") return item;
-        const presentation = { ...item };
-        delete presentation.structured;
-        delete presentation.structuredRef;
-        delete presentation.full;
-        return presentation;
-      });
+      .map(modelHistoryItem)
+      .filter((item) => item !== undefined);
     const payloadList = await this.store.getProviderPayloads(items.map((i) => i.id));
     const payloads = new Map(payloadList.map((p) => [p.itemId, p]));
-    const mode = conversation.config.tools?.mode ?? "hybrid";
-    const sourceContext = {
-      service: (key: string) => this.#service(runtime, key),
-      toolNames: scopedTools
-        .schemas()
-        .filter(
-          (schema) =>
-            allowsDirect(scopedTools, schema.name, mode) ||
-            scopedTools.exposes(schema.name, "code"),
-        )
-        .map((schema) => schema.name),
-    };
-    const sourceInstructions = (
-      await Promise.all(
-        this.host.contextSources.map((source) => source.instructions(sourceContext)),
-      )
-    ).flat();
-    const instructions: ContentBlock[] = [
-      { type: "text", text: conversation.config.instructions },
-      { type: "text", text: "Cite sources using Markdown links." },
-      ...(conversation.workspaceRoot
-        ? [
-            {
-              type: "text" as const,
-              text: `Current working directory: ${conversation.workspaceRoot}. Files and saved outputs are not moved when switching workspaces; use recorded absolute output paths or switch back to the originating workspace.${conversation.originalWorkspaceRoot ? ` Original checkout: ${conversation.originalWorkspaceRoot}. Historical relative .harness output paths from before workspace switching belong to that checkout.` : ""}`,
-            },
-          ]
-        : []),
-      ...sourceInstructions,
-    ];
-
     return {
       conversationId: conversation.id,
       purpose: "agent",
-      instructions,
       tools,
       items: items.map((item) => {
         const payload = payloads.get(item.id);
-        return payload ? { item, payload } : { item };
+        return { item, fromLog: true, ...(payload ? { payload } : {}) };
       }),
     };
   }

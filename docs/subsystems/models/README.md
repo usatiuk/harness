@@ -130,8 +130,8 @@ raw-call textual fallbacks remain available after switches.
 
 ## Request and stream normalization
 
-Canonical requests carry instructions, selected items with optional opaque
-payloads, tools, an optional non-durable prompt, tool choice, advisory output
+Canonical requests carry ordered items with optional opaque replay payloads,
+tools, tool choice, advisory output
 limit, model configuration and safe provider options. Providers translate canonical items into their
 native message/call/result representations and translate streamed output back
 into:
@@ -246,14 +246,7 @@ Responses are sent with `store: false`; Harness's item log and provider payloads
 remain conversation truth. The OpenAI custom-tool path is used for the
 Harness-owned freeform `apply_patch` dialect, not provider-executed tools.
 
-Config-defined OpenAI-compatible providers carry an opt-in
-`sendInstructionsAsSystem` flag. Some backends (e.g. OVMS) accept the Responses
-request shape but silently drop the top-level `instructions` field, so system
-context — the agent's AGENTS.md/settings instructions and contracts like the
-auto-approval reviewer's "output exactly YES" rule — never reaches the model. When
-set, the custom provider renders `ModelRequest.instructions` as a leading
-`system` input message instead, which those backends honor. It defaults to off
-so backends that implement `instructions` natively are unchanged.
+OpenAI Responses represents the opening agent prompt as a developer message in `input[]`. Config-defined endpoints with `sendInstructionsAsSystem` use the system role instead. File notices are user messages at their recorded positions.
 
 The chat/completions transport is the primary path for local and open backends
 (vLLM, Ollama, OVMS). It is function-only (freeform custom tools throw) and
@@ -261,8 +254,7 @@ round-trips its own prior reasoning as plaintext `reasoning_content`, with a
 provider/model ownership tag, folded into one native assistant message per model
 generation — content, reasoning, and tool calls together — which DeepSeek's
 thinking mode requires ("must be passed back to the API"). A generation that only
-reasoned renders as a standalone assistant reasoning message. Instructions and
-context are hoisted into a single leading system message. If a backend streams
+reasoned renders as a standalone assistant reasoning message. The opening prompt uses the system role on these compatible backends. Later context remains user-side in its original position. If a backend streams
 `reasoning_content` after the finalized reasoning item, the transport fails fast
 rather than silently dropping it. Config-defined providers choose the transport
 explicitly: `"openai-responses-compatible"` for the
@@ -722,6 +714,6 @@ is added. The existing deterministic text fallback is unchanged.
 Image replay also preserves native tool-result adjacency when historical raw
 custom calls and ordinary function calls share a batch. Chat defers raw-result
 user content and projected images until native results finish, including across
-context entries hoisted to the system message. Anthropic places native tool_result
+context entries rendered on the user side after adjacent tool results. Anthropic places native tool_result
 blocks before raw/text/image content in its user batch. These are private request
 projections; stored history remains unchanged.

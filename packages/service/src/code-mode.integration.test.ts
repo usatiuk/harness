@@ -648,7 +648,9 @@ describe("recorded code-mode execution", () => {
         .filter(({ item }) => item.type === "tool_call")
         .map(({ item }) => (item.type === "tool_call" ? item.callId : "")),
     ).toEqual(["outer"]);
-    expect(items.findIndex((item) => item.type === "context")).toBeGreaterThan(
+    expect(
+      items.findIndex((item) => item.type === "context" && item.key.startsWith("agents-md:")),
+    ).toBeGreaterThan(
       items.findIndex((item) => item.type === "tool_result" && item.callId === "outer"),
     );
     expect(

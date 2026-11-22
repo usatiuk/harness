@@ -1,13 +1,18 @@
+import { inlineMessage } from "@harness/protocol";
 import { describe, expect, it } from "vitest";
 import type { Interactions } from "@google/genai";
-import type { Item, ModelRequest, ModelStreamEvent, ProviderPayload } from "@harness/protocol";
+import type {
+  ModelHistoryItem as Item,
+  ModelRequest,
+  ModelStreamEvent,
+  ProviderPayload,
+} from "@harness/protocol";
 import { buildInteraction, interactionEvents } from "./provider.ts";
 import { geminiProviderType } from "./index.ts";
 
 const request = (): ModelRequest => ({
-  instructions: [],
-  items: [],
-  prompt: "go",
+  items: [inlineMessage("user", "go")],
+
   modelConfig: { provider: "gemini", model: "gemini-test" },
   providerOptions: { webSearch: true },
 });
@@ -21,14 +26,6 @@ const item = (value: object): Item =>
     createdAt: 0,
     ...value,
   }) as Item;
-const payload = (value: unknown): ProviderPayload => ({
-  itemId: "i" as ProviderPayload["itemId"],
-  provider: "gemini",
-  model: "gemini-test",
-  type: "interaction_steps",
-  version: 1,
-  payload: value,
-});
 const result = (
   steps: Interactions.Step[],
   status: Interactions.Interaction["status"] = "completed",
@@ -40,10 +37,7 @@ const result = (
 });
 const history = (events: ModelStreamEvent[]): ModelRequest["items"] =>
   events.flatMap((event) =>
-    event.type === "message" ||
-    event.type === "reasoning" ||
-    event.type === "tool_call" ||
-    event.type === "provider_output"
+    event.type === "message" || event.type === "reasoning" || event.type === "tool_call"
       ? [
           {
             item: item(event.type === "message" ? { ...event, role: "assistant" } : event),
@@ -88,7 +82,6 @@ describe("Gemini native search", () => {
           content: [{ type: "text", text: `Tool echo: ${JSON.stringify(args)}` }],
         },
         { type: "user_input", content: [{ type: "text", text: "expected an object" }] },
-        { type: "user_input", content: [{ type: "text", text: "go" }] },
       ]);
     },
   );
@@ -107,24 +100,6 @@ describe("Gemini native search", () => {
       [],
     );
     expect(buildInteraction(request(), true).generation_config?.thinking_summaries).toBe("auto");
-  });
-
-  it("ignores display hints even when they have historical metadata", () => {
-    const params = buildInteraction({
-      ...request(),
-      items: [
-        {
-          item: item({
-            type: "provider_output",
-            content: [{ type: "text", text: "Searched SECRET" }],
-          }),
-          payload: payload(search),
-        },
-      ],
-    });
-    expect(params.input).toEqual([{ type: "user_input", content: [{ type: "text", text: "go" }] }]);
-    expect(JSON.stringify(params)).not.toContain("SECRET");
-    expect(JSON.stringify(params)).not.toContain("SIGNATURE");
   });
 
   it("round-trips finalized native context without making search executable", () => {
@@ -170,20 +145,13 @@ describe("Gemini native search", () => {
       inputTokensAreContext: false,
     });
     const items = history(events);
-    expect(buildInteraction({ ...request(), items }).input).toEqual([
-      ...steps,
-      { type: "user_input", content: [{ type: "text", text: "go" }] },
-    ]);
-    expect(buildInteraction({ ...request(), items: items.slice(0, 1) }).input).toEqual([
-      steps[0],
-      { type: "user_input", content: [{ type: "text", text: "go" }] },
-    ]);
+    expect(buildInteraction({ ...request(), items }).input).toEqual([...steps]);
+    expect(buildInteraction({ ...request(), items: items.slice(0, 1) }).input).toEqual([steps[0]]);
     expect(
       buildInteraction({ ...request(), items, modelConfig: { provider: "other", model: "other" } })
         .input,
     ).toEqual([
       { type: "model_output", content: [{ type: "text", text: "[Source](https://example.com)" }] },
-      { type: "user_input", content: [{ type: "text", text: "go" }] },
     ]);
   });
   it("keeps completed search history across readable output and removes unmatched selected prefixes", () => {
@@ -194,14 +162,8 @@ describe("Gemini native search", () => {
       { type: "model_output", content: [{ type: "text", text: "Answer" }] },
     ];
     const items = history([...interactionEvents(result(steps), request())]);
-    expect(buildInteraction({ ...request(), items }).input).toEqual([
-      ...steps,
-      { type: "user_input", content: [{ type: "text", text: "go" }] },
-    ]);
-    expect(buildInteraction({ ...request(), items: items.slice(0, 2) }).input).toEqual([
-      steps[1],
-      { type: "user_input", content: [{ type: "text", text: "go" }] },
-    ]);
+    expect(buildInteraction({ ...request(), items }).input).toEqual([...steps]);
+    expect(buildInteraction({ ...request(), items: items.slice(0, 1) }).input).toEqual([steps[1]]);
   });
 
   it("discards incomplete native state and continuation tokens while preserving text and usage", () => {
@@ -237,19 +199,13 @@ describe("Gemini native search", () => {
       ...search,
     ];
     const events = [...interactionEvents(result(steps), request())];
-    expect(buildInteraction({ ...request(), items: history(events) }).input).toEqual([
-      ...steps,
-      { type: "user_input", content: [{ type: "text", text: "go" }] },
-    ]);
+    expect(buildInteraction({ ...request(), items: history(events) }).input).toEqual([...steps]);
   });
   it("retains a completed search-only response on an empty ordinary message", () => {
     const events = [...interactionEvents(result(search), request())];
     expect(events.map((event) => event.type)).toEqual(["provider_output", "message", "completed"]);
     expect(events[1]).toMatchObject({ type: "message", content: [], payload: { payload: search } });
-    expect(buildInteraction({ ...request(), items: history(events) }).input).toEqual([
-      ...search,
-      { type: "user_input", content: [{ type: "text", text: "go" }] },
-    ]);
+    expect(buildInteraction({ ...request(), items: history(events) }).input).toEqual([...search]);
   });
 
   it("maps only local functions to executable calls and their matching result", () => {
@@ -282,7 +238,6 @@ describe("Gemini native search", () => {
       ...search,
       call,
       { type: "function_result", call_id: "local", result: "echoed", is_error: false },
-      { type: "user_input", content: [{ type: "text", text: "go" }] },
     ]);
     const unfinished = [...interactionEvents(result([search[0]!], "requires_action"), request())];
     expect(unfinished.at(-1)).toMatchObject({
@@ -318,7 +273,6 @@ describe("Gemini native search", () => {
     expect(params.input).toEqual([
       call,
       { type: "function_result", call_id: "local", result: "echoed", is_error: false },
-      { type: "user_input", content: [{ type: "text", text: "go" }] },
     ]);
     expect(JSON.stringify(params)).not.toContain("google_search_call");
   });
@@ -375,7 +329,7 @@ describe("image request mapping", () => {
   it.each(["gemini-3.1-pro-preview", "gemini-2.5-pro"])("preserves images for %s", (model) => {
     const req = {
       ...request(),
-      prompt: "continue",
+
       modelConfig: { provider: "gemini", model },
       items: [
         { item: item({ type: "message", role: "user", content: [image] }) },
@@ -385,6 +339,7 @@ describe("image request mapping", () => {
         ...["a", "b"].map((callId) => ({
           item: item({ type: "tool_result", callId, status: "ok", content: [image] }),
         })),
+        inlineMessage("user", "continue"),
       ],
     };
     const before = structuredClone(req);

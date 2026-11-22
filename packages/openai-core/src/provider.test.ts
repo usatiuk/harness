@@ -8,7 +8,6 @@ const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext
 
 const BASE: OpenAI.Reasoning = { effort: "medium", summary: "auto" };
 const REQUEST: ModelRequest = {
-  instructions: [],
   items: [],
   modelConfig: { provider: "openai", model: "gpt-5.1" },
 };

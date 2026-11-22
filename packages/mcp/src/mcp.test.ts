@@ -1,3 +1,4 @@
+import { requestGuidance } from "@harness/testkit";
 import { expect, it } from "vitest";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -172,11 +173,11 @@ it("discovers raw names from a real stdio process, preserves JSON Schema and cre
     expect(tool.input).toMatchObject({ kind: "json-schema", schema: fixtureSchema });
     expect(tool.name).toBe("mcp_local_echo/with spaces");
     expect(tool.exposure).toEqual({ direct: false, code: true });
-    const source = runtime.plugin().create({ get: async <C>() => ({}) as C }).contextSources!()[0]!;
-    expect(await source.instructions({ service: () => undefined, toolNames: [] })).toEqual([]);
-    expect(
-      textOf(await source.instructions({ service: () => undefined, toolNames: [tool.name] })),
-    ).toContain("Available MCP servers: local");
+    const source = runtime.plugin().create({ get: async <C>() => ({}) as C }).windowInstructions!;
+    expect(await source({ service: () => undefined, toolNames: [] })).toEqual([]);
+    expect(textOf(await source({ service: () => undefined, toolNames: [tool.name] }))).toContain(
+      "Available MCP servers: local",
+    );
     for (const mode of ["hybrid", "code-only"] as const) {
       const requests: ModelRequest[] = [];
       const items = await execute(
@@ -187,7 +188,7 @@ it("discovers raw names from a real stdio process, preserves JSON Schema and cre
         {},
         { requests, discover: true },
       );
-      expect(textOf(requests[0]!.instructions)).toContain("Available MCP servers: local");
+      expect(textOf(requestGuidance(requests[0]))).toContain("Available MCP servers: local");
       for (const request of requests)
         expect(request.tools?.map((entry) => entry.name)).not.toContain(tool.name);
       for (const callId of ["search", "describe"]) {
@@ -361,7 +362,7 @@ it("resolves global/server/exact-tool policies in both modes, including scoped c
             ),
           ),
         ).toMatchObject({ status: "error" });
-        expect(textOf(scopedRequests[0]!.instructions)).toContain("Available MCP servers: s");
+        expect(textOf(requestGuidance(scopedRequests[0]))).toContain("Available MCP servers: s");
         expect(
           scopedRequests[0]!.tools!.find((tool) => tool.name === "eval")!.description,
         ).not.toContain(runtime.tools().find((tool) => tool.rawName === "mutate")!.name);
@@ -378,7 +379,7 @@ it("resolves global/server/exact-tool policies in both modes, including scoped c
             ),
           )?.status,
         ).toBe("error");
-        expect(textOf(emptyScope[0]!.instructions)).not.toContain("Available MCP servers:");
+        expect(textOf(requestGuidance(emptyScope[0]))).not.toContain("Available MCP servers:");
         expect(fixture.calls.length - before).toBe(test.expected === "ok" ? 2 : 0);
       } finally {
         await runtime.close();

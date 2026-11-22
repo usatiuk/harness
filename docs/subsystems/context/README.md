@@ -2,30 +2,15 @@
 
 ## Status
 
-Harness builds every model request from resolved instructions, the active
-conversation lineage, provider payloads, and the turn-local tool roster. Stable
-instructions and tools stay ahead of the changing item tail for provider cache
-reuse. Every model invocation records its exact context build and purpose.
-
-Hierarchical project instructions and compaction use canonical conversation items
-instead of hidden loaded-state flags or destructive history edits.
+The active branch supplies one ordered list of model input. Its opening items contain the base system prompt, workspace, and initial project instructions. Subsequent turns append items to that window.
 
 ## Context assembly
 
-At each agent step the engine:
+1. Select the active lineage from the latest compaction's `windowStart`, or from the root.
+2. Project model-visible items, attaching their provider-owned replay payloads. Display hints, plugin data, and nested execution details stay in the log.
+3. Attach the scoped tool schemas and record the ordered selection before invoking the adapter.
 
-1. Reads the current head's active item chain.
-2. Replaces the prefix before the latest compaction fold with that durable fold.
-3. Omits display-only provider activity hints and attaches provider payloads for
-   the remaining selected items.
-4. Resolves cache-stable conversation and plugin instructions.
-5. Uses the mode's declarations from the scoped, contract-enriched tool catalog.
-6. Records the resulting context build before invoking the model.
-
-Non-agentic callers use the same model invoker and record a purpose such as
-`compaction` or `auto-approval`. A caller may add a non-durable final prompt,
-disable tool selection, or request an advisory output cap without changing the
-canonical item log.
+Titles, approval reviews, and compaction use the same model interface. Their inline messages belong to the recorded invocation. SQLite stores canonical agent items by reference and auxiliary input by value.
 
 Safe provider-owned request options are copied onto the request and recorded
 with its existing context build. Model changes use the next turn's snapshot;
@@ -49,49 +34,13 @@ previews of spilled structured data without duplicating durable state. Generic
 request middleware receives compacted history by default; auto-approval explicitly
 requests the whole active branch before selecting its bounded evidence.
 
-Nested `AGENTS.md` discoveries stage context after the complete outer batch;
-they do not interrupt, resume, or inject instructions into a running script.
-
 ## Global and hierarchical project instructions
 
-The standalone agents plugin owns `AGENTS.md` behavior independently of providers,
-role prompts, and workspace tools. Server composition supplies its resolved
-Harness home to `createAgentsPlugin(home)`; the package does not guess a client's
-home or import server configuration.
+The agents plugin reads the server home's AGENTS.md and the workspace's ancestor chain on a new window and before later turns. Each addition or edit appends a labeled context item and a model-hidden plugin data item containing the source path and content digest. Deletions append a removal notice. The plugin folds its own records from the active branch to determine what has already been supplied.
 
-The first assembly snapshots `$HARNESS_HOME/AGENTS.md`, when present, as guidance
-for all conversations on that executing server, including projectless
-conversations and subagents. It precedes applicable project files and is
-deduplicated by canonical file identity if also found in workspace ancestry.
-Missing guidance is normal; filesystem access failures are reported rather than
-silently omitted. Symlinked instruction files are not followed. No new role
-configuration or change to scalar `config.instructions` precedence is involved:
-the global file contributes through the existing independent instruction source.
+After a batch of validated, executed file tools, the plugin reconciles the targeted directories once. Confined paths remain inside the workspace after realpath resolution. Symlinked instruction files are skipped. A workspace switch retires files outside the new scope. A fork or rewind inherits the records in its ancestry.
 
-For a conversation with a workspace:
-
-- The first context assembly snapshots applicable files from the host filesystem
-  root through the workspace root, broadest to most specific.
-- The snapshot becomes stable instruction-prefix content for that loaded runtime.
-- When a validated structured file tool targets a deeper or explicitly approved
-  outside path, tool middleware discovers newly applicable files and stages keyed
-  `context` items after the current tool-result batch.
-- Keys deduplicate against the initial snapshot, current active lineage, and other
-  files staged by the same batch.
-
-Instruction files themselves are not followed through symlinks. Realpath checks
-prevent intermediate directory links from escaping a confined workspace unless
-the execution relationship already represents an approved outside access.
-Approval middleware must be registered outside agents middleware, and plugin-host
-ordering validation enforces that dependency.
-
-Loaded state is derived from canonical context items. Rewind therefore restores
-the selected branch's loaded set. Compaction removes older nested markers from the
-model window; a later structured access reloads the instructions if still needed.
-Subagents inherit the workspace root but build their own global/project
-instruction snapshot and lazy context. Changing files does not mutate a loaded
-initial prefix; reload to obtain a fresh snapshot. Remote servers use target-local
-Harness homes, not files transferred from a client.
+Compaction rereads initial files and resets nested discovery. Plugins that retain state return data from `onCompact`; the engine appends those records after the summary in the same transaction. Reopening an existing window preserves its earlier input prefix.
 
 V1 does not parse arbitrary shell commands, watch instruction files for changes,
 or discover instruction trees that exist only inside a container.
@@ -106,8 +55,7 @@ remains repeatable and returns the current full definition. Discovery does not
 change permissions or direct-call eligibility.
 
 A compaction fold is an immutable item whose content represents the entire active
-window before it. Model context begins at the latest fold and includes later
-items. Earlier items remain in the raw conversation graph and transcript lineage;
+window before it. Model context begins at the fresh system item identified by the latest fold and includes its opening context, the summary, and subsequent items. Earlier items remain in the raw conversation graph and transcript lineage;
 the fold changes model selection, not history.
 
 The shipped model strategy supports:

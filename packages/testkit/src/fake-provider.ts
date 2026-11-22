@@ -1,5 +1,6 @@
 import type {
   ModelInfo,
+  ModelRequest,
   ModelProvider,
   ModelStreamEvent,
   ProviderPayloadDraft,
@@ -179,4 +180,20 @@ export class GateProvider implements ModelProvider {
     if (this.#text) yield { type: "message", content: [{ type: "text", text: this.#text }] };
     yield { type: "completed", usage: ZERO_USAGE };
   }
+}
+
+/** Model-visible instruction and workspace content, in request order. */
+export const requestGuidance = (request: ModelRequest | undefined) =>
+  (request?.items ?? []).flatMap(({ item }) =>
+    item.type === "context" || (item.type === "message" && item.role === "system")
+      ? item.content
+      : [],
+  );
+
+/** The inline user message ending an auxiliary invocation, when present. */
+export function auxiliaryPrompt(request: ModelRequest | undefined): string | undefined {
+  const item = request?.items.at(-1)?.item;
+  return item?.type === "message" && item.role === "user" && !item.id
+    ? item.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("")
+    : undefined;
 }

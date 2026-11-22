@@ -7,7 +7,6 @@ import type { ModelCallContext } from "@harness/protocol";
 const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 const REQUEST: ModelRequest = {
-  instructions: [],
   items: [],
   modelConfig: { provider: "opencode-go", model: "deepseek-v4-pro" },
 };

@@ -290,7 +290,7 @@ it("updates saved titles in both the loaded view and cached conversation list th
             key: "titles",
             for: () => ({ done: Promise.resolve() }),
             onInput: async (service, ctx) => {
-              if (ctx.item.seq !== 0) return;
+              if (ctx.conversation.title !== null) return;
               await ctx.updateTitle("first message", null);
               (service as { done: Promise<void> }).done = title.then((value) =>
                 ctx.updateTitle(value, "first message"),

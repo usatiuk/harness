@@ -1961,7 +1961,7 @@ cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml image_input
 The browser pending-FileReader regression leaves and reopens a chat before read
 completion, verifying read-state and resulting images stay visible. Provider
 regressions cover mixed historical custom/function calls in both orders and
-hoisted context interleaved with image results. Native qualification here is
+context notices interleaved with image results. Native qualification here is
 Linux X11/WebKitGTK; Wayland and native Windows/macOS remain separately unqualified.
 
 ## Portable tool inputs and manual model metadata
@@ -2027,7 +2027,7 @@ by the boundary actually exercised:
   are also covered.
 - Agents/service tests cover isolated global homes, additive root/general/explore/
   custom roles, projectless use, canonical deduplication, symlink/access policy,
-  cached absence/edits, reload, actual compaction/rewind, and repeated request
+  file creation, edits, deletion, reload, actual compaction/rewind, and repeated request
   prefixes. No test reads the developer's personal global guidance.
 - Real isolated Bash/zsh fixtures cover native login/profile/rc order, guarded
   exports, noisy/multiline data, `BASH_ENV`, `ZDOTDIR`, startup exit/launch errors,
@@ -2161,7 +2161,7 @@ The guidance editor uses the full settings measure rather than half of a
 multi-field grid. Isolated real RPC/config tests verify global-only policy,
 multiple observers/homes/reconnects, atomic failures, existing permission modes,
 new-file 0600, nonregular/symlink rejection and operation drainage. API-driven
-service tests establish old/new/reloaded runtime instruction snapshots.
+service tests check appended instruction changes across open conversations and reload. The Mistral transport fixture compares serialized prefixes across tool results, an edited instruction file, and SQLite reopen.
 
 Real background sockets verify overlapping explicit releases, a newly admitted
 client during the settings read, persisted policy changes without restart,
@@ -2198,4 +2198,4 @@ isolated and no installed Harness instance is launched. Raw evidence is under
 
 The Mistral server integration test reopens a SQLite conversation and inspects the next stateless HTTP request for plaintext, ciphertext, summary-only items and linked tool history. Switching the model omits the old reasoning and keeps tool history. The HTTP endpoint is a local fixture.
 
-Cache-prefix regressions compare serialized Responses input, instructions, tools and the conversation key across a tool call and SQLite reopen. The Chat projection compares messages (including system instructions) and tools across ordinary workspace reads and a follow-up. These checks exercise prompt structure; cache hits depend on the serving backend. Chat adapters that hoist newly discovered instructions into the system message can intentionally invalidate the earlier prefix.
+Cache-prefix regressions compare serialized Responses input, tools and the conversation key across a tool call and SQLite reopen. Chat Completions keeps prior messages and tools stable when an instruction changes. Anthropic keeps its system field, tools and earlier message content stable while moving the ephemeral cache marker to the new tail. These checks establish request structure. Actual cache hits depend on the serving backend.

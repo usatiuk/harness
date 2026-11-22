@@ -8,7 +8,6 @@ import { OpenAIChatTransport, OpenAIResponsesProvider } from "./provider.ts";
 
 const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 const REQUEST: ModelRequest = {
-  instructions: [],
   items: [],
   modelConfig: { provider: "openai", model: "gpt-5.1" },
 };

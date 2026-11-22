@@ -1,5 +1,7 @@
 import {
   QuestionInputError,
+  modelHistoryItem,
+  type ContextItem,
   MAX_PENDING_QUESTIONS,
   validateQuestionResponse,
   type QuestionRequest,
@@ -466,7 +468,20 @@ export class SqliteStore implements Store {
   async appendItem(input: NewItem): Promise<Item> {
     return this.#appendItem(input);
   }
-  #appendItem(input: NewItem): Item {
+  async appendItems(inputs: NewItem[]): Promise<Item[]> {
+    return this.#db
+      .transaction(() => {
+        const items: Item[] = [];
+        for (const input of inputs) {
+          if (input.conversationId !== inputs[0]!.conversationId)
+            throw new Error("mixed conversation batch");
+          items.push(this.#appendItem(input, items[0]?.id));
+        }
+        return items;
+      })
+      .immediate();
+  }
+  #appendItem(input: NewItem, first?: ItemId): Item {
     const { conversationId, turnId, type, ...variant } = input;
     const id = this.ids.itemId();
     const createdAt = this.clock.now();
@@ -477,9 +492,18 @@ export class SqliteStore implements Store {
       type,
       callId: "callId" in input ? input.callId : null,
       createdAt,
-      body: JSON.stringify(variant),
+      body: JSON.stringify(
+        type === "compaction" ? { ...variant, windowStart: first ?? id } : variant,
+      ),
     });
-    return { ...input, id, seq, parent, createdAt } as Item;
+    return {
+      ...input,
+      ...(type === "compaction" ? { windowStart: first ?? id } : {}),
+      id,
+      seq,
+      parent,
+      createdAt,
+    } as Item;
   }
 
   async listOwnedItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]> {
@@ -613,7 +637,14 @@ export class SqliteStore implements Store {
         id: build.id,
         conversation_id: input.conversationId,
         created_at: build.createdAt,
-        data: JSON.stringify(input),
+        data: JSON.stringify({
+          ...input,
+          items: input.items.map((entry) =>
+            entry.fromLog
+              ? { itemId: entry.item.id, ...(entry.payload ? { payload: entry.payload } : {}) }
+              : entry,
+          ),
+        }),
       })
       .execute();
     return build;
@@ -626,8 +657,26 @@ export class SqliteStore implements Store {
       .where("id", "=", id)
       .executeTakeFirst();
     if (!row) return undefined;
+    const stored = JSON.parse(row.data) as Omit<NewContextBuild, "items"> & {
+      items: (ContextItem | { itemId: ItemId; payload?: ProviderPayload })[];
+    };
+    const ids = stored.items.flatMap((entry) => ("itemId" in entry ? [entry.itemId] : []));
+    const rows = ids.length
+      ? this.#db
+          .prepare<string, ItemRow>(
+            "SELECT * FROM items WHERE id IN (SELECT value FROM json_each(?))",
+          )
+          .all(JSON.stringify(ids))
+      : [];
+    const items = new Map(rows.map((row) => [row.id, modelHistoryItem(rowToItem(row))]));
     return {
-      ...(JSON.parse(row.data) as NewContextBuild),
+      ...stored,
+      items: stored.items.map((entry) => {
+        if ("item" in entry) return entry;
+        const item = items.get(entry.itemId);
+        if (!item) throw new Error(`missing model input item: ${entry.itemId}`);
+        return { item, fromLog: true, ...(entry.payload ? { payload: entry.payload } : {}) };
+      }),
       id: row.id,
       createdAt: row.created_at,
     };

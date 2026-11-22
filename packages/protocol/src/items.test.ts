@@ -95,6 +95,7 @@ describe("itemSchema", () => {
       parent: null,
       createdAt: 0,
       type: "compaction",
+      windowStart: "i1",
       content: [{ type: "text", text: "summary" }],
     };
     expect(itemSchema.parse(value)).toEqual(value);

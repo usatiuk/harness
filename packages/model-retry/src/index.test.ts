@@ -26,7 +26,6 @@ function createModelRetryMiddleware(config: {
 }
 
 const request: ModelRequest = {
-  instructions: [],
   items: [],
   modelConfig: { provider: "fake", model: "fake-1" },
 };

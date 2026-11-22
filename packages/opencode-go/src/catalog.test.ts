@@ -228,7 +228,6 @@ it("maps fetched metadata into real SDK requests for all three transports", asyn
     ]) {
       for await (const event of p.stream(
         {
-          instructions: [],
           items: [],
           modelConfig: { provider: "work-go", model: model!, ...(preset ? { preset } : {}) },
         },

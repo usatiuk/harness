@@ -1,3 +1,4 @@
+import { requestGuidance } from "@harness/testkit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,10 +38,10 @@ const { sandboxPlugin } = await import("./plugin.ts");
 const { NativeExecutionContext } = await import("./native.ts");
 const { DockerExecutionContext } = await import("./docker.ts");
 const plugin = sandboxPlugin.create({ get: async <C>() => ({}) as C });
-const source = plugin.contextSources!()[0]!;
+const source = plugin.windowInstructions!;
 const instructions = async (execution: unknown) =>
   textOf(
-    await source.instructions({
+    await source({
       service: () => execution,
       toolNames: [],
     }),
@@ -151,8 +152,8 @@ describe("active sandbox instructions", () => {
       await service.send(conversation.id, "go");
       await service.whenIdle(conversation.id);
       expect(requests).toHaveLength(1);
-      expect(textOf(requests[0]!.instructions)).toContain(`Workspace: ${root} (writable)`);
-      expect(textOf(requests[0]!.instructions)).toContain("network access: enabled");
+      expect(textOf(requestGuidance(requests[0]))).toContain(`Workspace: ${root} (writable)`);
+      expect(textOf(requestGuidance(requests[0]))).toContain("network access: enabled");
     } finally {
       await service.deactivateSession(conversation.id, { force: true });
     }

@@ -9,7 +9,7 @@ import {
   HarnessDomainClient,
   createInProcessMessageConnectionPair,
 } from "@harness/client";
-import { unusedCodeEvaluator, FakeProvider, textStep } from "@harness/testkit";
+import { unusedCodeEvaluator, auxiliaryPrompt, FakeProvider, textStep } from "@harness/testkit";
 import { isKernelEvent, type ModelRequest, type ModelProvider } from "@harness/protocol";
 import { TransientModelFailure } from "@harness/protocol";
 import { conversationTitlesPlugin } from "./index.ts";
@@ -41,7 +41,7 @@ function fixture(
     async *stream(request, signal, context) {
       requests.push(request);
       expect(context.conversationId).toBeDefined();
-      if (request.items.length === 0) {
+      if (auxiliaryPrompt(request) !== undefined) {
         markStarted();
         await new Promise<void>((resolve) => {
           if (signal.aborted) resolve();
@@ -108,10 +108,19 @@ describe("first-message titles", () => {
       });
       await vi.waitFor(() => expect(titles).toEqual(["fix sidebar conversation naming"]));
       expect((await domain.getConversation(conversation.id))?.title).toBe(titles[0]);
-      const titleRequest = f.requests.find((request) => request.items.length === 0)!;
+      const titleRequest = f.requests.find((request) => auxiliaryPrompt(request) !== undefined)!;
       expect(titleRequest).toMatchObject({
         modelConfig: { provider: "fake", model: "namer", preset: "low" },
-        prompt: "fix   sidebar\nconversation naming",
+        items: [
+          { item: { role: "system" } },
+          {
+            item: {
+              type: "message",
+              role: "user",
+              content: [{ type: "text", text: "fix   sidebar\nconversation naming" }],
+            },
+          },
+        ],
         maxOutputTokens: 128,
         toolChoice: "none",
       });
@@ -126,7 +135,9 @@ describe("first-message titles", () => {
       expect(rows.find((row) => row.purpose === "title")?.usage).toEqual(usage);
       expect((await f.service.usageSummary(conversation.id)).agentContext?.model).toBe("fake-1");
       expect(
-        (await f.service.getItems(conversation.id)).filter((item) => item.type === "message"),
+        (await f.service.getItems(conversation.id)).filter(
+          (item) => item.type === "message" && item.role !== "system",
+        ),
       ).toHaveLength(2);
     } finally {
       f.release();
@@ -153,7 +164,9 @@ describe("first-message titles", () => {
         await f.service.rewind(c.id, first.id);
         await f.service.send(c.id, "second message");
         await f.service.whenIdle(c.id);
-        expect(f.requests.filter((request) => request.items.length === 0)).toHaveLength(1);
+        expect(f.requests.filter((request) => auxiliaryPrompt(request) !== undefined)).toHaveLength(
+          1,
+        );
         expect((await f.service.getConversation(c.id))?.title).toBe("first message");
         expect((await f.service.usage(c.id)).find((row) => row.purpose === "title")?.usage).toEqual(
           output instanceof Error ? null : usage,
@@ -173,7 +186,9 @@ describe("first-message titles", () => {
       await f.service.send(c.id, "first message");
       await f.started;
       await f.service.setModel(c.id, { provider: "fake", model: "namer" });
-      expect(f.requests.find((r) => r.items.length === 0)?.modelConfig.model).toBe("fake-1");
+      expect(f.requests.find((r) => auxiliaryPrompt(r) !== undefined)?.modelConfig.model).toBe(
+        "fake-1",
+      );
       await f.store.updateConversationTitle(c.id, "My explicit name", "first message");
       f.release();
       await f.service.whenIdle(c.id);
@@ -213,7 +228,7 @@ describe("first-message titles", () => {
       await f.service.whenIdle(c.id);
       await f.service.deactivateSession(c.id);
       expect((await f.service.getConversation(c.id))?.title).toBe("first message");
-      expect(f.requests.filter((request) => request.items.length === 0)).toEqual([]);
+      expect(f.requests.filter((request) => auxiliaryPrompt(request) !== undefined)).toEqual([]);
     } finally {
       release();
       await f.service.deactivateSession(c.id, { force: true });
@@ -269,7 +284,7 @@ describe("first-message titles", () => {
       release();
       expect(await closing).toEqual({ status: "deactivated" });
       expect(f.service.conversationTreeState(c.id)).toEqual([]);
-      expect(f.requests.filter((request) => request.items.length === 0)).toEqual([]);
+      expect(f.requests.filter((request) => auxiliaryPrompt(request) !== undefined)).toEqual([]);
     } finally {
       release();
       await f.service.deactivateSession(c.id, { force: true });
@@ -337,7 +352,9 @@ describe("first-message titles", () => {
       await f.service.send(child.id, "child task");
       await f.service.whenIdle(child.id);
       expect((await f.service.getConversation(child.id))?.title).toBeNull();
-      expect(f.requests.filter((request) => request.items.length === 0)).toHaveLength(0);
+      expect(f.requests.filter((request) => auxiliaryPrompt(request) !== undefined)).toHaveLength(
+        0,
+      );
     } finally {
       await f.service.deactivateSession(parent.id, { force: true });
     }

@@ -213,7 +213,7 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-export const STORE_SCHEMA_VERSION = 15;
+export const STORE_SCHEMA_VERSION = 16;
 
 /** Fresh schema or supported additive upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
@@ -283,8 +283,7 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
     if (version === 13) {
       // Nullable: rows predating retry accounting stay "attempts unknown" (absent).
       db.exec("ALTER TABLE model_usage ADD COLUMN attempts INTEGER CHECK(attempts >= 0);");
-      db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
-      return;
+      version = 15;
     }
     if (version === 14) {
       // v14 required a provider call even when middleware or preflight made none.
@@ -293,6 +292,63 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
         ALTER TABLE model_usage ADD COLUMN attempts INTEGER CHECK(attempts >= 0);
         UPDATE model_usage SET attempts = previous_attempts;
         ALTER TABLE model_usage DROP COLUMN previous_attempts;`);
+      version = 15;
+    }
+    if (version === 15) {
+      // Opening messages previously lived only in context-build snapshots. Keep item IDs
+      // and parent chains (including forks), inserting one predecessor at each old window.
+      db.exec(`
+        CREATE TEMP TABLE window_seed AS
+          SELECT i.id AS target, 'seed-' || i.id AS id, i.conversation_id, i.turn_id, i.parent, i.created_at,
+            json_array(json_object('type','text','text',coalesce(json_extract(c.overrides,'$.instructions'),''))) AS content
+          FROM items i JOIN conversations c ON c.id=i.conversation_id
+          WHERE i.parent IS NULL OR i.type='compaction';
+        UPDATE items SET seq=-1-seq;
+        UPDATE items SET seq=-2*seq-1;
+        INSERT INTO items(id,conversation_id,turn_id,seq,parent,type,created_at,body)
+          SELECT s.id,s.conversation_id,s.turn_id,i.seq-1,s.parent,'message',s.created_at,
+            json_object('role','system','content',json(s.content))
+          FROM window_seed s JOIN items i ON i.id=s.target;
+        UPDATE items SET parent=s.id FROM window_seed s WHERE items.id=s.target;
+        UPDATE items SET body=json_set(body,'$.windowStart',parent) WHERE type='compaction';
+        DROP TABLE window_seed;
+      `);
+      const update = db.prepare("UPDATE context_builds SET data=? WHERE id=?");
+      const page = db.prepare<number, { rowid: number; id: string; data: string }>(
+        "SELECT rowid,id,data FROM context_builds WHERE rowid > ? ORDER BY rowid LIMIT 64",
+      );
+      let cursor = 0;
+      for (;;) {
+        const rows = page.all(cursor);
+        if (!rows.length) break;
+        for (const row of rows) {
+          const build = JSON.parse(row.data) as {
+            items: {
+              item?: { type: string; id?: string; windowStart?: string; [key: string]: unknown };
+            }[];
+            instructions?: unknown[];
+            prompt?: string;
+          };
+          for (const { item } of build.items)
+            if (item?.type === "compaction" && item.id) item.windowStart = item.id;
+          if (build.instructions?.length)
+            build.items.unshift({
+              item: { type: "message", role: "system", content: build.instructions },
+            });
+          if (build.prompt)
+            build.items.push({
+              item: {
+                type: "message",
+                role: "user",
+                content: [{ type: "text", text: build.prompt }],
+              },
+            });
+          delete build.instructions;
+          delete build.prompt;
+          update.run(JSON.stringify(build), row.id);
+          cursor = row.rowid;
+        }
+      }
       db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }

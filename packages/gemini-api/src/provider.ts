@@ -1,3 +1,4 @@
+import { openingSystem } from "@harness/protocol";
 import { toolCallKey, mergeModelMetadata, type ModelMetadata } from "@harness/protocol";
 import { GoogleGenAI, ApiError, type Interactions } from "@google/genai";
 import { classifyTransientFailure } from "./errors.ts";
@@ -91,8 +92,9 @@ export function buildInteraction(
         : [],
     ),
   );
+  const opening = openingSystem(request.items);
   for (const { item, payload } of request.items) {
-    if (item.type === "provider_output") continue;
+    if (item === opening) continue;
     if (item.type !== "tool_result") flushToolImages();
     const native = readSteps(payload, request);
     if (
@@ -165,8 +167,6 @@ export function buildInteraction(
     }
   }
   flushToolImages();
-  if (request.prompt)
-    input.push({ type: "user_input", content: [{ type: "text", text: request.prompt }] });
   // Correlate the selected assistant history, not each item's sidecar. A pair
   // can straddle readable output, while a rewind can select only its first half.
   const selected: Interactions.Step[] = [];
@@ -203,7 +203,7 @@ export function buildInteraction(
     input: selected,
     store: false,
     stream: false,
-    system_instruction: textOf(request.instructions),
+    system_instruction: textOf(opening?.content ?? []),
     tools,
     generation_config: {
       tool_choice: request.toolChoice ?? "auto",

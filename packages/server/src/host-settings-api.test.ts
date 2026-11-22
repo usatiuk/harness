@@ -1,3 +1,4 @@
+import { requestGuidance } from "@harness/testkit";
 import { afterEach, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -134,7 +135,7 @@ it("round-trips exact fixed-home guidance, keeps ordinary settings independent a
   expect((await first.client.peer.request(appSettingsRequest, {})).home).toBe(first.home);
 });
 
-it("consumes API edits only in new/reloaded service runtimes, preserving existing snapshots", async () => {
+it("appends edited instructions to open conversations and loads them on creation", async () => {
   const stream = vi.spyOn(DemoProvider.prototype, "stream").mockImplementation(async function* () {
     yield* textStep("done");
   });
@@ -152,12 +153,12 @@ it("consumes API edits only in new/reloaded service runtimes, preserving existin
   const send = async (id: typeof conversation.id) => {
     await server.service.send(id as ConversationId, "hello");
     await server.service.whenIdle(id as ConversationId);
-    return textOf(requests().at(-1)!.instructions);
+    return textOf(requestGuidance(requests().at(-1)));
   };
   expect(await send(conversation.id)).toContain(before);
   await client.peer.request(appInstructionsUpdateRequest, { content: after });
   expect(await send(conversation.id)).toContain(before);
-  expect(textOf(requests().at(-1)!.instructions)).not.toContain(after);
+  expect(textOf(requestGuidance(requests().at(-1)))).toContain(after);
   const fresh = await client.create({
     overrides: { model: { provider: "demo", model: "demo-1" } },
   });
@@ -165,7 +166,7 @@ it("consumes API edits only in new/reloaded service runtimes, preserving existin
   await server.service.deactivateSession(conversation.id as ConversationId);
   await server.service.prepare(conversation.id as ConversationId);
   expect(await send(conversation.id)).toContain(after);
-  expect(textOf(requests().at(-1)!.instructions)).not.toContain(before);
+  expect(textOf(requestGuidance(requests().at(-1)))).toContain(before);
 });
 
 it("presents classified read/write failures without exposing unexpected exceptions", async () => {

@@ -1,5 +1,11 @@
+import { inlineMessage } from "@harness/protocol";
 import { expect, it } from "vitest";
-import type { ConversationId, Item, ModelRequest, ModelStreamEvent } from "@harness/protocol";
+import type {
+  ConversationId,
+  ModelHistoryItem as Item,
+  ModelRequest,
+  ModelStreamEvent,
+} from "@harness/protocol";
 import { LiteLLMProvider } from "./provider.ts";
 import { liteLLMConfigSchema, type Transport } from "./config.ts";
 import { httpGateway, json, sse } from "./http-fixture.ts";
@@ -25,7 +31,7 @@ function item(seq: number, fields: Record<string, unknown>): Item {
   } as Item;
 }
 function next(first: ModelStreamEvent[], request: ModelRequest): ModelRequest {
-  const items: ModelRequest["items"] = [];
+  const items: ModelRequest["items"] = [...request.items];
   for (const event of first) {
     if (event.type === "reasoning") {
       const reasoning = item(items.length, { type: "reasoning", content: event.content });
@@ -53,7 +59,6 @@ function next(first: ModelStreamEvent[], request: ModelRequest): ModelRequest {
     }),
   });
   const continuation = { ...request, items };
-  delete continuation.prompt;
   return continuation;
 }
 
@@ -336,9 +341,8 @@ it.skipIf(process.env.HARNESS_LITELLM_DOCKER !== "1")(
       ] as const) {
         const request: ModelRequest = {
           modelConfig: { provider: provider.provider, model },
-          instructions: [],
-          prompt: "Call echo",
-          items: [],
+
+          items: [inlineMessage("user", "Call echo")],
           tools: [
             {
               kind: "function",

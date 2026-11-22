@@ -229,6 +229,8 @@ values are rejected once at dispatch; an invalid outbound value is a program
 defect and closes or errors the affected protocol operation without exposing
 stacks, credentials, provider bodies, or opaque provider payloads.
 
+Protocol 22 adds the `plugin_data` transcript item and requires `windowStart` on compaction items. Clients skip plugin data when rendering a conversation.
+
 ## Shipped application controls
 
 `@harness/server/client-protocol` defines the composition-owned `app.*` messages,

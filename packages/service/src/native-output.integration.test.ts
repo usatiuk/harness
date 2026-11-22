@@ -121,6 +121,7 @@ it("keeps previews ephemeral and finalized phases, reasoning and search hints du
     await preview;
     expect((await store.listOwnedItems(conversation.id)).map((item) => item.type)).toEqual([
       "message",
+      "message",
     ]);
     expect(JSON.stringify(await client.getItems(conversation.id))).not.toContain("temporary");
     release();

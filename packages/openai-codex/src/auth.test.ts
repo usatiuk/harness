@@ -322,7 +322,7 @@ describe("CodexAuth", () => {
     });
     const controller = new AbortController();
     const stream = createCodexProvider(auth, "work").stream(
-      { instructions: [], items: [], modelConfig: { provider: "work", model: "gpt-6.1-sol" } },
+      { items: [], modelConfig: { provider: "work", model: "gpt-6.1-sol" } },
       controller.signal,
       CALL_CONTEXT,
     );

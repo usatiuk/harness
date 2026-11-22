@@ -1,7 +1,6 @@
 import { z, type ZodType } from "zod";
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
-import type { Item } from "./items.ts";
 import type { ToolGrammar } from "./model.ts";
 import type { PluginEvent } from "./events.ts";
 import type { InteractionRequest, RequestOptions } from "./requests.ts";
@@ -120,8 +119,6 @@ export interface ToolMiddlewareContext extends ToolContext {
   toolMeta(name: string): Record<string, unknown> | undefined;
   /** The effective callable contract, including plugin enrichment. */
   toolContract(name: string): ToolContract | undefined;
-  /** True only when the call names an offered tool and its raw arguments pass that tool's parser. */
-  acceptsToolCall(call: ToolCall): boolean;
   /**
    * Records call-scoped durable metadata that the engine merges into the final
    * result, including synthetic failures and live interruption. Last writer wins
@@ -136,19 +133,6 @@ export interface ToolMiddlewareContext extends ToolContext {
    * (e.g. `{kind:"approval", call}` → `{decision}`). Rejects if the turn is aborted.
    */
   request(request: InteractionRequest, options?: RequestOptions): Promise<unknown>;
-  /**
-   * The compacted active window, re-derived from the durable log — the same source the model
-   * build reads. Context staged by the current call is not visible until its result is persisted.
-   */
-  active(): Promise<readonly Item[]>;
-  /**
-   * Stage a durable, keyed `context` item after the current tool-call batch's results
-   * (e.g. AGENTS.md).
-   * `key` is opaque to the kernel; dedup is the caller's job — scan `active()` first.
-   * Logged as a real item, so the injection is rewind-safe without splitting provider-required
-   * tool-call/result adjacency.
-   */
-  appendContext(key: string, content: ContentBlock[]): Promise<void>;
 }
 
 /**

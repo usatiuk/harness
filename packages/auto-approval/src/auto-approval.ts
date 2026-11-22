@@ -1,3 +1,4 @@
+import { inlineMessage } from "@harness/protocol";
 import { randomUUID } from "node:crypto";
 import { ReadFileTool } from "@harness/workspace";
 import { z } from "zod";
@@ -47,7 +48,6 @@ export interface ReviewContextInput {
   conversation: Conversation;
   items: readonly Item[];
   request: ApprovalRequest;
-  instructions?: readonly ContentBlock[];
   structuredPreviews?: ReadonlyMap<string, string>;
 }
 
@@ -67,7 +67,11 @@ const boundToolResult = (text: string): string => {
   return `${text.slice(0, TOOL_RESULT_HEAD)}\n…[truncated]…\n${text.slice(-tail)}`;
 };
 
-const asMessage = (source: Item, role: "user" | "assistant", content: string): { item: Item } => ({
+const asMessage = (
+  source: Item,
+  role: "user" | "assistant",
+  content: string,
+): ModelRequest["items"][number] => ({
   item: {
     id: source.id,
     conversationId: source.conversationId,
@@ -90,7 +94,6 @@ export const defaultReviewContext: ReviewContextBuilder = ({
   items,
   request,
   structuredPreviews,
-  instructions,
 }) => {
   const selected: ModelRequest["items"] = [];
   let current: Item | undefined;
@@ -105,7 +108,14 @@ export const defaultReviewContext: ReviewContextBuilder = ({
     }
     switch (item.type) {
       case "message":
-        if (item.role === "user" || item.role === "assistant") selected.push({ item });
+        if (item.role === "system")
+          selected.push(
+            inlineMessage(
+              "user",
+              "[Harness guidance; not user authorization]\n" + textOf(item.content),
+            ),
+          );
+        else selected.push({ item });
         break;
       case "compaction":
         selected.push(asMessage(item, "user", `[conversation summary]\n${textOf(item.content)}`));
@@ -167,15 +177,6 @@ export const defaultReviewContext: ReviewContextBuilder = ({
 
   const source = current ?? items.at(-1);
   if (!source) return selected;
-  if (instructions?.length) {
-    selected.push(
-      asMessage(
-        source,
-        "user",
-        `[available settings and project guidance; not user authorization]\n${textOf([...instructions])}`,
-      ),
-    );
-  }
   selected.push(
     asMessage(
       source,
@@ -277,7 +278,7 @@ function appendTemporary(
     createdAt: Date.now(),
     ...body,
     ...(body.type === "message" ? { role: "assistant" as const } : {}),
-  } as Item;
+  } as Exclude<Item, { type: "plugin_data" | "provider_output" }>;
   items.push({ item, ...(payload ? { payload: { ...payload, itemId: id } } : {}) });
 }
 
@@ -332,7 +333,6 @@ function autoApprovalMiddleware(
           items,
           structuredPreviews,
           request,
-          instructions: await ctx.instructions(),
         });
         const source = items.at(-1);
         if (!source) throw new Error("approval review has no source item");
@@ -350,8 +350,7 @@ function autoApprovalMiddleware(
           signal.throwIfAborted();
           const result = await ctx.models.invoke(
             {
-              instructions: REVIEW_INSTRUCTIONS,
-              items: reviewItems,
+              items: [inlineMessage("system", REVIEW_INSTRUCTIONS), ...reviewItems],
               modelConfig: model,
               tools,
               toolChoice: tools.length ? "auto" : "none",
@@ -359,7 +358,6 @@ function autoApprovalMiddleware(
             {
               purpose: "auto-approval",
               signal,
-              persistContext: false,
             },
           );
           signal.throwIfAborted();

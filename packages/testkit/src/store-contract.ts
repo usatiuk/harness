@@ -462,7 +462,7 @@ export function storeContract(name: string, makeStore: () => Store): void {
       const turn = await store.createTurn(conv.id);
       const build = await store.recordContextBuild({
         conversationId: conv.id,
-        instructions: [],
+
         tools: [],
         items: [],
       });

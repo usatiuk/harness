@@ -1,5 +1,6 @@
+import { inlineMessage } from "@harness/protocol";
 import { describe, expect, it } from "vitest";
-import type { Item, ModelRequest } from "@harness/protocol";
+import type { ModelHistoryItem as Item, ModelRequest } from "@harness/protocol";
 import { buildChatParams } from "./request.ts";
 
 // Items only need their structural fields here; ids/seq/createdAt are irrelevant to mapping.
@@ -7,27 +8,29 @@ const item = (partial: Partial<Item> & { type: Item["type"] }): Item =>
   ({ id: "i", conversationId: "c", turnId: "t", seq: 0, createdAt: 0, ...partial }) as Item;
 
 const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
-  instructions: [{ type: "text", text: "be nice" }],
   modelConfig: { provider: "opencode-go", model: "deepseek-v4-pro" },
   tools: [
     { kind: "function", name: "echo", description: "echoes", parameters: { type: "object" } },
   ],
   // These fixtures represent reasoning captured from this exact chat connection.
-  items: items.map((entry) =>
-    entry.item.type === "reasoning" && entry.payload === undefined
-      ? {
-          ...entry,
-          payload: {
-            itemId: entry.item.id,
-            provider: "opencode-go",
-            model: "deepseek-v4-pro",
-            type: "chat_reasoning",
-            version: 1,
-            payload: null,
-          },
-        }
-      : entry,
-  ),
+  items: [
+    inlineMessage("system", [{ type: "text", text: "be nice" }]),
+    ...items.map((entry) =>
+      entry.item.type === "reasoning" && entry.payload === undefined
+        ? {
+            ...entry,
+            payload: {
+              itemId: entry.item.id,
+              provider: "opencode-go",
+              model: "deepseek-v4-pro",
+              type: "chat_reasoning",
+              version: 1,
+              payload: null,
+            },
+          }
+        : entry,
+    ),
+  ],
 });
 
 describe("buildChatParams", () => {
@@ -63,6 +66,7 @@ describe("buildChatParams", () => {
     const params = buildChatParams({
       ...baseRequest([]),
       items: [
+        ...baseRequest([]).items,
         { item: item({ type: "reasoning", content: [{ type: "text", text: "unbound" }] }) },
         {
           item: item({ type: "reasoning", content: [{ type: "text", text: "foreign" }] }),
@@ -134,8 +138,7 @@ describe("buildChatParams", () => {
 
   it("appends a non-durable prompt and honors toolChoice and maxOutputTokens", () => {
     const params = buildChatParams({
-      ...baseRequest([]),
-      prompt: "compact now",
+      ...baseRequest([inlineMessage("user", "compact now")]),
       toolChoice: "none",
       maxOutputTokens: 4096,
     });
@@ -209,7 +212,7 @@ describe("buildChatParams", () => {
     ]);
   });
 
-  it("hoists context items into the leading system message joined by blank lines", () => {
+  it("preserves context as a user message", () => {
     const params = buildChatParams(
       baseRequest([
         {
@@ -221,7 +224,10 @@ describe("buildChatParams", () => {
         },
       ]),
     );
-    expect(params.messages).toEqual([{ role: "system", content: "be nice\n\nproject rules" }]);
+    expect(params.messages).toEqual([
+      { role: "system", content: "be nice" },
+      { role: "user", content: "project rules" },
+    ]);
   });
 
   it("maps a compaction item to a plain user message", () => {
@@ -535,7 +541,7 @@ describe("buildChatParams", () => {
       ]),
     );
     expect(params.messages).toEqual([
-      { role: "system", content: "be nice\n\nproject rules" },
+      { role: "system", content: "be nice" },
       {
         role: "assistant",
         content: "call",
@@ -543,6 +549,7 @@ describe("buildChatParams", () => {
         tool_calls: [{ id: "c1", type: "function", function: { name: "echo", arguments: "{}" } }],
       },
       { role: "tool", tool_call_id: "c1", content: "ok" },
+      { role: "user", content: "project rules" },
       { role: "assistant", content: "answer", reasoning_content: "gen2" },
     ]);
   });

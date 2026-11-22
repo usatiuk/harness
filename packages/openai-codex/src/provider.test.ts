@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Item, ModelCallContext, ModelStreamEvent } from "@harness/protocol";
+import type {
+  ModelHistoryItem as Item,
+  ModelCallContext,
+  ModelStreamEvent,
+} from "@harness/protocol";
 import type { CodexAuth } from "./auth.ts";
 import { CODEX_PROVIDER, createCodexProvider } from "./provider.ts";
 
@@ -74,7 +78,7 @@ it("sends user and tool images through authenticated Codex Responses transport",
     for await (const event of provider.stream(
       {
         modelConfig: { provider: CODEX_PROVIDER, model: "gpt-6.2-sol" },
-        instructions: [],
+
         items: items.map((item) => ({ item })),
       },
       new AbortController().signal,
@@ -171,7 +175,7 @@ it("uses configured native effort controls for manually added Codex models", asy
     ).toThrow("unknown preset");
     for (const model of ["new-reasoning-model", "unknown-controls", "extensible-efforts"]) {
       for await (const event of provider.stream(
-        { modelConfig: { provider: CODEX_PROVIDER, model }, instructions: [], items: [] },
+        { modelConfig: { provider: CODEX_PROVIDER, model }, items: [] },
         new AbortController().signal,
         { conversationId: "test" } as ModelCallContext,
       ))

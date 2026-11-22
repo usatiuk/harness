@@ -51,12 +51,11 @@ function fakeMwCtx(over: Partial<ToolMiddlewareContext> = {}): ToolMiddlewareCon
     ...fakeCtx(over),
     toolMeta: () => undefined,
     toolContract: () => undefined,
-    acceptsToolCall: () => true,
+
     setResultAnnotation: () => {},
     putBlob: () => Promise.resolve({ id: "b", bytes: 0, contentType: "text/plain" }),
     request: () => Promise.resolve({}),
-    active: () => Promise.resolve([]),
-    appendContext: () => Promise.resolve(),
+
     ...over,
   };
 }
@@ -300,7 +299,6 @@ describe("consumeMiddleware", () => {
 describe("backgroundContractResolver", () => {
   it("injects `background` into backgroundable function schemas only", async () => {
     const request: ModelRequest = {
-      instructions: [],
       items: [],
       modelConfig: { provider: "x", model: "y" },
       tools: [

@@ -1,3 +1,4 @@
+import { inlineMessage } from "@harness/protocol";
 import { describe, expect, it } from "vitest";
 import type OpenAI from "openai";
 import { ContextWindowExceededError, type ModelRequest } from "@harness/protocol";
@@ -7,8 +8,7 @@ import type { ModelCallContext } from "@harness/protocol";
 const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 const REQUEST: ModelRequest = {
-  instructions: [{ type: "text", text: "be nice" }],
-  items: [],
+  items: [inlineMessage("system", [{ type: "text", text: "be nice" }])],
   modelConfig: { provider: "opencode-go", model: "deepseek-v4-pro" },
 };
 

@@ -30,18 +30,13 @@ function definition(
       let host = nativeHost;
       return {
         id: "sandbox",
-        contextSources: () => [
-          {
-            id: "sandbox",
-            async instructions(ctx) {
-              const execution = executionServiceOf(ctx);
-              return execution instanceof NativeExecutionContext ||
-                execution instanceof DockerExecutionContext
-                ? [{ type: "text", text: await execution.sandboxInstructions() }]
-                : [];
-            },
-          },
-        ],
+        async windowInstructions(ctx) {
+          const execution = executionServiceOf(ctx);
+          return execution instanceof NativeExecutionContext ||
+            execution instanceof DockerExecutionContext
+            ? [{ type: "text", text: await execution.sandboxInstructions() }]
+            : [];
+        },
         services: (): ServiceProvider[] => [
           {
             key: "execution",

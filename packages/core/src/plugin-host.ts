@@ -1,7 +1,6 @@
 import { toToolSchema } from "./tools.ts";
 import type {
   CompactionStrategy,
-  ContextSource,
   ModelCapabilities,
   ModelMiddleware,
   Observer,
@@ -39,7 +38,6 @@ export class PluginHost {
     caps: ModelCapabilities,
     ctx: ToolContributionContext,
   ) => Tool[])[];
-  readonly contextSources: readonly ContextSource[];
   readonly observers: readonly Observer[];
   readonly policies: ResolvedPolicies;
   /** Per-conversation service providers by key, for `ctx.service(key)`. */
@@ -52,8 +50,7 @@ export class PluginHost {
   readonly requestMiddleware: readonly RequestMiddleware[];
   readonly #contractResolvers: readonly ToolContractResolver[];
 
-  constructor(plugins: readonly Plugin[]) {
-    const contextSources: ContextSource[] = [];
+  constructor(readonly plugins: readonly Plugin[]) {
     const observers: Observer[] = [];
     const compaction: CompactionStrategy[] = [];
     const services = new Map<string, ServiceProvider>();
@@ -64,20 +61,11 @@ export class PluginHost {
     const requestMiddleware: RequestMiddleware[] = [];
     const contractResolvers: ToolContractResolver[] = [];
     const registered = new Set<string>();
-    const middlewareContributors = new Set<string>();
 
     for (const plugin of plugins) {
       if (registered.has(plugin.id)) throw new Error(`duplicate plugin id: ${plugin.id}`);
-      for (const dependency of plugin.toolMiddlewareAfter ?? []) {
-        if (!middlewareContributors.has(dependency)) {
-          throw new Error(
-            `plugin '${plugin.id}' tool middleware must be registered after '${dependency}'`,
-          );
-        }
-      }
       registered.add(plugin.id);
       const contributedToolMiddleware = plugin.toolMiddleware?.() ?? [];
-      if (contributedToolMiddleware.length > 0) middlewareContributors.add(plugin.id);
       for (const provider of plugin.providers?.() ?? []) {
         this.providers.register(provider);
       }
@@ -86,7 +74,6 @@ export class PluginHost {
       toolMiddleware.push(...contributedToolMiddleware);
       modelMiddleware.push(...(plugin.modelMiddleware?.() ?? []));
       requestMiddleware.push(...(plugin.requestMiddleware?.() ?? []));
-      contextSources.push(...(plugin.contextSources?.() ?? []));
       observers.push(...(plugin.observers?.() ?? []));
 
       for (const service of plugin.services?.() ?? []) {
@@ -101,7 +88,6 @@ export class PluginHost {
     }
 
     this.#toolContributors = toolContributors;
-    this.contextSources = contextSources;
     this.observers = observers;
     this.policies = {
       compaction: pick("compaction", compaction, noCompaction),

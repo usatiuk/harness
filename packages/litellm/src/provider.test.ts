@@ -1,8 +1,9 @@
+import { inlineMessage } from "@harness/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TransientModelFailure } from "@harness/protocol";
 import type {
   ConversationId,
-  Item,
+  ModelHistoryItem as Item,
   ModelRequest,
   ModelStreamEvent,
   ProviderPayloadDraft,
@@ -26,9 +27,11 @@ async function collect(provider: LiteLLMProvider, request: ModelRequest, abort =
   return events;
 }
 const request = (provider = "work", model = "coding"): ModelRequest => ({
-  instructions: [{ type: "text", text: "System instructions" }],
-  items: [],
-  prompt: "Call echo",
+  items: [
+    inlineMessage("system", [{ type: "text", text: "System instructions" }]),
+    inlineMessage("user", "Call echo"),
+  ],
+
   tools: [
     {
       kind: "function",
@@ -51,7 +54,7 @@ function item(fields: Record<string, unknown>, seq: number): Item {
   } as Item;
 }
 function continuation(first: ModelStreamEvent[], base: ModelRequest): ModelRequest {
-  const items: ModelRequest["items"] = [];
+  const items: ModelRequest["items"] = [...base.items];
   for (const event of first) {
     if (event.type === "reasoning") {
       const reasoning = item({ type: "reasoning", content: event.content }, items.length);
@@ -80,7 +83,6 @@ function continuation(first: ModelStreamEvent[], base: ModelRequest): ModelReque
     ),
   });
   const next = { ...base, items };
-  delete next.prompt;
   return next;
 }
 

@@ -334,13 +334,13 @@ describe("auto approval integration", () => {
       expect(JSON.stringify(items)).not.toContain("inspection-only-");
       expect(await fixture.service.listConversations()).toHaveLength(1);
       expect(fixture.payloads).not.toHaveBeenCalled();
-      expect(fixture.builds).toHaveBeenCalledTimes(2);
-      expect(JSON.stringify(fixture.builds.mock.calls)).not.toContain("inspection-only-");
+      expect(fixture.builds).toHaveBeenCalledTimes(fixture.reviewRequests.length + 2);
+      expect(JSON.stringify(fixture.builds.mock.calls)).toContain("inspection-only-");
       const usage = await fixture.service.usage(conversation.id);
       const reviews = usage.filter((row) => row.purpose === "auto-approval");
       expect(reviews).toHaveLength(21);
       expect(
-        reviews.every((row) => row.contextBuildId === null && row.turnId === usage[0]!.turnId),
+        reviews.every((row) => row.contextBuildId !== null && row.turnId === usage[0]!.turnId),
       ).toBe(true);
       const main = usage.filter((row) => row.purpose === "agent");
       expect(main).toHaveLength(2);
@@ -390,7 +390,7 @@ describe("auto approval integration", () => {
       expect(result?.type === "tool_result" && result.status).toBe("error");
       expect(result?.type === "tool_result" && result.annotations).toBeUndefined();
       expect(JSON.stringify(items)).not.toContain("inspection-only-cancel-marker");
-      expect(fixture.builds).toHaveBeenCalledOnce();
+      expect(fixture.builds).toHaveBeenCalledTimes(3);
       expect(
         (await fixture.service.usage(conversation.id)).filter(
           (row) => row.purpose === "auto-approval",

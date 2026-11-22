@@ -120,6 +120,8 @@ export interface Store {
    * Append-only. Assigns `seq`/`createdAt`, links `parent` to the current `head`,
    * and advances `head`. Callers never set `parent`.
    */
+  /** Atomic ordered append on one branch. A compaction points at the first item in its batch. */
+  appendItems(inputs: NewItem[]): Promise<Item[]>;
   appendItem(input: NewItem): Promise<Item>;
   /** The raw log in `seq` order (full history, including abandoned branches). */
   listOwnedItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]>;

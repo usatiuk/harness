@@ -176,12 +176,10 @@ function ctx(
     deliver: () => {},
     toolMeta: () => undefined,
     toolContract: () => undefined,
-    acceptsToolCall: () => true,
+
     setResultAnnotation: () => {},
     putBlob: () => Promise.resolve({ id: "b", bytes: 0, contentType: "text/plain" }),
     request: () => Promise.resolve({}),
-    active: () => Promise.resolve([]),
-    appendContext: () => Promise.resolve(),
   };
 }
 
@@ -400,7 +398,6 @@ describe("subagentContractResolver", () => {
     tools: ToolSchema[],
   ): Promise<ModelRequest | undefined> => {
     const request: ModelRequest = {
-      instructions: [],
       items: [],
       modelConfig: { provider: "x", model: "y" },
       tools,

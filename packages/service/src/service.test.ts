@@ -186,6 +186,7 @@ describe("HarnessService", () => {
       "turn.status",
       "item.appended",
       "item.appended",
+      "item.appended",
       "usage.changed",
       "item.appended",
       "text_delta",
@@ -330,7 +331,13 @@ describe("HarnessService", () => {
     const second = serviceOn(store, [textStep("welcome back")]);
     expect((await second.getConversation(conv.id))?.id).toBe(conv.id);
     const resumed = await second.getItems(conv.id);
-    expect(resumed.map((i) => i.type)).toEqual(["message", "tool_call", "tool_result", "message"]);
+    expect(resumed.map((i) => i.type)).toEqual([
+      "message",
+      "message",
+      "tool_call",
+      "tool_result",
+      "message",
+    ]);
 
     // ...and a deliver continues the conversation it did not create.
     await second.send(conv.id, "still there?");

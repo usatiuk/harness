@@ -1,3 +1,4 @@
+import { createAgentsPlugin } from "@harness/agents";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -394,7 +395,10 @@ it.each([
         store,
         home,
         codeEvaluator: unusedCodeEvaluator,
-        plugins: [{ id: "fixture", providers: () => [provider], tools: () => [new EchoTool()] }],
+        plugins: [
+          createAgentsPlugin(home),
+          { id: "fixture", providers: () => [provider], tools: () => [new EchoTool()] },
+        ],
         defaults: { model: { provider: "instance", model: "original" } },
       });
       return { store, service };
@@ -409,15 +413,21 @@ it.each([
       ).toMatchObject({ content: [{ type: "text", text: readable }] });
       await session.service.deactivateSession(id, { force: true });
       session.store.close();
+      await writeFile(join(home, "AGENTS.md"), "Follow the new file convention.");
       session = open();
       await session.service.send(id, "continue");
       await session.service.whenIdle(id);
       const history = [
+        { role: "developer", content: expect.any(String) as string },
         { role: "user", content: "go" },
         ...(replay ? [reasoning] : []),
         call,
         { type: "function_call_output", call_id: "c1", output: '{"value":7}' },
         answer,
+        {
+          role: "user",
+          content: expect.stringContaining("Follow the new file convention.") as string,
+        },
         { role: "user", content: "continue" },
       ];
       expect(gateway.requests[2]?.body).toMatchObject({
@@ -436,7 +446,7 @@ it.each([
         expect(extended.length).toBeGreaterThan(prefix.length);
         expect(JSON.stringify(extended.slice(0, prefix.length))).toBe(JSON.stringify(prefix));
         expect(JSON.stringify(later.tools)).toBe(JSON.stringify(earlier.tools));
-        expect(later.instructions).toBe(earlier.instructions);
+        expect(later).not.toHaveProperty("instructions");
         expect(later.prompt_cache_key).toBe(id);
         expect(earlier.prompt_cache_key).toBe(id);
       }

@@ -7,7 +7,8 @@ import type { Item } from "@harness/protocol";
  * Main-agent summaries omit children and cannot preserve their approval evidence.
  */
 export function reviewerWindow(items: readonly Item[]): Item[] {
-  const fold = items.findLastIndex((item) => item.type === "compaction");
+  const summary = items.findLast((item) => item.type === "compaction");
+  const fold = summary ? items.findIndex((item) => item.id === summary.windowStart) : 0;
   const failures = items
     .filter((item) => item.type === "tool_result" && item.parentCallId && item.status === "error")
     .slice(-16);

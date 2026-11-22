@@ -1,7 +1,13 @@
+import { inlineMessage } from "@harness/protocol";
 import { describe, expect, it } from "vitest";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
-import type { Item, ModelRequest, ModelStreamEvent, ToolSchema } from "@harness/protocol";
+import type {
+  ModelHistoryItem as Item,
+  ModelRequest,
+  ModelStreamEvent,
+  ToolSchema,
+} from "@harness/protocol";
 import { OpenCodeGoProvider } from "./provider.ts";
 import type { ModelCallContext } from "@harness/protocol";
 
@@ -34,9 +40,11 @@ function provider(): OpenCodeGoProvider {
 
 function request(model: string, preset?: string): ModelRequest {
   return {
-    instructions: [{ type: "text", text: "You are terse." }],
     modelConfig: { provider: "opencode-go", model, ...(preset ? { preset } : {}) },
-    items: [{ item: userMessage }],
+    items: [
+      inlineMessage("system", [{ type: "text", text: "You are terse." }]),
+      { item: userMessage },
+    ],
   };
 }
 
@@ -82,9 +90,12 @@ describe.skipIf(!apiKey)("OpenCodeGoProvider (live)", () => {
       content: [{ type: "text", text: "my plan is to reply with one word: hello" }],
     } as Item;
     const request: ModelRequest = {
-      instructions: [{ type: "text", text: "You are terse." }],
       modelConfig: { provider: "opencode-go", model: "deepseek-v4.1-flash" },
-      items: [{ item: priorReasoning }, { item: userMessage }],
+      items: [
+        inlineMessage("system", [{ type: "text", text: "You are terse." }]),
+        { item: priorReasoning },
+        { item: userMessage },
+      ],
     };
     const events: ModelStreamEvent[] = [];
     for await (const e of provider().stream(request, new AbortController().signal, CALL_CONTEXT)) {
@@ -143,12 +154,14 @@ describe.skipIf(!apiKey)("OpenCodeGoProvider (live)", () => {
       },
     ];
     const request: ModelRequest = {
-      instructions: [{ type: "text", text: "You are terse." }],
       modelConfig: { provider: "opencode-go", model: "deepseek-v4.1-flash" },
       tools: [echo],
-      items,
+      items: [
+        inlineMessage("system", [{ type: "text", text: "You are terse." }]),
+        ...items,
+        inlineMessage("user", "Now reply with the single word: done"),
+      ],
       // The trailing steer mirrors the follow-up request that 400'd.
-      prompt: "Now reply with the single word: done",
     };
     const events: ModelStreamEvent[] = [];
     for await (const e of provider().stream(request, new AbortController().signal, CALL_CONTEXT)) {

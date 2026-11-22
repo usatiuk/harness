@@ -49,17 +49,16 @@ export type Item =
       full?: OutputRef;
     })
   // A fold of the complete active history before it. Renders to the provider as a
-  // plain message; its position is the context boundary.
-  | (ItemBase & { type: "compaction"; content: ContentBlock[] })
-  // Plugin-injected durable context (e.g. a nested AGENTS.md), staged by tool middleware and
-  // appended after the paired result. `key` is an opaque dedup identity the kernel never reads.
-  // Renders to the provider as a plain message.
+  // plain message. windowStart identifies the first item of the refreshed window.
+  | (ItemBase & { type: "compaction"; windowStart: ItemId; content: ContentBlock[] })
+  | (ItemBase & { type: "plugin_data"; plugin: string; data: JsonValue })
+  // Model-visible context, appended at the boundary where it was discovered.
   | (ItemBase & { type: "context"; content: ContentBlock[]; key: string });
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /** Input to append: the store assigns `id`, `seq`, `parent`, and `createdAt`. */
-export type NewItem = DistributiveOmit<Item, "id" | "seq" | "parent" | "createdAt">;
+export type NewItem = DistributiveOmit<Item, "id" | "seq" | "parent" | "createdAt" | "windowStart">;
 
 const baseShape = {
   id: z.string(),
@@ -129,7 +128,14 @@ export const itemSchema = z.discriminatedUnion("type", [
   z.object({
     ...baseShape,
     type: z.literal("compaction"),
+    windowStart: z.string(),
     content: z.array(contentBlockSchema),
+  }),
+  z.object({
+    ...baseShape,
+    type: z.literal("plugin_data"),
+    plugin: z.string(),
+    data: jsonValueSchema,
   }),
   z.object({
     ...baseShape,

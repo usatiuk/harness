@@ -14,7 +14,6 @@ import { AnthropicProvider } from "./provider.ts";
 const CALL_CONTEXT = { conversationId: "test-conversation" } as ModelCallContext;
 
 const REQUEST: ModelRequest = {
-  instructions: [],
   items: [],
   modelConfig: { provider: "anthropic", model: "claude-sonnet-4-6" },
 };

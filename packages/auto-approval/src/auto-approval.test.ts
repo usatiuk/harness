@@ -1,3 +1,4 @@
+import { requestGuidance } from "@harness/testkit";
 import { describe, expect, it, vi } from "vitest";
 import {
   textOf,
@@ -68,7 +69,6 @@ function setup(config: unknown, invoke = vi.fn(async () => result("YES"))) {
     conversation,
     turnId: "t" as RequestMiddlewareContext["turnId"],
     signal: new AbortController().signal,
-    instructions: async () => [],
     active: async () => [
       item({ type: "message", role: "user", content: text("please run it") }),
       item({
@@ -146,7 +146,7 @@ describe("auto approval request middleware", () => {
     expect(next).not.toHaveBeenCalled();
     expect(invoke).toHaveBeenCalledOnce();
     const reviewerRequest = (invoke.mock.calls as unknown as Array<[ModelRequest]>)[0]?.[0];
-    const policy = textOf(reviewerRequest?.instructions ?? []);
+    const policy = textOf(requestGuidance(reviewerRequest) ?? []);
     expect(policy).toContain("Approve by default");
     expect(policy).toContain(
       "Deny only a direct user restriction or concrete dangerous or sensitive effects",

@@ -13,7 +13,6 @@ afterEach(() => vi.useRealTimers());
 async function events(tools: string[]) {
   vi.useFakeTimers();
   const request: ModelRequest = {
-    instructions: [],
     items: [],
     tools: tools.map(tool),
     modelConfig: { provider: "demo", model: "demo-1" },

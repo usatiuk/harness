@@ -31,7 +31,7 @@ function contextFor(decision: "allow" | "deny" = "allow"): {
     service: (key) => (key === "execution" ? execution : undefined),
     toolMeta: () => undefined,
     toolContract: () => undefined,
-    acceptsToolCall: () => true,
+
     setResultAnnotation: (key, value) => {
       annotations[key] = value;
     },
@@ -42,8 +42,6 @@ function contextFor(decision: "allow" | "deny" = "allow"): {
       asked = true;
       return Promise.resolve({ decision });
     },
-    active: () => Promise.resolve([]),
-    appendContext: () => Promise.resolve(),
   };
   return { ctx, asked: () => asked, annotation: () => annotations["approval"] };
 }

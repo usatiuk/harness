@@ -223,7 +223,6 @@ const MODELS: Record<Family, string> = {
 
 function requestFor(family: Family): ModelRequest {
   return {
-    instructions: [],
     items: [],
     modelConfig: { provider: "opencode-go", model: MODELS[family] },
   };

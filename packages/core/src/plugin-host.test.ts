@@ -74,20 +74,6 @@ describe("PluginHost", () => {
     expect(host.toolMiddleware.map((m) => m.id)).toEqual(["a", "b", "truncate"]);
   });
 
-  it("rejects a tool-middleware dependency registered in an unsafe order", () => {
-    const dependent: Plugin = { id: "inner", toolMiddlewareAfter: ["gate"] };
-    expect(() => new PluginHost([dependent, { id: "gate" }])).toThrow(
-      /inner.*registered after 'gate'/,
-    );
-    expect(() => new PluginHost([{ id: "gate" }, dependent])).toThrow(
-      /inner.*registered after 'gate'/,
-    );
-    expect(
-      () =>
-        new PluginHost([{ id: "gate", toolMiddleware: () => [passThrough("gate")] }, dependent]),
-    ).not.toThrow();
-  });
-
   it("rejects duplicate plugin ids", () => {
     expect(() => new PluginHost([{ id: "same" }, { id: "same" }])).toThrow(
       /duplicate plugin id: same/,

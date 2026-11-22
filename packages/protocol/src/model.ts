@@ -205,12 +205,56 @@ export type ToolSchema =
     }
   | { kind: "custom"; name: string; description: string; grammar?: ToolGrammar };
 
+export interface InlineMessage {
+  type: "message";
+  role: "system" | "user";
+  content: ContentBlock[];
+  id?: never;
+  phase?: never;
+  source?: never;
+}
+
+export type ModelHistoryItem = Exclude<Item, { type: "plugin_data" | "provider_output" }>;
+
+/** Canonical projection used for requests and rehydrating their recorded selections. */
+export function modelHistoryItem(item: Item): ModelHistoryItem | undefined {
+  if (item.type === "provider_output" || item.type === "plugin_data") return;
+  if ((item.type === "tool_call" || item.type === "tool_result") && item.parentCallId) return;
+  if (item.type !== "tool_result") return item;
+  const visible = { ...item };
+  delete visible.structured;
+  delete visible.structuredRef;
+  delete visible.full;
+  return visible;
+}
+
+/** Canonical items can be recorded by reference. Auxiliary projections are recorded by value. */
+export type ContextItem = (
+  | { fromLog: true; item: ModelHistoryItem }
+  | { fromLog?: never; item: ModelHistoryItem | InlineMessage }
+) & { payload?: ProviderPayload };
+
+export function openingSystem(items: ContextItem[]) {
+  const item = items[0]?.item;
+  return item?.type === "message" && item.role === "system" ? item : undefined;
+}
+
+export function inlineMessage(
+  role: InlineMessage["role"],
+  content: string | ContentBlock[],
+): ContextItem {
+  return {
+    item: {
+      type: "message",
+      role,
+      content: typeof content === "string" ? [{ type: "text", text: content }] : content,
+    },
+  };
+}
+
 export interface ModelRequest {
-  instructions: ContentBlock[];
-  items: { item: Item; payload?: ProviderPayload }[];
+  items: ContextItem[];
   tools?: ToolSchema[];
-  /** Non-durable final user prompt, recorded with the build but never appended to the item log. */
-  prompt?: string;
   /** Provider-neutral tool selection; absent is equivalent to `auto`. */
   toolChoice?: "auto" | "none";
   /** Advisory per-request output cap; providers honor it when their transport supports one. */
@@ -333,8 +377,6 @@ export interface ModelInvoker {
     options?: {
       purpose?: string;
       signal?: AbortSignal;
-      /** Temporary callers retain their own context; usage is still recorded. */
-      persistContext?: boolean;
     },
   ): Promise<ModelInvocationResult>;
 }

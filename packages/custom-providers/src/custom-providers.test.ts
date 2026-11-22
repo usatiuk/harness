@@ -1,3 +1,4 @@
+import { inlineMessage } from "@harness/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TransientModelFailure } from "@harness/protocol";
 import type { ConversationId, ModelRequest } from "@harness/protocol";
@@ -12,7 +13,6 @@ type OpenAIExposed = { buildParams(request: ModelRequest): Record<string, unknow
 type AnthropicExposed = { buildConfig(request: ModelRequest): Record<string, unknown> };
 
 const REQUEST: ModelRequest = {
-  instructions: [],
   items: [],
   modelConfig: { provider: "local", model: "my-model" },
 };
@@ -190,10 +190,10 @@ describe("CustomOpenAIProvider request shaping", () => {
 
     const params = (provider as unknown as OpenAIExposed).buildParams({
       ...REQUEST,
-      instructions: [{ type: "text", text: "You are terse." }],
+      items: [inlineMessage("system", "You are terse.")],
     }) as { instructions?: unknown; input: unknown[] };
 
-    expect(params.instructions).toBe("You are terse.");
+    expect(params.input).toEqual([{ role: "developer", content: "You are terse." }]);
   });
 
   it("renders instructions as a leading system message when opted in", () => {
@@ -207,7 +207,7 @@ describe("CustomOpenAIProvider request shaping", () => {
 
     const params = (provider as unknown as OpenAIExposed).buildParams({
       ...REQUEST,
-      instructions: [{ type: "text", text: "you must say YES" }],
+      items: [inlineMessage("system", "you must say YES")],
     });
 
     expect(params).not.toHaveProperty("instructions");

@@ -1,3 +1,4 @@
+import { inlineMessage } from "@harness/protocol";
 import { expect, it } from "vitest";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
@@ -99,9 +100,11 @@ it("sends stable per-conversation session headers and Harness identity on all th
   }));
   const run = async (model: string, context: ModelCallContext) => {
     const request: ModelRequest = {
-      instructions: [{ type: "text", text: "coding agent" }],
-      items: [],
-      prompt: context.conversationId,
+      items: [
+        inlineMessage("system", [{ type: "text", text: "coding agent" }]),
+        inlineMessage("user", context.conversationId),
+      ],
+
       modelConfig: { provider: "opencode-go", model },
     };
     const events = [];

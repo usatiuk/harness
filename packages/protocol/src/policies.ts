@@ -1,23 +1,14 @@
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId } from "./ids.ts";
-import type { Item } from "./items.ts";
-import type { ModelInvoker, ModelOutputItem, ProviderPayload, ToolSchema } from "./model.ts";
+import type { ContextItem, ModelInvoker, ModelOutputItem, ToolSchema } from "./model.ts";
 import type { JsonValue } from "./rpc.ts";
-
-export interface ContextItem {
-  item: Item;
-  payload?: ProviderPayload;
-}
 
 export interface NewContextBuild {
   conversationId: ConversationId;
   /** Stable caller label, e.g. `agent` or `auto-approval`. */
   purpose?: string;
-  instructions: ContentBlock[]; // cache-stable prefix
   tools: ToolSchema[];
   items: ContextItem[]; // selected items, in order
-  /** Non-durable final user input included in this request. */
-  prompt?: string;
   toolChoice?: "auto" | "none";
   maxOutputTokens?: number;
   providerOptions?: JsonValue;

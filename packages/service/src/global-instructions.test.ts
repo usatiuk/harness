@@ -1,3 +1,4 @@
+import { requestGuidance } from "@harness/testkit";
 import { afterEach, expect, it } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -82,7 +83,7 @@ it.each([true, false])(
     });
     await service.send(root.id, "root task");
     await service.whenIdle(root.id);
-    expect(textOf(requests[0]!.instructions)).toContain("ROOT ROLE");
+    expect(textOf(requestGuidance(requests[0]))).toContain("ROOT ROLE");
     for (const role of [...DEFAULT_AGENTS, { name: "custom", systemPrompt: "CUSTOM ROLE" }]) {
       const activity = await spawnSubagent({
         runner: service,
@@ -97,12 +98,12 @@ it.each([true, false])(
       });
       await activity.done;
       await service.whenIdle(activity.childId);
-      expect(textOf(requests.at(-1)!.instructions)).toContain(role.systemPrompt);
-      expect(textOf(requests.at(-1)!.instructions)).not.toContain("ROOT ROLE");
+      expect(textOf(requestGuidance(requests.at(-1)))).toContain(role.systemPrompt);
+      expect(textOf(requestGuidance(requests.at(-1)))).not.toContain("ROOT ROLE");
     }
     expect(requests).toHaveLength(4);
     for (const request of requests) {
-      const instructions = textOf(request.instructions);
+      const instructions = textOf(requestGuidance(request));
       expect(instructions.match(/PERSONAL GLOBAL RULES/gu)).toHaveLength(1);
       expect(instructions.includes("PROJECT RULES")).toBe(workspace);
       if (workspace)
@@ -113,7 +114,7 @@ it.each([true, false])(
   },
 );
 
-it("isolates server homes and refreshes a global snapshot only on reload", async () => {
+it("isolates server homes and appends a changed global file once across reload", async () => {
   const { home, project, root } = await fixture();
   const otherHome = join(root, "other-server-home");
   await mkdir(otherHome);
@@ -127,16 +128,16 @@ it("isolates server homes and refreshes a global snapshot only on reload", async
   await writeFile(join(home, "AGENTS.md"), "UPDATED GLOBAL RULES");
   await first.service.send(conversation.id, "second");
   await first.service.whenIdle(conversation.id);
-  expect(textOf(first.requests.at(-1)!.instructions)).toContain("PERSONAL GLOBAL RULES");
-  expect(textOf(first.requests.at(-1)!.instructions)).not.toContain("UPDATED GLOBAL RULES");
+  expect(textOf(requestGuidance(first.requests.at(-1)))).toContain("PERSONAL GLOBAL RULES");
+  expect(textOf(requestGuidance(first.requests.at(-1)))).toContain("UPDATED GLOBAL RULES");
   await first.service.deactivateSession(conversation.id);
   await first.service.prepare(conversation.id);
   await first.service.send(conversation.id, "after reload");
   await first.service.whenIdle(conversation.id);
-  expect(textOf(first.requests.at(-1)!.instructions)).toContain("UPDATED GLOBAL RULES");
+  expect(textOf(requestGuidance(first.requests.at(-1)))).toContain("UPDATED GLOBAL RULES");
   await second.service.send(remote.id, "remote");
   await second.service.whenIdle(remote.id);
-  const instructions = textOf(second.requests[0]!.instructions);
+  const instructions = textOf(requestGuidance(second.requests[0]));
   expect(instructions).toContain("REMOTE SERVER RULES");
   expect(instructions).not.toContain("PERSONAL GLOBAL RULES");
   expect(instructions).not.toContain("UPDATED GLOBAL RULES");

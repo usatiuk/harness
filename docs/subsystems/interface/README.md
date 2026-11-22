@@ -1089,8 +1089,7 @@ editor loads on demand and explicitly saves exact text, retaining dirty edits
 through tab changes, unrelated revalidation and failures. Missing and empty files
 remain distinct. Existing nonregular/symlink targets reject, errors are visible,
 and atomic replacement preserves the existing mode (new files use 0600).
-Existing runtime snapshots remain stable: changes apply to new or reloaded
-conversations, not automatically to the next prompt in an already-loaded runtime.
+The next user turn checks for file edits and appends the updated guidance while preserving earlier input.
 
 ### Desktop image content
 

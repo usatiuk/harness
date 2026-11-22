@@ -35,14 +35,13 @@ function ctxWith(
     service: (key) => (key === "execution" ? execution : undefined),
     toolMeta: () => undefined,
     toolContract: () => undefined,
-    acceptsToolCall: () => true,
+
     setResultAnnotation: () => {},
     emit: () => {},
     deliver: () => {},
     putBlob: () => Promise.resolve({ id: "b", bytes: 0, contentType: "text/plain" }),
     request: () => Promise.resolve({}),
-    active: () => Promise.resolve([]),
-    appendContext: () => Promise.resolve(),
+
     ...over,
   };
 }

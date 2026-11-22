@@ -1,6 +1,7 @@
 import {
   ContextWindowExceededError,
   textOf,
+  inlineMessage,
   type ContentBlock,
   type CompactionStrategy,
   type Item,
@@ -30,14 +31,13 @@ export const noCompaction: CompactionStrategy = {
   },
 };
 
-/**
- * Bounds a chain at its latest compaction: the summary stands for everything before
- * it, so context starts there. Context-build and the compaction pass both slice
- * through here, so they agree on the window by construction.
- */
+/** Select the latest window on this branch, including its refreshed opening items. */
 export function compactedWindow(items: Item[]): Item[] {
-  const i = items.findLastIndex((item) => item.type === "compaction");
-  return i === -1 ? items : items.slice(i);
+  const fold = items.findLast((item) => item.type === "compaction");
+  if (!fold) return items;
+  const start = items.findIndex((item) => item.id === fold.windowStart);
+  if (start < 0) throw new Error(`missing compaction window start: ${fold.windowStart}`);
+  return items.slice(start);
 }
 
 /** Same-model compaction used by the CLI; alternative compositions can contribute another strategy. */
@@ -51,10 +51,14 @@ export const modelCompaction: CompactionStrategy = {
     }
     const result = await input.models.invoke(
       {
-        instructions: input.build.instructions,
-        items: input.build.items,
+        items: [
+          ...input.build.items,
+          inlineMessage(
+            "user",
+            input.reason === "manual" ? MANUAL_COMPACTION_PROMPT : CONTINUING_COMPACTION_PROMPT,
+          ),
+        ],
         tools: input.build.tools,
-        prompt: input.reason === "manual" ? MANUAL_COMPACTION_PROMPT : CONTINUING_COMPACTION_PROMPT,
         ...(input.reason === "manual" ? { toolChoice: "none" as const } : {}),
         ...(input.outputTokenLimit !== undefined
           ? { maxOutputTokens: input.outputTokenLimit }
@@ -76,7 +80,6 @@ export function fallbackCompaction(build: NewContextBuild): ContentBlock[] {
       case "message":
         return `${item.role}: ${textOf(item.content)}`;
       case "reasoning":
-      case "provider_output":
         return "";
       case "tool_call":
         return `tool call ${item.name}: ${JSON.stringify(item.args)}`;
@@ -122,14 +125,12 @@ export function estimateContextTokens(build: NewContextBuild): number {
       return { type: block.type, mediaType: block.mediaType };
     });
   const serialized = JSON.stringify({
-    instructions: estimatedContent(build.instructions),
     tools: build.tools,
     items: build.items.map(({ item, ...rest }) => ({
       ...rest,
       item: "content" in item ? { ...item, content: estimatedContent(item.content) } : item,
     })),
     ...(build.providerOptions !== undefined ? { providerOptions: build.providerOptions } : {}),
-    ...(build.prompt ? { prompt: build.prompt } : {}),
   });
   let ascii = 0;
   let nonAsciiCodeUnits = 0;

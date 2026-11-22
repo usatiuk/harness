@@ -1,5 +1,6 @@
+import { inlineMessage } from "@harness/protocol";
 import { describe, expect, it } from "vitest";
-import type { Item, ModelRequest, ProviderPayload } from "@harness/protocol";
+import type { ModelHistoryItem as Item, ModelRequest, ProviderPayload } from "@harness/protocol";
 import { buildMessages, type AnthropicRequestConfig } from "./request.ts";
 
 const CONFIG: AnthropicRequestConfig = { maxTokens: 1000 };
@@ -20,12 +21,11 @@ const thinkingPayload = (model: string): ProviderPayload => ({
 });
 
 const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
-  instructions: [{ type: "text", text: "be nice" }],
   modelConfig: { provider: PROVIDER, model: MODEL },
   tools: [
     { kind: "function", name: "echo", description: "echoes", parameters: { type: "object" } },
   ],
-  items,
+  items: [inlineMessage("system", [{ type: "text", text: "be nice" }]), ...items],
 });
 
 describe("buildMessages", () => {
@@ -39,33 +39,10 @@ describe("buildMessages", () => {
     expect(buildMessages(baseRequest([]), CONFIG, PROVIDER).tools).not.toContainEqual(tool);
   });
 
-  it("never sends display-only search hints or historical search blocks", () => {
-    const request = baseRequest([
-      {
-        item: item({
-          type: "provider_output",
-          content: [{ type: "text", text: "Searched SECRET" }],
-        }),
-        payload: {
-          ...thinkingPayload(MODEL),
-          type: "message_block",
-          payload: {
-            type: "server_tool_use",
-            id: "search",
-            name: "web_search",
-            input: { query: "SECRET" },
-          },
-        },
-      },
-    ]);
-    expect(buildMessages(request, CONFIG, PROVIDER).messages).toEqual([]);
-  });
-
   it("appends a non-durable prompt, preserves tools, and uses the resolved output cap", () => {
     const params = buildMessages(
       {
-        ...baseRequest([]),
-        prompt: "compact now",
+        ...baseRequest([inlineMessage("user", "compact now")]),
         toolChoice: "none",
         maxOutputTokens: 4096,
       },
@@ -319,13 +296,13 @@ describe("buildMessages", () => {
     expect(wrongModel.messages).toEqual([]);
   });
 
-  it("batches consecutive user-side items (compaction/context/system) into one user message", () => {
+  it("batches consecutive user-side items (compaction/context) into one user message", () => {
     const params = buildMessages(
       baseRequest([
         { item: item({ type: "compaction", content: [{ type: "text", text: "so far" }] }) },
         { item: item({ type: "context", key: "k", content: [{ type: "text", text: "rules" }] }) },
         {
-          item: item({ type: "message", role: "system", content: [{ type: "text", text: "sys" }] }),
+          item: item({ type: "message", role: "user", content: [{ type: "text", text: "sys" }] }),
         },
       ]),
       CONFIG,
@@ -515,4 +492,33 @@ describe("mixed historical custom and function result ordering", () => {
       expect(request).toEqual(before);
     },
   );
+});
+
+it("preserves prior request content when an instruction edit arrives on the next turn", () => {
+  const request = baseRequest([inlineMessage("user", "first turn")]);
+  const first = buildMessages(request, CONFIG, PROVIDER);
+  request.items.push(
+    {
+      item: item({ type: "message", role: "assistant", content: [{ type: "text", text: "done" }] }),
+    },
+    {
+      item: item({
+        type: "context",
+        key: "agents-md:project",
+        content: [{ type: "text", text: "changed instructions" }],
+      }),
+    },
+    inlineMessage("user", "continue"),
+  );
+  const next = buildMessages(request, CONFIG, PROVIDER);
+  const prefix = next.messages.slice(0, first.messages.length);
+  expect(next.system).toEqual(first.system);
+  // The breakpoint follows the tail of the request. Compare the cached content itself.
+  const content = (value: unknown) =>
+    JSON.stringify(value, (key, val: unknown) => (key === "cache_control" ? undefined : val));
+  expect(content(prefix)).toBe(content(first.messages));
+  expect(next.tools).toEqual(first.tools);
+  expect(
+    JSON.stringify(next.messages.slice(first.messages.length)).match(/changed instructions/g),
+  ).toHaveLength(1);
 });

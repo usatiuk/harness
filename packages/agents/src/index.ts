@@ -1,15 +1,8 @@
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
-import {
-  type ContentBlock,
-  type ContextSource,
-  type Plugin,
-  type ServiceProvider,
-  type ToolMiddleware,
-  type ToolMiddlewareContext,
-  errorResult,
-} from "@harness/protocol";
-import { executionOf } from "@harness/execution";
+import { createHash } from "node:crypto";
+import type { Plugin, PluginContextItem, ServiceProvider } from "@harness/protocol";
+import { executionServiceOf } from "@harness/execution";
 import { fileTargetsOfValidatedCall } from "@harness/workspace";
 
 const SERVICE_KEY = "agents-instructions";
@@ -17,10 +10,8 @@ const CONTEXT_KEY_PREFIX = "agents-md:";
 const INSTRUCTION_FILE = "AGENTS.md";
 
 interface InstructionFile {
-  key: string;
   path: string;
   content: string;
-  scope: "global" | "project";
 }
 
 const canonicalKey = (path: string): string =>
@@ -46,16 +37,9 @@ const readInstruction = async (directory: string): Promise<InstructionFile | und
   if (!info?.isFile() || info.isSymbolicLink()) return undefined;
   const canonicalPath = await realpath(path);
   return {
-    key: canonicalKey(canonicalPath),
     path: canonicalPath,
     content: await readFile(canonicalPath, "utf8"),
-    scope: "project",
   };
-};
-
-const discoverFrom = async (directory: string): Promise<InstructionFile[]> => {
-  const found = await Promise.all(ancestorDirectories(directory).map(readInstruction));
-  return found.filter((file): file is InstructionFile => file !== undefined);
 };
 
 const isWithin = (root: string, path: string): boolean => {
@@ -78,65 +62,53 @@ const nearestExistingRealPath = async (start: string): Promise<string> => {
   }
 };
 
-const renderInstruction = (file: InstructionFile): string =>
+const renderInstruction = (file: InstructionFile, global: boolean): string =>
   [
     `AGENTS.md instructions from ${file.path}`,
-    file.scope === "global"
+    global
       ? "Scope: all conversations on this Harness server. Applicable project instructions follow."
       : `Scope: ${dirname(file.path)} and its descendants. Deeper AGENTS.md files take precedence.`,
     "",
     file.content,
   ].join("\n");
 
-/** Per-conversation host-path discovery and the one runtime-local initial-prefix snapshot. */
+/** Host-path discovery scoped to the active workspace. */
 class AgentsInstructions {
   readonly #workspaceRoot: string | null;
   readonly #home: string;
-  #initial: Promise<InstructionFile[]> | undefined;
 
   constructor(home: string, workspaceRoot: string | null) {
     this.#home = resolve(home);
     this.#workspaceRoot = workspaceRoot === null ? null : resolve(workspaceRoot);
   }
 
-  initial(): Promise<InstructionFile[]> {
-    if (this.#initial) return this.#initial;
-    const pending = this.#loadInitial();
-    this.#initial = pending;
-    void pending.catch(() => {
-      if (this.#initial === pending) this.#initial = undefined;
+  async roots() {
+    const home = await realpath(this.#home).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") return this.#home;
+      throw error;
     });
-    return pending;
+    return { home, workspace: this.#workspaceRoot && (await realpath(this.#workspaceRoot)) };
   }
+}
 
-  async #loadInitial(): Promise<InstructionFile[]> {
-    const global = await readInstruction(this.#home);
-    const project =
-      this.#workspaceRoot === null ? [] : await discoverFrom(await realpath(this.#workspaceRoot));
-    return [
-      ...(global ? [{ ...global, scope: "global" as const }] : []),
-      ...project.filter((file) => file.key !== global?.key),
-    ];
+async function forTargets(
+  root: string,
+  paths: readonly string[],
+  allowOutside: boolean,
+): Promise<string[]> {
+  const directories = new Set<string>();
+  for (const path of paths) {
+    const target = resolve(root, path);
+    const info = await stat(target).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
+      throw error;
+    });
+    const directory = info?.isDirectory() ? target : dirname(target);
+    const canonicalDirectory = await nearestExistingRealPath(directory);
+    if (!allowOutside && !isWithin(root, canonicalDirectory)) continue;
+    for (const directory of ancestorDirectories(canonicalDirectory)) directories.add(directory);
   }
-
-  async forTargets(paths: readonly string[], allowOutside: boolean): Promise<InstructionFile[]> {
-    const root = this.#workspaceRoot;
-    if (root === null) return [];
-    const canonicalRoot = await realpath(root);
-    const byKey = new Map<string, InstructionFile>();
-    for (const path of paths) {
-      const target = resolve(root, path);
-      const info = await stat(target).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return undefined;
-        throw error;
-      });
-      const directory = info?.isDirectory() ? target : dirname(target);
-      const canonicalDirectory = await nearestExistingRealPath(directory);
-      if (!allowOutside && !isWithin(canonicalRoot, canonicalDirectory)) continue;
-      for (const file of await discoverFrom(canonicalDirectory)) byKey.set(file.key, file);
-    }
-    return [...byKey.values()];
-  }
+  return [...directories];
 }
 
 interface ServiceContext {
@@ -151,51 +123,6 @@ const instructionsOf = (ctx: ServiceContext): AgentsInstructions => {
   return service;
 };
 
-const source: ContextSource = {
-  id: "agents-initial",
-  async instructions(ctx): Promise<ContentBlock[]> {
-    return (await instructionsOf(ctx).initial()).map((file) => ({
-      type: "text",
-      text: `\n\n${renderInstruction(file)}`,
-    }));
-  },
-};
-
-const middleware: ToolMiddleware = {
-  id: "agents-nested",
-  async wrap(call, ctx: ToolMiddlewareContext, next) {
-    if (!ctx.acceptsToolCall(call)) return next(call);
-    const targets = fileTargetsOfValidatedCall(call);
-    if (targets.length === 0) return next(call);
-
-    const instructions = instructionsOf(ctx);
-    // Confined/container tools can name a host-relative path outside cwd without permission to
-    // read that host location. Only an approval-classified escape may discover it on the host.
-    const relationship = executionOf(ctx).classify(call);
-
-    const initial = await instructions.initial();
-    if (ctx.signal.aborted) return errorResult("interrupted: turn aborted");
-    const loadedKeys = new Set(initial.map((file) => file.key));
-    for (const item of await ctx.active()) {
-      if (item.type === "context" && item.key.startsWith(CONTEXT_KEY_PREFIX)) {
-        loadedKeys.add(item.key);
-      }
-    }
-    if (ctx.signal.aborted) return errorResult("interrupted: turn aborted");
-
-    const files = await instructions.forTargets(targets, relationship !== "in-workspace");
-    if (ctx.signal.aborted) return errorResult("interrupted: turn aborted");
-    for (const file of files) {
-      if (loadedKeys.has(file.key)) continue;
-      if (ctx.signal.aborted) return errorResult("interrupted: turn aborted");
-      await ctx.appendContext(file.key, [{ type: "text", text: renderInstruction(file) }]);
-      loadedKeys.add(file.key);
-    }
-    if (ctx.signal.aborted) return errorResult("interrupted: turn aborted");
-    return next(call);
-  },
-};
-
 /** Host-global and hierarchical project guidance, independently of agent role prompts. */
 export function createAgentsPlugin(home: string): Plugin {
   const service: ServiceProvider = {
@@ -205,9 +132,69 @@ export function createAgentsPlugin(home: string): Plugin {
   };
   return {
     id: "agents",
-    toolMiddlewareAfter: ["approval"],
     services: () => [service],
-    contextSources: () => [source],
-    toolMiddleware: () => [middleware],
+    async contextItems(ctx, boundary) {
+      const targets =
+        boundary.type === "tools"
+          ? boundary.calls
+              .map((call) => ({ call, paths: fileTargetsOfValidatedCall(call) }))
+              .filter(({ paths }) => paths.length)
+          : [];
+      if (boundary.type === "tools" && !targets.length) return [];
+      const { home, workspace } = await instructionsOf(ctx).roots();
+      const directories = new Set<string>();
+      if (boundary.type === "tools") {
+        if (!workspace) return [];
+        for (const { call, paths } of targets) {
+          const outside = executionServiceOf(ctx).classify(call) !== "in-workspace";
+          for (const directory of await forTargets(workspace, paths, outside))
+            directories.add(directory);
+        }
+      } else {
+        directories.add(home);
+        if (workspace) for (const dir of ancestorDirectories(workspace)) directories.add(dir);
+      }
+      const known = new Map<string, { path: string; digest: string }>();
+      for (const item of await ctx.active()) {
+        if (item.type !== "plugin_data" || item.plugin !== "agents") continue;
+        const { path, digest } = item.data as { path: string; digest: string | null };
+        if (digest === null) known.delete(canonicalKey(path));
+        else known.set(canonicalKey(path), { path, digest });
+      }
+      const output: PluginContextItem[] = [];
+      const notice = (path: string, digest: string | null, text: string) => {
+        output.push(
+          { type: "context", key: canonicalKey(path), content: [{ type: "text", text }] },
+          { type: "plugin_data", data: { path, digest } },
+        );
+      };
+      const checked = new Set<string>();
+      for (const directory of directories) {
+        const file = await readInstruction(directory);
+        const path = file?.path ?? resolve(directory, INSTRUCTION_FILE);
+        const key = canonicalKey(path);
+        if (checked.has(key)) continue;
+        checked.add(key);
+        const digest = file ? createHash("sha256").update(file.content).digest("hex") : null;
+        if ((known.get(key)?.digest ?? null) === digest) continue;
+        notice(
+          path,
+          digest,
+          file
+            ? renderInstruction(file, canonicalKey(directory) === canonicalKey(home))
+            : `AGENTS.md removed: ${path}. Its earlier instructions no longer apply.`,
+        );
+      }
+      if (boundary.type === "workspace") {
+        for (const [key, { path }] of known)
+          if (!checked.has(key) && !(workspace && isWithin(workspace, path)))
+            notice(
+              path,
+              null,
+              `AGENTS.md left workspace scope: ${path}. Its earlier instructions no longer apply.`,
+            );
+      }
+      return output;
+    },
   };
 }

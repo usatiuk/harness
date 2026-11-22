@@ -1,3 +1,4 @@
+import { requestGuidance } from "@harness/testkit";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -110,18 +111,24 @@ describe("execution + approval pipeline", () => {
     await svc.send(conv.id, "go");
     await svc.whenIdle(conv.id);
 
-    expect(textOf(provider.requests[0]!.instructions)).toContain("root guidance");
+    expect(textOf(requestGuidance(provider.requests[0]))).toContain("root guidance");
     expect(
       provider.requests[1]!.items.some(
         ({ item }) => item.type === "context" && textOf(item.content).includes("nested guidance"),
       ),
     ).toBe(true);
-    const contexts = (await svc.getItems(conv.id)).filter((item) => item.type === "context");
+    const contexts = (await svc.getItems(conv.id)).filter(
+      (item) =>
+        item.type === "context" &&
+        item.key.toLowerCase().replaceAll("\\", "/").endsWith("/src/agents.md"),
+    );
     expect(contexts).toHaveLength(1);
     const items = await svc.getItems(conv.id);
-    expect(items.findIndex((item) => item.type === "context")).toBeGreaterThan(
-      items.findIndex((item) => item.type === "tool_result"),
-    );
+    expect(
+      items.findIndex(
+        (item) => item.type === "context" && textOf(item.content).includes("nested guidance"),
+      ),
+    ).toBeGreaterThan(items.findIndex((item) => item.type === "tool_result"));
   });
 
   it("snapshots initial instructions independently for each conversation cwd", async () => {
@@ -141,10 +148,10 @@ describe("execution + approval pipeline", () => {
     await svc.send(secondConversation.id, "go");
     await svc.whenIdle(secondConversation.id);
 
-    expect(textOf(provider.requests[0]!.instructions)).toContain("first guidance");
-    expect(textOf(provider.requests[0]!.instructions)).not.toContain("second guidance");
-    expect(textOf(provider.requests[1]!.instructions)).toContain("second guidance");
-    expect(textOf(provider.requests[1]!.instructions)).not.toContain("first guidance");
+    expect(textOf(requestGuidance(provider.requests[0]))).toContain("first guidance");
+    expect(textOf(requestGuidance(provider.requests[0]))).not.toContain("second guidance");
+    expect(textOf(requestGuidance(provider.requests[1]))).toContain("second guidance");
+    expect(textOf(requestGuidance(provider.requests[1]))).not.toContain("first guidance");
   });
 
   it("takes a fresh initial snapshot when a conversation resumes in a new service", async () => {
@@ -161,8 +168,8 @@ describe("execution + approval pipeline", () => {
     await resumed.svc.send(conv.id, "continue");
     await resumed.svc.whenIdle(conv.id);
 
-    expect(textOf(resumed.provider.requests[0]!.instructions)).toContain("version two");
-    expect(textOf(resumed.provider.requests[0]!.instructions)).not.toContain("version one");
+    expect(textOf(requestGuidance(resumed.provider.requests[0]))).toContain("version two");
+    expect(textOf(requestGuidance(resumed.provider.requests[0]))).toContain("version one");
   });
 
   it("auto-runs an in-workspace write without prompting, and actually writes the file", async () => {
@@ -240,7 +247,11 @@ describe("execution + approval pipeline", () => {
     await svc.send(conv.id, "go");
     await svc.whenIdle(conv.id);
 
-    expect((await svc.getItems(conv.id)).some((item) => item.type === "context")).toBe(false);
+    expect(
+      (await svc.getItems(conv.id)).some(
+        (item) => item.type === "context" && item.key.startsWith("agents-md:"),
+      ),
+    ).toBe(false);
   });
 
   it("does not load nested instructions for invalid or unavailable file calls", async () => {
@@ -257,7 +268,11 @@ describe("execution + approval pipeline", () => {
     await svc.send(conv.id, "go");
     await svc.whenIdle(conv.id);
 
-    expect((await svc.getItems(conv.id)).some((item) => item.type === "context")).toBe(false);
+    expect(
+      (await svc.getItems(conv.id)).some(
+        (item) => item.type === "context" && item.key.startsWith("agents-md:"),
+      ),
+    ).toBe(false);
   });
 
   it("reloads nested instructions after compaction removes their active marker", async () => {
@@ -284,12 +299,18 @@ describe("execution + approval pipeline", () => {
 
     await svc.send(conv.id, "first");
     await svc.whenIdle(conv.id);
+    const priorRequests = provider.requests.length;
+    await writeFile(join(home, "AGENTS.md"), "updated personal guidance");
     expect(await svc.compact(conv.id)).toBe("compacted");
     await writeFile(instructions, "version two");
     await svc.send(conv.id, "second");
     await svc.whenIdle(conv.id);
 
-    const contexts = (await svc.getItems(conv.id)).filter((item) => item.type === "context");
+    const contexts = (await svc.getItems(conv.id)).filter(
+      (item) =>
+        item.type === "context" &&
+        item.key.toLowerCase().replaceAll("\\", "/").endsWith("/src/agents.md"),
+    );
     expect(contexts).toHaveLength(2);
     expect(contexts[1]!.type === "context" && textOf(contexts[1]!.content)).toContain(
       "version two",
@@ -301,9 +322,12 @@ describe("execution + approval pipeline", () => {
           ({ item }) => item.type === "context" && textOf(item.content).includes("version two"),
         ),
     ).toBe(true);
-    for (const request of provider.requests) {
-      expect(request.instructions).toEqual(provider.requests[0]!.instructions);
-      expect(textOf(request.instructions).match(/stable personal guidance/gu)).toHaveLength(1);
+    for (const [index, request] of provider.requests.entries()) {
+      expect(request.items[0]?.item).toMatchObject({ type: "message", role: "system" });
+      const guidance = textOf(requestGuidance(request));
+      expect(guidance.match(/(?:stable|updated) personal guidance/gu)).toEqual([
+        index < priorRequests ? "stable personal guidance" : "updated personal guidance",
+      ]);
     }
   });
 
@@ -339,14 +363,18 @@ describe("execution + approval pipeline", () => {
     await svc.send(conv.id, "second");
     await svc.whenIdle(conv.id);
 
-    const contexts = (await svc.getItems(conv.id)).filter((item) => item.type === "context");
+    const contexts = (await svc.getItems(conv.id)).filter(
+      (item) =>
+        item.type === "context" &&
+        item.key.toLowerCase().replaceAll("\\", "/").endsWith("/src/agents.md"),
+    );
     expect(contexts).toHaveLength(1);
     expect(contexts[0]!.type === "context" && textOf(contexts[0]!.content)).toContain(
       "version two",
     );
     for (const request of provider.requests) {
-      expect(request.instructions).toEqual(provider.requests[0]!.instructions);
-      expect(textOf(request.instructions).match(/stable personal guidance/gu)).toHaveLength(1);
+      expect(request.items[0]?.item).toMatchObject({ type: "message", role: "system" });
+      expect(textOf(requestGuidance(request)).match(/stable personal guidance/gu)).toHaveLength(1);
     }
   });
 

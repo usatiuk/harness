@@ -28,7 +28,6 @@ it("sends an invocation cap instead of a compatible model/preset default", async
   const invocation = (async () => {
     for await (const event of provider.stream(
       {
-        instructions: [],
         items: [],
         maxOutputTokens: 4096,
         modelConfig: { provider: "local", model: "coding", preset: "short" },

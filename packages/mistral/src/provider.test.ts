@@ -1,6 +1,12 @@
+import { inlineMessage } from "@harness/protocol";
 import { PRODUCT_VERSION } from "@harness/release";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ConversationId, Item, ModelRequest, ModelStreamEvent } from "@harness/protocol";
+import type {
+  ConversationId,
+  ModelHistoryItem as Item,
+  ModelRequest,
+  ModelStreamEvent,
+} from "@harness/protocol";
 import { ContextWindowExceededError, ModelDiscoveryError } from "@harness/protocol";
 import { httpGateway, json, sse } from "../../litellm/src/http-fixture.ts";
 import { MistralProvider } from "./provider.ts";
@@ -31,9 +37,11 @@ const vibeRow = {
 const catalog = (mode: "api" | "vibe") =>
   mode === "api" ? { data: [apiRow] } : { models: [vibeRow] };
 const request = (mode: "api" | "vibe" = "vibe"): ModelRequest => ({
-  instructions: [{ type: "text", text: "Stable system" }],
-  items: [],
-  prompt: "Use echo",
+  items: [
+    inlineMessage("system", [{ type: "text", text: "Stable system" }]),
+    inlineMessage("user", "Use echo"),
+  ],
+
   tools: [
     {
       kind: "function",
@@ -65,14 +73,7 @@ function item(fields: Record<string, unknown>, seq: number): Item {
   } as Item;
 }
 function continuation(first: ModelStreamEvent[], base: ModelRequest): ModelRequest {
-  const items: ModelRequest["items"] = [
-    {
-      item: item(
-        { type: "message", role: "user", content: [{ type: "text", text: base.prompt }] },
-        0,
-      ),
-    },
-  ];
+  const items: ModelRequest["items"] = [...base.items];
   for (const event of first) {
     if (event.type !== "message" && event.type !== "reasoning" && event.type !== "tool_call")
       continue;
@@ -100,7 +101,6 @@ function continuation(first: ModelStreamEvent[], base: ModelRequest): ModelReque
         ),
       });
   const next = { ...base, items };
-  delete next.prompt;
   return next;
 }
 async function fixture(
@@ -183,7 +183,7 @@ describe("Mistral Responses", () => {
       for (const { body } of posts) {
         expect(body).toMatchObject({
           model: "coding",
-          instructions: "Stable system",
+
           prompt_cache_key: context.conversationId,
           temperature: mode === "api" ? 0.3 : 0.2,
           max_output_tokens: 256,
@@ -194,6 +194,7 @@ describe("Mistral Responses", () => {
         if (mode === "vibe") expect(body.reasoning).toEqual({ effort: "high" });
       }
       expect(posts[1]!.body.input).toMatchObject([
+        { role: "developer", content: "Stable system" },
         { role: "user" },
         reasoning,
         { type: "function_call", call_id: call.call_id, arguments: call.arguments },
@@ -439,8 +440,8 @@ describe("Mistral catalog boundary", () => {
 
 it("preserves imported IDs exactly and leaves selected context at its original cache position", async () => {
   const base = request("api");
-  delete base.prompt;
   base.items = [
+    inlineMessage("system", "Stable system"),
     {
       item: item({ type: "message", role: "user", content: [{ type: "text", text: "start" }] }, 0),
     },
@@ -468,12 +469,12 @@ it("preserves imported IDs exactly and leaves selected context at its original c
   await collect(provider, base);
   const wire = gateway.requests.at(-1)!.body;
   const input = wire.input as unknown[];
-  expect(wire.instructions).toBe("Stable system");
-  expect(input.at(-1)).toEqual({ role: "developer", content: "changes" });
+  expect(input[0]).toEqual({ role: "developer", content: "Stable system" });
+  expect(input.at(-1)).toEqual({ role: "user", content: "changes" });
   const id = "other-provider-id";
 
-  expect(input[1]).toMatchObject({ type: "function_call", call_id: id });
-  expect(input[2]).toMatchObject({ type: "function_call_output", call_id: id });
+  expect(input[2]).toMatchObject({ type: "function_call", call_id: id });
+  expect(input[3]).toMatchObject({ type: "function_call_output", call_id: id });
   expect(gateway.requests.at(-2)?.body).toEqual(wire);
 });
 

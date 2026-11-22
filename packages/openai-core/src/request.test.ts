@@ -1,6 +1,7 @@
+import { inlineMessage } from "@harness/protocol";
 import { describe, expect, it } from "vitest";
 import type OpenAI from "openai";
-import type { Item, ModelRequest, ProviderPayload } from "@harness/protocol";
+import type { ModelHistoryItem as Item, ModelRequest, ProviderPayload } from "@harness/protocol";
 import { buildResponseParams, buildChatParams } from "./request.ts";
 
 const REASONING = { effort: "medium", summary: "auto" } as const satisfies OpenAI.Reasoning;
@@ -19,12 +20,11 @@ const reasoningPayload = (model: string): ProviderPayload => ({
 });
 
 const baseRequest = (items: ModelRequest["items"]): ModelRequest => ({
-  instructions: [{ type: "text", text: "be nice" }],
   modelConfig: { provider: "openai", model: "gpt-x" },
   tools: [
     { kind: "function", name: "echo", description: "echoes", parameters: { type: "object" } },
   ],
-  items,
+  items: [inlineMessage("system", [{ type: "text", text: "be nice" }]), ...items],
 });
 
 describe("buildResponseParams", () => {
@@ -42,8 +42,13 @@ describe("buildResponseParams", () => {
         payload: { ...reasoningPayload("gpt-x"), type: "response_output", payload: native },
       },
     ]);
-    expect(buildResponseParams(request, undefined, "openai", false).input).toEqual([native]);
-    expect(buildResponseParams(request, undefined, "other", false).input).toEqual([]);
+    expect(buildResponseParams(request, undefined, "openai", false).input).toEqual([
+      { role: "developer", content: "be nice" },
+      native,
+    ]);
+    expect(buildResponseParams(request, undefined, "other", false).input).toEqual([
+      { role: "developer", content: "be nice" },
+    ]);
     expect(buildResponseParams(request, undefined, "openai").include).toEqual([
       "reasoning.encrypted_content",
     ]);
@@ -68,6 +73,7 @@ describe("buildResponseParams", () => {
       false,
     );
     expect(params.input).toEqual([
+      { role: "developer", content: "be nice" },
       { role: "assistant", content: "Tool apply_patch: PATCH" },
       { role: "user", content: "applied" },
     ]);
@@ -88,6 +94,7 @@ describe("buildResponseParams", () => {
       ]);
       const input = buildResponseParams(request, undefined, "openai", false).input;
       expect(input).toEqual([
+        { role: "developer", content: "be nice" },
         {
           role: "assistant",
           content: "partial",
@@ -113,24 +120,6 @@ describe("buildResponseParams", () => {
     expect(
       buildResponseParams(baseRequest([]), undefined, "openai", false).tools,
     ).not.toContainEqual({ type: "web_search" });
-  });
-
-  it("never sends display-only search hints or their historical metadata", () => {
-    const request = baseRequest([
-      {
-        item: item({
-          type: "provider_output",
-          content: [{ type: "text", text: "Searched SECRET" }],
-        }),
-        payload: {
-          ...reasoningPayload("gpt-x"),
-          type: "response_output",
-          payload: { type: "web_search_call", id: "search", status: "in_progress" },
-        },
-      },
-    ]);
-    expect(buildResponseParams(request, undefined, "openai", false).input).toEqual([]);
-    expect(buildChatParams(request).messages).toEqual([{ role: "system", content: "be nice" }]);
   });
 
   it("omits reasoning controls unless the connection requests them", () => {
@@ -159,7 +148,7 @@ describe("buildResponseParams", () => {
     const params = buildResponseParams(request, REASONING, "openai", true);
 
     expect(params.model).toBe("gpt-x");
-    expect(params.instructions).toBe("be nice");
+    expect(params.instructions).toBeUndefined();
     expect(params.stream).toBe(true);
     expect(params.store).toBe(false);
     expect(params.include).toEqual(["reasoning.encrypted_content"]);
@@ -174,6 +163,7 @@ describe("buildResponseParams", () => {
       },
     ]);
     expect(params.input).toEqual([
+      { role: "developer", content: "be nice" },
       { role: "user", content: "hi" },
       {
         type: "reasoning",
@@ -189,8 +179,7 @@ describe("buildResponseParams", () => {
   it("appends a non-durable prompt and preserves tools while disabling calls", () => {
     const params = buildResponseParams(
       {
-        ...baseRequest([]),
-        prompt: "compact now",
+        ...baseRequest([inlineMessage("user", "compact now")]),
         toolChoice: "none",
         maxOutputTokens: 4096,
       },
@@ -198,7 +187,10 @@ describe("buildResponseParams", () => {
       "openai",
       true,
     );
-    expect(params.input).toEqual([{ role: "user", content: "compact now" }]);
+    expect(params.input).toEqual([
+      { role: "developer", content: "be nice" },
+      { role: "user", content: "compact now" },
+    ]);
     expect(params.tool_choice).toBe("none");
     expect(params.tools).toHaveLength(1);
     expect(params.max_output_tokens).toBe(4096);
@@ -215,7 +207,10 @@ describe("buildResponseParams", () => {
       "openai",
       true,
     );
-    expect(params.input).toEqual([{ role: "user", content: "the story so far" }]);
+    expect(params.input).toEqual([
+      { role: "developer", content: "be nice" },
+      { role: "user", content: "the story so far" },
+    ]);
   });
 
   it("maps a context item to a developer message", () => {
@@ -233,7 +228,10 @@ describe("buildResponseParams", () => {
       "openai",
       true,
     );
-    expect(params.input).toEqual([{ role: "developer", content: "project rules" }]);
+    expect(params.input).toEqual([
+      { role: "developer", content: "be nice" },
+      { role: "user", content: "project rules" },
+    ]);
   });
 
   it("keeps a following context item after the function-call output", () => {
@@ -262,9 +260,10 @@ describe("buildResponseParams", () => {
     );
 
     expect(params.input).toEqual([
+      { role: "developer", content: "be nice" },
       { type: "function_call", call_id: "c", name: "echo", arguments: "{}" },
       { type: "function_call_output", call_id: "c", output: "ok" },
-      { role: "developer", content: "rules" },
+      { role: "user", content: "rules" },
     ]);
   });
 
@@ -285,8 +284,8 @@ describe("buildResponseParams", () => {
       true,
     );
 
-    expect(noPayload.input).toEqual([]);
-    expect(wrongProvider.input).toEqual([]);
+    expect(noPayload.input).toEqual([{ role: "developer", content: "be nice" }]);
+    expect(wrongProvider.input).toEqual([{ role: "developer", content: "be nice" }]);
   });
 
   it("skips a reasoning item whose payload was bound to a different model", () => {
@@ -298,7 +297,7 @@ describe("buildResponseParams", () => {
       "openai",
       true,
     );
-    expect(params.input).toEqual([]);
+    expect(params.input).toEqual([{ role: "developer", content: "be nice" }]);
   });
 
   describe("freeform tools (apply_patch)", () => {
@@ -348,6 +347,7 @@ describe("buildResponseParams", () => {
         true,
       );
       expect(params.input).toEqual([
+        { role: "developer", content: "be nice" },
         { type: "custom_tool_call", call_id: "call_p", name: "apply_patch", input: patch },
         { type: "custom_tool_call_output", call_id: "call_p", output: "updated a.ts" },
       ]);
@@ -367,6 +367,7 @@ describe("buildResponseParams", () => {
         true,
       );
       expect(params.input).toEqual([
+        { role: "developer", content: "be nice" },
         {
           type: "function_call",
           call_id: "call_p",
@@ -408,6 +409,7 @@ describe("image request mapping", () => {
     request.tools!.push({ kind: "custom", name: "patch", description: "patch" });
     const input = buildResponseParams(request, undefined, "openai", false).input;
     expect(input).toEqual([
+      { role: "developer", content: "be nice" },
       { role: "user", content: [native] },
       { type: "function_call", call_id: "f", name: "echo", arguments: "{}" },
       { type: "function_call_output", call_id: "f", output: [native] },
@@ -555,7 +557,7 @@ describe("tool results separated by hoisted context", () => {
     );
     const before = structuredClone(request);
     const messages = buildChatParams(request).messages;
-    expect(messages[0]).toEqual({ role: "system", content: "be nice\n\nProject instructions" });
+    expect(messages[0]).toEqual({ role: "system", content: "be nice" });
     const callIndex = messages.findIndex(
       (message) => message.role === "assistant" && message.tool_calls?.length,
     );
@@ -566,4 +568,29 @@ describe("tool results separated by hoisted context", () => {
     expect(messages.slice(callIndex + 3).every((message) => message.role === "user")).toBe(true);
     expect(request).toEqual(before);
   });
+});
+
+it("preserves prior request content when an instruction edit arrives on the next turn", () => {
+  const request = baseRequest([inlineMessage("user", "first turn")]);
+  const first = buildChatParams(request);
+  request.items.push(
+    {
+      item: item({ type: "message", role: "assistant", content: [{ type: "text", text: "done" }] }),
+    },
+    {
+      item: item({
+        type: "context",
+        key: "agents-md:project",
+        content: [{ type: "text", text: "changed instructions" }],
+      }),
+    },
+    inlineMessage("user", "continue"),
+  );
+  const next = buildChatParams(request);
+  const prefix = next.messages.slice(0, first.messages.length);
+  expect(prefix).toEqual(first.messages);
+  expect(next.tools).toEqual(first.tools);
+  expect(
+    JSON.stringify(next.messages.slice(first.messages.length)).match(/changed instructions/g),
+  ).toHaveLength(1);
 });

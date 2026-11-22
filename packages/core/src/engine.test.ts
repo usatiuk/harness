@@ -1,3 +1,5 @@
+import { auxiliaryPrompt, requestGuidance } from "@harness/testkit";
+import { inlineMessage } from "@harness/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -144,18 +146,21 @@ const toolResults = (items: Item[]) =>
   items.filter((i): i is Extract<Item, { type: "tool_result" }> => i.type === "tool_result");
 
 /** A compact, order-preserving fingerprint of the item log for assertions. */
-const shapeOf = (items: Item[]): string[] =>
-  items.map((i) => {
-    if (i.type === "message") return `${i.role}:${textOf(i.content)}`;
-    if (i.type === "reasoning") return `reasoning:${textOf(i.content)}`;
-    if (i.type === "provider_output") return `provider:${textOf(i.content)}`;
-    if (i.type === "tool_call") return `call:${i.callId}`;
-    if (i.type === "compaction") return `compaction:${textOf(i.content)}`;
-    if (i.type === "context") return `context:${i.key}`;
-    return `result:${i.callId}`;
-  });
+const shapeOf = (items: (Item | import("@harness/protocol").InlineMessage)[]): string[] =>
+  items
+    .filter((i) => i.type !== "message" || i.role !== "system")
+    .map((i) => {
+      if (i.type === "message") return `${i.role}:${textOf(i.content)}`;
+      if (i.type === "reasoning") return `reasoning:${textOf(i.content)}`;
+      if (i.type === "provider_output") return `provider:${textOf(i.content)}`;
+      if (i.type === "tool_call") return `call:${i.callId}`;
+      if (i.type === "compaction") return `compaction:${textOf(i.content)}`;
+      if (i.type === "plugin_data") return "plugin_data";
+      if (i.type === "context") return `context:${i.key}`;
+      return `result:${i.callId}`;
+    });
 
-const userTexts = (items: Item[]): string[] =>
+const userTexts = (items: (Item | import("@harness/protocol").InlineMessage)[]): string[] =>
   items
     .filter(
       (i): i is Extract<Item, { type: "message" }> => i.type === "message" && i.role === "user",
@@ -398,9 +403,11 @@ describe("Engine — turn cycle", () => {
         fallbackCompaction({
           conversationId: conversation.id,
           purpose: "agent",
-          instructions: [],
+
           tools: [],
-          items: items.map((item) => ({ item })),
+          items: items
+            .filter((item) => item.type !== "plugin_data" && item.type !== "provider_output")
+            .map((item) => ({ item })),
         }),
       ),
     ).not.toContain("SECRET");
@@ -412,7 +419,7 @@ describe("Engine — turn cycle", () => {
     await expect(engine.compact(conversation.id)).resolves.toBe("compacted");
     expect(provider.requests).toHaveLength(3);
     for (const request of provider.requests) {
-      expect(request.items.some(({ item }) => item.type === "provider_output")).toBe(false);
+      expect(request.items.map(({ item }) => item.type)).not.toContain("provider_output");
       expect(JSON.stringify(request)).not.toContain("SECRET");
       expect(request.providerOptions).toEqual({ webSearch: true });
     }
@@ -620,17 +627,12 @@ describe("Engine — turn cycle", () => {
           },
         },
       ],
-      contextSources: () => [
-        {
-          id: "gated-context",
-          instructions: async (ctx) => {
-            entered();
-            await gate;
-            ctx.service("owned");
-            return [];
-          },
-        },
-      ],
+      windowInstructions: async (ctx) => {
+        entered();
+        await gate;
+        ctx.service("owned");
+        return [];
+      },
     });
     const conversation = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conversation.id, userInput("go"));
@@ -984,7 +986,13 @@ describe("Engine — turn cycle", () => {
     await engine.whenIdle(conv.id);
 
     const items = await store.listOwnedItems(conv.id);
-    expect(items.map((i) => i.type)).toEqual(["message", "tool_call", "tool_result", "message"]);
+    expect(items.map((i) => i.type)).toEqual([
+      "message",
+      "message",
+      "tool_call",
+      "tool_result",
+      "message",
+    ]);
     const [result] = toolResults(items);
     expect(result?.status).toBe("ok");
     expect(result?.content).toEqual([{ type: "text", text: JSON.stringify({ x: 1 }) }]);
@@ -992,6 +1000,7 @@ describe("Engine — turn cycle", () => {
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
     expect(events.map((e) => e.type).filter((t) => t !== "inbox")).toEqual([
       "turn.status",
+      "item.appended",
       "item.appended",
       "item.appended",
       "usage.changed",
@@ -1840,7 +1849,7 @@ class CapacityProvider implements ModelProvider {
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
     this.requests.push(request);
-    const input = this.#cursor === 0 ? 7_900 : request.prompt ? 8_000 : 100;
+    const input = this.#cursor === 0 ? 7_900 : auxiliaryPrompt(request) ? 8_000 : 100;
     const output = request.maxOutputTokens ?? 2_000;
     this.budgets.push({ input, output });
     if (input + output > 10_000) throw new ContextWindowExceededError();
@@ -1903,7 +1912,7 @@ describe("Engine — rewind", () => {
   });
 });
 
-const compactions = (items: Item[]) =>
+const compactions = (items: (Item | import("@harness/protocol").InlineMessage)[]) =>
   items.filter((i): i is Extract<Item, { type: "compaction" }> => i.type === "compaction");
 
 describe("Engine — compaction", () => {
@@ -1967,7 +1976,10 @@ describe("Engine — compaction", () => {
     await engine.deliver(conversation.id, userInput("run"));
     await engine.whenIdle(conversation.id);
     expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(1);
-    expect(provider.requests[0]!.items.map(({ item }) => item.type)).toEqual(["compaction"]);
+    expect(provider.requests[0]!.items.map(({ item }) => item.type)).toEqual([
+      "message",
+      "compaction",
+    ]);
   });
   it.each([{}, { contextWindow: 10000 }, { maxInputTokens: 8000 }, { maxOutputTokens: 1000 }])(
     "honors an explicit threshold with incomplete capacity metadata %j",
@@ -1991,7 +2003,7 @@ describe("Engine — compaction", () => {
       await engine.deliver(conversation.id, userInput("second"));
       await engine.whenIdle(conversation.id);
       expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(1);
-      expect(provider.requests[1]!.items[0]!.item.type).toBe("compaction");
+      expect(provider.requests[1]!.items[1]!.item.type).toBe("compaction");
     },
   );
   it.each([
@@ -2126,7 +2138,10 @@ describe("Engine — compaction", () => {
     expect(provider.requests).toHaveLength(3);
     expect(
       provider.requests.slice(1).map((request) => request.items.map(({ item }) => item.type)),
-    ).toEqual([["compaction"], ["compaction"]]);
+    ).toEqual([
+      ["message", "compaction"],
+      ["message", "compaction"],
+    ]);
   });
 
   it("does not reuse a context checkpoint from another model", async () => {
@@ -2260,7 +2275,7 @@ describe("Engine — compaction", () => {
 
     // Exactly one fold (the window first exceeded 3 on turn 3), and an event for it.
     const folds = compactions(await store.listOwnedItems(conv.id));
-    expect(folds.map((f) => textOf(f.content))).toEqual(["summary of 5 items"]);
+    expect(folds.map((f) => textOf(f.content))).toEqual(["summary of 6 items"]);
     expect(
       events.filter(
         (event) =>
@@ -2272,11 +2287,11 @@ describe("Engine — compaction", () => {
 
     // The build right after the fold starts at the summary alone.
     expect(shapeOf(provider.requests[2]!.items.map((i) => i.item))).toEqual([
-      "compaction:summary of 5 items",
+      "compaction:summary of 6 items",
     ]);
     // The next turn's window is [summary, ...newer] and never re-folds.
     expect(shapeOf(provider.requests[3]!.items.map((i) => i.item))).toEqual([
-      "compaction:summary of 5 items",
+      "compaction:summary of 6 items",
       "assistant:three",
       "user:fourth",
     ]);
@@ -2436,7 +2451,7 @@ describe("Engine — compaction", () => {
         {
           id: "record-compaction",
           wrap(request, _ctx, next) {
-            middlewarePrompts.push(request.prompt);
+            middlewarePrompts.push(auxiliaryPrompt(request));
             return next(request);
           },
         },
@@ -2452,9 +2467,9 @@ describe("Engine — compaction", () => {
     expect(provider.requests).toHaveLength(3);
     expect(middlewarePrompts).toEqual([undefined, expect.stringMatching(/compacting/i), undefined]);
     const [normal, compact, continued] = provider.requests;
-    expect(compact!.instructions).toEqual(normal!.instructions);
+    expect(requestGuidance(compact)).toEqual(requestGuidance(normal));
     expect(compact!.tools).toEqual(normal!.tools);
-    expect(compact!.prompt).toMatch(/compacting/i);
+    expect(auxiliaryPrompt(compact)).toMatch(/compacting/i);
     expect(compact!.items.find((entry) => entry.item.type === "reasoning")?.payload).toMatchObject(
       priorPayload,
     );
@@ -2682,7 +2697,6 @@ describe("Engine — compaction", () => {
           compaction: {
             async compact(input) {
               await input.models.invoke({
-                instructions: [],
                 items: [],
                 modelConfig: { provider: "fake", model: "missing" },
               });
@@ -2708,18 +2722,41 @@ describe("Engine — compaction", () => {
     expect(store.builds).toBe(0);
   });
 
+  it("keeps the opening instruction and accepted input when first-turn context fails", async () => {
+    let attempts = 0;
+    const { engine, store, events } = setup([textStep("recovered")], {
+      async windowInstructions() {
+        if (!attempts++) throw new Error("instruction read failed");
+        return [{ type: "text", text: "recovered guidance" }];
+      },
+    });
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    for (const input of ["first accepted", "retry"]) {
+      await engine.deliver(conv.id, userInput(input));
+      await engine.whenIdle(conv.id);
+    }
+    expect(turnStatuses(events)).toEqual(["running", "failed", "running", "completed"]);
+    const items = await store.listActiveItems(conv.id);
+    expect(items[0]).toMatchObject({ type: "message", role: "system" });
+    expect(
+      items.flatMap((item) =>
+        item.type === "message" && item.role === "user" ? [textOf(item.content)] : [],
+      ),
+    ).toEqual(["first accepted", "retry"]);
+    expect(
+      items.some(
+        (item) => item.type === "context" && textOf(item.content).includes("recovered guidance"),
+      ),
+    ).toBe(true);
+  });
+
   it("fails and closes a manual turn when post-creation context setup throws", async () => {
     let contextReads = 0;
-    const { store, engine, events } = setup([textStep("recovered")], {
-      contextSources: () => [
-        {
-          id: "fails-once",
-          async instructions() {
-            if (contextReads++ === 0) throw new Error("context setup failed");
-            return [];
-          },
-        },
-      ],
+    const { store, engine, events } = setup([textStep("summary"), textStep("recovered")], {
+      async windowInstructions() {
+        if (contextReads++ === 0) throw new Error("context setup failed");
+        return [];
+      },
       policies: () => ({ compaction: modelCompaction }),
     });
     const conv = await store.createConversation(newConversationInput(CONFIG));
@@ -2783,17 +2820,12 @@ describe("Engine — compaction", () => {
     let release!: () => void;
     const contextStarted = new Promise<void>((resolve) => (started = resolve));
     const contextGate = new Promise<void>((resolve) => (release = resolve));
-    const { store, engine, events } = setup([], {
-      contextSources: () => [
-        {
-          id: "gated",
-          async instructions() {
-            started();
-            await contextGate;
-            return [];
-          },
-        },
-      ],
+    const { store, engine, events } = setup([textStep("summary")], {
+      async windowInstructions() {
+        started();
+        await contextGate;
+        return [];
+      },
       policies: () => ({ compaction: modelCompaction }),
     });
     const conv = await store.createConversation(newConversationInput(CONFIG));
@@ -2830,7 +2862,7 @@ describe("Engine — compaction", () => {
     await engine.whenIdle(conv.id);
 
     expect(provider.requests).toHaveLength(3);
-    expect(provider.requests[1]!.prompt).toMatch(/compacting/i);
+    expect(auxiliaryPrompt(provider.requests[1])).toMatch(/compacting/i);
     expect(provider.requests[1]!.maxOutputTokens).toBeLessThan(2_000);
     expect(provider.budgets.every(({ input, output }) => input + output <= 10_000)).toBe(true);
   });
@@ -2902,14 +2934,9 @@ describe("Engine — compaction", () => {
     };
     const { store, engine, events } = setup([], {
       providers: () => [provider],
-      contextSources: () => [
-        {
-          id: "irreducible",
-          async instructions() {
-            return [{ type: "text" as const, text: "x".repeat(4_000) }];
-          },
-        },
-      ],
+      async windowInstructions() {
+        return [{ type: "text" as const, text: "x".repeat(4_000) }];
+      },
       policies: () => ({
         compaction: {
           async compact() {
@@ -3004,8 +3031,9 @@ describe("Engine — compaction", () => {
 
       expect(requests).toHaveLength(3);
       expect(
-        requests.every((request) =>
-          request.items.every(({ item }) => item.type !== "provider_output"),
+        requests.every(
+          (request) =>
+            !request.items.map(({ item }) => String(item.type)).includes("provider_output"),
         ),
       ).toBe(true);
       expect(requests[1]!.maxOutputTokens).toBeUndefined();
@@ -3232,23 +3260,20 @@ const recConfig = { instructions: "", model: { provider: "rec", model: "m1" } };
 
 /** Injects a keyed context item the first time `echo` is called; dedups by scanning
  *  the active window. */
-const injectorMw = (key: string, text: string): ToolMiddleware => ({
-  id: "injector",
-  async wrap(call, ctx, next) {
-    const result = await next(call);
-    if (call.name === "echo") {
-      const present = (await ctx.active()).some((i) => i.type === "context" && i.key === key);
-      if (!present) await ctx.appendContext(key, [{ type: "text", text }]);
-    }
-    return result;
-  },
-});
+const injector =
+  (key: string, text: string): NonNullable<Plugin["contextItems"]> =>
+  async (ctx, boundary) =>
+    boundary.type === "tools" &&
+    boundary.calls.some((call) => call.name === "echo") &&
+    !(await ctx.active()).some((item) => item.type === "context" && item.key === key)
+      ? [{ type: "context", key, content: [{ type: "text", text }] }]
+      : [];
 
 describe("Engine — context injection", () => {
   it("injects a keyed context item once across repeated triggering calls", async () => {
     const { store, engine } = setup(
       [toolStep("c1", "echo", {}), toolStep("c2", "echo", {}), textStep("done")],
-      { toolMiddleware: () => [injectorMw("ctx", "RULES")] },
+      { contextItems: injector("ctx", "RULES") },
     );
     const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
@@ -3273,7 +3298,7 @@ describe("Engine — context injection", () => {
       { type: "completed", usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 } },
     ];
     const { store, engine } = setup([parallel, textStep("done")], {
-      toolMiddleware: () => [injectorMw("ctx", "RULES")],
+      contextItems: injector("ctx", "RULES"),
     });
     const conv = await store.createConversation(newConversationInput(CONFIG));
 
@@ -3293,7 +3318,7 @@ describe("Engine — context injection", () => {
 
   it("keeps context earned before an interrupt triggered by tool completion", async () => {
     const { store, engine } = setup([toolStep("c1", "echo", {}), textStep("continued")], {
-      toolMiddleware: () => [injectorMw("ctx", "RULES")],
+      contextItems: injector("ctx", "RULES"),
     });
     const conv = await store.createConversation(newConversationInput(CONFIG));
     let interrupt: Promise<void> | undefined;
@@ -3326,7 +3351,7 @@ describe("Engine — context injection", () => {
   it("re-injects context after a rewind drops it from the active chain", async () => {
     const { store, engine } = setup(
       [toolStep("c1", "echo", {}), textStep("done"), toolStep("c2", "echo", {}), textStep("done2")],
-      { toolMiddleware: () => [injectorMw("ctx", "RULES")] },
+      { contextItems: injector("ctx", "RULES") },
     );
     const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
@@ -3486,7 +3511,6 @@ describe("Engine — model middleware", () => {
           async compact(input) {
             const result = await input.models.invoke(
               {
-                instructions: [],
                 items: [],
                 modelConfig: { provider: "fake", model: "fake-1" },
               },
@@ -3520,7 +3544,7 @@ describe("Engine — model middleware", () => {
       const middleware: ModelMiddleware = {
         id: "invoker-accounting",
         async *wrap(request, _context, next) {
-          if (request.prompt !== "compact") {
+          if (auxiliaryPrompt(request) !== "compact") {
             if (++agentCalls === 1) throw new ContextWindowExceededError();
             yield* textStep("recovered");
             return;
@@ -3548,7 +3572,7 @@ describe("Engine — model middleware", () => {
           compaction: {
             async compact(input) {
               const result = await input.models.invoke(
-                { instructions: [], items: [], prompt: "compact", modelConfig: CONFIG.model },
+                { items: [inlineMessage("user", "compact")], modelConfig: CONFIG.model },
                 { purpose: "compaction" },
               );
               return { content: result.content };
@@ -3602,7 +3626,7 @@ describe("Engine — model middleware", () => {
             compaction: {
               async compact(input) {
                 const result = await input.models.invoke(
-                  { instructions: [], items: [], modelConfig: CONFIG.model },
+                  { items: [], modelConfig: CONFIG.model },
                   { purpose: "compaction" },
                 );
                 return { content: result.content };
@@ -3911,7 +3935,6 @@ describe("Engine — usage recording", () => {
               async wrap(_request, ctx) {
                 await ctx.models.invoke(
                   {
-                    instructions: [],
                     items: [],
                     modelConfig: { provider: "fake", model: "reviewer" },
                   },
@@ -4170,11 +4193,17 @@ it("binds buffered middleware output to its producing request rather than the la
     id: "buffered-attempts",
     async *wrap(request, _context, next) {
       const first: ModelStreamEvent[] = [];
-      for await (const event of next({ ...request, prompt: "first effective prompt" }))
+      for await (const event of next({
+        ...request,
+        items: [...request.items, inlineMessage("user", "first effective prompt")],
+      }))
         first.push(event);
       expect(first.at(-1)).toBe(firstStep.at(-1));
       expect(first.at(-1)).not.toHaveProperty("attempts");
-      for await (const event of next({ ...request, prompt: "second effective prompt" })) {
+      for await (const event of next({
+        ...request,
+        items: [...request.items, inlineMessage("user", "second effective prompt")],
+      })) {
         void event;
       }
       yield* first;
@@ -4204,7 +4233,7 @@ it("binds buffered middleware output to its producing request rather than the la
   const trace = (await store.getPluginState("model-evidence", conversation.id, link.attemptId)) as {
     request: ModelRequest;
   };
-  expect(trace.request.prompt).toBe("first effective prompt");
+  expect(auxiliaryPrompt(trace.request)).toBe("first effective prompt");
   expect((await store.listModelUsage(conversation.id)).map((row) => row.attempts)).toEqual([2]);
 });
 
@@ -4263,4 +4292,41 @@ it("isolates native capture for concurrent attempts sharing the same request obj
   };
   expect(trace.nativeRequest).toEqual({ messages: [{ role: "user", content: "native-1" }] });
   expect((await store.listModelUsage(conversation.id)).map((row) => row.attempts)).toEqual([2]);
+});
+
+it("opens a fresh window and appends only the data a plugin carries across compaction", async () => {
+  let base = "first base";
+  const { store, engine } = setup([textStep("done")], {
+    windowInstructions: async () => [{ type: "text", text: base }],
+    contextItems: async (_ctx, boundary) =>
+      boundary.type === "window" ? [{ type: "plugin_data", data: "fresh" }] : [],
+    onCompact: async (ctx) =>
+      (await ctx.active())
+        .filter((item) => item.type === "plugin_data")
+        .map((item) => ({ previous: item.data })),
+    policies: () => ({
+      compaction: { compact: async () => ({ content: [{ type: "text", text: "summary" }] }) },
+    }),
+  });
+  const conv = await store.createConversation(newConversationInput(CONFIG));
+  await engine.deliver(conv.id, userInput("go"));
+  await engine.whenIdle(conv.id);
+  const original = await store.listActiveItems(conv.id);
+  base = "updated base";
+  await engine.compact(conv.id);
+  const history = await store.listActiveItems(conv.id),
+    active = compactedWindow(history);
+  expect(history.slice(0, original.length)).toEqual(original);
+  expect(active.map((item) => item.type)).toEqual([
+    "message",
+    "context",
+    "plugin_data",
+    "compaction",
+    "plugin_data",
+  ]);
+  expect(active[0]).toMatchObject({
+    role: "system",
+  });
+  expect(active[1]?.type === "context" && textOf(active[1].content)).toContain("updated base");
+  expect(active.at(-1)).toMatchObject({ plugin: "fake", data: { previous: "fresh" } });
 });

@@ -17,7 +17,7 @@ const auth = {
 const conversationId = "credentials-test" as ConversationId;
 const request: ModelRequest = {
   modelConfig: { provider: CODEX_PROVIDER, model: "gpt-5.5" },
-  instructions: [],
+
   items: [],
 };
 type RetryReport = Parameters<ModelMiddlewareContext["reportRetry"]>[0];

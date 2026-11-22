@@ -1,3 +1,4 @@
+import { inlineMessage } from "@harness/protocol";
 import { expect, it } from "vitest";
 import type { ConversationId } from "@harness/protocol";
 import { httpGateway, sse } from "../../litellm/src/http-fixture.ts";
@@ -42,9 +43,8 @@ it.each([
       const captured: unknown[] = [];
       for await (const event of provider.stream(
         {
-          instructions: [],
-          items: [],
-          prompt: "Hello",
+          items: [inlineMessage("user", "Hello")],
+
           modelConfig: { provider: "router", model: "coding" },
         },
         AbortSignal.timeout(5000),

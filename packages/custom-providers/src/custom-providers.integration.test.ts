@@ -154,6 +154,7 @@ describe("custom provider public boundary", () => {
     );
     expect((await service.getItems(conversation.id)).map((item) => item.type)).toEqual([
       "message",
+      "message",
       "tool_call",
       "tool_result",
       "message",
@@ -214,6 +215,7 @@ describe("custom provider public boundary", () => {
       expect.objectContaining({ type: "turn.status", status: "aborted" }),
     );
     expect((await service.getItems(conversation.id)).map((item) => item.type)).toEqual([
+      "message",
       "message",
       "message",
     ]);

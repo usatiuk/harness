@@ -1,6 +1,7 @@
 import type { ZodType } from "zod";
 import type { ModelCapabilities, ModelMiddleware, ModelProvider, ModelInvoker } from "./model.ts";
-import type { Tool, ToolMiddleware, ToolContractResolver } from "./tools.ts";
+import type { JsonValue } from "./rpc.ts";
+import type { ToolCall, Tool, ToolMiddleware, ToolContractResolver } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
 import type { Conversation } from "./conversation.ts";
 import type { ConversationId } from "./ids.ts";
@@ -12,15 +13,9 @@ import type { RequestMiddleware } from "./requests.ts";
 import type { ProviderTypeContributions } from "./provider-instance.ts";
 
 /** Per-conversation context for cache-stable prompt/project instruction sources. */
-export interface ContextSourceContext {
+export interface WindowInstructionsContext {
   service(key: string): unknown;
   readonly toolNames: readonly string[];
-}
-
-/** Contributes prompt fragments / project context into the cache-stable prefix. */
-export interface ContextSource {
-  readonly id: string;
-  instructions(ctx: ContextSourceContext): Promise<ContentBlock[]>;
 }
 
 /** Capabilities for a plugin reacting to a persisted delivery. Background work belongs
@@ -78,10 +73,22 @@ export interface ToolContributionContext {
  * The single extension surface. A plugin contributes typed capabilities; it never
  * touches control flow.
  */
+export type PluginContextItem =
+  | { type: "context"; key: string; content: ContentBlock[] }
+  | { type: "plugin_data"; data: JsonValue };
+
+export interface ConversationContext {
+  service(key: string): unknown;
+  active(): Promise<readonly Item[]>;
+}
+
+export type ContextBoundary =
+  { type: "window" | "turn" | "workspace" } | { type: "tools"; calls: readonly ToolCall[] };
+
 export interface Plugin extends ProviderTypeContributions {
+  contextItems?(ctx: ConversationContext, boundary: ContextBoundary): Promise<PluginContextItem[]>;
+  onCompact?(ctx: ConversationContext): Promise<JsonValue[]>;
   readonly id: string;
-  /** Plugin ids whose tool middleware must already be registered outside this plugin's chain. */
-  readonly toolMiddlewareAfter?: readonly string[];
   providers?(): ModelProvider[];
   tools?(caps: ModelCapabilities, ctx: ToolContributionContext): Tool[];
   /** Resolve callable documentation for direct declarations and code discovery alike. */
@@ -92,7 +99,7 @@ export interface Plugin extends ProviderTypeContributions {
   modelMiddleware?(): ModelMiddleware[];
   /** Wraps blocking host interactions, outermost first; the UI request is terminal. */
   requestMiddleware?(): RequestMiddleware[];
-  contextSources?(): ContextSource[];
+  windowInstructions?(this: void, ctx: WindowInstructionsContext): Promise<ContentBlock[]>;
   /** Per-conversation services hung off `ctx.service(key)`; keys must be unique host-wide. */
   services?(): ServiceProvider[];
   policies?(): PluginPolicies;

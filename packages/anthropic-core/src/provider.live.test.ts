@@ -1,7 +1,8 @@
+import { inlineMessage } from "@harness/protocol";
 import { describe, expect, it } from "vitest";
 import Anthropic from "@anthropic-ai/sdk";
 import type {
-  Item,
+  ModelHistoryItem as Item,
   ModelRequest,
   ModelStreamEvent,
   ProviderPayload,
@@ -64,9 +65,11 @@ const weatherTool: ToolSchema = {
 describe.skipIf(!apiKey)("AnthropicProvider (live)", () => {
   it("streams a real turn to completion", async () => {
     const events = await drain({
-      instructions: [{ type: "text", text: "You are terse." }],
       modelConfig: { provider: PROVIDER, model },
-      items: [{ item: userItem("Reply with the single word: hello") }],
+      items: [
+        inlineMessage("system", [{ type: "text", text: "You are terse." }]),
+        { item: userItem("Reply with the single word: hello") },
+      ],
     });
     expect(events.some((e) => e.type === "text_delta")).toBe(true);
     expect(events.at(-1)?.type).toBe("completed");
@@ -76,10 +79,14 @@ describe.skipIf(!apiKey)("AnthropicProvider (live)", () => {
   // on the same model across a tool call, or the API rejects the follow-up request.
   it("round-trips a thinking signature across a tool call", async () => {
     const first = await drain({
-      instructions: [{ type: "text", text: "Use tools when needed. Think before answering." }],
       modelConfig: { provider: PROVIDER, model },
       tools: [weatherTool],
-      items: [{ item: userItem("What's the weather in Paris? Use the tool.") }],
+      items: [
+        inlineMessage("system", [
+          { type: "text", text: "Use tools when needed. Think before answering." },
+        ]),
+        { item: userItem("What's the weather in Paris? Use the tool.") },
+      ],
     });
 
     const call = first.find((e) => e.type === "tool_call");
@@ -115,10 +122,14 @@ describe.skipIf(!apiKey)("AnthropicProvider (live)", () => {
     ];
 
     const second = await drain({
-      instructions: [{ type: "text", text: "Use tools when needed. Think before answering." }],
       modelConfig: { provider: PROVIDER, model },
       tools: [weatherTool],
-      items: priorItems,
+      items: [
+        inlineMessage("system", [
+          { type: "text", text: "Use tools when needed. Think before answering." },
+        ]),
+        ...priorItems,
+      ],
     });
     expect(second.at(-1)?.type).toBe("completed");
     expect(second.some((e) => e.type === "text_delta")).toBe(true);
@@ -126,7 +137,6 @@ describe.skipIf(!apiKey)("AnthropicProvider (live)", () => {
 
   it("emits a write function call to create a file", async () => {
     const events = await drain({
-      instructions: [{ type: "text", text: "Use the write tool to create files." }],
       modelConfig: { provider: PROVIDER, model },
       tools: [
         {
@@ -143,7 +153,10 @@ describe.skipIf(!apiKey)("AnthropicProvider (live)", () => {
           },
         },
       ],
-      items: [{ item: userItem("Create a file hello.txt containing exactly: hi") }],
+      items: [
+        inlineMessage("system", [{ type: "text", text: "Use the write tool to create files." }]),
+        { item: userItem("Create a file hello.txt containing exactly: hi") },
+      ],
     });
 
     const call = events.find((e) => e.type === "tool_call" && e.name === "write");

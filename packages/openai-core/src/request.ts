@@ -2,7 +2,7 @@ import { toolCallKey } from "@harness/protocol";
 import type OpenAI from "openai";
 import type {
   ContentBlock,
-  Item,
+  ContextItem,
   ModelRequest,
   ProviderPayload,
   ToolSchema,
@@ -59,9 +59,10 @@ const chatContent = (content: ContentBlock[]) =>
 
 /** One log item → one Responses input item, or `undefined` to omit it. */
 function toInputItem(
-  item: Item,
+  item: ContextItem["item"],
   provider: string,
   model: string,
+  systemRole: "system" | "developer",
   // Call ids whose tool is freeform this turn — rendered as `custom_tool_call` rather than
   // a JSON function call.
   freeformCallIds: ReadonlySet<string>,
@@ -75,15 +76,13 @@ function toInputItem(
         if (native) return native;
       }
       return {
-        role: item.role,
+        role: item.role === "system" ? systemRole : item.role,
         content: item.role === "assistant" ? textOf(item.content) : responseContent(item.content),
         ...(item.role === "assistant" &&
         (item.phase === null || item.phase === "commentary" || item.phase === "final_answer")
           ? { phase: item.phase }
           : {}),
       };
-    case "provider_output":
-      return undefined;
     case "reasoning":
       return replayResponseOutput(item, payload, provider, model);
     case "tool_call":
@@ -123,8 +122,7 @@ function toInputItem(
       // No provider concept for a fold; send it as a plain user message.
       return { role: "user", content: textOf(item.content) };
     case "context":
-      // Plugin-injected context (e.g. an AGENTS.md); a developer message.
-      return { role: "developer", content: textOf(item.content) };
+      return { role: "user", content: textOf(item.content) };
   }
 }
 
@@ -161,6 +159,7 @@ export function buildResponseParams(
   reasoning: OpenAI.Reasoning | undefined,
   provider: string,
   includeEncryptedReasoning?: boolean,
+  systemRole: "system" | "developer" = "developer",
 ): OpenAI.Responses.ResponseCreateParamsStreaming {
   // Freeform tools round-trip as `custom_tool_call` items. A tool_result carries only its
   // callId, so pre-scan the calls to know which results render as custom output.
@@ -188,14 +187,12 @@ export function buildResponseParams(
       item,
       provider,
       request.modelConfig.model,
+      systemRole,
       freeformCallIds,
       rawCallIds,
       payload,
     );
     if (mapped) input.push(mapped);
-  }
-  if (request.prompt) {
-    input.push({ role: "user", content: request.prompt });
   }
 
   const tools: OpenAI.Responses.Tool[] =
@@ -220,7 +217,6 @@ export function buildResponseParams(
       ));
   return {
     model: request.modelConfig.model,
-    instructions: textOf(request.instructions),
     input,
     stream: true,
     store: false,
@@ -241,21 +237,9 @@ function toChatTool(schema: Extract<ToolSchema, { kind: "function" }>): ChatTool
 }
 
 /**
- * The single leading system message: the instructions followed by every context
- * item's text, joined by blank lines. Context items are hoisted here (position is
- * not preserved) so the wire carries at most one system message, which chat
- * backends require.
- */
-function chatSystemContent(instructions: ContentBlock[], contextTexts: string[]): string {
-  const parts = [textOf(instructions), ...contextTexts].filter((t) => t.length > 0);
-  return parts.join("\n\n");
-}
-
-/**
  * Maps a harness `ModelRequest` onto native streaming chat/completions params.
  * Chat is function-only (freeform `custom` tools throw), reasoning round-trips as
- * plaintext `reasoning_content`, and instructions + context render as a single
- * leading system message.
+ * plaintext `reasoning_content`. File context stays at its recorded position.
  *
  * One model generation is a SINGLE assistant message on the wire, so the log's
  * split items (`reasoning` / `message` / `tool_call`) re-combine per generation
@@ -280,18 +264,18 @@ export function buildChatParams(
   });
 
   const messages: ChatMessage[] = [];
-  // Context items are hoisted into the leading system message (not rendered at
-  // their position), so collect their text while mapping the rest of the log.
-  const contextTexts: string[] = [];
   // Chat tool messages are text-only. Keep every parallel result adjacent before images.
   let toolImages: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
   let rawResults: ChatMessage[] = [];
+  let contextNotices: ChatMessage[] = [];
   const flushDeferredResults = (): void => {
     // Historical custom results are also user messages, so defer them past native results.
     messages.push(...rawResults);
     rawResults = [];
     if (toolImages.length) messages.push({ role: "user", content: toolImages });
     toolImages = [];
+    messages.push(...contextNotices);
+    contextNotices = [];
   };
   // The current generation's native assistant message, assembled from its split
   // log items. Every assistant-side item between two user-side boundaries belongs
@@ -318,9 +302,7 @@ export function buildChatParams(
   );
 
   for (const { item, payload } of request.items) {
-    // Context is hoisted into the system message and cannot split the wire result batch.
-    if (item.type !== "tool_result" && item.type !== "provider_output" && item.type !== "context")
-      flushDeferredResults();
+    if (item.type !== "tool_result" && item.type !== "context") flushDeferredResults();
     switch (item.type) {
       case "reasoning": {
         if (
@@ -338,12 +320,12 @@ export function buildChatParams(
         break;
       }
       case "message":
-        // A plugin-appended system message would create a second system message,
-        // which chat backends reject; fail fast rather than emit it.
         if (item.role === "system") {
-          throw new Error(
-            "chat transport emits at most one system message; a system-role message item is not allowed",
-          );
+          flushAssistant();
+          if (messages.length)
+            throw new Error("chat transport requires at most one system message at the start");
+          messages.push({ role: "system", content: textOf(item.content) });
+          break;
         }
         if (item.role === "assistant") {
           const text = textOf(item.content);
@@ -353,8 +335,6 @@ export function buildChatParams(
           flushAssistant();
           messages.push({ role: item.role, content: chatContent(item.content) });
         }
-        break;
-      case "provider_output":
         break;
       case "tool_call":
         {
@@ -404,18 +384,12 @@ export function buildChatParams(
         break;
       case "context":
         flushAssistant();
-        contextTexts.push(textOf(item.content));
+        contextNotices.push({ role: "user", content: textOf(item.content) });
         break;
     }
   }
   flushAssistant();
   flushDeferredResults();
-
-  const system = chatSystemContent(request.instructions, contextTexts);
-  if (system.length > 0) messages.unshift({ role: "system", content: system });
-  if (request.prompt) {
-    messages.push({ role: "user", content: request.prompt });
-  }
 
   return {
     model: request.modelConfig.model,

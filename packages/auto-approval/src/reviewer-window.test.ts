@@ -16,6 +16,7 @@ const item = (id: string, seq: number): Item => ({
 const compaction = (id: string, seq: number): Item => ({
   ...item(id, seq),
   type: "compaction",
+  windowStart: id as ItemId,
   content: [{ type: "text", text: id }],
 });
 

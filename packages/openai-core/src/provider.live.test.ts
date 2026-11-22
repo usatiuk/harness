@@ -1,6 +1,7 @@
+import { inlineMessage } from "@harness/protocol";
 import { describe, expect, it } from "vitest";
 import OpenAI from "openai";
-import type { Item, ModelRequest, ModelStreamEvent } from "@harness/protocol";
+import type { ModelHistoryItem as Item, ModelRequest, ModelStreamEvent } from "@harness/protocol";
 import { OpenAIResponsesProvider } from "./provider.ts";
 import type { ModelCallContext } from "@harness/protocol";
 
@@ -35,9 +36,11 @@ describe.skipIf(!apiKey)("OpenAIResponsesProvider (live)", () => {
       credentials: { client: () => Promise.resolve(new OpenAI({ apiKey })) },
     });
     const request: ModelRequest = {
-      instructions: [{ type: "text", text: "You are terse." }],
       modelConfig: { provider: "openai", model },
-      items: [{ item: userMessage }],
+      items: [
+        inlineMessage("system", [{ type: "text", text: "You are terse." }]),
+        { item: userMessage },
+      ],
     };
 
     const events: ModelStreamEvent[] = [];
@@ -53,7 +56,6 @@ describe.skipIf(!apiKey)("OpenAIResponsesProvider (live)", () => {
       credentials: { client: () => Promise.resolve(new OpenAI({ apiKey })) },
     });
     const request: ModelRequest = {
-      instructions: [{ type: "text", text: "Use the apply_patch tool to edit files." }],
       modelConfig: { provider: "openai", model },
       tools: [
         {
@@ -66,6 +68,9 @@ describe.skipIf(!apiKey)("OpenAIResponsesProvider (live)", () => {
         },
       ],
       items: [
+        inlineMessage("system", [
+          { type: "text", text: "Use the apply_patch tool to edit files." },
+        ]),
         {
           item: {
             ...userMessage,

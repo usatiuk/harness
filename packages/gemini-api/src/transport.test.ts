@@ -1,12 +1,12 @@
+import { inlineMessage } from "@harness/protocol";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ModelRequest, ModelStreamEvent, ProviderPayload } from "@harness/protocol";
 import { GeminiProvider } from "./provider.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 const request = (provider: GeminiProvider): ModelRequest => ({
-  instructions: [],
-  items: [],
-  prompt: "go",
+  items: [inlineMessage("user", "go")],
+
   tools: [{ kind: "function", name: "echo", description: "echo", parameters: { type: "object" } }],
   modelConfig: { provider: provider.provider, model: "gemini-test" },
   providerOptions: provider.providerOptions,
@@ -118,10 +118,7 @@ it("uses the installed Google SDK for discovery and finalized signed search hist
   await collect(provider.stream({ ...request(provider), items }, signal));
   expect(sent).toHaveLength(3);
   const next = (await sent[2]!.json()) as Record<string, unknown>;
-  expect(next.input).toEqual([
-    ...steps,
-    { type: "user_input", content: [{ type: "text", text: "go" }] },
-  ]);
+  expect(next.input).toEqual([...steps]);
   expect(next).not.toHaveProperty("continuation_token");
   expect(next).not.toHaveProperty("previous_interaction_id");
   expect(JSON.stringify(next)).not.toContain("Searched example");

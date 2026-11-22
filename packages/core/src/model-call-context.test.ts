@@ -1,3 +1,4 @@
+import { auxiliaryPrompt } from "@harness/testkit";
 import { expect, it } from "vitest";
 import type { ModelCallContext, ModelProvider, ModelRequest } from "@harness/protocol";
 import { InMemoryStore } from "@harness/store";
@@ -32,7 +33,7 @@ it("preserves per-conversation identity across retries, concurrent roots, nested
         failFirst = false;
         throw new Error("controlled transport failure");
       }
-      yield* textStep(request.prompt ? "summary" : "done");
+      yield* textStep(auxiliaryPrompt(request) ? "summary" : "done");
     },
   };
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
@@ -95,7 +96,7 @@ it("preserves per-conversation identity across retries, concurrent roots, nested
   expect(calls.at(-1)).toMatchObject({
     context: { conversationId: child!.id },
   });
-  expect(calls.at(-1)?.request.prompt).toContain("compacting");
+  expect(auxiliaryPrompt(calls.at(-1)?.request)).toContain("compacting");
   await engine.deactivate(root!.id, { force: true });
   const resumed = createEngine();
   await resumed.deliver(root!.id, input);

@@ -85,7 +85,14 @@ export const wireItemSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({
     ...itemBaseShape,
+    type: z.literal("plugin_data"),
+    plugin: z.string(),
+    data: jsonValueSchema,
+  }),
+  z.strictObject({
+    ...itemBaseShape,
     type: z.literal("compaction"),
+    windowStart: z.string(),
     content: z.array(wireContentBlockSchema),
   }),
   z.strictObject({

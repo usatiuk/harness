@@ -1,7 +1,7 @@
 import { sessionIdHeaders } from "@harness/protocol";
 import { OpenAIResponsesTransport, buildResponseParams } from "@harness/openai-core";
 import { apiKeyCredentials } from "@harness/openai-api";
-import type { ContentBlock, ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
+import type { ModelCapabilities, ModelConfig, ModelRequest } from "@harness/protocol";
 import type { CustomOpenAIModelConfig } from "./config.ts";
 import { applyOpenAIPreset, type RequestParams } from "./openai-presets.ts";
 import {
@@ -10,13 +10,6 @@ import {
   scopedModel,
   validateScopedConfig,
 } from "./model-scope.ts";
-
-/** Joins the textual blocks of an instructions list, mirroring the core mapping. */
-const textOf = (content: ContentBlock[]): string =>
-  content
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("");
 
 export interface CustomOpenAIProviderOptions {
   /** Registry name; the config key that defined this provider. */
@@ -67,14 +60,13 @@ export class CustomOpenAIProvider extends OpenAIResponsesTransport {
    * input message instead of the top-level `instructions` field — for backends that silently drop it.
    */
   protected override buildParams(request: ModelRequest) {
-    const params = buildResponseParams(request, undefined, this.provider);
-    if (this.#sendInstructionsAsSystem && params.instructions && Array.isArray(params.input)) {
-      const system = textOf(request.instructions);
-      if (system) {
-        delete params.instructions;
-        params.input = [{ role: "system", content: system }, ...params.input];
-      }
-    }
+    const params = buildResponseParams(
+      request,
+      undefined,
+      this.provider,
+      undefined,
+      this.#sendInstructionsAsSystem ? "system" : "developer",
+    );
     applyOpenAIPreset(
       params as unknown as RequestParams,
       "max_output_tokens",

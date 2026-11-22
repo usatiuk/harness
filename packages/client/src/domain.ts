@@ -147,8 +147,16 @@ export const decodeItem = (item: WireItem): Item => {
           : { ...base, type: item.type, role: item.role, content: item.content };
     case "reasoning":
     case "provider_output":
-    case "compaction":
       return { ...base, type: item.type, content: item.content };
+    case "compaction":
+      return {
+        ...base,
+        type: item.type,
+        content: item.content,
+        windowStart: item.windowStart as ItemId,
+      };
+    case "plugin_data":
+      return { ...base, type: item.type, plugin: item.plugin, data: item.data };
     case "tool_call":
       return {
         ...base,

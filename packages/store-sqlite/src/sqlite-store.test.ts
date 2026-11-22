@@ -46,6 +46,66 @@ describe("SqliteStore (durable-only)", () => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
+  it("upgrades a populated v15 window and its auxiliary prompt in place", async () => {
+    const path = tempDb(),
+      before = new SqliteStore(path);
+    const conversation = await before.createConversation(record());
+    const turn = await before.createTurn(conversation.id);
+    const fold = await before.appendItem({
+      conversationId: conversation.id,
+      turnId: turn.id,
+      type: "compaction",
+      content: [{ type: "text", text: "summary" }],
+    });
+    before.close();
+    const previous = new BetterSqlite3(path);
+    previous
+      .prepare("UPDATE items SET body=json_remove(body,'$.windowStart') WHERE id=?")
+      .run(fold.id);
+    previous
+      .prepare("INSERT INTO context_builds(id,conversation_id,created_at,data) VALUES (?,?,?,?)")
+      .run(
+        "prior",
+        conversation.id,
+        1,
+        JSON.stringify({
+          conversationId: conversation.id,
+          purpose: "agent",
+          tools: [],
+          items: [{ item: { ...fold, windowStart: undefined } }],
+          instructions: [{ type: "text", text: "previous base" }],
+          prompt: "summarize",
+        }),
+      );
+    previous
+      .prepare(
+        "UPDATE conversations SET overrides=json_set(overrides,'$.instructions',?) WHERE id=?",
+      )
+      .run("configured base", conversation.id);
+    previous.pragma("user_version = 15");
+    previous.close();
+    const store = new SqliteStore(path);
+    try {
+      const [first, summary] = await store.listActiveItems(conversation.id);
+      expect(first).toMatchObject({
+        type: "message",
+        role: "system",
+        content: [{ type: "text", text: "configured base" }],
+      });
+      expect(summary).toMatchObject({ id: fold.id, windowStart: first!.id });
+      const build = await store.getContextBuild("prior");
+      expect(build?.items.map((entry) => entry.item)).toMatchObject([
+        { type: "message", role: "system", content: [{ text: "previous base" }] },
+        { type: "compaction", id: fold.id, windowStart: fold.id },
+        { type: "message", role: "user", content: [{ text: "summarize" }] },
+      ]);
+      const fresh = await store.createConversation(record());
+      expect(await store.listActiveItems(fresh.id)).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+
   it("upgrades schema 12 additively while preserving conversation history", async () => {
     const path = tempDb();
     const first = new SqliteStore(path);
@@ -67,7 +127,10 @@ describe("SqliteStore (durable-only)", () => {
     const upgraded = new SqliteStore(path);
     try {
       expect(await upgraded.getConversation(conversation.id)).toMatchObject({ head: item.id });
-      expect(await upgraded.listActiveItems(conversation.id)).toEqual([item]);
+      expect(await upgraded.listActiveItems(conversation.id)).toMatchObject([
+        { type: "message", role: "system" },
+        { id: item.id, content: item.type === "message" ? item.content : [] },
+      ]);
       expect(await upgraded.listPendingQuestions(conversation.id)).toEqual([]);
       await upgraded.createQuestion({
         id: "new-question",
@@ -263,9 +326,16 @@ describe("SqliteStore (durable-only)", () => {
         conversationId: source.id,
         userMessageId: user.id,
       });
-      expect(await reopened.listActiveItems(fork.id)).toEqual([prefix]);
+      expect(await reopened.listActiveItems(fork.id)).toMatchObject([
+        { type: "message", role: "system" },
+        { id: prefix.id },
+      ]);
       expect(await reopened.listOwnedItems(fork.id)).toEqual([]);
-      expect(await reopened.listActiveItems(source.id)).toEqual([prefix, user]);
+      expect(await reopened.listActiveItems(source.id)).toMatchObject([
+        { type: "message", role: "system" },
+        { id: prefix.id },
+        { id: user.id },
+      ]);
     } finally {
       reopened.close();
     }
@@ -531,7 +601,10 @@ describe("SqliteStore (durable-only)", () => {
       previous.close();
       const after = new SqliteStore(path);
       try {
-        expect(await after.listOwnedItems(conv.id)).toEqual([item]);
+        expect(await after.listOwnedItems(conv.id)).toMatchObject([
+          { type: "message", role: "system" },
+          { id: item.id },
+        ]);
         expect((await after.getConversation(conv.id))?.title).toBeNull();
         await after.updateConversationTitle(conv.id, "Saved title", null);
         expect((await after.summarizeModelUsage(conv.id)).lastTurn).toMatchObject({
@@ -553,7 +626,10 @@ describe("SqliteStore (durable-only)", () => {
       const reopened = new SqliteStore(path);
       try {
         expect((await reopened.getConversation(conv.id))?.title).toBe("Saved title");
-        expect(await reopened.listOwnedItems(conv.id)).toEqual([item]);
+        expect(await reopened.listOwnedItems(conv.id)).toMatchObject([
+          { type: "message", role: "system" },
+          { id: item.id },
+        ]);
       } finally {
         reopened.close();
       }

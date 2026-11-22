@@ -1,3 +1,4 @@
+import { requestGuidance } from "@harness/testkit";
 import { QuickJsEvaluator } from "@harness/code-mode";
 import { executionOf } from "@harness/execution";
 import { Engine, PluginHost } from "@harness/core";
@@ -157,9 +158,8 @@ it.each(["hybrid", "code-only"] as const)(
       if (
         mode === "hybrid" &&
         isKernelEvent(event) &&
-        event.type === "item.appended" &&
-        event.item.type === "context" &&
-        event.item.key === "workspace-switch"
+        event.type === "workspace.changed" &&
+        event.workspaceRoot === second
       )
         void service.deliver(event.conversationId, "continue in the new workspace", "steer");
       if (isKernelEvent(event) && event.type === "request.created")
@@ -186,9 +186,9 @@ it.each(["hybrid", "code-only"] as const)(
           ]),
     );
     if (mode === "hybrid") expect(inputRoots).toEqual([first, second]);
-    expect(textOf(requests[0]!.instructions)).toContain("FIRST GUIDANCE");
-    expect(textOf(requests[1]!.instructions)).toContain("SECOND GUIDANCE");
-    expect(textOf(requests[1]!.instructions)).not.toContain("FIRST GUIDANCE");
+    expect(textOf(requestGuidance(requests[0]))).toContain("FIRST GUIDANCE");
+    expect(textOf(requestGuidance(requests[1]))).toContain("SECOND GUIDANCE");
+    expect(textOf(requestGuidance(requests[1]))).toContain("FIRST GUIDANCE");
     expect(await service.getConversation(conversation.id)).toMatchObject({
       workspaceRoot: second,
       originalWorkspaceRoot: first,

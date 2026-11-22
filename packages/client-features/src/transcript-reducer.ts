@@ -333,6 +333,9 @@ function reduceItem(state: State, item: Item, receivedAt?: number): State {
         receivedAt ?? item.createdAt,
       );
       break;
+    case "plugin_data":
+      next = state;
+      break;
     case "compaction":
       next = {
         ...state,

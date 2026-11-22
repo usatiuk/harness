@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { Item, ModelRequest, ModelStreamEvent, ProviderPayload } from "@harness/protocol";
+import type {
+  ModelHistoryItem as Item,
+  ModelRequest,
+  ModelStreamEvent,
+  ProviderPayload,
+} from "@harness/protocol";
 import { toModelEvents } from "./stream.ts";
 import { buildMessages } from "./request.ts";
 
@@ -228,32 +233,33 @@ describe("finalized native search history", () => {
       { type: "message_stop" },
     );
   const request = (events: ModelStreamEvent[]): ModelRequest => ({
-    instructions: [],
     modelConfig: { provider: "anthropic", model: "m" },
-    items: events.flatMap((event) =>
-      event.type === "message" ||
-      event.type === "tool_call" ||
-      event.type === "reasoning" ||
-      event.type === "provider_output"
-        ? [
-            {
-              item: {
-                id: "i",
-                conversationId: "c",
-                turnId: "t",
-                seq: 0,
-                parent: null,
-                createdAt: 0,
-                ...event,
-                ...(event.type === "message" ? { role: "assistant" } : {}),
-              } as Item,
-              ...(event.payload
-                ? { payload: { ...event.payload, itemId: "i" as ProviderPayload["itemId"] } }
-                : {}),
-            },
-          ]
-        : [],
-    ),
+    items: [
+      ...events.flatMap((event) =>
+        event.type === "message" ||
+        event.type === "tool_call" ||
+        event.type === "reasoning" ||
+        event.type === "provider_output"
+          ? [
+              {
+                item: {
+                  id: "i",
+                  conversationId: "c",
+                  turnId: "t",
+                  seq: 0,
+                  parent: null,
+                  createdAt: 0,
+                  ...event,
+                  ...(event.type === "message" ? { role: "assistant" } : {}),
+                } as Item,
+                ...(event.payload
+                  ? { payload: { ...event.payload, itemId: "i" as ProviderPayload["itemId"] } }
+                  : {}),
+              },
+            ]
+          : [],
+      ),
+    ],
   });
 
   it("round-trips completed search blocks and citations while keeping hints display-only", async () => {

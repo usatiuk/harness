@@ -313,26 +313,38 @@ export class InMemoryStore implements Store {
     return this.#appendItem(input);
   }
   #appendItem(input: NewItem): Item {
-    const log = this.#items.get(input.conversationId);
-    if (!log) {
-      throw new Error(`unknown conversation: ${input.conversationId}`);
+    return this.#appendBatch([input])[0]!;
+  }
+  async appendItems(inputs: NewItem[]): Promise<Item[]> {
+    return this.#appendBatch(inputs);
+  }
+  #appendBatch(inputs: NewItem[]): Item[] {
+    if (!inputs.length) return [];
+    const conversationId = inputs[0]!.conversationId;
+    const conversation = this.#conversations.get(conversationId);
+    const log = this.#items.get(conversationId);
+    if (!conversation || !log) throw new Error(`unknown conversation: ${conversationId}`);
+    let parent = conversation.head;
+    let seq = Math.max(log.at(-1)?.seq ?? -1, parent ? this.#byId.get(parent)!.seq : -1);
+    const items: Item[] = [];
+    for (const input of inputs) {
+      if (input.conversationId !== conversationId) throw new Error("mixed conversation batch");
+      const id = this.ids.itemId();
+      items.push({
+        ...(input.type === "compaction" ? { ...input, windowStart: items[0]?.id ?? id } : input),
+        id,
+        seq: ++seq,
+        parent,
+        createdAt: this.clock.now(),
+      });
+      parent = id;
     }
-    const conversation = this.#conversations.get(input.conversationId)!;
-    const item: Item = {
-      ...input,
-      id: this.ids.itemId(),
-      seq:
-        Math.max(
-          log.at(-1)?.seq ?? -1,
-          conversation.head ? this.#byId.get(conversation.head)!.seq : -1,
-        ) + 1,
-      parent: conversation.head,
-      createdAt: this.clock.now(),
-    };
-    log.push(item);
-    this.#byId.set(item.id, item);
-    this.#conversations.set(conversation.id, { ...conversation, head: item.id });
-    return item;
+    for (const item of items) {
+      log.push(item);
+      this.#byId.set(item.id, item);
+    }
+    this.#conversations.set(conversationId, { ...conversation, head: parent });
+    return items;
   }
 
   async listOwnedItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]> {

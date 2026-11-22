@@ -1,3 +1,4 @@
+import { inlineMessage } from "@harness/protocol";
 import { describe, expect, it } from "vitest";
 import type {
   ConversationId,
@@ -13,7 +14,7 @@ import {
   truncateMiddleware,
 } from "./policies.ts";
 
-const item = (id: string, seq: number): Item => ({
+const item = (id: string, seq: number): Extract<Item, { type: "message" }> => ({
   id: id as ItemId,
   conversationId: "c1" as ConversationId,
   turnId: "t1" as never,
@@ -54,6 +55,7 @@ const compaction = (id: string, seq: number): Item => ({
   parent: null,
   createdAt: 0,
   type: "compaction",
+  windowStart: id as ItemId,
   content: [{ type: "text", text: id }],
 });
 
@@ -84,7 +86,7 @@ describe("estimateContextTokens", () => {
   const build = (text: string) => ({
     conversationId: "c1" as ConversationId,
     purpose: "estimate",
-    instructions: [],
+
     tools: [],
     items: [{ item: { ...item("m", 0), content: [{ type: "text" as const, text }] } }],
   });
@@ -94,7 +96,10 @@ describe("estimateContextTokens", () => {
       const value = build("");
       return {
         ...value,
-        instructions: [{ type: "image" as const, mediaType: "image/png" as const, data }],
+        items: [
+          inlineMessage("system", [{ type: "image", mediaType: "image/png", data }]),
+          ...value.items,
+        ],
       };
     };
     const small = estimateContextTokens(withImage("a".repeat(100)));

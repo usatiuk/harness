@@ -258,9 +258,7 @@ describe("HarnessRpcSession", () => {
                 key: "auxiliary-invocation",
                 for: () => null,
                 async onInput(_service, context) {
-                  await context
-                    .model(context.signal)
-                    .invoke({ instructions: [], items: [] }, { purpose });
+                  await context.model(context.signal).invoke({ items: [] }, { purpose });
                 },
               },
             ],
@@ -342,9 +340,7 @@ describe("HarnessRpcSession", () => {
     await client.deliver(source.id, "second\nfull draft", "send");
     await service.whenIdle(source.id as ConversationId);
     const history = await store.listActiveItems(source.id as ConversationId);
-    const user = history.find(
-      (item) => item.type === "message" && item.role === "user" && item.seq > 0,
-    )!;
+    const user = history.findLast((item) => item.type === "message" && item.role === "user")!;
     const domain = new HarnessDomainClient(client);
     const fork = await domain.forkBefore(source.id as ConversationId, user.id);
     expect(fork.draft).toEqual([{ type: "text", text: "second\nfull draft" }]);
@@ -352,15 +348,15 @@ describe("HarnessRpcSession", () => {
     expect(service.rootConversationOf(fork.conversation.id)).toBe(fork.conversation.id);
     await client.attach(fork.conversation.id);
     expect((await client.history({ conversationId: fork.conversation.id })).entries).toHaveLength(
-      4,
+      5,
     );
     expect((await client.usage(fork.conversation.id)).usage.inputTokens).toBe(0);
     await client.deliver(fork.conversation.id, "edited", "send");
     await service.whenIdle(fork.conversation.id);
     const active = await store.listActiveItems(fork.conversation.id);
-    expect(active.slice(0, 4)).toEqual(history.slice(0, 4));
-    expect(active[4]!.parent).toBe(user.parent);
-    expect(active[4]!.conversationId).toBe(fork.conversation.id);
+    expect(active.slice(0, 5)).toEqual(history.slice(0, 5));
+    expect(active[5]!.parent).toBe(user.parent);
+    expect(active[5]!.conversationId).toBe(fork.conversation.id);
     expect(requests[2]!.items.find(({ item }) => item.id === assistant.id)?.payload).toEqual(
       payload,
     );
@@ -527,7 +523,7 @@ describe("HarnessRpcSession", () => {
     expect(host.beginShutdownIfIdle()).toBe(false);
     provider.release();
     await service.whenIdle(conversation.id as ConversationId);
-    expect((await client.history({ conversationId: conversation.id })).entries).toHaveLength(2);
+    expect((await client.history({ conversationId: conversation.id })).entries).toHaveLength(3);
     expect(host.beginShutdownIfIdle()).toBe(false);
     expect(resource.disposed).toBe(false);
     resource.busy = false;
@@ -600,7 +596,7 @@ describe("HarnessRpcSession", () => {
     expect(session.isAttached(a.id as ConversationId)).toBe(true);
     await client.deliver(a.id, "still attached", "send");
     await service.whenIdle(a.id as ConversationId);
-    expect((await client.history({ conversationId: a.id })).entries).toHaveLength(2);
+    expect((await client.history({ conversationId: a.id })).entries).toHaveLength(3);
     await session.shutdown();
   });
   it("reports detachment on failed replacement and permits a clean retry without affecting B", async () => {
@@ -628,7 +624,7 @@ describe("HarnessRpcSession", () => {
     await client.attach(a.id);
     await client.deliver(a.id, "retry A", "send");
     await service.whenIdle(a.id as ConversationId);
-    expect((await client.history({ conversationId: a.id })).entries).toHaveLength(2);
+    expect((await client.history({ conversationId: a.id })).entries).toHaveLength(3);
     await session.shutdown();
   });
 
@@ -666,7 +662,7 @@ describe("HarnessRpcSession", () => {
     expect(service.conversationTreeState(a.id as ConversationId)).toEqual([]);
     await client.deliver(b.id, "continue", "send");
     await service.whenIdle(b.id as ConversationId);
-    expect((await client.history({ conversationId: b.id })).entries).toHaveLength(2);
+    expect((await client.history({ conversationId: b.id })).entries).toHaveLength(3);
     await client.attach(a.id);
     await expect(client.close(a.id)).resolves.toEqual({ status: "closed" });
     await session.shutdown();
@@ -691,19 +687,19 @@ describe("HarnessRpcSession", () => {
     await client.deliver(conversation.id, "hello", "send");
     await service.whenIdle(conversation.id as ConversationId);
     await vi.waitFor(() =>
-      expect(observed.filter((entry) => entry.endsWith("item.appended"))).toHaveLength(2),
+      expect(observed.filter((entry) => entry.endsWith("item.appended"))).toHaveLength(3),
     );
 
     const page = await client.history({ conversationId: conversation.id });
     expect(page.anchor).not.toBeNull();
     expect(
       page.entries.map((entry) => (entry.kind === "item" ? entry.item.type : entry.kind)),
-    ).toEqual(["message", "message"]);
+    ).toEqual(["message", "message", "message"]);
     expect(
       page.entries.flatMap((entry) =>
         entry.kind === "item" && entry.item.type === "message" ? [entry.item.role] : [],
       ),
-    ).toEqual(["assistant", "user"]);
+    ).toEqual(["assistant", "user", "system"]);
 
     const listed = await client.list();
     expect(listed.conversations.map((entry) => entry.id)).toEqual([conversation.id]);
@@ -723,7 +719,7 @@ describe("HarnessRpcSession", () => {
     await service.whenIdle(second.id as ConversationId);
 
     const page = await client.history({ conversationId: second.id });
-    expect(page.entries).toHaveLength(2);
+    expect(page.entries).toHaveLength(3);
     expect((await client.get(first.id))?.id).toBe(first.id);
   });
 

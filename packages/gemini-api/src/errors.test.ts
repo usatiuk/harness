@@ -1,3 +1,4 @@
+import { inlineMessage } from "@harness/protocol";
 import { ApiError } from "@google/genai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TransientModelFailure, type ModelFailureReason } from "@harness/protocol";
@@ -6,9 +7,8 @@ import { classifyTransientFailure } from "./errors.ts";
 import { GeminiProvider } from "./provider.ts";
 
 const REQUEST: ModelRequest = {
-  instructions: [],
-  items: [],
-  prompt: "go",
+  items: [inlineMessage("user", "go")],
+
   modelConfig: { provider: "gemini", model: "gemini-test" },
 };
 
