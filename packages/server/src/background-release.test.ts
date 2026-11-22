@@ -41,13 +41,17 @@ async function fixture() {
     vi.stubEnv("HOME", home);
     vi.stubEnv("SHELL", "/bin/bash");
   }
-  const running = runBackgroundServer();
-  // Surface startup rejection immediately, including in waitFor diagnostics.
-  let failure: Error | undefined;
-  void running.catch((error: unknown) => {
-    failure =
-      error instanceof Error ? error : new Error("Background startup failed", { cause: error });
+  let onReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    onReady = resolve;
   });
+  const running = runBackgroundServer(onReady);
+  await Promise.race([
+    ready,
+    running.then(() => {
+      throw new Error("Background server stopped before publishing discovery");
+    }),
+  ]);
   const peers: Awaited<ReturnType<typeof attachLocalServer>>[] = [];
   const connect = async () => {
     const peer = await attachLocalServer(home);
@@ -60,15 +64,6 @@ async function fixture() {
     peer.connection.sendRequest(managementReleaseRequest.method, {
       instanceId: peer.identity.instanceId,
     });
-  try {
-    await vi.waitFor(async () => {
-      if (failure) throw failure;
-      expect(await readDiscovery(home)).not.toBeNull();
-    });
-  } catch (error) {
-    await running;
-    throw error;
-  }
   return {
     home,
     connect,

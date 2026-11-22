@@ -30,7 +30,7 @@ import { replaceJson } from "@harness/connections/node";
 import { buildServerComposition, type ServerComposition } from "./index.ts";
 
 /** The SQLite owner alone publishes or removes discovery. IPC peers only observe it. */
-export async function runBackgroundServer(): Promise<void> {
+export async function runBackgroundServer(onReady?: () => void): Promise<void> {
   const home = await canonicalHome(defaultHome());
   process.env["HARNESS_HOME"] = home;
   let composition: ServerComposition | undefined;
@@ -191,6 +191,7 @@ export async function runBackgroundServer(): Promise<void> {
     // reader of that old file, even though unlink preserves the reader's handle.
     await rm(published, { force: true });
     await replaceJson(published, { ...identity, endpoint: listener.endpoint });
+    onReady?.();
     await stopped;
     if (listenerFailure !== undefined) throw listenerFailure;
   } catch (error) {
