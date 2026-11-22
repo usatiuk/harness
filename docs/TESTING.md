@@ -719,6 +719,9 @@ verify configured/advertised effort delivery, omitted defaults and invalid
 selections. The November 2026 catalog update removes the duplicated static
 model/effort-table assertions; these are not vendor qualification. No regression
 executes a live vendor or the user's app.
+The Mistral SQLite replay fixture streams overlapping reasoning and answer previews
+and checks the resulting request after reopening. The Responses adapter tests also
+cover the answer finalizing before the reasoning.
 Final pinned-Node CI for this correction passes on Windows (1,247 tests, 47
 skipped) and Ubuntu (1,256 tests, 38 skipped), including the headless Rust checks
 in run `38126203710`. The local Node 24 full check retains two unchanged MCP OAuth

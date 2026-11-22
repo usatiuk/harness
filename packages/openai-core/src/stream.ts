@@ -95,6 +95,33 @@ export async function* toModelEvents(
   signal: AbortSignal,
 ): AsyncIterable<ModelStreamEvent> {
   const phases = new Map<number, string | null>();
+  // Providers can stream later items before the current preview gets its native final.
+  let nextIndex = 0;
+  const deferred = new Map<number, { events: ModelStreamEvent[]; done: boolean }>();
+  function* ordered(
+    index: number,
+    events: Iterable<ModelStreamEvent>,
+    done = false,
+  ): Iterable<ModelStreamEvent> {
+    if (index < nextIndex || deferred.get(index)?.done) {
+      throw new Error(`Responses stream emitted an event for finalized output index ${index}`);
+    }
+    if (index > nextIndex) {
+      const block = deferred.get(index) ?? { events: [], done: false };
+      block.events.push(...events);
+      block.done = done;
+      deferred.set(index, block);
+      return;
+    }
+    yield* events;
+    while (done) {
+      const next = deferred.get(++nextIndex);
+      if (!next) return;
+      deferred.delete(nextIndex);
+      yield* next.events;
+      done = next.done;
+    }
+  }
   let searched = false;
   const accounting = (usage: OpenAI.Responses.ResponseUsage | null | undefined) => ({
     usage: responseUsage(usage),
@@ -115,24 +142,29 @@ export async function* toModelEvents(
           phases.set(event.output_index, event.item.phase);
         break;
       case "response.output_text.delta":
-        yield {
-          type: "text_delta",
-          text: event.delta,
-          ...(phases.has(event.output_index) ? { phase: phases.get(event.output_index)! } : {}),
-        };
+        yield* ordered(event.output_index, [
+          {
+            type: "text_delta",
+            text: event.delta,
+            ...(phases.has(event.output_index) ? { phase: phases.get(event.output_index)! } : {}),
+          },
+        ]);
         break;
       case "response.reasoning_summary_text.delta":
       case "response.reasoning_text.delta":
-        yield { type: "reasoning_delta", text: event.delta };
+        yield* ordered(event.output_index, [{ type: "reasoning_delta", text: event.delta }]);
         break;
       case "response.output_item.done":
         searched ||= event.item.type === "web_search_call";
-        yield* fromItem(event.item, provider, model);
+        yield* ordered(event.output_index, fromItem(event.item, provider, model), true);
         break;
       case "response.completed":
         yield {
           type: "completed",
           ...accounting(event.response.usage),
+          ...(deferred.size
+            ? { error: "Responses stream completed with unfinished earlier output" }
+            : {}),
         };
         return;
       case "response.failed":

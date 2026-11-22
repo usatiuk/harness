@@ -370,13 +370,28 @@ it.each([
       content: [{ type: "output_text", text: "done", annotations: [] }],
     };
     let initial = true;
+    const preamble = {
+      ...answer,
+      id: "p1",
+      content: [{ type: "output_text", text: "Checking.", annotations: [] }],
+    };
     const gateway = await httpGateway((_, response) => {
-      const output = initial ? [reasoning, call] : [answer];
-      initial = false;
+      const output = initial ? [reasoning, preamble, call] : [answer];
       sse(response, [
-        ...output.map((item) => ({ type: "response.output_item.done", item })),
+        ...(initial
+          ? [
+              { type: "response.reasoning_summary_text.delta", output_index: 0, delta: "summary" },
+              { type: "response.output_text.delta", output_index: 1, delta: "Checking." },
+            ]
+          : []),
+        ...output.map((item, output_index) => ({
+          type: "response.output_item.done",
+          output_index,
+          item,
+        })),
         { type: "response.completed", response: {} },
       ]);
+      initial = false;
     });
     function open() {
       const store = new SqliteStore(join(home, "store.db"));
@@ -421,6 +436,7 @@ it.each([
         { role: "developer", content: expect.any(String) as string },
         { role: "user", content: "go" },
         ...(replay ? [reasoning] : []),
+        preamble,
         call,
         { type: "function_call_output", call_id: "c1", output: '{"value":7}' },
         answer,

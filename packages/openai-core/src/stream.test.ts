@@ -19,6 +19,83 @@ async function collect(stream: AsyncIterable<ModelStreamEvent>): Promise<ModelSt
 const never = new AbortController().signal;
 
 describe("toModelEvents", () => {
+  it("delivers the current preview before requesting another wire event", async () => {
+    async function* source() {
+      yield* emit({ type: "response.reasoning_text.delta", output_index: 0, delta: "thinking" });
+      throw new Error("read beyond the preview");
+    }
+    for await (const event of toModelEvents(source(), "openai", "m", never)) {
+      expect(event).toEqual({ type: "reasoning_delta", text: "thinking" });
+      return;
+    }
+    throw new Error("missing preview");
+  });
+  const toolFinal = (output_index: number) => ({
+    type: "response.output_item.done",
+    output_index,
+    item: { type: "function_call", call_id: "call", name: "echo", arguments: "{}" },
+  });
+  it.each([0, 1])("rejects a duplicate final for index %i", async (index) => {
+    const events = toModelEvents(emit(toolFinal(index), toolFinal(index)), "openai", "m", never);
+    const seen: ModelStreamEvent[] = [];
+    await expect(async () => {
+      for await (const event of events) seen.push(event);
+    }).rejects.toThrow(/finalized output index/);
+    expect(seen.map((e) => e.type)).toEqual(index === 0 ? ["tool_call"] : []);
+  });
+  it("withholds later calls when an earlier item never finishes", async () => {
+    const stream = emit(toolFinal(1), {
+      type: "response.completed",
+      response: { usage: { input_tokens: 10, output_tokens: 5 } },
+    });
+    expect(await collect(toModelEvents(stream, "openai", "m", never))).toMatchObject([
+      {
+        type: "completed",
+        error: expect.stringContaining("unfinished") as string,
+        usage: { inputTokens: 10, outputTokens: 5 },
+      },
+    ]);
+  });
+  it.each([false, true])(
+    "serializes overlapping Responses items (answer finalizes first: %s)",
+    async (answerFirst) => {
+      const thought = {
+        id: "thought",
+        type: "reasoning",
+        summary: [],
+        content: [{ type: "reasoning_text", text: "think" }],
+      };
+      const answer = {
+        id: "answer",
+        type: "message",
+        role: "assistant",
+        phase: "final_answer",
+        content: [{ type: "output_text", text: "hello" }],
+      };
+      const done = (output_index: number, item: unknown) => ({
+        type: "response.output_item.done",
+        output_index,
+        item,
+      });
+      const stream = emit(
+        { type: "response.output_item.added", output_index: 0, item: { ...thought, content: [] } },
+        { type: "response.reasoning_text.delta", output_index: 0, delta: "think" },
+        { type: "response.output_item.added", output_index: 1, item: { ...answer, content: [] } },
+        { type: "response.output_text.delta", output_index: 1, delta: "hello" },
+        ...(answerFirst
+          ? [done(1, answer), done(0, thought)]
+          : [done(0, thought), done(1, answer)]),
+        { type: "response.completed", response: { usage: { input_tokens: 10, output_tokens: 5 } } },
+      );
+      expect(await collect(toModelEvents(stream, "mistral-vibe", "glm", never))).toMatchObject([
+        { type: "reasoning_delta", text: "think" },
+        { type: "reasoning", payload: { payload: thought } },
+        { type: "text_delta", text: "hello", phase: "final_answer" },
+        { type: "message", payload: { payload: answer } },
+        { type: "completed", usage: { inputTokens: 10, outputTokens: 5 } },
+      ]);
+    },
+  );
   it.each(["response.completed", "response.failed", "response.incomplete"])(
     "finishes at %s without reading a failed transport tail",
     async (type) => {
@@ -157,6 +234,14 @@ describe("toModelEvents", () => {
       { type: "response.output_text.delta", delta: "Hello" },
       {
         type: "response.output_item.done",
+        item: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Hello" }],
+        },
+      },
+      {
+        type: "response.output_item.done",
         item: { type: "function_call", call_id: "call_1", name: "echo", arguments: '{"x":1}' },
       },
       { type: "response.completed", response: { usage: { input_tokens: 10, output_tokens: 5 } } },
@@ -181,6 +266,7 @@ describe("toModelEvents", () => {
         },
       },
       { type: "text_delta", text: "Hello" },
+      expect.objectContaining({ type: "message", content: [{ type: "text", text: "Hello" }] }),
       { type: "tool_call", callId: "call_1", name: "echo", args: { x: 1 } },
       {
         type: "completed",

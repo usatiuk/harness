@@ -161,6 +161,8 @@ without native metadata. A hard crash can lose an unfinalized preview. Assistant
 `phase` preserves any reported string, null, or absence and never drives the loop.
 Readable reasoning or summaries are separate items; opaque-only reasoning can
 have empty canonical content. Model selection changes apply at the next turn.
+Responses streams the current output item immediately and buffers events for later output indices until earlier items finish. This keeps a single visible preview even when reasoning and answer deltas overlap on the wire.
+
 Responses stores the finalized native assistant message or reasoning item. The transcript prefers nonempty native reasoning text, then the summary. A matching Responses request replays reasoning with native plaintext or ciphertext in its original position. Summary-only items stay visible in history. Legacy encrypted sidecars still decode on read.
 Foreign reasoning is omitted, ordinary assistant text remains, and historical
 raw-string local calls use plain text where the target API requires object inputs.
