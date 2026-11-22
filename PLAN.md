@@ -1,5 +1,7 @@
 # Harness plan
 
+Direct tool batches overlap adjacent shell commands, `read_file`, `glob`, and `wait` calls. Other calls run exclusively. Managed Windows server launches default to 32 libuv workers to leave filesystem capacity while Native commands hold pipe reads open.
+
 [Ordered conversation input](docs/plans/cross-cutting/2026-11-22-ordered-conversation-input.md) moves instruction changes and plugin data into the active branch and refreshes the opening prompt on compaction.
 
 The [context usage and Mistral Responses update](docs/plans/interface/context-usage-and-mistral-responses.md)

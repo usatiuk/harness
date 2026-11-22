@@ -1508,38 +1508,74 @@ describe("Engine — interrupt", () => {
     gate.release(); // release the abandoned tool to avoid a dangling promise
   });
 
-  it("records un-executed parallel calls with interrupted results on abort", async () => {
-    const gate = new GateTool({ name: "gate" });
-    const parallel: FakeStep = [
-      { type: "tool_call", callId: "A", name: "gate", args: {} },
-      { type: "tool_call", callId: "B", name: "echo", args: {} },
-      { type: "tool_call", callId: "C", name: "echo", args: {} },
-      {
-        type: "completed",
-        usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 },
-      },
-    ];
+  it("overlaps adjacent opted-in tools and finishes each group before an exclusive call", async () => {
+    const first = Object.assign(new GateTool({ name: "first" }), { parallelSafe: true });
+    const second = Object.assign(new GateTool({ name: "second" }), { parallelSafe: true });
+    const exclusive = new GateTool({ name: "exclusive" });
+    const last = Object.assign(new GateTool({ name: "last" }), { parallelSafe: true });
+    const tools = [first, second, exclusive, last];
+    const exclusiveStart = vi.spyOn(exclusive, "execute");
+    const lastStart = vi.spyOn(last, "execute");
+    const { store, engine } = setup(
+      [
+        interleavedStep(tools.map(({ name }) => ({ name, callId: name, args: {} }))),
+        textStep("done"),
+      ],
+      { tools: () => tools },
+    );
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("go"));
+    try {
+      await Promise.all([first.started, second.started]);
+      second.release();
+      await vi.waitFor(async () =>
+        expect(toolResults(await store.listOwnedItems(conv.id)).map((r) => r.callId)).toEqual([
+          "second",
+        ]),
+      );
+      expect(exclusiveStart).not.toHaveBeenCalled();
+      first.release();
+      await exclusive.started;
+      expect(toolResults(await store.listOwnedItems(conv.id)).map((r) => r.callId)).toEqual([
+        "second",
+        "first",
+      ]);
+      expect(lastStart).not.toHaveBeenCalled();
+      exclusive.release();
+      await last.started;
+      expect(toolResults(await store.listOwnedItems(conv.id)).at(-1)?.callId).toBe("exclusive");
+    } finally {
+      for (const tool of tools) tool.release();
+      await engine.whenIdle(conv.id);
+    }
+  });
+
+  it("pairs concurrent and still-pending calls with interrupted results on abort", async () => {
+    const gate = Object.assign(new GateTool({ name: "gate" }), { parallelSafe: true });
+    const executing = vi.spyOn(gate, "execute");
+    const ids = ["A", "B", "C", "D", "E"];
+    const parallel = interleavedStep(ids.map((callId) => ({ callId, name: gate.name, args: {} })));
     const { store, engine, events } = setup([parallel, textStep("after")], {
-      tools: () => [gate, new EchoTool()],
+      tools: () => [gate],
     });
     const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
-    await gate.started; // A is executing; B and C not yet dispatched
+    await vi.waitFor(() => expect(executing).toHaveBeenCalledTimes(4));
     await engine.deliver(conv.id, userInput("redo"), "interrupt");
     await engine.whenIdle(conv.id);
 
     const items = await store.listOwnedItems(conv.id);
-    // All three calls are present and answered — none dropped.
+    expect(executing).toHaveBeenCalledTimes(4);
     expect(
       toolCalls(items)
         .map((c) => c.callId)
         .sort(),
-    ).toEqual(["A", "B", "C"]);
+    ).toEqual(ids);
     expect(
       toolResults(items)
         .map((r) => r.callId)
         .sort(),
-    ).toEqual(["A", "B", "C"]);
+    ).toEqual(ids);
     expect(toolResults(items).every((r) => r.status === "error")).toBe(true);
     expect(turnStatuses(events)).toContain("aborted");
     gate.release();

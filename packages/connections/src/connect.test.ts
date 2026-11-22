@@ -74,6 +74,28 @@ it("bounds startup diagnostics to the final 8 KiB", async () => {
   ).rejects.toThrow(`Server startup failed (exit 1); see ${log}\n${"x".repeat(8180)}failure tail`);
 });
 
+it("defaults the Windows server worker pool and preserves explicit launch settings", async () => {
+  vi.stubEnv("UV_THREADPOOL_SIZE", undefined);
+  try {
+    for (const size of [undefined, "12"]) {
+      await expect(
+        ensureLocalServer(home, {
+          executable: process.execPath,
+          args: [
+            "-e",
+            'console.error("pool=" + process.env.UV_THREADPOOL_SIZE); process.exitCode = 1',
+          ],
+          env: size
+            ? { [process.platform === "win32" ? "uv_threadpool_size" : "UV_THREADPOOL_SIZE"]: size }
+            : {},
+        }),
+      ).rejects.toThrow("pool=" + (size ?? (process.platform === "win32" ? "32" : "undefined")));
+    }
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 function ownerLaunch() {
   return {
     executable: process.execPath,

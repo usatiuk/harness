@@ -1,5 +1,5 @@
 import { requestGuidance } from "@harness/testkit";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ import { InMemoryStore } from "@harness/store";
 import {
   unusedCodeEvaluator,
   FakeProvider,
+  interleavedStep,
   fakeCompaction,
   textStep,
   toolStep,
@@ -95,6 +96,45 @@ const overrides = { instructions: "go", model: { provider: "fake", model: "fake-
 const commandTool = new LocalExecutionContext(null).shellKind;
 
 describe("execution + approval pipeline", () => {
+  it("admits read_file and glob together across a scheduled wait", async () => {
+    const root = await workspace();
+    await writeFile(join(root, "sample.txt"), "sample");
+    const { svc, events } = service([
+      interleavedStep([
+        { callId: "read", name: "read_file", args: { path: "sample.txt" } },
+        { callId: "wait", name: "wait", args: { timeout_seconds: 0.001 } },
+        { callId: "list", name: "glob", args: { pattern: "*.txt" } },
+      ]),
+      textStep("done"),
+    ]);
+    const conv = await svc.createConversation({
+      cwd: root,
+      overrides: {
+        ...overrides,
+        plugins: {
+          approval: { tools: { read_file: "ask-human", glob: "ask-human", wait: "allow" } },
+        },
+      },
+    });
+    await svc.send(conv.id, "go");
+    const requests = () =>
+      events.flatMap((e) =>
+        isKernelEvent(e) && e.type === "request.created" ? [e.requestId] : [],
+      );
+    try {
+      await vi.waitFor(() => expect(requests()).toHaveLength(2));
+      for (const id of requests()) svc.respond(conv.id, id, { decision: "allow" });
+      await svc.whenIdle(conv.id);
+      expect(
+        (await svc.getItems(conv.id))
+          .flatMap((i) => (i.type === "tool_result" && i.status === "ok" ? [i.callId] : []))
+          .sort(),
+      ).toEqual(["list", "read", "wait"]);
+    } finally {
+      svc.cancelSession(conv.id);
+      await svc.whenIdle(conv.id);
+    }
+  });
   it("loads initial and nested AGENTS.md instructions through a real file-tool turn", async () => {
     const root = await workspace();
     await mkdir(join(root, "src"));

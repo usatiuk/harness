@@ -1566,20 +1566,37 @@ export class Engine {
     terminalError?: string,
   ): Promise<void> {
     const executedCalls: ToolCall[] = [];
+    const invoke = (call: ToolCall) =>
+      this.#invokeRecorded(
+        call,
+        toolSet,
+        conversation,
+        turnId,
+        signal,
+        runtime,
+        executedCalls,
+        terminalError,
+      );
+    const pending: Promise<ToolResult>[] = [];
+    const drain = async () => {
+      // A persistence failure must not release the batch while siblings are still writing.
+      for (const result of await Promise.allSettled(pending))
+        if (result.status === "rejected") throw result.reason;
+      pending.length = 0;
+    };
     let waitMs: number | undefined;
     try {
       for (const call of calls) {
-        await this.#invokeRecorded(
-          call,
-          toolSet,
-          conversation,
-          turnId,
-          signal,
-          runtime,
-          executedCalls,
-          terminalError,
-        );
+        if (toolSet.has(call.name) && toolSet.get(call.name).parallelSafe) {
+          pending.push(invoke(call));
+          // A Native file operation can hold two pipe reads on the host's libuv pool.
+          if (pending.length === 4) await drain();
+        } else {
+          if (pending.length) await drain();
+          await invoke(call);
+        }
       }
+      if (pending.length) await drain();
       waitMs = runtime.pendingWaitMs;
     } finally {
       runtime.pendingWaitMs = undefined;

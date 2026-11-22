@@ -140,13 +140,22 @@ async function ensureOwnedServer(
       const usage = launch.retainUse?.();
       let child: ChildProcess;
       try {
+        const env: NodeJS.ProcessEnv = {
+          ...process.env,
+          ...launch.env,
+          HARNESS_HOME: home,
+          HARNESS_SERVER_SELECTION: launch.selection,
+        };
+        // Quiet MXC pipe reads occupy Windows libuv workers (microsoft/mxc#1709).
+        if (
+          process.platform === "win32" &&
+          !Object.entries(env).some(
+            ([key, value]) => key.toUpperCase() === "UV_THREADPOOL_SIZE" && value !== undefined,
+          )
+        )
+          env.UV_THREADPOOL_SIZE = "32";
         child = spawn(launch.executable, launch.args, {
-          env: {
-            ...process.env,
-            ...launch.env,
-            HARNESS_HOME: home,
-            HARNESS_SERVER_SELECTION: launch.selection,
-          },
+          env,
           stdio:
             usage === undefined ? ["ignore", log.fd, log.fd] : ["ignore", log.fd, log.fd, "ipc"],
           detached: true,

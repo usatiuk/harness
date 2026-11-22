@@ -130,6 +130,7 @@ export function executionFunctionTool(execution: ExecutionContext, tool: Tool): 
     name: tool.name,
     description: tool.description,
     input,
+    ...(tool.parallelSafe ? { parallelSafe: true } : {}),
     ...(tool.exposure ? { exposure: tool.exposure } : {}),
     ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
     ...(tool.meta ? { meta: tool.meta } : {}),

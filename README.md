@@ -584,7 +584,8 @@ Calls return structured JSON when supplied, otherwise a content/status envelope;
 custom tools accept raw strings. Errors and denials throw with `error.result`.
 JavaScript controls child-call order: sequential `await` orders operations;
 concurrent submissions such as `Promise.all` overlap, including foreground commands.
-Direct model-call batches retain their existing sequential order.
+Adjacent direct shell commands, `read_file`, `glob`, and `wait` calls can overlap. Other
+direct calls run exclusively in batch order. A scheduled wait starts after the batch finishes.
 Only explicit `emit`, `emitContent`, and the returned JSON reach the
 main agent. Nested calls remain visible in history and approval review. Completed
 effects and emitted output survive later failures; scripts never replay or roll

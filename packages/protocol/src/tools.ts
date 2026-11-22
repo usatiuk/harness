@@ -91,6 +91,8 @@ export type ToolInput<A> =
 
 export interface Tool<A = unknown> {
   readonly name: string;
+  /** Adjacent direct calls may overlap when every participating tool opts in. */
+  readonly parallelSafe?: boolean;
   readonly description: string;
   readonly input: ToolInput<A>;
   /** Presentation channels, never permissions. Omitted means both channels. */

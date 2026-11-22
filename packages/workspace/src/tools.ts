@@ -68,6 +68,7 @@ export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
     required: ["text", "offset", "totalLines"],
   };
   readonly name = "read_file";
+  readonly parallelSafe = true;
   readonly description =
     "Read a UTF-8 text file or a PNG, JPEG, GIF, or WebP image. `path` is relative to the workspace root. Reads a window of lines " +
     "(`offset` 0-based, `limit` line count); large files are shown a window you can scroll with " +
@@ -255,12 +256,14 @@ const commandArgs = z.strictObject({
 });
 export class CommandTool implements Tool<z.infer<typeof commandArgs>> {
   readonly name: ShellKind;
+  readonly parallelSafe = true;
   readonly description: string;
 
   constructor(kind: ShellKind) {
     this.name = kind;
     this.description =
       `Run a ${shellLabel(kind)} command in the workspace root. ` +
+      "Direct commands in the same batch may overlap. Put dependent commands in one script or separate batches. " +
       (kind === "powershell"
         ? "Commands use a fresh noninteractive shell with the server environment; PowerShell profiles are disabled. "
         : "Commands use a fresh noninteractive shell with the execution host’s captured startup exports. ") +
@@ -339,6 +342,7 @@ export class GlobTool implements Tool<z.infer<typeof globArgs>> {
     required: ["paths"],
   };
   readonly name = "glob";
+  readonly parallelSafe = true;
   readonly description =
     "List files matching a glob `pattern`. Optional `path` scopes the search to a directory in the " +
     'workspace ("." or omitted: the whole workspace); an absolute path inside the workspace is ' +

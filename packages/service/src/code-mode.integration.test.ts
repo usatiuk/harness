@@ -27,7 +27,7 @@ import { buildResponseParams, buildChatParams } from "@harness/openai-core";
 import { buildMessages } from "@harness/anthropic-core";
 import { reconcileConversation, modelCompaction } from "@harness/core";
 import { InMemoryStore } from "@harness/store";
-import { FakeProvider, textStep, toolStep, type FakeStep } from "@harness/testkit";
+import { FakeProvider, interleavedStep, textStep, toolStep, type FakeStep } from "@harness/testkit";
 import {
   localExecutionPlugin,
   LocalExecutionContext,
@@ -858,59 +858,67 @@ describe("recorded code-mode execution", () => {
     await fixture.svc.deactivateSession(fixture.conversation.id, { force: true });
   });
 
-  it("overlaps ordinary foreground commands submitted concurrently", async () => {
-    const both = gate(),
-      release = gate();
-    const started: string[] = [];
-    class ControlledCommands extends LocalExecutionContext {
-      override spawn(command: string) {
-        started.push(command);
-        if (started.length === 2) both.resolve();
-        return {
-          pid: undefined,
-          exit: release.promise.then(() => ({ code: 0, signal: null })),
-          onData: () => {},
-          kill: () => release.resolve(),
-        };
+  it.each(["code-only", "hybrid"] as const)(
+    "overlaps foreground commands in %s mode",
+    async (mode) => {
+      const both = gate(),
+        release = gate();
+      const started: string[] = [];
+      class ControlledCommands extends LocalExecutionContext {
+        override spawn(command: string) {
+          started.push(command);
+          if (started.length === 2) both.resolve();
+          return {
+            pid: undefined,
+            exit: release.promise.then(() => ({ code: 0, signal: null })),
+            onData: () => {},
+            kill: () => release.resolve(),
+          };
+        }
       }
-    }
-    const backend = new ControlledCommands(null);
-    const fixture = await setup(
-      [
-        evalStep(
-          `return await Promise.all([tools.call("${backend.shellKind}", {command:"first"}), tools.call("${backend.shellKind}", {command:"second"})]);`,
-        ),
-        textStep("done"),
-      ],
-      [],
-      "code-only",
-      {},
-      {
-        execution: {
-          id: "controlled-commands",
-          services: () => [{ key: "execution", for: () => backend }],
+      const backend = new ControlledCommands(null);
+      const fixture = await setup(
+        [
+          mode === "code-only"
+            ? evalStep(
+                `return await Promise.all([tools.call("${backend.shellKind}", {command:"first"}), tools.call("${backend.shellKind}", {command:"second"})]);`,
+              )
+            : interleavedStep(
+                ["first", "second"].map((command) => ({
+                  callId: command,
+                  name: backend.shellKind,
+                  args: { command, background: false },
+                })),
+              ),
+          textStep("done"),
+        ],
+        [],
+        mode,
+        {},
+        {
+          execution: {
+            id: "controlled-commands",
+            services: () => [{ key: "execution", for: () => backend }],
+          },
         },
-      },
-    );
-    const running = fixture.run();
-    await both.promise;
-    expect(started).toEqual(["first", "second"]);
-    expect(
-      results(await fixture.store.listActiveItems(fixture.conversation.id)).filter(
-        (item) => item.parentCallId,
-      ),
-    ).toHaveLength(0);
-    release.resolve();
-    const items = await running;
-    const children = results(items).filter((item) => item.parentCallId);
-    expect(children).toHaveLength(2);
-    expect(children.every((item) => item.status === "ok")).toBe(true);
-    expect(
-      children.every(
-        (item) => item.seq < results(items).find((item) => item.callId === "outer")!.seq,
-      ),
-    ).toBe(true);
-  });
+      );
+      const running = fixture.run();
+      await both.promise;
+      expect(started.toSorted()).toEqual(["first", "second"]);
+      expect(results(await fixture.store.listActiveItems(fixture.conversation.id))).toHaveLength(0);
+      release.resolve();
+      const items = await running;
+      const commands = results(items).filter((item) => item.callId !== "outer");
+      expect(commands).toHaveLength(2);
+      expect(commands.every((item) => item.status === "ok")).toBe(true);
+      if (mode === "code-only") {
+        const outer = results(items).find((item) => item.callId === "outer")!;
+        expect(
+          commands.every((item) => item.parentCallId === outer.callId && item.seq < outer.seq),
+        ).toBe(true);
+      }
+    },
+  );
 
   it("preserves sequential await and direct model batch ordering", async () => {
     for (const mode of ["code-only", "hybrid"] as const) {

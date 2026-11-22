@@ -177,8 +177,10 @@ retain canonical descendants. Mandatory cancellation admission is checked at the
 terminal execution boundary after middleware returns.
 
 JavaScript controls child ordering: sequential `await` orders calls; concurrent
-submissions overlap through the same governed invocation path. Direct model batches
-retain their sequential loop. Body completion cancels unawaited work;
+submissions overlap through the same governed invocation path. Adjacent direct calls
+whose tools declare `parallelSafe` run in groups of up to four and record results as they finish.
+An exclusive call waits for its predecessors and finishes before later calls start.
+Body completion cancels unawaited work;
 descendants are paired before the outer result. Evaluator cancellation awaits
 worker termination and preserves emitted output. No heaps, cells, workflow
 resumption, rollback, or automatic script replay are persisted.
