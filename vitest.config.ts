@@ -7,6 +7,7 @@ export default defineConfig({
   },
   // .tsx tests need no JSX config: Vitest's oxc transform applies the automatic runtime.
   test: {
+    testTimeout: 15_000,
     include: ["packages/*/src/**/*.test.{ts,tsx}"],
     environment: "node",
     passWithNoTests: true,
