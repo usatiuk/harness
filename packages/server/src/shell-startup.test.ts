@@ -57,7 +57,8 @@ DemoProvider.prototype.stream = async function* (request) {
   const command = request.tools?.find(tool => tool.name === "bash" || tool.name === "zsh");
   const last = request.items.at(-1)?.item;
   if (command && last?.type !== "tool_result") {
-    if (!textOf(request.instructions).includes("GLOBAL STARTUP GUIDANCE"))
+    if (!request.items.some(({ item }) =>
+      item.type === "context" && textOf(item.content).includes("GLOBAL STARTUP GUIDANCE")))
       throw new Error("Global instructions did not reach the actual owner request");
     yield { type: "tool_call", callId: "inspect-environment", name: command.name,
       args: { command: 'printf "VALUE=%s\\n" "$STARTUP_TEST_VALUE"; startup-only-tool' } };
