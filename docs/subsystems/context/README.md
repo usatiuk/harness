@@ -58,6 +58,8 @@ A compaction fold is an immutable item whose content represents the entire activ
 window before it. Model context begins at the fresh system item identified by the latest fold and includes its opening context, the summary, and subsequent items. Earlier items remain in the raw conversation graph and transcript lineage;
 the fold changes model selection, not history.
 
+Both modes ask for a self-contained session handoff: the continuing agent does not see the earlier conversation in its active context. The handoff preserves user intent and authorization, decisions and evidence, and open work. It also preserves preferences, project conventions, commands, environment details, and pitfalls that may matter on a later task, even if the current task no longer needs them.
+
 The shipped model strategy supports:
 
 - **Manual compaction:** one standalone summary-only call. Tools remain in the

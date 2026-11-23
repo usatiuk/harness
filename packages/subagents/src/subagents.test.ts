@@ -357,7 +357,7 @@ describe("depthOf", () => {
 
 describe("subagentsConfigSchema — built-in agents", () => {
   it("ships general + explore when `agents` is unset, and replacing it drops the built-ins", () => {
-    // Both profiles expose all tools; explore's read-only role is prompt-directed.
+    // Role guidance does not change tool scope.
     const defaults = subagentsConfigSchema.parse({});
     expect(defaults.agents.map((a) => a.name)).toEqual(["general", "explore"]);
     const explore = defaults.agents.find((a) => a.name === "explore")!;

@@ -118,9 +118,9 @@ Each agent definition contains:
 - An optional model override; absent inherits the parent's resolved model.
 
 The shipped catalog includes `general` and `explore`, neither with a tool
-allowlist. Explore's prompt directs read-only research through available tools,
-including web search; its read-only role is instructional rather than a separate
-tool restriction. Setting an agent array replaces the defaults. Maximum recursion
+allowlist. Explore investigates by default and can leave research notes in temp
+or a parent-designated directory. Its parent can explicitly reassign it without
+changing tool access or approval policy. Setting an agent array replaces the defaults. Maximum recursion
 depth defaults to two (root, child, grandchild).
 Each parent defaults to three active direct children; finished children count
 until dismissed. Both limits are positive integer settings (`maxDepth`,

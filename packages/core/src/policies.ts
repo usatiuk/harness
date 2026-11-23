@@ -9,18 +9,17 @@ import {
   type ToolMiddleware,
 } from "@harness/protocol";
 
-const COMPACTION_PROMPT = `We are compacting the conversation context before continuing the task.
-Return a self-contained summary that preserves the current objective, user requirements and
-constraints, decisions, completed work, relevant files and symbols, errors, and pending next steps.`;
+const COMPACTION_PROMPT = `Write a self-contained handoff for the agent that will continue this session. After compaction, the agent will see this handoff instead of the messages exchanged in this session so far. Assume it knows nothing you learned here unless you put it in the handoff.
+
+State what the user wants, including their instructions, preferences, constraints, and what they have or have not authorized. Explain what was decided and why, what changed and where, and what was verified. For unfinished work, describe what remains and give the next concrete steps (including the plan, milestones, or roadmap, if any, along with current progress and dependencies).
+
+The user may start a different task in this session. Preserve reusable project knowledge even when the current task no longer needs it: user preferences and project conventions, environment and setup details, useful commands and file or symbol names, and tips or pitfalls learned along the way.`;
 
 const CONTINUING_COMPACTION_PROMPT = `${COMPACTION_PROMPT}
-First write the complete, non-empty summary as visible assistant text. Reasoning or tool calls
-alone are not a summary. The summary must stand on its own without any later tool results.
-Only after writing the summary may you make tool calls that immediately continue the task.
-If you make tool calls, your response must still include the complete summary text.`;
+First write the complete, non-empty handoff as visible assistant text. It must stand on its own without any later tool results. Only then may you make tool calls that immediately continue the session. Reasoning or tool calls alone do not count as a handoff.`;
 
 const MANUAL_COMPACTION_PROMPT = `${COMPACTION_PROMPT}
-Return only the non-empty summary. Do not continue the task or call tools.`;
+Return only the non-empty handoff. Do not continue the session or call tools.`;
 
 const FALLBACK_MAX_CHARS = 24_000;
 

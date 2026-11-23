@@ -95,8 +95,8 @@ it("preserves per-conversation identity across retries, concurrent roots, nested
   await engine.compact(child!.id);
   expect(calls.at(-1)).toMatchObject({
     context: { conversationId: child!.id },
+    request: { toolChoice: "none" },
   });
-  expect(auxiliaryPrompt(calls.at(-1)?.request)).toContain("compacting");
   await engine.deactivate(root!.id, { force: true });
   const resumed = createEngine();
   await resumed.deliver(root!.id, input);
