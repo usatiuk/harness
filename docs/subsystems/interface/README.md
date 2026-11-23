@@ -73,6 +73,11 @@ cross-process filesystem lock. The registry stays beside the controlling machine
 existing settings. Both clients offer host editors and lifecycle controls. SSH
 accepts a destination/alias and uses OpenSSH BatchMode; advanced SSH configuration
 belongs in .ssh/config. WSL distributions are discovered as editor choices.
+Inspecting or editing a saved route in the desktop connection manager does not
+switch hosts or start a transport. Save records the definition; Save & test
+also connects without switching. Save & connect selects the saved route.
+Adding WSL discovers installed distributions, selects a sole result, and still
+allows a manually named distribution if discovery fails or omits one.
 All hosts use the verified pinned Node runtime through the shared bootstrap;
 source development transfers an explicitly built complete Linux payload. There
 is no target-PATH runtime choice. Installation paths are internal. Each saved connection owns an independent
@@ -91,7 +96,10 @@ Plugin definitions may declare `configScope: "global"`. The resolver rejects
 their project/local/profile/conversation contributions before merging; MCP uses
 this declaration for its host startup configuration. Clients configure MCP
 through the versioned `@harness/mcp/client` requests over their existing selected
-host connection. Desktop has a structured MCP editor; TUI edits validated JSON
+host connection. Desktop lists saved servers and their live status before
+opening an explicit add/edit form. Testing and sign-in use the saved server;
+leaving the editor discards unsaved definition changes, not a pending sign-in.
+TUI edits validated JSON
 and supplies separate credential/sign-in controls. Both show safe status and
 explicit restart requirements, without owning credentials or permission logic.
 The shared approval timeout is part of their existing host-defaults editor.
@@ -446,10 +454,14 @@ route navigation leaves work running. Detachment clears stale views and
 subscriptions so retry performs a fresh attach. Sidebar pagination survives
 action revalidation.
 
-The memory router's pathname and query are saved per host and mirrored into the
-window hash only when the route changes. Fetcher cleanup and background router
-updates do not rewrite browser history, avoiding WebView history rate limits
-during transcript virtualization and conversation switching.
+React Router owns the window hash and browser history. Conversation links and
+Settings section selections push entries; Back and Forward traverse them without
+an application-managed history stack. The hash basename identifies the configured
+host and its persistent server ID, so a history entry from another connection
+cannot load a conversation against the selected server. Such entries offer the
+connection picker or a return to the current host. A new session restores its
+last logical pathname and query from local storage. Fetcher cleanup and background
+revalidation do not write history or persist an unchanged route.
 
 The desktop sidebar puts collapsible Projects above Recents, using the conversation's
 original checkout when present and its current workspace otherwise. Worktrees stay
@@ -479,6 +491,9 @@ Each project heading has a new-conversation (+) shortcut immediately before Hide
 project. It opens the existing creation form with that project's folder, without
 toggling or hiding the group. Selecting another project while the creation form
 is already mounted updates the folder without resetting its other choices.
+The two project actions share square hit areas. They and Show more use
+translucent sidebar interaction surfaces; adjacent chat hit areas retain a
+visible gap between selection and hover.
 There are no project records, lifecycle settings or filesystem discovery.
 Section labels use small muted uppercase text with right-side Lucide chevrons;
 Show more is a compact ghost action. Navigation text is non-selectable. Project chats align with Recents and long
@@ -699,13 +714,33 @@ operation's form data or host identity before opening. The transcript remains
 virtualized and uses the same centered measure as composer/support rows. Secondary
 tool details use native disclosures with Lucide chevrons. Settings displays one
 focused section through force-mounted tab panels, preserving form and sign-in
-lifetimes. Its selected section belongs to the existing per-host router location,
-so restarting the server restores that section. Appearance is available only in Settings. Creation is folder-first;
+lifetimes. Sections are `/settings/:section` paths; previous `?section=` links
+and saved routes still open the corresponding panel. Section-only navigation does
+not reread the host settings; settings mutations still revalidate their snapshot
+even if a section changes during a save. Arrow keys move tab focus and Enter
+or Space opens the focused section as a single history entry. Restarting the
+server restores that section. Appearance is available only in Settings. Creation is folder-first;
 Connections separates saved-host editing from current-host actions and collapses
 rare server controls. Startup/disconnected states center status, errors and actions.
 Settings, providers, connections, startup and route errors consume the
 same controls and tokens. The playground consumes those production recipes while
 its sample conversation/host state remains isolated.
+
+Settings uses shared section headings and task groups, not one grid derived from
+the settings document. `SectionHeading` introduces the current task;
+`SettingsGroup` keeps related controls together. Composer inspectors use the same
+popover layout for selectors, keyboard preferences and usage. Usage values align
+across sections without changing the underlying accounting.
+
+The Settings page lives in `packages/desktop/src/routes/settings.tsx`; loaders,
+actions and session subscriptions remain at the router boundary. Ordinary
+choices autosave on selection and text fields commit on blur or Enter. Secrets,
+host destinations, instruction documents and MCP server definitions require an
+explicit save. Within a session, the newest queued edit to a preference wins
+even when the form is reopened. MCP rechecks an owned OAuth attempt on return
+from the browser; it does not offer status actions for an unsaved draft.
+The shared checkbox owns its labelled row and visual states while retaining
+standard focus, keyboard and form behavior.
 
 Virtuoso provides the conversation scroll viewport. A floating dock holds
 bounded approvals and the composer. Activities overlay the dock with a top divider
@@ -1045,7 +1080,7 @@ labels stay muted and use normal case; project rows share chat styling with a fo
 nested chat titles align with the project name. Recents have no extra indentation. Selection
 uses a neutral translucent highlight without an accent stripe or outline,
 preserving the native sidebar material on Windows/macOS. The scroll region keeps
-a stable native scrollbar gutter with clearance for expanded overlay scrollbars
+a stable native scrollbar gutter with equal list padding on both sides
 and its outer edge 2px inside the sidebar boundary. The track is transparent;
 scrollbar width and interaction remain native.
 

@@ -35,7 +35,7 @@ test.beforeAll(async () => {
     if (path === "/") {
       response.setHeader("Content-Type", "text/html");
       response.end(
-        `<html><head>${css}</head><body><div id="root"></div><script type="module" src="/${entry.fileName}"></script></body></html>`,
+        `<!doctype html><html><head>${css}</head><body><div id="root"><main style="height:100%"><div id="fixture"></div></main></div><script type="module" src="/${entry.fileName}"></script></body></html>`,
       );
     } else {
       response.setHeader("Content-Type", path.endsWith(".css") ? "text/css" : "text/javascript");
@@ -57,7 +57,10 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   page,
 }) => {
   await page.goto(url);
+  await expect(page.getByRole("heading", { name: "Default tool permissions" })).toBeVisible();
   await page.getByRole("button", { name: "Add server", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Add MCP server" })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("add-mcp-server.png") });
   await page.getByLabel("Server ID", { exact: true }).fill("local");
   await page.getByLabel("Executable", { exact: true }).fill("node");
   await page.getByLabel("Arguments (one per line)").fill("server.js\n--verbose");
@@ -80,6 +83,16 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   await expect(page.getByRole("status")).toContainText("Saved");
   await page.getByRole("button", { name: "Test saved connection" }).click();
   await expect(page.getByRole("status")).toContainText("ready · 2 tools");
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  const local = page.getByRole("listitem").filter({ hasText: "local" });
+  await expect(local).toContainText("disabled");
+  await expect(local.getByRole("button", { name: "Edit local" })).toBeFocused();
+  await local.getByRole("button", { name: "Edit local" }).press("Enter");
+  await expect(page.getByLabel("Executable", { exact: true })).toHaveValue("node");
+  await chooseDropdown(page, page.getByLabel("Transport", { exact: true }), "http");
+  await chooseDropdown(page, page.getByLabel("Authentication", { exact: true }), "oauth");
+  await expect(page.getByRole("button", { name: "Sign in with OAuth" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Close dialog" }).click();
   await page.getByRole("button", { name: "Add server", exact: true }).click();
   await page.getByLabel("Server ID", { exact: true }).fill("hosted");
   await chooseDropdown(page, page.getByLabel("Transport", { exact: true }), "http");
@@ -133,10 +146,13 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   await expect
     .poll(() => page.evaluate(() => window.mcpFixture.opened))
     .toEqual(["https://example.com/authorize?state=fixture-state"]);
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  await expect(page.getByRole("button", { name: "Edit hosted" })).toBeFocused();
   const callbackUrl = "http://127.0.0.1:4321/auth/callback?state=fixture-state&code=one";
   await page.getByLabel("Redirected URL", { exact: true }).fill(callbackUrl);
   await page.getByRole("button", { name: "Complete sign-in", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Signed in");
+  await page.getByRole("button", { name: "Edit hosted" }).click();
   expect(
     await page.evaluate(
       () => window.mcpFixture.calls.find((c) => c.method === "plugin.mcp.auth.complete")?.params,
@@ -144,6 +160,16 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   ).toEqual({ attemptId: "fixture-attempt", callbackUrl });
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Signed out");
+  await page.getByRole("button", { name: "Sign in with OAuth", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Cancel sign-in" })).toBeEnabled();
+  await page.evaluate(() => {
+    window.mcpFixture.finishBrowserSignIn();
+    window.dispatchEvent(new Event("focus"));
+  });
+  await expect(page.getByRole("button", { name: "Complete sign-in" })).toHaveCount(0);
+  await expect(
+    page.getByText("Signed in; test the saved connection", { exact: false }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Sign in with OAuth", exact: true }).click();
   await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
   await expect(page.getByRole("button", { name: "Complete sign-in", exact: true })).toHaveCount(0);
@@ -167,6 +193,7 @@ test("cancels an owned OAuth attempt when saving removes its server", async ({ p
     await chooseDropdown(page, page.getByLabel("Authentication", { exact: true }), "oauth");
     await page.getByRole("button", { name: "Save server", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("Saved");
+    if (id === "other") await page.getByRole("button", { name: "Close dialog" }).click();
   }
   await page.getByRole("button", { name: "Sign in with OAuth", exact: true }).click();
   await expect(page.getByRole("button", { name: "Cancel sign-in", exact: true })).toBeVisible();

@@ -1,3 +1,4 @@
+import { SettingsGroup } from "./settings-layout.tsx";
 import { useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { Button } from "../ui.tsx";
@@ -30,8 +31,7 @@ export function DesktopUpdates() {
     }
   }
   return (
-    <div className="storage-location">
-      <h3>Desktop updates</h3>
+    <SettingsGroup title="Desktop updates">
       <p className="muted">Installing an update restarts Harness.</p>
       <div className="button-row">
         <Button loading={busy} onClick={() => void update(false)}>
@@ -44,6 +44,6 @@ export function DesktopUpdates() {
         )}
       </div>
       {notice && <p role="status">{notice}</p>}
-    </div>
+    </SettingsGroup>
   );
 }

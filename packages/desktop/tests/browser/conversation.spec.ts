@@ -617,13 +617,15 @@ test("Windows can choose Native and save it for the next conversation", async ({
     "data-value",
     "hybrid",
   );
-  await page.evaluate(() => window.composerFixture.setSandboxBackends(["none", "docker"]));
-  await page.keyboard.press("Escape");
-  await page.getByRole("link", { name: "Settings", exact: true }).click();
+});
+
+test("a saved Native default blocks creation on a host without Native", async ({ page }) => {
+  await page.goto(url + "?composer&nativeUnavailable");
   await page.getByRole("link", { name: "New conversation", exact: true }).click();
   const create = page.getByRole("button", { name: "Create conversation", exact: true });
   await expect(create).toBeDisabled();
   await page.getByRole("button", { name: "Choose execution options" }).click();
+  const sandbox = page.getByRole("combobox", { name: "Sandbox", exact: true });
   await expect(sandbox).toContainText("Native — unavailable");
   await chooseDropdown(page, sandbox, "none");
   await expect(create).toBeEnabled();
@@ -1016,7 +1018,6 @@ test("settings mutations still wait for root settings revalidation", async ({ pa
     return window.composerFixture.settingsReads;
   });
   await page.getByRole("checkbox", { name: "Show deferred tool names" }).uncheck();
-  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.length))
     .toBe(1);
@@ -1024,8 +1025,260 @@ test("settings mutations still wait for root settings revalidation", async ({ pa
     .poll(() => page.evaluate(() => window.composerFixture.settingsReads))
     .toBe(reads + 1);
   await page.evaluate(() => window.composerFixture.releaseSettings());
-  await expect(page.getByText(/Settings saved\. New or reloaded conversations/)).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
 });
+
+test("Settings sections traverse browser history without waiting for conversation or settings loaders", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  const conversation = page.url();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  const reads = await page.evaluate(() => {
+    window.composerFixture.holdSettings = true;
+    return window.composerFixture.settingsReads;
+  });
+  const tab = (name: string) => page.getByRole("tab", { name, exact: true });
+  await tab("Appearance").focus();
+  await tab("Appearance").press("ArrowRight");
+  await expect(tab("Composer")).toBeFocused();
+  await tab("Composer").press("Enter");
+  await expect(tab("Composer")).toHaveAttribute("aria-selected", "true");
+  const composer = page.url();
+  await tab("Defaults").click();
+  await expect(tab("Defaults")).toHaveAttribute("aria-selected", "true");
+  const defaults = page.url();
+  await page.goBack();
+  await expect(page).toHaveURL(composer);
+  await expect(tab("Composer")).toHaveAttribute("aria-selected", "true");
+  await page.goForward();
+  await expect(page).toHaveURL(defaults);
+  await expect(tab("Defaults")).toHaveAttribute("aria-selected", "true");
+  expect(await page.evaluate(() => window.composerFixture.settingsReads)).toBe(reads);
+
+  // Prove a real root load for another non-conversation destination is not
+  // mislabeled either; observe the blocked request before inspecting the UI.
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  await page
+    .getByRole("link", { name: /^New conversation in/ })
+    .first()
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsReads))
+    .toBe(reads + 1);
+  await expect(page.getByText("Loading conversation…", { exact: true })).toHaveCount(0);
+  await page.evaluate(() => window.composerFixture.releaseSettings());
+  await expect(page.getByRole("button", { name: "Create conversation" })).toBeVisible();
+  await page.goBack();
+  await expect(tab("Defaults")).toHaveAttribute("aria-selected", "true");
+  await page.goBack();
+  await expect(tab("Composer")).toHaveAttribute("aria-selected", "true");
+  await page.goBack();
+  await expect(tab("Appearance")).toHaveAttribute("aria-selected", "true");
+  await page.goBack();
+  await expect(page).toHaveURL(conversation);
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+});
+
+test("conversation links and Settings share one browser history", async ({ page }) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  const chat = (name: string) => page.locator(".sidebar-recents").getByRole("link", { name });
+  const heading = page.locator(".main-conversation h1");
+  await chat("Chat 0-0").click();
+  await expect(heading).toHaveText("Chat 0-0");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Composer", exact: true }).click();
+  await page.evaluate(() => {
+    window.composerFixture.holdConversation = true;
+  });
+  await chat("Chat 1-0").click();
+  await expect(page.getByText("Loading conversation…", { exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.releaseConversation());
+  await expect(heading).toHaveText("Chat 1-0");
+  await page.goBack();
+  await expect(page.getByRole("tab", { name: "Composer" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.goBack();
+  await expect(page.getByRole("tab", { name: "Appearance" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.goBack();
+  await expect(heading).toHaveText("Chat 0-0");
+  await page.goForward();
+  await expect(page.getByRole("tab", { name: "Appearance" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});
+
+test("a legacy Settings deep link opens its section and reloads at its scoped address", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer#/settings?section=instructions");
+  const tab = page.getByRole("tab", { name: "Instructions" });
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  const scoped = page.url();
+  expect(new URL(scoped).hash).toMatch(/^#\/hosts\/[^/]+\/settings\/instructions$/u);
+  await page.reload();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(scoped);
+});
+
+test("Back across a connection change never opens the previous host's page on the active server", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  const conversation = page.url();
+  await page.evaluate(() => {
+    localStorage.setItem("second:route", "/settings?section=composer");
+    window.composerFixture.holdSettings = true;
+    window.composerFixture.selectSettingsHost("second");
+  });
+  await expect(page.locator(".startup")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /another connection/ })).toHaveCount(0);
+  await page.evaluate(() => window.composerFixture.releaseSettings());
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  const second = page.url();
+  const reads = () =>
+    page.evaluate(() => ({
+      settings: window.composerFixture.settingsReads,
+      conversations: window.composerFixture.conversationLoads,
+    }));
+  const before = await reads();
+  await page.goBack();
+  await expect(page).toHaveURL(conversation);
+  await expect(page.getByRole("heading", { name: /another connection/ })).toBeVisible();
+  expect(await reads()).toEqual(before);
+  expect(await page.evaluate(() => localStorage.getItem("second:route"))).toBe(
+    "/settings/composer",
+  );
+  await page.goForward();
+  await expect(page).toHaveURL(second);
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+});
+
+test("autosave retains later model and numeric edits made while a save is being acknowledged", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  await page.evaluate(() => {
+    window.composerFixture.holdSettings = true;
+  });
+  const model = page.getByRole("combobox", { name: "Model for new conversations" });
+  await model.click();
+  await page
+    .getByRole("option", { name: "fixture / Fixture model test-latest", exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toMatchObject({ model: { model: "test-latest" } });
+  await model.click();
+  await page.getByRole("option", { name: "fixture / Fixture model test", exact: true }).click();
+  const timeout = page.getByLabel("Human approval timeout (seconds)");
+  await timeout.fill("70");
+  await timeout.blur();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites))
+    .toContainEqual({ approval: expect.objectContaining({ humanApprovalTimeoutSeconds: 70 }) });
+  await timeout.fill("71");
+  await timeout.blur();
+  await page.evaluate(() => window.composerFixture.releaseSettings());
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites))
+    .toEqual(
+      expect.arrayContaining([
+        { model: { provider: "fixture", model: "test", preset: null } },
+        { approval: expect.objectContaining({ humanApprovalTimeoutSeconds: 71 }) },
+      ]),
+    );
+  await expect(page.locator("form").filter({ has: timeout }).getByRole("status")).toContainText(
+    "Settings saved",
+  );
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  await expect(timeout).toHaveValue("71");
+  await expect(model).not.toContainText("test-latest");
+});
+
+test("leaving Settings while a write is acknowledged preserves the last committed choice", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  await page.evaluate(() => {
+    window.composerFixture.holdSettings = true;
+  });
+  const tools = page.getByRole("checkbox", { name: "Show deferred tool names" });
+  await tools.uncheck();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toMatchObject({ showToolNames: false });
+  await tools.check();
+  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  await page.evaluate(() => window.composerFixture.releaseSettings());
+  await expect(page.getByRole("button", { name: "Create conversation" })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toMatchObject({ showToolNames: true });
+});
+
+for (const changeHost of [false, true])
+  test(
+    changeHost
+      ? "disposing a host discards its queued preference without blocking the new host"
+      : "a preference committed in reopened Settings supersedes the previous form's queued edit",
+    async ({ page }) => {
+      await page.goto(url + "?composer");
+      const open = async () => {
+        await page.getByRole("link", { name: "Settings", exact: true }).click();
+        await page.getByRole("tab", { name: "Worktrees", exact: true }).click();
+      };
+      const directory = page.getByRole("textbox", { name: /Worktree directory/ });
+      const write = async (path: string) => {
+        await directory.fill(path);
+        await directory.press("Enter");
+      };
+      await open();
+      await page.evaluate(() => {
+        window.composerFixture.holdNextSettingsWrite = true;
+      });
+      await write("/first");
+      await expect
+        .poll(() => page.evaluate(() => window.composerFixture.settingsWrites))
+        .toEqual([{ worktreeDirectory: "/first" }]);
+      await write("/older");
+      if (changeHost) {
+        await page.evaluate(() => window.composerFixture.selectSettingsHost("second"));
+        await page.getByRole("tab", { name: "Worktrees", exact: true }).click();
+      } else {
+        await page.getByLabel("New conversation", { exact: true }).click();
+        await expect(page.getByRole("button", { name: "Create conversation" })).toBeVisible();
+        await open();
+      }
+      await write("/newest");
+      const saved = () =>
+        expect(page.locator("form").filter({ has: directory }).getByRole("status")).toContainText(
+          "Worktree directory saved",
+        );
+      if (changeHost) await saved(); // The new host doesn't wait for the old host's acknowledgement.
+      await page.evaluate(() => window.composerFixture.releaseSettings());
+      await saved();
+      await expect
+        .poll(() => page.evaluate(() => window.composerFixture.settingsWrites))
+        .toEqual([{ worktreeDirectory: "/first" }, { worktreeDirectory: "/newest" }]);
+    },
+  );
 
 test("same-turn repeated composer submission delivers only once", async ({ page }) => {
   await page.goto(url + "?composer");
@@ -1237,13 +1490,20 @@ test("settings saves shared Ask human and its approval timeout through the route
   await chooseDropdown(page, page.locator("[role=combobox][data-name=inWorkspace]"), "ask-human");
   await page.getByLabel("Human approval timeout (seconds)", { exact: true }).fill("12.5");
   await page.getByLabel("Auto approver timeout (seconds)", { exact: true }).fill("45.5");
-  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await page.getByLabel("Auto approver timeout (seconds)", { exact: true }).blur();
   await expect
-    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
-    .toMatchObject({
-      approval: { inWorkspace: "ask-human", humanApprovalTimeoutSeconds: 12.5 },
-      autoApproval: { model: null, timeoutSeconds: 45.5 },
-    });
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites))
+    .toEqual(
+      expect.arrayContaining([
+        {
+          approval: expect.objectContaining({
+            inWorkspace: "ask-human",
+            humanApprovalTimeoutSeconds: 12.5,
+          }),
+        },
+        { autoApproval: expect.objectContaining({ model: null, timeoutSeconds: 45.5 }) },
+      ]),
+    );
 });
 
 test("settings saves deferred tool name visibility", async ({ page }) => {
@@ -1254,7 +1514,6 @@ test("settings saves deferred tool name visibility", async ({ page }) => {
   await expect(names).toBeChecked();
   for (const showToolNames of [false, true]) {
     await names.setChecked(showToolNames);
-    await page.getByRole("button", { name: "Save defaults", exact: true }).click();
     await expect
       .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
       .toMatchObject({ showToolNames });
@@ -1273,7 +1532,7 @@ test("settings saves and clears the global compaction threshold", async ({ page 
   const threshold = page.getByRole("spinbutton", { name: "Compaction threshold (input tokens)" });
   await expect(threshold).toHaveValue("");
   await threshold.fill("1200");
-  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await threshold.blur();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
     .toMatchObject({ compactionThresholdTokens: 1200 });
@@ -1285,40 +1544,86 @@ test("settings saves and clears the global compaction threshold", async ({ page 
   await page.getByRole("tab", { name: "Defaults", exact: true }).click();
   await expect(threshold).toHaveValue("1200");
   await threshold.fill("");
-  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await threshold.blur();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
     .toMatchObject({ compactionThresholdTokens: null });
 });
 
-test("settings refreshes its model when authoritative defaults change", async ({ page }) => {
+test("switching sections during a save retains the revalidated authoritative defaults", async ({
+  page,
+}) => {
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "Settings", exact: true }).click();
+  // A loaded instructions fetcher also participates in action revalidation.
+  await page.getByRole("tab", { name: "Instructions", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "AGENTS.md" })).toBeVisible();
   await page.getByRole("tab", { name: "Defaults", exact: true }).click();
   await expect(page.locator("input[name=model]")).toHaveValue("fixture\u0000test");
-  await page.evaluate(() => window.composerFixture.setDefaultModel("test-latest"));
+  const before = await page.evaluate(() => {
+    window.composerFixture.holdSettings = true;
+    window.composerFixture.setDefaultModel("test-latest");
+    return window.composerFixture.settingsReads;
+  });
+  await page.getByRole("checkbox", { name: "Show deferred tool names" }).uncheck();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsReads))
+    .toBeGreaterThan(before);
   await page.getByRole("tab", { name: "Composer", exact: true }).click();
+  await page.evaluate(() => window.composerFixture.releaseSettings());
+  await expect(page.getByRole("tab", { name: "Composer", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   await page.getByRole("tab", { name: "Defaults", exact: true }).click();
   await expect(page.locator("input[name=model]")).toHaveValue("fixture\u0000test-latest");
-  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
-    .toMatchObject({ model: { provider: "fixture", model: "test-latest" } });
+    .toEqual({ showToolNames: false });
 });
 
 test("adds a LiteLLM gateway from Settings and clears the API key draft", async ({ page }) => {
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByRole("tab", { name: "Providers", exact: true }).click();
-  await page.getByText("Add LiteLLM gateway", { exact: true }).click();
-  const form = page.locator(".provider-add");
-  await form.getByLabel("Provider ID", { exact: true }).fill("work-gateway");
-  await form.getByLabel("Label", { exact: true }).fill("Work LiteLLM");
-  await form.getByLabel("Gateway URL", { exact: true }).fill("https://gateway.example.com");
-  await form.getByLabel("API key", { exact: true }).fill("fixture-private");
-  await form.getByRole("button", { name: "Add gateway", exact: true }).click();
-  await expect(form.getByRole("status")).toContainText("Restart");
-  await expect(form.getByLabel("API key", { exact: true })).toHaveValue("");
+  const trigger = page.getByRole("button", { name: "Add gateway", exact: true });
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Add LiteLLM gateway" });
+  const id = dialog.getByLabel("Provider ID");
+  const key = dialog.getByLabel("API key", { exact: true });
+  await expect(id).toBeFocused();
+  await id.fill("discarded");
+  await key.fill("discarded-key");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect(await page.evaluate(() => window.composerFixture.providerCreates)).toEqual([]);
+  await trigger.click();
+  await expect(id).toHaveValue("");
+  await expect(key).toHaveValue("");
+  await id.fill("work");
+  await dialog.getByLabel("Label", { exact: true }).fill("Work LiteLLM");
+  await dialog.getByLabel("Gateway URL").fill("https://gateway.example.com");
+  await key.fill("fixture-private");
+  await dialog.getByRole("button", { name: "Add gateway", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("already exists");
+  await expect(key).toHaveValue("");
+  await expect(dialog.getByLabel("Gateway URL")).toHaveValue("https://gateway.example.com");
+  await id.fill("work-gateway");
+  await key.fill("fixture-private");
+  await page.evaluate(() => {
+    window.composerFixture.holdSettings = true;
+  });
+  await dialog.getByRole("button", { name: "Add gateway", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await page.evaluate(() => window.composerFixture.releaseSettings());
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await expect(page.getByRole("region", { name: "Work LiteLLM", exact: true })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Restart");
   expect(await page.evaluate(() => window.composerFixture.providerCreates)).toEqual([
     {
       id: "work-gateway",
@@ -1328,6 +1633,63 @@ test("adds a LiteLLM gateway from Settings and clears the API key draft", async 
     },
   ]);
   await expect(page.locator("body")).not.toContainText("fixture-private");
+  await trigger.click();
+  await expect(id).toHaveValue("");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(trigger).toBeFocused();
+});
+
+test("Back to another Settings section removes the editor dialog", async ({ page }) => {
+  await page.goto(url + "?composer#/settings/appearance");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  for (const [section, add] of [
+    ["Providers", "Add gateway"],
+    ["MCP", "Add server"],
+  ] as const) {
+    await page.getByRole("tab", { name: section }).click();
+    await page.getByRole("button", { name: add, exact: true }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.goBack();
+    await expect(page.getByRole("tab", { name: "Appearance" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  }
+});
+
+test("a saved LiteLLM gateway can recover a failed key without creating the provider again", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 720, height: 520 });
+  await page.goto(url + "?composer");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Providers", exact: true }).click();
+  await page.getByRole("button", { name: "Add gateway" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add LiteLLM gateway" });
+  await dialog.getByLabel("Provider ID").fill("partial");
+  await dialog.getByLabel("Gateway URL").fill("https://gateway.example.com");
+  await dialog.getByLabel("API key", { exact: true }).fill("first-test-key");
+  await page.evaluate(() => {
+    window.composerFixture.failProviderLogin = true;
+  });
+  await dialog.getByRole("button", { name: "Add gateway", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("alert")).toContainText(
+    "Provider saved, but the API key was not stored",
+  );
+  const provider = page.getByRole("region", { name: "partial", exact: true });
+  await provider.locator("summary").click();
+  const key = provider.getByLabel("partial API key");
+  await expect(key).toHaveValue("");
+  await page.evaluate(() => {
+    window.composerFixture.failProviderLogin = false;
+  });
+  await key.fill("second-test-key");
+  await provider.getByRole("button", { name: "Save key" }).click();
+  await expect(provider.getByRole("status")).toContainText("Signed in");
+  await expect(key).toHaveValue("");
+  expect(await page.evaluate(() => window.composerFixture.providerCreates)).toHaveLength(1);
 });
 
 for (const theme of ["light", "dark"] as const)
@@ -1417,9 +1779,10 @@ test("provider settings expose and save native web search for supported connecti
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByRole("tab", { name: "Providers", exact: true }).click();
-  const work = page
-    .locator(".provider")
-    .filter({ has: page.getByRole("heading", { name: "Work", exact: true }) });
+  const work = page.getByRole("region", { name: "Work", exact: true });
+  await expect(work.getByRole("combobox", { name: "Work Web search" })).toBeHidden();
+  await work.locator("summary").click();
+  await page.getByRole("region", { name: "Personal", exact: true }).locator("summary").click();
   await expect(page.getByLabel("Work Web search", { exact: true })).toHaveAttribute(
     "data-value",
     "true",
@@ -1430,7 +1793,6 @@ test("provider settings expose and save native web search for supported connecti
   );
   await expect(page.getByLabel("Gateway Web search", { exact: true })).toHaveCount(0);
   await chooseDropdown(page, page.getByLabel("Work Web search", { exact: true }), "false");
-  await work.getByRole("button", { name: "Save provider settings", exact: true }).click();
   await expect(work.getByRole("status")).toContainText("Restart the server");
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.providerWrites))
@@ -1441,22 +1803,20 @@ test("provider settings expose and save native web search for supported connecti
     "data-value",
     "false",
   );
-  await chooseDropdown(page, page.getByLabel("Work Web search", { exact: true }), "true");
   await page.evaluate(() => {
     window.composerFixture.failProviderSave = true;
   });
-  await work.getByRole("button", { name: "Save provider settings", exact: true }).click();
+  await chooseDropdown(page, page.getByLabel("Work Web search", { exact: true }), "true");
   await expect(work.getByRole("alert")).toContainText("Provider save failed");
   await page.evaluate(() => {
     window.composerFixture.failProviderSave = false;
   });
-  await work.getByRole("button", { name: "Save provider settings", exact: true }).click();
+  await work.getByRole("button", { name: "Retry save" }).click();
   await expect(work.getByRole("status")).toContainText("Provider settings saved");
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.providerWrites.at(-1)))
     .toEqual({ provider: "work", patch: { webSearch: true } });
   await chooseDropdown(page, page.getByLabel("Work Compact output", { exact: true }), "false");
-  await work.getByRole("button", { name: "Save provider settings", exact: true }).click();
   await expect(work.getByRole("status")).toContainText("Provider settings saved");
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.providerWrites.at(-1)))
@@ -1475,7 +1835,6 @@ test("settings saves and clears the conversation naming model and preset", async
   await naming.click();
   await page.getByRole("option", { name: "fixture / Fixture model test", exact: true }).click();
   await chooseDropdown(page, page.locator("[role=combobox][data-name=titlePreset]"), "high");
-  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
     .toMatchObject({
@@ -1484,7 +1843,6 @@ test("settings saves and clears the conversation naming model and preset", async
   await naming.click();
   await page.getByRole("option", { name: "Use conversation model", exact: true }).click();
   await expect(page.locator("[role=combobox][data-name=titlePreset]")).toBeDisabled();
-  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
     .toMatchObject({ conversationTitleModel: null });
@@ -2290,6 +2648,9 @@ test("sidebar and file-tree widths are remembered per root conversation until re
     window.composerFixture.switchSidebarScope("another-host");
     window.composerFixture.recreateRouter();
   });
+  // A new host has its own landing page, not the previous host's conversation.
+  await page.locator(".sidebar-recents").getByRole("link", { name: "Chat 0-0" }).click();
+  await expect(page.locator(".main-conversation h1")).toHaveText("Chat 0-0");
   await show.click();
   await expect(panelResize).toHaveAttribute("aria-valuenow", "720");
   await expect(treeResize).toHaveAttribute("aria-valuenow", "240");
@@ -2302,6 +2663,10 @@ test("sidebar and file-tree widths are remembered per root conversation until re
   await show.click();
   await expect(panelResize).toHaveAttribute("aria-valuenow", "740");
   await expect(treeResize).toHaveAttribute("aria-valuenow", "260");
+  await page.evaluate(() => window.composerFixture.openConversation("fixture"));
+  await expect(page.locator(".main-conversation h1")).toHaveText("Parent conversation");
+  await show.click();
+  await expect(panelResize).toHaveAttribute("aria-valuenow", "730");
   await page.reload();
   await show.click();
   await expect(panelResize).toHaveAttribute("aria-valuenow", "720");
@@ -3459,14 +3824,19 @@ test("project new conversation shortcuts preserve disclosure and choose the clic
     name: "New conversation in /work/b/repo",
     exact: true,
   });
-  await expect(firstShortcut).toHaveAttribute(
-    "href",
-    `/new?cwd=${encodeURIComponent("/work/a/repo")}`,
-  );
   await expect(
     first.locator(':scope > summary a + button[aria-label="Hide project /work/a/repo"]'),
   ).toHaveCount(1);
   await first.locator(":scope > summary").hover();
+  const actionBoxes = await first.locator(":scope > summary .icon-control").evaluateAll((actions) =>
+    actions.map((action) => {
+      const { width, height, top } = action.getBoundingClientRect();
+      return { width, height, top };
+    }),
+  );
+  expect(actionBoxes).toHaveLength(2);
+  expect(actionBoxes[0]).toEqual(actionBoxes[1]);
+  expect(actionBoxes[0]!.width).toBe(actionBoxes[0]!.height);
   await firstShortcut.click();
   const folder = page.getByRole("textbox", { name: "Project folder", exact: true });
   await expect(folder).toHaveValue("/work/a/repo");
@@ -3496,6 +3866,59 @@ test("project new conversation shortcuts preserve disclosure and choose the clic
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.creations.at(-1)?.cwd))
     .toBe("/work/a/repo");
+});
+
+test.describe("coarse pointer project actions", () => {
+  test.use({ hasTouch: true });
+  test("keep square actions and a visible label at minimum sidebar width", async ({ page }) => {
+    await page.goto(url + "?composer");
+    await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+    await page.evaluate(() => window.composerFixture.seedSidebar());
+    await page.getByRole("separator", { name: "Resize sidebar" }).press("Home");
+    const summary = page.locator(".sidebar-project > summary").first();
+    const boxes = await summary.evaluate((row) => ({
+      label: row.querySelector(".project-label")!.getBoundingClientRect().width,
+      rowEnd: row.getBoundingClientRect().right,
+      chevronEnd: row.querySelector(".sidebar-chevron")!.getBoundingClientRect().right,
+      actions: Array.from(row.querySelectorAll(".icon-control"), (action) => {
+        const { width, height } = action.getBoundingClientRect();
+        return { width, height };
+      }),
+    }));
+    expect(boxes.label).toBeGreaterThan(0);
+    expect(boxes.chevronEnd).toBeLessThanOrEqual(boxes.rowEnd);
+    // Flex distributes a subpixel remainder when both touch targets must shrink.
+    expect(boxes.actions[0]!.width).toBeCloseTo(boxes.actions[1]!.width, 0);
+    for (const action of boxes.actions) expect(action.width).toBe(action.height);
+  });
+});
+
+test("sidebar actions keep keyboard focus visible and adjacent chat hit areas distinct", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  const project = page.locator(".sidebar-project").first();
+  for (const control of [
+    project.getByRole("link", { name: /^New conversation in /u }),
+    project.getByRole("button", { name: /^Hide project /u }),
+    project.getByRole("button", { name: "Show more" }),
+  ]) {
+    await control.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(control).toBeFocused();
+    await expect(control).toHaveCSS("outline-style", "solid");
+  }
+  const rows = project.locator(".project-conversations a");
+  await rows.first().click();
+  await rows.nth(1).hover();
+  await expect(rows.first()).toHaveAttribute("aria-current", "page");
+  const gap = await rows.evaluateAll(
+    ([selected, hovered]) =>
+      hovered!.getBoundingClientRect().top - selected!.getBoundingClientRect().bottom,
+  );
+  expect(gap).toBeGreaterThan(0);
 });
 
 test("sidebar groups all folders, pages five chats, and keeps hidden projects in Recents", async ({
@@ -3607,6 +4030,9 @@ test("quiet sidebar keeps long project rows aligned and fully inside the resized
       projectTextLeft: project.querySelector(".conversation-title")!.getBoundingClientRect().left,
       projectLabelLeft: nav.querySelector(".project-label")!.getBoundingClientRect().left,
       projectRight: p.right,
+      leftInset:
+        nav.querySelector(".sidebar-project")!.getBoundingClientRect().left -
+        (rect.left + nav.clientLeft),
       contentRight: rect.left + nav.clientLeft + nav.clientWidth,
       sidebarRight: nav.closest(".sidebar")!.getBoundingClientRect().right,
       scrollbarRight: rect.right,
@@ -3617,7 +4043,8 @@ test("quiet sidebar keeps long project rows aligned and fully inside the resized
     };
   });
   expect(bounds.projectTextLeft).toBe(bounds.projectLabelLeft);
-  expect(bounds.contentRight - bounds.projectRight).toBeGreaterThanOrEqual(20);
+  expect(bounds.leftInset).toBeGreaterThan(0);
+  expect(bounds.contentRight - bounds.projectRight).toBe(bounds.leftInset);
   expect(bounds.sidebarRight - bounds.scrollbarRight).toBe(2);
   expect(bounds.overflow).toBe(false);
   expect(bounds.moreHeight).toBeLessThanOrEqual(26);
@@ -3638,7 +4065,7 @@ test("quiet sidebar keeps long project rows aligned and fully inside the resized
         row.getBoundingClientRect().right
       );
     }),
-  ).toBeGreaterThanOrEqual(20);
+  ).toBe(bounds.leftInset);
   await page.screenshot({ path: test.info().outputPath("quiet-sidebar-light.png") });
   await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
   await page.screenshot({ path: test.info().outputPath("quiet-sidebar-dark.png") });
@@ -3866,33 +4293,31 @@ test("worktree manager requires explicit destructive confirmation", async ({ pag
     .toEqual([{ path: "D:\\worktrees\\one", force: true }]);
 });
 
-test("Settings saves and clears the server worktree directory", async ({ page }) => {
+test("Worktrees saves its directory without changing other defaults", async ({ page }) => {
   await page.goto(url + "?composer");
   await page.getByRole("link", { name: "Settings", exact: true }).click();
-  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
+  const worktrees = page.getByRole("tab", { name: "Worktrees", exact: true });
+  await worktrees.click();
   const field = page.getByRole("textbox", { name: "Worktree directory" });
   await field.fill("/server/custom worktrees");
-  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await page.getByRole("tab", { name: "Defaults", exact: true }).click();
   await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window.composerFixture.settingsWrites.at(-1) as { worktreeDirectory?: string })
-            ?.worktreeDirectory,
-      ),
-    )
-    .toBe("/server/custom worktrees");
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites))
+    .toEqual([{ worktreeDirectory: "/server/custom worktrees" }]);
+  await page.getByRole("checkbox", { name: "Show deferred tool names" }).uncheck();
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.length))
+    .toBe(2);
+  expect(await page.evaluate(() => window.composerFixture.settingsWrites[1])).not.toHaveProperty(
+    "worktreeDirectory",
+  );
+  await worktrees.click();
+  await expect(field).toHaveValue("/server/custom worktrees");
   await field.fill("");
-  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await field.blur();
   await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window.composerFixture.settingsWrites.at(-1) as { worktreeDirectory?: string | null })
-            ?.worktreeDirectory,
-      ),
-    )
-    .toBeNull();
+    .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
+    .toEqual({ worktreeDirectory: null });
 });
 
 test("creation disables worktrees for non-Git folders and uses worktree creation for eligible ones", async ({
@@ -4024,7 +4449,10 @@ test("feedback settings save collection choice and hide conversation buttons", a
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByRole("tab", { name: "Feedback", exact: true }).click();
   await page.getByRole("checkbox", { name: "Show feedback buttons in conversations" }).uncheck();
+  const token = page.locator('input[name="token"]');
+  await token.fill("replacement-for-this-endpoint");
   await page.getByRole("button", { name: "Save feedback settings", exact: true }).click();
+  await expect(token).toHaveValue("");
   await expect(page.getByRole("status").filter({ hasText: "Token available" })).toContainText(
     "Saved.",
   );
@@ -4042,7 +4470,7 @@ test("settings saves configurable subagent depth and active child limits", async
   await expect(children).toHaveValue("3");
   await depth.fill("4");
   await children.fill("5");
-  await page.getByRole("button", { name: "Save defaults", exact: true }).click();
+  await children.blur();
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.settingsWrites.at(-1)))
     .toMatchObject({ subagents: { maxDepth: 4, maxChildren: 5 } });
@@ -4324,7 +4752,7 @@ test("pending image reads stay observable after leaving and reopening the chat",
   });
   await expect(page.getByRole("button", { name: "Steer", exact: true })).toBeDisabled();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
-  await page.locator('a[href="/conversations/fixture"]').first().click();
+  await page.locator('a[href$="/conversations/fixture"]').first().click();
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(
     "keep draft",
   );
@@ -4511,6 +4939,39 @@ test("context-only work has one Working owner and errors do not classify the gro
   await expect(page.getByText(/Worked for/)).toHaveCount(1);
   await page.locator(".tool-group").click();
   await expect(page.locator(".work-items [role=alert]")).toHaveText("Original failure");
+});
+
+test("usage figures share a reading edge and the last note remains reachable at minimum size", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 720, height: 520 });
+  await page.goto(url + "?composer");
+  const trigger = page.getByRole("button", { name: /^Context usage:/ });
+  await expect(trigger).toBeVisible();
+  await page.evaluate(() =>
+    window.composerFixture.setCapacity(
+      { maxInputTokens: 256_000, contextWindow: 300_000 },
+      128_910,
+    ),
+  );
+  await trigger.click();
+  const popup = page.getByRole("dialog", { name: "Context and usage" });
+  // Measure the text, not the grid cells: equal-width boxes can contain misaligned figures.
+  const edges = await popup.locator("dd").evaluateAll((values) =>
+    values.map((value) => {
+      const range = document.createRange();
+      range.selectNodeContents(value);
+      return range.getBoundingClientRect().right;
+    }),
+  );
+  expect(edges.length).toBeGreaterThan(1);
+  expect(Math.max(...edges) - Math.min(...edges)).toBeLessThan(1);
+  const note = popup.getByText(/unsent draft/i);
+  await popup.hover();
+  await page.mouse.wheel(0, await popup.evaluate((element) => element.scrollHeight));
+  await expect(note).toBeInViewport({ ratio: 1 });
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
 });
 
 for (const theme of ["light", "dark"] as const) {
@@ -4711,12 +5172,13 @@ for (const theme of ["light", "dark"] as const) {
       await page.screenshot({
         path: test.info().outputPath(`sidebar-hover-${theme}-${chrome}.png`),
       });
-      await expect(create).toHaveAttribute("href", "/new");
+      await expect(create).toHaveAttribute("href", /\/new$/u);
+      const destination = await create.evaluate((link: HTMLAnchorElement) => link.href);
       await expect(create.locator("button, a")).toHaveCount(0);
       const popupPromise = page.context().waitForEvent("page");
       await create.click({ modifiers: ["ControlOrMeta"] });
       const popup = await popupPromise;
-      await popup.waitForURL(url + "/new");
+      await popup.waitForURL(destination);
       await popup.close();
       await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
       await page.mouse.move(600, 400);
@@ -4883,7 +5345,6 @@ test("host settings default off and persist on the selected host without loading
   await expect(keep).not.toBeChecked();
   expect(await page.evaluate(() => window.composerFixture.instructionsReads)).toBe(0);
   await keep.check();
-  await page.getByRole("button", { name: "Save server settings", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Server settings saved.");
   await expect(keep).toBeChecked();
   expect(await page.evaluate(() => window.composerFixture.settingsWrites.at(-1))).toEqual({
@@ -4949,7 +5410,6 @@ test("host instructions preserve dirty edits through settings revalidation and f
   await page
     .getByRole("checkbox", { name: "Keep this server running after desktop exit", exact: true })
     .check();
-  await page.getByRole("button", { name: "Save server settings", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Server settings saved.");
   await page.getByRole("tab", { name: "Instructions", exact: true }).click();
   await expect(editor).toHaveValue("Keep my unsaved edit");
@@ -5009,7 +5469,6 @@ test("host instructions and keep-running follow selected execution host rather t
     exact: true,
   });
   await keep.check();
-  await page.getByRole("button", { name: "Save server settings", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Server settings saved.");
   await page.evaluate(() => window.composerFixture.selectSettingsHost("second"));
   await page.getByRole("tab", { name: "Application", exact: true }).click();
@@ -5229,3 +5688,136 @@ for (const mode of ["custom", "native", "fullscreen"] as const)
     await expect.poll(() => settings.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     await expect.poll(viewport).toEqual(before);
   });
+
+test("connection inspection and drafts are inert until an explicit save or switch", async ({
+  page,
+}, info) => {
+  await page.goto(url + "?connections");
+  const dialog = page.getByRole("dialog", { name: "Connections" });
+  const button = (name: string) => dialog.getByRole("button", { name, exact: true });
+  const effects = () => page.evaluate(() => window.connectionEffects);
+  await button("Workstation").click();
+  await expect(dialog.getByRole("heading", { name: "Workstation" })).toBeVisible();
+  await expect(dialog.getByText("dev@workstation", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath("overview.png") });
+  await button("Edit connection").click();
+  const destination = dialog.getByLabel("SSH destination");
+  await destination.fill("unsaved@other");
+  await button("Back").click();
+  await expect(dialog.getByText("dev@workstation", { exact: true })).toBeVisible();
+  await button("Add SSH").click();
+  await destination.fill("another-machine");
+  await button("Back").click();
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  expect(await effects()).toEqual([]);
+
+  await button("Workstation").click();
+  await button("Edit connection").click();
+  await expect(destination).toHaveValue("dev@workstation");
+  await destination.fill("dev@builder");
+  await button("Save").click();
+  await expect(dialog.getByText("dev@builder", { exact: true })).toBeVisible();
+  expect(await effects()).toEqual(["save:remote"]);
+  await page.setViewportSize({ width: 720, height: 720 });
+  await button("Edit connection").click();
+  await page.screenshot({ path: info.outputPath("edit-720.png") });
+  await button("Save & test").click();
+  await expect(dialog.getByRole("heading", { name: "Workstation" })).toBeVisible();
+  await expect(button("Switch to host")).toBeVisible();
+  expect(await effects()).toEqual(["save:remote", "save:remote", "connect:remote"]);
+  await page.screenshot({ path: info.outputPath("overview-720.png") });
+  await dialog.getByText("Server actions", { exact: true }).click();
+  const restart = button("Restart server");
+  await restart.click();
+  const confirm = page.getByRole("alertdialog");
+  await expect(confirm).toContainText("Workstation");
+  await confirm.getByRole("button", { name: "Cancel" }).click();
+  await expect(restart).toBeFocused();
+  expect(await effects()).not.toContain("restart:remote");
+  await restart.click();
+  await confirm.getByRole("button", { name: "Restart server" }).click();
+  await expect(button("Done")).toBeFocused();
+  expect(await effects()).toContain("restart:remote");
+  await button("Edit connection").click();
+  await button("Save & connect").click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Manage connections: Workstation" })).toBeVisible();
+});
+
+test("an empty WSL discovery still allows saving a manually named distribution", async ({
+  page,
+}) => {
+  await page.goto(url + "?connections");
+  const dialog = page.getByRole("dialog", { name: "Connections" });
+  await dialog.getByRole("button", { name: "Add WSL" }).click();
+  await expect(dialog.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.connectionEffects)).toEqual(["discover"]);
+  await dialog.getByLabel("Distribution", { exact: true }).fill("Custom-Distro");
+  await dialog.getByLabel("Name", { exact: true }).fill("Build VM");
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(dialog.getByRole("heading", { name: "Build VM" })).toBeVisible();
+  await expect(dialog.getByText("Custom-Distro", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Switch to host" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Edit connection" }).click();
+  await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(dialog.getByRole("heading", { name: "Local", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Build VM", exact: true })).toHaveCount(0);
+});
+
+test("cancelling a connection test preserves the editor for recovery", async ({ page }) => {
+  await page.goto(url + "?connections");
+  const dialog = page.getByRole("dialog", { name: "Connections" });
+  await dialog.getByRole("button", { name: "Workstation", exact: true }).click();
+  await dialog.getByRole("button", { name: "Edit connection" }).click();
+  await page.evaluate(() => {
+    window.stallConnection = true;
+  });
+  await dialog.getByRole("button", { name: "Save & test" }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.connectionEffects))
+    .toContain("connect:remote");
+  await dialog.getByRole("button", { name: "Cancel connection" }).click();
+  await expect(dialog.getByRole("alert")).toContainText(/cancelled/i);
+  await expect(dialog.getByRole("button", { name: "Save & test" })).toBeEnabled();
+  await expect(dialog.getByLabel("SSH destination")).toHaveValue("dev@workstation");
+  await page.evaluate(() => {
+    window.cancelConnectionError = "Could not cancel the connection attempt";
+  });
+  await dialog.getByRole("button", { name: "Save & test" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.connectionEffects.filter((effect) => effect === "connect:remote").length,
+      ),
+    )
+    .toBe(2);
+  await dialog.getByRole("button", { name: "Cancel connection" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("Could not cancel the connection attempt");
+});
+
+test("WSL discovery preselects one distribution but lets the user choose among several", async ({
+  page,
+}) => {
+  await page.goto(url + "?connections");
+  const dialog = page.getByRole("dialog", { name: "Connections" });
+  const picker = dialog.getByRole("combobox", { name: "Distribution" });
+  await expect(dialog).toBeVisible();
+  await page.evaluate(() => {
+    window.installedDistributions = ["Ubuntu"];
+  });
+  await dialog.getByRole("button", { name: "Add WSL" }).click();
+  await expect(picker).toContainText("Ubuntu");
+  await dialog.getByRole("button", { name: "Back" }).click();
+  await page.evaluate(() => {
+    window.installedDistributions.push("Debian");
+  });
+  await dialog.getByRole("button", { name: "Add WSL" }).click();
+  await picker.click();
+  await expect(page.getByRole("option", { name: "Ubuntu", exact: true })).toBeVisible();
+  await page.getByRole("option", { name: "Debian", exact: true }).click();
+  await expect(picker).toContainText("Debian");
+  expect(await page.evaluate(() => window.connectionEffects)).toEqual(["discover", "discover"]);
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(dialog.getByText("Debian", { exact: true })).toBeVisible();
+});

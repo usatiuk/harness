@@ -187,9 +187,9 @@ must be installed once via `playwright install chromium`). Live-provider
 classification remains unqualified; fixtures use documented error shapes.
 
 When running the suite from inside a running Harness session, unset
-`HARNESS_SERVER_SELECTION` (`env -u HARNESS_SERVER_SELECTION`): the managed
-server selection leaked into tests makes source-run server harnesses fail the
-selection assertion.
+`HARNESS_SERVER_SELECTION` and `HARNESS_PREPARED_SERVER` in the test shell:
+source-run server fixtures create their own homes and must not inherit the
+parent session's managed launch identity.
 
 ## Desktop streaming publication
 
@@ -947,6 +947,22 @@ checks do not establish real OS/browser zoom behavior. See the
 
 ### Actual native application
 
+For desktop layout work, use seeded browser routes to reproduce the same state
+at the default (1120×800) and minimum (720×520) window sizes. Inspect the PNGs,
+not just bounding boxes. For native chrome, also inspect an OS-composited window
+capture: a WebView screenshot does not include the material behind transparent
+surfaces. `npm run desktop:dev` starts the interactive app; the isolated launcher
+in `packages/desktop/tests/native/application.ts` shows how to start a fresh
+profile, enable loopback debugging and attach Playwright without connecting to
+the user's running session.
+
+The browser connection fixture exercises two saved routes, editing without
+switching, save/test/connect, confirmation focus, and zero, one, or several
+discovered WSL distributions. It replaces native IPC and the transport; use the
+native connection suite for real process, SSH/WSL and provisioning qualification.
+Project sidebar browser checks cover keyboard focus, peer hit areas, and
+separation between a selected row and its hovered neighbor.
+
 `npm run test:native` requires Windows WebView2, Rust, and Visual Studio C++ build
 tools. It packages the real server and Node runtime, builds the production web
 assets and native executable, then runs Playwright against that executable's
@@ -1662,16 +1678,18 @@ upstream cache-hit behavior.
 
 ## Desktop route persistence
 
-`desktop/src/route-persistence.test.ts` exercises the real memory router with
-120 idle-fetcher disposals (the virtualized fork-button cleanup path), 40
-background action submissions and repeated revalidation. These same-URL updates
-must cause no additional storage or browser-history writes. Navigation coverage
-includes conversation changes, Settings queries, same-URL replacement, back,
-redirects, unsubscribe and per-host remounts. Browser history is substituted to
-count writes; actual native WebKit scrolling and its history rate limit remain
-unqualified by this regression.
+Exercise Settings and conversation Back/Forward in headless Edge with the
+production hash router, not a mocked history stack. The browser scenarios in
+`packages/desktop/tests/browser/conversation.spec.ts` hold settings reads and
+verify that changing sections does not block on fresh data, actions still
+revalidate, and history from a different host cannot load its conversations on
+the current connection. Native WebKit history behavior is not qualified by Edge.
 
-Validation on October 16: both focused regressions pass. `TMPDIR=/var/tmp npm run
+The Settings fixtures also hold a preference write across a form remount and
+a host switch, navigate Back with an editor open, complete OAuth outside the
+desktop, and surface a connection cancellation failure.
+
+Historical validation on October 16 with the previous memory router: both focused regressions passed. `TMPDIR=/var/tmp npm run
 check` passes typecheck, lint and formatting; Vitest reports 1,434 passed, 41
 skipped and one failure in the previously documented TUI OAuth fixture
 (`cli/src/hosts.test.tsx:314`, waiting for the initial active conversation).
@@ -1751,8 +1769,9 @@ were observed detaching a previously resolved cell and briefly removing it. Nati
 Windows/macOS material rendering still requires a native application check.
 
 A fixed-width custom scrollbar was rejected during visual review. The final
-sidebar keeps native scrollbar sizing/interaction, a transparent track, and
-20px of inner clearance so expanded overlay scrollbars have room on hover.
+sidebar keeps native scrollbar sizing/interaction and a stable gutter. The
+test checks that selected rows retain the same small inset as the opposite
+edge of the list, including when the pointer moves over the scrollbar.
 
 Composer browser checks verify that statistics render below the input only when
 enabled and that disabling them restores the composer’s lower position. The
@@ -1852,7 +1871,7 @@ Full Chromium passes 80 of 81 cases; the only failure remains the same baseline
 execution are not established by these controlled fixtures.
 
 Explore profile follow-up: the built-in catalog regression verifies that both
-general and explore omit a tool allowlist; explore's read-only role is
+general and explore omit a tool allowlist; explore's default research role is
 prompt-directed. Explicit custom allowlists still pass through child creation.
 The 14 focused subagent tests pass.
 

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   useAppearance,
   shortcutModifier,
@@ -115,39 +116,48 @@ export function AppearanceControls() {
 }
 export function ComposerSettings() {
   const preferences = useComposerPreferences();
+  const shortcutsId = useId();
   return (
-    <div className="form-grid composer-settings">
-      <label>
-        Send message with
-        <Select
-          value={preferences.sendWith}
-          onValueChange={(next) =>
-            setComposerPreferences({
-              ...preferences,
-              sendWith: next as "Enter" | "Shift+Enter",
-            })
-          }
-        >
-          <SelectItem value="Enter">Enter</SelectItem>
-          <SelectItem value="Shift+Enter">Shift+Enter</SelectItem>
-        </Select>
-      </label>
-      <p className="muted shortcut-help">
-        {preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"} newline
-        <br />
-        {shortcutModifier}+Enter queue while running
-        <br />
-        {shortcutModifier}+. stop
-      </p>
-      <label className="check-label">
-        <Checkbox
-          checked={preferences.showStats}
-          onChange={(event) =>
-            setComposerPreferences({ ...preferences, showStats: event.target.checked })
-          }
-        />{" "}
-        Show last-turn statistics
-      </label>
+    <div className="composer-preferences">
+      <div className="field-stack">
+        <label>
+          Send message with
+          <Select
+            aria-describedby={shortcutsId}
+            value={preferences.sendWith}
+            onValueChange={(next) =>
+              setComposerPreferences({
+                ...preferences,
+                sendWith: next as "Enter" | "Shift+Enter",
+              })
+            }
+          >
+            <SelectItem value="Enter">Enter</SelectItem>
+            <SelectItem value="Shift+Enter">Shift+Enter</SelectItem>
+          </Select>
+        </label>
+        <dl className="shortcut-list" id={shortcutsId}>
+          <dt>New line</dt>
+          <dd>
+            <kbd>{preferences.sendWith === "Enter" ? "Shift+Enter" : "Enter"}</kbd>
+          </dd>
+          <dt>Queue while running</dt>
+          <dd>
+            <kbd>{shortcutModifier}+Enter</kbd>
+          </dd>
+          <dt>Stop</dt>
+          <dd>
+            <kbd>{shortcutModifier}+.</kbd>
+          </dd>
+        </dl>
+      </div>
+      <Checkbox
+        label="Show last-turn statistics"
+        checked={preferences.showStats}
+        onChange={(event) =>
+          setComposerPreferences({ ...preferences, showStats: event.target.checked })
+        }
+      />
     </div>
   );
 }

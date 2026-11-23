@@ -198,7 +198,7 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
     await page.getByLabel("Project folder").fill(directory);
     await page.getByRole("button", { name: "Create conversation" }).click();
-    await expect(page).toHaveURL(/#\/conversations\/[^/]+$/u);
+    await expect(page).toHaveURL(/\/conversations\/[^/]+$/u);
     const a = page.url();
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("alpha");
     await page.getByRole("textbox", { name: "Message", exact: true }).press("Control+Enter");
@@ -206,7 +206,7 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("draft kept for alpha");
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
     await page.getByRole("button", { name: "Create conversation" }).click();
-    await expect(page).toHaveURL(/#\/conversations\/[^/]+$/u);
+    await expect(page).toHaveURL(/\/conversations\/[^/]+$/u);
     const b = page.url();
     expect(b).not.toBe(a);
     await showModelControls(page);
@@ -245,7 +245,6 @@ test("two conversations keep independent turns, approvals and drafts; quit resum
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await settingsSection(page, "Defaults");
     await chooseDropdown(page, page.getByLabel("Tools inside the workspace"), "ask");
-    await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
     const saved = JSON.parse(await readFile(join(directory, "app", "settings.json"), "utf8")) as {
       model: { preset: string };
@@ -289,7 +288,6 @@ test("auto approver model and preset drive real tool review, persist, and can be
       page.getByRole("combobox", { name: "Auto approver", exact: true }),
       "true",
     );
-    await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
     await page.getByRole("complementary").getByRole("link", { name: "New conversation" }).click();
     await page.getByRole("button", { name: "Create conversation" }).click();
@@ -312,9 +310,8 @@ test("auto approver model and preset drive real tool review, persist, and can be
       page.getByRole("combobox", { name: "Auto approver preset", exact: true }),
       "quick",
     );
-    await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
-    await page.locator(`a[href='${new URL(conversation).hash.slice(1)}']`).click();
+    await page.locator(`a[href='${new URL(conversation).hash}']`).click();
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Use the new reviewer");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByTestId("assistant-message")).toHaveCount(2);
@@ -331,9 +328,8 @@ test("auto approver model and preset drive real tool review, persist, and can be
       page.getByRole("combobox", { name: "Auto approver", exact: true }),
       "false",
     );
-    await page.getByRole("button", { name: "Save defaults" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
-    await page.locator(`a[href='${new URL(conversation).hash.slice(1)}']`).click();
+    await page.locator(`a[href='${new URL(conversation).hash}']`).click();
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Run it again");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByRole("button", { name: "Allow", exact: true })).toBeVisible();
@@ -355,7 +351,6 @@ test("auto approver model and preset drive real tool review, persist, and can be
     ).toHaveAttribute("data-value", "quick");
     await app.page.getByRole("combobox", { name: "Auto approver model", exact: true }).click();
     await app.page.getByRole("option", { name: "Use conversation model", exact: true }).click();
-    await app.page.getByRole("button", { name: "Save defaults" }).click();
     await expect(app.page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
     const saved = JSON.parse(await readFile(join(home, "settings.json"), "utf8")) as {
       model: unknown;
@@ -382,7 +377,7 @@ test("paged sidebar and virtualized history retain preset, diffs and large tool 
     await expect(rows).toHaveCount(50);
     await page.getByRole("button", { name: "Load more", exact: true }).click();
     await expect(rows).toHaveCount(56);
-    await page.locator(`a[href='/conversations/${id}']`).click();
+    await page.locator(`a[href$='/conversations/${id}']`).click();
     await expect(page.getByTestId("assistant-message")).toContainText("History loaded");
     await showModelControls(page);
     await expect(page.getByLabel("Conversation preset")).toHaveValue("high");
@@ -457,7 +452,8 @@ test("child-only sidebar pages advance through revalidation until older roots ap
         ).toBeEnabled();
     }
     await expect(rows).toHaveCount(1);
-    await expect(rows).toHaveAttribute("href", `/conversations/${id}`);
+    await rows.click();
+    await expect(app.page).toHaveURL((url) => url.hash.endsWith(`/conversations/${id}`));
     await expect(app.page.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
     expect(app.errors).toEqual([]);
   } finally {
@@ -555,12 +551,8 @@ test("Local retains browser sign-in and completes cancellable device-code sign-i
     const page = app.page;
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await settingsSection(page, "Providers");
-    const provider = page.locator(".provider").filter({
-      has: page.getByRole("heading", {
-        name: "ChatGPT / Codex",
-        exact: true,
-      }),
-    });
+    const provider = page.getByRole("region", { name: "ChatGPT / Codex", exact: true });
+    await provider.locator("summary").click();
     const flow = provider.getByRole("combobox", { name: "Sign-in method" });
     await expect(flow).toHaveAttribute("data-value", "browser");
     await flow.click();
@@ -608,9 +600,8 @@ test("provider keys stay in isolated native storage and configured defaults awai
     const page = app.page;
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await settingsSection(page, "Providers");
-    const provider = page
-      .locator(".provider")
-      .filter({ has: page.getByRole("heading", { name: "OpenAI (API key)", exact: true }) });
+    const provider = page.getByRole("region", { name: "OpenAI (API key)", exact: true });
+    await provider.locator("summary").click();
     await provider.getByLabel("OpenAI (API key) API key").fill("invalid-test-key");
     await provider.getByRole("button", { name: "Save key" }).click();
     await expect(provider.getByRole("alert")).toContainText("keys start");
@@ -641,6 +632,7 @@ test("provider keys stay in isolated native storage and configured defaults awai
     // Credential presence already changed before restart; a populated boot catalog proves completion.
     await expect(provider).toContainText(/ready · [1-9]\d* models/u);
     await expect(provider).toContainText("Credentials available");
+    await provider.locator("summary").click();
     await provider.getByRole("button", { name: "Disconnect stored credentials" }).click();
     await expect(provider).toContainText("Stored credentials removed");
     const logs = await readFile(info.outputPath("app", "process.log"), "utf8");
@@ -694,17 +686,14 @@ test("named gateways isolate native keys and catalogs while retaining unavailabl
     const page = app.page;
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await settingsSection(page, "Providers");
-    const work = page
-      .locator(".provider")
-      .filter({ has: page.getByRole("heading", { name: "Work gateway", exact: true }) });
-    const personal = page
-      .locator(".provider")
-      .filter({ has: page.getByRole("heading", { name: "Personal gateway", exact: true }) });
+    const work = page.getByRole("region", { name: "Work gateway", exact: true });
+    const personal = page.getByRole("region", { name: "Personal gateway", exact: true });
     await expect(work).toContainText("missing-credentials");
     for (const [row, label, key] of [
       [work, "Work gateway", workKey],
       [personal, "Personal gateway", personalKey],
     ] as const) {
+      await row.locator("summary").click();
       await row.getByLabel(`${label} API key`).fill(key);
       await row.getByRole("button", { name: "Save key", exact: true }).click();
       await expect(row).toContainText("Signed in");
@@ -750,6 +739,7 @@ test("named gateways isolate native keys and catalogs while retaining unavailabl
     expect(gateway.requests.some((req) => req.body.model === "coding")).toBe(true);
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await settingsSection(page, "Providers");
+    await work.locator("summary").click();
     await work.getByRole("button", { name: "Disconnect stored credentials" }).click();
     await expect(work).toContainText("Stored credentials removed");
     await work.getByRole("button", { name: "Restart Harness", exact: true }).click();
@@ -757,7 +747,7 @@ test("named gateways isolate native keys and catalogs while retaining unavailabl
     await expect(work).toContainText("missing-credentials");
     await expect(personal).toContainText("Credentials available");
     await expect(personal).toContainText("ready · 1 models");
-    await page.locator(`a[href='${new URL(conversationUrl).hash.slice(1)}']`).click();
+    await page.locator(`a[href='${new URL(conversationUrl).hash}']`).click();
     await showModelControls(page);
     await expect(page.locator('input[name="model"]')).toHaveValue("work\u0000coding");
     await showModelControls(page);

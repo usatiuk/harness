@@ -95,8 +95,56 @@ button:disabled {
   --button-ink: var(--danger-ink);
 }
 .control:disabled {
-  opacity: 0.5;
-  box-shadow: 0 1px 0 var(--line);
+  color: var(--muted-ink);
+  background: transparent;
+  border-color: var(--line);
+  box-shadow: none;
+}
+.control-ghost:disabled {
+  border-color: transparent;
+}
+.check-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.check-box {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+.check-box > * {
+  grid-area: 1 / 1;
+}
+.check-box input {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  background: var(--surface-panel);
+}
+.check-box input:checked {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--surface-panel) 78%, var(--accent));
+}
+.check-box svg {
+  width: 13px;
+  height: 13px;
+  color: var(--ink);
+  stroke-width: 2.5;
+  visibility: hidden;
+  pointer-events: none;
+}
+.check-box input:checked + svg {
+  visibility: visible;
+}
+.check-label:has(:disabled) {
+  color: var(--muted-ink);
+}
+.check-box input:disabled {
+  border-color: var(--line);
 }
 .control-sm {
   min-height: 26px;

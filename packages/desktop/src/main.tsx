@@ -8,12 +8,11 @@ import {
   useSyncExternalStore,
   type RefObject,
 } from "react";
-import { RouterProvider } from "react-router/dom";
 import { DesktopSession } from "./session.ts";
 import { DesktopHosts, type HostView } from "./hosts.ts";
 import { ConnectionEditor, HostControls } from "./connections-menu.tsx";
 import { createDesktopRouter } from "./routes.tsx";
-import { persistDesktopRoute } from "./route-persistence.ts";
+import { SessionRouter } from "./session-router.tsx";
 import { Button, Tooltip } from "./ui.tsx";
 import { Monitor, LoaderCircle, TriangleAlert } from "lucide-react";
 import { WindowShell } from "./window-shell.tsx";
@@ -25,34 +24,39 @@ if (!container) throw new Error("Desktop document is missing its root");
 const root = createRoot(container);
 const hosts = new DesktopHosts();
 
+function HostLabel({ view }: { view: HostView }) {
+  return useSyncExternalStore(hosts.subscribe, () => view.host.label);
+}
+
 function SessionRoutes({
   view,
+  session,
   onManage,
   hostTrigger,
 }: {
-  view: HostView & { session: DesktopSession };
+  view: HostView;
+  session: DesktopSession;
   onManage: () => void;
   hostTrigger: RefObject<HTMLButtonElement | null>;
 }) {
-  const session = view.session;
   const router = useMemo(
     () =>
       createDesktopRouter(session, {
         controls: <HostControls hosts={hosts} onManage={onManage} triggerRef={hostTrigger} />,
         local: view.host.kind === "local",
-        label: view.host.label,
+        label: <HostLabel view={view} />,
         restart: () => hosts.restart(view.host.id),
       }),
-    [session, view.host.id, view.host.kind, view.host.label, onManage, hostTrigger],
+    [session, view, onManage, hostTrigger],
   );
-  useEffect(() => {
-    const unsubscribe = persistDesktopRoute(router, session.storageKey("route"));
-    return () => {
-      unsubscribe();
-      router.dispose();
-    };
-  }, [router, session]);
-  return <RouterProvider router={router} />;
+  return (
+    <SessionRouter
+      router={router}
+      storageKey={session.storageKey("route")}
+      label={view.host.label}
+      controls={<HostControls hosts={hosts} onManage={onManage} triggerRef={hostTrigger} />}
+    />
+  );
 }
 function Desktop() {
   useSyncExternalStore(hosts.subscribe, hosts.snapshot);
@@ -71,7 +75,8 @@ function Desktop() {
     view?.session && !view.session.disconnected ? (
       <SessionRoutes
         key={view.host.id}
-        view={{ ...view, session: view.session }}
+        view={view}
+        session={view.session}
         onManage={onManage}
         hostTrigger={hostTrigger}
       />

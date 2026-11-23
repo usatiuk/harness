@@ -63,29 +63,28 @@ export function QuestionRequestForm({ request }: { request: ClientQuestionReques
               {question.options && (
                 <div className="question-options">
                   {question.options.map((option) => (
-                    <label key={option.id}>
-                      <Checkbox
-                        checked={answer.selectedOptionIds.includes(option.id)}
-                        onChange={(event) =>
-                          setAnswers((current) =>
-                            current.map((entry, i) =>
-                              i !== index
-                                ? entry
-                                : {
-                                    ...entry,
-                                    skipped: false,
-                                    selectedOptionIds: event.target.checked
-                                      ? question.selection === "multiple"
-                                        ? [...entry.selectedOptionIds, option.id]
-                                        : [option.id]
-                                      : entry.selectedOptionIds.filter((id) => id !== option.id),
-                                  },
-                            ),
-                          )
-                        }
-                      />
-                      {option.label}
-                    </label>
+                    <Checkbox
+                      key={option.id}
+                      label={option.label}
+                      checked={answer.selectedOptionIds.includes(option.id)}
+                      onChange={(event) =>
+                        setAnswers((current) =>
+                          current.map((entry, i) =>
+                            i !== index
+                              ? entry
+                              : {
+                                  ...entry,
+                                  skipped: false,
+                                  selectedOptionIds: event.target.checked
+                                    ? question.selection === "multiple"
+                                      ? [...entry.selectedOptionIds, option.id]
+                                      : [option.id]
+                                    : entry.selectedOptionIds.filter((id) => id !== option.id),
+                                },
+                          ),
+                        )
+                      }
+                    />
                   ))}
                 </div>
               )}

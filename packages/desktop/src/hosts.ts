@@ -69,10 +69,11 @@ export class DesktopHosts {
     }
     this.changed();
   }
-  private updateConfig(command: ClientConfigCommand): Promise<void> {
-    const result = this.configTail.then(async () =>
-      this.acceptConfig(await connectionCommand(command)),
-    );
+  private updateConfig(command: ClientConfigCommand, signal?: AbortSignal): Promise<void> {
+    const result = this.configTail.then(async () => {
+      signal?.throwIfAborted();
+      await this.acceptConfig(await connectionCommand(command));
+    });
     this.configTail = result.catch(() => undefined);
     return result;
   }
@@ -81,22 +82,33 @@ export class DesktopHosts {
   ): Promise<void> {
     await this.updateConfig(command);
   }
-  async select(id: string): Promise<void> {
-    await this.updateConfig({ type: "host.select", id });
-    await this.connect(id);
+  async select(id: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
+    await this.updateConfig({ type: "host.select", id }, signal);
+    await this.connect(id, signal);
   }
-  connect(id: string): Promise<HostView> {
-    const pending = this.operations.get(id);
+  async connect(id: string, signal?: AbortSignal): Promise<HostView> {
+    signal?.throwIfAborted();
+    let pending = this.operations.get(id);
     if (pending) {
-      if (pending.kind !== "connect")
-        return Promise.reject(new Error("Host upload is in progress"));
-      return pending.result;
+      if (pending.kind !== "connect") throw new Error("Host upload is in progress");
+    } else {
+      const abort = new AbortController();
+      const result = this.configReady(abort.signal).then(() => this.open(id, abort.signal));
+      pending = { kind: "connect", abort, result };
+      this.operations.set(id, pending);
+      void result.finally(() => this.operations.delete(id)).catch(() => undefined);
     }
-    const abort = new AbortController();
-    const result = this.configReady(abort.signal).then(() => this.open(id, abort.signal));
-    this.operations.set(id, { kind: "connect", abort, result });
-    void result.finally(() => this.operations.delete(id)).catch(() => undefined);
-    return result;
+    if (!signal) return pending.result;
+    // Joining callers cancel this connection attempt, never a later one for the same host.
+    const { abort, result } = pending;
+    const cancel = () => abort.abort(signal.reason);
+    signal.addEventListener("abort", cancel, { once: true });
+    try {
+      return await result;
+    } finally {
+      signal.removeEventListener("abort", cancel);
+    }
   }
   private configReady(signal: AbortSignal): Promise<void> {
     let cancel!: () => void;
@@ -109,6 +121,7 @@ export class DesktopHosts {
     return ready.finally(() => signal.removeEventListener("abort", cancel));
   }
   private async open(id: string, signal: AbortSignal): Promise<HostView> {
+    signal.throwIfAborted();
     const view = this.views.get(id);
     if (!view) throw new Error("Unknown host");
     if (view.session && !view.session.disconnected) return view;
@@ -119,6 +132,7 @@ export class DesktopHosts {
     let transportError: string | undefined;
     let ready: AbortSignal | undefined;
     try {
+      signal.throwIfAborted();
       if (view.host.kind !== "local") await this.prepare(view, signal);
       signal.throwIfAborted();
       view.progress = "Connecting…";
@@ -197,17 +211,21 @@ export class DesktopHosts {
     delete view.session;
     this.changed();
   }
-  async reconnect(id: string): Promise<void> {
+  async reconnect(id: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     await this.disconnect(id);
-    await this.connect(id);
+    await this.connect(id, signal);
   }
-  async refresh(id: string): Promise<void> {
+  async refresh(id: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     if (this.operations.has(id)) throw new Error("Host operation is in progress");
     const abort = new AbortController();
-    const result = this.configReady(abort.signal).then(() => {
+    const ready = signal ? AbortSignal.any([abort.signal, signal]) : abort.signal;
+    const result = this.configReady(ready).then(() => {
+      ready.throwIfAborted();
       const view = this.views.get(id);
       if (!view) throw new Error("Unknown host");
-      return view.host.kind === "local" ? view : this.prepare(view, abort.signal);
+      return view.host.kind === "local" ? view : this.prepare(view, ready);
     });
     this.operations.set(id, { kind: "refresh", result, abort });
     try {

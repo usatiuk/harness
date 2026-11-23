@@ -129,6 +129,98 @@ function stalledPeer() {
   return started;
 }
 
+function gate() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+it("a cancelled queued switch leaves the persisted selection alone", async () => {
+  const saving = gate();
+  const persist = gate();
+  const remote = { id: "remote", kind: "ssh", label: "Work", destination: "work" } as const;
+  const config = { ...defaultClientConfig(), hosts: [...defaultClientConfig().hosts, remote] };
+  native.command.mockImplementation(async (command: ConnectionCommand) => {
+    if (command.type !== "host.save") throw new Error(`Unexpected ${command.type}`);
+    saving.release();
+    await persist.promise;
+    return config;
+  });
+  const hosts = new DesktopHosts();
+  const save = hosts.edit({ type: "host.save", host: remote });
+  await saving.promise;
+  const abort = new AbortController();
+  const switching = hosts.select(remote.id, abort.signal);
+  abort.abort();
+  persist.release();
+  await save;
+  await expect(switching).rejects.toMatchObject({ name: "AbortError" });
+  expect(hosts.selected?.host.kind).toBe("local");
+});
+
+it("cancelling a switch during selection persistence does not open a transport afterwards", async () => {
+  const selecting = gate();
+  const persist = gate();
+  const remote = { id: "remote", kind: "ssh", label: "Work", destination: "work" } as const;
+  const config = { ...defaultClientConfig(), hosts: [...defaultClientConfig().hosts, remote] };
+  native.command.mockImplementation(async (command: ConnectionCommand) => {
+    if (command.type !== "host.select") throw new Error(`Unexpected ${command.type}`);
+    selecting.release();
+    await persist.promise;
+    return { ...config, selectedHostId: command.id };
+  });
+  const hosts = new DesktopHosts();
+  const abort = new AbortController();
+  const switching = hosts.select(remote.id, abort.signal);
+  await selecting.promise;
+  abort.abort();
+  persist.release();
+  await expect(switching).rejects.toMatchObject({ name: "AbortError" });
+  // The config write was already underway; the desktop must reflect what was saved.
+  expect(hosts.selected?.host).toEqual(remote);
+  expect(hosts.selected?.session).toBeUndefined();
+  expect(native.connect).not.toHaveBeenCalled();
+});
+
+it("cancelling a reconnect during bridge teardown does not open a replacement", async () => {
+  const initialized = stalledPeer();
+  const hosts = new DesktopHosts();
+  const loading = hosts.initialize();
+  await initialized;
+  const closing = gate();
+  const closed = gate();
+  native.disconnect.mockImplementation(async () => {
+    closing.release();
+    await closed.promise;
+  });
+  const abort = new AbortController();
+  const reconnecting = hosts.reconnect("local", abort.signal);
+  await closing.promise;
+  abort.abort();
+  closed.release();
+  await expect(reconnecting).rejects.toMatchObject({ name: "AbortError" });
+  await loading;
+  expect(hosts.selected?.session).toBeUndefined();
+  expect(native.connect).toHaveBeenCalledTimes(1);
+});
+
+it("a dialog that joins an existing connection attempt can cancel its pending handshake", async () => {
+  const initialized = stalledPeer();
+  const hosts = new DesktopHosts();
+  const loading = hosts.initialize();
+  await initialized;
+  const abort = new AbortController();
+  const joined = hosts.connect("local", abort.signal);
+  const reason = "Cancelled from Connections";
+  abort.abort(new Error(reason));
+  await expect(joined).rejects.toThrow(reason);
+  await loading;
+  expect(hosts.selected?.session).toBeUndefined();
+  expect(native.disconnect).toHaveBeenCalled();
+});
+
 it("disconnect forwards cancellation while native Local preparation is still pending", async () => {
   native.command.mockResolvedValue(defaultClientConfig());
   let preparing!: () => void;

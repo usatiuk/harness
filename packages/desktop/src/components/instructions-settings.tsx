@@ -4,6 +4,7 @@ import type { z } from "zod";
 import type { appInstructionsRequest } from "@harness/server/client-protocol";
 import { Button, Input, Textarea } from "../ui.tsx";
 import { ActionFeedback, type ActionResult } from "./action-feedback.tsx";
+import { SectionHeading } from "./settings-layout.tsx";
 
 export type InstructionsReadResult =
   | { ok: true; document: z.output<typeof appInstructionsRequest.result> }
@@ -27,12 +28,9 @@ export function InstructionsSettings({
   const document = read.data?.ok ? read.data.document : undefined;
   return (
     <>
-      <div className="section-heading">
-        <h2>Global instructions</h2>
-        <p className="muted">
-          Edit this host’s AGENTS.md. Applies to new or reloaded conversations.
-        </p>
-      </div>
+      <SectionHeading title="Global instructions">
+        Edit this host’s AGENTS.md. Applies to new or reloaded conversations.
+      </SectionHeading>
       {read.data && !read.data.ok && (
         <>
           <ActionFeedback data={read.data} />
@@ -48,7 +46,7 @@ export function InstructionsSettings({
         <save.Form
           method="post"
           action="/actions"
-          className="form-grid form-single-column"
+          className="instruction-editor settings-stack"
           onSubmit={(event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
@@ -58,11 +56,11 @@ export function InstructionsSettings({
           }}
         >
           <Input type="hidden" name="intent" value="instructions" />
-          <p className="muted">{document.path}</p>
-          {document.content === null && <p className="muted">No file yet. Save to create it.</p>}
           <label>
             AGENTS.md
+            <code className="field-hint">{document.path}</code>
             <Textarea
+              aria-label="AGENTS.md"
               name="content"
               value={text ?? ""}
               rows={16}
@@ -70,6 +68,9 @@ export function InstructionsSettings({
               onChange={(event) => setText(event.target.value)}
             />
           </label>
+          {document.content === null && (
+            <p className="field-hint">No file yet. Save to create it.</p>
+          )}
           <Button type="submit" disabled={disconnected || save.state !== "idle"}>
             {save.state === "idle" ? "Save instructions" : "Saving…"}
           </Button>

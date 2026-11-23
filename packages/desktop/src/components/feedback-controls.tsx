@@ -1,3 +1,4 @@
+import { SectionHeading, SettingsGroup } from "./settings-layout.tsx";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -150,14 +151,13 @@ export function FeedbackSettings({ session }: { session: DesktopSession }) {
   }
   return (
     <>
-      <div className="section-heading">
-        <h2>Learning feedback</h2>
-        <p className="muted">Send thumbs up/down and the relevant execution to MAI for review.</p>
-      </div>
+      <SectionHeading title="Learning feedback">
+        Send thumbs up/down and the relevant execution to MAI for review.
+      </SectionHeading>
       {status ? (
         <>
           <form
-            className="form-grid composer-settings"
+            className="settings-stack"
             onSubmit={(event) => {
               event.preventDefault();
               const data = new FormData(event.currentTarget);
@@ -167,6 +167,10 @@ export function FeedbackSettings({ session }: { session: DesktopSession }) {
                 setError("Missing feedback connection settings");
                 return;
               }
+              // A later save for a different endpoint must not reuse this secret.
+              const credential = event.currentTarget.elements.namedItem("token");
+              if (!(credential instanceof HTMLInputElement)) throw new Error("Missing token field");
+              credential.value = "";
               void update(
                 () =>
                   session.client.peer.request(feedbackConfigureRequest, {
@@ -178,80 +182,100 @@ export function FeedbackSettings({ session }: { session: DesktopSession }) {
               );
             }}
           >
-            <label className="check-label">
-              <Checkbox name="enabled" defaultChecked={status.enabled} disabled={busy} />
-              Show feedback buttons in conversations
-            </label>
-            <small className="muted">
-              Also controls collection of local execution data for feedback.
-            </small>
-            <label>
-              MAI address
-              <Input
-                name="endpoint"
-                type="url"
-                defaultValue={status.endpoint}
-                required
-                disabled={busy}
-              />
-              <small className="muted">
-                Reachable from the Harness server, such as http://127.0.0.1:7331.
-              </small>
-            </label>
-            <label>
-              MAI token
-              <Input
-                name="token"
-                type="password"
-                autoComplete="off"
-                placeholder={
-                  status.configured ? "Saved · leave blank to keep it" : "Paste the token from MAI"
-                }
-                disabled={busy}
-              />
-              <small className="muted">
-                Saved in Harness’s credential store. Never included in settings or feedback.
-              </small>
-            </label>
-            <Button type="submit" variant="accent" disabled={busy || Boolean(session.disconnected)}>
-              {busy ? "Please wait…" : "Save feedback settings"}
-            </Button>
+            <SettingsGroup title="Capture and delivery">
+              <div className="field-stack">
+                <Checkbox
+                  label="Show feedback buttons in conversations"
+                  name="enabled"
+                  defaultChecked={status.enabled}
+                  disabled={busy}
+                />
+                <small className="muted">
+                  Also controls collection of local execution data for feedback.
+                </small>
+              </div>
+              <label>
+                MAI address
+                <Input
+                  name="endpoint"
+                  type="url"
+                  defaultValue={status.endpoint}
+                  required
+                  disabled={busy}
+                />
+                <small className="muted">
+                  Reachable from the Harness server, such as http://127.0.0.1:7331.
+                </small>
+              </label>
+              <label>
+                MAI token
+                <Input
+                  name="token"
+                  type="password"
+                  autoComplete="off"
+                  placeholder={
+                    status.configured
+                      ? "Saved · leave blank to keep it"
+                      : "Paste the token from MAI"
+                  }
+                  disabled={busy}
+                />
+                <small className="muted">
+                  Saved in Harness’s credential store. Never included in settings or feedback.
+                </small>
+              </label>
+              <Button
+                type="submit"
+                variant="accent"
+                disabled={busy || Boolean(session.disconnected)}
+              >
+                {busy ? "Please wait…" : "Save feedback settings"}
+              </Button>
+            </SettingsGroup>
           </form>
-          <p className="muted" role="status">
-            {saved && "Saved. "}
-            {status.configured ? "Token available" : "Token missing — paste your MAI token above"}
-            {` · ${status.pending} queued · ${status.failed} delivery failures`}
-          </p>
-          <Button
-            variant="ghost"
-            disabled={busy || !status.pending}
-            onClick={() => void update(() => session.client.peer.request(feedbackRetryRequest, {}))}
-          >
-            Retry queued delivery
-          </Button>
-          <p className="muted">
-            A vote saves a feedback case. Teachers and training start separately in MAI.
-          </p>
-          <p className="muted">
-            Estimated feedback storage: {status.storageBytes.toLocaleString()} bytes
-          </p>
-          <Button
-            variant="danger"
-            disabled={busy || Boolean(session.disconnected)}
-            onClick={() => setConfirmClear(true)}
-          >
-            Delete all feedback data
-          </Button>
-          <Confirmation
-            open={confirmClear}
-            onOpenChange={setConfirmClear}
-            title="Delete all feedback data?"
-            description="Deletes local captured feedback data and unsent votes. Conversations are preserved. Cases already sent to MAI are unaffected."
-            confirmLabel="Delete all feedback data"
-            onConfirm={() =>
-              void update(() => session.client.peer.request(feedbackClearRequest, {}))
-            }
-          />
+          <SettingsGroup title="Delivery queue">
+            <p className="muted" role="status">
+              {saved && "Saved. "}
+              {status.configured ? "Token available" : "Token missing — paste your MAI token above"}
+              {` · ${status.pending} queued · ${status.failed} delivery failures`}
+            </p>
+            {status.pending > 0 && (
+              <Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() =>
+                  void update(() => session.client.peer.request(feedbackRetryRequest, {}))
+                }
+              >
+                Retry queued delivery
+              </Button>
+            )}
+            <p className="muted">
+              A vote saves a feedback case. Teachers and training start separately in MAI.
+            </p>
+          </SettingsGroup>
+          <SettingsGroup title="Local storage">
+            <p className="muted">
+              Estimated feedback storage: {status.storageBytes.toLocaleString()} bytes
+            </p>
+            <Button
+              variant="danger"
+              disabled={busy || Boolean(session.disconnected)}
+              onClick={() => setConfirmClear(true)}
+            >
+              Delete all feedback data
+            </Button>
+            <Confirmation
+              open={confirmClear}
+              onOpenChange={setConfirmClear}
+              title="Delete all feedback data?"
+              description="Deletes local captured feedback data and unsent votes. Conversations are preserved. Cases already sent to MAI are unaffected."
+              confirmLabel="Delete all feedback data"
+              onConfirm={() =>
+                void update(() => session.client.peer.request(feedbackClearRequest, {}))
+              }
+            />
+          </SettingsGroup>
         </>
       ) : (
         !error && <p className="muted">Loading feedback settings…</p>

@@ -1,7 +1,8 @@
+import { useContext } from "react";
 import { Select } from "radix-ui";
 import { Check, ChevronDown } from "lucide-react";
 import type { ModelInfo } from "@harness/protocol";
-import { Tooltip } from "../ui.tsx";
+import { ChoiceCommit, Tooltip } from "../ui.tsx";
 
 export const modelKey = (provider: string, model: string): string => `${provider}\u0000${model}`;
 // Model keys contain a provider/model separator, so this cannot collide with one.
@@ -26,13 +27,14 @@ export function ModelSelect({
   onValueChange: (value: string) => void;
   emptyLabel?: string;
 }) {
+  const commit = useContext(ChoiceCommit);
   const providerLabels = new Map(providers.map((provider) => [provider.id, provider.label]));
   const unavailable =
     value !== "" && !models.some((model) => modelKey(model.provider, model.model) === value);
   return (
     <Select.Root
       value={value || EMPTY}
-      onValueChange={(next) => onValueChange(next === EMPTY ? "" : next)}
+      onValueChange={(next) => commit(() => onValueChange(next === EMPTY ? "" : next))}
       {...(disabled !== undefined ? { disabled } : {})}
     >
       <Select.Trigger className="input model-select" aria-label={label}>

@@ -1,3 +1,4 @@
+import { Tooltip } from "../../src/ui.tsx";
 import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
 import type { HarnessClient } from "@harness/client";
@@ -11,14 +12,25 @@ const credentials = new Set<string>();
 let attempt: { attemptId: string; url: string; redirectUrl: string } | undefined;
 let attemptServer: string | undefined;
 let authenticated = false;
-const root = createRoot(document.getElementById("root")!);
-window.mcpFixture = { calls, opened: [], otherSigningIn: false, unmount: () => root.unmount() };
+const root = createRoot(document.getElementById("fixture")!);
+window.mcpFixture = {
+  calls,
+  opened: [],
+  otherSigningIn: false,
+  finishBrowserSignIn() {
+    if (!attempt) throw new Error("No sign-in in progress");
+    authenticated = true;
+    attempt = undefined;
+  },
+  unmount: () => root.unmount(),
+};
 declare global {
   interface Window {
     mcpFixture: {
       calls: typeof calls;
       opened: string[];
       otherSigningIn: boolean;
+      finishBrowserSignIn(): void;
       unmount(): void;
     };
   }
@@ -93,14 +105,18 @@ const client = {
 } as unknown as HarnessClient;
 root.render(
   h(
-    "section",
-    { className: "settings-page" },
-    h(McpSettings, {
-      client,
-      openUrl: async (url) => {
-        window.mcpFixture.opened.push(url);
-      },
-      restart: async () => {},
-    }),
+    Tooltip.Provider,
+    null,
+    h(
+      "section",
+      { className: "page settings-page" },
+      h(McpSettings, {
+        client,
+        openUrl: async (url) => {
+          window.mcpFixture.opened.push(url);
+        },
+        restart: async () => {},
+      }),
+    ),
   ),
 );

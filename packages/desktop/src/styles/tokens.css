@@ -1,6 +1,9 @@
 :root {
   font-family: "Segoe UI", system-ui, sans-serif;
   font-size: 14px;
+  --gap-field: 4px;
+  --gap-item: 12px;
+  --gap-section: 24px;
   color-scheme: light;
   background: var(--surface-sidebar);
   --neutral-0: #ffffff;

@@ -1,3 +1,4 @@
+import { SettingsGroup } from "./settings-layout.tsx";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Check, GitBranch, Plus, Undo2 } from "lucide-react";
@@ -289,8 +290,7 @@ export function ManagedDockerEnvironments({ session }: { session: DesktopSession
     }
   };
   return (
-    <>
-      <h3>Docker environments</h3>
+    <SettingsGroup title="Docker environments">
       <p className="muted">
         Stop preserves container state. Reopening a conversation starts its environment. Remove
         discards container state and keeps volumes.
@@ -339,7 +339,7 @@ export function ManagedDockerEnvironments({ session }: { session: DesktopSession
           if (id) void control(id, "remove");
         }}
       />
-    </>
+    </SettingsGroup>
   );
 }
 
@@ -372,15 +372,13 @@ export function NewWorktreeOption({ session, cwd }: { session: DesktopSession; c
   const eligible = result?.cwd === cwd && result.repository !== null;
   return (
     <>
-      <label className="check-label">
-        <Checkbox
-          name="newWorktree"
-          disabled={!eligible}
-          checked={eligible && selected}
-          onChange={(event) => setSelected(event.currentTarget.checked)}
-        />
-        Start in a new Git worktree
-      </label>
+      <Checkbox
+        label="Start in a new Git worktree"
+        name="newWorktree"
+        disabled={!eligible}
+        checked={eligible && selected}
+        onChange={(event) => setSelected(event.currentTarget.checked)}
+      />
       {result?.cwd === cwd && result.error && <p role="alert">{result.error}</p>}
     </>
   );

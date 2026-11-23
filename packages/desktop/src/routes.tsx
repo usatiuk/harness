@@ -1,8 +1,8 @@
+import { SettingsPage, type GatewayCreatedError } from "./routes/settings.tsx";
+import { settingsLoader } from "./routes/settings-location.ts";
+import { ComposerSettings } from "./components/appearance-controls.tsx";
 import { ActionFeedback, type ActionResult } from "./components/action-feedback.tsx";
-import {
-  InstructionsSettings,
-  type InstructionsReadResult,
-} from "./components/instructions-settings.tsx";
+import type { InstructionsReadResult } from "./components/instructions-settings.tsx";
 import TextareaAutosize from "react-textarea-autosize";
 import { ImagePreviews } from "./components/image-previews.tsx";
 import { RetryStatusLine } from "./components/retry-status.tsx";
@@ -16,19 +16,12 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { QuestionRequestForm } from "./components/question-request.tsx";
 import { questionResponseSchema } from "@harness/protocol";
-import { FeedbackControls, FeedbackSettings } from "./components/feedback-controls.tsx";
+import { FeedbackControls } from "./components/feedback-controls.tsx";
 import { APP_NAME } from "./app-name.ts";
-import {
-  NewWorktreeOption,
-  WorktreeControl,
-  ManagedWorktrees,
-  ManagedDockerEnvironments,
-} from "./components/worktree-controls.tsx";
+import { NewWorktreeOption, WorktreeControl } from "./components/worktree-controls.tsx";
 import { ActivityOwner, SubagentHeading } from "./components/subagent-control.tsx";
 import { RightSidebarLayout } from "./components/right-sidebar.tsx";
 import { SidebarLayout } from "./components/sidebar.tsx";
-import { McpSettings } from "./components/mcp-settings.tsx";
-import { DesktopUpdates } from "./components/desktop-updates.tsx";
 import { ModelSelect, modelKey } from "./components/model-select.tsx";
 import {
   memo,
@@ -39,13 +32,12 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type FormEvent,
   type ReactNode,
 } from "react";
 import {
-  createMemoryRouter,
   Form,
   Link,
+  matchPath,
   NavLink,
   Outlet,
   redirect,
@@ -61,17 +53,17 @@ import {
   type ActionFunctionArgs,
 } from "react-router";
 import { open } from "@tauri-apps/plugin-dialog";
+import { createSessionRouter, sessionBasename } from "./session-router.tsx";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { editPresentation } from "@harness/client-features/edit-presentation";
 import type { Cell, State } from "@harness/client-features/transcript-reducer";
-import { toolPermissionSchema, type ClientApproval } from "@harness/approval/client";
+import type { ClientApproval } from "@harness/approval/client";
 import {
   textOf,
   imageContentsSchema,
   type ImageContent,
-  compactionThresholdSchema,
   type Conversation,
   type ConversationId,
 } from "@harness/protocol";
@@ -82,14 +74,12 @@ import {
   appInstructionsUpdateRequest,
   appProviderConfigUpdateRequest,
   appProviderCreateRequest,
-  modelRetriesSettingsSchema,
   type AppSettings,
 } from "@harness/server/client-protocol";
 import type { TranscriptRow, TranscriptStep } from "./transcript.ts";
 import { DesktopSession, type ConversationView, type ConversationSnapshot } from "./session.ts";
 import {
   Button,
-  Checkbox,
   Input,
   Select,
   SelectItem,
@@ -98,13 +88,11 @@ import {
   Confirmation,
   CollapseGrid,
   Disclosure,
-  Tabs,
 } from "./ui.tsx";
 import { useComposerPreferences } from "./appearance.ts";
 import { composerKey } from "./preferences.ts";
 import { ContextUsage, LastTurnStats } from "./components/usage-inspector.tsx";
 import { ConversationCanvas } from "./components/conversation-canvas.tsx";
-import { AppearanceControls, ComposerSettings } from "./components/appearance-controls.tsx";
 import {
   FolderOpen,
   GitBranch,
@@ -147,6 +135,75 @@ const field = (data: FormData, name: string): string => {
   if (typeof value !== "string") throw new Error(`Missing ${name}`);
   return value;
 };
+// The RPC patches top-level settings. Nested settings (e.g. approval) are atomic;
+// an edit must not send any unrelated model, host, or permission preferences.
+function defaultSettingsPatch(
+  setting: string,
+  data: FormData,
+  savedModel: AppSettings["settings"]["model"] | undefined,
+) {
+  function modelValue(name: string, presetName?: string) {
+    const selection = field(data, name);
+    if (!selection) return null;
+    const [provider, model] = selection.split("\u0000");
+    const preset = presetName
+      ? field(data, presetName) || null
+      : savedModel?.provider === provider && savedModel?.model === model
+        ? (savedModel?.preset ?? null)
+        : null;
+    return { provider, model, preset };
+  }
+  switch (setting) {
+    case "model":
+      return { model: modelValue("model") };
+    case "sandbox":
+      return { sandbox: field(data, "sandbox") };
+    case "showToolNames":
+      return { showToolNames: data.has("showToolNames") };
+    case "approval":
+      return {
+        approval: {
+          inWorkspace: field(data, "inWorkspace"),
+          outOfWorkspace: field(data, "outOfWorkspace"),
+          humanApprovalTimeoutSeconds: Number(field(data, "humanApprovalTimeoutSeconds")),
+        },
+      };
+    case "autoApproval": {
+      const enabled = field(data, "autoApproval");
+      if (enabled !== "true" && enabled !== "false")
+        throw new Error("Invalid auto approver setting");
+      return {
+        autoApproval: {
+          enabled: enabled === "true",
+          timeoutSeconds: Number(field(data, "autoApprovalTimeoutSeconds")),
+          model: modelValue("reviewerModel", "reviewerPreset"),
+        },
+      };
+    }
+    case "conversationTitleModel":
+      return { conversationTitleModel: modelValue("titleModel", "titlePreset") };
+    case "subagents":
+      return {
+        subagents: {
+          maxDepth: Number(field(data, "subagentMaxDepth")),
+          maxChildren: Number(field(data, "subagentMaxChildren")),
+        },
+      };
+    case "modelRetries":
+      return {
+        modelRetries: {
+          attempts: Number(field(data, "modelRetriesAttempts")),
+          backoffMs: Number(field(data, "modelRetriesBackoffMs")),
+        },
+      };
+    case "compactionThresholdTokens": {
+      const threshold = field(data, "compactionThresholdTokens");
+      return { compactionThresholdTokens: threshold === "" ? null : Number(threshold) };
+    }
+    default:
+      throw new Error(`Unknown default setting: ${setting}`);
+  }
+}
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 const conversationLabel = (conversation: Conversation, view?: ConversationSnapshot): string => {
@@ -160,8 +217,10 @@ const conversationLabel = (conversation: Conversation, view?: ConversationSnapsh
 
 export function createDesktopRouter(
   session: DesktopSession,
-  connections: { controls: ReactNode; local: boolean; label: string; restart(): Promise<void> },
+  connections: { controls: ReactNode; local: boolean; label: ReactNode; restart(): Promise<void> },
 ) {
+  const routeKey = session.storageKey("route");
+  const routeBase = sessionBasename(routeKey);
   const emptyImageDraft = { images: [] as ImageContent[], reading: 0, error: "" };
   type ImageDraft = typeof emptyImageDraft;
   const imageDrafts = new Map<string, ImageDraft>();
@@ -181,7 +240,9 @@ export function createDesktopRouter(
     useSyncExternalStore(session.subscribe, session.snapshot);
   };
 
-  async function action({ request }: ActionFunctionArgs): Promise<ActionResult | Response> {
+  async function action({
+    request,
+  }: ActionFunctionArgs): Promise<ActionResult | GatewayCreatedError | Response> {
     try {
       const data = await request.formData();
       const intent = field(data, "intent");
@@ -340,10 +401,11 @@ export function createDesktopRouter(
             try {
               await session.login({ provider: id, key, flow: "browser" }, request.signal);
             } catch (error) {
-              throw new Error(
-                `Provider saved, but the API key was not stored: ${errorMessage(error)}. Use its sign-in field to try again.`,
-                { cause: error },
-              );
+              return {
+                ok: false,
+                gatewayCreated: true,
+                message: `Provider saved, but the API key was not stored: ${errorMessage(error)}. Use its sign-in field to try again.`,
+              };
             }
           }
           return {
@@ -376,6 +438,11 @@ export function createDesktopRouter(
             message: "Provider settings saved. Restart the server to apply the change.",
           };
         }
+        case "worktree-directory":
+          await session.client.peer.request(appSettingsUpdateRequest, {
+            worktreeDirectory: field(data, "worktreeDirectory").trim() || null,
+          });
+          return { ok: true, message: "Worktree directory saved." };
         case "server-settings":
           await session.client.peer.request(appSettingsUpdateRequest, {
             keepServerRunning: data.get("keepServerRunning") === "on",
@@ -390,82 +457,18 @@ export function createDesktopRouter(
             message: "Instructions saved. Applies to new or reloaded conversations.",
           };
         case "settings": {
-          const compactionInput = field(data, "compactionThresholdTokens");
-          const compactionThresholdTokens =
-            compactionInput === ""
-              ? null
-              : compactionThresholdSchema.parse(Number(compactionInput));
-          const modelRetries = modelRetriesSettingsSchema.parse({
-            attempts: Number(field(data, "modelRetriesAttempts")),
-            backoffMs: Number(field(data, "modelRetriesBackoffMs")),
-          });
-          const [provider, model] = field(data, "model").split("\u0000");
-          const inWorkspace = field(data, "inWorkspace");
-          const outOfWorkspace = field(data, "outOfWorkspace");
-          const sandbox = field(data, "sandbox");
-          const autoApproval = field(data, "autoApproval");
-          const [reviewerProvider, reviewerModel] = field(data, "reviewerModel").split("\u0000");
-          const reviewerPreset = reviewerModel ? field(data, "reviewerPreset") : "";
-          const [titleProvider, titleModel] = field(data, "titleModel").split("\u0000");
-          const titlePreset = titleModel ? field(data, "titlePreset") : "";
-          if (
-            ![inWorkspace, outOfWorkspace].every(
-              (value) => toolPermissionSchema.safeParse(value).success,
-            )
-          )
-            throw new Error("Invalid approval policy");
-          if (sandbox !== "none" && sandbox !== "native" && sandbox !== "docker")
-            throw new Error("Invalid sandbox");
-          if (autoApproval !== "true" && autoApproval !== "false")
-            throw new Error("Invalid auto approver setting");
-          await session.client.peer.request(appSettingsUpdateRequest, {
-            model:
-              provider && model
-                ? {
-                    provider,
-                    model,
-                    preset:
-                      session.settings?.settings.model?.provider === provider &&
-                      session.settings.settings.model.model === model
-                        ? session.settings.settings.model.preset
-                        : null,
-                  }
-                : null,
-            approval: {
-              inWorkspace: toolPermissionSchema.parse(inWorkspace),
-              outOfWorkspace: toolPermissionSchema.parse(outOfWorkspace),
-              humanApprovalTimeoutSeconds: Number(field(data, "humanApprovalTimeoutSeconds")),
-            },
-            autoApproval: {
-              enabled: autoApproval === "true",
-              timeoutSeconds: Number(field(data, "autoApprovalTimeoutSeconds")),
-              model:
-                reviewerProvider && reviewerModel
-                  ? {
-                      provider: reviewerProvider,
-                      model: reviewerModel,
-                      preset: reviewerPreset || null,
-                    }
-                  : null,
-            },
-            conversationTitleModel:
-              titleProvider && titleModel
-                ? { provider: titleProvider, model: titleModel, preset: titlePreset || null }
-                : null,
-            sandbox,
-            showToolNames: data.get("showToolNames") === "on",
-            subagents: {
-              maxDepth: Number(field(data, "subagentMaxDepth")),
-              maxChildren: Number(field(data, "subagentMaxChildren")),
-            },
-            compactionThresholdTokens,
-            modelRetries,
-            worktreeDirectory: field(data, "worktreeDirectory").trim() || null,
-          });
+          const setting = field(data, "setting");
+          const patch = defaultSettingsPatch(setting, data, session.settings?.settings.model);
+          await session.client.peer.request(
+            appSettingsUpdateRequest,
+            appSettingsUpdateRequest.params.parse(patch),
+          );
           return {
             ok: true,
             message:
-              "Settings saved. New or reloaded conversations use these defaults. Restart the server to apply compaction changes to already-loaded conversations.",
+              setting === "compactionThresholdTokens"
+                ? "Settings saved. Restart the server to apply compaction changes to already-loaded conversations."
+                : "Settings saved.",
           };
         }
         default:
@@ -562,9 +565,17 @@ export function createDesktopRouter(
     );
   }
   function Layout() {
+    const { pathname, search } = useLocation();
+    useEffect(() => {
+      localStorage.setItem(routeKey, pathname + search);
+    }, [pathname, search]);
     useSyncExternalStore(session.subscribeSidebar, session.sidebarSnapshot);
     useSyncExternalStore(session.subscribeConnection, session.connectionSnapshot);
     const navigation = useNavigation();
+    const loadingConversation =
+      navigation.state === "loading" &&
+      matchPath(`${routeBase}/conversations/:conversationId`, navigation.location.pathname) !==
+        null;
     const renderConversation = (conversation: Conversation) => {
       const view = session.views.get(conversation.id);
       const status = view?.approvals.size
@@ -621,12 +632,12 @@ export function createDesktopRouter(
               <RestartButton />
             </div>
           )}
-          {navigation.state === "loading" && (
+          {loadingConversation && (
             <div className="navigation-status" role="status">
               Loading conversation…
             </div>
           )}
-          {navigation.state === "loading" &&
+          {loadingConversation &&
             [...session.views.values()].flatMap((view) =>
               [...view.approvals.values()].map((approval) => (
                 <Approval key={approval.requestId} approval={approval} />
@@ -871,6 +882,7 @@ export function createDesktopRouter(
         <div className="conversation-controls">
           <PopoverControl
             label="Model and preset"
+            layout="inspector"
             align="start"
             trigger={
               <Button
@@ -908,6 +920,12 @@ export function createDesktopRouter(
                   }}
                 />
               </label>
+              <p className="field-hint">
+                {catalog?.contextWindow
+                  ? `${catalog.contextWindow.toLocaleString()} context`
+                  : "Context capacity unknown"}
+                {catalog?.reasoning?.supported ? " · Reasoning supported" : ""}
+              </p>
             </model.Form>
             {(presets.length > 0 || selected.preset) && (
               <preset.Form method="post" action="/actions" className="picker-form">
@@ -943,17 +961,12 @@ export function createDesktopRouter(
                 </label>
               </preset.Form>
             )}
-            <p className="muted">
-              {catalog?.contextWindow
-                ? `${catalog.contextWindow.toLocaleString()} context`
-                : "Context capacity unknown"}
-              {catalog?.reasoning?.supported ? " · Reasoning supported" : ""}
-            </p>
             <ActionFeedback data={model.data} />
             <ActionFeedback data={preset.data} />
           </PopoverControl>
           <PopoverControl
             label="Sandbox controls"
+            layout="inspector"
             align="start"
             trigger={
               <Button
@@ -1926,6 +1939,7 @@ export function createDesktopRouter(
               <ConversationControls view={view} />
               <PopoverControl
                 label="Composer settings"
+                layout="inspector"
                 trigger={<IconButton label="Composer settings" icon={Settings2} />}
               >
                 <h3>Composer settings</h3>
@@ -2391,604 +2405,18 @@ export function createDesktopRouter(
     );
   }
 
-  function Provider({ provider }: { provider: AppSettings["providers"][number] }) {
-    const fetcher = useFetcher<ActionResult>();
-    const configuration = useFetcher<ActionResult>();
-    const submitKey = (event: FormEvent<HTMLFormElement>): void => {
-      event.preventDefault();
-      const data = new FormData(event.currentTarget);
-      void fetcher.submit(data, { method: "post", action: "/actions" });
-      event.currentTarget.reset();
-    };
-    return (
-      <section className="provider">
-        <div className="provider-summary">
-          <h3>{provider.label}</h3>
-          <p className="muted">
-            {provider.authenticated
-              ? `Credentials available${provider.detail ? ` · ${provider.detail}` : ""}`
-              : "No credentials"}
-          </p>
-        </div>
-        <Disclosure title="Connection details" className="provider-details">
-          <p className="muted">
-            {provider.id} · {provider.type} · {provider.catalog} · {provider.modelCount} models
-          </p>
-          {provider.diagnostics.map((diagnostic, index) => (
-            <p className="muted" key={index}>
-              {diagnostic}
-            </p>
-          ))}
-        </Disclosure>
-        {provider.settings.length > 0 && (
-          <configuration.Form
-            method="post"
-            action="/actions"
-            className="form-grid"
-            key={JSON.stringify(provider.settings)}
-          >
-            <Input type="hidden" name="intent" value="provider-settings" />
-            <Input type="hidden" name="provider" value={provider.id} />
-            {provider.settings.map((setting) => (
-              <div key={setting.key}>
-                <label>
-                  {setting.title}
-                  <Select
-                    name={`setting:${setting.key}`}
-                    aria-label={`${provider.label} ${setting.title}`}
-                    defaultValue={String(setting.value)}
-                  >
-                    <SelectItem value="true">On</SelectItem>
-                    <SelectItem value="false">Off</SelectItem>
-                  </Select>
-                </label>
-                {setting.description && <p className="muted">{setting.description}</p>}
-              </div>
-            ))}
-            <Button
-              type="submit"
-              disabled={configuration.state !== "idle" || Boolean(session.disconnected)}
-            >
-              Save provider settings
-            </Button>
-          </configuration.Form>
-        )}
-        <ActionFeedback data={configuration.data} />
-        {configuration.data?.ok && configuration.data.restartRequired && <RestartButton />}
-        {provider.canStore && (
-          <fetcher.Form
-            method="post"
-            action="/actions"
-            {...(provider.kind === "api-key" ? { onSubmit: submitKey } : {})}
-            className="button-row"
-          >
-            <Input type="hidden" name="intent" value="login" />
-            <Input type="hidden" name="provider" value={provider.id} />
-            {provider.kind === "oauth" && connections.local ? (
-              <label>
-                Sign-in method
-                <Select name="flow" defaultValue="browser">
-                  <SelectItem value="browser">Browser sign-in</SelectItem>
-                  <SelectItem value="device">Device code</SelectItem>
-                </Select>
-              </label>
-            ) : (
-              <Input
-                type="hidden"
-                name="flow"
-                value={provider.kind === "oauth" ? "device" : "browser"}
-              />
-            )}
-
-            {provider.kind === "api-key" && (
-              <label>
-                API key
-                <Input
-                  name="key"
-                  type="password"
-                  autoComplete="off"
-                  required
-                  aria-label={`${provider.label} API key`}
-                />
-              </label>
-            )}
-            <Button type="submit" disabled={fetcher.state !== "idle"}>
-              {fetcher.state !== "idle"
-                ? "Connecting…"
-                : provider.kind === "oauth"
-                  ? connections.local
-                    ? "Sign in"
-                    : "Sign in with device code"
-                  : "Save key"}
-            </Button>
-          </fetcher.Form>
-        )}
-        {!provider.canStore && provider.kind === "api-key" && (
-          <p className="muted">
-            Manage this connection through its configured environment variable and restart Harness.
-          </p>
-        )}
-        {provider.authenticated && provider.canStore && (
-          <fetcher.Form method="post" action="/actions">
-            <Input type="hidden" name="intent" value="logout" />
-            <Input type="hidden" name="provider" value={provider.id} />
-            <Button type="submit" disabled={fetcher.state !== "idle"}>
-              Disconnect stored credentials
-            </Button>
-          </fetcher.Form>
-        )}
-        <ActionFeedback data={fetcher.data} />
-        {fetcher.data?.ok && fetcher.data.restartRequired && <RestartButton />}
-      </section>
-    );
-  }
   function Settings() {
     useLive();
     const { settings } = useRouteLoaderData<RootData>("app")!;
-    const save = useFetcher<ActionResult>();
-    const hostSave = useFetcher<ActionResult>();
-    const [search, setSearch] = useSearchParams();
-    const sections = [
-      "Appearance",
-      "Composer",
-      "Instructions",
-      "Defaults",
-      "Providers",
-      "Feedback",
-      "MCP",
-      "Worktrees",
-      "Application",
-    ] as const;
-    const requested = search.get("section");
-    const section =
-      sections.find((label) => label.toLowerCase() === requested)?.toLowerCase() ?? "appearance";
-    const selected = settings.settings.model ?? session.domain.defaultModel();
-    const savedSelection = modelKey(selected.provider, selected.model);
-    const [defaultSelection, setDefaultSelection] = useState({
-      saved: savedSelection,
-      value: savedSelection,
-    });
-    if (defaultSelection.saved !== savedSelection)
-      setDefaultSelection({ saved: savedSelection, value: savedSelection });
     return (
-      <section className="page settings-page">
-        <div className="page-heading">
-          <h1>Settings</h1>
-        </div>
-        <Tabs.Root
-          value={section}
-          onValueChange={(section) => {
-            void setSearch({ section }, { replace: true });
-          }}
-          className="settings-sections"
-        >
-          <Tabs.List aria-label="Settings sections" className="settings-section-nav">
-            {sections.map((label) => (
-              <Tabs.Trigger key={label} value={label.toLowerCase()} className="settings-tab">
-                {label}
-              </Tabs.Trigger>
-            ))}
-          </Tabs.List>
-          <Tabs.Content value="appearance" forceMount className="settings-panel">
-            <div className="section-heading">
-              <h2>Appearance</h2>
-              <p className="muted">Make this app feel like yours.</p>
-            </div>
-            <AppearanceControls />
-          </Tabs.Content>
-          <Tabs.Content value="composer" forceMount className="settings-panel">
-            <div className="section-heading">
-              <h2>Composer</h2>
-              <p className="muted">Keyboard shortcuts and optional turn statistics.</p>
-            </div>
-            <ComposerSettings />
-          </Tabs.Content>
-          <Tabs.Content value="instructions" forceMount className="settings-panel">
-            <InstructionsSettings
-              key={session.storageKey("instructions")}
-              active={section === "instructions"}
-              disconnected={Boolean(session.disconnected)}
-            />
-          </Tabs.Content>
-          <Tabs.Content value="defaults" forceMount className="settings-panel">
-            <div className="section-heading">
-              <h2>Conversation defaults</h2>
-              <p className="muted">Used for new conversations on {connections.label}.</p>
-            </div>
-            <save.Form method="post" action="/actions" className="form-grid">
-              <Input type="hidden" name="intent" value="settings" />
-              <label>
-                Model for new conversations
-                <ModelSelect
-                  label="Model for new conversations"
-                  models={session.domain.availableModels()}
-                  providers={session.settings?.providers ?? []}
-                  name="model"
-                  value={defaultSelection.value}
-                  onValueChange={(value) => setDefaultSelection({ saved: savedSelection, value })}
-                />
-              </label>
-              <label>
-                Sandbox for new conversations
-                <Select name="sandbox" defaultValue={settings.settings.sandbox}>
-                  <SandboxOptions selected={settings.settings.sandbox} />
-                </Select>
-              </label>
-              <div>
-                <label className="check-label">
-                  <Checkbox name="showToolNames" defaultChecked={settings.settings.showToolNames} />
-                  Show deferred tool names
-                </label>
-                <small className="muted">
-                  Include available tool names for the model. Applies to new or reloaded
-                  conversations.
-                </small>
-              </div>
-              <label>
-                Subagent depth
-                <Input
-                  name="subagentMaxDepth"
-                  type="number"
-                  min={1}
-                  step={1}
-                  required
-                  defaultValue={settings.settings.subagents.maxDepth}
-                />
-                <small className="muted">2 allows children and grandchildren.</small>
-              </label>
-              <label>
-                Active children per agent
-                <Input
-                  name="subagentMaxChildren"
-                  type="number"
-                  min={1}
-                  step={1}
-                  required
-                  defaultValue={settings.settings.subagents.maxChildren}
-                />
-                <small className="muted">Finished children count until dismissed.</small>
-              </label>
-              <label>
-                Worktree directory
-                <Input
-                  name="worktreeDirectory"
-                  defaultValue={settings.settings.worktreeDirectory ?? ""}
-                  placeholder="~/.harness/worktrees"
-                />
-                <span className="muted">
-                  On the selected server. Used for new worktrees; existing ones stay in place.
-                </span>
-              </label>
-              <label>
-                Compaction threshold (input tokens)
-                <Input
-                  name="compactionThresholdTokens"
-                  type="number"
-                  min={1}
-                  step={1}
-                  defaultValue={settings.settings.compactionThresholdTokens ?? ""}
-                  placeholder="Automatic"
-                />
-                <small className="muted">
-                  Blank uses known model input/output limits. Restart the server to apply changes to
-                  already-loaded conversations.
-                </small>
-              </label>
-              <label>
-                Model call retries
-                <Select
-                  name="modelRetriesAttempts"
-                  defaultValue={String(settings.settings.modelRetries.attempts)}
-                >
-                  {[0, 3, 5, 10, settings.settings.modelRetries.attempts]
-                    .filter((value, index, all) => all.indexOf(value) === index)
-                    .map((value) => (
-                      <SelectItem key={value} value={String(value)}>
-                        {value === 0 ? "Off" : value === 1 ? "1 attempt" : `${value} attempts`}
-                      </SelectItem>
-                    ))}
-                </Select>
-                <small className="muted">
-                  Total model invocations per call, including the first (Off or 1 disables retries).
-                  Retries cover transient failures (rate limits, overload, network) in every model
-                  call.
-                </small>
-              </label>
-              <label>
-                Retry backoff base (ms)
-                <Input
-                  name="modelRetriesBackoffMs"
-                  type="number"
-                  min={50}
-                  max={60000}
-                  step={1}
-                  defaultValue={settings.settings.modelRetries.backoffMs}
-                />
-                <small className="muted">
-                  Doubles per attempt with jitter; a provider Retry-After is honored up to 60s.
-                </small>
-              </label>
-              <label>
-                Tools inside the workspace
-                <Select name="inWorkspace" defaultValue={settings.settings.approval.inWorkspace}>
-                  <SelectItem value="allow">Allow</SelectItem>
-                  <SelectItem value="ask">Ask</SelectItem>
-                  <SelectItem value="ask-human">Ask human</SelectItem>
-                  <SelectItem value="deny">Deny</SelectItem>
-                </Select>
-              </label>
-              <label>
-                Tools outside or with unknown scope
-                <Select
-                  name="outOfWorkspace"
-                  defaultValue={settings.settings.approval.outOfWorkspace}
-                >
-                  <SelectItem value="allow">Allow</SelectItem>
-                  <SelectItem value="ask">Ask</SelectItem>
-                  <SelectItem value="ask-human">Ask human</SelectItem>
-                  <SelectItem value="deny">Deny</SelectItem>
-                </Select>
-              </label>
-              <label>
-                Human approval timeout (seconds)
-                <Input
-                  name="humanApprovalTimeoutSeconds"
-                  type="number"
-                  min="0.001"
-                  max="2147483"
-                  step="any"
-                  defaultValue={settings.settings.approval.humanApprovalTimeoutSeconds}
-                  required
-                />
-              </label>
-              <label>
-                Auto approver
-                <Select
-                  name="autoApproval"
-                  defaultValue={String(settings.settings.autoApproval.enabled)}
-                >
-                  <SelectItem value="false">Off</SelectItem>
-                  <SelectItem value="true">On</SelectItem>
-                </Select>
-              </label>
-              <AuxiliaryModelFields
-                prefix="reviewer"
-                label="Auto approver"
-                key={JSON.stringify(settings.settings.autoApproval.model)}
-                model={settings.settings.autoApproval.model}
-              />
-              <label>
-                Auto approver timeout (seconds)
-                <Input
-                  name="autoApprovalTimeoutSeconds"
-                  type="number"
-                  min="0.001"
-                  max="2147483"
-                  step="any"
-                  defaultValue={settings.settings.autoApproval.timeoutSeconds}
-                  required
-                />
-              </label>
-              <AuxiliaryModelFields
-                prefix="title"
-                label="Conversation naming"
-                key={JSON.stringify(settings.settings.conversationTitleModel)}
-                model={settings.settings.conversationTitleModel}
-              />
-              <Button
-                type="submit"
-                variant="accent"
-                disabled={save.state !== "idle" || Boolean(session.disconnected)}
-              >
-                Save defaults
-              </Button>
-            </save.Form>
-            <p className="muted">
-              Auto-review settings apply to open and new conversations. If no reviewer model is
-              selected, each review uses the conversation’s model. Conversation naming uses its
-              selected model or the conversation’s model when unset, once after the first message.
-            </p>
-            <ActionFeedback data={save.data} />
-          </Tabs.Content>
-          <Tabs.Content value="feedback" className="settings-panel">
-            <FeedbackSettings session={session} />
-          </Tabs.Content>
-          <Tabs.Content value="mcp" forceMount className="settings-panel">
-            <h2>MCP servers</h2>
-            <McpSettings
-              client={session.client}
-              openUrl={openUrl}
-              restart={() => connections.restart()}
-            />
-          </Tabs.Content>
-          <Tabs.Content value="providers" forceMount className="settings-panel">
-            <div className="section-heading">
-              <h2>Providers</h2>
-              <p className="muted">
-                Credentials use Harness’s existing credential store. Provider changes take effect
-                after a restart.
-              </p>
-            </div>
-            <AddLiteLLM />
-            {settings.providers.map((provider) => (
-              <Provider key={provider.id} provider={provider} />
-            ))}
-            {session.authUrl && (
-              <div className="auth-url">
-                <p>
-                  {session.authCode
-                    ? "Open this URL in your browser and enter the one-time code:"
-                    : "Complete sign-in in your browser. If it did not open, copy this URL:"}
-                </p>
-                <Input
-                  readOnly
-                  value={session.authUrl}
-                  aria-label="Sign-in URL"
-                  onFocus={(event) => event.currentTarget.select()}
-                />
-                {session.authCode && (
-                  <Input
-                    readOnly
-                    value={session.authCode}
-                    aria-label="Sign-in code"
-                    onFocus={(event) => event.currentTarget.select()}
-                  />
-                )}
-                <div className="button-row">
-                  <Button onClick={() => void openUrl(session.authUrl!)}>Open sign-in page</Button>
-                  <Button onClick={() => session.cancelLogin()}>Cancel sign-in</Button>
-                </div>
-              </div>
-            )}
-          </Tabs.Content>
-          <Tabs.Content value="worktrees" className="settings-panel">
-            <div className="section-heading">
-              <h2>Worktrees</h2>
-            </div>
-            <ManagedWorktrees session={session} />
-            <ManagedDockerEnvironments session={session} />
-          </Tabs.Content>
-          <Tabs.Content value="application" forceMount className="settings-panel">
-            <div className="section-heading">
-              <h2>Application</h2>
-              <p className="muted">Server lifecycle and local storage.</p>
-            </div>
-            <hostSave.Form
-              key={String(settings.settings.keepServerRunning)}
-              method="post"
-              action="/actions"
-              className="form-grid form-single-column"
-            >
-              <Input type="hidden" name="intent" value="server-settings" />
-              <label className="check-label">
-                <Checkbox
-                  name="keepServerRunning"
-                  defaultChecked={settings.settings.keepServerRunning}
-                  disabled={hostSave.state !== "idle" || Boolean(session.disconnected)}
-                />
-                Keep this server running after desktop exit
-              </label>
-              <p className="muted">
-                Saved on {connections.label}. When off, exit stops this server unless another client
-                is connected.
-              </p>
-              <Button
-                type="submit"
-                disabled={hostSave.state !== "idle" || Boolean(session.disconnected)}
-              >
-                {hostSave.state === "idle" ? "Save server settings" : "Saving…"}
-              </Button>
-              <ActionFeedback data={hostSave.data} />
-            </hostSave.Form>
-            <DesktopUpdates />
-            <div className="storage-location">
-              <h3>Harness home</h3>
-              <p className="muted">{settings.home}</p>
-            </div>
-            <RestartButton />
-          </Tabs.Content>
-        </Tabs.Root>
-      </section>
-    );
-  }
-  function AddLiteLLM() {
-    const save = useFetcher<ActionResult>();
-    return (
-      <details className="provider-add">
-        <summary>Add LiteLLM gateway</summary>
-        <save.Form
-          method="post"
-          action="/actions"
-          className="form-grid"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            void save.submit(data, { method: "post", action: "/actions" });
-            const key = event.currentTarget.elements.namedItem("key");
-            if (key instanceof HTMLInputElement) key.value = "";
-          }}
-        >
-          <Input type="hidden" name="intent" value="add-litellm" />
-          <label>
-            Provider ID
-            <Input
-              name="id"
-              required
-              pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}"
-              placeholder="work-gateway"
-            />
-          </label>
-          <label>
-            Label
-            <Input name="label" placeholder="Work LiteLLM" maxLength={200} />
-          </label>
-          <label>
-            Gateway URL
-            <Input name="baseUrl" type="url" required placeholder="https://litellm.example.com" />
-          </label>
-          <label>
-            API key
-            <Input name="key" type="password" autoComplete="off" />
-          </label>
-          <Button type="submit" disabled={save.state !== "idle" || Boolean(session.disconnected)}>
-            Add gateway
-          </Button>
-        </save.Form>
-        <ActionFeedback data={save.data} />
-      </details>
-    );
-  }
-
-  function AuxiliaryModelFields({
-    model,
-    prefix,
-    label,
-  }: {
-    model: AppSettings["settings"]["autoApproval"]["model"];
-    prefix: "reviewer" | "title";
-    label: string;
-  }) {
-    const [selection, setSelection] = useState(model ? modelKey(model.provider, model.model) : "");
-    const presets =
-      session.domain
-        .availableModels()
-        .find((entry) => modelKey(entry.provider, entry.model) === selection)?.presets ?? [];
-    const initialPreset =
-      model && selection === modelKey(model.provider, model.model) ? (model.preset ?? "") : "";
-    return (
-      <>
-        <label>
-          {label} model
-          <ModelSelect
-            label={`${label} model`}
-            models={session.domain.availableModels()}
-            providers={session.settings?.providers ?? []}
-            name={`${prefix}Model`}
-            value={selection}
-            onValueChange={setSelection}
-            emptyLabel="Use conversation model"
-          />
-        </label>
-        <label>
-          {label} preset
-          <Select
-            name={`${prefix}Preset`}
-            key={selection}
-            defaultValue={initialPreset}
-            disabled={!selection}
-          >
-            <SelectItem value="">Model default</SelectItem>
-            {initialPreset && !presets.some((entry) => entry.value === initialPreset) && (
-              <SelectItem value={initialPreset}>{initialPreset} — unavailable</SelectItem>
-            )}
-            {presets.map((entry) => (
-              <SelectItem key={entry.value} value={entry.value}>
-                {entry.label ?? entry.value}
-              </SelectItem>
-            ))}
-          </Select>
-        </label>
-      </>
+      <SettingsPage
+        key={session.storageKey("settings")}
+        session={session}
+        settings={settings}
+        connections={connections}
+        restartButton={<RestartButton />}
+        sandboxOptions={<SandboxOptions selected={settings.settings.sandbox} />}
+      />
     );
   }
   function RouteError() {
@@ -3037,7 +2465,7 @@ export function createDesktopRouter(
       </section>
     );
   }
-  return createMemoryRouter(
+  return createSessionRouter(
     [
       {
         id: "app",
@@ -3047,7 +2475,7 @@ export function createDesktopRouter(
           const intent = formData?.get("intent");
           // These actions do not change the settings/provider snapshot.
           if (
-            formAction === "/actions" &&
+            formAction === `${routeBase}/actions` &&
             (intent === "send" || intent === "stop" || intent === "instructions")
           )
             return false;
@@ -3105,7 +2533,7 @@ export function createDesktopRouter(
             loader: ({ params }) => session.load(params.conversationId!),
             ErrorBoundary: RouteError,
           },
-          { path: "settings", Component: Settings },
+          { path: "settings/:section?", Component: Settings, loader: settingsLoader },
           {
             path: "instructions",
             loader: async (): Promise<InstructionsReadResult> => {
@@ -3123,6 +2551,6 @@ export function createDesktopRouter(
         ],
       },
     ],
-    { initialEntries: [localStorage.getItem(session.storageKey("route")) ?? "/"] },
+    routeKey,
   );
 }

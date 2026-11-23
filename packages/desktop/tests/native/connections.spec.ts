@@ -81,7 +81,6 @@ test("host switcher starts with Local and connection editing survives a disconne
     await settingsSection(page, "Application");
     const keepRunning = page.getByLabel("Keep this server running after desktop exit");
     await keepRunning.click();
-    await page.getByRole("button", { name: "Save server settings", exact: true }).click();
     await expect
       .poll(async (): Promise<unknown> =>
         JSON.parse(await readFile(join(home, "settings.json"), "utf8")),
@@ -277,9 +276,8 @@ test("desktop cancels a stalled real WSL provisioning process and keeps Local us
       async () => {
         await dialog.getByRole("button", { name: "Add WSL" }).click({ timeout: 5000 });
 
-        await dialog
-          .getByLabel("Distribution", { exact: true })
-          .fill(distribution!, { timeout: 5000 });
+        await dialog.getByRole("combobox", { name: "Distribution", exact: true }).click();
+        await page.getByRole("option", { name: distribution!, exact: true }).click();
 
         await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
       },
@@ -370,7 +368,8 @@ test("a real WSL conversation keeps its approval across host switching and deskt
     const dialog = page.getByRole("dialog", { name: "Connections" });
     await dialog.getByRole("button", { name: "Add WSL" }).click();
     await dialog.getByLabel("Name", { exact: true }).fill("WSL work");
-    await dialog.getByLabel("Distribution", { exact: true }).fill(distribution!);
+    await dialog.getByRole("combobox", { name: "Distribution", exact: true }).click();
+    await page.getByRole("option", { name: distribution!, exact: true }).click();
     await dialog.getByRole("button", { name: "Save & connect", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible({
       timeout: 60_000,

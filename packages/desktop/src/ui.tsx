@@ -1,4 +1,6 @@
 import {
+  createContext,
+  useContext,
   useCallback,
   useId,
   useRef,
@@ -199,6 +201,9 @@ export function Textarea({ className = "", ...props }: ComponentProps<"textarea"
   return <textarea className={`input ${className}`} {...props} />;
 }
 const selectKey = (value: string | number) => `value:${value}`;
+// Custom selects keep a hidden form value. An autosaving form must capture it
+// after React commits the choice (including any dependent preset fields).
+export const ChoiceCommit = createContext<(change: () => void) => void>((change) => change());
 type SelectProps = Omit<ComponentProps<"button">, "value" | "defaultValue" | "onChange"> & {
   value?: string | number;
   defaultValue?: string | number;
@@ -216,6 +221,7 @@ export function Select({
   ...props
 }: SelectProps) {
   const [localValue, setLocalValue] = useState(String(defaultValue));
+  const commit = useContext(ChoiceCommit);
   const selected = value === undefined ? localValue : String(value);
   return (
     <>
@@ -225,8 +231,10 @@ export function Select({
         disabled={disabled ?? false}
         onValueChange={(next) => {
           const decoded = next.slice("value:".length);
-          if (value === undefined) setLocalValue(decoded);
-          onValueChange?.(decoded);
+          commit(() => {
+            if (value === undefined) setLocalValue(decoded);
+            onValueChange?.(decoded);
+          });
         }}
       >
         <SelectPrimitive.Trigger
@@ -303,8 +311,19 @@ export const ContextMenu = {
   CheckboxItem: ContextMenuCheckboxItem,
 };
 
-export function Checkbox({ className = "", ...props }: Omit<ComponentProps<"input">, "type">) {
-  return <input type="checkbox" className={`native-check ${className}`} {...props} />;
+export function Checkbox({
+  label,
+  ...props
+}: Omit<ComponentProps<"input">, "type" | "children"> & { label: string }) {
+  return (
+    <label className="check-label">
+      <span className="check-box">
+        <input type="checkbox" {...props} />
+        <Check aria-hidden="true" />
+      </span>
+      {label}
+    </label>
+  );
 }
 export function Field({
   label,
@@ -349,9 +368,11 @@ export function PopoverControl({
   align = "end",
   onOpenChange,
   className = "",
+  layout = "plain",
 }: {
   trigger: ReactNode;
   className?: string;
+  layout?: "plain" | "inspector";
   label: string;
   children: ReactNode;
   side?: ComponentProps<typeof Popover.Content>["side"];
@@ -363,7 +384,7 @@ export function PopoverControl({
       <Popover.Trigger asChild>{trigger}</Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
-          className={`popover ${className}`}
+          className={`popover ${layout === "inspector" ? "inspector" : ""} ${className}`}
           side={side}
           align={align}
           sideOffset={10}

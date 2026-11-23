@@ -228,6 +228,7 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
       );
     }
     const stopServer = connections.getByRole("button", { name: "Stop server", exact: true });
+    await connections.getByText("Server actions", { exact: true }).click();
     await stopServer.click();
     await expect(page.locator('.overlay[data-state="open"]')).toHaveCount(2);
     const scrims = await page
@@ -292,6 +293,7 @@ test("shared controls retain appearance, keyboard preferences and focus in the n
     await expect(app.page.getByLabel("While working, default to")).toHaveCount(0);
     await expect(app.page.getByLabel("Show last-turn statistics")).toBeChecked();
     await manageConnections(app.page);
+    await app.page.getByText("Server actions", { exact: true }).click();
     await app.page
       .getByRole("dialog", { name: "Connections" })
       .getByRole("button", { name: "Stop server", exact: true })
@@ -477,17 +479,23 @@ test("production page layouts remain coherent in both themes and creation fits s
             page,
             info,
             `${theme}-${section}-heading`,
-            '.settings-panel[data-state="active"] .section-heading',
+            '.settings-panel[data-state="active"] .settings-heading-actions',
           );
           const count = await page
-            .locator('.settings-panel[data-state="active"] > .provider')
+            .locator('.settings-panel[data-state="active"] .provider')
             .count();
+          expect(count).toBeGreaterThan(0);
           for (let index = 0; index < count; index++) {
+            await page
+              .locator('.settings-panel[data-state="active"] .provider')
+              .nth(index)
+              .locator("summary")
+              .click();
             await contrast(
               page,
               info,
               `${theme}-provider-${index}`,
-              `.settings-panel[data-state="active"] > .provider:nth-of-type(${index + 1})`,
+              `.settings-panel[data-state="active"] :nth-child(${index + 1} of .provider)`,
             );
           }
         } else

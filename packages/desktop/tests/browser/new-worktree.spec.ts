@@ -65,25 +65,20 @@ test.afterAll(async () => {
 const formData = (page: Page) =>
   page.locator("form").evaluate((form) => new FormData(form as HTMLFormElement).get("newWorktree"));
 
-test("worktree option is a compact native checkbox, not a full-width input pill", async ({
-  page,
-}) => {
+test("worktree option is compact, labelled and submits only when selected", async ({ page }) => {
   await page.goto(url);
   await expect.poll(() => page.evaluate(() => window.newWorktreeFixture?.ready)).toBe(true);
   const checkbox = page.getByRole("checkbox", { name: "Start in a new Git worktree" });
-  const label = page.locator("label.check-label");
   await expect(checkbox).toBeVisible();
   const box = (await checkbox.boundingBox())!;
   const formBox = (await page.locator("form.creation-form").boundingBox())!;
-  // Regression: the option was rendered with the .input field styles, a
-  // full-width bordered pill; it must stay a 16px native square.
-  expect(await checkbox.getAttribute("class")).not.toMatch(/(^|\s)input(\s|$)/);
   expect(box.width).toBeGreaterThanOrEqual(14);
   expect(box.height).toBeGreaterThanOrEqual(14);
   expect(box.width).toBeLessThan(formBox.width * 0.3);
-  expect(await label.evaluate((element) => getComputedStyle(element).marginTop)).toBe("12px");
+  expect(box.width).toBe(box.height);
 
-  await checkbox.check();
+  await checkbox.focus();
+  await checkbox.press("Space");
   expect(await formData(page)).toBe("on");
   await checkbox.uncheck();
   expect(await formData(page)).toBeNull();

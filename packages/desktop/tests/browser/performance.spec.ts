@@ -117,6 +117,11 @@ test("bursty streaming updates only live text and leaves composer/header/sidebar
     window.performanceFixture.burst(1);
     window.performanceFixture.finish();
   });
+  // Opening the 5,000-line diff can unmount the following message from the virtualized list.
+  // Return to the latest message before inspecting what was published while reading the diff.
+  await page.locator(".conversation-scroll").evaluate((scroll) => {
+    scroll.scrollTop = scroll.scrollHeight;
+  });
   await expect(page.getByTestId("assistant-message").last()).toContainText(
     "Live" + "x".repeat(501),
   );

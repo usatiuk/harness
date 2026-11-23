@@ -1,0 +1,42 @@
+.mcp-server-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--gap-item);
+}
+.mcp-server-list strong {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.mcp-server-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mcp-server-list li {
+  border-block-end: 1px solid var(--line);
+  padding-block: var(--gap-item);
+}
+.mcp-server-list p {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.mcp-settings fieldset,
+.mcp-settings .disclosure .collapse-body {
+  display: grid;
+  min-width: 0;
+  gap: var(--gap-item);
+}
+.mcp-settings .disclosure[open] > .collapse-grid > .collapse-body {
+  padding: var(--gap-item) 4px 4px;
+}
+.mcp-settings legend {
+  font-weight: 600;
+  margin-block-end: var(--gap-item);
+}
+.mcp-settings fieldset > .control {
+  justify-self: start;
+}

@@ -237,7 +237,9 @@ function Fixture() {
     ),
   );
 }
-if (window.location.search === "?composer") await import("./composer-fixture.ts");
+if (new URLSearchParams(window.location.search).has("composer"))
+  await import("./composer-fixture.ts");
+else if (window.location.search === "?connections") await import("./connection-fixture.ts");
 else if (window.location.search === "?updates")
   createRoot(document.getElementById("root")!).render(h(DesktopUpdates));
 else createRoot(document.getElementById("root")!).render(h(Fixture));

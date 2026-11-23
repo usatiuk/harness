@@ -1,8 +1,24 @@
-import { useRef, useState, useSyncExternalStore, type FormEvent, type RefObject } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type RefObject,
+} from "react";
 import { hostSchema, type Host } from "@harness/connections";
 import { connectionCommand } from "./transport.ts";
 import { DesktopHosts } from "./hosts.ts";
-import { Button, Dialog, Input, PopoverControl, Confirmation, Disclosure } from "./ui.tsx";
+import {
+  Button,
+  Dialog,
+  Input,
+  PopoverControl,
+  Confirmation,
+  Disclosure,
+  Select,
+  SelectItem,
+} from "./ui.tsx";
 import { ChevronDown, Monitor } from "lucide-react";
 
 const message = (error: unknown): string =>
@@ -14,6 +30,83 @@ const value = (form: FormData, key: string): string => {
   return result.trim();
 };
 const optional = (form: FormData, key: string): string | null => value(form, key) || null;
+
+function WslDestination({
+  value,
+  distributions,
+  change,
+  discover,
+  busy,
+}: {
+  value: string;
+  distributions: string[] | undefined;
+  change: (value: string) => void;
+  discover: () => void;
+  busy: boolean;
+}) {
+  const [manual, setManual] = useState(false);
+  const listed = !!distributions?.length && !manual && (!value || distributions.includes(value));
+  return (
+    <div className="field-stack">
+      <label>
+        Distribution
+        {listed ? (
+          <Select
+            aria-label="Distribution"
+            value={value ? `distro:${value}` : ""}
+            onValueChange={(next) => {
+              if (next === "manual") {
+                setManual(true);
+                change("");
+              } else {
+                change(next.slice("distro:".length));
+              }
+            }}
+          >
+            <SelectItem value="" disabled>
+              Choose an installed distribution
+            </SelectItem>
+            {distributions.map((distro) => (
+              <SelectItem key={distro} value={`distro:${distro}`}>
+                {distro}
+              </SelectItem>
+            ))}
+            <SelectItem value="manual">Enter a different name…</SelectItem>
+          </Select>
+        ) : (
+          <Input
+            autoFocus
+            required
+            aria-describedby="wsl-distribution-hint"
+            value={value}
+            onChange={(event) => change(event.currentTarget.value)}
+          />
+        )}
+      </label>
+      <div className="connection-discovery">
+        <p id="wsl-distribution-hint" className="field-hint muted">
+          {listed
+            ? "Installed on this computer."
+            : distributions?.length === 0
+              ? "None discovered. Enter a distribution name."
+              : "Enter the name of an installed WSL distribution."}
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => {
+            setManual(false);
+            discover();
+          }}
+        >
+          Discover distributions
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export function ConnectionEditor({
   hosts,
@@ -29,43 +122,77 @@ export function ConnectionEditor({
   useSyncExternalStore(hosts.subscribe, hosts.snapshot);
 
   const [editing, setEditing] = useState<Host>();
-  const [distributions, setDistributions] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [inspectedId, setInspectedId] = useState<string>();
+  const [distributions, setDistributions] = useState<string[]>();
+  const [pending, setPending] = useState<"working" | "cancellable" | "cancelling">();
+  const busy = pending !== undefined;
   const [error, setError] = useState<string>();
   const [confirmation, setConfirmation] = useState<{
-    hostId: string;
+    host: Host;
     operation: "stop" | "restart";
   }>();
-  const current = hosts.selected;
+  const current = hosts.views.get(inspectedId ?? "") ?? hosts.selected;
+  const connected = Boolean(current?.session && !current.session.disconnected);
+  const selected = current?.host.id === hosts.config?.selectedHostId;
+  const liveIdentity = connected ? current?.identity : undefined;
   const active = useRef<AbortController | null>(null);
   const done = useRef<HTMLButtonElement>(null);
-  const act = (operation: (signal: AbortSignal) => Promise<void>): void => {
+  const editAction = useRef<HTMLButtonElement>(null);
+  const restoreEditorFocus = useRef(false);
+  const leaveEditor = () => {
+    restoreEditorFocus.current = true;
+    setEditing(undefined);
+  };
+  useLayoutEffect(() => {
+    if (restoreEditorFocus.current && !editing && !busy) {
+      if (open) editAction.current?.focus();
+      restoreEditorFocus.current = false;
+    }
+  }, [editing, busy, open]);
+  const saveDisabled = busy || (editing?.kind === "wsl" && !editing.distribution.trim());
+  const act = (operation: (signal: AbortSignal) => Promise<void>, cancellable = false): void => {
     const abort = new AbortController();
     active.current = abort;
-    setBusy(true);
+    setPending(cancellable ? "cancellable" : "working");
     setError(undefined);
     void operation(abort.signal)
-      .catch((cause) => setError(message(cause)))
+      .catch((cause: unknown) => setError(message(cause)))
       .finally(() => {
         active.current = null;
-        setBusy(false);
+        setPending(undefined);
       });
   };
-  const discover = async (signal: AbortSignal): Promise<void> => {
+  const cancelActive = () => {
+    if (pending !== "cancellable" || !active.current) return;
+    active.current.abort(new DOMException("Operation cancelled.", "AbortError"));
+    setPending("cancelling");
+  };
+  const discover = async (signal: AbortSignal, hostId: string): Promise<void> => {
     const result = await connectionCommand({ type: "wsl.list" }, undefined, signal);
+    signal.throwIfAborted();
     setDistributions(result);
+    if (result.length === 1) {
+      // Never replace a manual destination typed while discovery was pending.
+      setEditing((draft) =>
+        draft?.id === hostId && draft.kind === "wsl" && !draft.distribution
+          ? { ...draft, distribution: result[0]! }
+          : draft,
+      );
+    }
   };
   const create = (kind: "ssh" | "wsl"): void => {
     const common = {
       id: crypto.randomUUID(),
       label: kind === "wsl" ? "WSL" : "SSH",
     };
+    setDistributions(undefined);
+    setError(undefined);
     setEditing(
       kind === "wsl"
-        ? { ...common, kind, distribution: distributions[0] ?? "", user: null }
+        ? { ...common, kind, distribution: "", user: null }
         : { ...common, kind, destination: "" },
     );
-    if (kind === "wsl") act(discover);
+    if (kind === "wsl") act((signal) => discover(signal, common.id), true);
   };
   const save = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -73,8 +200,8 @@ export function ConnectionEditor({
     const submitter = (event.nativeEvent as SubmitEvent).submitter;
     const connect = submitter?.getAttribute("value") === "connect";
     const test = submitter?.getAttribute("value") === "test";
-    act(async () => {
-      if (!editing) throw new Error("No connection selected");
+    if (!editing) throw new Error("No connection selected");
+    act(async (signal) => {
       const common = { id: editing.id, label: value(form, "label") };
       const host = hostSchema.parse(
         editing.kind === "local"
@@ -83,7 +210,7 @@ export function ConnectionEditor({
             ? {
                 ...common,
                 kind: "wsl",
-                distribution: value(form, "distribution"),
+                distribution: editing.distribution.trim(),
                 user: optional(form, "user"),
               }
             : {
@@ -93,13 +220,14 @@ export function ConnectionEditor({
               },
       );
       await hosts.edit({ type: "host.save", host });
-      if (test) await hosts.connect(host.id);
-      if (connect) {
-        await hosts.select(host.id);
-        setOpen(false);
-      }
-      setEditing(host);
-    });
+      signal.throwIfAborted();
+      if (test) await hosts.connect(host.id, signal);
+      if (connect) await hosts.select(host.id, signal);
+      signal.throwIfAborted();
+      if (connect) setOpen(false);
+      setInspectedId(connect ? undefined : host.id);
+      leaveEditor();
+    }, test || connect);
   };
   return (
     <>
@@ -108,7 +236,9 @@ export function ConnectionEditor({
         onOpenChange={(value) => {
           setOpen(value);
           if (!value) {
+            cancelActive();
             setEditing(undefined);
+            setInspectedId(undefined);
             setError(undefined);
           }
         }}
@@ -124,6 +254,7 @@ export function ConnectionEditor({
           </Dialog.Description>
           <div className="connections-layout">
             <nav aria-label="Saved connections" className="saved-connections">
+              <h3>Saved hosts</h3>
               {hosts.config?.hosts.map((host) => (
                 <button
                   key={host.id}
@@ -132,7 +263,8 @@ export function ConnectionEditor({
                   aria-pressed={(editing?.id ?? current?.host.id) === host.id}
                   disabled={busy}
                   onClick={() => {
-                    setEditing(host);
+                    setInspectedId(host.id);
+                    setEditing(undefined);
                     setError(undefined);
                   }}
                 >
@@ -140,6 +272,7 @@ export function ConnectionEditor({
                 </button>
               ))}
               <div className="connection-additions">
+                <h3>Add a host</h3>
                 <Button type="button" size="sm" disabled={busy} onClick={() => create("wsl")}>
                   Add WSL
                 </Button>
@@ -150,148 +283,218 @@ export function ConnectionEditor({
             </nav>
             {editing ? (
               <form key={editing.id} onSubmit={save} className="connection-editor">
-                <h3>
-                  {editing.kind === "local"
-                    ? "Local"
-                    : editing.kind === "wsl"
-                      ? "WSL connection"
-                      : "SSH connection"}
-                </h3>
-                <label>
-                  Name
-                  <Input name="label" required maxLength={100} defaultValue={editing.label} />
-                </label>
+                <header className="connection-overview-heading">
+                  <h3>
+                    {editing.kind === "local"
+                      ? "Local connection"
+                      : editing.kind === "wsl"
+                        ? "WSL connection"
+                        : "SSH connection"}
+                  </h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => {
+                      leaveEditor();
+                      setError(undefined);
+                    }}
+                  >
+                    Back
+                  </Button>
+                </header>
                 {editing.kind === "wsl" && (
-                  <>
-                    <label>
-                      Distribution
-                      <Input
-                        name="distribution"
-                        list="wsl-distributions"
-                        required
-                        defaultValue={editing.distribution}
-                      />
-                    </label>
-                    <datalist id="wsl-distributions">
-                      {distributions.map((distro) => (
-                        <option key={distro} value={distro} />
-                      ))}
-                    </datalist>
-                    <Button type="button" disabled={busy} onClick={() => act(discover)}>
-                      Discover distributions
-                    </Button>
-                    <label>
-                      Linux user (optional)
-                      <Input name="user" defaultValue={editing.user ?? ""} />
-                    </label>
-                  </>
+                  <WslDestination
+                    value={editing.distribution}
+                    distributions={distributions}
+                    busy={busy}
+                    change={(distribution) => setEditing({ ...editing, distribution })}
+                    discover={() => act((signal) => discover(signal, editing.id), true)}
+                  />
                 )}
                 {editing.kind === "ssh" && (
-                  <>
+                  <div className="field-stack">
                     <label>
                       SSH destination
                       <Input
+                        autoFocus
                         name="destination"
                         required
                         placeholder="user@workstation or SSH alias"
                         defaultValue={editing.destination}
+                        aria-describedby="ssh-destination-hint"
                       />
                     </label>
-                    <p>
-                      Uses non-interactive OpenSSH authentication. Configure keys, ports and host
-                      aliases in .ssh/config.
+                    <p className="field-hint muted" id="ssh-destination-hint">
+                      Uses your OpenSSH keys and aliases from <code>~/.ssh/config</code>. Password
+                      prompts are not supported.
                     </p>
-                  </>
+                  </div>
                 )}
-                <div className="button-row">
-                  <Button type="submit" value="save" disabled={busy}>
+                <label>
+                  Name
+                  <Input
+                    autoFocus={editing.kind === "local"}
+                    name="label"
+                    required
+                    maxLength={100}
+                    defaultValue={editing.label}
+                  />
+                </label>
+                {editing.kind === "wsl" && (
+                  <Disclosure title="Advanced WSL settings">
+                    <label>
+                      Linux user (optional)
+                      <Input
+                        name="user"
+                        defaultValue={editing.user ?? ""}
+                        placeholder="Default distribution user"
+                      />
+                    </label>
+                  </Disclosure>
+                )}
+                <div className="button-row connection-editor-actions">
+                  <Button type="submit" value="save" disabled={saveDisabled}>
                     Save
                   </Button>
-                  <Button type="submit" value="test" disabled={busy}>
-                    Save & test
+                  <Button type="submit" value="test" variant="ghost" disabled={saveDisabled}>
+                    Save &amp; test
                   </Button>
-                  <Button type="submit" value="connect" variant="accent" disabled={busy}>
-                    Save & connect
+                  <Button type="submit" value="connect" variant="accent" disabled={saveDisabled}>
+                    Save &amp; connect
                   </Button>
-                  {editing.kind !== "local" && (
+                </div>
+                {hosts.views.get(editing.id)?.progress && (
+                  <p role="status">{hosts.views.get(editing.id)?.progress}</p>
+                )}
+                {editing.kind !== "local" && hosts.views.has(editing.id) && (
+                  <div className="connection-remove">
                     <Button
                       type="button"
+                      size="sm"
                       variant="danger"
                       disabled={busy}
                       onClick={() =>
-                        act(async () => {
+                        act(async (signal) => {
                           await hosts.edit({ type: "host.remove", id: editing.id });
-                          setEditing(undefined);
+                          signal.throwIfAborted();
+                          leaveEditor();
+                          setInspectedId(undefined);
                         })
                       }
                     >
                       Remove
                     </Button>
-                  )}
-                </div>
-                {hosts.views.get(editing.id)?.progress && (
-                  <p role="status">{hosts.views.get(editing.id)?.progress}</p>
-                )}
-                {hosts.views.get(editing.id)?.identity && (
-                  <p className="muted">
-                    Connection ready · {hosts.views.get(editing.id)?.identity?.platform}
-                  </p>
+                  </div>
                 )}
               </form>
-            ) : (
-              <div className="connection-editor">
+            ) : current ? (
+              <div key={current.host.id} className="connection-editor">
                 <div className="connection-overview-heading">
-                  <h3>{current?.host.label}</h3>
-                  <p className="connection-state">
-                    {current?.session && !current.session.disconnected
-                      ? "Connected"
-                      : "Disconnected"}
-                  </p>
+                  <h3>{current.host.label}</h3>
+                  <p className="connection-state">{connected ? "Connected" : "Disconnected"}</p>
                 </div>
-                <p className="muted">
-                  {current?.host.kind === "local"
-                    ? "Run agents on this computer."
-                    : "A separate host for your agents and projects."}
-                </p>
-                <div className="button-row">
+                <dl className="connection-facts">
+                  <div>
+                    <dt>
+                      {current.host.kind === "ssh"
+                        ? "SSH destination"
+                        : current.host.kind === "wsl"
+                          ? "WSL distribution"
+                          : "Host"}
+                    </dt>
+                    <dd>
+                      {current.host.kind === "ssh"
+                        ? current.host.destination
+                        : current.host.kind === "wsl"
+                          ? current.host.distribution
+                          : "This computer"}
+                    </dd>
+                  </div>
+                  {current.host.kind === "wsl" && current.host.user && (
+                    <div>
+                      <dt>Linux user</dt>
+                      <dd>{current.host.user}</dd>
+                    </div>
+                  )}
+                  {liveIdentity && (
+                    <div>
+                      <dt>Server</dt>
+                      <dd>
+                        {liveIdentity.productVersion} · {liveIdentity.platform}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                {current.progress && <p role="status">{current.progress}</p>}
+                {current.error && !connected && !error && (
+                  <p role="alert" className="error">
+                    {current.error}
+                  </p>
+                )}
+                <div className="connection-editor-actions button-row">
                   <Button
+                    variant={connected && selected ? "neutral" : "accent"}
                     disabled={busy}
-                    onClick={() => act(() => hosts.reconnect(hosts.config!.selectedHostId))}
+                    onClick={() =>
+                      act(
+                        (signal) =>
+                          selected
+                            ? hosts.reconnect(current.host.id, signal)
+                            : hosts.select(current.host.id, signal),
+                        true,
+                      )
+                    }
                   >
-                    Reconnect
+                    {selected ? "Reconnect" : "Switch to host"}
                   </Button>
+                  {connected && (
+                    <Button
+                      disabled={busy}
+                      onClick={() => act(() => hosts.disconnect(current.host.id))}
+                    >
+                      Disconnect
+                    </Button>
+                  )}
                   <Button
+                    ref={editAction}
+                    variant={connected && selected ? "accent" : "neutral"}
                     disabled={busy}
-                    onClick={() => act(() => hosts.disconnect(hosts.config!.selectedHostId))}
+                    onClick={() => {
+                      setEditing(current.host);
+                      setError(undefined);
+                    }}
                   >
-                    Disconnect
+                    Edit connection
                   </Button>
                 </div>
                 <Disclosure title="Server actions" className="server-actions">
-                  <p className="muted">These actions affect every client connected to this host.</p>
+                  <p className="muted">
+                    Stopping or restarting the server interrupts work for every client on this host.
+                  </p>
                   <div className="button-row">
-                    {current?.host.kind !== "local" && (
+                    {current.host.kind !== "local" && (
                       <Button
                         disabled={busy}
-                        onClick={() => act(() => hosts.refresh(hosts.config!.selectedHostId))}
+                        onClick={() =>
+                          act((signal) => hosts.refresh(current.host.id, signal), true)
+                        }
                       >
                         Upload current build
                       </Button>
                     )}
                     <Button
                       variant="danger"
-                      disabled={busy || !current?.identity}
-                      onClick={() =>
-                        setConfirmation({ hostId: hosts.config!.selectedHostId, operation: "stop" })
-                      }
+                      disabled={busy || !current.identity}
+                      onClick={() => setConfirmation({ host: current.host, operation: "stop" })}
                     >
                       Stop server
                     </Button>
                     <Button
-                      disabled={busy || !current?.identity}
+                      disabled={busy || !current.identity}
                       onClick={() =>
                         setConfirmation({
-                          hostId: hosts.config!.selectedHostId,
+                          host: current.host,
                           operation: "restart",
                         })
                       }
@@ -299,23 +502,17 @@ export function ConnectionEditor({
                       Restart server
                     </Button>
                   </div>
-                  {current?.runtime && current.identity?.buildId !== current.runtime.buildId && (
-                    <p>New build ready. Restart the server to use it.</p>
-                  )}
+                  {current.runtime &&
+                    current.identity &&
+                    current.identity.buildId !== current.runtime.buildId && (
+                      <p>New build ready. Restart the server to use it.</p>
+                    )}
                 </Disclosure>
               </div>
-            )}
+            ) : null}
           </div>
-          {busy && (
-            <Button
-              onClick={() => {
-                active.current?.abort();
-                hosts.cancel(editing?.id ?? hosts.config!.selectedHostId);
-              }}
-            >
-              Cancel connection
-            </Button>
-          )}
+          {pending === "cancellable" && <Button onClick={cancelActive}>Cancel connection</Button>}
+          {pending === "cancelling" && <p role="status">Cancelling connection…</p>}
           {error && (
             <p role="alert" className="error">
               {error}
@@ -337,13 +534,19 @@ export function ConnectionEditor({
           if (!open) setConfirmation(undefined);
         }}
         title={confirmation?.operation === "stop" ? "Stop server?" : "Restart server?"}
-        description="This affects agents and work for every client connected to this host. Conversation history is saved."
+        description={
+          confirmation?.operation === "stop"
+            ? `Stopping the server on ${confirmation.host.label} interrupts running work and disconnects every client. Conversation history is saved.`
+            : `Restarting the server on ${confirmation?.host.label} interrupts running work and disconnects every client before this desktop reconnects. Conversation history is saved.`
+        }
         confirmLabel={confirmation?.operation === "stop" ? "Stop server" : "Restart server"}
         onConfirm={() => {
           if (!confirmation) throw new Error("Missing server confirmation intent");
           const intent = confirmation;
           act(() =>
-            intent.operation === "stop" ? hosts.stop(intent.hostId) : hosts.restart(intent.hostId),
+            intent.operation === "stop"
+              ? hosts.stop(intent.host.id)
+              : hosts.restart(intent.host.id),
           );
         }}
       />

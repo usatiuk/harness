@@ -18,10 +18,6 @@ export async function manageConnections(page: Page): Promise<void> {
   await page.getByRole("button", { name: /^Switch host:/u }).click();
   await page.getByRole("button", { name: "Manage connections", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Connections", exact: true })).toBeVisible();
-  await page
-    .getByRole("dialog", { name: "Connections", exact: true })
-    .getByText("Server actions", { exact: true })
-    .click();
 }
 export async function settingsSection(
   page: Page,

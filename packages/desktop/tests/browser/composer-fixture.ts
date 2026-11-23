@@ -5,7 +5,7 @@ import type { ChangeFile, ChangeMode, SubagentPage } from "@harness/client-featu
 import type { Cell } from "@harness/client-features/transcript-reducer";
 import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
-import { RouterProvider } from "react-router";
+import { SessionRouter } from "../../src/session-router.tsx";
 import { Tooltip } from "radix-ui";
 import type { ConversationId, DeliveryIntent, ModelInfo, ImageContent } from "@harness/protocol";
 import { emptyState } from "@harness/client-features/transcript-reducer";
@@ -97,7 +97,6 @@ declare global {
       holdPeek: boolean;
       releasePeek(): void;
       settingsWrites: unknown[];
-      setSandboxBackends(backends: AppSettings["sandboxBackends"]): void;
       instructionsText: string | null;
       instructionWrites: { host: string; content: string }[];
       instructionsReads: number;
@@ -105,7 +104,11 @@ declare global {
       failInstructionsSave: boolean;
       selectSettingsHost(host: string): void;
       settingsReads: number;
+      conversationLoads: string[];
+      holdConversation: boolean;
+      releaseConversation(): void;
       holdSettings: boolean;
+      holdNextSettingsWrite: boolean;
       releaseSettings(): void;
       creations: Array<Parameters<DesktopSession["client"]["create"]>[0]>;
       setDefaultModel(model: string): void;
@@ -113,6 +116,7 @@ declare global {
       providerCreates: unknown[];
       providerWrites: { provider: string; patch: Record<string, boolean> }[];
       failProviderSave: boolean;
+      failProviderLogin: boolean;
       settle(reject?: boolean): void;
       setPendingInput(): void;
       showBackgroundWork(): void;
@@ -133,15 +137,16 @@ const view = new ConversationView({
   config: { instructions: "Fixture", model: { provider: "fixture", model: "test" } },
 });
 view.state = { ...emptyState, turn: { id: "turn", status: "running", startedAt: 0 } };
+const nativeUnavailable = new URLSearchParams(location.search).has("nativeUnavailable");
 const settings: AppSettings = {
   home: "fixture",
   cwd: "D:\\example",
   platform: "win32",
-  sandboxBackends: ["none", "native", "docker"],
+  sandboxBackends: nativeUnavailable ? ["none", "docker"] : ["none", "native", "docker"],
   settings: {
     keepServerRunning: false,
     model: { provider: "fixture", model: "test", preset: null },
-    sandbox: "none",
+    sandbox: nativeUnavailable ? "native" : "none",
     toolMode: "hybrid",
     showToolNames: true,
     subagents: { maxDepth: 2, maxChildren: 3 },
@@ -201,6 +206,7 @@ let feedbackStatus = {
 };
 const settingsWrites: unknown[] = [];
 const settingsWaiters: Array<() => void> = [];
+const conversationWaiters: Array<() => void> = [];
 const creations: Array<Parameters<DesktopSession["client"]["create"]>[0]> = [];
 const providerCreates: unknown[] = [];
 const providerWrites: { provider: string; patch: Record<string, boolean> }[] = [];
@@ -599,11 +605,17 @@ const session = {
           settingsWrites.push(params);
           Object.assign(settings.settings, params);
           hostPreferences.set(sidebarScope, settings.settings.keepServerRunning);
+          if (window.composerFixture.holdNextSettingsWrite) {
+            window.composerFixture.holdNextSettingsWrite = false;
+            await new Promise<void>((resolve) => settingsWaiters.push(resolve));
+          }
           return null;
         }
         if (definition.method === "app.providers.create") {
-          providerCreates.push(params);
           const value = params as { id: string; label: string; type: string };
+          if (settings.providers.some((entry) => entry.id === value.id))
+            throw new Error("Provider ID already exists");
+          providerCreates.push(params);
           settings.providers.push({
             id: value.id,
             label: value.label,
@@ -621,7 +633,11 @@ const session = {
           });
           return { restartRequired: true };
         }
-        if (definition.method === "app.auth.login") return { restartRequired: true };
+        if (definition.method === "app.auth.login") {
+          if (window.composerFixture.failProviderLogin)
+            throw new Error("Credential store unavailable");
+          return { restartRequired: true };
+        }
         if (definition.method === "app.providers.config.update") {
           if (window.composerFixture.failProviderSave) throw new Error("Provider save failed");
           const update = params as { provider: string; patch: Record<string, boolean> };
@@ -726,17 +742,20 @@ const session = {
     window.composerFixture.settingsReads++;
     if (window.composerFixture.holdSettings)
       await new Promise<void>((resolve) => settingsWaiters.push(resolve));
-    return settings;
+    return structuredClone(settings);
   },
-  load: (requested: string) => {
+  load: async (requested: string) => {
+    window.composerFixture.conversationLoads.push(requested);
+    if (window.composerFixture.holdConversation)
+      await new Promise<void>((resolve) => conversationWaiters.push(resolve));
     if (session.views.has(requested as ConversationId))
-      return Promise.resolve(session.views.get(requested as ConversationId)!);
+      return session.views.get(requested as ConversationId)!;
     const conversation = sidebarRows.find((row) => row.id === requested);
-    if (!conversation) return Promise.resolve(view);
+    if (!conversation) return view;
     const selected = new ConversationView(conversation);
     selected.state = view.state;
     session.views.set(conversation.id, selected);
-    return Promise.resolve(selected);
+    return selected;
   },
 };
 window.composerFixture = {
@@ -774,10 +793,7 @@ window.composerFixture = {
     void router.navigate(`/conversations/${id}`);
   },
   recreateRouter() {
-    const path = router.state.location.pathname;
     root.unmount();
-    router.dispose();
-    localStorage.setItem(session.storageKey("route"), path);
     router = createFixtureRouter();
     root = createRoot(document.getElementById("root")!);
     renderRouter();
@@ -1681,9 +1697,6 @@ window.composerFixture = {
     changed();
   },
   settingsWrites,
-  setSandboxBackends(backends) {
-    settings.sandboxBackends = backends;
-  },
   instructionWrites,
   instructionsReads: 0,
   failInstructionsRead: false,
@@ -1697,12 +1710,21 @@ window.composerFixture = {
   },
   selectSettingsHost(host) {
     sidebarScope = host;
+    if (!localStorage.getItem(session.storageKey("route")))
+      localStorage.setItem(session.storageKey("route"), "/settings");
     settings.home = `/fixture/${host}/.harness`;
     settings.settings.keepServerRunning = hostPreferences.get(host) ?? false;
     window.composerFixture.recreateRouter();
   },
   settingsReads: 0,
+  conversationLoads: [],
+  holdConversation: false,
+  releaseConversation() {
+    window.composerFixture.holdConversation = false;
+    for (const resolve of conversationWaiters.splice(0)) resolve();
+  },
   holdSettings: false,
+  holdNextSettingsWrite: false,
   releaseSettings() {
     window.composerFixture.holdSettings = false;
     for (const resolve of settingsWaiters.splice(0)) resolve();
@@ -1714,6 +1736,7 @@ window.composerFixture = {
   providerCreates,
   providerWrites,
   failProviderSave: false,
+  failProviderLogin: false,
   showBackgroundWork() {
     const source = { kind: "plugin" as const, pluginId: "subagent" };
     view.state = {
@@ -1809,7 +1832,22 @@ const createFixtureRouter = () =>
 let router = createFixtureRouter();
 let root = createRoot(document.getElementById("root")!);
 const renderRouter = () =>
-  root.render(h(Tooltip.Provider, null, h(WindowShell, null, h(RouterProvider, { router }))));
+  root.render(
+    h(
+      Tooltip.Provider,
+      null,
+      h(
+        WindowShell,
+        null,
+        h(SessionRouter, {
+          router,
+          storageKey: session.storageKey("route"),
+          label: sidebarScope,
+          controls: null,
+        }),
+      ),
+    ),
+  );
 renderRouter();
 
 export { view, session };

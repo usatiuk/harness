@@ -1,5 +1,10 @@
 # Harness plan
 
+[Desktop settings layout](docs/plans/interface/settings-layout.md) tracks the
+settings, project actions and composer inspector redesign and its qualification.
+Settings uses host-scoped React Router history and `/settings/:section?`;
+legacy `?section=` links and saved routes migrate to section paths.
+
 Direct tool batches overlap adjacent shell commands, `read_file`, `glob`, and `wait` calls. Other calls run exclusively. Managed Windows server launches default to 32 libuv workers to leave filesystem capacity while Native commands hold pipe reads open.
 
 [Ordered conversation input](docs/plans/cross-cutting/2026-11-22-ordered-conversation-input.md) moves instruction changes and plugin data into the active branch and refreshes the opening prompt on compaction.
@@ -192,9 +197,9 @@ input, configurable depth/roster limits in GUI/TUI, full ancestor headers,
 Running/Finished tree sections and compact activity controls with owner labels.
 Full checks pass 1,492 tests; Chromium passes 80/81 with the same baseline
 history-anchor failure, and all five affected GTK WebKit cases pass.
-The built-in explore profile now has no tool allowlist; its prompt directs
-read-only research through available tools, including web search. Custom agent
-tool scopes remain supported.
+The built-in explore profile has no tool allowlist. It investigates by default,
+can write research notes and can take explicit follow-up assignments from its
+parent. Custom agent tool scopes remain supported.
 
 The [disclosure presentation follow-up](docs/plans/interface/2026-10-17-disclosure-animation.md)
 shares grid/fade animations, keeps compact Work peeks, caps outer scrolling at 40vh

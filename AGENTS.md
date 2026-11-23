@@ -94,6 +94,10 @@ distinguish implemented code from verified behavior and unfinished integration.
 
 ## Change workflow
 
+Design interfaces around what people are trying to do. Use shared patterns so
+familiar interactions stay familiar across the product. Judge changes by using
+the rendered interface, not just by reading the code.
+
 For substantial implementation, refactoring, architecture, testing, or
 documentation work, use the repository-local `$ship-change` skill. Scale its
 research, durable planning, validation, and independent review to actual risk and

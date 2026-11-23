@@ -51,6 +51,8 @@ export function ContextUsage({
   return (
     <PopoverControl
       label="Context and usage"
+      layout="inspector"
+      className="usage-inspector"
       trigger={
         <Button
           variant="ghost"
@@ -81,62 +83,68 @@ export function ContextUsage({
         </Button>
       }
     >
-      <h3>Context and usage</h3>
-      <dl className="context-facts">
-        <dt>Input measured</dt>
-        <dd>{tokens(used)}</dd>
-        {measurement && (!matches || !latest.usage) && (
-          <>
-            <dt>Measured at</dt>
-            <dd>{time(measurement.createdAt)}</dd>
-          </>
-        )}
-        <dt>Input utilization</dt>
-        <dd>{utilization}</dd>
-        <dt>Input limit</dt>
-        <dd>{tokens(catalog?.maxInputTokens)}</dd>
-        <dt>Shared context window</dt>
-        <dd>{tokens(catalog?.contextWindow)}</dd>
-      </dl>
-      <h4>Last request</h4>
-      <p className="muted shortcut-help">
-        {latest
-          ? `${latestModel?.label ?? latest.model} · ${time(latest.createdAt)}`
-          : "No usage reported yet."}
-      </p>
-      <dl className="context-facts" aria-label="Last request">
-        <dt>Input</dt>
-        <dd>{tokens(usage?.inputTokens)}</dd>
-        <dt>Output</dt>
-        <dd>{tokens(usage?.outputTokens)}</dd>
-        <dt>Cached input</dt>
-        <dd>{cachedInput(cached, usage?.inputTokens)}</dd>
-        <dt>Recorded cost</dt>
-        <dd>{recordedCost(request?.cost, request?.costIncomplete ?? false)}</dd>
-      </dl>
-      <h4>Entire conversation</h4>
-      <dl className="context-facts" aria-label="Entire conversation">
-        <dt>Input</dt>
-        <dd>{total(state.usage.inputTokens)}</dd>
-        <dt>Output</dt>
-        <dd>{total(state.usage.outputTokens)}</dd>
-        <dt>Cached input (reported requests)</dt>
-        <dd>
-          {cachedInput(
-            coverage?.reportedRequests ? coverage.cachedReadTokens : undefined,
-            coverage?.inputTokens,
+      <section className="usage-group">
+        <h3>Context and usage</h3>
+        <dl className="context-facts">
+          <dt>Input measured</dt>
+          <dd>{tokens(used)}</dd>
+          {measurement && (!matches || !latest.usage) && (
+            <>
+              <dt>Measured at</dt>
+              <dd>{time(measurement.createdAt)}</dd>
+            </>
           )}
-        </dd>
-        <dt>Cache reporting</dt>
-        <dd>
-          {coverage?.totalRequests
-            ? `${tokens(coverage.reportedRequests)} of ${tokens(coverage.totalRequests)} requests`
-            : unavailable}
-        </dd>
-        <dt>Recorded cost</dt>
-        <dd>{recordedCost(state.cost, state.costIncomplete ?? false)}</dd>
-      </dl>
-      <p className="muted shortcut-help">
+          <dt>Input utilization</dt>
+          <dd>{utilization}</dd>
+          <dt>Input limit</dt>
+          <dd>{tokens(catalog?.maxInputTokens)}</dd>
+          <dt>Shared context window</dt>
+          <dd>{tokens(catalog?.contextWindow)}</dd>
+        </dl>
+      </section>
+      <section className="usage-group">
+        <h4>Last request</h4>
+        <p className="field-hint">
+          {latest
+            ? `${latestModel?.label ?? latest.model} · ${time(latest.createdAt)}`
+            : "No usage reported yet."}
+        </p>
+        <dl className="context-facts" aria-label="Last request">
+          <dt>Input</dt>
+          <dd>{tokens(usage?.inputTokens)}</dd>
+          <dt>Output</dt>
+          <dd>{tokens(usage?.outputTokens)}</dd>
+          <dt>Cached input</dt>
+          <dd>{cachedInput(cached, usage?.inputTokens)}</dd>
+          <dt>Recorded cost</dt>
+          <dd>{recordedCost(request?.cost, request?.costIncomplete ?? false)}</dd>
+        </dl>
+      </section>
+      <section className="usage-group">
+        <h4>Entire conversation</h4>
+        <dl className="context-facts" aria-label="Entire conversation">
+          <dt>Input</dt>
+          <dd>{total(state.usage.inputTokens)}</dd>
+          <dt>Output</dt>
+          <dd>{total(state.usage.outputTokens)}</dd>
+          <dt>Cached input (reported requests)</dt>
+          <dd>
+            {cachedInput(
+              coverage?.reportedRequests ? coverage.cachedReadTokens : undefined,
+              coverage?.inputTokens,
+            )}
+          </dd>
+          <dt>Cache reporting</dt>
+          <dd>
+            {coverage?.totalRequests
+              ? `${tokens(coverage.reportedRequests)} of ${tokens(coverage.totalRequests)} requests`
+              : unavailable}
+          </dd>
+          <dt>Recorded cost</dt>
+          <dd>{recordedCost(state.cost, state.costIncomplete ?? false)}</dd>
+        </dl>
+      </section>
+      <p className="field-hint">
         Unsent draft not included.
         {state.usageIncomplete && (
           <>
