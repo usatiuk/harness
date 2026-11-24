@@ -29,7 +29,7 @@ A provider declares:
 - A cancellable stream from `ModelRequest` to provider-neutral events.
 
 `ModelProvider.stream(request, signal, context)` receives a required
-`ModelCallContext` containing the calling `conversationId`. Core creates it at
+`ModelCallContext` containing the calling `conversationId` and its `rootConversationId`. Core creates it at
 the one middleware/provider boundary for agent steps and auxiliary invocations.
 Retries retain that context, resume retains the durable ID, and each subagent
 uses its own conversation ID. Request identity is outside prompt content and
@@ -470,12 +470,16 @@ registration, credential source/presence, labels, counts and diagnostics.
 
 ## Conversation routing
 
-Both shared OpenAI transports set `prompt_cache_key` to the durable conversation
+Both shared OpenAI transports default `prompt_cache_key` to the durable conversation
 ID before capturing and sending each native request. This covers native API,
-Codex, compatible endpoints, Go, and LiteLLM Chat/Responses calls, including
+compatible endpoints, Go, and LiteLLM Chat/Responses calls, including
 auxiliary calls. Keys remain stable across turns/resume; child conversations use
 their own IDs. They are routing/accounting hints, not authentication or guarantees
 of cache hits. Strict compatible backends must accept this standard OpenAI field.
+
+Codex subscription requests send the root conversation ID in `prompt_cache_key` and `session-id`
+(ChatGPT cache affinity) and the current conversation ID in `thread-id`.
+Nested subagents share their root's session and each has its own thread.
 
 Compatible connection `config.sessionIdHeader` optionally names the HTTP header
 that receives the same conversation ID (for example `x-session-id` for OpenRouter).

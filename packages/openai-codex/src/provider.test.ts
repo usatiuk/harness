@@ -82,18 +82,21 @@ it("sends user and tool images through authenticated Codex Responses transport",
         items: items.map((item) => ({ item })),
       },
       new AbortController().signal,
-      { conversationId: "conversation" } as ModelCallContext,
+      { conversationId: base.conversationId, rootConversationId: "root" } as ModelCallContext,
     ))
       events.push(event);
     expect(requestUrl).toContain("/codex/responses");
     expect(requestHeaders.get("authorization")).toBe("Bearer test-token");
     expect(requestHeaders.get("ChatGPT-Account-ID")).toBe("test-account");
+    expect(requestHeaders.get("session-id")).toBe("root");
+    expect(requestHeaders.get("thread-id")).toBe(base.conversationId);
     const nativeImage = {
       type: "input_image",
       image_url: `data:${image.mediaType};base64,${image.data}`,
       detail: "auto",
     };
     expect(body).toMatchObject({
+      prompt_cache_key: "root",
       model: "gpt-6.2-sol",
       stream: true,
       store: false,

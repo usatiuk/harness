@@ -404,6 +404,8 @@ export type ModelStreamEvent =
 /** Invocation identity is independent of prompt content and survives logical retries. */
 export interface ModelCallContext {
   readonly conversationId: ConversationId;
+  /** Shared session identity. Standalone callers may omit it for a root conversation. */
+  readonly rootConversationId?: ConversationId;
   /** Effective body only; never headers/credentials. Await before transport submission. */
   captureRequest?: (body: JsonValue) => Promise<void>;
 }

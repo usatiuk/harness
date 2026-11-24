@@ -4,6 +4,7 @@ import {
   type OpenAIModelSpec,
   type OpenAIModelConfig,
 } from "@harness/openai-core";
+import type { ModelCallContext } from "@harness/protocol";
 import type { CodexAuth } from "./auth.ts";
 import { codexCredentials } from "./credentials.ts";
 
@@ -29,6 +30,18 @@ const CODEX_MODELS = OPENAI_MODELS.filter(
   defaultPreset: lowDefault.has(model.model) ? "low" : "medium",
 }));
 
+class CodexResponsesProvider extends OpenAIResponsesProvider {
+  protected override requestRouting({
+    conversationId,
+    rootConversationId = conversationId,
+  }: ModelCallContext) {
+    return {
+      cacheKey: rootConversationId,
+      headers: { "session-id": rootConversationId, "thread-id": conversationId },
+    };
+  }
+}
+
 /** A subscription connection with Codex-specific capacity and request policy. */
 export function createCodexProvider(
   auth: CodexAuth,
@@ -36,7 +49,7 @@ export function createCodexProvider(
   webSearch = false,
   modelOverrides: Record<string, OpenAIModelConfig> = {},
 ): OpenAIResponsesProvider {
-  return new OpenAIResponsesProvider({
+  return new CodexResponsesProvider({
     provider,
     webSearch,
     credentials: codexCredentials(auth),

@@ -81,8 +81,15 @@ it("preserves per-conversation identity across retries, concurrent roots, nested
       await engine.whenIdle(conversation.id);
     }),
   );
-  expect(new Set(calls.map(({ context }) => context.conversationId))).toEqual(
-    new Set([root!.id, other!.id, child!.id, nested!.id]),
+  expect(
+    new Map(calls.map(({ context }) => [context.conversationId, context.rootConversationId])),
+  ).toEqual(
+    new Map([
+      [root!.id, root!.id],
+      [other!.id, other!.id],
+      [child!.id, root!.id],
+      [nested!.id, root!.id],
+    ]),
   );
   const retries = calls.filter(({ request }) => request === calls[0]!.request);
   expect(retries).toHaveLength(2);
@@ -94,14 +101,12 @@ it("preserves per-conversation identity across retries, concurrent roots, nested
   ).toBe(true);
   await engine.compact(child!.id);
   expect(calls.at(-1)).toMatchObject({
-    context: { conversationId: child!.id },
+    context: { conversationId: child!.id, rootConversationId: root!.id },
     request: { toolChoice: "none" },
   });
   await engine.deactivate(root!.id, { force: true });
   const resumed = createEngine();
   await resumed.deliver(root!.id, input);
   await resumed.whenIdle(root!.id);
-  expect(calls.at(-1)?.context.conversationId).toBe(root!.id);
-  expect(calls.at(-1)?.context.captureRequest).toBeUndefined();
-  expect(Object.keys(calls.at(-1)!.context)).toEqual(["conversationId"]);
+  expect(calls.at(-1)?.context).toEqual({ conversationId: root!.id, rootConversationId: root!.id });
 });

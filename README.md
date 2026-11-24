@@ -329,8 +329,10 @@ isolated credentials. Sign in through desktop Settings or
 global model selection. Labels are editable; instance IDs identify saved
 selections and credential slots.
 
-OpenAI Chat/Responses connections automatically send the conversation ID as
-`prompt_cache_key`. Compatible connections may also set
+OpenAI Chat/Responses connections normally use the conversation ID as
+`prompt_cache_key`. Codex uses the root conversation ID for both `prompt_cache_key`
+and `session-id`, and the current conversation ID for `thread-id`.
+Compatible connections may also set
 `config.sessionIdHeader: "x-session-id"` for gateways such as OpenRouter; Harness
 fills its value per request. Go, Mistral, and LiteLLM use their native session
 header names through the same helper. See [conversation routing](docs/subsystems/models/README.md#conversation-routing).

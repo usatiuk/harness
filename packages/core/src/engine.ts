@@ -2028,7 +2028,10 @@ export class Engine {
     evidenceByEvent?: WeakMap<ModelStreamEvent, string>,
   ): { stream: AsyncIterable<ModelStreamEvent>; readonly attempts: number } {
     const store = this.store;
-    const context: ModelCallContext = { conversationId };
+    const context: ModelCallContext = {
+      conversationId,
+      rootConversationId: this.#rootOf(conversationId),
+    };
     const captureScope = new AsyncLocalStorage<((body: JsonValue) => Promise<void>) | undefined>();
     if (evidenceByEvent)
       context.captureRequest = async (body) => {

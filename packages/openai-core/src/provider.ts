@@ -209,6 +209,9 @@ export abstract class OpenAIResponsesTransport {
   protected abstract buildParams(
     request: ModelRequest,
   ): OpenAI.Responses.ResponseCreateParamsStreaming;
+  protected requestRouting(context: ModelCallContext) {
+    return { cacheKey: context.conversationId, headers: this.#requestHeaders?.(context) };
+  }
   /** Connections may specialize raw failure policy without a second normalization pass. */
   protected classifyFailure(
     error: unknown,
@@ -225,11 +228,12 @@ export abstract class OpenAIResponsesTransport {
     try {
       const client = await this.#credentials.client(signal);
       const params = this.buildParams(request);
-      params.prompt_cache_key = context.conversationId;
+      const { cacheKey, headers } = this.requestRouting(context);
+      params.prompt_cache_key = cacheKey;
       await context.captureRequest?.(jsonValueSchema.parse(JSON.parse(JSON.stringify(params))));
       const stream = await client.responses.create(params, {
         signal,
-        ...(this.#requestHeaders ? { headers: this.#requestHeaders(context) } : {}),
+        ...(headers ? { headers } : {}),
       });
       yield* toModelEvents(stream, this.provider, request.modelConfig.model, signal);
     } catch (error) {
