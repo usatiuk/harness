@@ -9,7 +9,8 @@ export interface UserShellEnvironment {
   readonly env: NodeJS.ProcessEnv;
 }
 
-export const SHELL_STARTUP_TIMEOUT_MS = 10_000;
+import { defaultHostTimeouts } from "@harness/protocol";
+export const SHELL_STARTUP_TIMEOUT_MS = defaultHostTimeouts.shellSeconds * 1000;
 const STARTUP_KILL_GRACE_MS = 1000;
 const MAX_EXPORT_BYTES = 1024 * 1024;
 export const SHELL_EXPORT_MARKER = "\0HARNESS_SHELL_EXPORTS\0";
@@ -200,9 +201,15 @@ export async function discoverUserShellEnvironment(
     };
     const abort = () => stop(new Error("Shell initialization cancelled"));
     options.signal?.addEventListener("abort", abort, { once: true });
+    const limit = options.timeoutMs ?? SHELL_STARTUP_TIMEOUT_MS;
     const timer = setTimeout(
-      () => stop(new Error("Shell initialization timed out")),
-      options.timeoutMs ?? SHELL_STARTUP_TIMEOUT_MS,
+      () =>
+        stop(
+          new Error(
+            `Shell initialization timed out after ${limit / 1000} seconds (host settings.json: timeouts.shellSeconds)`,
+          ),
+        ),
+      limit,
     );
     exports.on("data", (chunk: Buffer) => {
       size += chunk.length;
@@ -234,7 +241,7 @@ export async function discoverUserShellEnvironment(
 let initialization: Promise<void> | undefined;
 /** Call after acquiring server ownership and before constructing plugins. Attachments never call it. */
 export function initializeUserShellEnvironment(
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<void> {
   if (process.platform === "win32") return Promise.resolve(); // PowerShell remains explicitly NoProfile.
   return (initialization ??= (async () => {

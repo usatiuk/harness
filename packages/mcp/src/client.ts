@@ -10,7 +10,7 @@ const configWireSchema = z.preprocess((value, ctx) => {
   }
   return parsed.data;
 }, jsonValueSchema);
-export const MCP_CLIENT_CONTRACT_VERSION = 1;
+export const MCP_CLIENT_CONTRACT_VERSION = 2;
 const server = z.strictObject({ serverId: z.string() });
 export const mcpStatusSchema = z.strictObject({
   id: z.string(),

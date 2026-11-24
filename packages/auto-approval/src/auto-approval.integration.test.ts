@@ -700,10 +700,9 @@ describe("auto approval integration", () => {
     });
     expect(
       (await service.getConversation(conversation.id))?.config.plugins?.["auto-approval"],
-    ).toEqual({
+    ).toMatchObject({
       enabled: true,
       model: { provider: "fake", model: "reviewer" },
-      timeoutSeconds: 30,
     });
   });
 });

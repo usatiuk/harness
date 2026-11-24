@@ -1,5 +1,7 @@
 # Harness plan
 
+[Startup progress and configurable timeouts](docs/plans/cross-cutting/2026-11-24-startup-and-timeouts.md) records the one-second HTTP probe regression, configurable host and per-server limits, and desktop startup progress.
+
 [Desktop settings layout](docs/plans/interface/settings-layout.md) tracks the
 settings, project actions and composer inspector redesign and its qualification.
 Settings uses host-scoped React Router history and `/settings/:section?`;

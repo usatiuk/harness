@@ -62,6 +62,15 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   await expect(page.getByRole("dialog", { name: "Add MCP server" })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("add-mcp-server.png") });
   await page.getByLabel("Server ID", { exact: true }).fill("local");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("Tool execution (seconds)")).toBeHidden();
+  await dialog.getByText("Timeouts", { exact: true }).click();
+  await expect(dialog.getByLabel("Tool execution (seconds)")).toHaveAttribute(
+    "placeholder",
+    /Inherited/,
+  );
+  await dialog.getByLabel("Tool execution (seconds)").fill("600");
+  await dialog.getByLabel("Tool execution (seconds)").press("Tab");
   await page.getByLabel("Executable", { exact: true }).fill("node");
   await page.getByLabel("Arguments (one per line)").fill("server.js\n--verbose");
   await page.getByText("Advanced local settings", { exact: true }).click();
@@ -89,6 +98,8 @@ test("edits stdio and HTTP/OAuth servers with shared permissions and separate ma
   await expect(local.getByRole("button", { name: "Edit local" })).toBeFocused();
   await local.getByRole("button", { name: "Edit local" }).press("Enter");
   await expect(page.getByLabel("Executable", { exact: true })).toHaveValue("node");
+  await dialog.getByText("Timeouts", { exact: true }).click();
+  await expect(dialog.getByLabel("Tool execution (seconds)")).toHaveValue("600");
   await chooseDropdown(page, page.getByLabel("Transport", { exact: true }), "http");
   await chooseDropdown(page, page.getByLabel("Authentication", { exact: true }), "oauth");
   await expect(page.getByRole("button", { name: "Sign in with OAuth" })).toHaveCount(0);

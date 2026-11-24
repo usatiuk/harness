@@ -1,5 +1,6 @@
 import { Worker } from "node:worker_threads";
 import {
+  defaultHostTimeouts,
   contentBlockSchema,
   errorResult,
   imageByteLength,
@@ -16,7 +17,6 @@ import {
 export const CODE_LIMITS = {
   memoryBytes: 32 * 1024 * 1024,
   stackBytes: 512 * 1024,
-  cpuMs: 1000,
   outputBytes: 64 * 1024,
   imageContentBytes: MAX_IMAGE_CONTENT_BYTES,
   bridgeBytes: 1024 * 1024,
@@ -37,10 +37,11 @@ type WorkerMessage =
 
 /** A worker owns all guest handles; the host owns tool lifetimes and recorded invocation. */
 export class QuickJsEvaluator implements CodeEvaluator {
+  constructor(private readonly cpuMs = defaultHostTimeouts.codeCpuSeconds * 1000) {}
   async evaluate(code: string, tools: CodeToolBridge, signal: AbortSignal): Promise<ToolResult> {
     signal.throwIfAborted();
     const worker = new Worker(new URL("./worker.mjs", import.meta.url), {
-      workerData: { code, limits: CODE_LIMITS },
+      workerData: { code, limits: { ...CODE_LIMITS, cpuMs: this.cpuMs } },
       execArgv: [],
       resourceLimits: { maxOldGenerationSizeMb: 64, stackSizeMb: 4 },
     });

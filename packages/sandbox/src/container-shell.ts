@@ -15,10 +15,13 @@ const environments = new WeakMap<Provisioned, Promise<NodeJS.ProcessEnv>>();
  * Docker's command dialect stays Bash; only the target user's exported environment is imported.
  * `timeout` owns the in-container startup process group even if the docker client disconnects.
  */
-export function containerShellEnvironment(handle: Provisioned): Promise<NodeJS.ProcessEnv> {
+export function containerShellEnvironment(
+  handle: Provisioned,
+  timeoutMs = SHELL_STARTUP_TIMEOUT_MS,
+): Promise<NodeJS.ProcessEnv> {
   const existing = environments.get(handle);
   if (existing) return existing;
-  const pending = discover(handle);
+  const pending = discover(handle, timeoutMs);
   environments.set(handle, pending); // A failed deterministic startup is not automatically retried.
   return pending;
 }
@@ -45,7 +48,7 @@ export const CONTAINER_SHELL_PROBE = [
   `exec "$shell" -ilc ${quoteShell(captureExports)}`,
 ].join("\n");
 
-async function discover(handle: Provisioned): Promise<NodeJS.ProcessEnv> {
+async function discover(handle: Provisioned, timeoutMs: number): Promise<NodeJS.ProcessEnv> {
   const result = await capture(
     "docker",
     [
@@ -55,13 +58,17 @@ async function discover(handle: Provisioned): Promise<NodeJS.ProcessEnv> {
       handle.containerId,
       "timeout",
       "--signal=KILL",
-      `${SHELL_STARTUP_TIMEOUT_MS / 1000}s`,
+      `${timeoutMs / 1000}s`,
       "/bin/sh",
       "-c",
       CONTAINER_SHELL_PROBE,
     ],
-    { signal: AbortSignal.timeout(SHELL_STARTUP_TIMEOUT_MS + 5000), maxBytes: 1024 * 1024 },
+    { signal: AbortSignal.timeout(Math.ceil(timeoutMs) + 5000), maxBytes: 1024 * 1024 },
   );
+  if (result.exitCode === 137 || result.exitCode === 124)
+    throw new Error(
+      `Container shell initialization exited ${result.exitCode} (shell startup limit ${timeoutMs / 1000} seconds)`,
+    );
   if (result.exitCode !== 0)
     throw new Error(
       `Container shell initialization failed (exit ${result.exitCode}); requires a supported target shell, getent, GNU timeout, and /usr/bin/env`,

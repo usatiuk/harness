@@ -21,7 +21,11 @@ One SDK transport/client belongs to each enabled server for the server lifetime.
 Classified unavailable/auth-required servers contribute no tools; independent
 servers remain usable. Discovery snapshots the catalog until explicit restart.
 Connection Test discovers into a temporary connection and closes it without
-changing the catalog or executing tools.
+changing the catalog or executing tools. Settings → MCP → Timeouts sets elapsed limits
+for startup and discovery (five minutes total per server) and tool execution (15 minutes per call).
+Server editors inherit these limits unless overridden. The stdio protocol probe defaults to
+15 seconds, bounded by half the startup window to allow legacy initialization.
+HTTP negotiation uses the startup window. Limits are finite and manual cancellation remains available.
 
 The MCP package validates transport/value-source configuration and retains remote
 JSON Schema through the generic tool input boundary with an SDK AJV validator.

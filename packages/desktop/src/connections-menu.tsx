@@ -8,6 +8,8 @@ import {
 } from "react";
 import { hostSchema, type Host } from "@harness/connections";
 import { connectionCommand } from "./transport.ts";
+import { sessionBasename } from "./session-router.tsx";
+import { StartupDetails } from "./components/startup-progress.tsx";
 import { DesktopHosts } from "./hosts.ts";
 import {
   Button,
@@ -426,6 +428,16 @@ export function ConnectionEditor({
                     </div>
                   )}
                 </dl>
+                <StartupDetails attempt={current.attempt}>
+                  {connected && current === hosts.selected && current.session && (
+                    <a
+                      href={`#${sessionBasename(current.session.storageKey("route"))}/settings/mcp`}
+                      onClick={() => setOpen(false)}
+                    >
+                      MCP settings
+                    </a>
+                  )}
+                </StartupDetails>
                 {current.progress && <p role="status">{current.progress}</p>}
                 {current.error && !connected && !error && (
                   <p role="alert" className="error">

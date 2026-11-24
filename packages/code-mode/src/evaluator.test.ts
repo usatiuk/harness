@@ -16,7 +16,7 @@ const bridge: CodeToolBridge = {
       : { ...okResult("hidden"), structured: { name, args: args as string } },
 };
 const evaluate = (code: string) =>
-  new QuickJsEvaluator().evaluate(code, bridge, new AbortController().signal);
+  new QuickJsEvaluator(1000).evaluate(code, bridge, new AbortController().signal);
 
 describe("QuickJS evaluator", () => {
   it("supports async calls, selected returns, and explicit content emissions", async () => {

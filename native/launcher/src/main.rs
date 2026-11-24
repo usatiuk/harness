@@ -54,7 +54,8 @@ fn run() -> Result<i32> {
     }
     // Only preparation reads stdin for cancellation. A bridge's stdin is the protocol.
     let connection = remote.then(PreparationConnection::new).transpose()?;
-    let cache = Cache::new(&default_home()?)?;
+    let mut cache = Cache::new(&default_home()?)?;
+    cache.report_downloads = remote;
     match command.as_str() {
         "update" => {
             exact(&args, 1)?;

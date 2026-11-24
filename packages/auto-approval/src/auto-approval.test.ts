@@ -276,7 +276,7 @@ describe("inspection input boundary", () => {
       await vi.advanceTimersByTimeAsync(100);
       await expect(reviewing).resolves.toMatchObject({
         decision: "deny",
-        reason: "review failed: review timed out",
+        reason: `review failed: review timed out after 0.1 seconds (auto-approval limit for ${approvalRequest.call.name})`,
       });
       expect(signals.length).toBeGreaterThanOrEqual(2);
       expect(new Set(signals).size).toBe(1);
@@ -310,7 +310,7 @@ describe("inspection input boundary", () => {
       await vi.advanceTimersByTimeAsync(100);
       await expect(reviewing).resolves.toMatchObject({
         decision: "deny",
-        reason: "review failed: review timed out",
+        reason: `review failed: review timed out after 0.1 seconds (auto-approval limit for ${approvalRequest.call.name})`,
       });
       expect(read).toHaveBeenCalledOnce();
     } finally {

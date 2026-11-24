@@ -175,7 +175,7 @@ export class McpOAuth {
       },
     };
   }
-  authProvider(target: OAuthTarget): AuthProvider {
+  authProvider(target: OAuthTarget, refreshFetch = authFetch): AuthProvider {
     return {
       token: async () => {
         if (this.#closed || this.#loggingOut) throw new McpAuthRequired();
@@ -196,7 +196,7 @@ export class McpOAuth {
             const result = await auth(this.#provider(target, false), {
               serverUrl: target.url,
               ...challenge,
-              fetchFn: authFetch,
+              fetchFn: refreshFetch,
             });
             if (result !== "AUTHORIZED") throw new McpAuthRequired();
           }).finally(() => {

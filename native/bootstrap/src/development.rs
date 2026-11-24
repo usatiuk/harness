@@ -51,7 +51,13 @@ impl Cache {
             let copied = stage.path().join("download");
             let mut source = File::open(archive)?;
             let size = source.metadata()?.len();
-            crate::cache::copy_verified(&mut source, &mut File::create(&copied)?, size, digest)?;
+            crate::cache::copy_verified(
+                &mut source,
+                &mut File::create(&copied)?,
+                size,
+                digest,
+                |_| {},
+            )?;
             let root = crate::archive::extract_layout(
                 &copied,
                 &stage.path().join("unpacked"),

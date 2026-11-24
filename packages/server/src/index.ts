@@ -33,6 +33,7 @@ import {
 } from "@harness/sandbox";
 import { activitiesPlugin } from "@harness/activities";
 import { createAgentsPlugin } from "@harness/agents";
+import { defaultHostTimeouts } from "@harness/protocol";
 import { initializeUserShellEnvironment } from "@harness/execution";
 import { outputPlugin } from "@harness/output";
 import { workspacePlugin } from "@harness/workspace";
@@ -84,11 +85,15 @@ export interface ServerHarness {
   close(): Promise<void>;
 }
 export async function buildServerComposition(
-  options: { signal?: AbortSignal } = {},
+  options: {
+    signal?: AbortSignal;
+    progress?: (message: string, completed?: number, total?: number) => void;
+  } = {},
 ): Promise<ServerComposition> {
   const signal = options.signal ?? new AbortController().signal;
   signal.throwIfAborted();
   const home = defaultHome();
+  options.progress?.("Opening workspace database");
   const store = new SqliteStore(join(home, "store.db"), undefined, undefined, {
     exclusive: true,
     beforeInitialize: () => assertSelectedServer(home, process.env["HARNESS_SERVER_SELECTION"]),
@@ -99,19 +104,27 @@ export async function buildServerComposition(
   let mcp: McpRuntime | undefined;
   let startedHost: HarnessRpcHost | undefined;
   try {
-    await initializeUserShellEnvironment({ signal });
-    const sandbox = await createSandboxRuntime(home, () => {
-      if (!closeForDockerFailure)
-        throw new Error("Docker guardian failed before server composition was ready");
-      console.error(JSON.stringify({ event: "server.failure", subsystem: "docker-guardian" }));
-      void closeForDockerFailure().catch(() =>
-        console.error(
-          JSON.stringify({ event: "server.shutdown-failed", subsystem: "docker-guardian" }),
-        ),
-      );
-    });
-    startedSandbox = sandbox;
     const settings = await readGlobalSettings(home);
+    const limits = settings.timeouts ?? defaultHostTimeouts;
+    if (process.platform !== "win32") options.progress?.("Loading shell environment");
+    await initializeUserShellEnvironment({ signal, timeoutMs: limits.shellSeconds * 1000 });
+    options.progress?.("Preparing execution sandbox");
+    const sandbox = await createSandboxRuntime(
+      home,
+      () => {
+        if (!closeForDockerFailure)
+          throw new Error("Docker guardian failed before server composition was ready");
+        console.error(JSON.stringify({ event: "server.failure", subsystem: "docker-guardian" }));
+        void closeForDockerFailure().catch(() =>
+          console.error(
+            JSON.stringify({ event: "server.shutdown-failed", subsystem: "docker-guardian" }),
+          ),
+        );
+      },
+      limits.shellSeconds * 1000,
+    );
+    startedSandbox = sandbox;
+    options.progress?.("Loading host settings and credentials");
     validateGlobalPluginScopes(
       settings,
       new Set(["mcp", "worktrees", "feedback"]),
@@ -136,10 +149,12 @@ export async function buildServerComposition(
       },
     };
     mcp = new McpRuntime(settings.plugins?.["mcp"] ?? {}, pluginCredentials);
-    await mcp.initialize(signal);
+    await mcp.initialize(signal, options.progress);
+    options.progress?.("Discovering provider models");
     const mcpRuntime = mcp;
     const registry = prepare(secrets);
-    const built = await bootstrapProviders(registry, signal);
+    const built = await bootstrapProviders(registry, signal, limits.providerDiscoverySeconds);
+    options.progress?.("Starting workspace services");
     const worktrees = new WorktreeManager(store, async () => {
       const doc = await readGlobalSettings(home);
       return worktreeDirectory(
@@ -180,7 +195,7 @@ export async function buildServerComposition(
     // resolution never fails "no model configured".
     const service = new HarnessService({
       home,
-      codeEvaluator: new QuickJsEvaluator(),
+      codeEvaluator: new QuickJsEvaluator(limits.codeCpuSeconds * 1000),
       captureModelEvidence: () => feedback.captureEnabled(),
       ...(settings.outputTokenCeiling === undefined
         ? {}
@@ -367,7 +382,10 @@ export async function buildServerComposition(
 
 export async function buildServerHarness(
   connection: RpcConnection,
-  options: { signal?: AbortSignal } = {},
+  options: {
+    signal?: AbortSignal;
+    progress?: (message: string, completed?: number, total?: number) => void;
+  } = {},
 ): Promise<ServerHarness> {
   const startup = new AbortController();
   const closedDuringStartup = connection.onClose(() => startup.abort());

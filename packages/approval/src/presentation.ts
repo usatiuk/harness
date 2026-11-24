@@ -11,7 +11,7 @@ import type { Relationship } from "@harness/execution";
 export const toolPermissionSchema = z.enum(["allow", "ask", "ask-human", "deny"]);
 export type ToolPermission = z.infer<typeof toolPermissionSchema>;
 const effect = toolPermissionSchema;
-export const humanApprovalTimeoutSchema = z.number().positive().max(2_147_483).default(60);
+export const humanApprovalTimeoutSchema = z.number().positive().max(2_147_483).default(900);
 const toolRule = z.union([
   effect,
   z.strictObject({ inWorkspace: effect.optional(), outOfWorkspace: effect.optional() }),

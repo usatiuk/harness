@@ -35,7 +35,8 @@ pub fn preparation_process(request: &str) -> anyhow::Result<()> {
         let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
         std::process::exit(1);
     });
-    let cache = Cache::new(&request.home)?;
+    let mut cache = Cache::new(&request.home)?;
+    cache.report_downloads = true;
     let (node, payload, entry) = if let Some(payload) = request.development_payload {
         let prepared = cache.prepare_development_server(&payload)?;
         (
@@ -81,6 +82,7 @@ pub async fn prepare(
     development_payload: Option<PathBuf>,
     local: bool,
     canceled: watch::Receiver<bool>,
+    progress: impl Fn(serde_json::Value) -> Result<(), String>,
 ) -> Result<ServerRuntime, String> {
     if *canceled.borrow() {
         return Err("Connection attempt cancelled".into());
@@ -93,7 +95,7 @@ pub async fn prepare(
         .or_else(|| std::env::var_os("HARNESS_HOME").map(PathBuf::from));
     #[cfg(dev)]
     {
-        let _ = (development_payload, local);
+        let _ = (development_payload, local, progress);
         Ok(ServerRuntime {
             home: requested_home.unwrap_or_else(|| workspace().join(".harness-dev/source")),
             node: std::env::var_os("HARNESS_DEVELOPMENT_NODE")
@@ -120,7 +122,7 @@ pub async fn prepare(
         );
         #[cfg(windows)]
         command.creation_flags(0x08000000);
-        let value = crate::command::execute(command, canceled, |_| Ok(()), None).await?;
+        let value = crate::command::execute(command, canceled, progress, None).await?;
         let paths = serde_json::from_value(value).map_err(|error| error.to_string())?;
         Ok(ServerRuntime { cache, paths })
     }
@@ -139,29 +141,35 @@ pub struct ServerRuntime {
 }
 
 impl ServerRuntime {
+    pub fn home(&self) -> &std::path::Path {
+        #[cfg(dev)]
+        return &self.home;
+        #[cfg(not(dev))]
+        return &self.cache.home;
+    }
     pub fn command(&self) -> Command {
         #[cfg(dev)]
-        let (mut command, home) = {
+        let mut command = {
             let mut command = Command::new(&self.node);
             command
                 .args(["--conditions=development", "--import=tsx"])
                 .arg(workspace().join("packages/server/src/bin.ts"))
                 .current_dir(workspace())
                 .env_remove("HARNESS_PREPARED_SERVER");
-            (command, &self.home)
+            command
         };
         #[cfg(not(dev))]
-        let (mut command, home) = {
+        let mut command = {
             let mut command = Command::new(&self.paths.node);
             command.arg(&self.paths.entry)
                 .env_remove("HARNESS_NATIVE_BINDING")
                 .env("HARNESS_PREPARED_SERVER", serde_json::json!({
                     "node": self.paths.node, "entry": self.paths.entry, "payload": self.paths.payload,
                 }).to_string());
-            (command, &self.cache.home)
+            command
         };
         command
-            .env("HARNESS_HOME", home)
+            .env("HARNESS_HOME", self.home())
             .env_remove("HARNESS_SERVER_SELECTION");
         #[cfg(all(target_os = "linux", not(dev)))]
         if std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some() {

@@ -7,7 +7,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 21 },
+        "protocolVersion": { "type": "number", "const": 23 },
         "client": {
           "type": "object",
           "properties": {
@@ -37,7 +37,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 21 },
+        "protocolVersion": { "type": "number", "const": 23 },
         "server": {
           "type": "object",
           "properties": {
@@ -3658,7 +3658,40 @@
                             "minimum": -9007199254740991,
                             "maximum": 9007199254740991
                           },
+                          "type": { "type": "string", "const": "plugin_data" },
+                          "plugin": { "type": "string" },
+                          "data": { "$ref": "#/$defs/__schema0" }
+                        },
+                        "required": [
+                          "id",
+                          "conversationId",
+                          "turnId",
+                          "seq",
+                          "parent",
+                          "createdAt",
+                          "type",
+                          "plugin",
+                          "data"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string", "minLength": 1 },
+                          "conversationId": { "type": "string", "minLength": 1 },
+                          "turnId": { "type": "string", "minLength": 1 },
+                          "seq": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                          "parent": {
+                            "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+                          },
+                          "createdAt": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
                           "type": { "type": "string", "const": "compaction" },
+                          "windowStart": { "type": "string" },
                           "content": {
                             "type": "array",
                             "items": {
@@ -3704,6 +3737,7 @@
                           "parent",
                           "createdAt",
                           "type",
+                          "windowStart",
                           "content"
                         ],
                         "additionalProperties": false
@@ -4985,7 +5019,40 @@
                           "minimum": -9007199254740991,
                           "maximum": 9007199254740991
                         },
+                        "type": { "type": "string", "const": "plugin_data" },
+                        "plugin": { "type": "string" },
+                        "data": { "$ref": "#/$defs/__schema0" }
+                      },
+                      "required": [
+                        "id",
+                        "conversationId",
+                        "turnId",
+                        "seq",
+                        "parent",
+                        "createdAt",
+                        "type",
+                        "plugin",
+                        "data"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string", "minLength": 1 },
+                        "conversationId": { "type": "string", "minLength": 1 },
+                        "turnId": { "type": "string", "minLength": 1 },
+                        "seq": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "parent": {
+                          "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+                        },
+                        "createdAt": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
                         "type": { "type": "string", "const": "compaction" },
+                        "windowStart": { "type": "string" },
                         "content": {
                           "type": "array",
                           "items": {
@@ -5031,6 +5098,7 @@
                         "parent",
                         "createdAt",
                         "type",
+                        "windowStart",
                         "content"
                       ],
                       "additionalProperties": false
@@ -6365,7 +6433,7 @@
                   "enum": ["allow", "ask", "ask-human", "deny"]
                 },
                 "humanApprovalTimeoutSeconds": {
-                  "default": 60,
+                  "default": 900,
                   "type": "number",
                   "exclusiveMinimum": 0,
                   "maximum": 2147483
@@ -6394,7 +6462,7 @@
                   ]
                 },
                 "timeoutSeconds": {
-                  "default": 30,
+                  "default": 120,
                   "type": "number",
                   "exclusiveMinimum": 0,
                   "maximum": 2147483
@@ -6407,6 +6475,42 @@
             "toolMode": { "type": "string", "enum": ["hybrid", "code-only"] },
             "showToolNames": { "type": "boolean" },
             "keepServerRunning": { "type": "boolean" },
+            "timeouts": {
+              "type": "object",
+              "properties": {
+                "hostStartupSeconds": {
+                  "default": 1800,
+                  "type": "number",
+                  "minimum": 0.001,
+                  "maximum": 2147478
+                },
+                "shellSeconds": {
+                  "default": 60,
+                  "type": "number",
+                  "minimum": 0.001,
+                  "maximum": 2147478
+                },
+                "providerDiscoverySeconds": {
+                  "default": 60,
+                  "type": "number",
+                  "minimum": 0.001,
+                  "maximum": 2147478
+                },
+                "codeCpuSeconds": {
+                  "default": 5,
+                  "type": "number",
+                  "minimum": 0.001,
+                  "maximum": 2147478
+                }
+              },
+              "required": [
+                "hostStartupSeconds",
+                "shellSeconds",
+                "providerDiscoverySeconds",
+                "codeCpuSeconds"
+              ],
+              "additionalProperties": false
+            },
             "subagents": {
               "type": "object",
               "properties": {
@@ -6454,6 +6558,7 @@
             "toolMode",
             "showToolNames",
             "keepServerRunning",
+            "timeouts",
             "subagents",
             "compactionThresholdTokens",
             "worktreeDirectory",
@@ -6939,7 +7044,7 @@
             "inWorkspace": { "type": "string", "enum": ["allow", "ask", "ask-human", "deny"] },
             "outOfWorkspace": { "type": "string", "enum": ["allow", "ask", "ask-human", "deny"] },
             "humanApprovalTimeoutSeconds": {
-              "default": 60,
+              "default": 900,
               "type": "number",
               "exclusiveMinimum": 0,
               "maximum": 2147483
@@ -6968,7 +7073,7 @@
               ]
             },
             "timeoutSeconds": {
-              "default": 30,
+              "default": 120,
               "type": "number",
               "exclusiveMinimum": 0,
               "maximum": 2147483
@@ -6981,6 +7086,36 @@
         "toolMode": { "type": "string", "enum": ["hybrid", "code-only"] },
         "showToolNames": { "type": "boolean" },
         "keepServerRunning": { "type": "boolean" },
+        "timeouts": {
+          "type": "object",
+          "properties": {
+            "hostStartupSeconds": {
+              "default": 1800,
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 2147478
+            },
+            "shellSeconds": {
+              "default": 60,
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 2147478
+            },
+            "providerDiscoverySeconds": {
+              "default": 60,
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 2147478
+            },
+            "codeCpuSeconds": {
+              "default": 5,
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 2147478
+            }
+          },
+          "additionalProperties": false
+        },
         "subagents": {
           "type": "object",
           "properties": {

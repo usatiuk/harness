@@ -21,6 +21,7 @@ import {
 function definition(
   environments: DockerEnvironmentPool,
   nativeHost?: NativeSandboxHost,
+  shellTimeoutMs?: number,
 ): PluginDefinition {
   return {
     id: "sandbox",
@@ -59,6 +60,7 @@ function definition(
                     conversation.workspaceRoot,
                     config.docker,
                     environments,
+                    shellTimeoutMs,
                   );
               }
             },
@@ -74,7 +76,11 @@ function definition(
 }
 
 /** Server-owned physical environments; conversation services own only execution views. */
-export async function createSandboxRuntime(home: string, onFailure?: (error: Error) => void) {
+export async function createSandboxRuntime(
+  home: string,
+  onFailure?: (error: Error) => void,
+  shellTimeoutMs?: number,
+) {
   const nativeHost = detectNativeSandboxHost();
   const defaultBackend: SandboxBackend = (await nativeSandboxAvailable(nativeHost))
     ? "native"
@@ -93,7 +99,7 @@ export async function createSandboxRuntime(home: string, onFailure?: (error: Err
     ? ["none", "native", "docker"]
     : ["none", "docker"];
   return {
-    plugin: definition(environments, nativeHost),
+    plugin: definition(environments, nativeHost, shellTimeoutMs),
     defaultBackend,
     backends,
     environments,

@@ -1,4 +1,5 @@
 import {
+  defaultHostTimeouts,
   ModelDiscoveryError,
   ProviderCredentialError,
   type ModelConfig,
@@ -18,6 +19,7 @@ export interface ProviderBootstrap {
 export async function bootstrapProviders(
   entries: ReadonlyMap<string, ProviderEntry>,
   signal: AbortSignal,
+  timeoutSeconds = defaultHostTimeouts.providerDiscoverySeconds,
 ): Promise<ProviderBootstrap> {
   const providers: ModelProvider[] = [];
   const statuses = new Map<string, ProviderStatus>();
@@ -72,7 +74,11 @@ export async function bootstrapProviders(
   });
   // One boot budget includes queued work. Four workers avoid a large gateway fan-out.
   const failure = new AbortController();
-  const discovery = AbortSignal.any([signal, failure.signal, AbortSignal.timeout(10_000)]);
+  const discovery = AbortSignal.any([
+    signal,
+    failure.signal,
+    AbortSignal.timeout(Math.ceil(timeoutSeconds * 1000)),
+  ]);
   let next = 0;
   const workers = await Promise.allSettled(
     Array.from({ length: Math.min(4, built.length) }, async () => {
@@ -89,7 +95,9 @@ export async function bootstrapProviders(
             if (signal.aborted && error === signal.reason) throw error;
             if (failure.signal.aborted && error === failure.signal.reason) throw error;
             if (discovery.aborted && error === discovery.reason)
-              status.diagnostics = ["Catalog discovery exceeded the startup deadline"];
+              status.diagnostics = [
+                `${entry.label} catalog discovery exceeded the ${timeoutSeconds}-second provider discovery limit`,
+              ];
             else if (error instanceof ModelDiscoveryError) status.diagnostics = [error.message];
             else throw error;
             status.catalog = provider.listModels().length ? "degraded" : "failed";

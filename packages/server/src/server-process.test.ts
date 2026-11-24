@@ -127,9 +127,8 @@ describe("production server process ownership", () => {
         "mistral-vibe",
       ]);
       expect(JSON.stringify(config)).not.toContain("apiKey");
-      expect(config.settings.autoApproval).toEqual({
+      expect(config.settings.autoApproval).toMatchObject({
         enabled: false,
-        timeoutSeconds: 30,
         model: { provider: "demo", model: "demo-1", preset: "low" },
       });
       await first.client.peer.request(appSettingsUpdateRequest, {

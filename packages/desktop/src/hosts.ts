@@ -3,12 +3,14 @@ import {
   sameExecutionTarget,
   type ClientConfig,
   type Host,
+  type StartupProgress,
   type ConnectionCommand,
   type ServerIdentity,
   type PreparedRuntime,
   type HostConnectionTarget,
   type ClientConfigCommand,
 } from "@harness/connections";
+import { StartupAttempt, sessionTimeoutSeconds } from "./startup.ts";
 import { DesktopSession } from "./session.ts";
 import { connectionCommand, connectNative } from "./transport.ts";
 
@@ -19,6 +21,7 @@ export interface HostView {
   identity?: ServerIdentity;
   runtime?: PreparedRuntime;
   progress?: string;
+  attempt?: StartupAttempt;
   error?: string;
 }
 /** Selection owns presentation. Each connected host retains its own RPC session. */
@@ -46,9 +49,26 @@ export class DesktopHosts {
   get selected(): HostView | undefined {
     return this.views.get(this.config?.selectedHostId ?? "local");
   }
+  boot = new StartupAttempt();
+  private bootCancel?: AbortController;
   async initialize(): Promise<void> {
-    await this.updateConfig({ type: "config.read" });
-    await this.connect(this.config!.selectedHostId).catch(() => undefined);
+    const cancel = new AbortController();
+    this.bootCancel = cancel;
+    this.boot = new StartupAttempt();
+    this.boot.step("Reading connection settings");
+    this.changed();
+    try {
+      await this.updateConfig({ type: "config.read" }, cancel.signal, (event) => {
+        this.boot.step(event.message, event);
+        this.changed();
+      });
+      this.selected!.attempt = this.boot;
+      await this.connect(this.config!.selectedHostId, cancel.signal).catch(() => undefined);
+    } finally {
+      if (!this.selected?.session) this.boot.finish();
+      delete this.bootCancel;
+      this.changed();
+    }
   }
   private async acceptConfig(config: ClientConfig): Promise<void> {
     const entries = new Map(config.hosts.map((host) => [host.id, host]));
@@ -69,10 +89,14 @@ export class DesktopHosts {
     }
     this.changed();
   }
-  private updateConfig(command: ClientConfigCommand, signal?: AbortSignal): Promise<void> {
+  private updateConfig(
+    command: ClientConfigCommand,
+    signal?: AbortSignal,
+    progress?: (event: StartupProgress) => void,
+  ): Promise<void> {
     const result = this.configTail.then(async () => {
       signal?.throwIfAborted();
-      await this.acceptConfig(await connectionCommand(command));
+      await this.acceptConfig(await connectionCommand(command, progress, signal));
     });
     this.configTail = result.catch(() => undefined);
     return result;
@@ -127,16 +151,15 @@ export class DesktopHosts {
     if (view.session && !view.session.disconnected) return view;
     await view.closeTransport?.();
     delete view.error;
-    view.progress = "Connecting…";
-    this.changed();
+    if (view.attempt !== this.boot || !this.bootCancel) view.attempt = new StartupAttempt();
+    this.progress(view, "Preparing connection");
     let transportError: string | undefined;
     let ready: AbortSignal | undefined;
     try {
       signal.throwIfAborted();
       if (view.host.kind !== "local") await this.prepare(view, signal);
       signal.throwIfAborted();
-      view.progress = "Connecting…";
-      this.changed();
+      this.progress(view, "Opening host connection");
       let session: DesktopSession | undefined = undefined;
       const transport = await connectNative(
         this.target(view),
@@ -149,10 +172,27 @@ export class DesktopHosts {
           }
         },
         signal,
+        (event) => this.progress(view, event.message, event),
       );
       view.closeTransport = transport.close;
       session = new DesktopSession(transport.connection, id);
-      ready = AbortSignal.any([signal, AbortSignal.timeout(20_000)]);
+      const sessionDeadline = new AbortController();
+      const seconds = sessionTimeoutSeconds();
+      ready = AbortSignal.any([signal, sessionDeadline.signal]);
+      const timerOwner = new AbortController();
+      void Promise.resolve(transport.ownerReady).then(() => {
+        if (timerOwner.signal.aborted) return;
+        this.progress(view, "Opening desktop session");
+        const timer = AbortSignal.timeout(Math.ceil(seconds * 1000));
+        timer.addEventListener(
+          "abort",
+          () =>
+            sessionDeadline.abort(
+              new Error(`Desktop session on ${view.host.label} timed out after ${seconds} seconds`),
+            ),
+          { once: true, signal: timerOwner.signal },
+        );
+      });
       const cancel = () => session.client.closeConnection();
       ready.addEventListener("abort", cancel, { once: true });
       let identity: ServerIdentity;
@@ -165,12 +205,14 @@ export class DesktopHosts {
         ready.throwIfAborted();
         throw error;
       } finally {
+        timerOwner.abort();
         ready.removeEventListener("abort", cancel);
       }
       session.setServerScope(identity.serverId);
       view.session = session;
       session.subscribeConnection(() => this.changed());
       view.identity = identity;
+      view.attempt?.step("Loading workspace");
       return view;
     } catch (error) {
       const cancelled = signal.aborted || ready?.aborted;
@@ -192,6 +234,7 @@ export class DesktopHosts {
       failure.message = view.error;
       throw failure;
     } finally {
+      if (!view.session) view.attempt?.finish();
       delete view.progress;
       this.changed();
     }
@@ -204,6 +247,7 @@ export class DesktopHosts {
     }
     const view = this.views.get(id);
     if (!view) return;
+    view.attempt?.finish();
     view.session?.disconnect("Disconnected");
     view.session?.client.closeConnection();
     await view.closeTransport?.();
@@ -234,17 +278,22 @@ export class DesktopHosts {
       this.operations.delete(id);
     }
   }
-  cancel(id: string): void {
-    this.operations.get(id)?.abort.abort();
+  private progress(view: HostView, message: string, event?: StartupProgress) {
+    view.progress = message;
+    if (this.operations.get(view.host.id)?.kind !== "refresh") view.attempt?.step(message, event);
+    this.changed();
+  }
+  cancel(id?: string): void {
+    if (!id) this.bootCancel?.abort();
+    else this.operations.get(id)?.abort.abort();
   }
   private async prepare(view: HostView, signal: AbortSignal): Promise<HostView> {
     if (view.host.kind === "local") throw new Error("Local does not need provisioning");
     try {
       view.runtime = await connectionCommand(
         { type: "runtime.prepare", host: view.host },
-        (message) => {
-          view.progress = message;
-          this.changed();
+        (event) => {
+          this.progress(view, event.message, event);
         },
         signal,
       );

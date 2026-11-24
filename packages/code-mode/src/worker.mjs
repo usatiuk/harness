@@ -28,7 +28,10 @@ runtime.setInterruptHandler(() => {
 // Measure only interpreter work. Host promises (including human approval) consume no CPU budget.
 function guest(fn) {
   if (executing) return fn();
-  if (cpuRemaining <= 0) throw new Error("code computation limit exceeded");
+  if (cpuRemaining <= 0)
+    throw new Error(
+      `code computation limit exceeded (Code Mode CPU limit: ${limits.cpuMs / 1000} seconds)`,
+    );
   sliceStart = performance.now();
   executing = true;
   try {
@@ -127,7 +130,7 @@ function finish(value, error) {
   closed = true;
   if (interrupted) {
     value = undefined;
-    error = "code computation limit exceeded";
+    error = `code computation limit exceeded (Code Mode CPU limit: ${limits.cpuMs / 1000} seconds)`;
   }
   if (value !== undefined && outputBytes + Buffer.byteLength(value) > limits.outputBytes) {
     value = undefined;

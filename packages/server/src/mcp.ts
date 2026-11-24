@@ -27,8 +27,8 @@ export function registerMcpApi(
   const operations = new Set<Promise<unknown>>();
   const config = async (): Promise<McpConfig> =>
     mcpConfigSchema.parse((await readGlobalSettings(home)).plugins?.["mcp"] ?? {});
-  const server = async (id: string) => {
-    const servers = (await config()).servers;
+  const server = async (id: string, savedConfig = config()) => {
+    const servers = (await savedConfig).servers;
     const saved = Object.hasOwn(servers, id) ? servers[id] : undefined;
     if (!saved) throw new ResponseError(ErrorCodes.InvalidParams, "Unknown MCP server");
     return saved;
@@ -70,9 +70,15 @@ export function registerMcpApi(
   );
   session.onRequest(mcpToolsList, () => guard(async () => runtime.tools()));
   session.onRequest(mcpTest, ({ serverId }, signal) =>
-    guard(async () =>
-      runtime.test(serverId, await server(serverId), AbortSignal.any([signal, lifetime.signal])),
-    ),
+    guard(async () => {
+      const saved = config();
+      return runtime.test(
+        serverId,
+        await server(serverId, saved),
+        AbortSignal.any([signal, lifetime.signal]),
+        (await saved).timeouts,
+      );
+    }),
   );
   session.onRequest(mcpCredentialSet, ({ serverId, slot, value }) =>
     guard(async () => {

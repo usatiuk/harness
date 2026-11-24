@@ -100,17 +100,33 @@ export const transportConfigSchema = z
       }
     }
   });
+const seconds = z.number().min(0.001).max(2_147_483);
+const override = seconds.exactOptional();
+export const mcpTimeoutsSchema = z.strictObject({
+  startupSeconds: seconds.default(300),
+  executionSeconds: seconds.default(900),
+  stdioProbeSeconds: seconds.default(15),
+});
+export type McpTimeouts = z.infer<typeof mcpTimeoutsSchema>;
 const defaults = z.strictObject({
   readOnly: toolPermissionSchema.default("allow"),
   other: toolPermissionSchema.default("ask"),
 });
 export const mcpConfigSchema = z.strictObject({
+  timeouts: mcpTimeoutsSchema.prefault({}),
   defaults: defaults.default({ readOnly: "allow", other: "ask" }),
   servers: dictionary(
     identifier,
     z.strictObject({
       enabled: z.boolean().default(true),
       transport: transportConfigSchema,
+      timeouts: z
+        .strictObject({
+          startupSeconds: override,
+          executionSeconds: override,
+          stdioProbeSeconds: override,
+        })
+        .optional(),
       defaults: z
         .strictObject({
           readOnly: toolPermissionSchema.optional(),

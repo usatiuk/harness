@@ -43,6 +43,7 @@ fn main() {
             "server_ack",
             "server_disconnect",
             "desktop_update",
+            "reveal_host_settings",
             "connection_command",
             "cancel_connection_command",
         ]),

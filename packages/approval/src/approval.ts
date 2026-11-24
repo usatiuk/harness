@@ -78,7 +78,11 @@ export function createToolApproval(reader: ConfigReader) {
           };
     } catch (error) {
       if (!(error instanceof InteractionTimeoutError)) throw error;
-      answer = { decision: "deny", responder: "human", reason: "human approval timed out" };
+      answer = {
+        decision: "deny",
+        responder: "human",
+        reason: `human approval timed out after ${config.humanApprovalTimeoutSeconds} seconds`,
+      };
     }
     const responder = answer.responder ?? "human";
     const approval: ApprovalAnnotation = {

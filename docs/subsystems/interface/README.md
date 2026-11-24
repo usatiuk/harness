@@ -722,6 +722,12 @@ or Space opens the focused section as a single history entry. Restarting the
 server restores that section. Appearance is available only in Settings. Creation is folder-first;
 Connections separates saved-host editing from current-host actions and collapses
 rare server controls. Startup/disconnected states center status, errors and actions.
+The startup card shows the active host operation, its elapsed seconds and a cancel/retry action.
+MCP startup counts completed servers. Server and Node downloads use the signed or pinned archive
+size and measured transfer speed. The connection editor retains the latest attempt's timings in
+memory. Host startup defaults to 30 minutes. Desktop session initialization starts its separate
+two-minute timer after owner attachment. Settings → Defaults exposes host limits and Settings →
+Application exposes the desktop limit.
 Settings, providers, connections, startup and route errors consume the
 same controls and tokens. The playground consumes those production recipes while
 its sample conversation/host state remains isolated.

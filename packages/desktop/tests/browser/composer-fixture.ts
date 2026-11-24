@@ -138,12 +138,14 @@ const view = new ConversationView({
 });
 view.state = { ...emptyState, turn: { id: "turn", status: "running", startedAt: 0 } };
 const nativeUnavailable = new URLSearchParams(location.search).has("nativeUnavailable");
+import { defaultHostTimeouts } from "@harness/protocol";
 const settings: AppSettings = {
   home: "fixture",
   cwd: "D:\\example",
   platform: "win32",
   sandboxBackends: nativeUnavailable ? ["none", "docker"] : ["none", "native", "docker"],
   settings: {
+    timeouts: defaultHostTimeouts,
     keepServerRunning: false,
     model: { provider: "fixture", model: "test", preset: null },
     sandbox: nativeUnavailable ? "native" : "none",

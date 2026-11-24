@@ -84,6 +84,7 @@ pub struct InstalledArtifact {
 pub struct Cache {
     pub home: PathBuf,
     _usage: FileUse,
+    pub report_downloads: bool,
 }
 
 /// Run outside `Cache`: the invoking launcher must not hold a shared lease itself.
@@ -147,6 +148,7 @@ impl Cache {
         Ok(Self {
             home,
             _usage: usage,
+            report_downloads: false,
         })
     }
     pub fn prepare_node(&self) -> Result<InstalledArtifact> {
@@ -222,12 +224,45 @@ impl Cache {
         if !directory.exists() {
             let stage = self.stage()?;
             let archive = stage.path().join("download");
+            let component = if artifact.entry == "server.mjs" {
+                "server"
+            } else {
+                &artifact.entry
+            };
+            let message = format!("Downloading {component}");
+            let start = std::time::Instant::now();
+            let mut last = None;
+            let mut progress = |bytes| {
+                if !self.report_downloads {
+                    return;
+                }
+                let elapsed = start.elapsed();
+                if bytes == artifact.size
+                    || last.is_none_or(|previous| {
+                        elapsed - previous >= std::time::Duration::from_millis(250)
+                    })
+                {
+                    last = Some(elapsed);
+                    eprintln!(
+                        "{}",
+                        serde_json::json!({"type":"progress","message": message, "completed":bytes,"total":artifact.size,"bytesPerSecond":(bytes as f64 / elapsed.as_secs_f64().max(0.001)) as u64})
+                    );
+                }
+            };
+            progress(0);
             copy_verified(
                 &mut download()?,
                 &mut File::create(&archive)?,
                 artifact.size,
                 &artifact.sha256,
+                progress,
             )?;
+            if self.report_downloads {
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"type":"progress","message":format!("Extracting {component}")})
+                );
+            }
             let root = extract_layout(
                 &archive,
                 &stage.path().join("unpacked"),
@@ -290,6 +325,7 @@ pub(crate) fn copy_verified(
     destination: &mut File,
     size: u64,
     digest: &str,
+    mut progress: impl FnMut(u64),
 ) -> Result<()> {
     if size == 0
         || size > 2 * 1024 * 1024 * 1024
@@ -314,6 +350,7 @@ pub(crate) fn copy_verified(
         }
         hash.update(&buffer[..length]);
         destination.write_all(&buffer[..length])?;
+        progress(count);
     }
     if count != size || format!("{:x}", hash.finalize()) != digest {
         bail!("Artifact size or checksum verification failed");

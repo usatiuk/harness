@@ -2,6 +2,14 @@ import { z } from "zod";
 import { defineRequest } from "@harness/protocol";
 import { versionSchema } from "@harness/release";
 
+export const startupProgressSchema = z.strictObject({
+  type: z.literal("progress"),
+  message: z.string().min(1).max(256),
+  bytesPerSecond: z.number().nonnegative().optional(),
+  completed: z.number().int().nonnegative().optional(),
+  total: z.number().int().positive().optional(),
+});
+export type StartupProgress = z.infer<typeof startupProgressSchema>;
 const common = {
   id: z.string().min(1),
   label: z.string().trim().min(1).max(100),

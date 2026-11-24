@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reveal-host-settings"
+description = "Enables the reveal_host_settings command without any pre-configured scope."
+commands.allow = ["reveal_host_settings"]
+
+[[permission]]
+identifier = "deny-reveal-host-settings"
+description = "Denies the reveal_host_settings command without any pre-configured scope."
+commands.deny = ["reveal_host_settings"]

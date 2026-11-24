@@ -27,6 +27,8 @@ use tokio::{
 enum ServerEvent {
     Started { id: u64 },
     Message { id: u64, frame: String },
+    StartupProgress { event: serde_json::Value },
+    OwnerReady,
     Closed { message: String },
 }
 
@@ -323,6 +325,7 @@ async fn read_diagnostics(
     error: tokio::process::ChildStderr,
     bridge: Arc<Bridge>,
     target: serde_json::Value,
+    channel: Channel<ServerEvent>,
 ) -> Result<String, String> {
     let mut reader = BufReader::new(error);
     let mut tail = Vec::new();
@@ -340,8 +343,17 @@ async fn read_diagnostics(
             return Err("Server diagnostic line exceeds limit".into());
         }
         if let Ok(event) = serde_json::from_slice::<serde_json::Value>(&line) {
+            if event["type"] == "progress" {
+                channel
+                    .send(ServerEvent::StartupProgress { event })
+                    .map_err(|e| e.to_string())?;
+                continue;
+            }
             if event["type"] == "serverOwner" {
                 bridge.remember_owner(&target, &event["identity"]).await?;
+                channel
+                    .send(ServerEvent::OwnerReady)
+                    .map_err(|e| e.to_string())?;
                 continue;
             }
         }
@@ -372,6 +384,7 @@ async fn prepare_runtime(
     app: &tauri::AppHandle,
     local: bool,
     canceled: watch::Receiver<bool>,
+    progress: impl Fn(serde_json::Value) -> Result<(), String>,
 ) -> Result<Arc<runtime::ServerRuntime>, String> {
     let payload = if cfg!(not(dev)) && env!("HARNESS_BUILD_MODE") == "development" {
         Some(resources(app)?)
@@ -384,6 +397,7 @@ async fn prepare_runtime(
         payload,
         local,
         canceled,
+        progress,
     )
     .await
     .map(Arc::new)
@@ -393,6 +407,7 @@ async fn prepare_helper(
     app: &tauri::AppHandle,
     bridge: &Bridge,
     mut canceled: watch::Receiver<bool>,
+    progress: impl Fn(serde_json::Value) -> Result<(), String>,
 ) -> Result<Arc<runtime::ServerRuntime>, String> {
     let mut slot = tokio::select! {
         slot = bridge.helper_runtime.lock() => slot,
@@ -404,16 +419,9 @@ async fn prepare_helper(
     if let Some(prepared) = slot.as_ref() {
         return Ok(prepared.clone());
     }
-    let prepared = prepare_runtime(app, false, canceled).await?;
+    let prepared = prepare_runtime(app, false, canceled, progress).await?;
     *slot = Some(prepared.clone());
     Ok(prepared)
-}
-
-#[derive(Clone, serde::Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-enum ConnectionProgress {
-    Started { id: u64 },
-    Progress { message: String },
 }
 
 #[tauri::command]
@@ -421,18 +429,34 @@ async fn connection_command(
     app: tauri::AppHandle,
     bridge: tauri::State<'_, Arc<Bridge>>,
     command: serde_json::Value,
-    channel: Channel<ConnectionProgress>,
+    channel: Channel<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     let (id, canceled, complete) = bridge.begin_operation().await?;
     let result = async {
         channel
-            .send(ConnectionProgress::Started { id })
+            .send(serde_json::json!({"type":"started","id":id}))
             .map_err(|error| error.to_string())?;
         execute_connection_command(app, &bridge, command, channel, canceled).await
     }
     .await;
     bridge.finish_operation(id, complete).await;
     result
+}
+
+#[tauri::command]
+async fn reveal_host_settings(bridge: tauri::State<'_, Arc<Bridge>>) -> Result<(), String> {
+    let helper = bridge.helper_runtime.lock().await;
+    let home = helper
+        .as_ref()
+        .ok_or("Host settings location is unavailable")?
+        .home();
+    let settings = home.join("settings.json");
+    tauri_plugin_opener::reveal_item_in_dir(if settings.exists() {
+        settings.as_path()
+    } else {
+        home
+    })
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -450,31 +474,20 @@ async fn execute_connection_command(
     app: tauri::AppHandle,
     bridge: &Bridge,
     command: serde_json::Value,
-    channel: Channel<ConnectionProgress>,
+    channel: Channel<serde_json::Value>,
     canceled: watch::Receiver<bool>,
 ) -> Result<serde_json::Value, String> {
     if *canceled.borrow() {
         return Err("Connection attempt cancelled".into());
     }
     channel
-        .send(ConnectionProgress::Progress {
-            message: "Preparing server helper".into(),
-        })
+        .send(serde_json::json!({"type":"progress","message":"Preparing server helper"}))
         .map_err(|error| error.to_string())?;
-    let prepared = prepare_helper(&app, bridge, canceled.clone()).await?;
+    let progress = |event| channel.send(event).map_err(|error| error.to_string());
+    let prepared = prepare_helper(&app, bridge, canceled.clone(), progress).await?;
     let mut process = prepared.command();
     process.arg("--connection-command").arg(command.to_string());
-    command::execute(
-        process,
-        canceled,
-        |message| {
-            channel
-                .send(ConnectionProgress::Progress { message })
-                .map_err(|error| error.to_string())
-        },
-        None,
-    )
-    .await
+    command::execute(process, canceled, progress, None).await
 }
 #[tauri::command]
 async fn server_connect(
@@ -503,9 +516,14 @@ async fn connect_server(
         .send(ServerEvent::Started { id })
         .map_err(|error| error.to_string())?;
     let local = host["kind"] == "local";
-    let helper = prepare_helper(app, bridge, canceled.clone()).await?;
+    let progress = |event| {
+        channel
+            .send(ServerEvent::StartupProgress { event })
+            .map_err(|error| error.to_string())
+    };
+    let helper = prepare_helper(app, bridge, canceled.clone(), progress).await?;
     let prepared = if local {
-        prepare_runtime(app, true, canceled.clone()).await?
+        prepare_runtime(app, true, canceled.clone(), progress).await?
     } else {
         helper
     };
@@ -543,8 +561,12 @@ async fn connect_server(
     let diagnostic_owner = bridge.clone();
     tauri::async_runtime::spawn(async move {
         let _prepared = prepared;
-        let diagnostics =
-            tauri::async_runtime::spawn(read_diagnostics(error, diagnostic_owner, target));
+        let diagnostics = tauri::async_runtime::spawn(read_diagnostics(
+            error,
+            diagnostic_owner,
+            target,
+            channel.clone(),
+        ));
         let stream_channel = channel.clone();
         let mut stream = tauri::async_runtime::spawn(async move {
             read_frames(output, &stream_channel, id, reader_credit, canceled).await
@@ -863,6 +885,7 @@ fn main() {
             server_ack,
             server_disconnect,
             desktop_update,
+            reveal_host_settings,
             connection_command,
             cancel_connection_command
         ])

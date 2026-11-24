@@ -460,8 +460,7 @@ supported payload version before any request is sent. All calls pass through the
 existing model middleware once. Responses remain stateless with `store: false`;
 load-balanced upstream ciphertext origins require gateway affinity.
 
-Startup discovery has four workers, a ten-second overall network budget, and a
-three-second enrichment budget inside it. Startup cancellation drains discovery
+Startup discovery has four workers and a configurable network budget (60 seconds by default). LiteLLM metadata enrichment shares that budget and can retain the discovered model IDs when it expires. Startup cancellation drains discovery
 and releases the SQLite lease. Each endpoint is bounded to 2 MiB and 5,000 rows;
 resolved catalogs are bounded to 5,000 models per instance and a 3 MiB aggregate
 RPC budget, measured after wire projection. Model IDs are at most 512 characters. No polling, disk cache or live

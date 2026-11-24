@@ -1,5 +1,7 @@
 # Testing
 
+The native desktop cold-start test holds a loopback MCP server at initialization past 20 seconds, checks the Cancel button position, then opens the completed discovery timings. The browser MCP editor test sets a per-server execution limit. MCP transport tests exercise a delayed HTTP handshake and a separately timed-out tool call with no replay.
+
 Gated engine tests exercise concurrent sibling calls, exclusive boundaries, completion-order results, cancellation and batch-end waits. The local launcher test checks the worker-pool environment in a spawned Node process. On Windows, a separate real MXC check on 2026-11-22 kept two quiet Native children alive while their managed server completed an async filesystem lookup and conversation create/get over RPC.
 
 Feedback storage controls are covered by the shared store contract (UTF-8 byte

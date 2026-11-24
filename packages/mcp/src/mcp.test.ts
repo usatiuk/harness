@@ -415,7 +415,11 @@ it("uses real HTTP with target-bound header credentials, exact tool rules and on
     expect(nested(items)).toMatchObject({
       status: "error",
       annotations: {
-        approval: { decision: "deny", responder: "human", reason: "human approval timed out" },
+        approval: {
+          decision: "deny",
+          responder: "human",
+          reason: "human approval timed out after 0.02 seconds",
+        },
       },
     });
     expect(fixture.calls).toEqual([]);
@@ -436,6 +440,48 @@ it("uses real HTTP with target-bound header credentials, exact tool rules and on
   }
 });
 
+it("discovers a slow HTTP server and applies its independent execution override", async () => {
+  let first = true;
+  const fixture = await httpFixture({
+    before: async () => {
+      if (first) {
+        first = false;
+        await new Promise((resolve) => setTimeout(resolve, 1250));
+      }
+      return false;
+    },
+    hold: (signal) =>
+      new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true })),
+  });
+  const runtime = new McpRuntime(
+    {
+      timeouts: { startupSeconds: 8 },
+      servers: {
+        slow: {
+          transport: { type: "http", url: fixture.url },
+          timeouts: { executionSeconds: 0.15 },
+        },
+      },
+    },
+    new MemorySecretStore(),
+  );
+  try {
+    const updates: string[] = [];
+    await runtime.initialize(undefined, (message) => updates.push(message));
+    expect(updates).toContain("Discovering tools on slow MCP");
+    expect((await runtime.statuses())[0]?.status).toBe("ready");
+    const item = nested(
+      await execute(runtime, "echo/with spaces", { value: "held", mode: "hold" }),
+    );
+    expect(textOf(item!.content)).toContain(
+      "slow MCP tool echo/with spaces timed out after 0.15 seconds",
+    );
+    expect(fixture.calls).toHaveLength(1);
+  } finally {
+    await runtime.close();
+    await fixture.close();
+  }
+});
 it("shows the failed stage and HTTP status without exposing remote bodies or credentials", async () => {
   const fixture = await httpFixture({
     before: (_request, response) => {

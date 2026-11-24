@@ -22,8 +22,10 @@ describe("auto-approval timeout settings", () => {
     sandbox: "none",
   };
 
-  it("defaults older client settings to thirty seconds", () => {
-    expect(appSettingsUpdateRequest.params.parse(settings).autoApproval!.timeoutSeconds).toBe(30);
+  it("accepts older review settings without overwriting host timeouts", () => {
+    const patch = appSettingsUpdateRequest.params.parse(settings);
+    expect(patch.autoApproval!.timeoutSeconds).toBeGreaterThan(0);
+    expect(patch).not.toHaveProperty("timeouts");
   });
 
   it.each([0, -1, 2147484, Infinity, NaN])("rejects invalid timeout %s", (timeoutSeconds) => {

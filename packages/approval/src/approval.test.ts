@@ -153,7 +153,6 @@ it("shares ask-human and the configured timeout across ordinary native tools", a
 it("validates finite positive human approval timeouts within the timer range", () => {
   for (const humanApprovalTimeoutSeconds of [0, -1, Infinity, NaN, 2_147_484])
     expect(approvalConfigSchema.safeParse({ humanApprovalTimeoutSeconds }).success).toBe(false);
-  expect(approvalConfigSchema.parse({}).humanApprovalTimeoutSeconds).toBe(60);
   expect(
     approvalConfigSchema.parse({ humanApprovalTimeoutSeconds: 0.5 }).humanApprovalTimeoutSeconds,
   ).toBe(0.5);

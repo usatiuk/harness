@@ -302,7 +302,7 @@ it("readiness expiry closes the stalled peer and reports the deadline", async ()
   await started;
   deadline.abort(new DOMException("Connection readiness timed out", "TimeoutError"));
   await loading;
-  expect(hosts.selected?.error).toBe("Connection readiness timed out");
+  expect(hosts.selected?.error).toMatch(/Desktop session.*timed out after .* seconds/);
   expect(hosts.selected?.session).toBeUndefined();
   expect(hosts.selected?.progress).toBeUndefined();
 });

@@ -1,3 +1,4 @@
+import { aborted } from "node:util";
 import { z } from "zod";
 import type { SecretStore } from "@harness/secrets";
 import type { McpTransportConfig, McpValueSource } from "./config.ts";
@@ -68,6 +69,7 @@ export async function resolveValue(
   target: string,
   store: SecretStore,
   env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<string> {
   if (source.type === "literal") return source.value;
   if (source.type === "env") {
@@ -75,7 +77,16 @@ export async function resolveValue(
     if (value === undefined || value === "") throw new McpAuthRequired();
     return value;
   }
-  const raw = await store.get(source.slot);
+  signal?.throwIfAborted();
+  const read = store.get(source.slot);
+  const raw = await (signal
+    ? Promise.race([
+        read,
+        aborted(signal, read).then((): never => {
+          throw signal.reason;
+        }),
+      ])
+    : read);
   if (raw === null) throw new McpAuthRequired();
   const record = decodeCredential(raw, credentialRecord);
   if (record.target !== target) throw new McpAuthRequired();
@@ -93,16 +104,19 @@ export async function storeCredential(
 export async function authFetch(
   input: string | URL | Request,
   init?: RequestInit,
+  dispatcher?: import("undici").Dispatcher,
 ): Promise<Response> {
   try {
-    return await fetch(input, {
+    const request: RequestInit = {
       ...init,
       redirect: "error",
-      signal: AbortSignal.any([
-        AbortSignal.timeout(30_000),
-        ...(init?.signal ? [init.signal] : []),
-      ]),
-    });
+      signal: dispatcher
+        ? (init?.signal ?? null)
+        : AbortSignal.any([AbortSignal.timeout(30_000), ...(init?.signal ? [init.signal] : [])]),
+    };
+    // Node accepts the npm dispatcher through the public undici dispatch interface.
+    if (dispatcher) Object.assign(request, { dispatcher });
+    return await fetch(input, request);
   } catch {
     throw new McpUnavailable();
   }

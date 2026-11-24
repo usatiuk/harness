@@ -51,6 +51,15 @@ async function connect(server: ServerComposition) {
   return client;
 }
 
+it("retains customized host deadlines when another setting changes", async () => {
+  const { client } = await fixture();
+  const saved = await client.peer.request(appSettingsRequest, {});
+  const timeouts = { ...saved.settings.timeouts, shellSeconds: 37, codeCpuSeconds: 2.5 };
+  await client.peer.request(appSettingsUpdateRequest, { timeouts });
+  await client.peer.request(appSettingsUpdateRequest, { keepServerRunning: true });
+  expect((await client.peer.request(appSettingsRequest, {})).settings.timeouts).toEqual(timeouts);
+});
+
 it("shares flat host settings across clients/reconnects while isolating captured homes", async () => {
   const first = await fixture();
   const secondClient = await connect(first.server);

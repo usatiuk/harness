@@ -114,27 +114,29 @@ export class LiteLLMProvider implements ModelProvider {
     );
     let models: DiscoveredModel[] = ids.map((id) => ({ id, profile: {}, supported: true }));
     const diagnostics: string[] = [];
-    const enrichment = AbortSignal.any([signal, AbortSignal.timeout(3000)]);
     try {
       const enriched = enrichModels(
         [...new Set([...ids, ...Object.keys(this.#config.models)])],
         await fetchCatalogJson(
           gatewayUrl(this.#config.baseUrl, "model/info"),
           this.#apiKey,
-          enrichment,
+          signal,
         ),
       );
       models = enriched.models;
       diagnostics.push(...enriched.diagnostics);
     } catch (error) {
-      if (signal.aborted && error === signal.reason) throw error;
-      if (enrichment.aborted && error === enrichment.reason)
-        diagnostics.push("Model metadata request timed out");
+      if (
+        signal.aborted &&
+        error === signal.reason &&
+        error instanceof DOMException &&
+        error.name === "TimeoutError"
+      )
+        diagnostics.push("Model metadata exceeded the provider discovery limit");
       else if (error instanceof ModelDiscoveryError) diagnostics.push(error.message);
       else throw error;
     }
     const catalog = this.#resolve(models, diagnostics);
-    signal.throwIfAborted();
     this.#catalog = catalog;
     return { status: diagnostics.length ? ("degraded" as const) : ("ready" as const), diagnostics };
   }

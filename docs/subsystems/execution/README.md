@@ -80,7 +80,7 @@ changing language. Windows retains its explicit noninteractive PowerShell
 `-NoProfile` contract.
 
 The Unix owner uses native interactive-login startup and captures exports over a
-bounded private binary channel (10-second deadline, 1 MiB export limit). Bash
+bounded private binary channel (one-minute default deadline, 1 MiB export limit). Bash
 follows normal first-login-profile ordering: that profile must source `.bashrc`
 if desired; Harness does not replay files or source them twice. zsh follows its
 normal login/rc order and `ZDOTDIR`. When present, `BASH_ENV` is imported once by
@@ -247,7 +247,7 @@ The shared permission vocabulary is `allow`, `ask`, `ask-human`, and `deny`.
 Native tools select by workspace scope; MCP selects in its own plugin. Both use
 the approval-owned execution/prompting mechanism. Workspace relationship is
 optional for scope-neutral tools. Ask follows auto-review; Ask human bypasses it.
-`plugins.approval.humanApprovalTimeoutSeconds` defaults to 60, accepts positive
+`plugins.approval.humanApprovalTimeoutSeconds` defaults to 900, accepts positive
 finite durations up to 2,147,483 seconds, and applies after request middleware
 passes a prompt to the kernel. The pending-request owner enforces expiry with
 zero clients, records denial, removes the prompt, and ignores late answers.
@@ -281,7 +281,7 @@ skip persisted context builds; existing approval annotations and parent-turn
 usage remain saved. The short denial reason can include information derived from
 inspection. Other model calls keep existing context retention.
 
-`plugins.auto-approval.timeoutSeconds` defaults to 30 and is editable in desktop
+`plugins.auto-approval.timeoutSeconds` defaults to 120 and is editable in desktop
 settings. One signal covers the complete review, including model calls and read
 waiting, with no step/read counts, cumulative quotas, or added model-byte cutoff.
 Deadline expiry uses the existing automatic-denial path. Parent cancellation
@@ -301,8 +301,8 @@ authority. Escalation selects unconfined execution for one child operation only.
 Execution wrappers preserve each tool's direct/code exposure and output contract.
 Guest bridge callbacks remain private to the trusted setup closure.
 
-Fixed limits are 32 MiB guest memory, 512 KiB guest stack, one second cumulative
-interpreter CPU (including getters, serialization, jobs, and settlement), 64 KiB
+Limits are 32 MiB guest memory, 512 KiB guest stack, five seconds of cumulative
+interpreter execution by default (including getters, serialization, jobs, and settlement), 64 KiB
 selected output, 1 MiB per bridge transfer, 8 MiB cumulative bidirectional data,
 128 submissions, and 16 outstanding submissions. Search accepts 512 characters
 and 32 distinct terms, returning at most twelve contracts. Waiting on tools or

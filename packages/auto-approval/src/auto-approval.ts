@@ -37,7 +37,7 @@ const modelSchema = z.strictObject({
 
 export const autoApprovalConfigSchema = z.strictObject({
   enabled: z.boolean().default(false),
-  timeoutSeconds: z.number().positive().max(2_147_483).default(30),
+  timeoutSeconds: z.number().positive().max(2_147_483).default(120),
   model: modelSchema.optional(),
 });
 
@@ -423,7 +423,7 @@ function autoApprovalMiddleware(
         decision = {
           decision: "deny",
           reason: signal.aborted
-            ? "review failed: review timed out"
+            ? `review failed: review timed out after ${config.timeoutSeconds} seconds (auto-approval limit for ${request.call.name})`
             : `review failed: ${boundToolResult(error instanceof Error ? error.message : String(error))}`,
         };
       }

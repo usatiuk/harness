@@ -10,7 +10,7 @@ use tokio::{
 pub async fn execute(
     mut command: Command,
     mut canceled: watch::Receiver<bool>,
-    progress: impl Fn(String) -> Result<(), String>,
+    progress: impl Fn(serde_json::Value) -> Result<(), String>,
     deadline: Option<Duration>,
 ) -> Result<serde_json::Value, String> {
     if *canceled.borrow() {
@@ -59,9 +59,7 @@ pub async fn execute(
                     }
                     if let Ok(event) = serde_json::from_slice::<serde_json::Value>(&line) {
                         if event["type"] == "progress" {
-                            if let Some(message) = event["message"].as_str() {
-                                progress(message.to_owned())?;
-                            }
+                            progress(event)?;
                             continue;
                         }
                     }

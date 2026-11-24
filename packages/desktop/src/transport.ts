@@ -1,4 +1,6 @@
 import {
+  startupProgressSchema,
+  type StartupProgress,
   parseConnectionCommandResult,
   type HostConnectionTarget,
   type ConnectionCommand,
@@ -17,6 +19,8 @@ import { MAX_RPC_FRAME_BYTES, MAX_RPC_WRITER_QUEUE_BYTES } from "@harness/protoc
 
 type ServerEvent =
   | { type: "started"; id: number }
+  | { type: "startupProgress"; event: unknown }
+  | { type: "ownerReady" }
   | { type: "message"; id: number; frame: string }
   | { type: "closed"; message: string };
 
@@ -114,6 +118,7 @@ export async function connectNative(
   target: HostConnectionTarget,
   onClosed: (message: string) => void,
   signal?: AbortSignal,
+  progress?: (event: StartupProgress) => void,
 ) {
   signal?.throwIfAborted();
   const reader = new NativeReader();
@@ -159,6 +164,10 @@ export async function connectNative(
     }
     void close();
   };
+  let markReady!: () => void;
+  const ownerReady = new Promise<void>((resolve) => {
+    markReady = resolve;
+  });
   const channel = new Channel<ServerEvent>();
   channel.onmessage = (event) => {
     if (event.type === "started") {
@@ -167,10 +176,19 @@ export async function connectNative(
       return;
     }
     if (closing) return;
+    if (event.type === "ownerReady") {
+      markReady();
+      return;
+    }
+    if (event.type === "startupProgress") {
+      progress?.(startupProgressSchema.parse(event.event));
+      return;
+    }
     if (event.type === "closed") {
       fail(new Error(event.message));
     } else {
       try {
+        markReady();
         reader.receive(event.frame);
         if (!closing)
           void invoke("server_ack", { id: event.id }).catch(() => {
@@ -204,11 +222,11 @@ export async function connectNative(
   writer = new NativeWriter(fail, admission.id);
   const connection = createMessageConnection(reader, writer);
   connection.onDispose(() => void close());
-  return { connection, close };
+  return { connection, close, ownerReady };
 }
 export async function connectionCommand<C extends ConnectionCommand>(
   command: C,
-  progress?: (message: string) => void,
+  progress?: (event: StartupProgress) => void,
   signal?: AbortSignal,
 ): Promise<ConnectionCommandResult<C>> {
   signal?.throwIfAborted();
@@ -221,11 +239,9 @@ export async function connectionCommand<C extends ConnectionCommand>(
       cancellationError = new Error("Could not cancel the connection attempt", { cause: error });
     });
   };
-  const channel = new Channel<
-    { type: "started"; id: number } | { type: "progress"; message: string }
-  >();
+  const channel = new Channel<{ type: "started"; id: number } | StartupProgress>();
   channel.onmessage = (event) => {
-    if (event.type === "progress") progress?.(event.message);
+    if (event.type === "progress") progress?.(startupProgressSchema.parse(event));
     else {
       id = event.id;
       if (signal?.aborted) cancel();

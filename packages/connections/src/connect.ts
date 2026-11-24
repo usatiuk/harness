@@ -6,9 +6,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { Socket } from "node:net";
 import { PassThrough } from "node:stream";
 import type { RpcConnection } from "@harness/client";
+import { readGlobalSettings } from "@harness/config";
+import { defaultHostTimeouts } from "@harness/protocol";
 import { compareVersions } from "@harness/release";
 import { createNdjsonMessageConnection } from "@harness/client/node";
-import { type ServerIdentity } from "./contracts.ts";
+import { startupProgressSchema, type StartupProgress, type ServerIdentity } from "./contracts.ts";
 import { stopConnection } from "./control.ts";
 import { forwardBridgeInput } from "./bridge-input.ts";
 import { withServerLifecycle } from "./lifecycle.ts";
@@ -24,6 +26,7 @@ import {
 
 /** Execute the owner directly: its process PID is the published identity PID. */
 export interface ServerLaunch {
+  progress?: (event: StartupProgress) => void;
   executable: string;
   args: string[];
   env?: NodeJS.ProcessEnv;
@@ -77,16 +80,20 @@ export async function ensureLocalServer(
   launch: ServerLaunch,
   signal?: AbortSignal,
 ): Promise<HostConnection> {
+  const settings = await readGlobalSettings(requestedHome);
+  const seconds = (settings.timeouts ?? defaultHostTimeouts).hostStartupSeconds;
   return withServerLifecycle(
     requestedHome,
-    (home) => ensureOwnedServer(home, launch, signal),
+    (home) => ensureOwnedServer(home, launch, seconds, signal),
     signal,
+    seconds * 1000,
   );
 }
 
 async function ensureOwnedServer(
   home: string,
   launch: ServerLaunch,
+  seconds: number,
   signal?: AbortSignal,
 ): Promise<HostConnection> {
   signal?.throwIfAborted();
@@ -144,6 +151,7 @@ async function ensureOwnedServer(
           ...process.env,
           ...launch.env,
           HARNESS_HOME: home,
+          HARNESS_STARTUP_PROGRESS: launch.progress ? (usage ? "managed" : "source") : undefined,
           HARNESS_SERVER_SELECTION: launch.selection,
         };
         // Quiet MXC pipe reads occupy Windows libuv workers (microsoft/mxc#1709).
@@ -157,7 +165,9 @@ async function ensureOwnedServer(
         child = spawn(launch.executable, launch.args, {
           env,
           stdio:
-            usage === undefined ? ["ignore", log.fd, log.fd] : ["ignore", log.fd, log.fd, "ipc"],
+            usage === undefined && !launch.progress
+              ? ["ignore", log.fd, log.fd]
+              : ["ignore", log.fd, log.fd, "ipc"],
           detached: true,
           windowsHide: true,
         });
@@ -174,6 +184,13 @@ async function ensureOwnedServer(
           }),
         ),
       };
+      if (launch.progress) {
+        child.on("message", (message: unknown) => {
+          const result = startupProgressSchema.safeParse(message);
+          if (result.success && !signal?.aborted) launch.progress?.(result.data);
+        });
+        if (!usage) child.channel?.unref();
+      }
       if (usage !== undefined) {
         // The child cannot open SQLite until we accept its guard handoff. A
         // cancelled observer may leave it starting, but cannot drop protection.
@@ -188,6 +205,7 @@ async function ensureOwnedServer(
           clearTimeout(expiry);
           usage.close();
           child.send({ type: "cache-use-accepted" }, (error: Error | null) => {
+            child.channel?.unref();
             if (error) {
               childError = error;
               child.kill("SIGKILL");
@@ -208,7 +226,7 @@ async function ensureOwnedServer(
       await log.close();
     }
   };
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + seconds * 1000;
   await start();
   while (Date.now() < deadline) {
     signal?.throwIfAborted();
@@ -233,7 +251,7 @@ async function ensureOwnedServer(
             try {
               await Promise.race([
                 candidate.closed,
-                delay(Math.max(0, deadline - Date.now()), undefined, {
+                delay(20_000, undefined, {
                   signal:
                     signal === undefined
                       ? completed.signal
@@ -271,7 +289,9 @@ async function ensureOwnedServer(
     }
     await delay(50, undefined, { signal });
   }
-  throw await startupFailure("Server did not become ready");
+  throw await startupFailure(
+    `Host startup timed out after ${seconds} seconds. Adjust timeouts.hostStartupSeconds in ${join(home, "settings.json")}`,
+  );
 }
 
 /** A bridge has no execution ownership. EOF only closes its authenticated socket. */

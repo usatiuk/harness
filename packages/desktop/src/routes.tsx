@@ -189,6 +189,15 @@ function defaultSettingsPatch(
           maxChildren: Number(field(data, "subagentMaxChildren")),
         },
       };
+    case "timeouts":
+      return {
+        timeouts: {
+          hostStartupSeconds: Number(field(data, "hostStartupSeconds")),
+          shellSeconds: Number(field(data, "shellSeconds")),
+          providerDiscoverySeconds: Number(field(data, "providerDiscoverySeconds")),
+          codeCpuSeconds: Number(field(data, "codeCpuSeconds")),
+        },
+      };
     case "modelRetries":
       return {
         modelRetries: {
@@ -1120,6 +1129,11 @@ export function createDesktopRouter(
   }) {
     const edit = editPresentation(cell);
     const showDetails = !edit || cell.status !== "ok";
+    const timeoutSettings = cell.output?.includes("(MCP tool execution limit)")
+      ? "mcp"
+      : cell.output?.includes("Code Mode CPU limit") || cell.approval?.reason?.includes("timed out")
+        ? "defaults"
+        : undefined;
     return (
       <>
         {cell.parentCallId && <p className="muted">Invoked by {cell.parentCallId}</p>}
@@ -1149,6 +1163,9 @@ export function createDesktopRouter(
           <>
             <h3>Output</h3>
             <pre data-testid="tool-output">{cell.output ?? "Waiting for output…"}</pre>
+            {cell.status === "error" && timeoutSettings && (
+              <Link to={`/settings/${timeoutSettings}`}>Timeout settings</Link>
+            )}
             {cell.images && <ImagePreviews images={cell.images} />}
           </>
         )}

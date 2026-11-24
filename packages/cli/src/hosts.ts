@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { defaultHostTimeouts } from "@harness/protocol";
 import { defaultHome } from "@harness/config";
 import {
   serverInfoRequest,
@@ -200,7 +201,12 @@ export class TuiHosts {
         signal.throwIfAborted();
         transport = await connectRemote(host, view.runtime, { env: this.env, signal });
       }
-      const ready = AbortSignal.any([signal, AbortSignal.timeout(20_000)]);
+      const ready = AbortSignal.any([
+        signal,
+        AbortSignal.timeout(
+          (host.kind === "local" ? 120 : defaultHostTimeouts.hostStartupSeconds) * 1000,
+        ),
+      ]);
       const cancel = () => transport!.connection.dispose();
       ready.addEventListener("abort", cancel, { once: true });
       let harness: Harness;

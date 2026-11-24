@@ -42,9 +42,13 @@ export function SessionRouter({
   storageKey,
   controls,
   label,
+  opening,
+  onOpened,
 }: {
   router: ReturnType<typeof createSessionRouter>;
   storageKey: string;
+  opening?: ReactNode;
+  onOpened?: () => void;
   controls: ReactNode;
   label: string;
 }) {
@@ -52,7 +56,8 @@ export function SessionRouter({
   const scope = useSyncExternalStore(
     (notify) => router.subscribe(notify),
     () => {
-      if (withinSession(router.state.location.pathname, basename)) return "active";
+      if (withinSession(router.state.location.pathname, basename))
+        return router.state.initialized ? "active" : "opening";
       const next = router.state.navigation.location;
       return next && withinSession(next.pathname, basename) ? "opening" : "other";
     },
@@ -64,13 +69,16 @@ export function SessionRouter({
     },
     [router],
   );
+  useEffect(() => {
+    if (scope === "active") onOpened?.();
+  }, [scope, onOpened]);
   if (scope === "active")
     return (
       <PreferenceWrites.Provider value={router.preferenceWrites}>
         <RouterProvider router={router} />
       </PreferenceWrites.Provider>
     );
-  if (scope === "opening") return <div className="startup">Loading {APP_NAME}…</div>;
+  if (scope === "opening") return opening ?? <div className="startup">Loading {APP_NAME}…</div>;
   return (
     <div className="app">
       <aside className="sidebar">{controls}</aside>

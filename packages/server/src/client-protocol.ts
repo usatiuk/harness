@@ -2,6 +2,7 @@ import { z } from "zod";
 import { sandboxBackendSchema } from "@harness/sandbox/client";
 import { subagentLimitsSchema } from "@harness/subagents/client";
 import {
+  hostTimeoutsSchema,
   defineNotification,
   defineRequest,
   compactionThresholdSchema,
@@ -31,7 +32,7 @@ const settings = z.strictObject({
   autoApproval: z.strictObject({
     enabled: z.boolean(),
     model: model.nullable(),
-    timeoutSeconds: z.number().positive().max(2147483).default(30),
+    timeoutSeconds: z.number().positive().max(2147483).default(120),
   }),
   sandbox: sandboxBackendSchema,
   toolMode: z.preprocess(
@@ -40,6 +41,7 @@ const settings = z.strictObject({
   ),
   showToolNames: z.boolean(),
   keepServerRunning: z.boolean(),
+  timeouts: hostTimeoutsSchema.prefault({}),
   subagents: subagentLimitsSchema,
   compactionThresholdTokens: compactionThresholdSchema.nullable(),
   worktreeDirectory: z.string().trim().min(1).nullable(),
@@ -109,28 +111,32 @@ export const appInstructionsUpdateRequest = defineRequest({
 export const appSettingsUpdateRequest = defineRequest({
   direction: "client-to-server",
   method: "app.settings.update",
-  params: settings.partial().transform((patch) => ({
-    ...(patch.model === undefined ? {} : { model: patch.model }),
-    ...(patch.conversationTitleModel === undefined
-      ? {}
-      : { conversationTitleModel: patch.conversationTitleModel }),
-    ...(patch.approval === undefined ? {} : { approval: patch.approval }),
-    ...(patch.autoApproval === undefined ? {} : { autoApproval: patch.autoApproval }),
-    ...(patch.subagents === undefined ? {} : { subagents: patch.subagents }),
-    ...(patch.sandbox === undefined ? {} : { sandbox: patch.sandbox }),
-    ...(patch.toolMode === undefined ? {} : { toolMode: patch.toolMode }),
-    ...(patch.showToolNames === undefined ? {} : { showToolNames: patch.showToolNames }),
-    ...(patch.worktreeDirectory === undefined
-      ? {}
-      : { worktreeDirectory: patch.worktreeDirectory }),
-    ...(patch.compactionThresholdTokens === undefined
-      ? {}
-      : { compactionThresholdTokens: patch.compactionThresholdTokens }),
-    ...(patch.modelRetries === undefined ? {} : { modelRetries: patch.modelRetries }),
-    ...(patch.keepServerRunning === undefined
-      ? {}
-      : { keepServerRunning: patch.keepServerRunning }),
-  })),
+  params: settings
+    .partial()
+    .extend({ timeouts: hostTimeoutsSchema.optional() })
+    .transform((patch) => ({
+      ...(patch.model === undefined ? {} : { model: patch.model }),
+      ...(patch.conversationTitleModel === undefined
+        ? {}
+        : { conversationTitleModel: patch.conversationTitleModel }),
+      ...(patch.approval === undefined ? {} : { approval: patch.approval }),
+      ...(patch.autoApproval === undefined ? {} : { autoApproval: patch.autoApproval }),
+      ...(patch.subagents === undefined ? {} : { subagents: patch.subagents }),
+      ...(patch.sandbox === undefined ? {} : { sandbox: patch.sandbox }),
+      ...(patch.toolMode === undefined ? {} : { toolMode: patch.toolMode }),
+      ...(patch.showToolNames === undefined ? {} : { showToolNames: patch.showToolNames }),
+      ...(patch.worktreeDirectory === undefined
+        ? {}
+        : { worktreeDirectory: patch.worktreeDirectory }),
+      ...(patch.compactionThresholdTokens === undefined
+        ? {}
+        : { compactionThresholdTokens: patch.compactionThresholdTokens }),
+      ...(patch.modelRetries === undefined ? {} : { modelRetries: patch.modelRetries }),
+      ...(patch.timeouts === undefined ? {} : { timeouts: patch.timeouts }),
+      ...(patch.keepServerRunning === undefined
+        ? {}
+        : { keepServerRunning: patch.keepServerRunning }),
+    })),
   result: z.null(),
 });
 export const appProviderCreateRequest = defineRequest({

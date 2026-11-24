@@ -17,6 +17,7 @@ import {
   compareVersions,
   type LinuxTarget,
 } from "@harness/release";
+import { startupProgressSchema, type StartupProgress } from "./contracts.ts";
 import { preparedServerSchema } from "./local-runtime.ts";
 import { serverSelectionSchema } from "./selection.ts";
 import { createNdjsonMessageConnection } from "@harness/client/node";
@@ -45,7 +46,7 @@ export interface RemoteOptions {
   sshConfigFile?: string;
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
-  progress?: (message: string) => void;
+  progress?: (message: string, event?: StartupProgress) => void;
 }
 export class RemoteCommandError extends Error {
   constructor(
@@ -180,8 +181,24 @@ async function executeRemote(
         else child.kill();
       }
     });
-    child.stderr.on("data", (chunk: Buffer) => {
-      diagnostic = (diagnostic + chunk.toString()).slice(-8192);
+    let pending = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      diagnostic = (diagnostic + chunk).slice(-8192);
+      if (!preparation || !options.progress) return;
+      const lines = (pending + chunk).split("\n");
+      pending = lines.pop()!.slice(-8192);
+      for (const line of lines) {
+        if (!line.startsWith("{") || line.length > 8192) continue;
+        let value: unknown;
+        try {
+          value = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const event = startupProgressSchema.safeParse(value);
+        if (event.success) options.progress(event.data.message, event.data);
+      }
     });
     child.on("close", (code) =>
       failure
@@ -251,7 +268,28 @@ const preparedTransferSchema = preparedServerSchema.extend({
 const privateDirectory = (path: string): string =>
   `mkdir -p ${q(path)}; cursor=$(readlink -f ${q(path)}); leafMode=$(stat -c %a "$cursor"); test $((0$leafMode & 0022)) = 0 || { echo 'Runtime directory is writable by other users' >&2; exit 1; }; uid=$(id -u); while :; do owner=$(stat -c %u "$cursor"); mode=$(stat -c %a "$cursor"); test "$owner" = "$uid" || test "$owner" = 0 || { echo 'Runtime ancestry belongs to another user' >&2; exit 1; }; if test $((0$mode & 0022)) != 0 && test $((0$mode & 01000)) = 0; then echo 'Runtime ancestry is writable by other users' >&2; exit 1; fi; test "$cursor" = / && break; cursor=$(dirname "$cursor"); done; test "$(stat -c %u ${q(path)})" = "$uid" || { echo 'Runtime directory belongs to another user' >&2; exit 1; };`;
 
-async function fetchBytes(url: string, limit: number, options: RemoteOptions): Promise<Buffer> {
+async function fetchBytes(
+  url: string,
+  limit: number,
+  options: RemoteOptions,
+  artifact?: string,
+): Promise<Buffer> {
+  const started = performance.now();
+  let last = started;
+  const report = (completed: number) => {
+    if (!artifact) return;
+    const now = performance.now();
+    if (completed && completed < limit && now - last < 250) return;
+    last = now;
+    options.progress?.(artifact, {
+      type: "progress",
+      message: artifact,
+      completed,
+      total: limit,
+      bytesPerSecond: (completed * 1000) / Math.max(1, now - started),
+    });
+  };
+  report(0);
   const deadline = AbortSignal.timeout(120_000);
   const response = await fetch(url, {
     signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
@@ -264,6 +302,7 @@ async function fetchBytes(url: string, limit: number, options: RemoteOptions): P
     size += chunk.length;
     if (size > limit) throw new Error("Release metadata exceeds its size limit");
     chunks.push(Buffer.from(chunk));
+    report(size);
   }
   return Buffer.concat(chunks);
 }
@@ -433,7 +472,14 @@ export async function prepareRemoteRuntime(
       const bootstrapInput =
         "path" in bootstrap
           ? createReadStream(bootstrap.path)
-          : Readable.from([await fetchBytes(bootstrap.url, bootstrap.size, options)]);
+          : Readable.from([
+              await fetchBytes(
+                bootstrap.url,
+                bootstrap.size,
+                options,
+                "Downloading remote bootstrap",
+              ),
+            ]);
       await transfer("harness-bootstrap", bootstrapInput, bootstrap);
       if (sourceDirectory && server)
         await transfer(

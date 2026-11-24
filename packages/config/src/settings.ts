@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { jsonValueSchema, compactionThresholdSchema } from "@harness/protocol";
+import { jsonValueSchema, compactionThresholdSchema, hostTimeoutsSchema } from "@harness/protocol";
 
 /**
  * The on-disk settings document — kernel keys plus an opaque per-plugin namespace
@@ -52,6 +52,7 @@ export const settingsDocSchema = z.strictObject({
   compaction: z.strictObject({ thresholdTokens: compactionThresholdSchema }).optional(),
   outputTokenCeiling: z.number().int().positive().optional(),
   auth: authSchema.optional(),
+  timeouts: hostTimeoutsSchema.optional(),
   desktop: z.strictObject({ keepServerRunning: z.boolean().optional() }).optional(),
   providers: z
     .record(

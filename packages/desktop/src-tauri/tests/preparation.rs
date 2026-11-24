@@ -50,7 +50,7 @@ async fn source_development_runs_the_workspace_without_installing_a_runtime() {
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("home with spaces");
     let (_cancel, canceled) = watch::channel(false);
-    let prepared = runtime::prepare(desktop(&home), None, false, canceled)
+    let prepared = runtime::prepare(desktop(&home), None, false, canceled, |_| Ok(()))
         .await
         .unwrap();
     let mut process = prepared.command();
@@ -87,6 +87,7 @@ async fn actual_preparation_and_command_retain_one_cache_lease_through_exit() {
         Some(workspace().join("packages/desktop/resources")),
         true,
         canceled,
+        |_| Ok(()),
     )
     .await
     .unwrap();
@@ -123,6 +124,7 @@ async fn failed_preparation_leaves_no_window_or_cache_lease() {
         Some(root.path().join("missing payload")),
         true,
         canceled,
+        |_| Ok(()),
     )
     .await;
     assert!(result.err().unwrap().contains("Runtime preparation failed"));
@@ -146,7 +148,7 @@ async fn cancellation_joins_a_blocked_helper_before_releasing_the_cache() {
     child.args(["--eval", "require('fs').writeFileSync(process.argv[1], 'ready'); process.stdin.resume(); process.stdin.on('end', () => process.exit(1));", "--"])
         .arg(&marker).env("HARNESS_HOME", &home);
     let (cancel, canceled) = watch::channel(false);
-    let task = tokio::spawn(runtime::prepare(child, None, false, canceled));
+    let task = tokio::spawn(runtime::prepare(child, None, false, canceled, |_| Ok(())));
     tokio::time::timeout(Duration::from_secs(20), async {
         while !marker.exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;

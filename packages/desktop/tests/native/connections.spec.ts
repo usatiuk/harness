@@ -8,10 +8,65 @@ import { remoteProcessFixture } from "@harness/testkit";
 import { canonicalHome, readDiscovery, discoverySchema } from "@harness/connections/local";
 import { stopServer, runRemote, shellQuote } from "@harness/connections/node";
 import { clientConfigSchema, type Host } from "@harness/connections";
+import { httpFixture } from "../../../mcp/src/testing-fixture.ts";
 import { NativeApplication } from "./application.ts";
 import { expandWorkGroup, manageConnections, switchHost, settingsSection } from "./controls.ts";
 
 test.skip(process.platform !== "win32", "Native CDP requires Windows WebView2");
+test("cold startup reports real MCP work, stable controls and retained timings", async ({}, info) => {
+  test.setTimeout(120_000);
+  const home = await canonicalHome(info.outputPath("home"));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let onRequest!: () => void;
+  const connected = new Promise<void>((resolve) => {
+    onRequest = resolve;
+  });
+  const fixture = await httpFixture({
+    before: async () => {
+      onRequest();
+      await gate;
+      return false;
+    },
+  });
+  const transport = { type: "http", url: fixture.url };
+  await writeFile(
+    join(home, "settings.json"),
+    JSON.stringify({ version: 1, plugins: { mcp: { servers: { fixture: { transport } } } } }),
+  );
+  let app: NativeApplication | undefined;
+  try {
+    app = await NativeApplication.launch(
+      info.outputPath("profile"),
+      info.outputPath("evidence"),
+      home,
+    );
+    const { page } = app;
+    const cancel = page.getByRole("button", { name: "Cancel connection" });
+    const status = page.locator(".startup-card [role=status]");
+    await connected;
+    await expect(status).toContainText("Connecting to fixture MCP");
+    const position = await cancel.boundingBox();
+    await expect(status).toContainText(/2[1-9] s/, { timeout: 35_000 });
+    expect(await cancel.boundingBox()).toEqual(position);
+    await page.screenshot({ path: info.outputPath("slow-start.png") });
+    release();
+    await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+    await manageConnections(page);
+    await page.getByText("Startup details", { exact: true }).click();
+    await expect(
+      page.getByRole("dialog").getByText(/Discovering tools on fixture MCP · .* s/),
+    ).toBeVisible();
+    expect(app.errors).toEqual([]);
+  } finally {
+    release();
+    await app?.close();
+    await fixture.close();
+  }
+});
+
 test("packaged Local starts outside the checkout and reuses its standalone cache", async ({}, info) => {
   const directory = await mkdtemp(join(tmpdir(), "harness-native-isolated-"));
   const home = await canonicalHome(join(directory, "home"));
@@ -27,6 +82,7 @@ test("packaged Local starts outside the checkout and reuses its standalone cache
       home,
       directory,
     );
+    await expect.poll(() => readDiscovery(home), { timeout: 60_000 }).not.toBeNull();
     await expect(app.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
     await app.page.getByRole("link", { name: "Settings", exact: true }).click();
     await settingsSection(app.page, "Application");
@@ -46,6 +102,7 @@ test("packaged Local starts outside the checkout and reuses its standalone cache
       home,
       directory,
     );
+    await expect.poll(() => readDiscovery(home), { timeout: 60_000 }).not.toBeNull();
     await expect(app.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
     const second = await readDiscovery(home);
     if (!second) throw new Error("Missing restarted standalone owner discovery");
@@ -182,6 +239,7 @@ test("stop-on-exit closes a native bridge before its RPC initialization", async 
   );
   const app = await NativeApplication.launch(profile, info.outputPath("application"), home);
   try {
+    await expect.poll(() => readDiscovery(home), { timeout: 60_000 }).not.toBeNull();
     await expect(app.page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
     await app.page.getByRole("link", { name: "Settings", exact: true }).click();
     await settingsSection(app.page, "Application");

@@ -2,12 +2,15 @@ import {
   Client,
   StreamableHTTPClientTransport,
   SdkError,
+  SdkErrorCode,
   OAuthError,
   OAuthClientFlowError,
   type JsonSchemaType,
   type Tool as McpTool,
   type Transport,
 } from "@modelcontextprotocol/client";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { Agent } from "undici";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { createToolApproval } from "@harness/approval";
@@ -20,7 +23,12 @@ import {
   type Tool,
 } from "@harness/protocol";
 import type { SecretStore } from "@harness/secrets";
-import { mcpConfigSchema, type McpConfig, type McpServerConfig } from "./config.ts";
+import {
+  mcpConfigSchema,
+  type McpConfig,
+  type McpServerConfig,
+  type McpTimeouts,
+} from "./config.ts";
 import { mcpStatusSchema } from "./client.ts";
 import {
   authFetch,
@@ -52,10 +60,32 @@ interface CatalogTool {
   tool: Tool;
 }
 
+// Legacy MCP sends cancellation separately. Keep the request signal on HTTP auth
+// retries too, so an expired tool call cannot be posted after credential refresh.
+const toolRequest = new AsyncLocalStorage<AbortSignal>();
+class HttpTransport extends StreamableHTTPClientTransport {
+  override send(...[message, options]: Parameters<StreamableHTTPClientTransport["send"]>) {
+    const signal = toolRequest.getStore();
+    return super.send(
+      message,
+      signal && "id" in message
+        ? {
+            ...options,
+            requestSignal: options?.requestSignal
+              ? AbortSignal.any([signal, options.requestSignal])
+              : signal,
+          }
+        : options,
+    );
+  }
+}
+
 export class McpRuntime {
   readonly config: McpConfig;
   readonly #secrets: SecretStore;
   readonly #env: NodeJS.ProcessEnv;
+  // The operation signal owns the deadline, including silent HTTP responses longer than five minutes.
+  readonly #http = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
   readonly #connections = new Map<string, Connection>();
   readonly #catalog: CatalogTool[] = [];
   readonly #statuses = new Map<string, Status>();
@@ -105,12 +135,26 @@ export class McpRuntime {
     void operation.finally(() => this.#operations.delete(operation)).catch(() => {});
     return operation;
   }
-  async initialize(signal?: AbortSignal): Promise<void> {
+  async initialize(
+    signal?: AbortSignal,
+    progress?: (message: string, completed: number, total: number) => void,
+  ): Promise<void> {
+    const enabled = Object.entries(this.config.servers).filter(([, server]) => server.enabled);
+    const total = enabled.length;
+    let completed = 0;
+    if (total > 1) for (const [id] of enabled) progress?.(`Queued ${id} MCP`, completed, total);
     for (const [id, config] of Object.entries(this.config.servers)) {
       this.#statuses.set(id, this.#status(id, "disabled"));
       if (!config.enabled) continue;
       try {
-        const { connection, descriptors } = await this.#connect(id, config, signal);
+        const limits = { ...this.config.timeouts, ...config.timeouts };
+        const { connection, descriptors } = await this.#connect(
+          id,
+          config,
+          signal,
+          limits,
+          (message) => progress?.(message, completed, total),
+        );
         this.#connections.set(id, connection);
         const catalog: CatalogTool[] = [];
         const validator = new AjvJsonSchemaValidator();
@@ -144,10 +188,15 @@ export class McpRuntime {
             exposure: { direct: false, code: true },
             ...(descriptor.outputSchema ? { outputSchema: descriptor.outputSchema } : {}),
             execute: async (args, ctx) => {
+              const timeout = Math.ceil(limits.executionSeconds * 1000);
+              const deadline = AbortSignal.timeout(timeout);
               try {
-                const result = await connection.client.callTool(
-                  { name: descriptor.name, arguments: args as Record<string, unknown> },
-                  { signal: ctx.signal, timeout: 30_000 },
+                const signal = AbortSignal.any([ctx.signal, deadline]);
+                const result = await toolRequest.run(signal, () =>
+                  connection.client.callTool(
+                    { name: descriptor.name, arguments: args as Record<string, unknown> },
+                    { signal, timeout },
+                  ),
                 );
                 const images = imageContentsSchema.safeParse(
                   result.content
@@ -182,6 +231,13 @@ export class McpRuntime {
                 };
               } catch (error) {
                 if (ctx.signal.aborted) throw error;
+                if (
+                  deadline.aborted ||
+                  (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout)
+                )
+                  return errorResult(
+                    `${id} MCP tool ${descriptor.name} timed out after ${limits.executionSeconds} seconds (MCP tool execution limit).`,
+                  );
                 if (isExternal(error))
                   return errorResult(
                     error instanceof McpAuthRequired
@@ -217,6 +273,13 @@ export class McpRuntime {
           ),
         );
       }
+      completed++;
+      const status = this.#statuses.get(id)!;
+      progress?.(
+        `${id} MCP · ${status.status === "ready" ? "ready" : status.detail}`,
+        completed,
+        total,
+      );
     }
   }
   #status(id: string, status: Status["status"], detail?: string): Status {
@@ -302,102 +365,140 @@ export class McpRuntime {
   async #connect(
     id: string,
     config: McpServerConfig,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    limits: McpTimeouts,
+    progress?: (message: string) => void,
   ): Promise<{ connection: Connection; descriptors: McpTool[] }> {
-    this.#lifetime.signal.throwIfAborted();
-    const target = targetIdentity(config.transport),
-      store = this.#store(id, "credential");
-    let transport: Transport;
-    let httpStatus: number | undefined;
-    let stage = "initialization";
-    if (config.transport.type === "stdio") {
-      const env = Object.fromEntries(
-        await Promise.all(
-          Object.entries(config.transport.env).map(
-            async ([key, source]) =>
-              [key, await resolveValue(source, target, store, this.#env)] as const,
-          ),
-        ),
-      );
-      transport = new StdioClientTransport({
-        command: config.transport.executable,
-        args: config.transport.args,
-        env,
-        ...(config.transport.cwd ? { cwd: config.transport.cwd } : {}),
-        stderr: "pipe",
-      });
-      (transport as StdioClientTransport).stderr?.on("data", () => {});
-    } else {
-      const settings = config.transport;
-      const headers = new Headers();
-      for (const [key, source] of Object.entries(settings.headers)) {
-        const value = await resolveValue(source, target, store, this.#env);
-        if (/[\r\n\0]/u.test(value)) throw new McpAuthRequired();
-        headers.set(key, value);
-      }
-      const auth = settings.auth;
-      const bearerToken =
-        auth.type === "bearer"
-          ? await resolveValue(auth.token, target, store, this.#env)
-          : undefined;
-      const authProvider =
-        auth.type === "oauth"
-          ? this.#owner(id).authProvider(this.#authTarget(config))
-          : auth.type === "bearer"
-            ? { token: () => Promise.resolve(bearerToken) }
-            : undefined;
-
-      transport = new StreamableHTTPClientTransport(new URL(settings.url), {
-        ...(authProvider ? { authProvider } : {}),
-        reconnectionOptions: {
-          maxRetries: 0,
-          maxReconnectionDelay: 0,
-          initialReconnectionDelay: 0,
-          reconnectionDelayGrowFactor: 1,
-        },
-        fetch: async (input, init) => {
-          const url = typeof input === "string" ? input : input.href;
-          const outgoing = new Headers(init?.headers);
-          if (new URL(url).href === target)
-            for (const [key, value] of headers) outgoing.set(key, value);
-          const response = await authFetch(input, { ...init, headers: outgoing });
-          httpStatus = response.ok ? undefined : response.status;
-          return response;
-        },
-      });
-    }
-    const client = new Client(
-      { name: "Harness", version: "0.0.0" },
-      {
-        capabilities: {},
-        versionNegotiation: { mode: "auto", probe: { timeoutMs: 1_000, maxRetries: 0 } },
-      },
-    );
+    const timeout = Math.ceil(limits.startupSeconds * 1000);
+    const deadline = AbortSignal.timeout(timeout);
     const combined = AbortSignal.any([
       this.#lifetime.signal,
-      AbortSignal.timeout(30_000),
+      deadline,
       ...(signal ? [signal] : []),
     ]);
+    combined.throwIfAborted();
+    progress?.(`Connecting to ${id} MCP`);
+    const target = targetIdentity(config.transport),
+      store = this.#store(id, "credential");
+    let transport: Transport | undefined;
+    let httpStatus: number | undefined;
+    let stage = "initialization";
     const abort = () => {
-      void client.close();
+      void transport?.close();
     };
     combined.addEventListener("abort", abort, { once: true });
     try {
-      await client.connect(transport, { signal: combined, timeout: 30_000 });
+      if (config.transport.type === "stdio") {
+        const env = Object.fromEntries(
+          await Promise.all(
+            Object.entries(config.transport.env).map(
+              async ([key, source]) =>
+                [key, await resolveValue(source, target, store, this.#env, combined)] as const,
+            ),
+          ),
+        );
+        transport = new StdioClientTransport({
+          command: config.transport.executable,
+          args: config.transport.args,
+          env,
+          ...(config.transport.cwd ? { cwd: config.transport.cwd } : {}),
+          stderr: "pipe",
+        });
+        (transport as StdioClientTransport).stderr?.on("data", () => {});
+      } else {
+        const settings = config.transport;
+        const headers = new Headers();
+        for (const [key, source] of Object.entries(settings.headers)) {
+          const value = await resolveValue(source, target, store, this.#env, combined);
+          if (/[\r\n\0]/u.test(value)) throw new McpAuthRequired();
+          headers.set(key, value);
+        }
+        const auth = settings.auth;
+        const bearerToken =
+          auth.type === "bearer"
+            ? await resolveValue(auth.token, target, store, this.#env, combined)
+            : undefined;
+        const authProvider =
+          auth.type === "oauth"
+            ? this.#owner(id).authProvider(this.#authTarget(config), (url, init) =>
+                authFetch(
+                  url,
+                  {
+                    ...init,
+                    signal: AbortSignal.any([
+                      this.#lifetime.signal,
+                      AbortSignal.timeout(
+                        Math.ceil(1000 * Math.max(limits.startupSeconds, limits.executionSeconds)),
+                      ),
+                      ...(init?.signal ? [init.signal] : []),
+                    ]),
+                  },
+                  this.#http,
+                ),
+              )
+            : auth.type === "bearer"
+              ? { token: () => Promise.resolve(bearerToken) }
+              : undefined;
+
+        transport = new HttpTransport(new URL(settings.url), {
+          ...(authProvider ? { authProvider } : {}),
+          reconnectionOptions: {
+            maxRetries: 0,
+            maxReconnectionDelay: 0,
+            initialReconnectionDelay: 0,
+            reconnectionDelayGrowFactor: 1,
+          },
+          fetch: async (input, init) => {
+            const url = typeof input === "string" ? input : input.href;
+            const outgoing = new Headers(init?.headers);
+            if (new URL(url).href === target)
+              for (const [key, value] of headers) outgoing.set(key, value);
+            const response = await authFetch(input, { ...init, headers: outgoing }, this.#http);
+            httpStatus = response.ok ? undefined : response.status;
+            return response;
+          },
+        });
+      }
+      const client = new Client(
+        { name: "Harness", version: "0.0.0" },
+        {
+          capabilities: {},
+          versionNegotiation: {
+            mode: "auto",
+            probe: {
+              timeoutMs:
+                config.transport.type === "http"
+                  ? timeout
+                  : Math.ceil(1000 * Math.min(limits.stdioProbeSeconds, limits.startupSeconds / 2)),
+              maxRetries: 0,
+            },
+          },
+        },
+      );
+
+      combined.throwIfAborted();
+      await client.connect(transport, { signal: combined, timeout });
       httpStatus = undefined;
       stage = "tool discovery";
-      const descriptors = (await client.listTools({}, { signal: combined, timeout: 30_000 })).tools;
+      progress?.(`Discovering tools on ${id} MCP`);
+      const descriptors = (await client.listTools({}, { signal: combined, timeout })).tools;
+      combined.throwIfAborted();
       if (descriptors.length > 1_000 || JSON.stringify(descriptors).length > 2_000_000)
         throw new McpUnavailable();
       return { connection: { client, transport }, descriptors };
     } catch (error) {
-      await transport.close();
+      await transport?.close();
       if (signal?.aborted || this.#lifetime.signal.aborted) throw error;
+      if (deadline.aborted)
+        throw new McpUnavailable(
+          stage === "tool discovery"
+            ? `${id} MCP connected, but tool discovery did not finish within the ${limits.startupSeconds}-second startup limit.`
+            : `${id} MCP initialization timed out after ${limits.startupSeconds} seconds (startup limit).`,
+        );
       if (error instanceof McpAuthRequired || error instanceof McpCredentialUnavailable)
         throw error;
       if (httpStatus !== undefined && isExternal(error))
         throw new McpUnavailable(`MCP ${stage} failed (HTTP ${httpStatus})`);
-      if (combined.aborted) throw new McpUnavailable(`MCP ${stage} timed out`);
       if (isExternal(error)) {
         const code =
           error instanceof Error &&
@@ -421,11 +522,19 @@ export class McpRuntime {
       combined.removeEventListener("abort", abort);
     }
   }
-  async test(id: string, config: McpServerConfig, signal?: AbortSignal): Promise<Status> {
+  async test(
+    id: string,
+    config: McpServerConfig,
+    signal?: AbortSignal,
+    defaults = this.config.timeouts,
+  ): Promise<Status> {
     return this.#track(
       (async () => {
         try {
-          const { connection, descriptors } = await this.#connect(id, config, signal);
+          const { connection, descriptors } = await this.#connect(id, config, signal, {
+            ...defaults,
+            ...config.timeouts,
+          });
           try {
             return { ...this.#status(id, "ready"), toolCount: descriptors.length };
           } finally {
@@ -539,6 +648,7 @@ export class McpRuntime {
       ...[...this.#connections.values()].map(({ client }) => client.close()),
       ...[...this.#oauth.values()].map((owner) => owner.close()),
       ...this.#operations,
+      this.#http.destroy(),
     ]);
     const failures = results.filter(
       (r): r is PromiseRejectedResult => r.status === "rejected" && !isExternal(r.reason),

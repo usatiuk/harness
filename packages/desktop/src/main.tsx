@@ -7,16 +7,17 @@ import {
   useState,
   useSyncExternalStore,
   type RefObject,
+  type ReactNode,
 } from "react";
 import { DesktopSession } from "./session.ts";
 import { DesktopHosts, type HostView } from "./hosts.ts";
 import { ConnectionEditor, HostControls } from "./connections-menu.tsx";
 import { createDesktopRouter } from "./routes.tsx";
 import { SessionRouter } from "./session-router.tsx";
-import { Button, Tooltip } from "./ui.tsx";
-import { Monitor, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Tooltip } from "./ui.tsx";
+import { StartupProgress } from "./components/startup-progress.tsx";
 import { WindowShell } from "./window-shell.tsx";
-import { APP_NAME } from "./app-name.ts";
+
 import "./styles.css";
 
 const container = document.getElementById("root");
@@ -33,7 +34,9 @@ function SessionRoutes({
   session,
   onManage,
   hostTrigger,
+  opening,
 }: {
+  opening: ReactNode;
   view: HostView;
   session: DesktopSession;
   onManage: () => void;
@@ -49,9 +52,12 @@ function SessionRoutes({
       }),
     [session, view, onManage, hostTrigger],
   );
+  const opened = useCallback(() => view.attempt?.finish(), [view]);
   return (
     <SessionRouter
       router={router}
+      opening={opening}
+      onOpened={opened}
       storageKey={session.storageKey("route")}
       label={view.host.label}
       controls={<HostControls hosts={hosts} onManage={onManage} triggerRef={hostTrigger} />}
@@ -71,82 +77,46 @@ function Desktop() {
   }, []);
   useEffect(initialize, [initialize]);
   const view = hosts.selected;
+  const startup = (
+    <div className="app">
+      <aside className="sidebar">
+        <HostControls hosts={hosts} onManage={onManage} triggerRef={hostTrigger} />
+      </aside>
+      <main className="connection-page">
+        <StartupProgress
+          settingsLocation={view?.host.kind === "local" ? "local" : view?.runtime?.home}
+          host={view?.host.label ?? "Workspace"}
+          attempt={view?.attempt ?? hosts.boot}
+          busy={
+            !!(view?.session && !view.session.disconnected) ||
+            !!view?.progress ||
+            (!hosts.config && !error)
+          }
+          error={error ?? view?.error}
+          cancel={() =>
+            view?.session ? void hosts.disconnect(view.host.id) : hosts.cancel(view?.host.id)
+          }
+          retry={() => {
+            setError(undefined);
+            if (!view) initialize();
+            else void hosts.reconnect(view.host.id).catch(() => undefined);
+          }}
+        />
+      </main>
+    </div>
+  );
   const content =
     view?.session && !view.session.disconnected ? (
       <SessionRoutes
         key={view.host.id}
+        opening={startup}
         view={view}
         session={view.session}
         onManage={onManage}
         hostTrigger={hostTrigger}
       />
     ) : (
-      <div className="app">
-        <aside className="sidebar">
-          <HostControls hosts={hosts} onManage={onManage} triggerRef={hostTrigger} />
-        </aside>
-        <main className="connection-page">
-          <section className="connection-empty-state">
-            {error ? (
-              <TriangleAlert size={22} aria-hidden="true" />
-            ) : view?.progress || !hosts.config ? (
-              <LoaderCircle size={22} className="loading-icon" aria-hidden="true" />
-            ) : (
-              <Monitor size={22} aria-hidden="true" />
-            )}
-            <h1>
-              {hosts.config
-                ? `${view?.host.label ?? "Host"} connection`
-                : error
-                  ? `Could not start ${APP_NAME}`
-                  : `Starting ${APP_NAME}…`}
-            </h1>
-            <p className="muted">
-              {error && !hosts.config
-                ? "Check the configuration, then try again."
-                : view?.progress || !hosts.config
-                  ? "Getting your workspace ready."
-                  : "Reconnect to continue your conversations."}
-            </p>
-            {(error ?? view?.error) && (
-              <p role="alert" className="error">
-                {error ?? view?.error}
-              </p>
-            )}
-            {!hosts.config && error && (
-              <Button
-                onClick={() => {
-                  setError(undefined);
-                  initialize();
-                }}
-              >
-                Retry startup
-              </Button>
-            )}
-            {view?.progress ? (
-              <>
-                <p role="status">{view.progress}</p>
-                <Button onClick={() => hosts.cancel(view.host.id)}>Cancel connection</Button>
-              </>
-            ) : (
-              hosts.config && (
-                <Button
-                  onClick={() => {
-                    setError(undefined);
-                    void hosts
-                      .reconnect(hosts.config!.selectedHostId)
-                      .catch((cause: unknown) =>
-                        setError(cause instanceof Error ? cause.message : String(cause)),
-                      );
-                  }}
-                >
-                  Reconnect
-                </Button>
-              )
-            )}
-          </section>
-        </main>
-      </div>
+      startup
     );
   return (
     <>

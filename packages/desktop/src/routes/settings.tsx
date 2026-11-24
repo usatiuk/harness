@@ -11,6 +11,7 @@ import { InstructionsSettings } from "../components/instructions-settings.tsx";
 import { FeedbackSettings } from "../components/feedback-controls.tsx";
 import { ManagedWorktrees, ManagedDockerEnvironments } from "../components/worktree-controls.tsx";
 import { McpSettings } from "../components/mcp-settings.tsx";
+import { DesktopTimeoutField } from "../components/startup-progress.tsx";
 import { DesktopUpdates } from "../components/desktop-updates.tsx";
 import { ModelSelect, modelKey } from "../components/model-select.tsx";
 import { AppearanceControls, ComposerSettings } from "../components/appearance-controls.tsx";
@@ -26,6 +27,7 @@ type DefaultSetting =
   | "autoApproval"
   | "conversationTitleModel"
   | "subagents"
+  | "timeouts"
   | "modelRetries"
   | "compactionThresholdTokens";
 
@@ -367,6 +369,35 @@ export function SettingsPage({
                 </p>
               </DefaultForm>
             </SettingsGroup>
+            <Disclosure title="Host timeouts">
+              <DefaultForm disconnected={disconnected} setting="timeouts" columns>
+                {(
+                  [
+                    ["hostStartupSeconds", "Host startup"],
+                    ["shellSeconds", "Shell environment startup"],
+                    ["providerDiscoverySeconds", "Provider model discovery"],
+                    ["codeCpuSeconds", "Code Mode interpreter execution"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key}>
+                    {label} (seconds)
+                    <Input
+                      type="number"
+                      name={key}
+                      min="0.001"
+                      step="any"
+                      max="2147478"
+                      required
+                      defaultValue={settings.settings.timeouts[key]}
+                    />
+                  </label>
+                ))}
+                <small>
+                  Code Mode counts interpreter execution. Waiting for tools or approval consumes no
+                  CPU budget. Restart the server to apply.
+                </small>
+              </DefaultForm>
+            </Disclosure>
             <SettingsGroup title="Conversation naming">
               <DefaultForm disconnected={disconnected} setting="conversationTitleModel" columns>
                 <AuxiliaryModelFields
@@ -576,6 +607,9 @@ export function SettingsPage({
                 </p>
               </AutoSaveForm>
             </SettingsGroup>
+            <Disclosure title="Connection timeout">
+              <DesktopTimeoutField />
+            </Disclosure>
             <DesktopUpdates />
             <SettingsGroup title="Harness home" className="storage-location">
               <p className="muted">{settings.home}</p>

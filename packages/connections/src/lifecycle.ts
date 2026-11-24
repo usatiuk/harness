@@ -7,11 +7,12 @@ export async function withServerLifecycle<T>(
   requestedHome: string,
   operation: (home: string) => Promise<T>,
   signal?: AbortSignal,
+  waitMs = 20_000,
 ): Promise<T> {
   signal?.throwIfAborted();
   const home = await canonicalHome(requestedHome);
   signal?.throwIfAborted();
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + waitMs;
   const guard = new LifecycleLock(home);
   try {
     while (!guard.tryAcquire()) {

@@ -1,3 +1,4 @@
+import { defaultHostTimeouts } from "@harness/protocol";
 import { worktreeDirectory, worktreesConfigSchema } from "@harness/worktrees";
 import {
   deepMerge,
@@ -275,6 +276,7 @@ export function registerAppApi(
         ).backend,
         toolMode: doc.tools?.mode ?? "hybrid",
         showToolNames: doc.tools?.showNames ?? true,
+        timeouts: doc.timeouts ?? defaultHostTimeouts,
         keepServerRunning: doc.desktop?.keepServerRunning ?? false,
         subagents: { maxDepth: subagents.maxDepth, maxChildren: subagents.maxChildren },
         compactionThresholdTokens: doc.compaction?.thresholdTokens ?? null,
@@ -295,6 +297,8 @@ export function registerAppApi(
             ...(settings.model.preset === null ? {} : { preset: settings.model.preset }),
           });
         }
+        if (settings.timeouts)
+          await updateGlobalSettings(home, (doc) => ({ ...doc, timeouts: settings.timeouts! }));
         if (settings.keepServerRunning !== undefined)
           await updateGlobalSettings(home, (doc) => ({
             ...doc,

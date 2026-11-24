@@ -1,4 +1,5 @@
 export * from "./assert.ts";
+export * from "./timeouts.ts";
 export * from "./errors.ts";
 export * from "./ids.ts";
 export * from "./content.ts";

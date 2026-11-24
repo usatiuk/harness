@@ -535,7 +535,7 @@ discover them with `tool_search` or inspect them with `tool_describe`.
 Existing explicit allowlists using the former hashed names must be updated to the
 new names; scopes are never broadened automatically.
 
-`plugins.approval.humanApprovalTimeoutSeconds` defaults to 60 and accepts a positive
+`plugins.approval.humanApprovalTimeoutSeconds` defaults to 900 and accepts a positive
 duration up to 2,147,483 seconds. Desktop **Settings → Defaults** and TUI **Host
 defaults** expose this shared approval setting. A human prompt waits within the
 active call; expiry denies it, removes the prompt, and lets the agent continue.

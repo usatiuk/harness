@@ -52,6 +52,7 @@ export class DockerExecutionContext implements ExecutionContext {
     hostRoot: string | null,
     config: DockerSandboxConfig,
     pool = new DockerEnvironmentPool(),
+    private readonly shellTimeoutMs?: number,
   ) {
     this.workspaceRoot = hostRoot;
     this.#owner = {
@@ -78,7 +79,7 @@ export class DockerExecutionContext implements ExecutionContext {
 
   async prepare(signal?: AbortSignal): Promise<void> {
     const handle = await this.#whileOpen((await this.#openEnvironment()).start(), signal);
-    await this.#whileOpen(containerShellEnvironment(handle), signal);
+    await this.#whileOpen(containerShellEnvironment(handle, this.shellTimeoutMs), signal);
   }
 
   async sandboxInstructions(): Promise<string> {
@@ -228,7 +229,10 @@ export class DockerExecutionContext implements ExecutionContext {
     });
     const initialized = ready.then(async (handle) =>
       handle
-        ? { handle, env: await this.#whileOpen(containerShellEnvironment(handle)) }
+        ? {
+            handle,
+            env: await this.#whileOpen(containerShellEnvironment(handle, this.shellTimeoutMs)),
+          }
         : undefined,
     );
     void initialized.then(

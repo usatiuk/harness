@@ -14,6 +14,9 @@ import { defaultHome } from "@harness/config";
 import { CacheUse } from "@harness/native";
 import { BUILD_IDENTITY } from "@harness/release";
 import { fileURLToPath } from "node:url";
+function reportProgress(event: import("@harness/connections").StartupProgress) {
+  process.stderr.write(JSON.stringify(event) + "\n");
+}
 const source = BUILD_IDENTITY.target === "development";
 if (source)
   process.env.HARNESS_HOME ??= fileURLToPath(
@@ -21,11 +24,15 @@ if (source)
   );
 // Raw source runs use files outside the managed cache. IPC startup candidates
 // still acquire a lease before accepting the parent's ownership handoff.
-const usage = !source || process.send !== undefined ? new CacheUse(defaultHome()) : undefined;
+const progressMode = process.env["HARNESS_STARTUP_PROGRESS"];
+const usage =
+  !source || (process.send !== undefined && progressMode !== "source")
+    ? new CacheUse(defaultHome())
+    : undefined;
 // Keep the lease reachable until process exit; the OS releases the lock.
 process.once("exit", () => usage);
 try {
-  if (process.send !== undefined) {
+  if (process.send !== undefined && progressMode !== "source") {
     await new Promise<void>((resolve, reject) => {
       const disconnected = () => reject(new Error("Startup manager left before cache-use handoff"));
       process.once("disconnect", disconnected);
@@ -39,7 +46,7 @@ try {
         if (error) reject(error);
       });
     });
-    process.disconnect!();
+    if (!progressMode) process.disconnect!();
   }
   const commandIndex = process.argv.indexOf("--connection-command");
   const bridgeIndex = process.argv.indexOf("--host-bridge");
@@ -61,7 +68,7 @@ try {
                 defaultHome(),
               )
             ).launch;
-      await runLocalBridge(defaultHome(), launch, (identity) => {
+      await runLocalBridge(defaultHome(), { ...launch, progress: reportProgress }, (identity) => {
         process.stderr.write(JSON.stringify({ type: "serverOwner", identity }) + "\n");
       });
     } else {
@@ -75,8 +82,7 @@ try {
       const value = connectionCommandSchema.parse(JSON.parse(process.argv[commandIndex + 1]!));
       const result = await runConnectionCommand(value, dirname(process.argv[1]!), {
         signal: cancel.signal,
-        progress: (message) =>
-          process.stderr.write(JSON.stringify({ type: "progress", message }) + "\n"),
+        progress: (message, event) => reportProgress(event ?? { type: "progress", message }),
       });
       process.stdout.write(JSON.stringify(result) + "\n");
     } finally {
@@ -84,8 +90,19 @@ try {
       process.stdin.destroy();
     }
   } else if (process.argv.includes("--attach-only")) await runLocalBridge(defaultHome());
-  else if (process.argv.includes("--background")) await runBackgroundServer();
-  else if (process.argv.includes("--bridge") || process.argv.includes("--desktop-bridge"))
+  else if (process.argv.includes("--background")) {
+    await runBackgroundServer(
+      () => {
+        if (progressMode && process.connected) process.disconnect!();
+      },
+      (message, completed, total) => {
+        if (progressMode && process.connected)
+          process.send!({ type: "progress", message, completed, total }, (error: Error | null) => {
+            if (error && process.connected) console.error("Startup progress delivery failed");
+          });
+      },
+    );
+  } else if (process.argv.includes("--bridge") || process.argv.includes("--desktop-bridge"))
     await runLocalBridge(
       defaultHome(),
       {
@@ -96,6 +113,7 @@ try {
           : {
               selection: serverCacheEntrySchema.parse(process.env["HARNESS_SERVER_SELECTION"]),
             }),
+        ...(process.argv.includes("--desktop-bridge") ? { progress: reportProgress } : {}),
         retainUse: () => new CacheUse(defaultHome()),
       },
       process.argv.includes("--desktop-bridge")

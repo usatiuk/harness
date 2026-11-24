@@ -30,6 +30,7 @@ import {
   Textarea,
 } from "../ui.tsx";
 
+import { McpTimeoutFields } from "./mcp-timeouts.tsx";
 import { SettingsGroup } from "./settings-layout.tsx";
 
 function PermissionOptions({ inherit = false }: { inherit?: boolean }) {
@@ -473,6 +474,13 @@ export function McpSettings({
           </label>
         ))}
       </SettingsGroup>
+      <McpTimeoutFields
+        defaults={config.timeouts}
+        disabled={busy}
+        onSave={(timeouts) =>
+          run(() => save({ ...config, timeouts: { ...config.timeouts, ...timeouts } }))
+        }
+      />
       {!server && lifecycle}
       <Dialog.Root
         open={active && !!server}
@@ -776,6 +784,13 @@ export function McpSettings({
                 </>
               )}
             </SettingsGroup>
+            <McpTimeoutFields
+              defaults={config.timeouts}
+              overrides={server.timeouts ?? {}}
+              stdio={server.transport.type === "stdio"}
+              disabled={busy}
+              onSave={(timeouts) => update({ ...server, timeouts })}
+            />
             <Disclosure title="Tool permissions">
               <fieldset>
                 <legend>Server permission defaults</legend>
