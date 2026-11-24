@@ -104,6 +104,7 @@ button:disabled {
   border-color: transparent;
 }
 .check-label {
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -117,6 +118,7 @@ button:disabled {
   grid-area: 1 / 1;
 }
 .check-box input {
+  cursor: inherit;
   appearance: none;
   width: 16px;
   height: 16px;
@@ -141,6 +143,7 @@ button:disabled {
   visibility: visible;
 }
 .check-label:has(:disabled) {
+  cursor: default;
   color: var(--muted-ink);
 }
 .check-box input:disabled {

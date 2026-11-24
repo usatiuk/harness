@@ -70,6 +70,10 @@ test("worktree option is compact, labelled and submits only when selected", asyn
   await expect.poll(() => page.evaluate(() => window.newWorktreeFixture?.ready)).toBe(true);
   const checkbox = page.getByRole("checkbox", { name: "Start in a new Git worktree" });
   await expect(checkbox).toBeVisible();
+  const label = page.locator("label").filter({ has: checkbox });
+  await checkbox.hover();
+  await expect(checkbox).toHaveCSS("cursor", "pointer");
+  await expect(label).toHaveCSS("cursor", "pointer");
   const box = (await checkbox.boundingBox())!;
   const formBox = (await page.locator("form.creation-form").boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(14);
@@ -85,6 +89,8 @@ test("worktree option is compact, labelled and submits only when selected", asyn
 
   await page.evaluate(() => window.newWorktreeFixture?.setCwd("/not-a-repo"));
   await expect(checkbox).toBeDisabled();
+  await expect(checkbox).toHaveCSS("cursor", "default");
+  await expect(label).toHaveCSS("cursor", "default");
   expect(await formData(page)).toBeNull();
   await page.evaluate(() => window.newWorktreeFixture?.setCwd("/repo"));
   await expect(checkbox).toBeEnabled();
