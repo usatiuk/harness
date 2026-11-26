@@ -38,22 +38,26 @@ export function createProcessActivity(init: ProcessActivityInit): Activity {
   const started = Date.now();
   // `recent`: full output until materialized, then a plain-slice tail (no re-bounding per chunk).
   let recent = "";
-  let materialized = false;
+  let spillError: string | undefined;
   let writer: OutputWriter | undefined;
   const trimTail = (text: string): string =>
     text.length > view.maxTotalBytes ? text.slice(-view.maxTotalBytes) : text;
 
   const persist = (): void => {
-    if (materialized) return;
-    materialized = true;
-    writer = store.open(id);
-    writer.write(recent);
+    if (writer || spillError !== undefined) return;
+    try {
+      writer = store.open(id);
+      writer.write(recent);
+    } catch (error) {
+      // onData runs outside tool dispatch. Report failed capture with the process result.
+      spillError = String(error);
+    }
     recent = trimTail(recent);
   };
 
   proc.onData((chunk) => {
-    if (materialized) {
-      writer!.write(chunk);
+    if (writer || spillError !== undefined) {
+      if (spillError === undefined) writer?.write(chunk);
       recent = trimTail(recent + chunk);
     } else {
       recent += chunk;
@@ -79,8 +83,16 @@ export function createProcessActivity(init: ProcessActivityInit): Activity {
     try {
       await writer?.close(`\n--- ${summary} ---\n`);
       if (writer) seen.push({ type: "text", text: `full output: ${writer.path}` });
-    } catch {
-      // file close failed — the in-memory view still describes the outcome
+    } catch (error) {
+      spillError = String(error);
+    }
+    if (spillError !== undefined) {
+      const error = `Could not save full output: ${spillError}`;
+      return {
+        status: "error",
+        summary: `${summary}; ${error}`,
+        view: [...seen, { type: "text", text: error }],
+      };
     }
     return { status, summary, view: seen };
   });

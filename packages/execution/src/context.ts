@@ -40,7 +40,7 @@ export interface SpawnedProcess {
 /** A streaming writer for a spilled output file; `path` is workspace-relative. */
 export interface OutputWriter {
   readonly path: string;
-  write(chunk: string): void;
+  write(chunk: string, flushed?: (error?: Error | null) => void): void;
   /** Append an optional footer, flush, and close. */
   close(footer?: string): Promise<void>;
 }

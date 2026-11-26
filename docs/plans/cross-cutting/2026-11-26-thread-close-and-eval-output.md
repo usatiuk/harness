@@ -15,7 +15,7 @@ could process them, while eval rejected large final output before it could spill
 - [x] Skip file previews on nested tool calls only. A focused real-evaluator
       service test selects the last line of a 42 KB text-only tool response
       and verifies the unselected text is absent from the next model request.
-- [ ] Remove eval's text display limit; use bounded buffering and the ordinary
+- [x] Remove eval's text display limit; use bounded buffering and the ordinary
       output store for large text. Verify large returns and repeated emissions,
       including errors and cancellation; preserve separate image and bridge limits.
 - [ ] Review behavior, lifecycle/simplicity, and evidence independently; resolve
@@ -30,5 +30,13 @@ backfilling already-dismissed branches. The obsolete plugin descendant index
 was removed. Three independent review lenses covered lifecycle, output bounds,
 and requirements; review-driven fixes are being requalified before publishing.
 
-Also use the desktop's existing disclosure control on the startup screen and
-preserve the initially expanded timeout controls on failure.
+Evaluator regressions cover full text with and without workspace execution,
+bounded history/events, preserved output on a guest error and after interruption,
+and exactly one complete spill file. Real Windows filesystem tests reject
+pre-existing junctions or linked artifacts. Concurrent replacement of path
+components is a separate limitation recorded in `docs/DEFERRED.md`.
+
+The startup screen uses the desktop's shared disclosure control. A rendered
+Playwright/Edge check covered the initially collapsed startup details, initially
+expanded timeout controls, and mouse and keyboard toggles. No new control or
+native installer interaction was needed.

@@ -84,6 +84,35 @@ describe("outputBoundMiddleware", () => {
     expect(result.forModel.filter((block) => block.type === "image")).toEqual([image]);
   });
 
+  it("writes the UTF-8 of concatenated text even across block boundaries", async () => {
+    const root = await tmpRoot();
+    const source = ["x".repeat(20_000) + "\ud83d", "\ude80"];
+    await outputBoundMiddleware().wrap(
+      { callId: "unicode", name: "command", args: {} },
+      ctxWith({}, new LocalExecutionContext(root)),
+      passthrough({
+        status: "ok",
+        forModel: source.map((value) => ({ type: "text", text: value })),
+      }),
+    );
+    const directory = join(root, ".harness", "conv", "outputs");
+    const [name] = await readdir(directory);
+    expect(await readFile(join(directory, name!), "utf8")).toBe(source.join(""));
+  });
+
+  it("keeps text exactly at the inline byte limit even when a surrogate pair is split", async () => {
+    const source = ["x".repeat(16 * 1024 - 4) + "\ud83d", "\ude80"];
+    const result = await outputBoundMiddleware().wrap(
+      { callId: "unicode", name: "command", args: {} },
+      ctxWith({}, new LocalExecutionContext(await tmpRoot())),
+      passthrough({
+        status: "ok",
+        forModel: source.map((value) => ({ type: "text", text: value })),
+      }),
+    );
+    expect(result.forModel).toEqual(source.map((value) => ({ type: "text", text: value })));
+  });
+
   it("skips addressableOutput tools", async () => {
     const ctx = ctxWith(
       { toolMeta: () => ({ addressableOutput: true }) },

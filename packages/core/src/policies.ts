@@ -151,7 +151,8 @@ export function truncateMiddleware(maxChars = 10_000): ToolMiddleware {
     id: "truncate",
     async wrap(call, ctx, next) {
       const result = await next(call);
-      if (ctx.service("execution")) return result; // a file host exists ⇒ defer to the output-bounding policy
+      // Nested results go to the guest unprojected; the engine bounds the recorded copy.
+      if (call.parentCallId || ctx.service("execution")) return result;
       const forModel = result.forModel.map((block) =>
         block.type === "text" && block.text.length > maxChars
           ? { type: "text" as const, text: `${block.text.slice(0, maxChars)}…[truncated]` }

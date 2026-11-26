@@ -302,15 +302,16 @@ Execution wrappers preserve each tool's direct/code exposure and output contract
 Guest bridge callbacks remain private to the trusted setup closure.
 
 Limits are 32 MiB guest memory, 512 KiB guest stack, five seconds of cumulative
-interpreter execution by default (including getters, serialization, jobs, and settlement), 64 KiB
-selected output, 1 MiB per bridge transfer, 8 MiB cumulative bidirectional data,
+interpreter execution by default (including getters, serialization, jobs, and settlement),
+1 MiB per bridge transfer, 8 MiB cumulative bidirectional data,
 128 submissions, and 16 outstanding submissions. Search accepts 512 characters
 and 32 distinct terms, returning at most twelve contracts. Waiting on tools or
 human approvals consumes no interpreter CPU. Cancellation terminates the worker
 and closes its bridge before outer completion. Unsupported content blocks fail
 explicitly. `emitContent` also forwards validated images with a separate 2 MiB
 decoded aggregate budget. Image responses permit bounded base64 overhead beyond
-the normal bridge budget; text output and tool arguments retain their limits.
+the normal bridge budget. Large selected text uses the same preview and spill
+policy as other tool output rather than failing at a separate eval display limit.
 Pending microtasks execute in batches of at most 256 before yielding to host
 messages. This bounds each batch and avoids paying an event-loop scheduling
 delay for every microtask; all interpreter work still consumes the same CPU budget.
@@ -374,4 +375,7 @@ without serializing base64 as text; structured-only responses keep their prior s
 
 File previews are for direct tool results. Nested calls return their original
 text to the evaluator (within the bridge limits) so code can filter it before
-returning a selection. Nested history records are not replayed as model input.
+returning a selection. Nested history and live item events retain a bounded text
+view and the tool's original full-output reference, or a blob of the complete
+text when an oversized result has no such reference. This projection never
+replaces the guest's input. Nested history records are not replayed as model input.

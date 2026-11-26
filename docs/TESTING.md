@@ -1854,10 +1854,9 @@ The delivery plan records review fixes and native/live-provider qualification li
 
 Subagent communication follow-up: the full check passes 1,492 tests (41 skipped).
 The model roster is family-scoped and bounded; real service regressions cover
-busy delivery, waking finished recipients, recursive dismissal with direct-parent
-messages always permitted, slot reuse, four concurrent admissions under a
-three-child limit and depth two. A real background tool completion wakes its
-finished, dismissed owner through the captured plugin delivery context. SQLite
+busy delivery, waking finished recipients, recursive dismissal, slot reuse, four
+concurrent admissions under a three-child limit and depth two. A finished but
+open thread can wake; a closed thread must not. SQLite
 reopen verifies durable dismissal, filtered model roster and preserved inspection.
 Directly opening an old child resolves its canonical root before attachment;
 closing that root removes the loaded child. A core test rejects adoption during

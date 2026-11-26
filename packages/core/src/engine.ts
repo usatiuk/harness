@@ -78,6 +78,7 @@ import { runModelChain, runToolChain } from "./compose.ts";
 import { runRequestChain } from "./compose.ts";
 import { reconcileConversation } from "./reconcile.ts";
 import { ModelPreview } from "./model-preview.ts";
+import { BoundedToolOutput } from "./tool-output.ts";
 
 /** Adapter serialization support and advertised model support are separate facts. */
 function assertImageInput(provider: ModelProvider, model: ModelConfig, hasImages: boolean): void {
@@ -1723,6 +1724,18 @@ export class Engine {
               completedCalls,
             );
     const { result } = outcome;
+    // The guest receives the original result below. History and live events receive the
+    // bounded view, even if the result is too large to cross the guest bridge at all.
+    let content = result.forModel;
+    let full = result.full;
+    if (call.parentCallId) {
+      const audit = new BoundedToolOutput();
+      await audit.append(content);
+      if (audit.overflow) {
+        full ??= await this.store.putBlob(Buffer.from(textOf(content)));
+        content = await audit.finish();
+      }
+    }
     const structured =
       result.structured === undefined ? undefined : JSON.stringify(result.structured);
     const structuredRef =
@@ -1735,7 +1748,7 @@ export class Engine {
       type: "tool_result",
       callId: call.callId,
       ...(call.parentCallId ? { parentCallId: call.parentCallId } : {}),
-      content: result.forModel,
+      content,
       status: result.status,
       ...(result.annotations ? { annotations: result.annotations } : {}),
       ...(structuredRef
@@ -1743,7 +1756,7 @@ export class Engine {
         : result.structured === undefined
           ? {}
           : { structured: result.structured }),
-      ...(result.full ? { full: result.full } : {}),
+      ...(full ? { full } : {}),
     });
     this.#emitKernel({ type: "item.appended", conversationId: conversation.id, item });
     if (outcome.completed) executedCalls.push(...completedCalls);

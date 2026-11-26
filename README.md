@@ -589,7 +589,9 @@ concurrent submissions such as `Promise.all` overlap, including foreground comma
 Adjacent direct shell commands, `read_file`, `glob`, and `wait` calls can overlap. Other
 direct calls run exclusively in batch order. A scheduled wait starts after the batch finishes.
 Only explicit `emit`, `emitContent`, and the returned JSON reach the
-main agent. Nested calls remain visible in history and approval review. Completed
+main agent. Nested calls return their data to JavaScript before file previews are
+applied; large text returned by eval uses the ordinary output preview and file.
+Nested calls remain visible in history and approval review. Completed
 effects and emitted output survive later failures; scripts never replay or roll
 back automatically. Each invocation uses a fresh bounded QuickJS worker without
 ambient filesystem, network, imports, process, or credentials. Await all work;

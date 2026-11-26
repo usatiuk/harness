@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall } from "@harness/protocol";
@@ -19,6 +19,60 @@ afterEach(async () => {
 });
 
 const call = (args: unknown): ToolCall => ({ callId: "c", name: "x", args });
+
+describe("local output artifacts", () => {
+  it("allows a project directory alias without replacing the owner's ignore file or existing logs", async () => {
+    const fixture = await tmp();
+    const project = join(fixture, "target");
+    const alias = join(fixture, "project");
+    const marker = join(project, ".harness", ".gitignore");
+    await mkdir(join(project, ".harness"), { recursive: true });
+    await writeFile(marker, "# kept\n");
+    await symlink(project, alias, "junction");
+    const store = new LocalExecutionContext(alias).outputStore("conversation-1");
+    const path = await store.put("captured", "first");
+    await expect(store.put("captured", "second")).rejects.toMatchObject({ code: "EEXIST" });
+    await expect(store.open("captured").close("third")).rejects.toMatchObject({ code: "EEXIST" });
+    expect(await readFile(path, "utf8")).toBe("first");
+    expect(await readFile(marker, "utf8")).toBe("# kept\n");
+  });
+
+  it.each([0, 1, 2])("rejects a linked output directory at depth %d", async (depth) => {
+    const fixture = await tmp();
+    const project = join(fixture, "project");
+    const other = join(fixture, "other");
+    const parts = [".harness", "conversation", "outputs"];
+    const parent = join(project, ...parts.slice(0, depth));
+    await mkdir(parent, { recursive: true });
+    await mkdir(other);
+    await symlink(other, join(parent, parts[depth]!), "junction");
+    const store = new LocalExecutionContext(project).outputStore("conversation");
+    await expect(store.put("capture", "unwritten")).rejects.toThrow();
+    expect(await readdir(other)).toEqual([]);
+  });
+
+  it("never writes through linked markers or log entries", async () => {
+    const fixture = await tmp();
+    const harness = join(fixture, ".harness");
+    const outputs = join(harness, "conversation", "outputs");
+    const marker = join(harness, ".gitignore");
+    const other = join(fixture, "other");
+    await mkdir(outputs, { recursive: true });
+    await mkdir(other);
+    await symlink(other, marker, "junction");
+    const store = new LocalExecutionContext(fixture).outputStore("conversation");
+    await expect(store.put("blocked", "unexpected")).rejects.toThrow();
+    expect(await readdir(outputs)).toEqual([]);
+    await rm(marker);
+    const existing = join(other, "existing");
+    await writeFile(existing, "original");
+    await link(existing, join(outputs, "capture.log"));
+    await expect(store.open("capture").close("unwritten")).rejects.toMatchObject({
+      code: "EEXIST",
+    });
+    expect(await readFile(existing, "utf8")).toBe("original");
+  });
+});
 
 describe("LocalExecutionContext", () => {
   it("writes then reads back through the workspace (creating parent dirs)", async () => {

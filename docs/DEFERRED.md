@@ -5,6 +5,14 @@ current change. Keep entries concrete: state the limitation, consequence, reason
 for deferral, and the condition that should reopen it. Package-local follow-up may
 instead live in the owning execution plan or an issue.
 
+## Workspace output directory races
+
+The host-side output store rejects existing links below the selected workspace
+and creates log files exclusively. Its path-based checks do not pin directory
+handles against concurrent directory replacement by another process. Treat
+artifact placement in a concurrently hostile checkout as unqualified until
+the substrate can enforce containment throughout creation on all supported hosts.
+
 ## Unresolved Windows CLI mapped-image sharing violation
 
 During 0.9.3 source CI `39477863987`, the unchanged

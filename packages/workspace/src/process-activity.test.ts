@@ -71,6 +71,26 @@ const numbered = (n: number): string =>
   Array.from({ length: n }, (_, i) => String(i + 1)).join("\n");
 
 describe("createProcessActivity", () => {
+  it("reports a failed spill without throwing from the output listener", async () => {
+    const scripted = scriptedProc();
+    const store = new LocalExecutionContext(await tmpRoot()).outputStore("conv");
+    vi.spyOn(store, "open").mockImplementation(() => {
+      throw new Error("output directory unavailable");
+    });
+    const activity = createProcessActivity({
+      id: "spill",
+      title: "cmd",
+      proc: scripted.proc,
+      store,
+    });
+    scripted.emit("x".repeat(100_000));
+    scripted.emit("\nlast line");
+    scripted.finish();
+    const result = await activity.done;
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("output directory unavailable");
+    expect(text(result.view)).toContain("last line");
+  });
   it("keeps the default 40-line tail", async () => {
     const exec = new LocalExecutionContext(await tmpRoot());
     const scripted = scriptedProc();

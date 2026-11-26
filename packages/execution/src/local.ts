@@ -1,7 +1,8 @@
-import { createWriteStream, mkdirSync, writeFileSync, statSync } from "node:fs";
+import { createWriteStream, lstatSync, mkdirSync, writeFileSync } from "node:fs";
+import { finished } from "node:stream/promises";
 import { spawn as nodeSpawn } from "node:child_process";
 import { mkdir, open, readdir, readFile, rm, stat as fsStat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { matchGlob, mayDescend } from "./glob.ts";
 import type { ByteRange, ToolCall } from "@harness/protocol";
 import type {
@@ -193,46 +194,59 @@ export class LocalOutputStore implements OutputStore {
     private readonly conversationId: string,
   ) {}
 
-  #root(): string {
-    return this.workspaceRoot ?? process.cwd();
-  }
-
-  #rel(id: string): string {
-    return posix.join(".harness", this.conversationId, "outputs", `${id}.log`);
-  }
-
-  #ensureDir(): void {
-    const root = this.#root();
-    if (!statSync(root).isDirectory()) throw new Error(`Workspace is not a directory: ${root}`);
-    mkdirSync(join(root, ".harness", this.conversationId, "outputs"), { recursive: true });
-    try {
-      writeFileSync(join(root, ".harness", ".gitignore"), "*\n");
-    } catch {
-      // best-effort; a missing .gitignore doesn't break output capture
+  #artifactPath(id: string): string {
+    for (const part of [this.conversationId, id]) {
+      if (
+        !/^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*$/i.test(part) ||
+        /^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(part)
+      )
+        throw new Error("Invalid output path identifier");
     }
+    // Trust the selected workspace (which may itself be a junction or UNC path), not links
+    // below it. Path-based checks cannot protect against concurrent replacement of directories.
+    const harness = join(resolve(this.workspaceRoot ?? process.cwd()), ".harness");
+    const conversation = join(harness, this.conversationId);
+    const outputs = join(conversation, "outputs");
+    for (const dir of [harness, conversation, outputs]) {
+      try {
+        mkdirSync(dir);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (!lstatSync(dir).isDirectory())
+          throw new Error(`Unsafe output directory: ${dir}`, { cause: error });
+      }
+    }
+    const marker = join(harness, ".gitignore");
+    try {
+      writeFileSync(marker, "*\n", { flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (!lstatSync(marker).isFile())
+        throw new Error(`Unsafe output marker: ${marker}`, { cause: error });
+    }
+    return join(outputs, `${id}.log`);
   }
 
   open(id: string): OutputWriter {
-    this.#ensureDir();
-    const rel = this.#rel(id);
-    const stream = createWriteStream(resolve(this.#root(), rel), { flags: "w" });
+    const path = this.#artifactPath(id);
+    const stream = createWriteStream(path, { flags: "wx" });
     // Swallow stream errors (disk full, permission): an unhandled `error` event would crash the
     // process, and the in-memory view already carries the outcome.
     stream.on("error", () => {});
     return {
-      path: resolve(this.#root(), rel),
-      write: (chunk) => void stream.write(chunk),
+      path,
+      write: (chunk, flushed) => void stream.write(chunk, flushed),
       close: async (footer) => {
         if (footer) stream.write(footer);
-        await new Promise<void>((res) => stream.end(res));
+        stream.end();
+        await finished(stream);
       },
     };
   }
 
   async put(id: string, text: string): Promise<string> {
-    this.#ensureDir();
-    const rel = this.#rel(id);
-    await writeFile(resolve(this.#root(), rel), text);
-    return resolve(this.#root(), rel);
+    const path = this.#artifactPath(id);
+    await writeFile(path, text, { flag: "wx" });
+    return path;
   }
 }

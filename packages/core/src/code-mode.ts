@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { CodeEvaluator, Tool, ToolMode, ToolContract } from "@harness/protocol";
 import { ToolSet } from "./registry.ts";
+import { BoundedToolOutput, OUTPUT_SPILL_SERVICE, type OpenOutputSpill } from "./tool-output.ts";
 import { isDiscoveryTool } from "./tool-discovery.ts";
 
 export const EVALUATOR_NAME = "eval";
@@ -56,9 +57,21 @@ export function evaluatorTool(
           .parse(raw),
     },
     exposure: { direct: true, code: false },
+    meta: { addressableOutput: true },
     execute: async (args, ctx) => {
       if (!ctx.codeTools) throw new Error("evaluator invocation bridge missing");
-      return evaluator.evaluate(args as string, ctx.codeTools, ctx.signal);
+      const spill = ctx.service(OUTPUT_SPILL_SERVICE) as OpenOutputSpill | undefined;
+      const output = new BoundedToolOutput(() => spill?.(ctx));
+      let result;
+      let content;
+      try {
+        result = await evaluator.evaluate(args as string, ctx.codeTools, ctx.signal, (blocks) =>
+          output.append(blocks),
+        );
+      } finally {
+        content = await output.finish();
+      }
+      return { ...result, forModel: [...content, ...result.forModel] };
     },
   };
 }

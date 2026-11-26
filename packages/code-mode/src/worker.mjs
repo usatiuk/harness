@@ -4,7 +4,7 @@ import { Buffer } from "node:buffer";
 import { setImmediate } from "node:timers";
 import { getQuickJS } from "quickjs-emscripten";
 
-const { code, limits } = workerData;
+const { code, limits, outputAck } = workerData;
 const QuickJS = await getQuickJS();
 const runtime = QuickJS.newRuntime();
 runtime.setMemoryLimit(limits.memoryBytes);
@@ -16,8 +16,6 @@ let executing = false;
 let interrupted = false;
 let closed = false;
 let requestSeq = 0;
-let outputBytes = 0;
-let contentBytes = 0;
 let requestBytes = 0;
 const pending = new Map();
 runtime.setInterruptHandler(() => {
@@ -88,16 +86,16 @@ install("__call", (name, args) => {
 install("__emit", (value, isContent) => {
   const text = stringify(value);
   const content = vm.dump(isContent);
-  if (content) {
-    if ((contentBytes += Buffer.byteLength(text)) > limits.imageContentBytes + limits.outputBytes)
-      throw new Error("code image output limit exceeded");
-  } else if ((outputBytes += Buffer.byteLength(text)) > limits.outputBytes) {
-    throw new Error("code output limit exceeded");
-  }
+  Atomics.store(outputAck, 0, 0);
   parentPort.postMessage({
     type: "emit",
     content: content ? JSON.parse(text) : [{ type: "text", text }],
   });
+  // emit() is synchronous in guest code. Park only this disposable worker until the host
+  // consumes the message, so a fast producer cannot fill the host message port or disk queue.
+  const waiting = performance.now();
+  while (Atomics.load(outputAck, 0) === 0) Atomics.wait(outputAck, 0, 0);
+  sliceStart += performance.now() - waiting;
   return vm.undefined;
 });
 const setup = vm.evalCode(`
@@ -131,10 +129,6 @@ function finish(value, error) {
   if (interrupted) {
     value = undefined;
     error = `code computation limit exceeded (Code Mode CPU limit: ${limits.cpuMs / 1000} seconds)`;
-  }
-  if (value !== undefined && outputBytes + Buffer.byteLength(value) > limits.outputBytes) {
-    value = undefined;
-    error = "code output limit exceeded";
   }
   parentPort.postMessage({
     type: "done",

@@ -5,6 +5,7 @@ import {
   okResult,
   textOf,
   type CodeToolBridge,
+  type ContentBlock,
   type ImageContent,
 } from "@harness/protocol";
 import { CODE_LIMITS, QuickJsEvaluator } from "./evaluator.ts";
@@ -15,8 +16,13 @@ const bridge: CodeToolBridge = {
       ? errorResult("denied")
       : { ...okResult("hidden"), structured: { name, args: args as string } },
 };
-const evaluate = (code: string) =>
-  new QuickJsEvaluator(1000).evaluate(code, bridge, new AbortController().signal);
+async function evaluate(code: string, tools = bridge, signal = new AbortController().signal) {
+  const content: ContentBlock[] = [];
+  const result = await new QuickJsEvaluator(1000).evaluate(code, tools, signal, async (blocks) => {
+    content.push(...blocks);
+  });
+  return { ...result, forModel: [...content, ...result.forModel] };
+}
 
 describe("QuickJS evaluator", () => {
   it("supports async calls, selected returns, and explicit content emissions", async () => {
@@ -69,7 +75,6 @@ describe("QuickJS evaluator", () => {
     // A retained allocation at the limit exceeds the heap's remaining capacity.
     // Filling giant arrays instead can hit computation limits before memory.
     ["memory", `return new ArrayBuffer(${CODE_LIMITS.memoryBytes});`, "out of memory"],
-    ["output", 'return "x".repeat(100000);', "output limit"],
     ["unresolved promises", "await new Promise(() => {});", "no host operation"],
     [
       "submissions",
@@ -87,7 +92,7 @@ describe("QuickJS evaluator", () => {
     const invoked = new Promise<void>((resolve) => {
       started = resolve;
     });
-    const result = new QuickJsEvaluator().evaluate(
+    const result = evaluate(
       'await tools.call("hold", {});',
       {
         ...bridge,
@@ -125,7 +130,7 @@ describe("QuickJS evaluator", () => {
     expect(textOf(result.forModel)).toMatch(/limit/);
   });
   it("bounds structured tool results", async () => {
-    const result = await new QuickJsEvaluator().evaluate(
+    const result = await evaluate(
       'await tools.call("huge", {});',
       {
         ...bridge,
@@ -156,7 +161,7 @@ describe("QuickJS evaluator", () => {
         Buffer.alloc(900_000),
       ]).toString("base64"),
     };
-    const result = await new QuickJsEvaluator().evaluate(
+    const result = await evaluate(
       'const result = await tools.call("image", {}); emit(result.structured); emitContent(result.content);',
       {
         call: async () => ({ status: "ok", forModel: [image], structured: { caption: "screen" } }),
@@ -176,7 +181,7 @@ describe("QuickJS evaluator", () => {
         Buffer.alloc(Math.floor(MAX_IMAGE_BYTES / 2)),
       ]).toString("base64"),
     };
-    const result = await new QuickJsEvaluator().evaluate(
+    const result = await evaluate(
       'const result = await tools.call("image", {}); emitContent(result.content); emitContent(result.content);',
       { call: async () => ({ status: "ok", forModel: [image] }) },
       new AbortController().signal,
@@ -185,10 +190,10 @@ describe("QuickJS evaluator", () => {
     expect(result.forModel.filter((block) => block.type === "image")).toEqual([image]);
     expect(textOf(result.forModel)).toContain("image output limit");
   });
-  it("retains plain text emission limits with image support", async () => {
+  it("delivers large plain text emissions without a display cutoff", async () => {
     const result = await evaluate('emitContent([{type:"text", text:"x".repeat(100000)}]);');
-    expect(result.status).toBe("error");
-    expect(textOf(result.forModel)).toContain("output limit");
+    expect(result.status).toBe("ok");
+    expect(textOf(result.forModel)).toBe("x".repeat(100000) + "null");
   });
   it("rejects unsupported content blocks explicitly", async () => {
     const result = await evaluate('emitContent([{type:"image", data:"unsupported"}]);');

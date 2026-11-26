@@ -172,5 +172,11 @@ export interface CodeToolBridge {
 }
 
 export interface CodeEvaluator {
-  evaluate(code: string, tools: CodeToolBridge, signal: AbortSignal): Promise<ToolResult>;
+  /** Explicit guest output is delivered in order; the result carries terminal status/diagnostics. */
+  evaluate(
+    code: string,
+    tools: CodeToolBridge,
+    signal: AbortSignal,
+    emit: (blocks: ContentBlock[]) => Promise<void>,
+  ): Promise<ToolResult>;
 }

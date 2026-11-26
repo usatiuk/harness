@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -168,22 +168,48 @@ const catalogTool = (name: string, description = "catalog fixture"): Tool => ({
   execute: async () => ({ ...okResult("called"), structured: { value: 42 } }),
 });
 
-it("lets code select from the full nested text without exposing it as model input", async () => {
-  const text = "not-for-model:".repeat(3000) + "\nselected tail";
+it.each([true, false])(
+  "keeps complete nested input separate from history with execution=%s",
+  async (execution) => {
+    const text = "not-for-model:".repeat(3000) + "\nselected tail";
+    const f = await setup(
+      [
+        evalStep(
+          `const r = await tools.call("lookup", {}); return r.content[0].text.split("\\n").at(-1);`,
+        ),
+        textStep("done"),
+      ],
+      [{ ...catalogTool("lookup"), execute: async () => okResult(text) }],
+      "code-only",
+      {},
+      execution ? {} : { execution: null },
+    );
+    const items = await f.run();
+    expect(textOf(results(items).find((item) => item.callId === "outer")!.content)).toContain(
+      "selected tail",
+    );
+    const child = results(items).find((item) => item.parentCallId)!;
+    expect(textOf(child.content)).not.toContain("selected tail");
+    expect(Buffer.from(await f.store.getBlob(child.full!)).toString()).toBe(text);
+    expect(JSON.stringify(f.requests.at(-1))).not.toContain("not-for-model:");
+  },
+);
+
+it("bounds nested history and events even for results rejected by the guest bridge", async () => {
+  const text = "x".repeat(2 * 1024 * 1024);
   const f = await setup(
-    [
-      evalStep(
-        `const r = await tools.call("lookup", {}); return r.content[0].text.split("\\n").at(-1);`,
-      ),
-      textStep("done"),
-    ],
+    [evalStep('await tools.call("lookup", {});'), textStep("done")],
     [{ ...catalogTool("lookup"), execute: async () => okResult(text) }],
   );
-  const items = await f.run();
-  expect(textOf(results(items).find((item) => item.callId === "outer")!.content)).toContain(
-    "selected tail",
+  const items = results(await f.run());
+  const child = items.find((item) => item.parentCallId)!;
+  expect(items.find((item) => item.callId === "outer")!.status).toBe("error");
+  expect(Buffer.byteLength(JSON.stringify(child))).toBeLessThan(20_000);
+  expect(Buffer.from(await f.store.getBlob(child.full!)).toString()).toBe(text);
+  const publication = f.events.find(
+    (event) => isKernelEvent(event) && event.type === "item.appended" && event.item.id === child.id,
   );
-  expect(JSON.stringify(f.requests.at(-1))).not.toContain("not-for-model:");
+  expect(publication).toMatchObject({ item: child });
 });
 const discoveryOutput = (items: Item[], id: string) =>
   JSON.parse(textOf(results(items).find((item) => item.callId === id)!.content)) as {
@@ -193,6 +219,31 @@ const discoveryOutput = (items: Item[], id: string) =>
     }[];
     oversized: string[];
   };
+
+it.each([
+  { code: 'return "x".repeat(100000);', file: JSON.stringify("x".repeat(100000)), status: "ok" },
+  {
+    code: 'for (let i=0;i<100;i++) emit("x".repeat(1000)); throw new Error("after emit");',
+    file: JSON.stringify("x".repeat(1000)).repeat(100),
+    status: "error",
+  },
+])(
+  "preserves oversized explicit eval output in one workspace file ($status)",
+  async ({ code, file, status }) => {
+    const fixture = await setup([evalStep(code), textStep("done")], []);
+    const result = results(await fixture.run()).find((item) => item.callId === "outer")!;
+    expect(result.status).toBe(status);
+    const directory = join(fixture.root, ".harness", fixture.conversation.id, "outputs");
+    const files = await readdir(directory);
+    expect(files).toHaveLength(1);
+    const path = join(directory, files[0]!);
+    const view = textOf(result.content);
+    expect(view).toContain(path);
+    expect(Buffer.byteLength(view)).toBeLessThan(20_000);
+    if (status === "error") expect(view).toContain("after emit");
+    expect(await readFile(path, "utf8")).toBe(file);
+  },
+);
 
 describe("ordinary tool discovery", () => {
   it.each(["hybrid", "code-only"] as const)(
@@ -1204,7 +1255,7 @@ describe("recorded code-mode execution", () => {
     const fixture = await setup(
       [
         evalStep(
-          'emit("before"); await Promise.all([tools.call("hold", {}), tools.call("hold", {})]);',
+          'emit("before".repeat(5000)); await Promise.all([tools.call("hold", {}), tools.call("hold", {})]);',
         ),
         toolStep("recovery", "eval", { code: "return 42;" }),
         textStep("done"),
@@ -1216,11 +1267,15 @@ describe("recorded code-mode execution", () => {
     await fixture.svc.deliver(fixture.conversation.id, "", "interrupt");
     const items = await running;
     expect(cancelled).toBe(2);
-    expect(textOf(results(items).find((item) => item.callId === "outer")!.content)).toContain(
-      '"before"',
-    );
     expect(results(items)).toHaveLength(calls(items).length);
     const outer = results(items).find((item) => item.callId === "outer")!;
+    const directory = join(fixture.root, ".harness", fixture.conversation.id, "outputs");
+    const files = await readdir(directory);
+    expect(files).toHaveLength(1);
+    const path = join(directory, files[0]!);
+    expect(outer.status).toBe("error");
+    expect(textOf(outer.content)).toContain(path);
+    expect(await readFile(path, "utf8")).toBe(JSON.stringify("before".repeat(5000)));
     const children = results(items).filter((item) => item.parentCallId);
     expect(children).toHaveLength(2);
     expect(children.every((item) => item.status === "error" && item.seq < outer.seq)).toBe(true);
@@ -1236,7 +1291,7 @@ describe("recorded code-mode execution", () => {
       description: "structured",
       input: { kind: "function", schema: z.strictObject({ large: z.boolean() }) },
       execute: async (args, ctx) => ({
-        ...okResult("presentation"),
+        ...okResult("presentation".repeat(2000)),
         structured: (args as { large: boolean }).large ? "x".repeat(100000) : { records: [42] },
         full: await (ctx as import("@harness/protocol").ToolMiddlewareContext).putBlob(
           Buffer.from("raw full output"),
@@ -1260,7 +1315,9 @@ describe("recorded code-mode execution", () => {
     expect(
       JSON.parse(Buffer.from(await fixture.store.getBlob(nested[1]!.structuredRef!)).toString()),
     ).toBe("x".repeat(100000));
-    expect(nested[0]!.full).toBeDefined();
+    expect(Buffer.from(await fixture.store.getBlob(nested[0]!.full!)).toString()).toBe(
+      "raw full output",
+    );
     expect(JSON.stringify(fixture.requests[1])).not.toContain("structuredRef");
   });
 
