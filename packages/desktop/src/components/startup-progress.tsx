@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { StartupProgress as ProgressEvent } from "@harness/connections";
 import { invoke } from "@tauri-apps/api/core";
-import { Button, Input } from "../ui.tsx";
+import { Button, Disclosure, Input } from "../ui.tsx";
 import { sessionLimitKey, sessionTimeoutSeconds, type StartupAttempt } from "../startup.ts";
 
 export function DesktopTimeoutField() {
@@ -33,8 +33,7 @@ export function StartupDetails({
 }) {
   if (!attempt?.steps.length) return null;
   return (
-    <details>
-      <summary>Startup details</summary>
+    <Disclosure title="Startup details">
       <ol>
         {attempt.steps.map((s, i) => (
           <li key={i}>
@@ -44,7 +43,7 @@ export function StartupDetails({
         ))}
       </ol>
       {children}
-    </details>
+    </Disclosure>
   );
 }
 function progressLabel({ completed, total, bytesPerSecond }: ProgressEvent) {
@@ -140,10 +139,9 @@ export function StartupProgress({
           ))}
         {error && revealError && <p role="alert">{revealError}</p>}
         {error?.includes("Desktop session") && (
-          <details open>
-            <summary>Connection timeout</summary>
+          <Disclosure title="Connection timeout" defaultOpen>
             <DesktopTimeoutField />
-          </details>
+          </Disclosure>
         )}
       </div>
     </section>

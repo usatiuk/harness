@@ -569,6 +569,7 @@ export function CollapsibleDetails({
   summary,
   children,
   open: controlledOpen,
+  defaultOpen = false,
   onToggle,
   unmountOnExit = false,
   scrollShadows = false,
@@ -576,10 +577,11 @@ export function CollapsibleDetails({
   ...props
 }: ComponentProps<"details"> & {
   summary: ReactNode;
+  defaultOpen?: boolean;
   unmountOnExit?: boolean;
   scrollShadows?: boolean;
 }) {
-  const [uncontrolledOpen, setOpen] = useState(false);
+  const [uncontrolledOpen, setOpen] = useState(defaultOpen);
   const open = controlledOpen ?? uncontrolledOpen;
   return (
     <details
