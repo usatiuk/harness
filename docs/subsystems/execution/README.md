@@ -371,3 +371,7 @@ native image blocks at ingress and preserves mixed text/image order. Output text
 spilling retains accompanying images. Image-bearing computed tool responses use
 `{content,status,structured?,full?,annotations?}` so callers can forward content
 without serializing base64 as text; structured-only responses keep their prior shape.
+
+File previews are for direct tool results. Nested calls return their original
+text to the evaluator (within the bridge limits) so code can filter it before
+returning a selection. Nested history records are not replayed as model input.

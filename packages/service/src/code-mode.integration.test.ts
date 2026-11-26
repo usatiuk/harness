@@ -167,6 +167,24 @@ const catalogTool = (name: string, description = "catalog fixture"): Tool => ({
   exposure: { direct: false, code: true },
   execute: async () => ({ ...okResult("called"), structured: { value: 42 } }),
 });
+
+it("lets code select from the full nested text without exposing it as model input", async () => {
+  const text = "not-for-model:".repeat(3000) + "\nselected tail";
+  const f = await setup(
+    [
+      evalStep(
+        `const r = await tools.call("lookup", {}); return r.content[0].text.split("\\n").at(-1);`,
+      ),
+      textStep("done"),
+    ],
+    [{ ...catalogTool("lookup"), execute: async () => okResult(text) }],
+  );
+  const items = await f.run();
+  expect(textOf(results(items).find((item) => item.callId === "outer")!.content)).toContain(
+    "selected tail",
+  );
+  expect(JSON.stringify(f.requests.at(-1))).not.toContain("not-for-model:");
+});
 const discoveryOutput = (items: Item[], id: string) =>
   JSON.parse(textOf(results(items).find((item) => item.callId === id)!.content)) as {
     tools: {
