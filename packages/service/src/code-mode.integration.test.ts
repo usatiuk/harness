@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -61,6 +61,17 @@ const results = (items: Item[]) =>
 const calls = (items: Item[]) =>
   items.filter((item): item is Extract<Item, { type: "tool_call" }> => item.type === "tool_call");
 const evalStep = (code: string) => toolStep("outer", "eval", { code });
+async function expectWorkspaceSpill(directory: string, view: string, expected: string) {
+  const files = await readdir(directory);
+  expect(files).toHaveLength(1);
+  const reference = /full output preserved at (.+?) —/.exec(view)?.[1];
+  expect(reference).toBeDefined();
+  // Compare file identities: Windows can spell the same temp directory with an 8.3 alias.
+  const actual = await stat(reference!, { bigint: true });
+  const stored = await stat(join(directory, files[0]!), { bigint: true });
+  expect([actual.dev, actual.ino]).toEqual([stored.dev, stored.ino]);
+  expect(await readFile(reference!)).toEqual(Buffer.from(expected));
+}
 function gate() {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => {
@@ -234,14 +245,10 @@ it.each([
     const result = results(await fixture.run()).find((item) => item.callId === "outer")!;
     expect(result.status).toBe(status);
     const directory = join(fixture.root, ".harness", fixture.conversation.id, "outputs");
-    const files = await readdir(directory);
-    expect(files).toHaveLength(1);
-    const path = join(directory, files[0]!);
     const view = textOf(result.content);
-    expect(view).toContain(path);
     expect(Buffer.byteLength(view)).toBeLessThan(20_000);
     if (status === "error") expect(view).toContain("after emit");
-    expect(await readFile(path, "utf8")).toBe(file);
+    await expectWorkspaceSpill(directory, view, file);
   },
 );
 
@@ -1270,12 +1277,12 @@ describe("recorded code-mode execution", () => {
     expect(results(items)).toHaveLength(calls(items).length);
     const outer = results(items).find((item) => item.callId === "outer")!;
     const directory = join(fixture.root, ".harness", fixture.conversation.id, "outputs");
-    const files = await readdir(directory);
-    expect(files).toHaveLength(1);
-    const path = join(directory, files[0]!);
     expect(outer.status).toBe("error");
-    expect(textOf(outer.content)).toContain(path);
-    expect(await readFile(path, "utf8")).toBe(JSON.stringify("before".repeat(5000)));
+    await expectWorkspaceSpill(
+      directory,
+      textOf(outer.content),
+      JSON.stringify("before".repeat(5000)),
+    );
     const children = results(items).filter((item) => item.parentCallId);
     expect(children).toHaveLength(2);
     expect(children.every((item) => item.status === "error" && item.seq < outer.seq)).toBe(true);
