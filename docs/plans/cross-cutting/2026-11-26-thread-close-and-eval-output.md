@@ -1,6 +1,6 @@
 # Thread closure and eval output
 
-Status: Active.
+Status: Complete.
 
 Subagent kill used to interrupt one turn: queued sibling messages and nested
 background completions could wake the child after its original activity settled.
@@ -20,7 +20,7 @@ could process them, while eval rejected large final output before it could spill
       including errors and cancellation; preserve separate image and bridge limits.
 - [x] Review behavior, lifecycle/simplicity, and evidence independently; resolve
       findings, synchronize subsystem and testing docs, and run `npm run check`.
-- [ ] Commit validated changes, push to the confirmed branch, and verify the
+- [x] Commit validated changes, push to the confirmed branch, and verify the
       patch release workflow and its published assets.
 
 Closure verification includes the model tool and public activities RPC, queued
@@ -28,7 +28,7 @@ sibling input, a late grandchild completion, and direct read-only attachment.
 Both store implementations and the SQLite upgrade suite passed, including
 backfilling already-dismissed branches. The obsolete plugin descendant index
 was removed. Three independent review lenses covered lifecycle, output bounds,
-and requirements; review-driven fixes are being requalified before publishing.
+and requirements; the review-driven fixes passed focused and full validation.
 
 Evaluator regressions cover full text with and without workspace execution,
 bounded history/events, preserved output on a guest error and after interruption,
@@ -49,3 +49,10 @@ A Linux x64 probe reproduced an interactive empty write stuck in `cat`, then
 completed 512/512 noninteractive empty writes and 512/512 unchanged one-byte
 writes. The focused real-Docker suite passed all 12 tests. Neither test timeouts
 nor retries changed. Release qualification uses a fresh dispatch from `main`.
+
+The final Windows `npm run check` passed (2,145 tests, 83 skipped).
+[Hosted source CI](https://github.com/usatiuk/harness/actions/runs/45911723662)
+passed on all three runners. The [release workflow](https://github.com/usatiuk/harness/actions/runs/45911723280)
+built all four platform targets. The signed manifest and artifact sizes/hashes
+were verified against the draft before [v0.13.1](https://github.com/usatiuk/harness/releases/tag/v0.13.1)
+was published as latest with 24 assets.

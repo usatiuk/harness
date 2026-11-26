@@ -1,7 +1,8 @@
 # Harness plan
 
 [Thread closure and eval output](docs/plans/cross-cutting/2026-11-26-thread-close-and-eval-output.md)
-tracks recursive subagent shutdown and the separate input/output paths for eval.
+shipped in [v0.13.1](https://github.com/usatiuk/harness/releases/tag/v0.13.1),
+including the shared startup disclosure and a fix for empty Docker writes.
 
 [Startup progress and configurable timeouts](docs/plans/cross-cutting/2026-11-24-startup-and-timeouts.md) records the one-second HTTP probe regression, configurable host and per-server limits, and desktop startup progress.
 
