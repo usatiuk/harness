@@ -59,6 +59,75 @@ const CONFIG = {
   model: { provider: "fake", model: "fake-1" },
 };
 
+it("seals executing descendants, discards queued wakes, and leaves siblings usable", async () => {
+  const store = new InMemoryStore();
+  const gate = new GateProvider("partial");
+  const engine = new Engine(
+    store,
+    new PluginHost([{ id: "fake", providers: () => [gate] }]),
+    testConfigResolver(),
+    unusedCodeEvaluator,
+  );
+  const input = newConversationInput(CONFIG);
+  const root = await store.createConversation(input);
+  const child = await store.createConversation({ ...input, parentId: root.id });
+  const nested = await store.createConversation({ ...input, parentId: child.id });
+  const sibling = await store.createConversation({ ...input, parentId: root.id });
+  await engine.prepare(root.id);
+  engine.registerChild(root.id, child.id);
+  engine.registerChild(child.id, nested.id);
+  engine.registerChild(root.id, sibling.id);
+  await engine.deliver(nested.id, userInput("running"));
+  await gate.started;
+  await engine.deliver(nested.id, userInput("queued"), "queue");
+  const closing = engine.closeThread(child.id);
+  await expect(engine.deliver(nested.id, userInput("racing"))).rejects.toThrow(/closed/i);
+  await closing;
+  expect((await store.getLatestTurn(nested.id))?.status).toBe("aborted");
+  expect(userTexts(await store.listOwnedItems(nested.id))).toEqual(["running"]);
+  await expect(engine.deliver(nested.id, userInput("after close"))).rejects.toThrow(/closed/i);
+  gate.release();
+  await engine.deliver(sibling.id, userInput("unaffected"));
+  await engine.whenIdle(sibling.id);
+  expect((await store.getLatestTurn(sibling.id))?.status).toBe("completed");
+});
+
+it("closes an activation loading an accepted answer before the answer can wake a turn", async () => {
+  const store = new InMemoryStore();
+  let markStarted!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>((resolve) => (markStarted = resolve));
+  const resume = new Promise<void>((resolve) => (release = resolve));
+  const engine = new Engine(
+    store,
+    new PluginHost([]),
+    async () => {
+      markStarted();
+      await resume;
+      return CONFIG;
+    },
+    unusedCodeEvaluator,
+  );
+  const { id } = await store.createConversation(newConversationInput(CONFIG));
+  await store.createQuestion({
+    id: "q",
+    conversationId: id,
+    callId: "ask",
+    createdAt: 1,
+    response: null,
+    questions: [{ id: "one", prompt: "Question?", options: null, selection: "single" }],
+  });
+  await store.resolveQuestion(id, "q", { status: "dismissed" });
+  const loading = engine.prepare(id);
+  await started;
+  const closing = engine.closeThread(id);
+  release();
+  await expect(loading).rejects.toThrow(/closed/i);
+  await closing;
+  expect(await store.getLatestTurn(id)).toBeUndefined();
+  expect(engine.conversationTreeState(id)).toEqual([]);
+});
+
 it("a failed first load does not become a parent but registered children retain their root", async () => {
   const store = new InMemoryStore(counterIdGenerator(), fixedClock());
   const engine = new Engine(store, new PluginHost([]), testConfigResolver(), unusedCodeEvaluator);

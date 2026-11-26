@@ -74,6 +74,32 @@ it("reads the selected server's current checkout through the public client and f
     await expect(
       desktop.plugins.listChanges(id, "uncommitted", null, AbortSignal.abort()),
     ).rejects.toThrow();
+    const child = await service.createConversation({
+      parentId: id,
+      cwd: repository,
+      overrides: { model: { provider: "fake", model: "fake-1" } },
+    });
+    await service.putPluginState(
+      "subagents",
+      child.id,
+      "spawn",
+      {
+        parent: { conversationId: id, callId: "delegate" },
+        agent: "general",
+      },
+      id,
+    );
+    await service.closeThread(child.id);
+    await desktop.client.attach(child.id);
+    const historyChanges = await desktop.plugins.listChanges(child.id, "uncommitted");
+    expect(historyChanges.repository).toBe(repository);
+    expect(
+      (await desktop.plugins.readChangeDiff(child.id, "uncommitted", historyChanges.files[0]!))
+        .patch,
+    ).toContain("+server checkout edit");
+    expect(
+      service.conversationTreeState(id).some((member) => member.conversation.id === child.id),
+    ).toBe(false);
   } finally {
     await host.shutdown();
     await server.shutdown();

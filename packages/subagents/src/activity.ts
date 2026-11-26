@@ -121,7 +121,7 @@ export class SubagentActivity implements Activity {
   kill(): void {
     if (this.#killed) return;
     this.#killed = true;
-    void this.#runner.deliver(this.childId, "", "interrupt");
+    this.#runner.interruptTurn(this.childId);
   }
 
   #push(line: string): void {
@@ -198,14 +198,20 @@ export async function spawnSubagent(init: SpawnInit): Promise<SubagentActivity> 
     title: init.name,
     reference: init.slug,
   });
-  activity.arm(init.runner.subscribe(child.id, (event) => activity.onEvent(event)));
   const parent = await identity(init.runner, init.parent);
-  await init.runner.deliver(
-    child.id,
-    `You are subagent ${init.name} [${init.slug}], using the ${init.agentName} profile.\n` +
-      `Your direct parent is ${parent.name}${parent.slug !== parent.id ? ` [${parent.slug}]` : ""} (parent).\n` +
-      `Assigned task:\n${init.task}`,
-    "send",
-  );
+  const unsubscribe = init.runner.subscribe(child.id, (event) => activity.onEvent(event));
+  activity.arm(unsubscribe);
+  try {
+    await init.runner.deliver(
+      child.id,
+      `You are subagent ${init.name} [${init.slug}], using the ${init.agentName} profile.\n` +
+        `Your direct parent is ${parent.name}${parent.slug !== parent.id ? ` [${parent.slug}]` : ""} (parent).\n` +
+        `Assigned task:\n${init.task}`,
+      "send",
+    );
+  } catch (error) {
+    unsubscribe();
+    throw error;
+  }
   return activity;
 }

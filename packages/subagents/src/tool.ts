@@ -39,7 +39,7 @@ export interface SubagentToolDeps {
   reader: ConfigReader;
   /** Lazy: the runner is bound after the service is constructed, but before any tool runs. */
   runner: () => ConversationRunner;
-  /** Live child index for cascade-stop. */
+  /** Serializes admission per parent. */
   registry: SubagentRegistry;
 }
 
@@ -120,7 +120,6 @@ export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
         ...(cwd !== undefined ? { cwd } : {}),
       });
 
-      this.#deps.registry.track(ctx.conversationId, activity.childId);
       activitiesOf(ctx).track(activity, { callId: ctx.callId, emit: (e) => ctx.emit(e) });
       // Placeholder; the activities consumption middleware claims this activity and owns the real
       // model-facing result (the child's final output, foreground or backgrounded).

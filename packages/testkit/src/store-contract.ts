@@ -23,6 +23,31 @@ const message = (conversationId: ConversationId, turnId: TurnId, text: string): 
  */
 export function storeContract(name: string, makeStore: () => Store): void {
   describe(name, () => {
+    it("closes a branch durably without orphaning its history or admitting new descendants", async () => {
+      const store = makeStore();
+      const root = await store.createConversation(sampleRecord());
+      const child = await store.createConversation({ ...sampleRecord(), parentId: root.id });
+      const leaf = await store.createConversation({ ...sampleRecord(), parentId: child.id });
+      const sibling = await store.createConversation({ ...sampleRecord(), parentId: root.id });
+      const turn = await store.createTurn(child.id);
+      const item = await store.appendItem(message(child.id, turn.id, "retained"));
+      await store.deleteConversationIfEmpty(root.id);
+      expect(new Set(store.closeThread(child.id))).toEqual(new Set([child.id, leaf.id]));
+      await store.deleteConversationIfEmpty(leaf.id);
+      expect(await store.getConversation(leaf.id)).toMatchObject({
+        parentId: child.id,
+        closed: true,
+      });
+      expect(await store.getConversation(sibling.id)).toEqual(sibling);
+      expect(await store.listActiveItems(child.id)).toEqual([item]);
+      await expect(
+        store.createConversation({ ...sampleRecord(), parentId: leaf.id }),
+      ).rejects.toThrow(/closed/i);
+      await expect(
+        store.createConversation({ ...sampleRecord(), parentId: root.id }),
+      ).resolves.toMatchObject({ parentId: root.id });
+    });
+
     it("forks before a user item with shared immutable ancestry and independent local records", async () => {
       const store = makeStore();
       const source = await store.createConversation(sampleRecord());

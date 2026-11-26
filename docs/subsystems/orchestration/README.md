@@ -88,9 +88,9 @@ from a subagent's existing task slug. Activity tools accept a canonical ID or a
 unique tracked reference/title; ordinary results, lists and completion notices
 prefer a readable reference, falling back to the canonical ID for ambiguity or
 legacy handles. Structured results retain `activityId` and expose `activityRef`.
-Resolution stays inside the caller's manager and ends on collection/deactivation:
-family parent/sibling references cannot access another owner's activities or
-recreate a handle from durable history. No alias registry is persisted.
+Peek/list use live handles in the caller's manager. Explicit kill can also
+resolve the caller's durable direct child after its spawn handle is gone;
+parent/sibling references cannot stop someone else's work.
 
 Foreground cancellation still kills the activity. The foreground consumer retains the handle while formatting a result or registering its background notice, including when completion races collection. Interrupting a conversation wait leaves background work under its existing owner.
 
@@ -160,14 +160,14 @@ Running recipients consume it at the normal safe boundary; idle recipients start
 another turn, including after finishing. Submission acknowledges acceptance,
 not a reply. No activity or separate lifecycle is created for a message.
 
-`subagent_dismiss({to})` resolves a direct child's unique slug/name or canonical
-ID and marks it dismissed. Ambiguous aliases reject rather than select a target.
-One durable flag applies
-to its subtree through ancestor lookup, freeing its parent's roster slot. Model
-lists omit dismissed branches, and family sends to them fail, except that a child
-can always send to its direct parent. Existing activity completion can still wake
-a dismissed owner; it stays dismissed. Dismissed agents cannot spawn hidden
-children. Dismissal preserves history and does not cancel existing activities.
+`activity_kill` on a subagent closes the child's thread and descendants, including
+background work. It targets the thread even if the original spawn finished and
+a later message started another turn. Closed threads cannot accept new work:
+queued messages, activity completions and later sends do not restart them.
+The closed branch remains in the roster as stopped. `subagent_dismiss({to})`
+does the same close and also hides the branch, freeing the parent's roster slot.
+Both resolve a direct child by ID or unambiguous name/slug. Neither changes the
+ordinary turn interrupt or session shutdown into a permanent close.
 GUI navigation omits dismissed branches before paging, including running counts
 and child expanders; completed-but-not-dismissed work remains. History and direct
 inspection/attachment remain available. The attached-root-scoped
@@ -178,7 +178,7 @@ to the root. Configured tool allowlists still govern communication.
 The subagent is itself backgroundable. Foreground completion returns the child's
 final result. Background execution is tracked through the same activity tools and
 completion delivery as commands. Parent/child metadata is stored in namespaced
-plugin state; live handles and cascade-stop ownership remain activation-local.
+plugin state. Thread closure uses indexed durable parentage, not live activity handles.
 The desktop header opens a paged tree of durable children, with nested
 branches expanded and no collapse controls, grouped into Running and Finished.
 Keep each branch in Running while any descendant runs, preserving each row's own outcome. Each level keeps bounded paging. Rows show Running, Completed, Failed or Stopped, and remain

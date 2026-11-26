@@ -1,6 +1,8 @@
 import type { ZodType } from "zod";
+import { SUBAGENT_THREAD_CLOSER, type SubagentThreadCloser } from "@harness/activities";
 import type {
   ConfigReader,
+  Conversation,
   ConversationRunner,
   ToolContractResolver,
   Plugin,
@@ -9,7 +11,12 @@ import type {
 } from "@harness/protocol";
 import { subagentsConfigSchema, type AgentDef, type SubagentsConfig } from "./config.ts";
 import { SubagentRegistry } from "./registry.ts";
-import { SubagentDismissTool, SubagentListTool, SubagentSendTool } from "./messages.ts";
+import {
+  closeDirectChild,
+  SubagentDismissTool,
+  SubagentListTool,
+  SubagentSendTool,
+} from "./messages.ts";
 import { SubagentTool } from "./tool.ts";
 
 /** Renders the catalog as the parent-facing roster appended to the tool description / `agent` arg. */
@@ -73,6 +80,18 @@ class SubagentsPlugin implements Plugin {
     ];
   }
 
+  services() {
+    return [
+      {
+        key: SUBAGENT_THREAD_CLOSER,
+        for: (owner: Conversation): SubagentThreadCloser => ({
+          close: (to, signal) =>
+            closeDirectChild(this.#def.runner(), to, { conversationId: owner.id, signal }),
+        }),
+      },
+    ];
+  }
+
   toolContracts() {
     return [subagentContractResolver(this.#reader)];
   }
@@ -106,11 +125,6 @@ export class SubagentsDefinition implements PluginDefinition {
       );
     }
     return this.#runner;
-  }
-
-  /** Drop process-local parentage after the engine has deactivated the complete conversation tree. */
-  resetSession(): void {
-    this.registry.clear();
   }
 }
 

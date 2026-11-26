@@ -48,6 +48,7 @@ export class InMemoryStore implements Store {
   readonly #pendingQuestions = new Map<ConversationId, Map<string, StoredQuestion>>();
   readonly #worktrees = new Map<string, ManagedWorktree>();
   readonly #conversations = new Map<ConversationId, ConversationRecord>();
+  readonly #children = new Map<ConversationId, Set<ConversationId>>();
   readonly #items = new Map<ConversationId, Item[]>();
   readonly #byId = new Map<ItemId, Item>();
   readonly #turns = new Map<TurnId, Turn>();
@@ -126,10 +127,22 @@ export class InMemoryStore implements Store {
     this.#worktrees.delete(path);
   }
 
+  closeThread(id: ConversationId): ConversationId[] {
+    const branch = [id];
+    for (const member of branch) {
+      const record = this.#conversations.get(member);
+      if (!record) throw new Error(`unknown conversation: ${member}`);
+      this.#conversations.set(member, { ...record, closed: true });
+      for (const child of this.#children.get(member) ?? []) branch.push(child);
+    }
+    return branch;
+  }
+
   async createConversation(input: NewConversationRecord): Promise<ConversationRecord> {
     const createdAt = this.clock.now();
     const record: ConversationRecord = {
       id: this.ids.conversationId(),
+      ...(input.parentId ? { parentId: input.parentId } : {}),
       workspaceRoot: input.workspaceRoot,
       ...(input.originalWorkspaceRoot
         ? { originalWorkspaceRoot: input.originalWorkspaceRoot }
@@ -140,6 +153,14 @@ export class InMemoryStore implements Store {
       createdAt,
       lastUsedAt: createdAt,
     };
+    if (input.parentId) {
+      const parent = this.#conversations.get(input.parentId);
+      if (!parent || parent.closed)
+        throw new Error("Cannot create a child of an absent or closed thread");
+      const children = this.#children.get(parent.id) ?? new Set<ConversationId>();
+      children.add(record.id);
+      this.#children.set(parent.id, children);
+    }
     this.#conversations.set(record.id, record);
     this.#items.set(record.id, []);
     return record;
@@ -208,10 +229,18 @@ export class InMemoryStore implements Store {
 
   async deleteConversationIfEmpty(id: ConversationId): Promise<void> {
     const conversation = this.#conversations.get(id);
-    if (!conversation || conversation.head !== null) return;
+    if (
+      !conversation ||
+      conversation.closed ||
+      this.#children.get(id)?.size ||
+      conversation.head !== null
+    )
+      return;
     for (const turn of this.#turns.values()) {
       if (turn.conversationId === id) return;
     }
+    if (conversation.parentId) this.#children.get(conversation.parentId)?.delete(id);
+    this.#children.delete(id);
     this.#conversations.delete(id);
     this.#items.delete(id);
   }

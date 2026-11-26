@@ -174,7 +174,7 @@ it("bounds each parent's roster and depth, serializes parallel admission, and fr
   await f.create(parent, "replacement");
 });
 
-it("uses ordinary plugin delivery to wake finished family members, while dismissed branches can still message their parent", async () => {
+it("wakes finished family members but never wakes closed recipients, including direct parents", async () => {
   const f = await setup();
   const child = await f.create(f.root.id, "child");
   const sibling = await f.create(f.root.id, "sibling");
@@ -203,20 +203,20 @@ it("uses ordinary plugin delivery to wake finished family members, while dismiss
   );
   expect(
     (await f.send.execute({ to: child, message: "Report upward" }, f.context(nested))).status,
-  ).toBe("ok");
-  await f.service.whenIdle(child);
+  ).toBe("error");
   expect(
     (await f.list.execute({ relation: "parent" }, f.context(nested))).structured,
   ).toMatchObject({ agents: [{ id: child }] });
-  // Completion callbacks use this same plugin-input seam; dismissal does not block them.
-  await f.service.deliver(
-    nested,
-    {
-      source: { kind: "plugin", pluginId: "bash" },
-      content: [{ type: "text", text: "Activity finished" }],
-    },
-    "steer",
-  );
+  await expect(
+    f.service.deliver(
+      nested,
+      {
+        source: { kind: "plugin", pluginId: "bash" },
+        content: [{ type: "text", text: "Activity finished" }],
+      },
+      "steer",
+    ),
+  ).rejects.toThrow(/closed/i);
   await f.service.whenIdle(nested);
   expect((await f.store.getLatestTurn(nested))?.status).toBe("completed");
   expect(
@@ -251,11 +251,139 @@ it("queues into busy recipients without interrupting them and preserves ownershi
   expect(f.service.conversationTreeState(f.root.id)).toEqual([]);
 });
 
-it("real background completion wakes a dismissed finished subagent through its captured tool context", async () => {
+it.each([false, true])(
+  "activity_kill stops a resumed child with queued sibling input and its active grandchild (reloaded: %s)",
+  async (reload) => {
+    const f = await setup();
+    const root = f.root.id;
+    const sibling = await f.create(root, "sibling");
+    const seed = new FakeProvider([
+      toolStep("spawn", "subagent", {
+        agent: "general",
+        name: "Review",
+        slug: "review",
+        task: "Review",
+      }),
+      textStep("Initial task finished"),
+      textStep("Received"),
+    ]);
+    f.provider.stream = seed.stream.bind(seed);
+    await f.service.deliver(root, "Delegate", "send");
+    await f.service.whenIdle(root);
+    const child = (await f.service.getPluginState(
+      "subagents",
+      root,
+      "slug:review",
+    )) as ConversationId;
+    expect(child).toBeTruthy();
+    if (reload) {
+      await f.service.deactivateSession(root);
+      await f.service.prepare(root);
+    }
+
+    const nestedGate = new GateProvider("Working on the nested task");
+    const delegate = new FakeProvider([
+      toolStep("nested-call", "subagent", {
+        agent: "general",
+        name: "Nested",
+        slug: "nested",
+        task: "Nested probe marker",
+        background: true,
+      }),
+      textStep("Nested work is running"),
+    ]);
+    f.provider.stream = (request, signal) =>
+      request.items.some(
+        ({ item }) =>
+          item.type === "message" &&
+          item.role === "user" &&
+          textOf(item.content).includes("Nested probe marker"),
+      )
+        ? nestedGate.stream(request, signal)
+        : delegate.stream();
+    expect(
+      (await f.send.execute({ to: child, message: "Delegate nested work" }, f.context(sibling)))
+        .status,
+    ).toBe("ok");
+    await f.service.whenIdle(child);
+    expect(
+      (await f.store.listActiveItems(child)).filter((item) => item.type === "tool_result"),
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ callId: "nested-call", status: "ok" })]),
+    );
+    const nested = (await f.store.getPluginState(
+      "subagents",
+      child,
+      "slug:nested",
+    )) as ConversationId;
+    expect(nested).toBeTruthy();
+    await nestedGate.started;
+    const gate = new GateProvider("Busy");
+    f.provider.stream = gate.stream.bind(gate);
+    expect(
+      (await f.send.execute({ to: child, message: "Resume" }, f.context(sibling))).status,
+    ).toBe("ok");
+    await gate.started;
+    expect(
+      (await f.send.execute({ to: child, message: "Queued sibling input" }, f.context(sibling)))
+        .status,
+    ).toBe("ok");
+    const pending = f.service
+      .conversationTreeState(root)
+      .find((r) => r.conversation.id === child)?.pendingInput;
+    expect(pending?.map((input) => input.text)).toEqual([
+      expect.stringContaining("Queued sibling input"),
+    ]);
+
+    const stopFrom = async (caller: ConversationId, ref: string) => {
+      const stop = new FakeProvider([
+        toolStep("stop", "activity_kill", { id: ref }),
+        textStep("Stop processed"),
+      ]);
+      f.provider.stream = stop.stream.bind(stop);
+      await f.service.deliver(caller, "Stop review", "send");
+      await f.service.whenIdle(caller);
+      return (await f.store.listActiveItems(caller)).find(
+        (item) => item.type === "tool_result" && item.callId === "stop",
+      );
+    };
+    expect(await stopFrom(sibling, child)).toMatchObject({ status: "error" });
+    expect(f.service.isConversationRunning(child)).toBe(true);
+    expect(await stopFrom(root, "review")).toMatchObject({ status: "ok" });
+    for (const id of [child, nested]) {
+      expect(await f.store.getConversation(id)).toMatchObject({ closed: true });
+      expect((await f.store.getLatestTurn(id))?.status).toBe("aborted");
+      expect(f.service.isConversationRunning(id)).toBe(false);
+    }
+    expect(
+      (await f.store.listActiveItems(child)).some(
+        (item) =>
+          item.type === "message" &&
+          item.role === "user" &&
+          /Queued sibling input|\[activity nested\]/.test(textOf(item.content)),
+      ),
+    ).toBe(false);
+    expect(
+      (await f.send.execute({ to: child, message: "Try again" }, f.context(sibling))).status,
+    ).toBe("error");
+    expect(
+      (await f.list.execute({ relation: "children" }, f.context(root))).structured,
+    ).toHaveProperty(
+      "agents",
+      expect.arrayContaining([
+        expect.objectContaining({ id: child, status: "aborted" }),
+        expect.objectContaining({ id: sibling, status: "completed" }),
+      ]),
+    );
+  },
+);
+
+it("dismissal disposes background work and prevents its captured completion from waking a finished child", async () => {
   let finish!: (result: ActivityResult) => void;
   const done = new Promise<ActivityResult>((resolve) => {
     finish = resolve;
   });
+  const killed = vi.fn(() => finish({ status: "error", summary: "Stopped", view: [] }));
   const tool: Tool = {
     essential: true,
     name: "background_test",
@@ -270,7 +398,7 @@ it("real background completion wakes a dismissed finished subagent through its c
           title: "Controlled work",
           done,
           peek: () => [],
-          kill: () => finish({ status: "error", summary: "Stopped", view: [] }),
+          kill: killed,
         },
         { callId: ctx.callId, emit: (event) => ctx.emit(event) },
       );
@@ -283,7 +411,6 @@ it("real background completion wakes a dismissed finished subagent through its c
     toolStep("list", "subagent_list", { relation: "parent" }),
     toolStep("background", "background_test", { background: true }),
     textStep("Submitted"),
-    textStep("Completion processed"),
   ]);
   f.provider.stream = continuation.stream.bind(continuation);
   await f.service.deliver(child, "Start background work", "send");
@@ -294,21 +421,7 @@ it("real background completion wakes a dismissed finished subagent through its c
     ),
   ).toBe(true);
   await f.dismiss.execute({ to: child }, f.context(f.root.id));
-  finish({
-    status: "ok",
-    summary: "Activity completed",
-    view: [{ type: "text", text: "Background result" }],
-  });
-  await vi.waitFor(async () =>
-    expect(
-      (await f.store.listActiveItems(child)).some(
-        (item) =>
-          item.type === "message" &&
-          item.role === "assistant" &&
-          textOf(item.content) === "Completion processed",
-      ),
-    ).toBe(true),
-  );
+  expect(killed).toHaveBeenCalledOnce();
   await f.service.whenIdle(child);
   expect(
     (await f.store.listActiveItems(child)).some(
@@ -316,9 +429,9 @@ it("real background completion wakes a dismissed finished subagent through its c
         item.type === "message" &&
         item.role === "user" &&
         item.source?.kind === "plugin" &&
-        textOf(item.content).includes("Activity completed"),
+        textOf(item.content).includes("Stopped"),
     ),
-  ).toBe(true);
+  ).toBe(false);
 });
 
 it("briefs projectless children and grandchildren truthfully with their own identity, parent and task", async () => {

@@ -63,14 +63,19 @@ export class ActivityManager {
   }
 
   /** Resolve only currently tracked handles, never durable family metadata or other owners. */
-  resolve(reference: string): { id: string } | { error: string } {
+  resolve(reference: string): { id: string } | { error: string; reason: "ambiguous" | "unknown" } {
     if (this.#byId.has(reference)) return { id: reference };
     const matches = [...this.#byId.values()].filter(
       (activity) => activity.reference === reference || activity.title === reference,
     );
     if (matches.length > 1)
-      return { error: `ambiguous activity: ${reference}; use the canonical activity ID` };
-    return matches[0] ? { id: matches[0].id } : { error: `unknown activity: ${reference}` };
+      return {
+        error: `ambiguous activity: ${reference}; use the canonical activity ID`,
+        reason: "ambiguous",
+      };
+    return matches[0]
+      ? { id: matches[0].id }
+      : { error: `unknown activity: ${reference}`, reason: "unknown" };
   }
 
   /** Prefer an unambiguous readable handle; canonical IDs remain the collision fallback. */

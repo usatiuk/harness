@@ -87,6 +87,8 @@ export class SubagentSendTool implements Tool<z.infer<typeof sendArgs>> {
     const target = resolved.id;
     const relation = await relationship(runner, ctx.conversationId, target);
     if (!relation) return errorResult("Recipient must be your parent, sibling or child.");
+    if ((await runner.getConversation(target))?.closed)
+      return errorResult("Recipient thread is closed.");
     if (relation !== "parent" && (await isDismissed(runner, target)))
       return errorResult(
         "Recipient has been dismissed. Sending to your direct parent is always allowed.",
@@ -132,19 +134,33 @@ export class SubagentSendTool implements Tool<z.infer<typeof sendArgs>> {
 }
 
 const dismissArgs = z.strictObject({ to: z.string() });
+
+/** Both stop tools authorize against durable direct parentage, not the spelling of the reference. */
+export async function closeDirectChild(
+  runner: ConversationRunner,
+  to: string,
+  ctx: Pick<ToolContext, "conversationId" | "signal">,
+) {
+  const resolved = await resolveFamilyReference(runner, ctx.conversationId, to, "children");
+  if ("error" in resolved) return resolved;
+  if ((await relationship(runner, ctx.conversationId, resolved.id)) !== "children")
+    return { error: "Only a direct child can be stopped." } as const;
+  ctx.signal.throwIfAborted();
+  await runner.closeThread(resolved.id);
+  return resolved;
+}
+
 export class SubagentDismissTool implements Tool<z.infer<typeof dismissArgs>> {
   readonly essential = true;
   readonly name = "subagent_dismiss";
   readonly description =
-    "Dismiss one of your direct children by unique name/slug (canonical ID fallback) and its subtree from the active roster, freeing a child slot. They disappear from subagent_list and reject family messages, except messages to a direct parent. Existing activities can still wake their owner. History remains available.";
+    "Permanently close one of your direct children by unique name/slug (canonical ID fallback) and its subtree. Stops their work and future messages, removes them from the active roster, and frees a child slot. History remains available.";
   readonly input = { kind: "function" as const, schema: dismissArgs };
   constructor(private readonly runner: () => ConversationRunner) {}
   async execute({ to }: z.infer<typeof dismissArgs>, ctx: ToolContext) {
     const runner = this.runner();
-    const resolved = await resolveFamilyReference(runner, ctx.conversationId, to, "children");
+    const resolved = await closeDirectChild(runner, to, ctx);
     if ("error" in resolved) return errorResult(resolved.error);
-    if ((await relationship(runner, ctx.conversationId, resolved.id)) !== "children")
-      return errorResult("Only a direct child can be dismissed.");
     const child = await identity(runner, resolved.id);
     const reference = await readableFamilyReference(
       runner,

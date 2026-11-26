@@ -329,13 +329,9 @@ export async function buildServerComposition(
         } finally {
           try {
             try {
-              try {
-                await sandbox.close();
-              } finally {
-                await mcpRuntime.close();
-              }
+              await sandbox.close();
             } finally {
-              subagents.resetSession();
+              await mcpRuntime.close();
             }
           } finally {
             store.close();
@@ -358,11 +354,7 @@ export async function buildServerComposition(
       cleanupErrors.push(cleanupError);
     }
     try {
-      try {
-        await mcp?.close();
-      } finally {
-        subagents.resetSession();
-      }
+      await mcp?.close();
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
     }

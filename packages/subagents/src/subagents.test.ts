@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ActivityManager, consume } from "@harness/activities";
 import type {
   Conversation,
@@ -15,7 +15,7 @@ import type {
   ToolSchema,
   TurnId,
 } from "@harness/protocol";
-import { SubagentActivity } from "./activity.ts";
+import { spawnSubagent, SubagentActivity } from "./activity.ts";
 import { textOf } from "@harness/protocol";
 import { SubagentSendTool } from "./messages.ts";
 import {
@@ -97,6 +97,19 @@ function fakeRunner(): FakeRunner {
     created,
     prepare: async () => {},
     registerChild: () => {},
+    closeThread: async () => {
+      throw new Error("Unexpected thread closure");
+    },
+    interruptTurn(cid) {
+      if (!running.has(cid)) return;
+      emit(cid, {
+        type: "turn.status",
+        conversationId: cid,
+        turnId: "t" as TurnId,
+        status: "aborted",
+      });
+      settle(cid);
+    },
     isConversationRunning: (cid) => running.has(cid),
     getLatestTurn: async () => undefined,
     listConversationPage: async () => [],
@@ -116,15 +129,7 @@ function fakeRunner(): FakeRunner {
       return child;
     },
     async deliver(cid, text, intent) {
-      if (intent === "interrupt") {
-        emit(cid, {
-          type: "turn.status",
-          conversationId: cid,
-          turnId: "t" as TurnId,
-          status: "aborted",
-        });
-        settle(cid); // interrupt ends the running turn
-      } else if (intent === "send" && text) {
+      if (intent === "send" && text) {
         running.add(cid); // input accepted; the turn is running until it settles
       }
     },
@@ -155,6 +160,28 @@ function fakeRunner(): FakeRunner {
     getPluginState: (plugin, cid, key) => Promise.resolve(state.get(`${plugin}|${cid}|${key}`)),
   };
 }
+
+it("releases the child event subscription when seeded delivery fails", async () => {
+  const runner = fakeRunner();
+  const unsubscribe = vi.fn();
+  runner.subscribe = () => unsubscribe;
+  runner.deliver = async () => {
+    throw new Error("closed before admission");
+  };
+  await expect(
+    spawnSubagent({
+      runner,
+      parent: id("owner"),
+      callId: "spawn",
+      agentName: "explore",
+      name: "child",
+      slug: "child",
+      task: "work",
+      overrides: {},
+    }),
+  ).rejects.toThrow("closed before admission");
+  expect(unsubscribe).toHaveBeenCalledOnce();
+});
 
 /** A fake ConfigReader returning a fixed catalog slice for any conversation. */
 const fakeReader = (cfg: unknown): { get: () => Promise<unknown> } => ({
@@ -251,17 +278,11 @@ describe("SubagentTool — spawn", () => {
       name: "Research task",
       slug: "research-task",
     });
-    // While the child is live, the registry tracks it for cascade-stop.
-    expect(registry.descendantsOf(id("parent"))).toEqual([child.id]);
-
     runner.release(child.id, "CHILD:find x");
-    // The settled child stays tracked (interrupting an idle conversation is a no-op) so
-    // cascade-stop never misses a descendant.
     const activity = mgr.claim("call_1")!;
     const result = await consume(mgr, activity, false, ctx(mgr, id("parent")));
     expect(result.status).toBe("ok");
     expect(textOf(result.forModel)).toContain("CHILD:find x");
-    expect(registry.descendantsOf(id("parent"))).toEqual([child.id]);
   });
 
   it("errors on an unknown agent and spawns nothing", async () => {

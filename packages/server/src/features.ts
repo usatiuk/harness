@@ -18,6 +18,9 @@ import { conversationOf } from "@harness/protocol";
 import type { HarnessRpcSession } from "@harness/service";
 import {
   ActivityManager,
+  killOwnedActivity,
+  SUBAGENT_THREAD_CLOSER,
+  type SubagentThreadCloser,
   activitiesEventNotification,
   activitiesSnapshotSchema,
   activityKillRequest,
@@ -55,12 +58,10 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
       throw error;
     }
   };
-  const changesWorkspace = (id: ConversationId) => {
-    const member = service
-      .conversationTreeState(id)
-      .find((member) => member.conversation.id === id);
-    if (!member) throw new Error("Attached conversation has no runtime");
-    return member.conversation.workspaceRoot;
+  const changesWorkspace = async (id: ConversationId) => {
+    const conversation = await service.getConversation(id);
+    if (!conversation) throw new Error(`Unknown conversation: ${id}`);
+    return conversation.workspaceRoot;
   };
   session.onRequest(changesListRequest, (params, signal) =>
     session.runAttached(
@@ -68,7 +69,7 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
       (operationSignal) =>
         worktreeOperation(async () =>
           listChanges(
-            changesWorkspace(params.conversationId as ConversationId),
+            await changesWorkspace(params.conversationId as ConversationId),
             params,
             operationSignal,
           ),
@@ -82,7 +83,7 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
       (operationSignal) =>
         worktreeOperation(async () =>
           readChangeDiff(
-            changesWorkspace(params.conversationId as ConversationId),
+            await changesWorkspace(params.conversationId as ConversationId),
             params,
             operationSignal,
           ),
@@ -211,14 +212,24 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
       };
     });
   });
-  session.onRequest(activityKillRequest, async ({ conversationId, activityId }) => {
+  session.onRequest(activityKillRequest, async ({ conversationId, activityId }, signal) => {
     const id = conversationId as ConversationId;
-    return session.runWritable(id, async () => {
-      const manager = service.existingService(id, "activities");
-      return {
-        status: manager instanceof ActivityManager ? manager.kill(activityId) : "unknown",
-      };
-    });
+    return session.runWritable(
+      id,
+      async (operationSignal) => {
+        const manager = service.existingService(id, "activities");
+        const closer = service.service(id, SUBAGENT_THREAD_CLOSER) as
+          SubagentThreadCloser | undefined;
+        const { status } = await killOwnedActivity(
+          manager instanceof ActivityManager ? manager : undefined,
+          activityId,
+          closer,
+          operationSignal,
+        );
+        return { status };
+      },
+      signal,
+    );
   });
 
   session.onRequest(workspaceShellRunRequest, async ({ conversationId, shellId, command }) => {

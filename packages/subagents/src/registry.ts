@@ -31,10 +31,7 @@ export async function depthOf(
   return depth;
 }
 
-/**
- * Activation-local parent→children index used to inspect the active conversation tree. Settled children remain
- * until session teardown; durable `plugin_state` parentage is the long-term inspection source.
- */
+/** Parent-local spawn admission; the store owns thread parentage and closure. */
 export class SubagentRegistry {
   readonly #spawns = new Map<ConversationId, Promise<void>>();
 
@@ -53,41 +50,5 @@ export class SubagentRegistry {
       release();
       if (this.#spawns.get(parent) === pending) this.#spawns.delete(parent);
     }
-  }
-
-  readonly #children = new Map<ConversationId, Set<ConversationId>>();
-
-  /** Record a freshly spawned child under its parent, for later cascade-stop. */
-  track(parent: ConversationId, child: ConversationId): void {
-    let set = this.#children.get(parent);
-    if (!set) {
-      set = new Set();
-      this.#children.set(parent, set);
-    }
-    set.add(child);
-  }
-
-  /** Forget the completed active session; durable spawn marks remain available for inspection. */
-  clear(): void {
-    this.#children.clear();
-  }
-
-  /** All live descendants of `root` (children, grandchildren, …), BFS order, excluding `root`. */
-  descendantsOf(root: ConversationId): ConversationId[] {
-    const out: ConversationId[] = [];
-    const queue: ConversationId[] = [root];
-    const seen = new Set<ConversationId>([root]);
-    while (queue.length > 0) {
-      const node = queue.shift()!;
-      const kids = this.#children.get(node);
-      if (!kids) continue;
-      for (const child of kids) {
-        if (seen.has(child)) continue;
-        seen.add(child);
-        out.push(child);
-        queue.push(child);
-      }
-    }
-    return out;
   }
 }

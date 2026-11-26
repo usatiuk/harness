@@ -14,10 +14,16 @@ storeContract("SqliteStore", () => new SqliteStore(":memory:", counterIdGenerato
 
 // Drops everything the v12–v15 migrations add on top of schema 11 (scoped plugin
 // state, question inbox, retry accounting); callers drop older additions themselves.
-const downgradeToSchema11 = (db: BetterSqlite3.Database) =>
+const downgradeToSchema16 = (db: BetterSqlite3.Database) =>
+  db.exec(
+    "DROP TRIGGER thread_admission; DROP INDEX conversations_thread_parent; ALTER TABLE conversations DROP COLUMN thread_parent; ALTER TABLE conversations DROP COLUMN closed;",
+  );
+const downgradeToSchema11 = (db: BetterSqlite3.Database) => {
+  downgradeToSchema16(db);
   db.exec(
     "DROP TABLE questions; DROP INDEX plugin_state_scope; ALTER TABLE plugin_state DROP COLUMN scope; DROP INDEX turns_latest; ALTER TABLE model_usage DROP COLUMN attempts;",
   );
+};
 
 const record = () =>
   newConversationInput({
@@ -82,6 +88,7 @@ describe("SqliteStore (durable-only)", () => {
         "UPDATE conversations SET overrides=json_set(overrides,'$.instructions',?) WHERE id=?",
       )
       .run("configured base", conversation.id);
+    downgradeToSchema16(previous);
     previous.pragma("user_version = 15");
     previous.close();
     const store = new SqliteStore(path);
@@ -120,6 +127,7 @@ describe("SqliteStore (durable-only)", () => {
     });
     first.close();
     const old = new BetterSqlite3(path);
+    downgradeToSchema16(old);
     old.exec(
       "DROP TABLE questions; ALTER TABLE model_usage DROP COLUMN attempts; PRAGMA user_version = 12",
     );
@@ -162,6 +170,7 @@ describe("SqliteStore (durable-only)", () => {
     });
     first.close();
     const old = new BetterSqlite3(path);
+    downgradeToSchema16(old);
     old.exec("ALTER TABLE model_usage DROP COLUMN attempts; PRAGMA user_version = 13");
     old.close();
     const upgraded = new SqliteStore(path);
@@ -207,6 +216,7 @@ describe("SqliteStore (durable-only)", () => {
     const unknown = await first.recordModelUsage(input);
     first.close();
     const old = new BetterSqlite3(path);
+    downgradeToSchema16(old);
     old.exec(`ALTER TABLE model_usage RENAME COLUMN attempts TO saved_attempts;
       ALTER TABLE model_usage ADD COLUMN attempts INTEGER CHECK(attempts >= 1);
       UPDATE model_usage SET attempts = saved_attempts;
@@ -341,6 +351,50 @@ describe("SqliteStore (durable-only)", () => {
     }
   });
 
+  it("closes only marked legacy dismissals and their descendants on v16 upgrade", async () => {
+    const path = tempDb();
+    const before = new SqliteStore(path);
+    const root = await before.createConversation(record());
+    const childOf = async (parentId: ConversationId) => {
+      const child = await before.createConversation(record());
+      await before.putPluginState(
+        "subagents",
+        child.id,
+        "spawn",
+        {
+          parent: { conversationId: parentId, callId: "spawn" },
+          agent: "general",
+        },
+        parentId,
+      );
+      return child;
+    };
+    const dismissed = await childOf(root.id);
+    const nested = await childOf(dismissed.id);
+    const sibling = await childOf(root.id);
+    await before.putPluginState("subagents", dismissed.id, "dismissed", true);
+    before.close();
+    const old = new BetterSqlite3(path);
+    downgradeToSchema16(old);
+    old.pragma("user_version = 16");
+    old.close();
+    const upgraded = new SqliteStore(path);
+    try {
+      for (const id of [dismissed.id, nested.id]) {
+        expect((await upgraded.getConversation(id))?.closed).toBe(true);
+        await expect(upgraded.createConversation({ ...record(), parentId: id })).rejects.toThrow(
+          /closed/i,
+        );
+      }
+      for (const id of [root.id, sibling.id])
+        await expect(
+          upgraded.createConversation({ ...record(), parentId: id }),
+        ).resolves.toMatchObject({ parentId: id });
+    } finally {
+      upgraded.close();
+    }
+  });
+
   it("upgrades schema 11 and indexes existing subagent parentage", async () => {
     const path = tempDb();
     const before = new SqliteStore(path);
@@ -364,8 +418,21 @@ describe("SqliteStore (durable-only)", () => {
           })
         ).map((row) => row.id),
       ).toEqual([child.id]);
+      expect(upgraded.closeThread(parent.id)).toContain(child.id);
     } finally {
       upgraded.close();
+    }
+    const resumed = new SqliteStore(path);
+    try {
+      expect(await resumed.getConversation(child.id)).toMatchObject({
+        parentId: parent.id,
+        closed: true,
+      });
+      await expect(resumed.createConversation({ ...record(), parentId: child.id })).rejects.toThrow(
+        /closed/i,
+      );
+    } finally {
+      resumed.close();
     }
     const db = new BetterSqlite3(path);
     try {

@@ -30,6 +30,8 @@ interface ConversationsTable {
   created_at: number;
   last_used_at: number;
   fork_origin: string | null;
+  thread_parent: string | null;
+  closed: number;
 }
 
 interface TurnsTable {
@@ -106,6 +108,15 @@ interface ModelUsageTable {
 const WORKTREE_SCHEMA = `CREATE TABLE managed_worktrees (
   path TEXT PRIMARY KEY, repository TEXT NOT NULL, created_at INTEGER NOT NULL
 );`;
+
+const THREAD_SCHEMA = `
+ALTER TABLE conversations ADD COLUMN thread_parent TEXT REFERENCES conversations(id);
+ALTER TABLE conversations ADD COLUMN closed INTEGER NOT NULL DEFAULT 0 CHECK(closed IN (0,1));
+CREATE INDEX conversations_thread_parent ON conversations(thread_parent) WHERE thread_parent IS NOT NULL;
+CREATE TRIGGER thread_admission BEFORE INSERT ON conversations
+WHEN NEW.thread_parent IS NOT NULL AND (SELECT closed FROM conversations WHERE id = NEW.thread_parent) = 1
+BEGIN SELECT RAISE(ABORT, 'Cannot create a child of a closed thread'); END;
+`;
 
 const QUESTIONS_SCHEMA = `CREATE TABLE questions (
   id TEXT PRIMARY KEY,
@@ -213,7 +224,7 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-export const STORE_SCHEMA_VERSION = 16;
+export const STORE_SCHEMA_VERSION = 17;
 
 /** Fresh schema or supported additive upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
@@ -349,6 +360,20 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
           cursor = row.rowid;
         }
       }
+      version = 16;
+    }
+    if (version === 16) {
+      db.exec(THREAD_SCHEMA);
+      // The spawn scope was the durable owner before thread lifecycle became a store concern.
+      db.exec(`UPDATE conversations AS c SET thread_parent = p.scope FROM plugin_state AS p
+        WHERE p.plugin = 'subagents' AND p.key = 'spawn' AND p.conversation_id = c.id
+          AND p.scope IN (SELECT id FROM conversations)`);
+      // A legacy dismissal mark covers all descendants, not just its marked conversation.
+      db.exec(`WITH RECURSIVE dismissed(id) AS (
+          SELECT conversation_id FROM plugin_state
+          WHERE plugin = 'subagents' AND key = 'dismissed' AND value = 'true'
+          UNION SELECT c.id FROM conversations c JOIN dismissed d ON c.thread_parent = d.id
+        ) UPDATE conversations SET closed = 1 WHERE id IN dismissed`);
       db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }
@@ -362,6 +387,7 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
         `Unsupported Harness database format (${version}) in ${db.name}; this server supports version ${STORE_SCHEMA_VERSION}. Upgrade Harness to a compatible server. The database was not changed.`,
       );
     db.exec(SCHEMA);
+    db.exec(THREAD_SCHEMA);
     db.exec(QUESTIONS_SCHEMA);
     db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
   }).exclusive();

@@ -53,6 +53,7 @@ export function childrenPage(
 }
 
 export async function conversationStatus(runner: ConversationRunner, id: ConversationId) {
+  if ((await runner.getConversation(id))?.closed) return "aborted" as const;
   const turn = await runner.getLatestTurn(id);
   if (turn?.status === "running" && runner.isConversationRunning(id)) return "running" as const;
   return !turn || turn.status === "running" ? ("aborted" as const) : turn.status;
@@ -73,7 +74,7 @@ export async function relationship(
   return undefined;
 }
 
-/** One durable dismissal flag covers a branch; activity/input lifetimes stay unchanged. */
+/** One durable dismissal flag hides a branch; stopping alone does not remove it from the roster. */
 export async function isDismissed(
   runner: ConversationRunner,
   id: ConversationId,

@@ -92,7 +92,11 @@ duplicate tool results for one call. Appends and head movement are transactional
 Crash reconciliation uses those constraints so repeated load/recovery cannot
 create a second result or race a completed turn transition.
 
-The current SQLite format is version 15. Version 14's retry-count constraint is
+SQLite format 17 adds durable thread closure and indexed parentage, backfilling
+existing delegated children from their stored spawn scope and closing previously
+dismissed branches. Closing a subtree
+does not remove its history. Version 16 introduced ordered conversation input.
+Version 14's retry-count constraint is
 replaced transactionally while preserving known counts and historical nulls;
 zero means no provider call occurred. Version 13 receives a nullable
 `model_usage.attempts` column; historical rows remain unknown. New engine records

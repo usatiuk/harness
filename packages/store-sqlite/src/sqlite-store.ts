@@ -216,10 +216,26 @@ export class SqliteStore implements Store {
     await this.#k.deleteFrom("managed_worktrees").where("path", "=", path).execute();
   }
 
+  closeThread(id: ConversationId): ConversationId[] {
+    const rows = this.#db
+      .prepare<[string], { id: ConversationId }>(
+        `
+      WITH RECURSIVE branch(id) AS (
+        SELECT id FROM conversations WHERE id = ? UNION ALL
+        SELECT c.id FROM conversations c JOIN branch b ON c.thread_parent = b.id
+      ) UPDATE conversations SET closed = 1 WHERE id IN branch RETURNING id
+    `,
+      )
+      .all(id);
+    if (!rows.length) throw new Error(`unknown conversation: ${id}`);
+    return rows.map((row) => row.id);
+  }
+
   async createConversation(input: NewConversationRecord): Promise<ConversationRecord> {
     const createdAt = this.clock.now();
     const record: ConversationRecord = {
       id: this.ids.conversationId(),
+      ...(input.parentId ? { parentId: input.parentId } : {}),
       workspaceRoot: input.workspaceRoot,
       ...(input.originalWorkspaceRoot
         ? { originalWorkspaceRoot: input.originalWorkspaceRoot }
@@ -234,6 +250,8 @@ export class SqliteStore implements Store {
       .insertInto("conversations")
       .values({
         id: record.id,
+        thread_parent: input.parentId ?? null,
+        closed: 0,
         workspace_root: record.workspaceRoot,
         original_workspace_root: record.originalWorkspaceRoot ?? null,
         overrides: JSON.stringify(record.overrides),
@@ -342,6 +360,17 @@ export class SqliteStore implements Store {
     await this.#k
       .deleteFrom("conversations")
       .where("id", "=", id)
+      .where("closed", "=", 0)
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom("conversations as child")
+              .select("child.id")
+              .whereRef("child.thread_parent", "=", "conversations.id"),
+          ),
+        ),
+      )
       .where("head", "is", null)
       .where("id", "not in", (eb) => eb.selectFrom("turns").select("conversation_id"))
       .execute();
@@ -952,6 +981,8 @@ function rowToModelUsage(row: Database["model_usage"]): ModelUsage {
 function rowToRecord(row: Database["conversations"]): ConversationRecord {
   return {
     id: row.id as ConversationId,
+    ...(row.thread_parent ? { parentId: row.thread_parent as ConversationId } : {}),
+    ...(row.closed ? { closed: true } : {}),
     workspaceRoot: row.workspace_root,
     ...(row.original_workspace_root ? { originalWorkspaceRoot: row.original_workspace_root } : {}),
     title: row.title,

@@ -43,6 +43,10 @@ export type ConversationOverrides = Record<string, unknown>;
  */
 export interface ConversationRecord {
   id: ConversationId;
+  /** Durable thread ownership; independent from fork provenance. */
+  parentId?: ConversationId;
+  /** A permanently closed thread keeps its history but cannot execute. */
+  closed?: true;
   /** Current execution directory; `null` when projectless. */
   workspaceRoot: string | null;
   /** Original checkout and settings root, retained when execution switches workspaces. */
@@ -73,6 +77,7 @@ export type ConfigResolver = (record: ConversationRecord) => Promise<Conversatio
 
 /** The durable fields a caller supplies to create a conversation; the store assigns the rest. */
 export type NewConversationRecord = {
+  parentId?: ConversationId;
   workspaceRoot: string | null;
   /** Original checkout and settings root, retained when execution switches workspaces. */
   originalWorkspaceRoot?: string;

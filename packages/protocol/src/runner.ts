@@ -11,6 +11,9 @@ import type { HarnessEvent } from "./events.ts";
  * they never rewind or reconfigure a child.
  */
 export interface ConversationRunner extends Pick<Store, "listConversationPage" | "getLatestTurn"> {
+  closeThread(id: ConversationId): Promise<void>;
+  /** Abort only the currently executing turn; never load or close a conversation. */
+  interruptTurn(id: ConversationId): void;
   prepare(id: ConversationId): Promise<void>;
   registerChild(parent: ConversationId, child: ConversationId): void;
   isConversationRunning(id: ConversationId): boolean;

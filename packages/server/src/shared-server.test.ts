@@ -32,7 +32,7 @@ import type { ConversationId, PluginEntry, ModelProvider, Store } from "@harness
 import { registerApprovalServer } from "./approvals.ts";
 import { registerFeatureServer } from "./features.ts";
 import { HarnessPluginClient, FEATURE_PLUGIN_CONTRACTS } from "@harness/client-features";
-import { activitiesPlugin } from "@harness/activities";
+import { activitiesPlugin, ActivityManager, activityKillRequest } from "@harness/activities";
 import { sandboxPlugin } from "@harness/sandbox";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -487,6 +487,53 @@ it("inspects durable subagent trees over RPC and rejects client mutations withou
   }
 });
 
+it("closes a settled activity's resumed subagent and running descendants through the owner's kill RPC", async () => {
+  const provider: ModelProvider = new FakeProvider([textStep("finished")]);
+  const subagents = new SubagentsDefinition();
+  const harness = sharedHarness(provider, [activitiesPlugin, subagents]);
+  subagents.bindRunner(harness.service);
+  const gate = new GateProvider("held");
+  try {
+    const { client } = await harness.connect();
+    const owner = (await client.create({})).id as ConversationId;
+    const outsider = (await client.create({})).id as ConversationId;
+    await client.attach(owner);
+    await client.attach(outsider);
+    const spawn = (parent: ConversationId, name: string) =>
+      spawnSubagent({
+        runner: harness.service,
+        parent,
+        callId: name,
+        agentName: "explore",
+        name,
+        slug: name,
+        task: name,
+        overrides: {},
+      });
+    const child = await spawn(owner, "child");
+    (harness.service.service(owner, "activities") as ActivityManager).track(child, {
+      callId: "child",
+      emit: () => {},
+    });
+    await child.done;
+    await harness.service.whenIdle(child.childId);
+    provider.stream = gate.stream.bind(gate);
+    const nested = await spawn(child.childId, "nested");
+    await gate.started;
+    await harness.service.deliver(child.childId, "resume", "send");
+    const kill = (conversationId: ConversationId) =>
+      client.peer.request(activityKillRequest, { conversationId, activityId: child.childId });
+    expect((await kill(outsider)).status).toBe("unknown");
+    expect((await kill(owner)).status).toBe("requested");
+    expect((await nested.done).status).toBe("error");
+    for (const id of [nested.childId, child.childId])
+      await expect(harness.service.deliver(id, "late", "send")).rejects.toThrow(/closed/i);
+  } finally {
+    gate.release();
+    await harness.close();
+  }
+});
+
 it("keeps legacy subagents inspectable without inventing names or resurrecting stopped work", async () => {
   const harness = sharedHarness(new FakeProvider([]));
   try {
@@ -595,7 +642,7 @@ it("keeps dismissed branches hidden and retained stale children Stopped after SQ
   }
 });
 
-it("filters dismissed GUI branches before paging, reports honest counts/expanders and publishes changes without cancelling live descendants", async () => {
+it("closes live descendants on dismissal, filters branches before paging and publishes scoped GUI changes", async () => {
   const provider: ModelProvider = new FakeProvider(
     Array.from({ length: 8 }, () => textStep("Finished")),
   );
@@ -656,7 +703,7 @@ it("filters dismissed GUI branches before paging, reports honest counts/expander
       )?.hasChildren,
     ).toBe(true);
     await harness.service.putPluginState("subagents", finished.childId, "dismissed", true);
-    const gate = new GateProvider("Still working after dismissal");
+    const gate = new GateProvider("Nested work");
     provider.stream = gate.stream.bind(gate);
     const active = await spawnSubagent({
       runner: harness.service,
@@ -715,8 +762,8 @@ it("filters dismissed GUI branches before paging, reports honest counts/expander
     expect(listed).not.toContain(middleId);
     expect((await connection.plugins.listSubagents(middleId)).children).toEqual([]);
     expect((await connection.plugins.listSubagents(middleId)).running).toBe(0);
-    expect(harness.service.isConversationRunning(active.childId)).toBe(true);
-    // Hidden histories and direct attachment remain available; dismissal is not cancellation.
+    expect(harness.service.isConversationRunning(active.childId)).toBe(false);
+    // Closed branches can still be inspected and attached read-only.
     expect((await connection.plugins.inspectSubagent(active.childId))?.name).toBe("Live work");
     expect((await connection.client.attach(active.childId)).root.id).toBe(root.id);
     for (const id of listed) await dismiss(id);
@@ -727,7 +774,7 @@ it("filters dismissed GUI branches before paging, reports honest counts/expander
     });
     expect(empty).toEqual({ children: [], running: 0, nextCursor: null });
     gate.release();
-    expect((await active.done).status).toBe("ok");
+    expect((await active.done).status).toBe("error");
     await harness.service.whenIdle(active.childId);
     expect(
       (await connection.client.history({ conversationId: active.childId })).entries.length,

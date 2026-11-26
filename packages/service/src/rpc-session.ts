@@ -33,6 +33,7 @@ import {
 } from "@harness/protocol";
 import type {
   AttachResult,
+  Conversation,
   ConversationId,
   HistoryEntry,
   HarnessEvent,
@@ -178,6 +179,7 @@ export class HarnessRpcSession {
 
   async assertWritable(id: ConversationId): Promise<void> {
     await this.#writeCheck?.(id);
+    if (await this.#service.isThreadClosed(id)) throw new ResponseError(-32000, "Thread is closed");
   }
 
   start(): void {
@@ -455,13 +457,20 @@ export class HarnessRpcSession {
       const result = await this.host.run(
         rootId,
         async (signal) => {
+          const rootHistory = await this.#service.prepareForInspection(rootId);
           if (ancestry.length > 1) {
-            await this.#service.prepare(rootId);
             signal.throwIfAborted();
             for (let index = 1; index < ancestry.length; index++)
               this.#service.registerChild(ancestry[index - 1]!, ancestry[index]!);
           }
-          return this.#buildAttachment(conversationId, rootId, signal);
+          const memberHistory =
+            conversationId === rootId
+              ? undefined
+              : await this.#service.prepareForInspection(conversationId);
+          return this.#buildAttachment(conversationId, rootId, signal, [
+            rootHistory,
+            memberHistory,
+          ]);
         },
         requestSignal,
       );
@@ -481,8 +490,8 @@ export class HarnessRpcSession {
     conversationId: ConversationId,
     rootId: ConversationId,
     signal: AbortSignal,
+    history: (Conversation | undefined)[],
   ): Promise<AttachResult> {
-    await this.#service.prepare(conversationId);
     if (signal.aborted || this.#shutdown !== undefined || this.host.isClosing(rootId)) {
       throw new Error("attachment cancelled");
     }
@@ -500,6 +509,10 @@ export class HarnessRpcSession {
 
     // No await from the authoritative snapshot through admission to the live set.
     const members = this.#service.conversationTreeState(rootId);
+    for (const conversation of history) {
+      if (conversation && !members.some((member) => member.conversation.id === conversation.id))
+        members.push({ conversation, status: "idle", turnId: null, pendingInput: [] });
+    }
     const liveRoot = members.find((member) => member.conversation.id === rootId);
     if (!liveRoot) throw new Error("attachment omitted its root runtime");
     const result: AttachResult = {

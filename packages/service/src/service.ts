@@ -200,6 +200,7 @@ export class HarnessService implements ConversationRunner {
     // Insert the complete selection atomically; global model defaults only select new records.
     const record = await this.#store.createConversation({
       ...input,
+      ...(options.parentId !== undefined ? { parentId: options.parentId } : {}),
       overrides: { ...overrides, model: config.model },
     });
     try {
@@ -322,6 +323,19 @@ export class HarnessService implements ConversationRunner {
    */
   async prepare(conversationId: ConversationId): Promise<void> {
     return this.#engine.prepare(conversationId);
+  }
+
+  async prepareForInspection(id: ConversationId): Promise<Conversation | undefined> {
+    const record = await this.#store.getConversation(id);
+    if (record?.closed) {
+      this.#engine.registerClosedHistory(id);
+      return this.#resolve(record);
+    }
+    await this.prepare(id);
+  }
+
+  async isThreadClosed(id: ConversationId): Promise<boolean> {
+    return (await this.#store.getConversation(id))?.closed === true;
   }
 
   /**
@@ -573,6 +587,14 @@ export class HarnessService implements ConversationRunner {
 
   usageSummary(id: ConversationId): Promise<ModelUsageSummary> {
     return this.#store.summarizeModelUsage(id);
+  }
+
+  closeThread(id: ConversationId): Promise<void> {
+    return this.#engine.closeThread(id);
+  }
+
+  interruptTurn(id: ConversationId): void {
+    this.#engine.interruptTurn(id);
   }
 
   registerChild(parent: ConversationId, child: ConversationId): void {

@@ -91,6 +91,23 @@ const createConversation = (client: HarnessClient) =>
   });
 
 describe("HarnessRpcSession", () => {
+  it("attaches closed history without starting its runtime again", async () => {
+    const { client, service } = createHarness();
+    await client.start();
+    const root = await createConversation(client);
+    await client.attach(root.id);
+    await client.deliver(root.id, "keep this history", "send");
+    await service.whenIdle(root.id as ConversationId);
+    await service.closeThread(root.id as ConversationId);
+    const snapshot = await client.attach(root.id);
+    expect(snapshot.members.find((member) => member.conversation.id === root.id)?.live.status).toBe(
+      "idle",
+    );
+    expect(service.conversationTreeState(root.id as ConversationId)).toEqual([]);
+    expect((await client.history({ conversationId: root.id })).entries.length).toBeGreaterThan(0);
+    await expect(client.deliver(root.id, "do not restart", "send")).rejects.toThrow(/closed/i);
+  });
+
   it("carries plugin origin through pending attachment, live events and history without changing content", async () => {
     const gate = new GateTool();
     let deliver!: ToolMiddlewareContext["deliver"];

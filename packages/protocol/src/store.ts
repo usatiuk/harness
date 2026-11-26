@@ -69,6 +69,8 @@ export interface Store {
   getManagedWorktree(path: string): Promise<ManagedWorktree | undefined>;
   listManagedWorktrees(limit: number, before?: string): Promise<ManagedWorktree[]>;
   deleteManagedWorktree(path: string): Promise<void>;
+  /** Atomically stop admitting work to this thread and its descendants; returns the affected ids. */
+  closeThread(id: ConversationId): ConversationId[];
   createConversation(input: NewConversationRecord): Promise<ConversationRecord>;
   /** Atomically fork the prefix before a user item; shared items remain immutable. */
   forkConversation(
