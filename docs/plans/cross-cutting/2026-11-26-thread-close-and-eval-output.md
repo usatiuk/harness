@@ -18,7 +18,7 @@ could process them, while eval rejected large final output before it could spill
 - [x] Remove eval's text display limit; use bounded buffering and the ordinary
       output store for large text. Verify large returns and repeated emissions,
       including errors and cancellation; preserve separate image and bridge limits.
-- [ ] Review behavior, lifecycle/simplicity, and evidence independently; resolve
+- [x] Review behavior, lifecycle/simplicity, and evidence independently; resolve
       findings, synchronize subsystem and testing docs, and run `npm run check`.
 - [ ] Commit validated changes, push to the confirmed branch, and verify the
       patch release workflow and its published assets.
@@ -40,3 +40,12 @@ The startup screen uses the desktop's shared disclosure control. A rendered
 Playwright/Edge check covered the initially collapsed startup details, initially
 expanded timeout controls, and mouse and keyboard toggles. No new control or
 native installer interaction was needed.
+
+The initial Windows full check passed 2,144 tests (83 skipped). Hosted Windows
+exposed equivalent short/long temp paths in spill tests: assertions now check
+file identity and bytes through the emitted reference. The first release and
+x64 Linux CI timed out in different Docker glob tests that create empty files.
+A Linux x64 probe reproduced an interactive empty write stuck in `cat`, then
+completed 512/512 noninteractive empty writes and 512/512 unchanged one-byte
+writes. The focused real-Docker suite passed all 12 tests. Neither test timeouts
+nor retries changed. Release qualification uses a fresh dispatch from `main`.

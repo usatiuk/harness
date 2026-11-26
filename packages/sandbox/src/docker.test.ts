@@ -86,6 +86,16 @@ describe.skipIf(!dockerOk)("DockerExecutionContext (real container)", () => {
     expect(td.decode(await c.read("r.txt", { offset: 2, length: 3 }))).toBe("234");
   });
 
+  it("creates empty files with parents and truncates existing data", async () => {
+    const c = ctx();
+    const path = "empty writes/nested/file";
+    await c.write(path, new Uint8Array());
+    expect(await c.stat(path)).toEqual({ isDirectory: false });
+    await c.write(path, te.encode("old contents"));
+    await c.write(path, new Uint8Array());
+    expect(await c.read(path)).toHaveLength(0);
+  });
+
   it("stat distinguishes file, directory, and absent", async () => {
     const c = ctx();
     await c.write("d/f.txt", te.encode("x"));

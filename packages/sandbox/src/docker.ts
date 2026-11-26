@@ -140,18 +140,21 @@ export class DockerExecutionContext implements ExecutionContext {
   }
 
   async write(path: string, bytes: Uint8Array): Promise<void> {
+    // Empty writes only need redirection. An immediately closed `docker exec -i` pipe can
+    // lose its EOF on attach and leave an otherwise idle container-side cat blocked forever.
+    const hasInput = bytes.byteLength !== 0;
     const r = await this.#withRetry((h) =>
       captureText(
         "docker",
         [
-          ...this.#exec(h, { interactive: true }),
+          ...this.#exec(h, { interactive: hasInput }),
           "sh",
           "-c",
-          'mkdir -p "$(dirname "$1")" && cat > "$1"',
+          `mkdir -p "$(dirname "$1")" && ${hasInput ? "cat" : ":"} > "$1"`,
           "sh",
           this.#cpath(h, path),
         ],
-        { input: bytes, signal: this.#lifetime.signal },
+        { ...(hasInput ? { input: bytes } : {}), signal: this.#lifetime.signal },
       ),
     );
     if (r.exitCode !== 0) this.#fail("write", path, r);
