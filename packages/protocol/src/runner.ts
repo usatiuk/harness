@@ -1,6 +1,5 @@
 import type { ConversationOverrides, Conversation } from "./conversation.ts";
-import type { ConversationId } from "./ids.ts";
-import type { Item } from "./items.ts";
+import type { ConversationId, TurnId } from "./ids.ts";
 import type { DeliveryInput, DeliveryIntent } from "./delivery.ts";
 import type { Store } from "./store.ts";
 import type { HarnessEvent } from "./events.ts";
@@ -12,8 +11,8 @@ import type { HarnessEvent } from "./events.ts";
  */
 export interface ConversationRunner extends Pick<Store, "listConversationPage" | "getLatestTurn"> {
   closeThread(id: ConversationId): Promise<void>;
-  /** Abort only the currently executing turn; never load or close a conversation. */
-  interruptTurn(id: ConversationId): void;
+  /** Abort only this run, without loading or closing the conversation. */
+  interruptTurn(id: ConversationId, expectedTurnId: TurnId): void;
   prepare(id: ConversationId): Promise<void>;
   registerChild(parent: ConversationId, child: ConversationId): void;
   isConversationRunning(id: ConversationId): boolean;
@@ -23,12 +22,14 @@ export interface ConversationRunner extends Pick<Store, "listConversationPage" |
     /** Internal tree ownership for a child spawned by this conversation. */
     parentId?: ConversationId;
   }): Promise<Conversation>;
-  /** Deliver text with an intent — `send` to seed a turn, `interrupt` (empty text) to abort one. */
-  deliver(id: ConversationId, text: string | DeliveryInput, intent: DeliveryIntent): Promise<void>;
+  /** Resolves on admission, not turn completion. Aborting after admission does not retract input. */
+  deliver(
+    id: ConversationId,
+    text: string | DeliveryInput,
+    intent: DeliveryIntent,
+    signal?: AbortSignal,
+  ): Promise<void>;
   subscribe(id: ConversationId, listener: (event: HarnessEvent) => void): () => void;
-  whenIdle(id: ConversationId): Promise<void>;
-  /** The head's ancestry — the conversation's render/inspect source. */
-  getItems(id: ConversationId): Promise<readonly Item[]>;
   /** A conversation with its config resolved on read (e.g. to read its durable `workspaceRoot`). */
   getConversation(id: ConversationId): Promise<Conversation | undefined>;
   /** Durable per-conversation plugin metadata — the store's `plugin_state`, forwarded verbatim. */

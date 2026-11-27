@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
 import { zeroUsage, type Conversation, type HarnessEvent, type Item } from "@harness/protocol";
-import type { HarnessService } from "@harness/service";
+import { testEventClient } from "./test-client-service.ts";
 import { App, appReduce, usageLabel, type AppProps } from "./app.tsx";
 import { emptyState, type Cell } from "./transcript-reducer.ts";
 import { testPlugins } from "./test-plugins.ts";
@@ -60,32 +60,15 @@ const conversation = {
   createdAt: 0,
 } as unknown as Conversation;
 
-function harness(): {
-  service: HarnessService;
-  emit: (e: HarnessEvent) => void;
-  setPluginConfig: ReturnType<typeof vi.fn>;
-} {
-  let listener: ((e: HarnessEvent) => void) | undefined;
+function harness() {
   const setPluginConfig = vi.fn(async () => {});
-  const service = {
-    // Mirrors the scoped overload the App uses: subscribe(conversationId, listener).
-    subscribe: (_conversationId: unknown, l: (e: HarnessEvent) => void) => {
-      listener = l;
-      return () => (listener = undefined);
-    },
-    deliver: vi.fn(async () => {}),
-    respond: vi.fn(),
-    availableModels: () => [],
-    service: () => undefined,
-    setPluginConfig,
-  } as unknown as HarnessService;
-  return { service, emit: (e) => listener?.(e), setPluginConfig };
+  return { ...testEventClient({ setPluginConfig }), setPluginConfig };
 }
 
 // React commits emitted updates asynchronously (scheduler ticks), so frame assertions
 // after an emit poll with vi.waitFor instead of racing the commit with a timer.
 const mount = (
-  service: HarnessService,
+  service: AppProps["service"],
   initialItems: Item[] = [],
   onReload: AppProps["onReload"] = () => {},
   plugins: CliPlugins = testPlugins(),

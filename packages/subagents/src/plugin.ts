@@ -1,8 +1,8 @@
 import type { ZodType } from "zod";
-import { SUBAGENT_THREAD_CLOSER, type SubagentThreadCloser } from "@harness/activities";
+import { activitiesOf } from "@harness/activities";
 import type {
+  TurnStartContext,
   ConfigReader,
-  Conversation,
   ConversationRunner,
   ToolContractResolver,
   Plugin,
@@ -11,13 +11,10 @@ import type {
 } from "@harness/protocol";
 import { subagentsConfigSchema, type AgentDef, type SubagentsConfig } from "./config.ts";
 import { SubagentRegistry } from "./registry.ts";
-import {
-  closeDirectChild,
-  SubagentDismissTool,
-  SubagentListTool,
-  SubagentSendTool,
-} from "./messages.ts";
+import { SubagentDismissTool, SubagentListTool, SubagentSendTool } from "./messages.ts";
 import { SubagentTool } from "./tool.ts";
+import { SubagentActivity } from "./activity.ts";
+import { spawnMark } from "./family.ts";
 
 /** Renders the catalog as the parent-facing roster appended to the tool description / `agent` arg. */
 function roster(agents: AgentDef[]): string {
@@ -38,7 +35,7 @@ export function subagentContractResolver(reader: ConfigReader): ToolContractReso
   };
 }
 
-/** Constrain `agent` to an enum of names + append the roster; preserves any injected `background`. */
+/** Constrain the agent name and include its description in the tool catalog. */
 function withRoster(tool: ToolSchema, agents: AgentDef[]): ToolSchema {
   if (tool.kind !== "function") return tool;
   const params = tool.parameters;
@@ -80,16 +77,26 @@ class SubagentsPlugin implements Plugin {
     ];
   }
 
-  services() {
-    return [
-      {
-        key: SUBAGENT_THREAD_CLOSER,
-        for: (owner: Conversation): SubagentThreadCloser => ({
-          close: (to, signal) =>
-            closeDirectChild(this.#def.runner(), to, { conversationId: owner.id, signal }),
-        }),
-      },
-    ];
+  async onTurnStart({ conversation, turnId, scope }: TurnStartContext) {
+    const parentId = conversation.parentId;
+    if (!parentId) return;
+    const runner = this.#def.runner();
+    const mark = await spawnMark(runner, conversation.id);
+    if (!mark) return;
+    if (mark.parent.conversationId !== parentId) throw new Error("Subagent parent mismatch");
+    const owner = await scope(parentId);
+    const manager = activitiesOf(owner);
+    manager.track(
+      new SubagentActivity({
+        runner,
+        childId: conversation.id,
+        turnId,
+        title: mark.name ?? mark.agent,
+        reference: mark.slug ?? conversation.id,
+      }),
+      { emit: owner.emit },
+    );
+    manager.notifyOnExit(turnId, owner.deliver);
   }
 
   toolContracts() {

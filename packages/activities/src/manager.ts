@@ -23,13 +23,14 @@ export class ActivityManager {
 
   constructor(private readonly conversationId: ConversationId) {}
 
-  track(activity: Activity, { callId, emit }: { callId: string; emit: Emit }): void {
+  track(activity: Activity, { callId, emit }: { callId?: string; emit: Emit }): void {
     this.#gc();
     if (this.#byId.has(activity.id))
       throw new Error(`activity '${activity.id}' is already tracked`);
-    if (this.#byCall.has(callId)) throw new Error(`activity call '${callId}' is already tracked`);
+    if (callId !== undefined && this.#byCall.has(callId))
+      throw new Error(`activity call '${callId}' is already tracked`);
     this.#byId.set(activity.id, activity);
-    this.#byCall.set(callId, activity.id);
+    if (callId !== undefined) this.#byCall.set(callId, activity.id);
     emit({
       type: "activity.started",
       conversationId: this.conversationId,
@@ -63,7 +64,7 @@ export class ActivityManager {
   }
 
   /** Resolve only currently tracked handles, never durable family metadata or other owners. */
-  resolve(reference: string): { id: string } | { error: string; reason: "ambiguous" | "unknown" } {
+  resolve(reference: string): { id: string } | { error: string } {
     if (this.#byId.has(reference)) return { id: reference };
     const matches = [...this.#byId.values()].filter(
       (activity) => activity.reference === reference || activity.title === reference,
@@ -71,11 +72,8 @@ export class ActivityManager {
     if (matches.length > 1)
       return {
         error: `ambiguous activity: ${reference}; use the canonical activity ID`,
-        reason: "ambiguous",
       };
-    return matches[0]
-      ? { id: matches[0].id }
-      : { error: `unknown activity: ${reference}`, reason: "unknown" };
+    return matches[0] ? { id: matches[0].id } : { error: `unknown activity: ${reference}` };
   }
 
   /** Prefer an unambiguous readable handle; canonical IDs remain the collision fallback. */
@@ -214,10 +212,10 @@ export function noticeContent(
 }
 
 /** Narrows the opaque `ctx.service("activities")` to `ActivityManager`; throws if not wired. */
-export function activitiesOf(ctx: ToolContext): ActivityManager {
+export function activitiesOf(ctx: Pick<ToolContext, "service">): ActivityManager {
   const service = ctx.service("activities");
-  if (!service) {
+  if (!(service instanceof ActivityManager)) {
     throw new Error("no activities service configured (add the activities plugin)");
   }
-  return service as ActivityManager;
+  return service;
 }

@@ -1,11 +1,11 @@
 import { testPlugins } from "./test-plugins.ts";
 import { describe, expect, it, vi } from "vitest";
 import type { ConversationId } from "@harness/protocol";
-import type { HarnessService } from "@harness/service";
+import { testClientService } from "./test-client-service.ts";
 import { runCommand, type CommandContext } from "./commands.ts";
 
 const makeCtx = (over: Partial<CommandContext> = {}): CommandContext => ({
-  service: {} as unknown as HarnessService,
+  service: testClientService(),
   conversationId: "c1" as ConversationId,
   plugins: testPlugins(),
   cwd: "/work",
@@ -66,7 +66,7 @@ describe("runCommand", () => {
 
   it("/compact runs a summary-only service operation", async () => {
     const compact = vi.fn(async () => "compacted" as const);
-    const ctx = makeCtx({ service: { compact } as unknown as HarnessService });
+    const ctx = makeCtx({ service: testClientService({ compact }) });
     expect(runCommand("/compact", ctx)).toBe(true);
     await vi.waitFor(() => expect(compact).toHaveBeenCalledWith(ctx.conversationId));
     expect(ctx.note).toHaveBeenCalledWith("context compacted");
@@ -78,7 +78,7 @@ describe("runCommand", () => {
       name: "APIConnectionError",
     });
     const compact = vi.fn().mockRejectedValue(failure);
-    const ctx = makeCtx({ service: { compact } as unknown as HarnessService });
+    const ctx = makeCtx({ service: testClientService({ compact }) });
 
     runCommand("/compact", ctx);
 
@@ -150,10 +150,10 @@ describe("runCommand", () => {
 
   it("/model <id> resolves the id against the catalog and switches", async () => {
     const setModel = vi.fn().mockResolvedValue(undefined);
-    const service = {
+    const service = testClientService({
       availableModels: () => [{ provider: "openai", model: "gpt-5.1" }],
       setModel,
-    } as unknown as HarnessService;
+    });
     const ctx = makeCtx({ service });
     runCommand("/model gpt-5.1", ctx);
     expect(setModel).toHaveBeenCalledWith("c1", { provider: "openai", model: "gpt-5.1" });
@@ -163,18 +163,18 @@ describe("runCommand", () => {
 
   it("/model <id> notes an error for an unknown model and never switches", () => {
     const setModel = vi.fn();
-    const service = {
+    const service = testClientService({
       availableModels: () => [{ provider: "openai", model: "gpt-5.1" }],
       setModel,
-    } as unknown as HarnessService;
+    });
     const ctx = makeCtx({ service });
     runCommand("/model bogus", ctx);
     expect(setModel).not.toHaveBeenCalled();
     expect(ctx.note).toHaveBeenCalledWith("unknown model: bogus");
   });
 
-  const withPresets = (setPreset = vi.fn().mockResolvedValue(undefined)): HarnessService =>
-    ({
+  const withPresets = (setPreset = vi.fn().mockResolvedValue(undefined)) =>
+    testClientService({
       availableModels: () => [
         {
           provider: "openai",
@@ -188,7 +188,7 @@ describe("runCommand", () => {
         },
       ],
       setPreset,
-    }) as unknown as HarnessService;
+    });
 
   it("/preset with no args opens the picker", () => {
     const ctx = makeCtx({ service: withPresets() });
@@ -233,10 +233,10 @@ describe("runCommand", () => {
   });
 
   it("/preset notes when the current model has no preset axis", () => {
-    const service = {
+    const service = testClientService({
       availableModels: () => [{ provider: "openai", model: "gpt-5.1" }],
       setPreset: vi.fn(),
-    } as unknown as HarnessService;
+    });
     const ctx = makeCtx({ service });
     runCommand("/preset", ctx);
     expect(ctx.pickPreset).not.toHaveBeenCalled();
@@ -245,7 +245,7 @@ describe("runCommand", () => {
 
   it("/auto-approve reports status without changing config", () => {
     const setPluginConfig = vi.fn();
-    const service = { setPluginConfig } as unknown as HarnessService;
+    const service = testClientService({ setPluginConfig });
     const ctx = makeCtx({ service });
     runCommand("/auto-approve", ctx);
     expect(setPluginConfig).not.toHaveBeenCalled();
@@ -275,7 +275,7 @@ describe("runCommand", () => {
 
   it("/auto-approve on persists the conversation override and global default", async () => {
     const setPluginConfig = vi.fn().mockResolvedValue(undefined);
-    const service = { setPluginConfig } as unknown as HarnessService;
+    const service = testClientService({ setPluginConfig });
     const ctx = makeCtx({ service });
     runCommand("/auto-approve on", ctx);
     expect(setPluginConfig).toHaveBeenCalledWith(
@@ -290,7 +290,7 @@ describe("runCommand", () => {
 
   it("/auto-approve rejects model-setting or unknown arguments", () => {
     const setPluginConfig = vi.fn();
-    const ctx = makeCtx({ service: { setPluginConfig } as unknown as HarnessService });
+    const ctx = makeCtx({ service: testClientService({ setPluginConfig }) });
     runCommand("/auto-approve openai/reviewer", ctx);
     expect(setPluginConfig).not.toHaveBeenCalled();
     expect(ctx.note).toHaveBeenCalledWith("usage: /auto-approve [on|off]");

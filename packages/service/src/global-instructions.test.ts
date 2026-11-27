@@ -96,7 +96,6 @@ it.each([true, false])(
         overrides: { instructions: role.systemPrompt },
         ...(workspace ? { cwd: project } : {}),
       });
-      await activity.done;
       await service.whenIdle(activity.childId);
       expect(textOf(requestGuidance(requests.at(-1)))).toContain(role.systemPrompt);
       expect(textOf(requestGuidance(requests.at(-1)))).not.toContain("ROOT ROLE");

@@ -4,10 +4,10 @@ import type { JsonValue } from "./rpc.ts";
 import type { ToolCall, Tool, ToolMiddleware, ToolContractResolver } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
 import type { Conversation } from "./conversation.ts";
-import type { ConversationId } from "./ids.ts";
+import type { ConversationId, TurnId } from "./ids.ts";
 import type { DeliveryInput } from "./delivery.ts";
 import type { Item } from "./items.ts";
-import type { HarnessEvent } from "./events.ts";
+import type { HarnessEvent, PluginEvent } from "./events.ts";
 import type { CompactionStrategy } from "./policies.ts";
 import type { RequestMiddleware } from "./requests.ts";
 import type { ProviderTypeContributions } from "./provider-instance.ts";
@@ -82,10 +82,24 @@ export interface ConversationContext {
   active(): Promise<readonly Item[]>;
 }
 
+/** One acquired turn. Scoped services and callbacks belong to an activation in the same conversation tree. */
+export interface TurnStartContext {
+  conversation: Conversation;
+  turnId: TurnId;
+  scope: (id: ConversationId) => Promise<{
+    service(key: string): unknown;
+    emit: (event: PluginEvent) => void;
+    /** Post a completion notice to this activation; stale notices are discarded. */
+    deliver: (content: ContentBlock[]) => void;
+  }>;
+}
+
 export type ContextBoundary =
   { type: "window" | "turn" | "workspace" } | { type: "tools"; calls: readonly ToolCall[] };
 
 export interface Plugin extends ProviderTypeContributions {
+  /** Attach turn-owned resources before the turn starts producing work. */
+  onTurnStart?(ctx: TurnStartContext): void | Promise<void>;
   contextItems?(ctx: ConversationContext, boundary: ContextBoundary): Promise<PluginContextItem[]>;
   onCompact?(ctx: ConversationContext): Promise<JsonValue[]>;
   readonly id: string;

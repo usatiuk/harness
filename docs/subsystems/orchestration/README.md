@@ -2,9 +2,9 @@
 
 ## Status
 
-Harness can run commands and subagents in the foreground or as background
-activities. Activities are process-local handles owned by one conversation;
-their completion is delivered back through the ordinary conversation input seam.
+Harness can run commands in the foreground or background. Activities are
+process-local handles owned by one conversation. Background command completion
+is delivered back through the ordinary conversation input seam.
 Subagents run as durable child conversations through the same service and engine
 as their parent, with independent context, configuration, tools, and usage.
 
@@ -88,9 +88,8 @@ from a subagent's existing task slug. Activity tools accept a canonical ID or a
 unique tracked reference/title; ordinary results, lists and completion notices
 prefer a readable reference, falling back to the canonical ID for ambiguity or
 legacy handles. Structured results retain `activityId` and expose `activityRef`.
-Peek/list use live handles in the caller's manager. Explicit kill can also
-resolve the caller's durable direct child after its spawn handle is gone;
-parent/sibling references cannot stop someone else's work.
+Peek, list and kill act on tracked activities in the caller's manager. Kill
+does not resolve a thread from the subagent roster.
 
 Foreground cancellation still kills the activity. The foreground consumer retains the handle while formatting a result or registering its background notice, including when completion races collection. Interrupting a conversation wait leaves background work under its existing owner.
 
@@ -160,14 +159,15 @@ Running recipients consume it at the normal safe boundary; idle recipients start
 another turn, including after finishing. Submission acknowledges acceptance,
 not a reply. No activity or separate lifecycle is created for a message.
 
-`activity_kill` on a subagent closes the child's thread and descendants, including
-background work. It targets the thread even if the original spawn finished and
-a later message started another turn. Closed threads cannot accept new work:
-queued messages, activity completions and later sends do not restart them.
-The closed branch remains in the roster as stopped. `subagent_dismiss({to})`
-does the same close and also hides the branch, freeing the parent's roster slot.
-Both resolve a direct child by ID or unambiguous name/slug. Neither changes the
-ordinary turn interrupt or session shutdown into a permanent close.
+If input is consumed as steering, the current run keeps its activity. If input
+starts a new turn, that run has a new activity in its direct parent's manager,
+regardless of who sent the message. `activity_kill` interrupts just that run.
+The child stays on the roster and can receive later work.
+
+`subagent_dismiss({to})` resolves a direct child by ID or unambiguous name/slug,
+permanently closes its subtree (including owned background work), hides the
+branch and frees the roster slot. Queued messages, activity completions and later
+sends do not restart a dismissed branch.
 GUI navigation omits dismissed branches before paging, including running counts
 and child expanders; completed-but-not-dismissed work remains. History and direct
 inspection/attachment remain available. The attached-root-scoped
@@ -175,9 +175,11 @@ inspection/attachment remain available. The attached-root-scoped
 refreshes navigation immediately; a selected dismissed side branch closes back
 to the root. Configured tool allowlists still govern communication.
 
-The subagent is itself backgroundable. Foreground completion returns the child's
-final result. Background execution is tracked through the same activity tools and
-completion delivery as commands. Parent/child metadata is stored in namespaced
+Spawn returns the new child's ID, name and slug after launch. It does not wait
+for a reply or return an activity ID. Each child turn reports its result to its
+direct parent through the normal activity completion notice. Peek is a bounded
+preview; the notice carries the final assistant output, not the preview.
+`subagent_send` is for additional messages. Parent/child metadata is stored in namespaced
 plugin state. Thread closure uses indexed durable parentage, not live activity handles.
 The desktop header opens a paged tree of durable children, with nested
 branches expanded and no collapse controls, grouped into Running and Finished.
@@ -234,6 +236,6 @@ connection shutdown closes all roots owned by that connection.
 
 Activities tests cover foreground/background transitions, completion delivery,
 peek/list/kill, output, schema injection, and cancellation. Subagent tests
-cover catalogs, inheritance, tool scopes, model overrides, recursion, foreground
-and background execution, parent metadata, completion, interruption, and cascade
+cover catalogs, inheritance, tool scopes, model overrides, recursion, launch
+and message admission, parent metadata, turn interruption, and cascade
 shutdown.

@@ -449,16 +449,14 @@ it("opens a live child with its own identity, snapshot and final transcript whil
     expect(view.state.cells).not.toContainEqual(
       expect.objectContaining({ text: "Parent-only history" }),
     );
-    expect(view.state.cells).toContainEqual(
-      expect.objectContaining({
-        kind: "user",
-        text: "You are subagent Review authentication [auth-review], using the explore profile.\nYour direct parent is Untitled conversation (parent).\nAssigned task:\nreview",
-      }),
-    );
+    expect(
+      view.state.cells.some(
+        (cell) => cell.kind === "user" && cell.text.includes("Assigned task:\nreview"),
+      ),
+    ).toBe(true);
     expect(parent.conversation.id).toBe(root.id);
     expect(parent.state.turn.status).not.toBe("running");
     provider.release();
-    await child.done;
     await service.whenIdle(child.childId);
     await vi.waitFor(() => expect(view.state.turn.status).toBe("completed"));
     expect(view.state.cells).toEqual(

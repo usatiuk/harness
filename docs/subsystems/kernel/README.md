@@ -28,6 +28,10 @@ activities, agents, or subagents. Those capabilities enter through plugins.
 
 ## Turn and delivery model
 
+`onTurnStart` lets a plugin attach resources to an acquired turn before model
+work begins. It applies to any conversation. Sending, steering, or queuing input
+is not itself a turn start.
+
 `deliver` acknowledges acceptance rather than turn completion. A detached drain
 loop owns the conversation until its inbox is empty. Work already waiting in the
 inbox is drained as one batch into a single turn; later `queue` input waits for
@@ -56,6 +60,11 @@ Input retains its existing `DeliverySource` in inbox events/attachment and on
 persisted user-role messages, including steers. Origin is presentation metadata:
 plugin content still reaches the model as ordinary user-role input with unchanged
 delivery semantics. Older items without origin retain their prior appearance.
+
+Explicit delivery rejects if the recipient is closing, regardless of origin.
+A runner caller may cancel before admission; after admission its signal does not
+own the recipient's turn. Only activation-bound completion callbacks silently
+drop notices during teardown.
 
 `whenIdle` waits for conversation quiescence: no active drain and no queued
 inbox work. It is not merely a promise for the turn that happened to be active

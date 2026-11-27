@@ -28,15 +28,28 @@ import {
   subagentsEventNotification,
   type SubagentPage,
 } from "@harness/subagents";
-import type { ConversationId, PluginEntry, ModelProvider, Store } from "@harness/protocol";
+import {
+  textOf,
+  type ConversationId,
+  type PluginEntry,
+  type ModelProvider,
+  type ModelRequest,
+  type Store,
+} from "@harness/protocol";
 import { registerApprovalServer } from "./approvals.ts";
 import { registerFeatureServer } from "./features.ts";
 import { HarnessPluginClient, FEATURE_PLUGIN_CONTRACTS } from "@harness/client-features";
-import { activitiesPlugin, ActivityManager, activityKillRequest } from "@harness/activities";
+import { activitiesPlugin, activityKillRequest, isActivityEvent } from "@harness/activities";
 import { sandboxPlugin } from "@harness/sandbox";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+function userInputMatches(request: ModelRequest, matches: (text: string) => boolean) {
+  return request.items.some(
+    ({ item }) => item.type === "message" && item.role === "user" && matches(textOf(item.content)),
+  );
+}
 
 function sharedHarness(
   provider: ModelProvider,
@@ -354,11 +367,18 @@ it("expires one shared human-only approval with no clients, persists denial and 
 });
 
 it("inspects durable subagent trees over RPC and rejects client mutations without disrupting parent ownership", async () => {
-  const provider: ModelProvider = new FakeProvider([
-    textStep("Child complete"),
-    textStep("Nested complete"),
-  ]);
-  const harness = sharedHarness(provider);
+  const gate = new GateProvider("Live child output");
+  const provider: ModelProvider = new FakeProvider([]);
+  provider.stream = async function* (request, signal) {
+    if (userInputMatches(request, (text) => text.endsWith("\nlive")))
+      yield* gate.stream(request, signal);
+    else if (userInputMatches(request, (text) => text.endsWith("\nfail")))
+      throw new Error("Review failed");
+    else yield* textStep("Complete");
+  };
+  const subagents = new SubagentsDefinition();
+  const harness = sharedHarness(provider, [activitiesPlugin, subagents]);
+  subagents.bindRunner(harness.service);
   try {
     const first = await harness.connect();
     const root = await first.client.create({});
@@ -373,7 +393,6 @@ it("inspects durable subagent trees over RPC and rejects client mutations withou
       task: "review",
       overrides: {},
     });
-    await child.done;
     await harness.service.whenIdle(child.childId);
     const nested = await spawnSubagent({
       runner: harness.service,
@@ -385,7 +404,6 @@ it("inspects durable subagent trees over RPC and rejects client mutations withou
       task: "check",
       overrides: {},
     });
-    await nested.done;
     await harness.service.whenIdle(nested.childId);
     const failed = await spawnSubagent({
       runner: harness.service,
@@ -397,10 +415,7 @@ it("inspects durable subagent trees over RPC and rejects client mutations withou
       task: "fail",
       overrides: {},
     });
-    await failed.done;
     await harness.service.whenIdle(failed.childId);
-    const gate = new GateProvider("Live child output");
-    provider.stream = gate.stream.bind(gate);
     const active = await spawnSubagent({
       runner: harness.service,
       parent: child.childId,
@@ -472,8 +487,10 @@ it("inspects durable subagent trees over RPC and rejects client mutations withou
     expect(
       attachment.members.find((member) => member.conversation.id === active.childId)?.live.status,
     ).toBe("running");
-    active.kill();
-    await active.done;
+    harness.service.interruptTurn(
+      active.childId,
+      (await harness.service.getLatestTurn(active.childId))!.id,
+    );
     await harness.service.whenIdle(active.childId);
     expect(
       (await second.client.history({ conversationId: active.childId })).entries.length,
@@ -487,48 +504,112 @@ it("inspects durable subagent trees over RPC and rejects client mutations withou
   }
 });
 
-it("closes a settled activity's resumed subagent and running descendants through the owner's kill RPC", async () => {
-  const provider: ModelProvider = new FakeProvider([textStep("finished")]);
+it("exposes distinct activity IDs for resumed turns and stops only the live owner's run over RPC", async () => {
+  const launcher = new FakeProvider([
+    toolStep("spawn", "subagent", {
+      agent: "general",
+      name: "Review",
+      slug: "review",
+      task: "Review",
+    }),
+    textStep("Delegate done"),
+  ]);
+  const report = "Evidence from the child. ".repeat(80) + "End of full report.";
+  const firstRun = new GateProvider(report);
+  const provider: ModelProvider = new FakeProvider([]);
   const subagents = new SubagentsDefinition();
   const harness = sharedHarness(provider, [activitiesPlugin, subagents]);
   subagents.bindRunner(harness.service);
-  const gate = new GateProvider("held");
+  const gate = new GateProvider("Resumed work");
   try {
-    const { client } = await harness.connect();
+    const { client, plugins } = await harness.connect();
     const owner = (await client.create({})).id as ConversationId;
+    const sender = new FakeProvider([
+      toolStep("send", "subagent_send", { to: "review", message: "Resume" }),
+      textStep("Message accepted"),
+    ]);
+    provider.stream = async function* (request, signal) {
+      const parent = request.items.some(
+        ({ item }) => "conversationId" in item && item.conversationId === owner,
+      );
+      const lastInput = request.items.findLast(
+        ({ item }) => item.type === "message" && item.role === "user",
+      )?.item;
+      const fromPlugin =
+        lastInput?.type === "message" &&
+        "source" in lastInput &&
+        lastInput.source?.kind === "plugin";
+      if (parent) {
+        if (fromPlugin) yield* textStep("Received report");
+        else if (userInputMatches(request, (text) => text === "Send more work"))
+          yield* sender.stream();
+        else yield* launcher.stream();
+      } else if (fromPlugin) yield* gate.stream(request, signal);
+      else yield* firstRun.stream(request, signal);
+    };
     const outsider = (await client.create({})).id as ConversationId;
     await client.attach(owner);
     await client.attach(outsider);
-    const spawn = (parent: ConversationId, name: string) =>
-      spawnSubagent({
-        runner: harness.service,
-        parent,
-        callId: name,
-        agentName: "explore",
-        name,
-        slug: name,
-        task: name,
-        overrides: {},
-      });
-    const child = await spawn(owner, "child");
-    (harness.service.service(owner, "activities") as ActivityManager).track(child, {
-      callId: "child",
-      emit: () => {},
+    const runs: string[] = [];
+    plugins.subscribe(owner, (event) => {
+      if (
+        isActivityEvent(event) &&
+        event.type === "activity.started" &&
+        event.kind === "subagent" &&
+        event.conversationId === owner
+      )
+        runs.push(event.id);
     });
-    await child.done;
-    await harness.service.whenIdle(child.childId);
-    provider.stream = gate.stream.bind(gate);
-    const nested = await spawn(child.childId, "nested");
+    await client.deliver(owner, "Delegate", "send");
+    await firstRun.started;
+    await harness.service.whenIdle(owner);
+    const child = (await plugins.listSubagents(owner)).children[0]!.id as ConversationId;
+    expect(harness.service.isConversationRunning(child)).toBe(true);
+    const delegatedTurn = await harness.service.getLatestTurn(owner);
+    expect(delegatedTurn?.status).toBe("completed");
+    await vi.waitFor(() => expect(runs).toHaveLength(1));
+    firstRun.release();
+    await harness.service.whenIdle(child);
+    await vi.waitFor(async () => {
+      const { entries } = await client.history({ conversationId: owner });
+      const reports = entries.flatMap((entry) =>
+        entry.kind === "item" &&
+        entry.item.type === "message" &&
+        entry.item.role === "user" &&
+        entry.item.source?.kind === "plugin" &&
+        entry.item.source.pluginId === "subagents"
+          ? [textOf(entry.item.content)]
+          : [],
+      );
+      expect(reports).toEqual([expect.stringContaining(report)]);
+    });
+    await harness.service.whenIdle(owner);
+    const awakened = await harness.service.getLatestTurn(owner);
+    expect(awakened?.status).toBe("completed");
+    expect(awakened?.id).not.toBe(delegatedTurn!.id);
+    await client.deliver(owner, "Send more work", "send");
     await gate.started;
-    await harness.service.deliver(child.childId, "resume", "send");
-    const kill = (conversationId: ConversationId) =>
-      client.peer.request(activityKillRequest, { conversationId, activityId: child.childId });
-    expect((await kill(outsider)).status).toBe("unknown");
-    expect((await kill(owner)).status).toBe("requested");
-    expect((await nested.done).status).toBe("error");
-    for (const id of [nested.childId, child.childId])
-      await expect(harness.service.deliver(id, "late", "send")).rejects.toThrow(/closed/i);
+    // The sender finishes its tool call without waiting for the gated recipient.
+    await harness.service.whenIdle(owner);
+    expect(await harness.service.getItems(owner)).toContainEqual(
+      expect.objectContaining({ type: "tool_result", callId: "send", status: "ok" }),
+    );
+    await vi.waitFor(() => expect(runs).toHaveLength(2));
+    const [original, current] = runs as [string, string];
+    expect(current).not.toBe(original);
+    const kill = (conversationId: ConversationId, activityId: string) =>
+      client.peer.request(activityKillRequest, { conversationId, activityId });
+    expect((await kill(outsider, current)).status).toBe("unknown");
+    expect((await kill(owner, original)).status).toBe("settled");
+    expect(harness.service.isConversationRunning(child)).toBe(true);
+    expect((await kill(owner, current)).status).toBe("requested");
+    await harness.service.whenIdle(child);
+    expect((await plugins.listSubagents(owner)).children).toContainEqual(
+      expect.objectContaining({ id: child, status: "aborted" }),
+    );
+    expect((await kill(owner, current)).status).toBe("settled");
   } finally {
+    firstRun.release();
     gate.release();
     await harness.close();
   }
@@ -643,9 +724,28 @@ it("keeps dismissed branches hidden and retained stale children Stopped after SQ
 });
 
 it("closes live descendants on dismissal, filters branches before paging and publishes scoped GUI changes", async () => {
-  const provider: ModelProvider = new FakeProvider(
-    Array.from({ length: 8 }, () => textStep("Finished")),
-  );
+  const provider: ModelProvider = new FakeProvider([]);
+  const gate = new GateProvider("Nested work");
+  provider.stream = async function* (request, signal) {
+    const lastInput = request.items.findLast(
+      ({ item }) => item.type === "message" && item.role === "user",
+    )?.item;
+    const command = lastInput?.type === "message" ? textOf(lastInput.content) : "";
+    const prefix = "Dismiss task ";
+    if (command.startsWith(prefix)) {
+      const to = command.slice(prefix.length);
+      const callId = `dismiss-${to}`;
+      if (
+        !request.items.some(({ item }) => item.type === "tool_result" && item.callId === callId)
+      ) {
+        yield* toolStep(callId, "subagent_dismiss", { to });
+        return;
+      }
+    }
+    if (userInputMatches(request, (text) => text.endsWith("\nWait")))
+      yield* gate.stream(request, signal);
+    else yield* textStep("Finished");
+  };
   const subagents = new SubagentsDefinition();
   const harness = sharedHarness(provider, [activitiesPlugin, subagents]);
   subagents.bindRunner(harness.service);
@@ -676,7 +776,6 @@ it("closes live descendants on dismissal, filters branches before paging and pub
         task: "Work",
         overrides: {},
       });
-      await child.done;
       await harness.service.whenIdle(child.childId);
     }
     const initial = await connection.plugins.listSubagents(root.id as ConversationId);
@@ -695,7 +794,6 @@ it("closes live descendants on dismissal, filters branches before paging and pub
       task: "Work",
       overrides: {},
     });
-    await finished.done;
     await harness.service.whenIdle(finished.childId);
     expect(
       (await connection.plugins.listSubagents(root.id as ConversationId)).children.find(
@@ -703,8 +801,6 @@ it("closes live descendants on dismissal, filters branches before paging and pub
       )?.hasChildren,
     ).toBe(true);
     await harness.service.putPluginState("subagents", finished.childId, "dismissed", true);
-    const gate = new GateProvider("Nested work");
-    provider.stream = gate.stream.bind(gate);
     const active = await spawnSubagent({
       runner: harness.service,
       parent: middleId,
@@ -722,12 +818,7 @@ it("closes live descendants on dismissal, filters branches before paging and pub
       if (event.type === "subagents.changed") events.push(event);
     });
     const dismiss = async (to: string) => {
-      const scripted = new FakeProvider([
-        toolStep(`dismiss-${to}`, "subagent_dismiss", { to }),
-        textStep("Dismissed"),
-      ]);
-      provider.stream = scripted.stream.bind(scripted);
-      await harness.service.deliver(root.id as ConversationId, "Dismiss task", "send");
+      await harness.service.deliver(root.id as ConversationId, `Dismiss task ${to}`, "send");
       await harness.service.whenIdle(root.id as ConversationId);
     };
     await dismiss(firstId);
@@ -774,8 +865,8 @@ it("closes live descendants on dismissal, filters branches before paging and pub
     });
     expect(empty).toEqual({ children: [], running: 0, nextCursor: null });
     gate.release();
-    expect((await active.done).status).toBe("error");
     await harness.service.whenIdle(active.childId);
+    expect((await harness.service.getLatestTurn(active.childId))?.status).toBe("aborted");
     expect(
       (await connection.client.history({ conversationId: active.childId })).entries.length,
     ).toBeGreaterThan(0);

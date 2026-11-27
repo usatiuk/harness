@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Box, Static, Text, render } from "ink";
 import { Terminal } from "@xterm/headless";
 import { zeroUsage, type Conversation, type HarnessEvent, type Item } from "@harness/protocol";
-import type { HarnessService } from "@harness/service";
+import { testEventClient } from "./test-client-service.ts";
 import { App, LiveViewport } from "./app.tsx";
 import { Markdown } from "./markdown.tsx";
 import { testPlugins } from "./test-plugins.ts";
@@ -163,21 +163,6 @@ const conversation = {
   createdAt: 0,
 } as unknown as Conversation;
 
-function harness(): { service: HarnessService; emit: (event: HarnessEvent) => void } {
-  let listener: ((event: HarnessEvent) => void) | undefined;
-  const service = {
-    subscribe: (_conversationId: unknown, next: (event: HarnessEvent) => void) => {
-      listener = next;
-      return () => (listener = undefined);
-    },
-    deliver: vi.fn(async () => {}),
-    respond: vi.fn(),
-    availableModels: () => [],
-    service: () => undefined,
-  } as unknown as HarnessService;
-  return { service, emit: (event) => listener?.(event) };
-}
-
 describe("terminal scrollback", () => {
   it("shows the newest rich Markdown rows, then publishes the complete cell once", async () => {
     const text = [
@@ -240,7 +225,7 @@ describe("terminal scrollback", () => {
   });
 
   it("publishes a clipped partial assistant message when its real App turn is aborted", async () => {
-    const { service, emit } = harness();
+    const { service, emit } = testEventClient();
     const terminal = new Terminal({
       cols: 50,
       rows: 10,
@@ -299,7 +284,7 @@ describe("terminal scrollback", () => {
   });
 
   it("keeps an abandoned tool in scrollback after a later tall turn starts", async () => {
-    const { service, emit } = harness();
+    const { service, emit } = testEventClient();
     const terminal = new Terminal({
       cols: 50,
       rows: 10,
@@ -365,7 +350,7 @@ describe("terminal scrollback", () => {
   });
 
   it("keeps the turn footer visible when active exploration children overflow", async () => {
-    const { service, emit } = harness();
+    const { service, emit } = testEventClient();
     const terminal = new Terminal({
       cols: 50,
       rows: 10,
@@ -410,7 +395,7 @@ describe("terminal scrollback", () => {
   });
 
   it("publishes settled thought/exploration stages once without routine tool cards", async () => {
-    const { service, emit } = harness();
+    const { service, emit } = testEventClient();
     const terminal = new Terminal({
       cols: 100,
       rows: 10,

@@ -79,8 +79,23 @@ function gate() {
   });
   return { promise, resolve };
 }
+const requestsFrom = (request: ModelRequest, id: ConversationId) =>
+  request.items.some(({ item }) => "conversationId" in item && item.conversationId === id);
+
+function scripted(steps: FakeStep[]) {
+  return new FakeProvider(
+    steps.map((step) =>
+      step.map((event) =>
+        event.type === "completed"
+          ? { ...event, usage: { inputTokens: 10, outputTokens: 2, cachedReadTokens: 3 } }
+          : event,
+      ),
+    ),
+  );
+}
+
 async function setup(
-  steps: FakeStep[],
+  steps: FakeStep[] | ((request: ModelRequest, parent: ConversationId) => FakeStep),
   tools: Tool[] = [],
   mode: ToolMode = "code-only",
   pluginConfig: Record<string, unknown> = {},
@@ -100,15 +115,7 @@ async function setup(
 ) {
   const root = await mkdtemp(join(tmpdir(), "harness-code-"));
   roots.push(root);
-  const provider = new FakeProvider(
-    steps.map((step) =>
-      step.map((event) =>
-        event.type === "completed"
-          ? { ...event, usage: { inputTokens: 10, outputTokens: 2, cachedReadTokens: 3 } }
-          : event,
-      ),
-    ),
-  );
+  const provider = scripted(Array.isArray(steps) ? steps : []);
   const requests: ModelRequest[] = [];
   const recorded: ModelProvider = {
     provider: provider.provider,
@@ -122,7 +129,9 @@ async function setup(
     listModels: () => [],
     stream: (request) => {
       requests.push(request);
-      return provider.stream();
+      return typeof steps === "function"
+        ? scripted([steps(request, conversation.id)]).stream()
+        : provider.stream();
     },
   };
   const store = options.store ?? new InMemoryStore();
@@ -1048,19 +1057,24 @@ describe("recorded code-mode execution", () => {
   });
 
   it("inherits code mode into an actual restricted subagent and cannot discover or invoke withheld tools", async () => {
+    const childSteps = [
+      toolStep("child-search", "tool_search", { queries: ["write_file"] }),
+      toolStep("child-describe", "tool_describe", { name: "write_file" }),
+      toolStep("child-eval", "eval", {
+        code: 'return await tools.call("write_file", {path:"forbidden.txt",content:"bad"});',
+      }),
+      textStep("child done"),
+    ];
+    const launch = evalStep(
+      'return await tools.call("subagent", {agent:"reader", name:"Reader task", slug:"reader-task", task:"attempt unavailable writer"});',
+    );
     const fixture = await setup(
-      [
-        evalStep(
-          'return await tools.call("subagent", {agent:"reader", name:"Reader task", slug:"reader-task", task:"attempt unavailable writer"});',
-        ),
-        toolStep("child-search", "tool_search", { queries: ["write_file"] }),
-        toolStep("child-describe", "tool_describe", { name: "write_file" }),
-        toolStep("child-eval", "eval", {
-          code: 'return await tools.call("write_file", {path:"forbidden.txt",content:"bad"});',
-        }),
-        textStep("child done"),
-        textStep("parent done"),
-      ],
+      (request, parent) => {
+        if (!requestsFrom(request, parent)) return childSteps.shift()!;
+        return request.items.some(({ item }) => item.type === "tool_call")
+          ? textStep("parent done")
+          : launch;
+      },
       [],
       "code-only",
       {
@@ -1079,6 +1093,8 @@ describe("recorded code-mode execution", () => {
     const items = await fixture.run();
     const conversations = await fixture.store.listConversations();
     const child = conversations.find((item) => item.id !== fixture.conversation.id)!;
+    await fixture.svc.whenIdle(child.id);
+    await fixture.svc.whenIdle(fixture.conversation.id);
     const childItems = await fixture.store.listActiveItems(child.id);
     expect(calls(childItems).find((item) => item.name === "write_file")?.parentCallId).toBe(
       "child-eval",
@@ -1094,13 +1110,14 @@ describe("recorded code-mode execution", () => {
     expect(childOutput).toContain("unknown tool: write_file");
     await expect(readFile(join(fixture.root, "forbidden.txt"), "utf8")).rejects.toThrow();
     expect(results(items).at(-1)?.status).toBe("ok");
-    expect(fixture.requests[1]?.tools?.map((tool) => tool.name)).toEqual([
+    const childRequest = fixture.requests.find((request) => requestsFrom(request, child.id));
+    expect(childRequest?.tools?.map((tool) => tool.name)).toEqual([
       "eval",
       "tool_describe",
       "tool_search",
     ]);
     for (const id of [child.id, fixture.conversation.id]) {
-      const steps = id === child.id ? 4 : 2;
+      const steps = fixture.requests.filter((request) => requestsFrom(request, id)).length;
       expect(await fixture.store.listModelUsage(id)).toHaveLength(steps);
       expect(await fixture.store.summarizeModelUsage(id)).toMatchObject({
         incomplete: false,
@@ -2045,46 +2062,82 @@ describe("readable orchestration references through public dispatch", () => {
         slug: "review",
         task: "Review independently",
       };
-      const fixture = await setup(
-        [
-          mode === "hybrid"
-            ? toolStep("spawn", "subagent", spawn)
-            : evalStep(`return await tools.call("subagent", ${JSON.stringify(spawn)});`),
-          toolStep("child-message", "eval", {
-            code: 'return await tools.call("subagent_send", {to:"parent", message:"Child evidence"});',
-          }),
-          textStep("Child finished"),
-          mode === "hybrid"
-            ? toolStep("list", "activity_list", {})
-            : toolStep("inspect", "eval", {
-                code: `
-        await tools.call("activity_list", {});
-        await tools.call("activity_peek", {id:"review"});
-        return await tools.call("subagent_dismiss", {to:"review"});`,
+      const spawnStep =
+        mode === "hybrid"
+          ? toolStep("spawn", "subagent", spawn)
+          : evalStep(`return await tools.call("subagent", ${JSON.stringify(spawn)});`);
+      const childSteps = [
+        toolStep("child-message", "eval", {
+          code: 'return await tools.call("subagent_send", {to:"parent", message:"Child evidence"});',
+        }),
+        textStep("Child finished"),
+      ];
+      const inspect = "Inspect and dismiss the finished review";
+      const inspectSteps =
+        mode === "hybrid"
+          ? [
+              toolStep("list", "activity_list", {}),
+              toolStep("peek", "activity_peek", { id: "review" }),
+              toolStep("dismiss", "subagent_dismiss", { to: "review" }),
+            ]
+          : [
+              toolStep("inspect", "eval", {
+                code: `await tools.call("activity_list", {});
+          await tools.call("activity_peek", {id:"review"});
+          return await tools.call("subagent_dismiss", {to:"review"});`,
               }),
-          ...(mode === "hybrid"
-            ? [
-                toolStep("peek", "activity_peek", { id: "review" }),
-                toolStep("dismiss", "subagent_dismiss", { to: "review" }),
-              ]
-            : []),
-          textStep("Parent finished"),
-        ],
+            ];
+      inspectSteps.push(textStep("Parent finished"));
+      const fixture = await setup(
+        (request, parent) => {
+          if (!requestsFrom(request, parent)) return childSteps.shift()!;
+          if (
+            request.items.some(
+              ({ item }) =>
+                item.type === "message" && item.role === "user" && textOf(item.content) === inspect,
+            )
+          )
+            return inspectSteps.shift()!;
+          return request.items.some(({ item }) => item.type === "tool_call")
+            ? textStep("Ready")
+            : spawnStep;
+        },
         [],
         mode,
       );
-      const items = await fixture.run();
+      const launched = await fixture.run();
       const childId = (await fixture.svc.getPluginState(
         "subagents",
         fixture.conversation.id,
         "slug:review",
       )) as ConversationId;
+      const spawnCall = calls(launched).find((call) => call.name === "subagent")!;
+      expect(
+        results(launched).find((result) => result.callId === spawnCall.callId)?.structured,
+      ).toEqual({ childId, name: spawn.name, slug: spawn.slug });
+      // The parent's tool result is a launch acknowledgement, not a join on the child.
+      await fixture.svc.whenIdle(childId);
+      await fixture.svc.whenIdle(fixture.conversation.id);
+      await fixture.svc.deliver(fixture.conversation.id, inspect, "send");
+      await fixture.svc.whenIdle(fixture.conversation.id);
+      const items = await fixture.store.listActiveItems(fixture.conversation.id);
       const childItems = await fixture.store.listActiveItems(childId);
       const allResults = [...results(items), ...results(childItems)];
       expect(allResults.every((result) => result.status === "ok")).toBe(true);
+      const peek = calls(items).find((call) => call.name === "activity_peek")!;
       expect(
-        allResults.some((result) => textOf(result.content).includes("Review changes [review]")),
-      ).toBe(true);
+        textOf(results(items).find((result) => result.callId === peek.callId)!.content),
+      ).toContain("Child finished");
+      expect(
+        items.filter(
+          (item) =>
+            item.type === "message" &&
+            item.role === "user" &&
+            item.source?.kind === "plugin" &&
+            item.source.pluginId === "subagents" &&
+            textOf(item.content).includes("Child finished"),
+        ),
+      ).toHaveLength(1);
       expect(await fixture.svc.getPluginState("subagents", childId, "dismissed")).toBe(true);
       expect(
         items.some(
@@ -2094,17 +2147,6 @@ describe("readable orchestration references through public dispatch", () => {
             textOf(item.content).includes("Child evidence"),
         ),
       ).toBe(true);
-      expect(
-        results(childItems).some((item) =>
-          textOf(item.content).includes("Message accepted by Untitled conversation [parent]"),
-        ),
-      ).toBe(true);
-      const description = fixture.requests[0]!.tools!.find(
-        (tool) => tool.name === (mode === "hybrid" ? "subagent" : "eval"),
-      )!.description;
-      expect(description).toContain("Do small, quick work directly");
-      expect(description).toContain("useful parallelism");
-      expect(description).toContain("Do not relay your unchanged assigned task");
     },
   );
 

@@ -39,19 +39,6 @@ export async function ancestorChain(runner: ConversationRunner, id: Conversation
   return chain.reverse();
 }
 
-export function childrenPage(
-  runner: ConversationRunner,
-  parent: ConversationId,
-  limit: number,
-  cursor?: { createdAt: number; id: string },
-) {
-  return runner.listConversationPage(
-    limit,
-    cursor ? { ...cursor, id: cursor.id as ConversationId } : undefined,
-    { includedState: { plugin: "subagents", key: "spawn", scope: parent } },
-  );
-}
-
 export async function conversationStatus(runner: ConversationRunner, id: ConversationId) {
   if ((await runner.getConversation(id))?.closed) return "aborted" as const;
   const turn = await runner.getLatestTurn(id);

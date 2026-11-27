@@ -138,12 +138,13 @@ it("offers all Harness capability tools upfront in both modes", async () => {
 it("runs subagent controls and worktree listing without approval requests", async () => {
   const { DemoProvider } = await import("./demo-provider.ts");
   const { FakeProvider, textStep, toolStep } = await import("@harness/testkit");
-  const { isKernelEvent, textOf } = await import("@harness/protocol");
+  const { isKernelEvent } = await import("@harness/protocol");
   const home = await mkdtemp(join(tmpdir(), "harness-control-approval-"));
   vi.stubEnv("HARNESS_HOME", home);
   for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"])
     vi.stubEnv(key, "");
   const task = "Approval regression child task";
+  let parentId: string;
   const scripted = new FakeProvider([
     toolStep("list", "subagent_list", { relation: "children" }),
     toolStep("send", "subagent_send", { to: "not-a-family-member", message: "hello" }),
@@ -155,22 +156,24 @@ it("runs subagent controls and worktree listing without approval requests", asyn
       slug: "approval-test",
       task,
     }),
-    textStep("Done"),
   ]);
   vi.spyOn(DemoProvider.prototype, "stream").mockImplementation(async function* (request) {
     if (!request.tools?.some((tool) => tool.name === "eval"))
       yield* textStep("Control approval regression");
     else if (
-      request.items.some(
-        ({ item }) =>
-          item.type === "message" && item.role === "user" && textOf(item.content) === task,
-      )
-    )
-      yield* textStep("Child finished");
-    else yield* scripted.stream();
+      request.items.some(({ item }) => "conversationId" in item && item.conversationId === parentId)
+    ) {
+      if (request.items.some(({ item }) => item.type === "tool_result" && item.callId === "spawn"))
+        yield* textStep("Done");
+      else yield* scripted.stream();
+    } else yield* textStep("Child finished");
   });
   const pair = createInProcessMessageConnectionPair();
   const harness = await buildServerHarness(pair.right);
+  const client = new HarnessClient({
+    connection: pair.left,
+    client: { name: "control-test", version: "1" },
+  });
   const requests: unknown[] = [];
   const unsubscribe = harness.service.subscribe((event) => {
     if (isKernelEvent(event) && event.type === "request.created") requests.push(event.request);
@@ -179,7 +182,10 @@ it("runs subagent controls and worktree listing without approval requests", asyn
     const conversation = await harness.service.createConversation({
       overrides: { model: { provider: "demo", model: "demo-1" } },
     });
-    await harness.service.send(conversation.id, "Check control tools");
+    parentId = conversation.id;
+    await client.start();
+    await client.attach(conversation.id);
+    await client.deliver(conversation.id, "Check control tools", "send");
     await harness.service.whenIdle(conversation.id);
     const results = (await harness.store.listActiveItems(conversation.id)).filter(
       (item) => item.type === "tool_result",
@@ -190,6 +196,7 @@ it("runs subagent controls and worktree listing without approval requests", asyn
     expect(requests).toEqual([]);
   } finally {
     unsubscribe();
+    client.closeConnection();
     await harness.close();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();

@@ -10,11 +10,10 @@ import {
   type ToolInput,
   type ToolResult,
 } from "@harness/protocol";
-import { activitiesOf } from "@harness/activities";
 import { DEFAULT_MAX_DEPTH, type SubagentsConfig } from "./config.ts";
 import { depthOf, type SubagentRegistry } from "./registry.ts";
 import { isDismissed, rosterPage } from "./family.ts";
-import { spawnSubagent } from "./activity.ts";
+import { spawnSubagent } from "./spawn.ts";
 
 const subagentArgs = z.strictObject({
   agent: z.string().describe("The agent to delegate to (one of the catalog names)."),
@@ -44,22 +43,20 @@ export interface SubagentToolDeps {
 }
 
 /**
- * `subagent({ agent, name, slug, task })` — delegates to a child conversation with its own scope, returning
- * the child's final output. Recursion depth is bounded by a spawn-time check.
+ * Launch a child conversation and return its identity, not its eventual result.
  */
 export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
   readonly essential = true;
   readonly name = "subagent";
   readonly description =
     "Delegate a focused task to a specialized subagent that runs in its own conversation with its " +
-    "own system prompt and tool scope, then returns its final output. Do small, quick work directly. " +
+    "own system prompt and tool scope. Returns the child's identity after launch; its turn result arrives separately. Do small, quick work directly. " +
     "Delegate substantive independent work when isolation or useful parallelism helps. " +
     "Do not relay your unchanged assigned task to another agent.";
   readonly input: ToolInput<z.infer<typeof subagentArgs>> = {
     kind: "function",
     schema: subagentArgs,
   };
-  readonly meta = { backgroundable: true };
   readonly #deps: SubagentToolDeps;
 
   constructor(deps: SubagentToolDeps) {
@@ -108,8 +105,9 @@ export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
         (await runner.getPluginState("subagents", ctx.conversationId, `slug:${slug}`)) !== undefined
       )
         return errorResult(`subagent slug already exists: ${slug}`);
-      const activity = await spawnSubagent({
+      const { childId } = await spawnSubagent({
         runner,
+        signal: ctx.signal,
         parent: ctx.conversationId,
         callId: ctx.callId,
         agentName: agent.name,
@@ -120,10 +118,7 @@ export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
         ...(cwd !== undefined ? { cwd } : {}),
       });
 
-      activitiesOf(ctx).track(activity, { callId: ctx.callId, emit: (e) => ctx.emit(e) });
-      // Placeholder; the activities consumption middleware claims this activity and owns the real
-      // model-facing result (the child's final output, foreground or backgrounded).
-      return okResult(`started subagent ${name} [${slug}]`);
+      return { ...okResult(`Started ${name} [${slug}].`), structured: { childId, name, slug } };
     });
   }
 }

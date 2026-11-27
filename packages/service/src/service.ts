@@ -20,6 +20,7 @@ import type {
   HarnessEvent,
   Item,
   ItemId,
+  TurnId,
   ModelIdentityChange,
   ModelIdentity,
   ModelInfo,
@@ -347,6 +348,7 @@ export class HarnessService implements ConversationRunner {
     conversationId: ConversationId,
     text: string | DeliveryInput,
     intent: DeliveryIntent,
+    signal?: AbortSignal,
   ): Promise<void> {
     return this.#engine.deliver(
       conversationId,
@@ -354,6 +356,7 @@ export class HarnessService implements ConversationRunner {
         ? { source: { kind: "user" }, content: text ? [{ type: "text", text }] : [] }
         : text,
       intent,
+      signal,
     );
   }
 
@@ -593,8 +596,8 @@ export class HarnessService implements ConversationRunner {
     return this.#engine.closeThread(id);
   }
 
-  interruptTurn(id: ConversationId): void {
-    this.#engine.interruptTurn(id);
+  interruptTurn(id: ConversationId, expectedTurnId: TurnId): void {
+    this.#engine.interruptTurn(id, expectedTurnId);
   }
 
   registerChild(parent: ConversationId, child: ConversationId): void {

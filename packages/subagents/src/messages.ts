@@ -77,7 +77,7 @@ export class SubagentSendTool implements Tool<z.infer<typeof sendArgs>> {
   readonly essential = true;
   readonly name = "subagent_send";
   readonly description =
-    "Send a message to your parent, sibling or child using its unique name/slug from subagent_list, or explicit parent. Ambiguous names reject; use the canonical conversation ID as fallback. Delivery joins its ordinary inbox and wakes it if idle, including after it finished. Returns acceptance, not a reply. Incoming subagent messages also wake your conversation if idle. Subagent communication doesn't need to be human intelligible.";
+    "Send a message to your parent, sibling or child using its unique name/slug from subagent_list, or explicit parent. Ambiguous names reject; use the canonical conversation ID as fallback. An idle recipient starts a new turn; a busy recipient can pick up the message during its current turn, or start a new turn with it afterward. Returns acceptance, not a reply. Incoming subagent messages also wake your conversation if idle. Subagent communication doesn't need to be human intelligible.";
   readonly input = { kind: "function" as const, schema: sendArgs };
   constructor(private readonly runner: () => ConversationRunner) {}
   async execute({ to, message }: z.infer<typeof sendArgs>, ctx: ToolContext) {
@@ -90,9 +90,7 @@ export class SubagentSendTool implements Tool<z.infer<typeof sendArgs>> {
     if ((await runner.getConversation(target))?.closed)
       return errorResult("Recipient thread is closed.");
     if (relation !== "parent" && (await isDismissed(runner, target)))
-      return errorResult(
-        "Recipient has been dismissed. Sending to your direct parent is always allowed.",
-      );
+      return errorResult("Recipient has been dismissed.");
     const chain = await ancestorChain(runner, target);
     await runner.prepare(chain[0]!.id);
     for (let index = 1; index < chain.length; index++)
@@ -126,6 +124,7 @@ export class SubagentSendTool implements Tool<z.infer<typeof sendArgs>> {
         ],
       },
       "steer",
+      ctx.signal,
     );
     return okResult(
       `Message accepted by ${recipient.name}${recipientReference !== recipient.name ? ` [${recipientReference}]` : ""}.`,
@@ -134,21 +133,6 @@ export class SubagentSendTool implements Tool<z.infer<typeof sendArgs>> {
 }
 
 const dismissArgs = z.strictObject({ to: z.string() });
-
-/** Both stop tools authorize against durable direct parentage, not the spelling of the reference. */
-export async function closeDirectChild(
-  runner: ConversationRunner,
-  to: string,
-  ctx: Pick<ToolContext, "conversationId" | "signal">,
-) {
-  const resolved = await resolveFamilyReference(runner, ctx.conversationId, to, "children");
-  if ("error" in resolved) return resolved;
-  if ((await relationship(runner, ctx.conversationId, resolved.id)) !== "children")
-    return { error: "Only a direct child can be stopped." } as const;
-  ctx.signal.throwIfAborted();
-  await runner.closeThread(resolved.id);
-  return resolved;
-}
 
 export class SubagentDismissTool implements Tool<z.infer<typeof dismissArgs>> {
   readonly essential = true;
@@ -159,8 +143,12 @@ export class SubagentDismissTool implements Tool<z.infer<typeof dismissArgs>> {
   constructor(private readonly runner: () => ConversationRunner) {}
   async execute({ to }: z.infer<typeof dismissArgs>, ctx: ToolContext) {
     const runner = this.runner();
-    const resolved = await closeDirectChild(runner, to, ctx);
+    const resolved = await resolveFamilyReference(runner, ctx.conversationId, to, "children");
     if ("error" in resolved) return errorResult(resolved.error);
+    if ((await relationship(runner, ctx.conversationId, resolved.id)) !== "children")
+      return errorResult("Only a direct child can be dismissed.");
+    ctx.signal.throwIfAborted();
+    await runner.closeThread(resolved.id);
     const child = await identity(runner, resolved.id);
     const reference = await readableFamilyReference(
       runner,

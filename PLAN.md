@@ -1,5 +1,8 @@
 # Harness plan
 
+[Child turn activities](docs/plans/orchestration/2026-11-27-child-turn-activities.md)
+separates interruption of one run from permanent subagent dismissal.
+
 [Thread closure and eval output](docs/plans/cross-cutting/2026-11-26-thread-close-and-eval-output.md)
 shipped in [v0.13.1](https://github.com/usatiuk/harness/releases/tag/v0.13.1),
 including the shared startup disclosure and a fix for empty Docker writes.

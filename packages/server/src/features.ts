@@ -18,9 +18,6 @@ import { conversationOf } from "@harness/protocol";
 import type { HarnessRpcSession } from "@harness/service";
 import {
   ActivityManager,
-  killOwnedActivity,
-  SUBAGENT_THREAD_CLOSER,
-  type SubagentThreadCloser,
   activitiesEventNotification,
   activitiesSnapshotSchema,
   activityKillRequest,
@@ -216,17 +213,11 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
     const id = conversationId as ConversationId;
     return session.runWritable(
       id,
-      async (operationSignal) => {
+      async () => {
         const manager = service.existingService(id, "activities");
-        const closer = service.service(id, SUBAGENT_THREAD_CLOSER) as
-          SubagentThreadCloser | undefined;
-        const { status } = await killOwnedActivity(
-          manager instanceof ActivityManager ? manager : undefined,
-          activityId,
-          closer,
-          operationSignal,
-        );
-        return { status };
+        return {
+          status: manager instanceof ActivityManager ? manager.kill(activityId) : "unknown",
+        };
       },
       signal,
     );
@@ -254,7 +245,6 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
       manager.track(
         { ...activity, kind: "shell" },
         {
-          callId: shellId,
           emit: (event) => {
             if (!isActivityEvent(event)) return;
             host.broadcast(rootConversationId, activitiesEventNotification, {

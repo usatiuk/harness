@@ -6,13 +6,14 @@ import { InMemoryStore } from "@harness/store";
 import {
   FakeProvider,
   GateProvider,
+  GateTool,
   textStep,
   toolStep,
   unusedCodeEvaluator,
 } from "@harness/testkit";
 import { z } from "zod";
 import {
-  ActivityManager,
+  ActivityKillTool,
   ActivityPeekTool,
   activitiesOf,
   activitiesPlugin,
@@ -39,12 +40,18 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
-async function setup(tools: Tool[] = []) {
+async function setup(
+  tools: Tool[] = [],
+  fallback: Pick<ModelProvider, "stream"> = {
+    stream: () => new FakeProvider([textStep("Finished")]).stream(),
+  },
+) {
   const home = await mkdtemp(join(tmpdir(), "harness-subagent-messages-"));
   const store = new InMemoryStore();
-  const provider: ModelProvider = new FakeProvider(
-    Array.from({ length: 30 }, () => textStep("Finished")),
-  );
+  const provider: ModelProvider = new FakeProvider([]);
+  const routes = new Map<ConversationId, Pick<ModelProvider, "stream">>();
+  provider.stream = (request, signal, context) =>
+    (routes.get(context.conversationId) ?? fallback).stream(request, signal, context);
   const subagents = new SubagentsDefinition();
   const service = new HarnessService({
     store,
@@ -60,18 +67,15 @@ async function setup(tools: Tool[] = []) {
   subagents.bindRunner(service);
   const root = await service.createConversation({});
   await service.prepare(root.id);
-  const managers = new Map<ConversationId, ActivityManager>();
   let calls = 0;
-  const context = (id: ConversationId) => {
-    if (!managers.has(id)) managers.set(id, new ActivityManager(id));
-    return {
+  const context = (id: ConversationId) =>
+    ({
       conversationId: id,
       callId: `call-${++calls}`,
       signal: new AbortController().signal,
-      service: () => managers.get(id),
+      service: (key: string) => service.service(id, key),
       emit: () => {},
-    } as unknown as ToolContext;
-  };
+    }) as unknown as ToolContext;
   const spawn = new SubagentTool({
     runner: () => service,
     registry: subagents.registry,
@@ -94,12 +98,12 @@ async function setup(tools: Tool[] = []) {
       parent,
       `slug:${slug}`,
     )) as ConversationId;
+    expect(result.structured).toEqual({ childId: id, name, slug });
     await service.whenIdle(id);
     return id;
   };
   cleanups.push(async () => {
     await service.deactivateSession(root.id, { force: true });
-    for (const manager of managers.values()) await manager.dispose();
     await rm(home, { recursive: true, force: true });
   });
   return {
@@ -109,7 +113,7 @@ async function setup(tools: Tool[] = []) {
     spawn,
     create,
     context,
-    provider,
+    routes,
     list: new SubagentListTool(() => service),
     send: new SubagentSendTool(() => service),
     dismiss: new SubagentDismissTool(() => service),
@@ -224,26 +228,111 @@ it("wakes finished family members but never wakes closed recipients, including d
   ).toMatchObject({ agents: [{ id: sibling }] });
 });
 
-it("queues into busy recipients without interrupting them and preserves ownership when waking a historical child", async () => {
-  const f = await setup();
+it("automatically returns each child's full final output once to its parent, not to the sender of a follow-up", async () => {
+  const first = `Initial report\n${"detail\n".repeat(3_000)}End of initial report`;
+  const second = `Follow-up report\n${"finding\n".repeat(3_000)}End of follow-up report`;
+  const gate = new GateTool({ honorSignal: true });
+  const f = await setup([gate], new FakeProvider([textStep(first), textStep("Sibling ready")]));
+  const root = f.root.id;
+  f.routes.set(
+    root,
+    new FakeProvider([
+      toolStep("hold", "gate", {}),
+      textStep("Handled while busy"),
+      textStep("Sibling ready acknowledged"),
+      textStep("Handled while idle"),
+    ]),
+  );
+  const reports = async (owner: ConversationId) =>
+    (await f.store.listActiveItems(owner)).flatMap((item) =>
+      item.type === "message" &&
+      item.role === "user" &&
+      item.source?.kind === "plugin" &&
+      item.source.pluginId === "subagents"
+        ? [{ text: textOf(item.content), turn: item.turnId }]
+        : [],
+    );
+  await f.service.deliver(root, "Start parent work", "send");
+  await gate.started;
+  const busy = (await f.store.getLatestTurn(root))!.id;
+  const child = await f.create(root, "review");
+  await vi.waitFor(() =>
+    expect(
+      f.service.conversationTreeState(root).find((row) => row.conversation.id === root)
+        ?.pendingInput,
+    ).not.toHaveLength(0),
+  );
+  gate.release();
+  await f.service.whenIdle(root);
+  const initial = await reports(root);
+  expect(initial.map(({ turn }) => turn)).toEqual([busy]);
+  expect(initial[0]!.text).toContain(first);
+
+  const sibling = await f.create(root, "sibling");
+  await vi.waitFor(async () => expect(await reports(root)).toHaveLength(2));
+  await f.service.whenIdle(root);
+  const output = new GateProvider(second);
+  f.routes.set(child, output);
+  const admission = await f.send.execute({ to: child, message: "Follow up" }, f.context(sibling));
+  expect(admission.status).toBe("ok");
+  expect(textOf(admission.forModel)).not.toContain(second);
+  await output.started;
+  expect(await reports(root)).toHaveLength(2);
+  output.release();
+  await f.service.whenIdle(child);
+  await vi.waitFor(async () => expect(await reports(root)).toHaveLength(3));
+  await f.service.whenIdle(root);
+  const received = await reports(root);
+  expect(received.filter(({ text }) => text.includes(first))).toHaveLength(1);
+  expect(received.filter(({ text }) => text.includes(second)).map(({ turn }) => turn)).toEqual([
+    (await f.store.getLatestTurn(root))!.id,
+  ]);
+  expect(received.at(-1)!.turn).not.toBe(busy);
+  expect(await reports(sibling)).toEqual([]);
+});
+
+it("tracks turns, not deliveries: steering joins a busy turn, queued input and reactivation each start another", async () => {
+  const gate = new GateTool({ honorSignal: true });
+  const f = await setup([gate]);
   const child = await f.create(f.root.id, "child");
-  const gate = new GateProvider("Finished busy work");
-  f.provider.stream = gate.stream.bind(gate);
+  const provider = new FakeProvider([
+    toolStep("gate", "gate", {}),
+    textStep("Used steering"),
+    textStep("Processed queued input"),
+  ]);
+  f.routes.set(child, provider);
   await f.service.deliver(child, "Work", "send");
   await gate.started;
-  await f.send.execute({ to: child, message: "Extra context" }, f.context(f.root.id));
+  const manager = activitiesOf(f.context(f.root.id));
+  const activeIds = () =>
+    manager
+      .list()
+      .filter((activity) => !manager.resultOf(activity.id))
+      .map((activity) => activity.id);
+  const run = activeIds();
+  expect(run).toHaveLength(1);
+  const busyTurn = (await f.store.getLatestTurn(child))!.id;
+  await f.send.execute({ to: child, message: "Steering context" }, f.context(f.root.id));
+  await f.service.deliver(child, "Queued context", "queue");
+  expect(activeIds()).toEqual(run);
   expect(f.service.isConversationRunning(child)).toBe(true);
   gate.release();
   await f.service.whenIdle(child);
-  expect(
-    (await f.store.listActiveItems(child)).some(
-      (item) => item.type === "message" && textOf(item.content).includes("Extra context"),
-    ),
-  ).toBe(true);
+  const items = await f.store.listActiveItems(child);
+  const turnFor = (marker: string) =>
+    items.find(
+      (item) =>
+        item.type === "message" && item.role === "user" && textOf(item.content).includes(marker),
+    )?.turnId;
+  expect(turnFor("Steering context")).toBe(busyTurn);
+  const queuedTurn = (await f.store.getLatestTurn(child))!.id;
+  expect(queuedTurn).not.toBe(busyTurn);
+  expect(turnFor("Queued context")).toBe(queuedTurn);
+  expect(manager.list()).toHaveLength(3); // spawn, busy turn, queued turn
   await f.service.deactivateSession(f.root.id, { force: true });
   await f.service.prepare(f.root.id);
   const resumed = new GateProvider("Resumed");
-  f.provider.stream = resumed.stream.bind(resumed);
+  f.routes.set(child, resumed);
   await f.send.execute({ to: child, message: "Wake again" }, f.context(f.root.id));
   await resumed.started;
   expect(f.service.rootConversationOf(child)).toBe(f.root.id);
@@ -252,187 +341,223 @@ it("queues into busy recipients without interrupting them and preserves ownershi
 });
 
 it.each([false, true])(
-  "activity_kill stops a resumed child with queued sibling input and its active grandchild (reloaded: %s)",
+  "tracks each child turn under its parent; killing it preserves queued input, descendants and later messages (reload: %s)",
   async (reload) => {
     const f = await setup();
     const root = f.root.id;
+    const child = await f.create(root, "review");
+    const manager = (owner: ConversationId) => activitiesOf(f.context(owner));
+    const original = manager(root).list();
+    expect(original).toHaveLength(1);
+    const originalId = original[0]!.id;
     const sibling = await f.create(root, "sibling");
-    const seed = new FakeProvider([
-      toolStep("spawn", "subagent", {
-        agent: "general",
-        name: "Review",
-        slug: "review",
-        task: "Review",
-      }),
-      textStep("Initial task finished"),
-      textStep("Received"),
-    ]);
-    f.provider.stream = seed.stream.bind(seed);
-    await f.service.deliver(root, "Delegate", "send");
-    await f.service.whenIdle(root);
-    const child = (await f.service.getPluginState(
-      "subagents",
-      root,
-      "slug:review",
-    )) as ConversationId;
-    expect(child).toBeTruthy();
+    const nested = await f.create(child, "nested");
     if (reload) {
       await f.service.deactivateSession(root);
       await f.service.prepare(root);
     }
-
-    const nestedGate = new GateProvider("Working on the nested task");
-    const delegate = new FakeProvider([
-      toolStep("nested-call", "subagent", {
-        agent: "general",
-        name: "Nested",
-        slug: "nested",
-        task: "Nested probe marker",
-        background: true,
-      }),
-      textStep("Nested work is running"),
-    ]);
-    f.provider.stream = (request, signal) =>
-      request.items.some(
-        ({ item }) =>
-          item.type === "message" &&
-          item.role === "user" &&
-          textOf(item.content).includes("Nested probe marker"),
-      )
-        ? nestedGate.stream(request, signal)
-        : delegate.stream();
-    expect(
-      (await f.send.execute({ to: child, message: "Delegate nested work" }, f.context(sibling)))
-        .status,
-    ).toBe("ok");
-    await f.service.whenIdle(child);
-    expect(
-      (await f.store.listActiveItems(child)).filter((item) => item.type === "tool_result"),
-    ).toEqual(
-      expect.arrayContaining([expect.objectContaining({ callId: "nested-call", status: "ok" })]),
-    );
-    const nested = (await f.store.getPluginState(
-      "subagents",
-      child,
-      "slug:nested",
-    )) as ConversationId;
-    expect(nested).toBeTruthy();
-    await nestedGate.started;
-    const gate = new GateProvider("Busy");
-    f.provider.stream = gate.stream.bind(gate);
-    expect(
-      (await f.send.execute({ to: child, message: "Resume" }, f.context(sibling))).status,
-    ).toBe("ok");
-    await gate.started;
-    expect(
-      (await f.send.execute({ to: child, message: "Queued sibling input" }, f.context(sibling)))
-        .status,
-    ).toBe("ok");
-    const pending = f.service
-      .conversationTreeState(root)
-      .find((r) => r.conversation.id === child)?.pendingInput;
-    expect(pending?.map((input) => input.text)).toEqual([
-      expect.stringContaining("Queued sibling input"),
-    ]);
-
-    const stopFrom = async (caller: ConversationId, ref: string) => {
-      const stop = new FakeProvider([
-        toolStep("stop", "activity_kill", { id: ref }),
-        textStep("Stop processed"),
-      ]);
-      f.provider.stream = stop.stream.bind(stop);
-      await f.service.deliver(caller, "Stop review", "send");
-      await f.service.whenIdle(caller);
-      return (await f.store.listActiveItems(caller)).find(
-        (item) => item.type === "tool_result" && item.callId === "stop",
+    const wake = async (sender: ConversationId, recipient: ConversationId, message: string) => {
+      expect((await f.send.execute({ to: recipient, message }, f.context(sender))).status).toBe(
+        "ok",
       );
     };
-    expect(await stopFrom(sibling, child)).toMatchObject({ status: "error" });
-    expect(f.service.isConversationRunning(child)).toBe(true);
-    expect(await stopFrom(root, "review")).toMatchObject({ status: "ok" });
-    for (const id of [child, nested]) {
-      expect(await f.store.getConversation(id)).toMatchObject({ closed: true });
-      expect((await f.store.getLatestTurn(id))?.status).toBe("aborted");
-      expect(f.service.isConversationRunning(id)).toBe(false);
+    if (reload) {
+      await wake(root, sibling, "Resume the sibling");
+      await f.service.whenIdle(sibling);
     }
+    const live = (owner: ConversationId) =>
+      manager(owner)
+        .list()
+        .filter((a) => !manager(owner).resultOf(a.id));
+    const nestedGate = new GateProvider("Nested is working");
+    f.routes.set(nested, nestedGate);
+    await wake(child, nested, "Wake nested worker");
+    await nestedGate.started;
+    expect(live(child)).toHaveLength(1);
+    const nestedRun = live(child)[0]!;
+
+    const busy = new GateProvider("Reviewing");
+    f.routes.set(child, busy);
+    await wake(sibling, child, "Wake review");
+    await busy.started;
+    expect(live(root)).toHaveLength(1);
+    const run = live(root)[0]!;
+    expect(run.id).not.toBe(originalId);
+    await wake(sibling, child, "Queued sibling input");
+    expect(live(root).map((a) => a.id)).toEqual([run.id]);
+    const kill = (owner: ConversationId, id: string) =>
+      new ActivityKillTool().execute({ id }, f.context(owner));
+    expect((await kill(root, originalId)).status).toBe("error");
+    expect((await kill(root, child)).status).toBe("error");
+    expect((await kill(sibling, run.id)).status).toBe("error");
+    expect((await kill(root, nestedRun.id)).status).toBe("error");
+    expect(f.service.isConversationRunning(child)).toBe(true);
+
+    const queued = new GateProvider("Processing queued input");
+    f.routes.set(child, queued);
+    f.routes.set(root, {
+      stream: () => {
+        f.routes.delete(root);
+        return new FakeProvider([toolStep("stop-run", "activity_kill", { id: run.id })]).stream();
+      },
+    });
+    await f.service.deliver(root, "Stop the active review", "send");
+    await f.service.whenIdle(root);
+    expect(
+      (await f.store.listActiveItems(root)).find(
+        (item) => item.type === "tool_result" && item.callId === "stop-run",
+      ),
+    ).toMatchObject({ status: "ok" });
+    expect((await run.done).status).toBe("error");
+    await queued.started;
+    expect(live(root)).toHaveLength(1);
+    const next = live(root)[0]!;
+    expect(next.id).not.toBe(run.id);
+    expect((await kill(root, run.id)).status).toBe("error");
+    expect(f.service.isConversationRunning(child)).toBe(true);
+    expect(f.service.isConversationRunning(nested)).toBe(true);
+    queued.release();
+    nestedGate.release();
+    expect((await next.done).status).toBe("ok");
+    expect((await nestedRun.done).status).toBe("ok");
+    await f.service.whenIdle(child);
+    expect(
+      (await f.store.listActiveItems(child)).filter(
+        (item) =>
+          item.type === "message" &&
+          item.role === "user" &&
+          textOf(item.content).includes("Queued sibling input"),
+      ),
+    ).toHaveLength(1);
+    const later = new GateProvider("Later review");
+    f.routes.set(child, later);
+    await wake(sibling, child, "Another independent review");
+    await later.started;
+    expect(live(root)).toHaveLength(1);
+    expect(live(root)[0]!.id).not.toBe(next.id);
+    later.release();
+    await f.service.whenIdle(child);
+  },
+);
+
+it("dismissal aborts the active subtree and discards pending input instead of starting another turn", async () => {
+  const f = await setup();
+  const root = f.root.id;
+  const child = await f.create(root, "child");
+  const nested = await f.create(child, "nested");
+  const sibling = await f.create(root, "sibling");
+  const atDismissal = new Map<ConversationId, string>();
+  for (const target of [nested, child]) {
+    const gate = new GateProvider("Held work");
+    f.routes.set(target, gate);
+    await f.service.deliver(target, "Work", "send");
+    await gate.started;
+    atDismissal.set(target, (await f.store.getLatestTurn(target))!.id);
+  }
+  expect(
+    (await f.send.execute({ to: child, message: "Pending sibling input" }, f.context(sibling)))
+      .status,
+  ).toBe("ok");
+  expect(
+    f.service
+      .conversationTreeState(root)
+      .find((row) => row.conversation.id === child)
+      ?.pendingInput.map((input) => input.text),
+  ).toEqual([expect.stringContaining("Pending sibling input")]);
+  expect((await f.dismiss.execute({ to: "child" }, f.context(root))).status).toBe("ok");
+  for (const id of [child, nested]) {
+    await f.service.whenIdle(id);
+    expect(await f.store.getConversation(id)).toMatchObject({ closed: true });
+    expect(await f.store.getLatestTurn(id)).toMatchObject({
+      id: atDismissal.get(id),
+      status: "aborted",
+    });
+    await expect(f.service.deliver(id, "Wake again", "send")).rejects.toThrow(/closed/i);
+  }
+  expect(
+    (await f.store.listActiveItems(child)).some(
+      (item) => item.type === "message" && textOf(item.content).includes("Pending sibling input"),
+    ),
+  ).toBe(false);
+  expect(
+    (await f.list.execute({ relation: "children" }, f.context(root))).structured,
+  ).toMatchObject({
+    agents: [{ id: sibling }],
+  });
+});
+
+it.each([false, true])(
+  "background completion starts a new child activity only while its thread is open (dismiss: %s)",
+  async (dismiss) => {
+    let finish!: (result: ActivityResult) => void;
+    const done = new Promise<ActivityResult>((resolve) => {
+      finish = resolve;
+    });
+    const killed = vi.fn(() => finish({ status: "error", summary: "Stopped", view: [] }));
+    const tool: Tool = {
+      essential: true,
+      name: "background_test",
+      description: "Controlled background activity",
+      meta: { backgroundable: true },
+      input: { kind: "function", schema: z.strictObject({}) },
+      execute: async (_args, ctx) => {
+        activitiesOf(ctx).track(
+          {
+            id: "background",
+            kind: "test",
+            title: "Controlled work",
+            done,
+            peek: () => [],
+            kill: killed,
+          },
+          { callId: ctx.callId, emit: (event) => ctx.emit(event) },
+        );
+        return okResult("Started");
+      },
+    };
+    const f = await setup([tool]);
+    const child = await f.create(f.root.id, "child");
+    const continuation = new FakeProvider([
+      toolStep("list", "subagent_list", { relation: "parent" }),
+      toolStep("background", "background_test", { background: true }),
+      textStep("Submitted"),
+    ]);
+    f.routes.set(child, continuation);
+    await f.service.deliver(child, "Start background work", "send");
+    await f.service.whenIdle(child);
+    expect(
+      (await f.store.listActiveItems(child)).some(
+        (item) => item.type === "tool_result" && item.callId === "list" && item.status === "ok",
+      ),
+    ).toBe(true);
+    if (!dismiss) {
+      const manager = activitiesOf(f.context(f.root.id));
+      const prior = new Set(manager.list().map((activity) => activity.id));
+      const completion = new GateProvider("Finished background work");
+      f.routes.set(child, completion);
+      finish({ status: "ok", summary: "Done", view: [] });
+      await completion.started;
+      const fresh = manager.list().filter((activity) => !prior.has(activity.id));
+      expect(fresh).toHaveLength(1);
+      expect(manager.resultOf(fresh[0]!.id)).toBeUndefined();
+      completion.release();
+      expect((await fresh[0]!.done).status).toBe("ok");
+      return;
+    }
+    await f.dismiss.execute({ to: child }, f.context(f.root.id));
+    expect(killed).toHaveBeenCalledOnce();
+    await f.service.whenIdle(child);
     expect(
       (await f.store.listActiveItems(child)).some(
         (item) =>
           item.type === "message" &&
           item.role === "user" &&
-          /Queued sibling input|\[activity nested\]/.test(textOf(item.content)),
+          item.source?.kind === "plugin" &&
+          textOf(item.content).includes("Stopped"),
       ),
     ).toBe(false);
-    expect(
-      (await f.send.execute({ to: child, message: "Try again" }, f.context(sibling))).status,
-    ).toBe("error");
-    expect(
-      (await f.list.execute({ relation: "children" }, f.context(root))).structured,
-    ).toHaveProperty(
-      "agents",
-      expect.arrayContaining([
-        expect.objectContaining({ id: child, status: "aborted" }),
-        expect.objectContaining({ id: sibling, status: "completed" }),
-      ]),
-    );
   },
 );
-
-it("dismissal disposes background work and prevents its captured completion from waking a finished child", async () => {
-  let finish!: (result: ActivityResult) => void;
-  const done = new Promise<ActivityResult>((resolve) => {
-    finish = resolve;
-  });
-  const killed = vi.fn(() => finish({ status: "error", summary: "Stopped", view: [] }));
-  const tool: Tool = {
-    essential: true,
-    name: "background_test",
-    description: "Controlled background activity",
-    meta: { backgroundable: true },
-    input: { kind: "function", schema: z.strictObject({}) },
-    execute: async (_args, ctx) => {
-      activitiesOf(ctx).track(
-        {
-          id: "background",
-          kind: "test",
-          title: "Controlled work",
-          done,
-          peek: () => [],
-          kill: killed,
-        },
-        { callId: ctx.callId, emit: (event) => ctx.emit(event) },
-      );
-      return okResult("Started");
-    },
-  };
-  const f = await setup([tool]);
-  const child = await f.create(f.root.id, "child");
-  const continuation = new FakeProvider([
-    toolStep("list", "subagent_list", { relation: "parent" }),
-    toolStep("background", "background_test", { background: true }),
-    textStep("Submitted"),
-  ]);
-  f.provider.stream = continuation.stream.bind(continuation);
-  await f.service.deliver(child, "Start background work", "send");
-  await f.service.whenIdle(child);
-  expect(
-    (await f.store.listActiveItems(child)).some(
-      (item) => item.type === "tool_result" && item.callId === "list" && item.status === "ok",
-    ),
-  ).toBe(true);
-  await f.dismiss.execute({ to: child }, f.context(f.root.id));
-  expect(killed).toHaveBeenCalledOnce();
-  await f.service.whenIdle(child);
-  expect(
-    (await f.store.listActiveItems(child)).some(
-      (item) =>
-        item.type === "message" &&
-        item.role === "user" &&
-        item.source?.kind === "plugin" &&
-        textOf(item.content).includes("Stopped"),
-    ),
-  ).toBe(false);
-});
 
 it("briefs projectless children and grandchildren truthfully with their own identity, parent and task", async () => {
   const f = await setup();
@@ -474,7 +599,8 @@ it("resolves readable family references, rejects ambiguity, scopes dismissal to 
 
   // A durable reachable family member does not grant access to its owner's activity manager.
   const peek = new ActivityPeekTool();
-  expect((await peek.execute({ id: "review" }, f.context(f.root.id))).status).toBe("ok");
+  const reviewRun = (await f.store.getLatestTurn(child))!.id;
+  expect((await peek.execute({ id: reviewRun }, f.context(f.root.id))).status).toBe("ok");
   expect((await peek.execute({ id: "review" }, f.context(child))).status).toBe("error");
   expect((await peek.execute({ id: child }, f.context(sibling))).status).toBe("error");
 

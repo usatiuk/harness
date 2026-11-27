@@ -176,8 +176,10 @@ export class Engine {
     conversationId: ConversationId,
     input: DeliveryInput,
     intent: DeliveryIntent = "send",
+    signal?: AbortSignal,
   ): Promise<void> {
-    if (!this.#acceptsDelivery(conversationId, input)) return;
+    signal?.throwIfAborted();
+    this.#assertAcceptingDelivery(conversationId);
     const runtime = await this.#runtime(conversationId);
     assertImageInput(
       this.host.providers.get(runtime.conversation.config.model.provider),
@@ -185,7 +187,8 @@ export class Engine {
       input.content.some((block) => block.type === "image"),
     );
     this.assertWorkspaceAvailable(runtime.conversation.workspaceRoot);
-    if (!this.#acceptsDelivery(conversationId, input)) return;
+    signal?.throwIfAborted();
+    this.#assertAcceptingDelivery(conversationId);
     if (runtime.workspaceSwitch) {
       if (intent === "interrupt") {
         runtime.workspaceSwitch.controller.abort();
@@ -204,6 +207,7 @@ export class Engine {
       this.#runtimes.get(conversationId) !== runtime
     )
       throw new Error("Conversation closed during workspace interruption");
+    signal?.throwIfAborted();
     if (
       input.source.kind === "user" &&
       input.content.some((block) => block.type !== "text" || block.text.length > 0)
@@ -218,15 +222,11 @@ export class Engine {
     return [...(this.#runtimes.get(conversationId)?.questions.values() ?? [])];
   }
 
-  #acceptsDelivery(id: ConversationId, input: DeliveryInput): boolean {
+  #assertAcceptingDelivery(id: ConversationId): void {
     const root = this.#rootOf(id);
-    // Late plugin completions during session deactivation belong to the old activation.
-    if (this.#closingRoots.has(root) || this.#closedRoots.has(root)) {
-      if (input.source.kind === "plugin") return false;
+    if (this.#closingRoots.has(root) || this.#closedRoots.has(root))
       throw new Error("cannot deliver input during conversation deactivation");
-    }
     if (this.#retiring.has(id)) throw new Error(`Thread ${id} is closed`);
-    return true;
   }
 
   async askQuestions(
@@ -440,6 +440,7 @@ export class Engine {
         status: "running",
       });
       try {
+        await this.#notifyTurnStart(conversation, turn.id);
         const provider = this.host.providers.get(conversation.config.model.provider);
         provider.validateConfig(conversation.config.model);
         const toolSet = await this.#resolveTools(conversation, runtime);
@@ -499,8 +500,9 @@ export class Engine {
     if (errors.length) throw new AggregateError(errors, "Conversation cancellation failed");
   }
 
-  interruptTurn(id: ConversationId): void {
-    this.#runtimes.get(id)?.controller?.abort();
+  interruptTurn(id: ConversationId, expectedTurnId: TurnId): void {
+    const runtime = this.#runtimes.get(id);
+    if (runtime?.currentTurnId === expectedTurnId) runtime.controller!.abort();
   }
 
   #cancelRuntime(runtime: Runtime): Error[] {
@@ -1153,6 +1155,7 @@ export class Engine {
     try {
       let toolSet: ToolSet;
       try {
+        await this.#notifyTurnStart(conversation, turn.id);
         const active = compactedWindow(await this.store.listActiveItems(conversation.id));
         if (!active.length)
           await this.#appendBatch([
@@ -1227,6 +1230,41 @@ export class Engine {
       runtime.currentTurnId = undefined;
       runtime.controller = undefined;
     }
+  }
+
+  async #notifyTurnStart(conversation: Conversation, turnId: TurnId): Promise<void> {
+    for (const plugin of this.host.plugins) {
+      if (!plugin.onTurnStart) continue;
+      await plugin.onTurnStart({
+        conversation,
+        turnId,
+        scope: async (id) => {
+          if (this.#rootOf(id) !== this.#rootOf(conversation.id))
+            throw new Error("Turn scope must belong to the same conversation tree");
+          const owner = await this.#runtime(id);
+          return {
+            service: (key) => this.#service(owner, key),
+            deliver: (content) => this.#deliverNotice(owner, plugin.id, content),
+            emit: (event) => {
+              if (this.#runtimes.get(id) === owner && !this.#rootScopeUnavailable(id))
+                this.#emitPlugin({ ...event, conversationId: id });
+            },
+          };
+        },
+      });
+    }
+  }
+
+  #deliverNotice(runtime: Runtime, pluginId: string, content: DeliveryInput["content"]): void {
+    // A delayed completion belongs to the captured activation, never to a replacement runtime.
+    const id = runtime.conversation.id;
+    if (this.#runtimes.get(id) !== runtime || this.#rootScopeUnavailable(id)) return;
+    applyDelivery(runtime, {
+      input: { source: { kind: "plugin", pluginId }, content },
+      intent: "steer",
+    });
+    this.#emitInbox(runtime);
+    this.#ensureRunning(runtime);
   }
 
   async #notifyInput(
@@ -1918,21 +1956,7 @@ export class Engine {
         }
       },
       // Plugin-origin delivery, fixed to `steer`, stamped with the dispatching tool's name.
-      deliver: (content) => {
-        // Completion callbacks belong to this activation. Addressing only the durable id would
-        // let a disposed plugin inject work into a replacement runtime after reload.
-        if (
-          this.#runtimes.get(conversation.id) !== runtime ||
-          this.#rootScopeUnavailable(conversation.id)
-        )
-          return;
-        applyDelivery(runtime, {
-          input: { source: { kind: "plugin", pluginId: call.name }, content },
-          intent: "steer",
-        });
-        this.#emitInbox(runtime);
-        this.#ensureRunning(runtime);
-      },
+      deliver: (content) => this.#deliverNotice(runtime, call.name, content),
       putBlob: (bytes) => this.store.putBlob(bytes),
       request: (request, options) =>
         this.#request(request, conversation, turnId, signal, runtime, modelInvocations, options),

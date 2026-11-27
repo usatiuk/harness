@@ -59,6 +59,68 @@ const CONFIG = {
   model: { provider: "fake", model: "fake-1" },
 };
 
+it("notifies plugins for acquired ordinary and compaction turns, not each admitted message", async () => {
+  const store = new InMemoryStore();
+  const gate = new GateProvider("done");
+  const acquired: string[] = [];
+  const engine = new Engine(
+    store,
+    new PluginHost([
+      {
+        id: "fixture",
+        providers: () => [gate],
+        onTurnStart: ({ turnId }) => {
+          acquired.push(turnId);
+        },
+      },
+    ]),
+    testConfigResolver(),
+    unusedCodeEvaluator,
+  );
+  const conversation = await store.createConversation(newConversationInput(CONFIG));
+  await engine.deliver(conversation.id, userInput("assignment"));
+  await gate.started;
+  const first = (await store.getLatestTurn(conversation.id))!;
+  await engine.deliver(conversation.id, userInput("followup"), "queue");
+  expect(acquired).toEqual([first.id]);
+  gate.release();
+  await engine.whenIdle(conversation.id);
+  const second = (await store.getLatestTurn(conversation.id))!;
+  await engine.compact(conversation.id);
+  const compact = (await store.getLatestTurn(conversation.id))!;
+  expect(new Set([first.id, second.id, compact.id]).size).toBe(3);
+  expect(acquired).toEqual([first.id, second.id, compact.id]);
+});
+
+it("delivers child-turn notices to the captured parent activation, not its replacement", async () => {
+  let notify!: (text: string) => void;
+  const { engine, store } = setup([textStep("child result"), textStep("parent result")], {
+    onTurnStart: async ({ conversation, scope }) => {
+      if (!conversation.parentId) return;
+      const parent = await scope(conversation.parentId);
+      notify = (text) => parent.deliver([{ type: "text", text }]);
+    },
+  });
+  const input = newConversationInput(CONFIG);
+  const root = await store.createConversation(input);
+  const child = await store.createConversation({ ...input, parentId: root.id });
+  await engine.prepare(root.id);
+  engine.registerChild(root.id, child.id);
+  await engine.deliver(child.id, userInput("start"));
+  await engine.whenIdle(child.id);
+  notify("child completed");
+  await engine.whenIdle(root.id);
+  await engine.deactivate(root.id);
+  await engine.prepare(root.id);
+  notify("stale notice");
+  await engine.whenIdle(root.id);
+  const history = await store.listActiveItems(root.id);
+  expect(userTexts(history)).toEqual(["child completed"]);
+  expect(history.find((item) => item.type === "message" && item.role === "user")).toMatchObject({
+    source: { kind: "plugin", pluginId: "fake" },
+  });
+});
+
 it("seals executing descendants, discards queued wakes, and leaves siblings usable", async () => {
   const store = new InMemoryStore();
   const gate = new GateProvider("partial");
@@ -856,7 +918,7 @@ describe("Engine — turn cycle", () => {
     expect(state.disposed).toBe(true);
   });
 
-  it("rejects user input but drops stale plugin notices while teardown is in progress", async () => {
+  it("rejects explicit input regardless of origin while teardown is in progress", async () => {
     const store = new InMemoryStore(counterIdGenerator(), fixedClock());
     let release!: () => void;
     let started!: () => void;
@@ -893,12 +955,24 @@ describe("Engine — turn cycle", () => {
     );
     await expect(
       engine.deliver(conv.id, {
-        source: { kind: "plugin", pluginId: "activity" },
-        content: [{ type: "text", text: "done" }],
+        source: { kind: "plugin", pluginId: "subagent_send" },
+        content: [{ type: "text", text: "message to parent" }],
       }),
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow("cannot deliver input during conversation deactivation");
     release();
     await expect(closing).resolves.toEqual({ status: "deactivated" });
+  });
+
+  it("does not admit input cancelled while acquiring the runtime", async () => {
+    const { engine, store } = setup([]);
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    const controller = new AbortController();
+    const delivery = engine.deliver(conv.id, userInput("assignment"), "send", controller.signal);
+    controller.abort(new Error("caller interrupted"));
+    await expect(delivery).rejects.toThrow("caller interrupted");
+    await engine.whenIdle(conv.id);
+    expect(await store.getLatestTurn(conv.id)).toBeUndefined();
+    expect((await store.getConversation(conv.id))?.lastUsedAt).toBe(conv.createdAt);
   });
 
   it("ignores callbacks from a disposed activation after the same root reopens", async () => {
@@ -1552,6 +1626,27 @@ describe("Engine — steering and queueing", () => {
 });
 
 describe("Engine — interrupt", () => {
+  it("interrupts the identified turn without interrupting its queued successor", async () => {
+    const first = new GateTool({ name: "first" });
+    const next = new GateTool({ name: "next" });
+    const { store, engine, events } = setup(
+      [toolStep("a", "first", {}), toolStep("b", "next", {}), textStep("done")],
+      { tools: () => [first, next] },
+    );
+    const conv = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(conv.id, userInput("first"));
+    await first.started;
+    const turn = (await store.getLatestTurn(conv.id))!;
+    await engine.deliver(conv.id, userInput("next"), "queue");
+    engine.interruptTurn(conv.id, turn.id);
+    await next.started;
+    engine.interruptTurn(conv.id, turn.id);
+    next.release();
+    first.release();
+    await engine.whenIdle(conv.id);
+    expect(turnStatuses(events)).toEqual(["running", "aborted", "running", "completed"]);
+  });
+
   it("interrupts an in-flight tool, stays legal, runs the interrupt content next", async () => {
     const gate = new GateTool(); // ignores the signal — must be abandoned
     const { store, engine, events } = setup([toolStep("c1", "gate", {}), textStep("after")], {

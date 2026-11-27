@@ -153,15 +153,15 @@ describe("ActivityManager — surface a completion exactly once", () => {
     expect(mgr.claim("ca")).toBeUndefined(); // consumed
   });
 
-  it("runningCount counts only unsettled activities", async () => {
+  it("counts unsettled activities even when none originated from a tool call", async () => {
     const mgr = new ActivityManager("c" as ConversationId);
     const { activity: a, settle } = fakeActivity("r1");
     const { activity: b } = fakeActivity("r2");
-    mgr.track(a, { callId: "k1", emit: () => {} });
-    mgr.track(b, { callId: "k2", emit: () => {} });
+    mgr.track(a, { emit: () => {} });
+    mgr.track(b, { emit: () => {} });
     expect(mgr.runningCount()).toBe(2);
     settle({ status: "ok", summary: "done", view: [] });
-    await tick();
+    await a.done;
     expect(mgr.runningCount()).toBe(1);
   });
 
@@ -451,6 +451,7 @@ describe("owner-local readable activity references", () => {
     const kill = vi.fn();
     const activity = {
       ...base,
+      kind: "subagent",
       reference: "review",
       title: "Review changes",
       kill,
@@ -479,7 +480,8 @@ describe("owner-local readable activity references", () => {
     expect(kill).toHaveBeenCalledOnce();
     const outsider = fakeCtx({ service: () => new ActivityManager("other" as ConversationId) });
     for (const id of ["review", "Review changes", "canonical-id"])
-      expect((await new ActivityPeekTool().execute({ id }, outsider)).status).toBe("error");
+      for (const tool of [new ActivityPeekTool(), new ActivityKillTool()])
+        expect((await tool.execute({ id }, outsider)).status).toBe("error");
     settle({ status: "ok", summary: "finished", view: [] });
     await activity.done;
     expect(text(notices[0]!)).toContain("[activity review] Review changes finished");

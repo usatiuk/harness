@@ -2,15 +2,13 @@ import {
   isKernelEvent,
   textOf,
   type ConversationId,
-  type ConversationOverrides,
   type ConversationRunner,
   type ContentBlock,
   type HarnessEvent,
+  type TurnId,
   type TurnStatus,
 } from "@harness/protocol";
 import type { Activity, ActivityResult } from "@harness/activities";
-import { identity } from "./family.ts";
-import type { SpawnMark } from "./registry.ts";
 
 const PEEK_LINES = 40;
 const LINE_CAP = 500;
@@ -34,51 +32,39 @@ function previewResult(text: string): string {
   return flat.length > RESULT_PREVIEW_CHARS ? `${flat.slice(0, RESULT_PREVIEW_CHARS)}…` : flat;
 }
 
-export interface SubagentActivityInit {
+interface SubagentActivityInit {
   runner: ConversationRunner;
-  /** The child conversation's id — also the activity id surfaced to `activity_*` and the UI. */
   childId: ConversationId;
+  turnId: TurnId;
   /** Display title supplied by the parent for this task. */
   title: string;
   reference?: string;
 }
 
-/**
- * The subagent `Activity` kind: surfaces a transcript tail via `peek`, resolves `done` with the
- * child's final assistant message; `kill` interrupts (idempotent).
- */
+/** One child turn. Peek shows a bounded tail; completion carries the final answer. */
 export class SubagentActivity implements Activity {
-  readonly id: string;
+  readonly id: TurnId;
   readonly kind = "subagent";
   readonly title: string;
   readonly reference?: string;
   readonly done: Promise<ActivityResult>;
-  /** The child conversation id (typed, vs the `string` the `Activity` interface exposes). */
-  readonly childId: ConversationId;
+  readonly #childId: ConversationId;
 
   readonly #runner: ConversationRunner;
-  readonly #lines: string[] = [];
-  /** callId → index in #lines for the open `→ name args` line; lets the matching result rewrite it in place. */
-  readonly #pendingCalls = new Map<string, number>();
-  #finalText = "";
+  readonly #lines: { text: string; callId?: string }[] = [];
   #preview = "";
-  #unsub?: () => void;
-  #killed = false;
-  #settled = false;
+  #answer: ContentBlock[] = [];
+  readonly #unsubscribe: () => void;
   #resolveDone!: (result: ActivityResult) => void;
 
   constructor(init: SubagentActivityInit) {
-    this.id = init.childId;
-    this.childId = init.childId;
+    this.id = init.turnId;
+    this.#childId = init.childId;
     this.#runner = init.runner;
     this.title = init.title;
     if (init.reference !== undefined) this.reference = init.reference;
     this.done = new Promise<ActivityResult>((res) => (this.#resolveDone = res));
-  }
-
-  /** Wire the unsubscribe handle returned by `subscribe` (called right after subscribing). */
-  arm(unsubscribe: () => void): void {
-    this.#unsub = unsubscribe;
+    this.#unsubscribe = init.runner.subscribe(init.childId, (event) => this.onEvent(event));
   }
 
   /** Feed a child event into the transcript tail and settlement tracker. */
@@ -92,126 +78,64 @@ export class SubagentActivity implements Activity {
         const item = event.item;
         if (item.type === "message" && item.role === "assistant") {
           this.#preview = "";
-          this.#finalText = textOf(item.content);
-          this.#push(`assistant: ${this.#finalText}`);
+          this.#answer = item.content;
+          this.#push(`assistant: ${textOf(item.content)}`);
         } else if (item.type === "tool_call") {
           const preview = previewArgs(item.args);
           const line = preview ? `→ ${item.name} ${preview}` : `→ ${item.name}`;
-          this.#pendingCalls.set(item.callId, this.#lines.length);
-          this.#push(line);
+          this.#push(line, item.callId);
         } else if (item.type === "tool_result") {
           this.#resolveCall(item.callId, item.status, textOf(item.content));
         }
         break;
       }
       case "turn.status":
-        if (event.status !== "running") this.#settle(event.status);
+        if (event.turnId === this.id && event.status !== "running") this.#settle(event.status);
         break;
     }
   }
 
   peek(): ContentBlock[] {
     const tail = [
-      ...this.#lines.slice(-PEEK_LINES),
+      ...this.#lines.map((line) => line.text),
       ...(this.#preview ? [`assistant: ${this.#preview}`] : []),
     ].join("\n");
     return [{ type: "text", text: tail || "(subagent starting…)" }];
   }
 
   kill(): void {
-    if (this.#killed) return;
-    this.#killed = true;
-    this.#runner.interruptTurn(this.childId);
+    this.#runner.interruptTurn(this.#childId, this.id);
   }
 
-  #push(line: string): void {
-    this.#lines.push(line.length > LINE_CAP ? `${line.slice(0, LINE_CAP)}…` : line);
+  #push(line: string, callId?: string): void {
+    if (this.#lines.length === PEEK_LINES) this.#lines.shift();
+    this.#lines.push({ text: clipLine(line), ...(callId === undefined ? {} : { callId }) });
   }
 
   /** Rewrite the matching call line in place; orphan results append a fallback line. */
   #resolveCall(callId: string, status: "ok" | "error", contentText: string): void {
-    const suffix =
-      status === "ok"
-        ? " — ok"
-        : (() => {
-            const preview = previewResult(contentText);
-            return preview ? ` — fail: ${preview}` : " — fail";
-          })();
-    const idx = this.#pendingCalls.get(callId);
-    this.#pendingCalls.delete(callId);
-    if (idx !== undefined && idx < this.#lines.length) {
-      const updated = `${this.#lines[idx]}${suffix}`;
-      this.#lines[idx] = updated.length > LINE_CAP ? `${updated.slice(0, LINE_CAP)}…` : updated;
+    const preview = status === "error" && previewResult(contentText);
+    const suffix = status === "ok" ? " — ok" : preview ? ` — fail: ${preview}` : " — fail";
+    const line = this.#lines.find((entry) => entry.callId === callId);
+    if (line) {
+      line.text = clipLine(line.text + suffix);
+      delete line.callId;
     } else {
       this.#push(`→ ${callId}${suffix}`);
     }
   }
 
   #settle(status: TurnStatus): void {
-    if (this.#settled) return;
-    this.#settled = true;
-    this.#unsub?.();
+    this.#unsubscribe();
     const ok = status === "completed";
     this.#resolveDone({
       status: ok ? "ok" : "error",
       summary: ok ? `subagent ${this.title} finished` : `subagent ${this.title} ${status}`,
-      view: [{ type: "text", text: this.#finalText || "(no output)" }],
+      view: this.#answer,
     });
   }
 }
 
-export interface SpawnInit {
-  runner: ConversationRunner;
-  parent: ConversationId;
-  callId: string;
-  agentName: string;
-  name: string;
-  slug: string;
-  task: string;
-  cwd?: string;
-  overrides: ConversationOverrides;
-}
-
-/** Subscribes before the seeded `send` so the terminal `turn.status` can't be missed; returns the armed activity. */
-export async function spawnSubagent(init: SpawnInit): Promise<SubagentActivity> {
-  const child = await init.runner.createConversation(
-    init.cwd !== undefined
-      ? { cwd: init.cwd, overrides: init.overrides, parentId: init.parent }
-      : { overrides: init.overrides, parentId: init.parent },
-  );
-  await init.runner.putPluginState(
-    "subagents",
-    child.id,
-    "spawn",
-    {
-      parent: { conversationId: init.parent, callId: init.callId },
-      agent: init.agentName,
-      name: init.name,
-      slug: init.slug,
-    } satisfies SpawnMark,
-    init.parent,
-  );
-  await init.runner.putPluginState("subagents", init.parent, `slug:${init.slug}`, child.id);
-  const activity = new SubagentActivity({
-    runner: init.runner,
-    childId: child.id,
-    title: init.name,
-    reference: init.slug,
-  });
-  const parent = await identity(init.runner, init.parent);
-  const unsubscribe = init.runner.subscribe(child.id, (event) => activity.onEvent(event));
-  activity.arm(unsubscribe);
-  try {
-    await init.runner.deliver(
-      child.id,
-      `You are subagent ${init.name} [${init.slug}], using the ${init.agentName} profile.\n` +
-        `Your direct parent is ${parent.name}${parent.slug !== parent.id ? ` [${parent.slug}]` : ""} (parent).\n` +
-        `Assigned task:\n${init.task}`,
-      "send",
-    );
-  } catch (error) {
-    unsubscribe();
-    throw error;
-  }
-  return activity;
+function clipLine(line: string): string {
+  return line.length > LINE_CAP ? `${line.slice(0, LINE_CAP)}…` : line;
 }

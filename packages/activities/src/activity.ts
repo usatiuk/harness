@@ -5,7 +5,7 @@ export interface ActivityResult {
   status: "ok" | "error";
   /** One-line summary, e.g. "`npm test` exited 1 after 12s". */
   summary: string;
-  /** Bounded output for the model (tail), plus a file pointer when the output was spilled. */
+  /** Result delivered on completion: e.g. a command's output tail or a child turn's final answer. */
   view: ContentBlock[];
 }
 
