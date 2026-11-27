@@ -568,6 +568,7 @@ main {
   background: var(--surface-canvas);
 }
 .conversation-dock-layout {
+  --composer-top-gap: 4px;
   grid-area: 2 / 1;
   display: flex;
   flex-direction: column;
@@ -1159,7 +1160,7 @@ main {
   width: 100%;
   max-width: var(--chat-width);
   margin: 0 auto;
-  padding: 4px 24px 0;
+  padding: var(--composer-top-gap, 4px) 24px 0;
   border-bottom: 8px solid var(--surface-canvas);
 }
 .composer {
@@ -1182,8 +1183,10 @@ main {
   background: transparent;
   line-height: 1.6;
 }
-.composer textarea:focus-visible {
-  outline-offset: 5px;
+@media (forced-colors: none) {
+  .composer textarea:focus-visible {
+    outline: none;
+  }
 }
 .composer-actions {
   display: flex;
@@ -1241,13 +1244,21 @@ main {
 .activities-slot:not(:empty) {
   pointer-events: auto;
   background: var(--surface-canvas);
-  border-top: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
   margin-inline: var(--chat-inset);
   font-size: 12px;
   line-height: 1.5;
-  padding-block: 2px 3px;
+  padding: 3px 8px;
   max-block-size: min(30vh, 260px);
   overflow: auto;
+}
+/* Join the tab to the composer without moving the editor or covering a prompt. */
+.conversation-dock-layout:not(:has(.sandbox-status, .approvals > *)) .activities-slot:not(:empty) {
+  position: relative;
+  top: var(--composer-top-gap);
+  z-index: 1;
 }
 .activity {
   margin: 3px 0;

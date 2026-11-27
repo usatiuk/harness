@@ -920,7 +920,24 @@ for (const viewport of [
   });
 }
 
-test("composer restores multiline drafts and shrinks after acknowledged send", async ({ page }) => {
+test("the focused message editor has no inner ring unless forced colors are active", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  await editor.click();
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+    await expect(editor).toBeFocused();
+    await expect(editor).toHaveCSS("outline-style", "none");
+  }
+  await page.emulateMedia({ forcedColors: "active" });
+  await expect(editor).toHaveCSS("outline-style", "solid");
+});
+
+test("composer restores multiline drafts and shrinks as soon as they are submitted", async ({
+  page,
+}) => {
   await page.goto(url + "?composer");
   const message = page.getByRole("textbox", { name: "Message", exact: true });
   const draft = "Restored draft line\n".repeat(6);
@@ -931,9 +948,9 @@ test("composer restores multiline drafts and shrinks after acknowledged send", a
   await expect.poll(() => message.evaluate((element) => element.clientHeight)).toBeGreaterThan(52);
   await message.press("Enter");
   await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(1);
-  await page.evaluate(() => window.composerFixture.settle());
   await expect(message).toHaveValue("");
   await expect.poll(() => message.evaluate((element) => element.clientHeight)).toBe(52);
+  await page.evaluate(() => window.composerFixture.settle());
 });
 
 test("composer rewraps after sidebar-only resizing without changing its draft", async ({
@@ -994,14 +1011,13 @@ test("accepted send finishes without waiting for unrelated settings reads", asyn
   });
   await message.press("Enter");
   await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(1);
+  await message.fill("Next draft");
+  await expect(page.locator(".composer-primary")).toBeDisabled();
   await page.evaluate(() => window.composerFixture.settle());
-  // The action has acknowledged delivery and cleared its captured persisted draft.
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem("composer-fixture:draft:fixture")))
-    .toBeNull();
-  await expect(message).toHaveValue("");
-  await expect(page.locator(".composer-primary")).toHaveText("Stop");
+  await expect(page.locator(".composer-primary")).toBeEnabled();
+  await expect(message).toHaveValue("Next draft");
   expect(await page.evaluate(() => window.composerFixture.settingsReads)).toBe(reads);
+  await message.fill("");
   await page.getByRole("button", { name: "Stop", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(2);
   await page.evaluate(() => window.composerFixture.settleStop());
@@ -1293,7 +1309,7 @@ test("same-turn repeated composer submission delivers only once", async ({ page 
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.calls))
     .toEqual([{ text: "One logical input", intent: "steer" }]);
-  await expect(page.locator(".composer-primary")).toHaveText("Sending…");
+  await expect(message).toHaveValue("");
   await page.evaluate(() => window.composerFixture.settle());
   await expect(message).toHaveValue("");
   await message.fill("Next intentional input");
@@ -1312,6 +1328,10 @@ test("unknown delivery retains text and images without automatically retrying", 
   await message.fill("Check this delivery before sending again");
   await message.press("Enter");
   await expect.poll(() => page.evaluate(() => window.composerFixture.calls.length)).toBe(1);
+  await expect(message).toHaveValue("");
+  await expect(page.locator(".composer .image-preview")).toHaveCount(0);
+  await page.evaluate(() => window.composerFixture.recreateRouter());
+  await expect(message).toHaveValue("");
   await page.evaluate(() => {
     window.composerFixture.disconnect();
     window.composerFixture.settle(true);
@@ -1327,6 +1347,29 @@ test("unknown delivery retains text and images without automatically retrying", 
   expect(await page.evaluate(() => localStorage.getItem("composer-fixture:draft:fixture"))).toBe(
     "Check this delivery before sending again",
   );
+});
+
+test("failed submission survives navigation without replacing or sending the next draft", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  const message = page.getByRole("textbox", { name: "Message", exact: true });
+  await attachFixtureImage(page, "paste");
+  await message.fill("First draft");
+  await message.press("Enter");
+  await expect(message).toHaveValue("");
+  await expect(page.locator(".composer .image-preview")).toHaveCount(0);
+  await message.fill("Second draft");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(message).toHaveCount(0);
+  await page.evaluate(() => window.composerFixture.settle(true));
+  await page.goBack();
+  await expect(message).toHaveValue("Second draft");
+  await expect(page.locator(".composer .image-preview")).toHaveCount(0);
+  await page.getByRole("button", { name: "Restore previous draft" }).click();
+  await expect(message).toHaveValue("First draft\n\nSecond draft");
+  await expect(page.locator(".composer .image-preview")).toHaveCount(1);
+  expect(await page.evaluate(() => window.composerFixture.calls.length)).toBe(1);
 });
 
 test("production composer retains new drafts and permits Stop during delivery acknowledgement", async ({
@@ -1345,20 +1388,21 @@ test("production composer retains new drafts and permits Stop during delivery ac
     window.composerFixture.holdSettings = true;
   });
   await primary.click();
-  await expect(primary).toHaveText("Sending…");
+  await expect(message).toHaveValue("");
+  // An identical next draft is still new input; acceptance must not clear it.
+  await message.fill("First steering input");
   await expect(primary).toBeDisabled();
   await message.press("Enter");
   await message.press("Control+Enter");
   expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([
     { text: "First steering input", intent: "steer" },
   ]);
-  await message.fill("Replacement draft");
   await page.evaluate(() => window.composerFixture.settle());
   await expect(primary).toHaveText("Steer");
-  await expect(message).toHaveValue("Replacement draft");
+  await expect(message).toHaveValue("First steering input");
   await expect(message).toBeFocused();
   await primary.click();
-  await expect(primary).toHaveText("Sending…");
+  await expect(message).toHaveValue("");
   await message.press("Escape");
   await expect(primary).toHaveText("Stopping…");
   await expect(primary).toBeDisabled();
@@ -1366,13 +1410,22 @@ test("production composer retains new drafts and permits Stop during delivery ac
   expect(
     (await page.evaluate(() => window.composerFixture.calls)).map((call) => call.intent),
   ).toEqual(["steer", "steer", "interrupt"]);
-  await expect(message).toHaveValue("Replacement draft");
+  await expect(message).toHaveValue("");
   await message.fill("Draft after interrupt");
   await page.evaluate(() => window.composerFixture.settleStop());
   await page.evaluate(() => window.composerFixture.settle());
   await expect(primary).toHaveText("Send");
   await expect(primary).toBeEnabled();
   await expect(message).toHaveValue("Draft after interrupt");
+  await primary.click();
+  await expect(message).toHaveValue("");
+  await expect
+    .poll(() => page.evaluate(() => window.composerFixture.calls.at(-1)))
+    .toMatchObject({
+      text: "Draft after interrupt",
+      intent: "send",
+    });
+  await page.evaluate(() => window.composerFixture.settle());
 });
 
 test("production composer explains queued interruption and supports Escape while retaining drafts", async ({
@@ -1444,7 +1497,7 @@ test("production composer queues alternatively and keeps rejected drafts with di
     });
   expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([]);
   await message.press("Control+Enter");
-  await expect(primary).toHaveText("Sending…");
+  await expect(message).toHaveValue("");
   expect(await page.evaluate(() => window.composerFixture.calls)).toEqual([
     { text: "Keep rejected input", intent: "queue" },
   ]);
@@ -1453,8 +1506,7 @@ test("production composer queues alternatively and keeps rejected drafts with di
   await expect(message).toHaveValue("Keep rejected input");
   await expect(primary).toHaveText("Steer");
   await primary.click();
-  await expect(primary).toHaveText("Sending…");
-  await message.fill("");
+  await expect(message).toHaveValue("");
   await expect(primary).toHaveText("Stop");
   await expect(primary).toBeEnabled();
   await page.evaluate(() => window.composerFixture.settle());
@@ -2749,10 +2801,14 @@ test("the collapsed Activities bar leaves the transcript in place when it comes 
   await page.evaluate(() => window.composerFixture.showMultipleActivities());
   await expect(activities).toBeVisible();
   await expect(slot).toHaveCSS("border-top-style", "solid");
+  await expect(slot).toHaveCSS("border-left-style", "solid");
+  await expect(slot).toHaveCSS("border-right-style", "solid");
   expect((await dock.boundingBox())!.height).toBe(height);
   expect((await message.boundingBox())!.y).toBeCloseTo(before, 0);
   const collapsed = (await slot.boundingBox())!;
-  expect(collapsed.width).toBeLessThan((await page.locator(".composer").boundingBox())!.width);
+  const composer = (await page.locator(".composer").boundingBox())!;
+  expect(collapsed.width).toBeLessThan(composer.width);
+  expect(collapsed.y + collapsed.height).toBeCloseTo(composer.y, 0);
   const lastMessage = (await message.boundingBox())!;
   expect(lastMessage.y + lastMessage.height).toBeLessThanOrEqual(collapsed.y);
 

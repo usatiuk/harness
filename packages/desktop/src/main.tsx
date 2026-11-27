@@ -13,6 +13,7 @@ import { DesktopSession } from "./session.ts";
 import { DesktopHosts, type HostView } from "./hosts.ts";
 import { ConnectionEditor, HostControls } from "./connections-menu.tsx";
 import { createDesktopRouter } from "./routes.tsx";
+import { createComposerDrafts, type ComposerDrafts } from "./composer-drafts.ts";
 import { SessionRouter } from "./session-router.tsx";
 import { Tooltip } from "./ui.tsx";
 import { StartupProgress } from "./components/startup-progress.tsx";
@@ -30,12 +31,14 @@ function HostLabel({ view }: { view: HostView }) {
 }
 
 function SessionRoutes({
+  drafts,
   view,
   session,
   onManage,
   hostTrigger,
   opening,
 }: {
+  drafts: ComposerDrafts;
   opening: ReactNode;
   view: HostView;
   session: DesktopSession;
@@ -44,13 +47,13 @@ function SessionRoutes({
 }) {
   const router = useMemo(
     () =>
-      createDesktopRouter(session, {
+      createDesktopRouter(session, drafts, {
         controls: <HostControls hosts={hosts} onManage={onManage} triggerRef={hostTrigger} />,
         local: view.host.kind === "local",
         label: <HostLabel view={view} />,
         restart: () => hosts.restart(view.host.id),
       }),
-    [session, view, onManage, hostTrigger],
+    [session, drafts, view, onManage, hostTrigger],
   );
   const opened = useCallback(() => view.attempt?.finish(), [view]);
   return (
@@ -65,6 +68,7 @@ function SessionRoutes({
   );
 }
 function Desktop() {
+  const [drafts] = useState(createComposerDrafts);
   useSyncExternalStore(hosts.subscribe, hosts.snapshot);
   const [error, setError] = useState<string>();
   const [editingConnections, setEditingConnections] = useState(false);
@@ -109,6 +113,7 @@ function Desktop() {
     view?.session && !view.session.disconnected ? (
       <SessionRoutes
         key={view.host.id}
+        drafts={drafts}
         opening={startup}
         view={view}
         session={view.session}

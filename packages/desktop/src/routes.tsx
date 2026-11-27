@@ -4,6 +4,7 @@ import { ComposerSettings } from "./components/appearance-controls.tsx";
 import { ActionFeedback, type ActionResult } from "./components/action-feedback.tsx";
 import type { InstructionsReadResult } from "./components/instructions-settings.tsx";
 import TextareaAutosize from "react-textarea-autosize";
+import type { ComposerDrafts } from "./composer-drafts.ts";
 import { ImagePreviews } from "./components/image-previews.tsx";
 import { RetryStatusLine } from "./components/retry-status.tsx";
 import {
@@ -226,25 +227,13 @@ const conversationLabel = (conversation: Conversation, view?: ConversationSnapsh
 
 export function createDesktopRouter(
   session: DesktopSession,
+  drafts: ComposerDrafts,
   connections: { controls: ReactNode; local: boolean; label: ReactNode; restart(): Promise<void> },
 ) {
   const routeKey = session.storageKey("route");
   const routeBase = sessionBasename(routeKey);
-  const emptyImageDraft = { images: [] as ImageContent[], reading: 0, error: "" };
-  type ImageDraft = typeof emptyImageDraft;
-  const imageDrafts = new Map<string, ImageDraft>();
-  const imageDraftListeners = new Set<() => void>();
-  const subscribeImageDrafts = (listener: () => void) => {
-    imageDraftListeners.add(listener);
-    return () => {
-      imageDraftListeners.delete(listener);
-    };
-  };
-  const getImageDraft = (id: string): ImageDraft => imageDrafts.get(id) ?? emptyImageDraft;
-  const updateImageDraft = (id: string, update: (draft: ImageDraft) => ImageDraft) => {
-    imageDrafts.set(id, update(getImageDraft(id)));
-    for (const listener of imageDraftListeners) listener();
-  };
+  const { getDraft, updateDraft, subscribeDrafts, submitDraft, restoreDraft } = drafts;
+  const draftKey = (id: string) => session.storageKey(`draft:${id}`);
   const useLive = (): void => {
     useSyncExternalStore(session.subscribe, session.snapshot);
   };
@@ -261,14 +250,11 @@ export function createDesktopRouter(
             field(data, "conversationId") as ConversationId,
             field(data, "itemId") as import("@harness/protocol").ItemId,
           );
-          updateImageDraft(result.conversation.id, (draft) => ({
+          updateDraft(draftKey(result.conversation.id), (draft) => ({
             ...draft,
+            text: textOf(result.draft),
             images: result.draft.filter((block): block is ImageContent => block.type === "image"),
           }));
-          localStorage.setItem(
-            session.storageKey(`draft:${result.conversation.id}`),
-            textOf(result.draft),
-          );
           await session.refreshSidebar();
           return redirect(`/conversations/${result.conversation.id}`);
         }
@@ -293,33 +279,6 @@ export function createDesktopRouter(
         case "older":
           await session.older(field(data, "conversationId"));
           return { ok: true };
-        case "send": {
-          const id = field(data, "conversationId") as ConversationId;
-          const delivery = field(data, "delivery");
-          if (delivery !== "send" && delivery !== "queue" && delivery !== "steer")
-            throw new Error("Invalid input delivery");
-          const text = field(data, "text").trim();
-          const images = imageContentsSchema.parse(JSON.parse(field(data, "images")));
-          const capturedImages = getImageDraft(id).images;
-          if (!text && images.length === 0) throw new Error("Enter a message");
-          try {
-            await session.deliver(id, text, delivery, images);
-          } catch (error) {
-            if (!session.client.peer.ready)
-              throw new Error(
-                "Connection lost. Delivery outcome is unknown; reconnect and check the conversation before sending again.",
-                { cause: error },
-              );
-            throw error;
-          }
-          updateImageDraft(id, (draft) => ({
-            ...draft,
-            images: draft.images.filter((image) => !capturedImages.includes(image)),
-          }));
-          if (localStorage.getItem(session.storageKey(`draft:${id}`)) === field(data, "text"))
-            localStorage.removeItem(session.storageKey(`draft:${id}`));
-          return { ok: true };
-        }
         case "stop":
           await session.domain.deliver(
             field(data, "conversationId") as ConversationId,
@@ -1716,27 +1675,29 @@ export function createDesktopRouter(
   const Composer = memo(
     function Composer({ view }: { view: ConversationSnapshot }) {
       useSyncExternalStore(session.subscribeConnection, session.connectionSnapshot);
-      const send = useFetcher<ActionResult>();
       const stop = useFetcher<ActionResult>();
       const id = view.conversation.id;
-      const [text, setText] = useState(
-        () => localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "",
-      );
+      const key = draftKey(id);
       const {
+        text,
         images,
         reading: readingImages,
         error: attachmentError,
-      } = useSyncExternalStore(subscribeImageDrafts, () => getImageDraft(id));
+        storageFull,
+        pending,
+        deliveryError,
+        recoverable,
+      } = useSyncExternalStore(subscribeDrafts, () => getDraft(key));
       const setAttachmentError = (error: string) =>
-        updateImageDraft(id, (draft) => ({ ...draft, error }));
+        updateDraft(key, (draft) => ({ ...draft, error }));
       const updateImages = (update: (images: ImageContent[]) => ImageContent[]) => {
-        updateImageDraft(id, (draft) => ({ ...draft, images: update(draft.images) }));
+        updateDraft(key, (draft) => ({ ...draft, images: update(draft.images) }));
       };
       const readAndAddImages = async (read: () => Promise<ImageContent[]>) => {
-        updateImageDraft(id, (draft) => ({ ...draft, reading: draft.reading + 1 }));
+        updateDraft(key, (draft) => ({ ...draft, reading: draft.reading + 1 }));
         try {
           const added = await read();
-          updateImageDraft(id, (draft) => {
+          updateDraft(key, (draft) => {
             const images = [...draft.images, ...added];
             imageContentsSchema.parse(images);
             return { ...draft, images, error: "" };
@@ -1744,7 +1705,7 @@ export function createDesktopRouter(
         } catch (error) {
           setAttachmentError(errorMessage(error));
         } finally {
-          updateImageDraft(id, (draft) => ({ ...draft, reading: draft.reading - 1 }));
+          updateDraft(key, (draft) => ({ ...draft, reading: draft.reading - 1 }));
         }
       };
       const addImages = (files: File[]) => readAndAddImages(() => readImageFiles(files));
@@ -1764,14 +1725,13 @@ export function createDesktopRouter(
             else unlisten = cleanup;
           })
           .catch((error) => {
-            if (!disposed)
-              updateImageDraft(id, (draft) => ({ ...draft, error: errorMessage(error) }));
+            if (!disposed) updateDraft(key, (draft) => ({ ...draft, error: errorMessage(error) }));
           });
         return () => {
           disposed = true;
           unlisten?.();
         };
-      }, [id]);
+      }, [key]);
       const imagePicker = useRef<HTMLInputElement>(null);
       const textarea = useRef<HTMLTextAreaElement>(null);
       const [, setComposerWidth] = useState(0);
@@ -1783,12 +1743,10 @@ export function createDesktopRouter(
         observer.observe(textarea.current!);
         return () => observer.disconnect();
       }, []);
-      const handled = useRef<ActionResult | undefined>(undefined);
-      const submitting = useRef(false);
       const running = view.state.turn.status === "running";
       const preferences = useComposerPreferences();
       const defaultDelivery = running ? "steer" : "send";
-      const busy = send.state !== "idle" || stop.state !== "idle";
+      const busy = pending !== null || stop.state !== "idle";
       const disabled =
         (!text.trim() && images.length === 0) ||
         busy ||
@@ -1799,26 +1757,17 @@ export function createDesktopRouter(
       const backgroundInput = view.state.pendingInput.filter(
         (input) => input.source.kind === "plugin",
       );
-      useEffect(() => {
-        if (send.state === "idle" && send.data?.ok && handled.current !== send.data) {
-          handled.current = send.data;
-          setText(localStorage.getItem(session.storageKey(`draft:${id}`)) ?? "");
-          textarea.current?.focus();
-        }
-      }, [send.state, send.data, id]);
       const submit = (delivery: "send" | "queue" | "steer") => {
-        if (disabled || submitting.current) return;
-        const data = new FormData();
-        data.set("intent", "send");
-        data.set("conversationId", id);
-        data.set("text", text);
-        data.set("delivery", delivery);
-        data.set("images", JSON.stringify(images));
-        // React can batch repeated input events before the fetcher renders busy.
-        submitting.current = true;
-        void send.submit(data, { method: "post", action: "/actions" }).finally(() => {
-          submitting.current = false;
-        });
+        if (disabled) return;
+        void submitDraft(
+          key,
+          ({ text, images }) => session.deliver(id, text.trim(), delivery, images),
+          (error) =>
+            session.client.peer.ready
+              ? errorMessage(error)
+              : "Connection lost. Delivery outcome is unknown; reconnect and check the conversation before sending again.",
+        );
+        textarea.current?.focus();
       };
       const interrupt = () => {
         if (!running || stop.state !== "idle" || session.disconnected) return;
@@ -1895,17 +1844,12 @@ export function createDesktopRouter(
                 )}
               </div>
             )}
-            <send.Form
-              method="post"
-              action="/actions"
+            <form
               onSubmit={(event) => {
                 event.preventDefault();
                 submit(defaultDelivery);
               }}
             >
-              <Input type="hidden" name="intent" value="send" />
-              <Input type="hidden" name="conversationId" value={id} />
-              <Input type="hidden" name="delivery" value={defaultDelivery} />
               <TextareaAutosize
                 className="input"
                 ref={textarea}
@@ -1915,8 +1859,8 @@ export function createDesktopRouter(
                 value={text}
                 rows={2}
                 onChange={(event) => {
-                  setText(event.target.value);
-                  localStorage.setItem(session.storageKey(`draft:${id}`), event.target.value);
+                  const text = event.currentTarget.value;
+                  updateDraft(key, (draft) => ({ ...draft, text }));
                 }}
                 onKeyDown={(event) => {
                   const action = composerKey(
@@ -1934,7 +1878,7 @@ export function createDesktopRouter(
                   else submit(action);
                 }}
               />
-            </send.Form>
+            </form>
             <div className="composer-actions">
               <input
                 ref={imagePicker}
@@ -1993,7 +1937,7 @@ export function createDesktopRouter(
                     ? hasPendingInput
                       ? "Interrupting…"
                       : "Stopping…"
-                    : send.state !== "idle" && !stopping
+                    : pending !== null && !stopping
                       ? "Sending…"
                       : stopping
                         ? hasPendingInput
@@ -2005,7 +1949,22 @@ export function createDesktopRouter(
                 </Button>
               </div>
             </div>
-            <ActionFeedback data={send.data} />
+            {storageFull && (
+              <p role="alert" className="error">
+                Draft storage is full. Your latest text is only in memory; send or copy it before
+                closing.
+              </p>
+            )}
+            {deliveryError && (
+              <p role="alert" className="error">
+                {deliveryError}
+              </p>
+            )}
+            {recoverable.length > 0 && (
+              <Button size="sm" onClick={() => restoreDraft(key)}>
+                Restore previous draft
+              </Button>
+            )}
             <ActionFeedback data={stop.data} />
           </div>
           {preferences.showStats && (
@@ -2493,7 +2452,7 @@ export function createDesktopRouter(
           // These actions do not change the settings/provider snapshot.
           if (
             formAction === `${routeBase}/actions` &&
-            (intent === "send" || intent === "stop" || intent === "instructions")
+            (intent === "stop" || intent === "instructions")
           )
             return false;
           return defaultShouldRevalidate;

@@ -1781,6 +1781,12 @@ the stable document body in one synchronous snapshot: virtualizer replacements
 were observed detaching a previously resolved cell and briefly removing it. Native
 Windows/macOS material rendering still requires a native application check.
 
+Desktop composer tests hold the delivery acknowledgement to check that text
+and attachments clear immediately, including when a user types the same text
+again. Failure and disconnect scenarios cover recovery after navigation or
+router replacement, without overwriting the next draft or resending it.
+A storage-quota regression checks that unsaved text remains editable and sendable.
+
 A fixed-width custom scrollbar was rejected during visual review. The final
 sidebar keeps native scrollbar sizing/interaction and a stable gutter. The
 test checks that selected rows retain the same small inset as the opposite

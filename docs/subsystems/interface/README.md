@@ -749,7 +749,7 @@ The shared checkbox owns its labelled row and visual states while retaining
 standard focus, keyboard and form behavior.
 
 Virtuoso provides the conversation scroll viewport. A floating dock holds
-bounded approvals and the composer. Activities overlay the dock with a top divider
+bounded approvals and the composer. Running activities form a rounded-top tab above the composer
 and a small fixed transcript clearance. Optional last-turn statistics sit below
 the composer. Keyboard hints live in settings, and no redundant Ready/Working
 status label is shown. A measured footer lets readers scroll the last message
@@ -852,12 +852,17 @@ or second height algorithm. Vite retains workspace development exports and
 standard module/browser conditions rather than forcing ESM import resolution
 inside CommonJS dependencies.
 
-Accepted send/Stop actions do not revalidate unrelated settings/provider state;
-subscriptions already own transcript and touched-conversation updates. A local
-submission-admission ref covers repeated events before React renders pending
-state, released by the existing submit promise. Fetchers still own acknowledgement,
-errors and draft reconciliation; there is no optimistic transcript insertion or
-automatic resend.
+Send, Steer, and Queue move the current text and attachments into a pending
+submission immediately. The editor stays focused and ready for the next draft.
+Repeated submissions are blocked until acknowledgement; Stop remains available
+independently. Success never clears the next draft. Failure restores the
+submission to an empty editor or offers explicit recovery alongside newer
+edits. Displaced submissions can be restored during the current app session;
+only the current draft text is saved across app restarts. If local storage is
+full, the editor warns that the latest text is only in memory. A disconnect
+warns that delivery may already have succeeded. There is
+no automatic resend or optimistic transcript entry: subscriptions still own
+transcript and inbox updates.
 
 Enter sends and Shift+Enter inserts a newline by default;
 settings can swap them. Steer is the default while working; Ctrl/Cmd+Enter queues.
@@ -1138,9 +1143,8 @@ The composer accepts pasted and dropped PNG/JPEG/GIF/WebP files, including
 image-only messages, using public deliver RPC optional images. Shared protocol
 validation enforces a 2 MiB combined decoded budget and matching signatures.
 Image bytes stay in canonical log content, not client file paths or a blob store.
-Per-conversation unsent images live in a router-owned memory map; accepted sends
-clear only the captured attachments, preserving edits made while awaiting delivery.
-Text drafts retain their existing storage. App restart loses unsent image drafts.
+Unsent images belong to the desktop's per-conversation draft, not the router.
+They survive router replacement but are never saved to disk.
 
 Transcript reduction retains image blocks for user/plugin messages and tool
 results. Desktop previews open a Radix modal spanning the app with a dark backdrop
@@ -1171,9 +1175,9 @@ unsupported image contents surface in the attachment error. WebKitGTK 2.52.6
 exposes no readable representation for raw JPEG-only native clipboard data;
 that case reports an error. Copied JPEG files and PNG screenshots are verified. Shared protocol
 signature/schema validation still owns canonical images and their aggregate limit.
-One router-owned observable draft per conversation holds images, read count and
-error, so pending reads remain visible across navigation and only accepted captured
-attachments clear. There is no separate upload manager or persisted draft blob.
+One observable draft per conversation holds the text and attachments, so image
+reads and pending submissions survive navigation within a host. There is no
+separate upload manager or persisted draft blob.
 
 Actual Linux X11/WebKitGTK qualification covers file/bitmap/JPEG clipboard,
 native drag/drop, chooser, send, exact PNG/JPEG file bytes, decoded screenshot

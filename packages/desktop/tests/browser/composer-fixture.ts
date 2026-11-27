@@ -11,6 +11,7 @@ import type { ConversationId, DeliveryIntent, ModelInfo, ImageContent } from "@h
 import { emptyState } from "@harness/client-features/transcript-reducer";
 import { conversationProjectRoot } from "@harness/protocol";
 import { createDesktopRouter } from "../../src/routes.tsx";
+import { createComposerDrafts } from "../../src/composer-drafts.ts";
 import { DesktopSession, ConversationView } from "../../src/session.ts";
 import { DesktopTranscript } from "../../src/transcript.ts";
 import { WindowShell } from "../../src/window-shell.tsx";
@@ -1809,8 +1810,9 @@ window.composerFixture = {
   },
 };
 localStorage.setItem(session.storageKey("route"), `/conversations/${id}`);
+const drafts = createComposerDrafts();
 const createFixtureRouter = () =>
-  createDesktopRouter(session as unknown as DesktopSession, {
+  createDesktopRouter(session as unknown as DesktopSession, drafts, {
     controls: h(HostControls, {
       hosts: {
         config: {
