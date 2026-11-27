@@ -129,8 +129,15 @@ root, slow requests surviving list polling, and diff position across tabs. Delay
 8,000-line preceding-file updates preserve a clicked file anchor through responsive
 reflow. Native mouse selection and real clipboard reads cover inline and split
 text without gutters; continuous selection across virtual scrolling remains
-unqualified. Geometry checks verify flush edges and equal 45px sticky headers;
-resizing covers tree height and width, the 240px default/180px minimum, and width
+unqualified. File-tree coverage checks that folder-first diff navigation follows the
+tree rather than the server list order, scrolling both ways updates selection
+without moving focus, and clicking a short trailing file keeps it selected.
+Real-Git pagination tests cover mixed folders and files, including a cursor
+whose file disappears between pages.
+Geometry checks verify flush edges and equal 45px sticky headers. A pixel check at
+125% scale catches code bleeding through the sticky header's top edge even when
+its CSS coordinates are flush. Pane resizing covers tree height and width, the
+240px default/180px minimum, and width
 retention through sidebar close/reopen. Separate-root checks restore actual pixel
 widths, share dimensions with descendants, retain them through router replacement,
 isolate host/server scopes and reset after reload. Pointer dragging verifies the
@@ -142,8 +149,9 @@ raw combined-patch/unavailable-count preservation after list replacement. Diff
 context-menu coverage checks actual line wrapping/gutter visibility, checked state,
 keyboard navigation/dismissal, sidebar reopening and page-reload persistence.
 Long-line checks launch Chromium without Playwright’s headless `--hide-scrollbars`
-argument and verify actual allocated scrollbar height, opaque thumb styling and
-horizontal scroll movement. Hunk metadata checks measure the actual initial `@@` glyphs and hit-test
+argument and verify allocated scrollbar height, horizontal movement, and matching
+scrollbar styles across sidebar, transcript, file tree, and diff in both themes.
+Hunk metadata checks measure the actual initial `@@` glyphs and hit-test
 the row across unified/split and wrapped/scrolled layouts. Header checks verify
 rename order/20px geometry and the fixed 12px worktree icon on a narrow window.
 Preference unit tests validate malformed/partial saved values at the storage boundary. Tool-preview regressions preserve failed
@@ -1772,7 +1780,8 @@ exact final edit. All five host scenarios pass locally after the correction. Ful
 tests with 41 gated skips. Three independent reviews report no actionable
 findings. Actual Windows qualification is required to confirm the platform result.
 
-Sidebar browser coverage checks folder-name/nested-chat text alignment, minimum
+Sidebar browser coverage checks full-width chat hit areas, equal gaps below
+the folder and between chats, folder-name/nested-chat text alignment, minimum
 width overflow, row clearance from the native scrollbar before/after hover
 and its 2px outer inset,
 selection screenshots in both themes, and the 14px conversation
@@ -1788,7 +1797,7 @@ router replacement, without overwriting the next draft or resending it.
 A storage-quota regression checks that unsaved text remains editable and sendable.
 
 A fixed-width custom scrollbar was rejected during visual review. The final
-sidebar keeps native scrollbar sizing/interaction and a stable gutter. The
+sidebar uses thin native scrollbars and keeps a stable gutter. The
 test checks that selected rows retain the same small inset as the opposite
 edge of the list, including when the pointer moves over the scrollbar.
 

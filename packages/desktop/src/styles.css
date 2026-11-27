@@ -3,6 +3,12 @@
 @import "./styles/controls.css";
 @import "./styles/mcp-settings.css";
 
+:root {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+* {
+  scrollbar-width: thin;
+}
 html,
 body,
 #root {
@@ -120,16 +126,18 @@ textarea.input {
 .sidebar {
   -webkit-user-select: none;
   user-select: none;
-  --navigation-selected-face: color-mix(in srgb, var(--ink) 8%, transparent);
-  --navigation-hover-face: color-mix(in srgb, var(--ink) 4%, transparent);
   background: var(--surface-sidebar);
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-height: 0;
-  padding: 10px 10px 8px;
+  padding: 10px var(--navigation-gutter) 8px;
 }
 :root {
+  --navigation-gutter: 10px;
+  --navigation-row-radius: 6px;
+  --navigation-selected-face: color-mix(in srgb, var(--ink) 8%, transparent);
+  --navigation-hover-face: color-mix(in srgb, var(--ink) 4%, transparent);
   --window-titlebar-height: 32px;
   --window-content-border-top: 1px;
   --conversation-header-padding-block: 8px;
@@ -227,7 +235,6 @@ textarea.input {
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
-  scrollbar-color: var(--muted-ink) transparent;
   display: grid;
   align-content: start;
   grid-template-columns: minmax(0, 1fr);
@@ -275,7 +282,7 @@ textarea.input {
   color: var(--ink);
   font-size: 13px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--navigation-row-radius);
 }
 .conversation-list a:where(:not(.icon-control)):hover,
 .sidebar-project > summary:hover {
@@ -997,6 +1004,11 @@ main {
 .collapse-grid[data-lazy][data-state="closed"] {
   animation-name: collapse-close;
 }
+.collapsible-details[data-instant] > .collapse-grid[data-state],
+.collapsible-details[data-instant] > summary > .disclosure-chevron {
+  transition: none;
+  animation: none;
+}
 .collapse-body {
   min-height: 0;
   overflow: hidden;
@@ -1516,7 +1528,6 @@ main {
   display: flex;
   gap: var(--gap-field);
   overflow-x: auto;
-  scrollbar-width: thin;
   font-size: 13px;
   border-bottom: 1px solid var(--line);
   padding-bottom: 0;
@@ -1843,8 +1854,8 @@ main {
   }
 }
 @media (max-width: 600px) {
-  .sidebar {
-    padding: 10px 6px 8px;
+  :root {
+    --navigation-gutter: 6px;
   }
   .conversation-list-frame {
     margin-right: -4px;
@@ -2006,8 +2017,14 @@ main {
   flex-shrink: 0;
 }
 .project-conversations {
-  /* Match the folder icon and gap, leaving chat text aligned with its project. */
-  padding-left: 23px;
+  padding-block-start: 1px;
+}
+.project-conversations > a {
+  /* Keep the title aligned with the folder label; the whole row is clickable. */
+  padding-inline-start: calc(8px + 15px + 8px);
+}
+.project-conversations > :not(a) {
+  margin-inline-start: 23px;
 }
 .sidebar-chevron {
   margin-left: auto;
@@ -2390,7 +2407,8 @@ button.subagent-row:hover {
   border-bottom: 1px solid var(--line);
 }
 .changes-file-list {
-  padding: 8px;
+  --row-indent: 16px;
+  padding-block: 8px;
 }
 .changes-tree-resize {
   position: relative;
@@ -2407,19 +2425,32 @@ button.subagent-row:hover {
 }
 .changes-folder > summary,
 .changes-file {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
   min-height: 30px;
-  padding: 5px 8px;
+  padding: 5px 16px;
+  padding-inline-start: var(--row-indent);
   border: 0;
-  border-radius: 6px;
+  border-radius: 0;
   background: transparent;
   color: var(--ink);
   font: inherit;
   font-size: 12px;
   text-align: left;
+  cursor: pointer;
+}
+.changes-folder > summary::before,
+.changes-file::before {
+  content: "";
+  position: absolute;
+  inset: 0 var(--navigation-gutter);
+  z-index: -1;
+  border-radius: var(--navigation-row-radius);
+  background: var(--row-face, transparent);
 }
 .changes-folder > summary {
   list-style: none;
@@ -2434,7 +2465,7 @@ button.subagent-row:hover {
   transform: rotate(90deg);
 }
 .changes-folder > .collapse-grid {
-  margin-left: 14px;
+  --row-indent: calc(16px + (var(--folder-depth) + 1) * 14px);
   position: relative;
 }
 .changes-folder > .collapse-grid::before {
@@ -2442,7 +2473,8 @@ button.subagent-row:hover {
   position: absolute;
   top: -8px;
   bottom: 0;
-  left: 0;
+  inset-inline-start: calc(var(--row-indent) - 8px);
+  pointer-events: none;
   border-left: 1px solid var(--line);
 }
 .changes-folder > summary > span {
@@ -2467,12 +2499,23 @@ button.subagent-row:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.changes-file[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--accent) 30%, var(--surface-panel));
-}
 .changes-folder > summary:hover,
 .changes-file:hover {
-  background: var(--surface-subtle);
+  --row-face: var(--navigation-hover-face);
+}
+.changes-file[aria-pressed="true"] {
+  --row-face: var(--navigation-selected-face);
+}
+.changes-file[data-test-file] {
+  --test-blue: light-dark(#436fa3, #95b9e4);
+  --row-face: color-mix(in srgb, var(--test-blue) var(--test-fill, 12%), transparent);
+  color: color-mix(in srgb, var(--ink), var(--test-blue) 55%);
+}
+.changes-file[data-test-file]:hover {
+  --test-fill: 21%;
+}
+.changes-file[data-test-file][aria-pressed="true"] {
+  --test-fill: 32%;
 }
 .changes-diffs {
   flex: 1;
@@ -2502,6 +2545,8 @@ button.subagent-row:hover {
   --diffs-scrollbar-gutter-override: 8px;
 }
 .change-file-header {
+  /* Cover the clip edge when sticky layers rasterize on fractional device pixels. */
+  box-shadow: 0 -1px var(--surface-subtle);
   width: 100%;
   border: 0;
   border-radius: 0;

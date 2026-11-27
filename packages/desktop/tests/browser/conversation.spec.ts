@@ -2033,15 +2033,18 @@ test("Changes scrolls continuously across files and file selection jumps to a di
   const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
   const tree = sidebar.getByRole("navigation", { name: "Changed files" });
   const diffs = sidebar.locator(".changes-diffs");
-  await expect(diffs.getByRole("region", { name: "src/first.ts", exact: true })).toContainText(
-    "uncommitted src/first.ts line 0",
-  );
+  await expect(
+    diffs.getByRole("region", { name: "src/nested/first.ts", exact: true }),
+  ).toContainText("uncommitted src/nested/first.ts line 0");
   const mainScroll = await page
     .locator(".main-conversation .conversation-scroll")
     .evaluate((e) => e.scrollTop);
-  await tree.getByTitle("src/nested/second.ts", { exact: true }).click();
-  const second = diffs.getByRole("region", { name: "src/nested/second.ts", exact: true });
-  await expect(second).toContainText("src/nested/second.ts line 0");
+  const firstRow = tree.getByTitle("src/nested/first.ts", { exact: true });
+  const secondRow = tree.getByTitle("src/second.ts", { exact: true });
+  await expect(firstRow).toHaveAttribute("aria-pressed", "true");
+  await secondRow.click();
+  const second = diffs.getByRole("region", { name: "src/second.ts", exact: true });
+  await expect(second).toContainText("src/second.ts line 0");
   await expect
     .poll(async () => {
       const a = await second.boundingBox();
@@ -2050,12 +2053,17 @@ test("Changes scrolls continuously across files and file selection jumps to a di
     })
     .toBeLessThan(5);
   const scroll = diffs.locator(".changes-diff-scroll");
+  await expect(secondRow).toHaveAttribute("aria-pressed", "true");
   await scroll.evaluate((e) => {
     e.scrollTop = e.scrollHeight;
   });
   await expect(diffs.getByRole("region", { name: "last.ts", exact: true })).toContainText(
     "last.ts line 44",
   );
+  await expect(tree.getByTitle("last.ts", { exact: true })).toHaveAttribute("aria-pressed", "true");
+  await scroll.evaluate((e) => (e.scrollTop = 0));
+  await expect(firstRow).toHaveAttribute("aria-pressed", "true");
+  await expect(secondRow).toBeFocused();
   expect(
     await page.locator(".main-conversation .conversation-scroll").evaluate((e) => e.scrollTop),
   ).toBe(mainScroll);
@@ -2092,22 +2100,21 @@ test("Changes keeps comparison and counts in the tree and adapts to the diff pan
   const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
   const tree = sidebar.getByRole("navigation", { name: "Changed files" });
   await expect(tree.getByRole("combobox", { name: "Change comparison" })).toBeVisible();
-  const file = tree.getByTitle("src/first.ts", { exact: true });
+  const file = tree.getByTitle("src/nested/first.ts", { exact: true });
   await expect(file.locator(".changes-additions")).toHaveText("+45");
   await expect(file.locator(".changes-deletions")).toHaveText("−45");
   expect(
     await file.locator(".changes-additions").evaluate((e) => getComputedStyle(e).color),
   ).not.toBe(await file.locator(".changes-deletions").evaluate((e) => getComputedStyle(e).color));
   const folder = tree.locator(".changes-folder").first();
-  expect(
-    await folder.locator(":scope > .collapse-grid").evaluate((e) => getComputedStyle(e).marginLeft),
-  ).toBe("14px");
-  expect(
-    await folder
-      .locator(":scope > .collapse-grid")
-      .evaluate((e) => getComputedStyle(e, "::before").borderLeftWidth),
-  ).toBe("1px");
-  const first = sidebar.getByRole("region", { name: "src/first.ts", exact: true });
+  const guide = await folder.locator(":scope > .collapse-grid").evaluate((el) => {
+    const style = getComputedStyle(el, "::before");
+    return { left: el.getBoundingClientRect().left + parseFloat(style.left), width: style.width };
+  });
+  const chevron = (await folder.locator(":scope > summary svg").boundingBox())!;
+  expect(guide.width).toBe("1px");
+  expect(Math.abs(guide.left - (chevron.x + chevron.width / 2))).toBeLessThan(2);
+  const first = sidebar.getByRole("region", { name: "src/nested/first.ts", exact: true });
   await expect(first.locator('[data-diff-type="single"]')).toBeVisible();
   const geometry = await first.locator(".change-file-header").evaluate((e) => {
     const scroll = e.closest(".changes-diff-scroll")!;
@@ -2126,7 +2133,7 @@ test("Changes keeps comparison and counts in the tree and adapts to the diff pan
   ).toHaveText("1");
   await expect(
     first.locator('[data-line][data-line-type="change-deletion"]').first(),
-  ).toContainText("before src/first.ts line 0");
+  ).toContainText("before src/nested/first.ts line 0");
   const separator = sidebar.getByRole("separator", { name: "Resize right sidebar" });
   const box = (await separator.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + 80);
@@ -2135,10 +2142,10 @@ test("Changes keeps comparison and counts in the tree and adapts to the diff pan
   await page.mouse.up();
   await expect(first.locator('[data-diff-type="split"]')).toBeVisible();
   await expect(first.locator("[data-code][data-deletions] [data-line]").first()).toContainText(
-    "before src/first.ts line 0",
+    "before src/nested/first.ts line 0",
   );
   await expect(first.locator("[data-code][data-additions] [data-line]").first()).toContainText(
-    "uncommitted src/first.ts line 0",
+    "uncommitted src/nested/first.ts line 0",
   );
   await expect(first.locator('[data-column-number="1"]')).toHaveCount(2);
   await expect(first.locator("[data-code][data-additions] [data-line]").first()).toBeInViewport();
@@ -2147,8 +2154,8 @@ test("Changes keeps comparison and counts in the tree and adapts to the diff pan
   // The window has not changed; shrinking only the panel must return to unified.
   for (let i = 0; i < 10; i++) await separator.press("ArrowRight");
   await expect(first.locator('[data-diff-type="single"]')).toBeVisible();
-  await tree.getByTitle("src/nested/second.ts", { exact: true }).click();
-  const second = sidebar.getByRole("region", { name: "src/nested/second.ts", exact: true });
+  await tree.getByTitle("src/second.ts", { exact: true }).click();
+  const second = sidebar.getByRole("region", { name: "src/second.ts", exact: true });
   await expect(
     second.locator('[data-line][data-line-type="change-addition"]').first(),
   ).toContainText("line 0");
@@ -2199,8 +2206,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     const tree = page.getByRole("navigation", { name: "Changed files" });
     const folder = tree.locator(".changes-folder").first();
     const grid = folder.locator(":scope > .collapse-grid");
-    const file = tree.getByTitle("src/first.ts", { exact: true });
+    const file = tree.getByTitle("src/nested/first.ts", { exact: true });
     await expect(file).toBeVisible();
+    await expect(grid).toHaveCSS("transition-duration", "0s");
     if (reducedMotion === "no-preference") {
       await folder.evaluate(
         (element) =>
@@ -2226,6 +2234,11 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await page.keyboard.press("Enter");
     await expect(file).toBeVisible();
     await expect(folder).toHaveAttribute("open", "");
+    await folder.evaluate((element: HTMLDetailsElement) => {
+      element.open = false;
+    });
+    await expect(file).toBeHidden();
+    await expect(grid).toHaveCSS("transition-duration", "0s");
   });
 }
 
@@ -2235,7 +2248,7 @@ test("Changes file headers show metadata and collapse independently through keyb
   await page.goto(url + "?composer");
   await page.getByRole("button", { name: "Show right sidebar" }).click();
   const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
-  const first = sidebar.getByRole("region", { name: "src/first.ts", exact: true });
+  const first = sidebar.getByRole("region", { name: "src/nested/first.ts", exact: true });
   const header = first.locator(".change-file-header");
   await expect(first.locator("[data-line]").first()).toBeVisible();
   await expect(header.locator(".changes-additions")).toHaveText("+45");
@@ -2246,7 +2259,7 @@ test("Changes file headers show metadata and collapse independently through keyb
   await expect(header).toHaveAttribute("aria-expanded", "false");
   await expect(first.locator("[data-line]")).toHaveCount(0);
   await expect.poll(async () => (await first.boundingBox())!.height).toBe(45);
-  const next = sidebar.getByRole("region", { name: "src/nested/second.ts", exact: true });
+  const next = sidebar.getByRole("region", { name: "src/second.ts", exact: true });
   await expect(next.locator(".change-file-header")).toHaveAttribute("aria-expanded", "true");
   await expect
     .poll(() => page.evaluate(() => window.composerFixture.changeModes.length))
@@ -2261,7 +2274,7 @@ test("Changes file headers show metadata and collapse independently through keyb
   await expect(header).toHaveAttribute("aria-expanded", "false");
   await sidebar
     .getByRole("navigation", { name: "Changed files" })
-    .getByTitle("src/first.ts", { exact: true })
+    .getByTitle("src/nested/first.ts", { exact: true })
     .click();
   await expect(header).toHaveAttribute("aria-expanded", "true");
   await expect(first.locator("[data-line]").first()).toBeVisible();
@@ -2286,8 +2299,10 @@ test("diff context menu persists word wrap and line numbers across reopening and
       .locator('[data-column-number][data-line-type="change-deletion"] [data-line-number-content]')
       .first();
     await expect(code).toContainText("before before");
-    const wrappedHeight = (await code.boundingBox())!.height;
-    expect(wrappedHeight).toBeGreaterThan(40);
+    // Tokenization can replace the initial plain-text row between paints.
+    const lineHeight = () =>
+      code.evaluateAll(([row]) => row?.getBoundingClientRect().height || undefined);
+    await expect.poll(lineHeight).toBeGreaterThan(40);
     await expect(gutter).toBeVisible();
     await code.click({ button: "right" });
     const menu = page.getByRole("menu", { name: "Diff display options" });
@@ -2295,24 +2310,41 @@ test("diff context menu persists word wrap and line numbers across reopening and
     await expect(menu.getByRole("menuitemcheckbox", { name: "Line numbers" })).toBeChecked();
     await menu.getByRole("menuitemcheckbox", { name: "Word wrap" }).click();
     await expect(sidebar.locator('[data-overflow="scroll"]').first()).toBeVisible();
-    await expect.poll(async () => (await code.boundingBox())!.height).toBeLessThan(wrappedHeight);
+    await expect.poll(lineHeight).toBeLessThanOrEqual(40);
     const horizontal = await code.evaluate((line) => {
       const column = line.closest<HTMLElement>("[data-code]")!;
       column.scrollLeft = 200;
       return {
         overflow: column.scrollWidth > column.clientWidth,
         scrollLeft: column.scrollLeft,
-        scrollbarHeight: getComputedStyle(column, "::-webkit-scrollbar").height,
         allocatedHeight: column.offsetHeight - column.clientHeight,
-        thumb: getComputedStyle(column, "::-webkit-scrollbar-thumb").backgroundColor,
       };
     });
     await sidebar.screenshot({ path: test.info().outputPath("horizontal-scrollbar.png") });
     expect(horizontal.overflow).toBe(true);
     expect(horizontal.scrollLeft).toBeGreaterThan(0);
-    expect(parseFloat(horizontal.scrollbarHeight)).toBeGreaterThan(0);
     expect(horizontal.allocatedHeight).toBeGreaterThan(0);
-    expect(horizontal.thumb).not.toBe("rgba(0, 0, 0, 0)");
+    const themeColors = new Set<string>();
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await expect(page.locator("html")).toHaveAttribute("data-theme", colorScheme);
+      const colors = await code.evaluate((line) =>
+        [
+          line.closest("[data-code]")!,
+          ...document.querySelectorAll(
+            ".conversation-list, .conversation-scroll, .changes-file-list, .changes-diff-scroll",
+          ),
+        ].map((el) => {
+          const { scrollbarColor, scrollbarWidth } = getComputedStyle(el);
+          return { scrollbarColor, scrollbarWidth };
+        }),
+      );
+      expect(new Set(colors.map((s) => s.scrollbarWidth))).toEqual(new Set(["thin"]));
+      expect(new Set(colors.map((s) => s.scrollbarColor)).size).toBe(1);
+      expect(colors[0]!.scrollbarColor).not.toBe("auto");
+      themeColors.add(colors[0]!.scrollbarColor);
+    }
+    expect(themeColors.size).toBe(2);
     await code.click({ button: "right" });
     await menu.getByRole("menuitemcheckbox", { name: "Line numbers" }).click();
     await expect(gutter).toBeHidden();
@@ -2431,7 +2463,7 @@ test("Changes preserves raw combined patches and unavailable counts after a file
   const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
   await expect(
     sidebar
-      .getByRole("region", { name: "src/first.ts", exact: true })
+      .getByRole("region", { name: "src/nested/first.ts", exact: true })
       .locator("[data-line]")
       .first(),
   ).toBeVisible();
@@ -2440,16 +2472,118 @@ test("Changes preserves raw combined patches and unavailable counts after a file
   await expect(merged.locator(".change-patch-raw")).toContainText("++merged content");
   await expect(merged.locator(".change-file-header .muted").first()).toHaveText("U");
   const tree = sidebar.getByRole("navigation", { name: "Changed files" });
+  await expect(tree.getByTitle("merge.ts", { exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await tree.getByTitle("binary.dat", { exact: true }).click();
   const binary = sidebar.getByRole("region", { name: "binary.dat", exact: true });
   await expect(binary.getByTitle("Line counts unavailable", { exact: true })).toHaveText("—");
   await expect(binary.locator(".change-file-header")).toContainText("Binary file");
+  await expect(tree.getByTitle("binary.dat", { exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect(
     tree
       .getByTitle("binary.dat", { exact: true })
       .getByTitle("Line counts unavailable", { exact: true }),
   ).toHaveText("—");
-  await expect(sidebar.getByRole("region", { name: "src/first.ts", exact: true })).toHaveCount(0);
+  await expect(
+    sidebar.getByRole("region", { name: "src/nested/first.ts", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("Changes distinguishes test rows and syntax-colors the patch in both themes", async ({
+  page,
+}) => {
+  await page.goto(url + "?composer");
+  const open = page.getByRole("button", { name: "Show right sidebar" });
+  await expect(open).toBeVisible();
+  await page.evaluate(() =>
+    window.composerFixture.showChangedPaths(["parser.test.py", "tests/parser.spec.py", "other.ts"]),
+  );
+  await open.click();
+  const tree = page.getByRole("navigation", { name: "Changed files" });
+  const testRow = tree.getByTitle("parser.test.py", { exact: true });
+  const other = tree.getByTitle("tests/parser.spec.py", { exact: true });
+  const folder = tree.locator("summary").filter({ hasText: "tests" });
+  await expect(other).toBeVisible();
+  const treeEdges = await tree.evaluate((el) => {
+    const left = el.getBoundingClientRect().left + el.clientLeft;
+    return { left, right: left + el.clientWidth };
+  });
+  for (const row of [folder, testRow, other]) {
+    const box = (await row.boundingBox())!;
+    expect(Math.abs(box.x - treeEdges.left)).toBeLessThan(1);
+    expect(Math.abs(box.x + box.width - treeEdges.right)).toBeLessThan(1);
+    const face = await row.evaluate((el) => {
+      const style = getComputedStyle(el, "::before");
+      return {
+        left: parseFloat(style.left),
+        right: parseFloat(style.right),
+        radius: parseFloat(style.borderRadius),
+      };
+    });
+    expect(face.left).toBeGreaterThan(0);
+    expect(face.right).toBe(face.left);
+    expect(face.radius).toBeGreaterThan(0);
+  }
+  const nameLeft = (el: Element) => el.firstElementChild!.getBoundingClientRect().left;
+  expect(await other.evaluate(nameLeft)).toBeGreaterThan(await testRow.evaluate(nameLeft));
+  const gutter = { position: { x: 5, y: 10 } };
+  await folder.hover(gutter);
+  await expect(folder).toHaveCSS("cursor", "pointer");
+  await folder.click(gutter);
+  await expect(other).toBeHidden();
+  await folder.click(gutter);
+  await other.click(gutter);
+  await expect(other).toHaveAttribute("aria-pressed", "true");
+  await tree.getByTitle("other.ts", { exact: true }).click();
+  await expect(testRow).toHaveAttribute("aria-pressed", "false");
+  await expect(other).toHaveAttribute("aria-pressed", "false");
+  const color = (el: Element) => getComputedStyle(el).color;
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", colorScheme);
+    expect(
+      await testRow.evaluate((el) => getComputedStyle(el, "::before").backgroundColor),
+    ).not.toBe(await other.evaluate((el) => getComputedStyle(el, "::before").backgroundColor));
+    expect(await testRow.locator(".changes-additions").evaluate(color)).toBe(
+      await other.locator(".changes-additions").evaluate(color),
+    );
+    const line = page
+      .getByRole("region", { name: "parser.test.py", exact: true })
+      .locator('[data-line-type="change-addition"][data-line]')
+      .first();
+    await expect(line).toHaveText('return "ok"');
+    await expect
+      .poll(() =>
+        line
+          .locator("span")
+          .evaluateAll((spans) => new Set(spans.map((s) => getComputedStyle(s).color)).size),
+      )
+      .toBeGreaterThan(1);
+  }
+});
+
+test("Changes keeps a replaced file distinct from the folder with its name", async ({ page }) => {
+  await page.goto(url + "?composer");
+  const open = page.getByRole("button", { name: "Show right sidebar" });
+  await expect(open).toBeVisible();
+  await page.evaluate(() => window.composerFixture.showChangedPaths(["foo", "foo/bar"]));
+  await open.click();
+  const tree = page.getByRole("navigation", { name: "Changed files" });
+  const folder = tree.locator("summary").filter({ hasText: "foo" });
+  const file = tree.getByTitle("foo", { exact: true });
+  await folder.click();
+  await expect(tree.getByTitle("foo/bar", { exact: true })).toBeHidden();
+  await file.click();
+  await expect(file).toHaveAttribute("aria-pressed", "true");
+  await page.evaluate(() => window.composerFixture.showChangedPaths(["new/item", "foo"]));
+  await expect(tree.getByTitle("new/item", { exact: true })).toBeVisible();
+  await expect(folder).toHaveCount(0);
+  await expect(file).toHaveCount(1);
 });
 
 test("Changes renders literal filename headers and preserves missing-newline information", async ({
@@ -2457,7 +2591,7 @@ test("Changes renders literal filename headers and preserves missing-newline inf
 }) => {
   await page.goto(url + "?composer");
   await expect(page.getByRole("button", { name: "Show right sidebar" })).toBeVisible();
-  await page.evaluate(() => window.composerFixture.showLiteralChanges());
+  await page.evaluate(() => window.composerFixture.showChangedPaths(['odd\n@@bad".ts']));
   await page.getByRole("button", { name: "Show right sidebar" }).click();
   const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
   await expect(sidebar.locator('[data-line][data-line-type="change-addition"]')).toHaveText(
@@ -2473,6 +2607,31 @@ test("Changes renders literal filename headers and preserves missing-newline inf
   await expect(name).toHaveCSS("white-space", "nowrap");
   await expect(name).toHaveCSS("text-overflow", "ellipsis");
   await expect(name).toHaveCSS("overflow", "hidden");
+});
+
+test.describe("scaled split diff", () => {
+  test.use({ deviceScaleFactor: 1.25, viewport: { width: 1800, height: 900 } });
+  test("sticky filename covers the first visible pixel row", async ({ page }) => {
+    await page.goto(url + "?composer");
+    await page.getByRole("button", { name: "Show right sidebar" }).click();
+    const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
+    await sidebar.evaluate((e) => e.style.setProperty("--right-sidebar-width", "1100px"));
+    const first = sidebar.getByRole("region", { name: "src/nested/first.ts", exact: true });
+    await expect(first.locator('[data-diff-type="split"]')).toBeVisible();
+    await expect(first.locator("[data-line]").first()).toContainText("src/nested/first.ts");
+    const scroll = sidebar.locator(".changes-diff-scroll");
+    const header = first.locator(".change-file-header");
+    const { x, y } = (await scroll.boundingBox())!;
+    const sample = (row: number) =>
+      page.screenshot({ clip: { x: x + 150, y: row, width: 8, height: 1 } });
+    // Four consecutive CSS pixels exercise every device-pixel phase at 125%.
+    for (const position of [113, 114, 115, 116]) {
+      await scroll.evaluate((e, top) => (e.scrollTop = top), position);
+      expect((await header.boundingBox())!.y).toBe(y);
+      // The first visible row must be as opaque as the interior of the same header.
+      expect((await sample(y)).equals(await sample(y + 4)), `scrollTop ${position}`).toBe(true);
+    }
+  });
 });
 
 test("file jumps remain anchored after a delayed huge diff and file headers stay sticky", async ({
@@ -2539,7 +2698,7 @@ for (const split of [false, true]) {
     await page.goto(url + "?composer");
     await page.getByRole("button", { name: "Show right sidebar" }).click();
     const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
-    const first = sidebar.getByRole("region", { name: "src/first.ts", exact: true });
+    const first = sidebar.getByRole("region", { name: "src/nested/first.ts", exact: true });
     if (split) {
       const divider = sidebar.getByRole("separator", { name: "Resize right sidebar" });
       const box = (await divider.boundingBox())!;
@@ -2568,9 +2727,9 @@ for (const split of [false, true]) {
     await page.keyboard.press("Control+c");
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-      .toContain("uncommitted src/first.ts line 0");
+      .toContain("uncommitted src/nested/first.ts line 0");
     const copied = await page.evaluate(() => navigator.clipboard.readText());
-    expect(copied).toContain("uncommitted src/first.ts line 1");
+    expect(copied).toContain("uncommitted src/nested/first.ts line 1");
     expect(copied).not.toContain("before");
     expect(copied).not.toMatch(/^\d+$/m);
   });
@@ -2585,7 +2744,7 @@ test("stacked file tree height resizes and persists across comparison and layout
   const sidebar = page.getByRole("complementary", { name: "Right sidebar" });
   const tree = sidebar.getByRole("navigation", { name: "Changed files" });
   const resize = sidebar.getByRole("separator", { name: "Resize changed file tree" });
-  await expect(tree.getByTitle("src/first.ts", { exact: true })).toBeVisible();
+  await expect(tree.getByTitle("src/nested/first.ts", { exact: true })).toBeVisible();
   const before = (await tree.boundingBox())!.height;
   const box = (await resize.boundingBox())!;
   await page.mouse.move(box.x + 50, box.y + 2);
@@ -2741,8 +2900,8 @@ test("file-list polling lets slow diff reads finish and preserves the diff posit
   expect(await page.evaluate(() => window.composerFixture.diffAborts)).toBe(0);
   await page.evaluate(() => window.composerFixture.releaseDiffs());
   const tree = sidebar.getByRole("navigation", { name: "Changed files" });
-  await tree.getByTitle("src/nested/second.ts", { exact: true }).click();
-  const second = sidebar.getByRole("region", { name: "src/nested/second.ts", exact: true });
+  await tree.getByTitle("src/second.ts", { exact: true }).click();
+  const second = sidebar.getByRole("region", { name: "src/second.ts", exact: true });
   await expect(second).toContainText("line 0");
   const scroll = sidebar.locator(".changes-diff-scroll");
   const top = await scroll.evaluate((e) => e.scrollTop);
@@ -3970,11 +4129,59 @@ test("sidebar actions keep keyboard focus visible and adjacent chat hit areas di
   await rows.first().click();
   await rows.nth(1).hover();
   await expect(rows.first()).toHaveAttribute("aria-current", "page");
-  const gap = await rows.evaluateAll(
-    ([selected, hovered]) =>
-      hovered!.getBoundingClientRect().top - selected!.getBoundingClientRect().bottom,
-  );
-  expect(gap).toBeGreaterThan(0);
+  const folder = (await project.locator(":scope > summary").boundingBox())!;
+  const first = (await rows.first().boundingBox())!;
+  const second = (await rows.nth(1).boundingBox())!;
+  expect(first.x).toBe(folder.x);
+  expect(first.width).toBe(folder.width);
+  const gap = second.y - (first.y + first.height);
+  expect(gap).toBe(1);
+  expect(first.y - (folder.y + folder.height)).toBe(gap);
+});
+
+test("sidebar folders animate only explicit pointer and keyboard toggles", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto(url + "?composer");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  const project = page.locator('.sidebar-project:has(> summary[title="/work/a/repo"])');
+  const grid = project.locator(":scope > .collapse-grid");
+  const summary = project.locator(":scope > summary");
+  const animations = await page.evaluateHandle(() => {
+    const names: string[] = [];
+    document.addEventListener("animationstart", (event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.matches(".sidebar-project > .collapse-grid")
+      )
+        names.push(event.animationName);
+    });
+    return names;
+  });
+  await page.evaluate(() => window.composerFixture.seedSidebar());
+  await expect(grid).toHaveCSS("animation-name", "none");
+  await summary.click();
+  await expect(grid).toHaveCount(0);
+  await summary.press("Enter");
+  await expect.poll(() => animations.jsonValue()).toEqual(["collapse-close", "collapse-open"]);
+
+  // Synchronizing the native disclosure in either direction is not an activation.
+  await project.evaluate((element: HTMLDetailsElement) => {
+    element.open = false;
+  });
+  await expect(grid).toHaveCount(0);
+  await project.evaluate((element: HTMLDetailsElement) => {
+    element.open = true;
+  });
+  await expect(grid).toHaveCSS("animation-name", "none");
+  await page.evaluate(() => window.composerFixture.seedWorktreeSidebar());
+  await expect(project.getByLabel("Worktree", { exact: true })).toHaveCount(5);
+  await expect(grid).toHaveCSS("animation-name", "none");
+  await summary.hover();
+  await project.getByRole("button", { name: "Hide project /work/a/repo", exact: true }).click();
+  await expect(project).toHaveCount(0);
+  await page.locator(".sidebar-recents").getByText("Chat 0-0", { exact: true }).click();
+  await expect(grid).toHaveCSS("animation-name", "none");
+  expect(await animations.jsonValue()).toEqual(["collapse-close", "collapse-open"]);
 });
 
 test("sidebar groups all folders, pages five chats, and keeps hidden projects in Recents", async ({

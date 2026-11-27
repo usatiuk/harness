@@ -30,18 +30,29 @@ function fileTree(files: ChangeFile[]): Folder {
   }
   return root;
 }
+function children(folder: Folder) {
+  return [...folder.folders.values(), ...folder.files];
+}
+function* treeFiles(folder: Folder): Generator<ChangeFile> {
+  for (const child of children(folder)) {
+    if ("folders" in child) yield* treeFiles(child);
+    else yield child;
+  }
+}
 interface FolderRowsProps {
   folder: Folder;
   selected: string | null;
   select: (file: ChangeFile) => void;
 }
-function FolderRow({ folder, selected, select }: FolderRowsProps) {
+function FolderRow({ folder, selected, select, depth }: FolderRowsProps & { depth: number }) {
   const [open, setOpen] = useState(true);
   return (
     <CollapsibleDetails
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
       className="changes-folder"
+      style={{ "--folder-depth": depth } as CSSProperties}
+      animateOnInteractionOnly
       summary={
         <summary>
           <ChevronRight size={14} className="disclosure-chevron" aria-hidden="true" />
@@ -49,29 +60,37 @@ function FolderRow({ folder, selected, select }: FolderRowsProps) {
         </summary>
       }
     >
-      <FolderRows folder={folder} selected={selected} select={select} />
+      <FolderRows folder={folder} selected={selected} select={select} depth={depth + 1} />
     </CollapsibleDetails>
   );
 }
-function FolderRows({ folder, selected, select }: FolderRowsProps) {
+function FolderRows({ folder, selected, select, depth = 0 }: FolderRowsProps & { depth?: number }) {
   return (
     <>
-      {[...folder.folders.values()].map((child) => (
-        <FolderRow key={child.name} folder={child} selected={selected} select={select} />
-      ))}
-      {folder.files.map((file) => (
-        <button
-          type="button"
-          className="changes-file"
-          key={file.path}
-          title={file.path}
-          aria-pressed={file.path === selected}
-          onClick={() => select(file)}
-        >
-          <span>{file.path.split("/").at(-1)}</span>
-          <ChangeFileInfo file={file} />
-        </button>
-      ))}
+      {children(folder).map((file) =>
+        "folders" in file ? (
+          <FolderRow
+            key={`${file.name}/`}
+            folder={file}
+            selected={selected}
+            select={select}
+            depth={depth}
+          />
+        ) : (
+          <button
+            type="button"
+            className="changes-file"
+            data-test-file={/\.test\.[^./]+$/u.test(file.path) || undefined}
+            key={file.path}
+            title={file.path}
+            aria-pressed={file.path === selected}
+            onClick={() => select(file)}
+          >
+            <span>{file.path.split("/").at(-1)}</span>
+            <ChangeFileInfo file={file} />
+          </button>
+        ),
+      )}
     </>
   );
 }
@@ -218,6 +237,7 @@ function ChangesComparison({
   }, [session, id, mode, pages, active]);
   const files = page?.files;
   const tree = useMemo(() => fileTree(files ?? []), [files]);
+  const orderedFiles = useMemo(() => [...treeFiles(tree)], [tree]);
   const select = (file: ChangeFile) => {
     setSelected(file.path);
     scroller.current?.jump(file.path);
@@ -304,9 +324,10 @@ function ChangesComparison({
               session={session}
               id={id}
               mode={mode}
-              files={page.files}
+              files={orderedFiles}
               active={active}
               split={split}
+              setSelected={setSelected}
               loadMore={() => {
                 if (page.nextCursor) setPages((value) => value + 1);
               }}

@@ -505,8 +505,12 @@ or synchronized between clients.
 
 An icon-only header control opens the resizable right sidebar with Changes and
 Subagents tabs. Changes displays one continuous, independently scrollable diff;
-its paged file tree jumps to the selected file. Folder rows match file rows and
-use Lucide chevrons with compact full-length vertical guides and green addition/red deletion counts.
+its paged file tree highlights the file at the top of the diff without moving focus.
+Clicking a row jumps to that file. The diff follows the tree's folder-first order,
+including files inside collapsed folders. The server pages in that same order,
+so later pages extend the diff below the files already loaded. Folder and file rows have full-width hit
+areas with the same inset, rounded highlight as conversation rows. Folder chevrons
+and vertical guides show nesting; file rows show green addition and red deletion counts.
 Tree folders use the shared disclosure animation and reduced-motion preference.
 Filenames stay on one line with ellipsis and full-path hover. File headers show
 the same status and line counts as tree rows and toggle individual files. CodeView
@@ -514,7 +518,7 @@ owns collapsed layout; chevrons animate, while diff height changes immediately t
 preserve virtual positioning. Tree selection reopens a collapsed diff. The diff
 right-click menu exposes Word wrap and Line numbers, both on by default and stored
 in desktop-local preferences across viewer remounts and application reloads.
-Unwrapped code exposes a visible 8px horizontal scrollbar. Hunk metadata keeps
+Unwrapped code uses the same thin native scrollbar as other panes. Hunk metadata keeps
 its native 32px row: one label spans the wrapped diff, or stays anchored within
 the left scrolling pane in unwrapped split view. It does not add custom virtual
 rows or couple the independent horizontal panes.
@@ -530,7 +534,10 @@ resizing uses pointer or arrow keys and can fill the available layout except for
 320px reserved for the main conversation. At narrow window widths it overlays the main
 conversation and retains its close-sidebar icon. `@pierre/diffs` CodeView owns multi-file line virtualization, sticky file headers
 and anchored file-ID navigation. It parses Git patches with line numbers; the actual diff pane switches to split view at
-640px and uses unified view below it. Combined merge patches retain raw Git output.
+640px and uses unified view below it. Test filenames ending in `.test.<extension>`
+have a subtle blue row in the tree. CodeView syntax-colors supported languages
+in either layout; patches exceeding 2,000 lines on either side use plain text.
+Combined merge patches retain raw Git output.
 
 Comparisons are Uncommitted (HEAD versus working content, including untracked),
 Unstaged (index versus working content, including untracked), Staged, Against the
@@ -1088,12 +1095,15 @@ also use the shared local server instead of provisioning independent containers.
 Sidebar conversation rows and project names use 13px normal-contrast text and
 compact vertical spacing. Section
 labels stay muted and use normal case; project rows share chat styling with a folder icon, and
-nested chat titles align with the project name. Recents have no extra indentation. Selection
+nested chat titles align with the project name. Their hit areas span the full
+project row, with the same 1px gap below the folder as between chats. Sidebar
+and Changes folders animate explicit toggles, not initial display or refresh.
+Recents have no extra indentation. Selection
 uses a neutral translucent highlight without an accent stripe or outline,
 preserving the native sidebar material on Windows/macOS. The scroll region keeps
 a stable native scrollbar gutter with equal list padding on both sides
-and its outer edge 2px inside the sidebar boundary. The track is transparent;
-scrollbar width and interaction remain native.
+and its outer edge 2px inside the sidebar boundary. Desktop scrollbars use the
+native thin size, a transparent track, and a shared muted thumb in both themes.
 
 The desktop is nonselectable by default, including Work headings, status labels
 and action bars. Message bodies, expanded thinking, code/output, errors and

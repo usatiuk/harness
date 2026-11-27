@@ -19,6 +19,15 @@ type ChangedPath = Pick<ChangeFile, "path" | "previousPath" | "status">;
 type LineCounts = Pick<ChangeFile, "additions" | "deletions">;
 const unknownCounts: LineCounts = { additions: null, deletions: null };
 
+// Depth-first tree order: directories before files, names compared within each kind.
+// NUL cannot occur in a Git path and sorts a shorter component before a longer sibling.
+function treeOrderKey(path: string): string {
+  return path
+    .split("/")
+    .map((name, i, parts) => (i === parts.length - 1 ? "1" : "0") + name)
+    .join("\0");
+}
+
 function patchResult(patch: string): FileDiff {
   if (Buffer.byteLength(patch) > PATCH_BYTES || patch.split("\n").length > 10000)
     return {
@@ -250,11 +259,13 @@ export async function listChanges(
     }
     files = [...byPath.values()];
   }
-  files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  const remaining =
-    params.after === null ? files : files.filter((file) => file.path > params.after!);
+  const after = params.after === null ? null : treeOrderKey(params.after);
+  const remaining = files
+    .map((file) => ({ file, key: treeOrderKey(file.path) }))
+    .filter(({ key }) => after === null || key > after)
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const page: ChangedPath[] = [];
-  for (const file of remaining) {
+  for (const { file } of remaining) {
     signal?.throwIfAborted();
     if (mode === "uncommitted" && c.unborn) {
       const present = await lstat(join(c.root, file.path)).catch((error: NodeJS.ErrnoException) => {

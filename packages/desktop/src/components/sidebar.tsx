@@ -80,6 +80,7 @@ function ProjectGroup({
   return (
     <CollapsibleDetails
       className="sidebar-project"
+      animateOnInteractionOnly
       unmountOnExit
       open={!collapsed}
       onToggle={(event) => toggle(event.currentTarget.open)}
@@ -219,6 +220,7 @@ export function SidebarLayout({
         >
           <CollapsibleDetails
             className="sidebar-section sidebar-projects"
+            animateOnInteractionOnly
             open={!groups.collapsed.includes("projects")}
             onToggle={(event) => collapse("projects", event.currentTarget.open)}
             summary={
@@ -260,6 +262,7 @@ export function SidebarLayout({
           </CollapsibleDetails>
           <CollapsibleDetails
             className="sidebar-section sidebar-recents"
+            animateOnInteractionOnly
             open={!groups.collapsed.includes("recents")}
             onToggle={(event) => collapse("recents", event.currentTarget.open)}
             summary={

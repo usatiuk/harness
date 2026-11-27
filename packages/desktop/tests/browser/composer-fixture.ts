@@ -18,7 +18,7 @@ import { WindowShell } from "../../src/window-shell.tsx";
 import type { AppSettings } from "@harness/server/client-protocol";
 
 type Delivery = { text: string; intent: DeliveryIntent; images?: ImageContent[] };
-let changePaths = ["src/first.ts", "src/nested/second.ts", "last.ts"];
+let changePaths = ["src/second.ts", "src/nested/first.ts", "last.ts"];
 const diffWaiters: Array<() => void> = [];
 let holdLargeDiff = false;
 const largeDiffWaiters: Array<() => void> = [];
@@ -44,7 +44,7 @@ declare global {
       recreateRouter(): void;
       changeModes: string[];
       showManyChanges(): void;
-      showLiteralChanges(): void;
+      showChangedPaths(paths: string[]): void;
       showCombinedChanges(): void;
       showLongLineChanges(): void;
       showDelayedChanges(): void;
@@ -412,6 +412,11 @@ const session = {
           unavailable: null,
         };
       const lines = file.path === "large.ts" ? 4000 : 45;
+      if (file.path === "parser.test.py")
+        return {
+          patch: `--- a/${file.path}\n+++ b/${file.path}\n@@ -1 +1 @@\n-pass\n+return "ok"\n`,
+          unavailable: null,
+        };
       return {
         patch:
           `diff --git ${JSON.stringify(`a/${file.path}`)} ${JSON.stringify(`b/${file.path}`)}\n--- a/${file.path}\n+++ b/${file.path}\n@@ -1,${lines} +1,${lines} @@\n` +
@@ -771,8 +776,8 @@ window.composerFixture = {
     holdLargeDiff = false;
     for (const release of largeDiffWaiters.splice(0)) release();
   },
-  showLiteralChanges() {
-    changePaths = ['odd\n@@bad".ts'];
+  showChangedPaths(paths) {
+    changePaths = paths;
   },
   showLongLineChanges() {
     changePaths = ["long-line.ts"];

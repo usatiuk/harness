@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -111,6 +111,24 @@ it("separates staged and unstaged changes, includes untracked files, and pages l
   expect(third.nextCursor).toBeNull();
   expect((await diff("unstaged", "new [1].txt")).patch).toContain("+new");
   expect((await diff("unstaged", "new [1].txt")).patch).not.toContain("+other");
+});
+
+it("pages in folder-first tree order even when the cursor path disappears", async () => {
+  const { root, list } = await fixture();
+  await mkdir(join(root, "src", "z"), { recursive: true });
+  await mkdir(join(root, "src-old"));
+  for (const path of ["a.txt", "src-old/b.txt", "src/a.txt", "src/z/c.txt", "src/z/d.txt"])
+    await writeFile(join(root, path), path);
+
+  const first = await list("uncommitted", null, 2);
+  expect(first.files.map((file) => file.path)).toEqual(["src/z/c.txt", "src/z/d.txt"]);
+  expect(first.nextCursor).toBe("src/z/d.txt");
+  await rm(join(root, "src", "z", "d.txt"));
+  const second = await list("uncommitted", first.nextCursor, 2);
+  expect(second.files.map((file) => file.path)).toEqual(["src/a.txt", "src-old/b.txt"]);
+  const last = await list("uncommitted", second.nextCursor, 2);
+  expect(last.files.map((file) => file.path)).toEqual(["a.txt"]);
+  expect(last.nextCursor).toBeNull();
 });
 
 it("compares committed branch work from the merge base, excluding dirty and upstream-only changes", async () => {

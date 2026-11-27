@@ -27,6 +27,7 @@
   --button-selected-hover-face: var(--neutral-4);
   --ink: #252527;
   --muted-ink: #68686c;
+  --scrollbar-thumb: color-mix(in srgb, var(--muted-ink) 45%, transparent);
   --line: var(--neutral-5);
   --control-border: #85858a;
   --neutral-edge: #d3d3d1;

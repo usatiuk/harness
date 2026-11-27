@@ -5,7 +5,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type Ref,
+  type SetStateAction,
 } from "react";
 import { CodeView, type CodeViewHandle } from "@pierre/diffs/react";
 import { processPatch, type CodeViewDiffItem, type FileDiffMetadata } from "@pierre/diffs";
@@ -51,7 +53,7 @@ function loadedDiff(file: ChangeFile, value: FileDiff, version: number): CodeVie
     id: file.path,
     type: "diff",
     version,
-    fileDiff: parsed.length ? { ...parsed[0]!, name: file.path, lang: "text" } : emptyDiff(file),
+    fileDiff: parsed.length ? { ...parsed[0]!, name: file.path } : emptyDiff(file),
     ...(raw ? { annotations: [{ side: "additions", lineNumber: 0, metadata: value.patch }] } : {}),
   };
 }
@@ -63,6 +65,7 @@ export function ChangesDiff({
   files,
   active,
   split,
+  setSelected,
   loadMore,
   ref,
 }: {
@@ -72,6 +75,7 @@ export function ChangesDiff({
   files: ChangeFile[];
   active: boolean;
   split: boolean;
+  setSelected: Dispatch<SetStateAction<string | null>>;
   loadMore: () => void;
   ref?: Ref<ChangesDiffHandle>;
 }) {
@@ -213,6 +217,22 @@ export function ChangesDiff({
       }),
     [files, cache, toggles],
   );
+  const followScroll = useCallback(() => {
+    const view = viewer.current?.getInstance();
+    if (!view) return;
+    const top = view.getScrollTop();
+    const rendered = view.getRenderedItems();
+    const index = rendered.findLastIndex(
+      ({ id }) => (view.getTopForItem(id) ?? Infinity) <= top + 0.5,
+    );
+    const current = rendered[index];
+    if (!current) return;
+    // A short trailing file can be clicked but cannot scroll flush to the top.
+    const atEnd = top + view.getHeight() >= view.getScrollHeight() - 1;
+    setSelected((selected) =>
+      atEnd && rendered.some(({ id }, i) => i > index && id === selected) ? selected : current.id,
+    );
+  }, [setSelected]);
   const options = useMemo(
     () => ({
       themeType: appearance.theme,
@@ -229,10 +249,7 @@ export function ChangesDiff({
           padding-inline: 12px;
           z-index: 4;
         }
-        [data-code]::-webkit-scrollbar-thumb { background-color: var(--muted-ink); }
-        @supports (-moz-appearance: none) {
-          [data-code] { scrollbar-color: var(--muted-ink) transparent; }
-        }
+        [data-code] { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
         :host([data-copy-side="additions"]) [data-diff-type="split"] [data-code][data-deletions],
         :host([data-copy-side="deletions"]) [data-diff-type="split"] [data-code][data-additions] {
           user-select: none; -webkit-user-select: none;
@@ -244,6 +261,9 @@ export function ChangesDiff({
       layout: { paddingTop: 0, paddingBottom: 0, gap: 0 },
       overflow: preferences.wordWrap ? ("wrap" as const) : ("scroll" as const),
       disableLineNumbers: !preferences.lineNumbers,
+      // Pierre tokenizes both sides before virtualizing rows. Keep larger patches
+      // readable as plain text rather than tokenizing the entire preview on the UI thread.
+      tokenizeMaxLength: 2_000,
       lineDiffType: "none" as const,
       diffIndicators: "none" as const,
       hunkSeparators: "metadata" as const,
@@ -257,17 +277,21 @@ export function ChangesDiff({
         if (phase === "unmount") return;
         node.setAttribute("role", "region");
         node.setAttribute("aria-label", context.item.id);
-        queueMicrotask(() => pump.current());
+        queueMicrotask(() => {
+          followScroll();
+          pump.current();
+        });
       },
     }),
-    [split, appearance.theme, preferences],
+    [split, appearance.theme, preferences, followScroll],
   );
   const onScroll = useCallback(() => {
+    followScroll();
     pump.current();
     const element = viewer.current?.getInstance()?.getContainerElement();
     if (element && element.scrollTop + element.clientHeight >= element.scrollHeight - 800)
       loadMore();
-  }, [loadMore]);
+  }, [loadMore, followScroll]);
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>

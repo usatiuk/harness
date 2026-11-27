@@ -571,6 +571,8 @@ export function CollapsibleDetails({
   open: controlledOpen,
   defaultOpen = false,
   onToggle,
+  onClick,
+  animateOnInteractionOnly = false,
   unmountOnExit = false,
   scrollShadows = false,
   className = "",
@@ -578,17 +580,36 @@ export function CollapsibleDetails({
 }: ComponentProps<"details"> & {
   summary: ReactNode;
   defaultOpen?: boolean;
+  animateOnInteractionOnly?: boolean;
   unmountOnExit?: boolean;
   scrollShadows?: boolean;
 }) {
   const [uncontrolledOpen, setOpen] = useState(defaultOpen);
   const open = controlledOpen ?? uncontrolledOpen;
+  const [animatedOpen, setAnimatedOpen] = useState<boolean | null>(null);
   return (
     <details
       {...props}
       open={open}
+      data-instant={animateOnInteractionOnly && animatedOpen !== open ? "" : undefined}
       className={`collapsible-details ${className}`}
+      onClick={(event) => {
+        onClick?.(event);
+        // Native summary activation generates a click for both pointer and keyboard.
+        // Nested disclosures and controls inside a summary own their own activation.
+        const target = event.target;
+        if (
+          animateOnInteractionOnly &&
+          !event.defaultPrevented &&
+          target instanceof Element &&
+          !target.closest("button, a, input, select, textarea") &&
+          target.closest("summary")?.parentElement === event.currentTarget
+        )
+          setAnimatedOpen(!event.currentTarget.open);
+      }}
       onToggle={(event) => {
+        if (animateOnInteractionOnly && animatedOpen !== event.currentTarget.open)
+          setAnimatedOpen(null);
         if (controlledOpen === undefined) setOpen(event.currentTarget.open);
         onToggle?.(event);
       }}
